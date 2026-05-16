@@ -1,0 +1,301 @@
+import { usePersistedState } from '../hooks/usePersistedState';
+import { useState } from 'react';
+import { useNavigate } from 'react-router-dom';
+import { useData } from '../hooks/useData';
+import { getProjects, getClients, createProject, updateProject, cancelProject, archiveProject } from '../api/client';
+import {
+  LoadingSpinner, ErrorAlert, EmptyState, Modal, ConfirmModal,
+  Badge, ExportButton, fmt, fmtDate, toast, SortableTh, Pagination
+} from '../components/shared';
+import { useSortPaginate } from '../hooks/useSortPaginate';
+import { useLocale } from '../hooks/useLocale.jsx';
+
+const STATUSES = ['Inquiry', 'Quotation Sent', 'Approved', 'In progress', 'Completed', 'Invoiced'];
+const EMPTY = {
+  name: '', client_id: '', location: '', status: 'Inquiry',
+  start_date: '', end_date: '', estimated_cost: '', actual_cost: '', expected_revenue: '', description: '',
+};
+
+export default function Projects() {
+  const navigate = useNavigate();
+  const { data: projects, loading, error, reload } = useData(getProjects);
+  const { data: clients } = useData(getClients);
+  const { t, tStatus } = useLocale();
+
+  const [modal,        setModal]        = useState(null);
+  const [form,         setForm]         = useState(EMPTY);
+  const [editId,       setEditId]       = useState(null);
+  const [cancelId,     setCancelId]     = useState(null);
+  const [archiveId,    setArchiveId]    = useState(null);
+  const [saving,       setSaving]       = useState(false);
+  const [search, setSearch] = usePersistedState('projects.search', '');
+  const [statusFilter, setStatusFilter] = usePersistedState('projects.statusFilter', '');
+  const [clientFilter, setClientFilter] = usePersistedState('projects.clientFilter', '');
+
+  const filtered = (projects || []).filter(p => {
+    if (statusFilter && p.status !== statusFilter) return false;
+    if (clientFilter && String(p.client_id) !== clientFilter) return false;
+    const sq = search.toLowerCase();
+    if (sq && ![p.name, p.location, p.description, p.client_name]
+               .join(' ').toLowerCase().includes(sq)) return false;
+    return true;
+  });
+
+  function openCreate() { setForm(EMPTY); setEditId(null); setModal('form'); }
+
+  const { sorted: pagedProjects, page, pageSize, totalPages, setPage, setPageSize, sortKey, sortDir, requestSort, PAGE_SIZES } = useSortPaginate(filtered);
+
+  function openEdit(p) {
+    setForm({
+      name:             p.name,
+      client_id:        p.client_id       || '',
+      location:         p.location        || '',
+      status:           p.status,
+      start_date:       p.start_date      || '',
+      end_date:         p.end_date        || '',
+      estimated_cost:   p.estimated_cost  ?? '',
+      actual_cost:      p.actual_cost     ?? '',
+      expected_revenue: p.expected_revenue ?? '',
+      description:      p.description     || '',
+    });
+    setEditId(p.id);
+    setModal('form');
+  }
+
+  async function handleSave(e) {
+    e.preventDefault();
+    setSaving(true);
+    try {
+      const payload = {
+        ...form,
+        client_id:        form.client_id        ? Number(form.client_id)        : null,
+        estimated_cost:   form.estimated_cost   ? Number(form.estimated_cost)   : 0,
+        actual_cost:      form.actual_cost      ? Number(form.actual_cost)      : 0,
+        expected_revenue: form.expected_revenue ? Number(form.expected_revenue) : 0,
+      };
+      if (editId) { await updateProject(editId, payload); toast(t('projects.projectUpdated')); }
+      else        { await createProject(payload);          toast(t('projects.projectCreated')); }
+      setModal(null);
+      reload();
+    } catch (err) { toast(err.message, 'red'); }
+    finally { setSaving(false); }
+  }
+
+  async function handleCancel() {
+    try {
+      await cancelProject(cancelId, 'Cancelled by user');
+      toast('Project cancelled');
+      setCancelId(null);
+      reload();
+    } catch (err) { toast(err.message, 'red'); }
+  }
+
+  async function handleArchive() {
+    try {
+      await archiveProject(archiveId);
+      toast('Project archived');
+      setArchiveId(null);
+      reload();
+    } catch (err) { toast(err.message, 'red'); }
+  }
+
+  const exportData = filtered.map(p => ({
+    Name: p.name, Client: p.client_name || '', Location: p.location || '',
+    Status: p.status, Start: fmtDate(p.start_date), End: fmtDate(p.end_date),
+    'Est. Cost': p.estimated_cost || 0,
+    'Exp. Revenue': p.expected_revenue || 0,
+    'Exp. Profit': (p.expected_revenue || 0) - (p.estimated_cost || 0),
+    'Source Quote': p.source_quote_number || '',
+  }));
+
+  return (
+    <div>
+      <div className="page-header">
+        <div>
+          <h1 className="page-title">{t('projects.title')}</h1>
+          <p className="page-subtitle">{t('projects.totalProjects', { count: projects?.length ?? 0 })}</p>
+        </div>
+        <div style={{ display: 'flex', gap: 8 }}>
+          <ExportButton data={exportData} filename="Projects" sheetName="Projects" />
+          <button className="btn btn-primary" onClick={openCreate}>{t('projects.addProject')}</button>
+        </div>
+      </div>
+
+      <div className="card">
+        <div className="card-header" style={{flexDirection:'column',alignItems:'stretch',gap:10}}>
+          <div className="search-bar" style={{ margin: 0, flexWrap:'wrap' }}>
+            <div className="search-input-wrap" style={{flex:'1 1 200px',minWidth:180}}>
+              <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
+                <circle cx="11" cy="11" r="8" /><path d="m21 21-4.35-4.35" />
+              </svg>
+              <input className="form-control search-input" placeholder={t('projects.searchPlaceholderFull')}
+                value={search} onChange={e => setSearch(e.target.value)} />
+            </div>
+            <select className="form-control" style={{width:190}}
+              value={clientFilter} onChange={e => setClientFilter(e.target.value)}>
+              <option value="">{t('common.allClients')}</option>
+              {(clients||[]).map(c => <option key={c.id} value={c.id}>{c.name}</option>)}
+            </select>
+            <select className="form-control" style={{ width: 180 }}
+              value={statusFilter} onChange={e => setStatusFilter(e.target.value)}>
+              <option value="">{t('common.allStatuses')}</option>
+              {STATUSES.map(s => <option key={s} value={s}>{tStatus(s)}</option>)}
+            </select>
+            {(search||clientFilter||statusFilter) && (
+              <button className="btn btn-secondary btn-sm" style={{whiteSpace:'nowrap'}}
+                onClick={() => { setSearch(''); setClientFilter(''); setStatusFilter(''); }}>
+                ✕ {t('common.clear')}
+              </button>
+            )}
+          </div>
+          {filtered.length !== (projects||[]).length && (
+            <div style={{fontSize:12,color:'var(--text-3)'}}>
+              {t('projects.showingFiltered', { count: filtered.length, total: (projects||[]).length })}
+            </div>
+          )}
+        </div>
+
+        {loading ? <LoadingSpinner /> :
+         error   ? <ErrorAlert message={error} onRetry={reload} /> :
+         filtered.length === 0 ? <EmptyState message={t('projects.noProjectsFound')} /> : (
+          <div className="table-wrap">
+            <table>
+              <thead>
+                <tr>
+                  <SortableTh label={t('common.name')}                sortKey="name"             currentKey={sortKey} currentDir={sortDir} onSort={requestSort} />
+                  <SortableTh label={t('projects.client')}            sortKey="client_name"      currentKey={sortKey} currentDir={sortDir} onSort={requestSort} />
+                  <SortableTh label={t('common.status')}              sortKey="status"           currentKey={sortKey} currentDir={sortDir} onSort={requestSort} />
+                  <SortableTh label={t('projects.estimatedCost')}     sortKey="estimated_cost"   currentKey={sortKey} currentDir={sortDir} onSort={requestSort} />
+                  <SortableTh label={t('projects.expectedRevenue')}   sortKey="expected_revenue" currentKey={sortKey} currentDir={sortDir} onSort={requestSort} />
+                  <th title="Expected Revenue − Estimated Cost">{t('projects.expProfit')}</th>
+                  <th>{t('projects.sourceQuote')}</th>
+                  <th>{t('common.actions')}</th>
+                </tr>
+              </thead>
+              <tbody>
+                {pagedProjects.map(p => {
+                  const expProfit = (p.expected_revenue || 0) - (p.estimated_cost || 0);
+                  return (
+                    <tr key={p.id}>
+                      <td className="td-primary">{p.name}</td>
+                      <td>{p.client_name || '—'}</td>
+                      <td><Badge status={p.status} /></td>
+                      <td>{fmt(p.estimated_cost)}</td>
+                      <td style={{ color: 'var(--green)', fontWeight: 600 }}>{fmt(p.expected_revenue)}</td>
+                      <td style={{ color: expProfit >= 0 ? 'var(--green)' : 'var(--red)', fontWeight: 600 }}>
+                        {fmt(expProfit)}
+                      </td>
+                      <td>
+                        {p.source_quote_number
+                          ? <span className="badge badge-blue" style={{ fontSize: 11 }}>{p.source_quote_number}</span>
+                          : <span style={{ color: 'var(--text-3)' }}>—</span>}
+                      </td>
+                      <td>
+                        <div style={{ display: 'flex', gap: 6 }}>
+                          <button className="btn btn-sm btn-primary"   onClick={() => navigate(`/projects/${p.id}`)}>{t('common.view')}</button>
+                          <button className="btn btn-sm btn-secondary" onClick={() => openEdit(p)}>{t('common.edit')}</button>
+                          <button className="btn btn-sm btn-warning"  onClick={() => setCancelId(p.id)}>Cancel</button>
+                          <button className="btn btn-sm btn-danger"   onClick={() => setArchiveId(p.id)}>Archive</button>
+                        </div>
+                      </td>
+                    </tr>
+                  );
+                })}
+              </tbody>
+            </table>
+            <Pagination page={page} totalPages={totalPages} pageSize={pageSize} pageSizes={PAGE_SIZES}
+              totalRows={filtered.length} setPage={setPage} setPageSize={setPageSize} />
+          </div>
+        )}
+      </div>
+
+      {modal === 'form' && (
+        <Modal title={editId ? t('projects.editProject') : t('projects.newProject')} onClose={() => setModal(null)}>
+          <form onSubmit={handleSave}>
+            <div className="modal-body">
+              <div className="form-grid">
+                <div className="form-group form-full">
+                  <label className="form-label">{t('projects.projectNameLabel')}</label>
+                  <input className="form-control" required value={form.name}
+                    onChange={e => setForm(f => ({ ...f, name: e.target.value }))} />
+                </div>
+                <div className="form-group">
+                  <label className="form-label">{t('projects.client')}</label>
+                  <select className="form-control" value={form.client_id || ''}
+                    onChange={e => setForm(f => ({ ...f, client_id: e.target.value }))}>
+                    <option value="">{t('projects.selectClientOption')}</option>
+                    {(clients || []).map(c => <option key={c.id} value={c.id}>{c.name}</option>)}
+                  </select>
+                </div>
+                <div className="form-group">
+                  <label className="form-label">{t('projects.statusLabel')}</label>
+                  <select className="form-control" value={form.status}
+                    onChange={e => setForm(f => ({ ...f, status: e.target.value }))}>
+                    {STATUSES.map(s => <option key={s} value={s}>{tStatus(s)}</option>)}
+                  </select>
+                </div>
+                <div className="form-group form-full">
+                  <label className="form-label">{t('projects.locationLabel')}</label>
+                  <input className="form-control" value={form.location || ''}
+                    onChange={e => setForm(f => ({ ...f, location: e.target.value }))} />
+                </div>
+                <div className="form-group">
+                  <label className="form-label">{t('projects.startDate')}</label>
+                  <input type="date" className="form-control" value={form.start_date || ''}
+                    onChange={e => setForm(f => ({ ...f, start_date: e.target.value }))} />
+                </div>
+                <div className="form-group">
+                  <label className="form-label">{t('projects.endDate')}</label>
+                  <input type="date" className="form-control" value={form.end_date || ''}
+                    onChange={e => setForm(f => ({ ...f, end_date: e.target.value }))} />
+                </div>
+                <div className="form-group">
+                  <label className="form-label">{t('projects.estimatedCostLabel')}</label>
+                  <input type="number" className="form-control" step="0.01" min="0"
+                    value={form.estimated_cost || ''}
+                    onChange={e => setForm(f => ({ ...f, estimated_cost: e.target.value }))} />
+                </div>
+                <div className="form-group">
+                  <label className="form-label">{t('projects.expectedRevenueLabel')}</label>
+                  <input type="number" className="form-control" step="0.01" min="0"
+                    value={form.expected_revenue || ''}
+                    onChange={e => setForm(f => ({ ...f, expected_revenue: e.target.value }))} />
+                </div>
+                <div className="form-group form-full">
+                  <label className="form-label">{t('projects.description')}</label>
+                  <textarea className="form-control" rows={3} value={form.description || ''}
+                    onChange={e => setForm(f => ({ ...f, description: e.target.value }))} />
+                </div>
+              </div>
+            </div>
+            <div className="modal-footer">
+              <button type="button" className="btn btn-secondary" onClick={() => setModal(null)}>{t('common.cancel')}</button>
+              <button type="submit" className="btn btn-primary" disabled={saving}>
+                {saving ? t('common.saving') : editId ? t('common.save') : t('projects.createProject')}
+              </button>
+            </div>
+          </form>
+        </Modal>
+      )}
+
+      {cancelId && (
+        <ConfirmModal
+          message="Cancel this project? Its status will be set to Cancelled. You can still view it and it remains in the list with a Cancelled status."
+          confirmLabel="Cancel Project"
+          confirmClass="btn-warning"
+          onConfirm={handleCancel}
+          onCancel={() => setCancelId(null)}
+        />
+      )}
+      {archiveId && (
+        <ConfirmModal
+          message="Archive this project? It will be hidden from the main list. You can restore it from the Archives page."
+          confirmLabel="Archive"
+          confirmClass="btn-danger"
+          onConfirm={handleArchive}
+          onCancel={() => setArchiveId(null)}
+        />
+      )}
+    </div>
+  );
+}

@@ -1,0 +1,314 @@
+﻿"""
+Settings — single-row configuration table.
+Covers: Company Info, Financial Defaults, Document Preferences.
+Backup/Restore endpoints are also here.
+"""
+from fastapi import APIRouter, Depends, HTTPException, UploadFile, File
+from fastapi.responses import FileResponse
+from pydantic import BaseModel
+from typing import Optional
+from database import get_db, DB_PATH
+from permissions import require_perm, require_auth, require_admin
+import sqlite3, os, shutil, tempfile, sys
+
+router = APIRouter()
+
+# ── Schema ────────────────────────────────────────────────────────────────────
+
+DEFAULTS = {
+    # Company
+    "company_name":        "My Company",
+    "company_tagline":     "",
+    "company_address":     "",
+    "company_city":        "",
+    "company_country":     "",
+    "company_phone":       "",
+    "company_email":       "",
+    "company_website":     "",
+    "company_tax_number":  "",
+    "company_reg_number":  "",
+    "default_currency":    "USD",
+    # Bank Details
+    "bank_name":           "",
+    "bank_account":        "",
+    "bank_iban":           "",
+    "bank_swift":          "",
+    # Financial
+    "default_tax_rate":    "0",
+    "tax_enabled":         "0",
+    "payment_terms_days":  "15",
+    "invoice_prefix":      "INV-",
+    "quotation_prefix":    "QTN-",
+    # Document
+    "footer_text":         "Thank you for your business.",
+    "show_discount_col":   "0",
+    "show_tax_col":        "1",
+    # Setup
+    "setup_complete":      "0",
+}
+
+class SettingsUpdate(BaseModel):
+    company_name:       Optional[str] = None
+    company_tagline:    Optional[str] = None
+    company_address:    Optional[str] = None
+    company_city:       Optional[str] = None
+    company_country:    Optional[str] = None
+    company_phone:      Optional[str] = None
+    company_email:      Optional[str] = None
+    company_website:    Optional[str] = None
+    company_tax_number: Optional[str] = None
+    company_reg_number: Optional[str] = None
+    default_currency:   Optional[str] = None
+    bank_name:          Optional[str] = None
+    bank_account:       Optional[str] = None
+    bank_iban:          Optional[str] = None
+    bank_swift:         Optional[str] = None
+    default_tax_rate:   Optional[str] = None
+    tax_enabled:        Optional[str] = None
+    payment_terms_days: Optional[str] = None
+    invoice_prefix:     Optional[str] = None
+    quotation_prefix:   Optional[str] = None
+    footer_text:        Optional[str] = None
+    show_discount_col:  Optional[str] = None
+    show_tax_col:       Optional[str] = None
+
+
+# ── Helpers ───────────────────────────────────────────────────────────────────
+
+def _ensure_table(db: sqlite3.Connection):
+    db.execute("""
+        CREATE TABLE IF NOT EXISTS settings (
+            key   TEXT PRIMARY KEY,
+            value TEXT
+        )
+    """)
+    db.commit()
+
+def _get_all(db: sqlite3.Connection) -> dict:
+    _ensure_table(db)
+    rows = db.execute("SELECT key, value FROM settings").fetchall()
+    data = {**DEFAULTS}
+    for r in rows:
+        data[r["key"]] = r["value"]
+    return data
+
+def _set_keys(db: sqlite3.Connection, updates: dict):
+    _ensure_table(db)
+    for k, v in updates.items():
+        if v is not None:
+            db.execute(
+                "INSERT INTO settings (key, value) VALUES (?, ?) "
+                "ON CONFLICT(key) DO UPDATE SET value=excluded.value",
+                (k, v)
+            )
+    db.commit()
+
+
+# ── Routes ────────────────────────────────────────────────────────────────────
+
+@router.get("/")
+def get_settings(user=Depends(require_auth), db: sqlite3.Connection = Depends(get_db)):
+    return _get_all(db)
+
+
+@router.put("/")
+def update_settings(
+    body: SettingsUpdate,
+    user=Depends(require_admin),
+    db: sqlite3.Connection = Depends(get_db),
+):
+    updates = {k: v for k, v in body.dict().items() if v is not None}
+    _set_keys(db, updates)
+    return _get_all(db)
+
+
+MAX_LOGO_SIZE  = 2 * 1024 * 1024   # 2 MB
+MAX_DB_SIZE    = 100 * 1024 * 1024  # 100 MB
+
+def _logo_path() -> str:
+    """
+    Resolve the logo path relative to the running exe / script.
+    - Frozen (PyInstaller onedir): next to the .exe in the dist folder
+    - Plain Python dev mode: two levels up from this file → static/logo.png
+    This ensures the saved logo is in the same static/ folder the server serves.
+    """
+    if getattr(sys, "frozen", False):
+        # onedir: exe lives next to the static/ folder
+        base = os.path.dirname(sys.executable)
+    else:
+        base = os.path.normpath(os.path.join(os.path.dirname(__file__), "..", ".."))
+    return os.path.join(base, "static", "logo.png")
+
+@router.get("/logo")
+def get_logo():
+    """Serve the company logo. Returns 404 if no logo has been uploaded yet."""
+    logo_path = _logo_path()
+    if not os.path.exists(logo_path):
+        raise HTTPException(404, "No logo uploaded")
+    return FileResponse(logo_path, media_type="image/png")
+
+
+_IMG_MAGIC = {
+    b'\x89PNG':          'png',
+    b'\xff\xd8\xff':     'jpeg',
+    b'GIF8':             'gif',
+    b'RIFF':             'webp',  # RIFF....WEBP
+}
+
+def _detect_image(data: bytes) -> bool:
+    for sig in _IMG_MAGIC:
+        if data[:len(sig)] == sig:
+            return True
+    return False
+
+@router.post("/logo")
+async def upload_logo(
+    file: UploadFile = File(...),
+    user=Depends(require_admin),
+):
+    data = await file.read(MAX_LOGO_SIZE + 1)
+    if len(data) > MAX_LOGO_SIZE:
+        raise HTTPException(413, "Logo file too large (max 2 MB)")
+    if not _detect_image(data):
+        raise HTTPException(400, "File must be a valid image (PNG, JPEG, GIF, or WEBP)")
+    logo_path = _logo_path()
+    os.makedirs(os.path.dirname(logo_path), exist_ok=True)
+    with open(logo_path, "wb") as f:
+        f.write(data)
+    return {"ok": True, "message": "Logo updated"}
+
+
+# ── Backup / Restore ─────────────────────────────────────────────────────────
+
+@router.get("/backup")
+def download_backup(user=Depends(require_admin)):
+    if not os.path.exists(DB_PATH):
+        raise HTTPException(404, "Database file not found")
+    return FileResponse(
+        DB_PATH,
+        media_type="application/octet-stream",
+        filename="erp_backup.db",
+    )
+
+
+@router.get("/backup-status")
+def backup_status(user=Depends(require_admin)):
+    """Return auto-backup status: last run, file list, folder location."""
+    try:
+        backend_dir = os.path.dirname(os.path.dirname(__file__))
+        if backend_dir not in sys.path:
+            sys.path.insert(0, backend_dir)
+        import backup_manager
+        return backup_manager.get_status()
+    except Exception as e:
+        raise HTTPException(500, f"Could not read backup status: {e}")
+
+
+@router.post("/backup-now")
+def backup_now(user=Depends(require_admin)):
+    """Trigger an immediate manual backup."""
+    try:
+        backend_dir = os.path.dirname(os.path.dirname(__file__))
+        if backend_dir not in sys.path:
+            sys.path.insert(0, backend_dir)
+        import backup_manager
+        result = backup_manager.run_manual_backup()
+        if not result.get("ok"):
+            raise HTTPException(500, result.get("error", "Backup failed"))
+        return result
+    except HTTPException:
+        raise
+    except Exception as e:
+        raise HTTPException(500, f"Backup error: {e}")
+
+
+@router.post("/restore")
+async def restore_backup(
+    file: UploadFile = File(...),
+    user=Depends(require_admin),
+):
+    if not file.filename.endswith(".db"):
+        raise HTTPException(400, "Only .db files are accepted")
+
+    # Write to a temp file first, then validate it's a real SQLite db
+    tmp = tempfile.NamedTemporaryFile(delete=False, suffix=".db")
+    try:
+        data = await file.read()
+        if len(data) > MAX_DB_SIZE:
+            raise HTTPException(413, "Database file too large (max 100 MB)")
+        tmp.write(data)
+        tmp.flush()
+        tmp.close()
+        # Quick sanity-check: open the file with sqlite3
+        conn = sqlite3.connect(tmp.name)
+        tables = conn.execute(
+            "SELECT name FROM sqlite_master WHERE type='table'"
+        ).fetchall()
+        conn.close()
+        if not tables:
+            raise HTTPException(400, "File does not appear to be a valid ERP database")
+
+        # Replace the live database
+        shutil.copy2(tmp.name, DB_PATH)
+    finally:
+        os.unlink(tmp.name)
+
+    return {"ok": True, "message": "Database restored. Please restart the server."}
+
+
+@router.get("/setup-status")
+def setup_status(db: sqlite3.Connection = Depends(get_db)):
+    """Public — no auth. Returns whether the first-run wizard has been completed."""
+    data = _get_all(db)
+    return {"setup_complete": data.get("setup_complete", "0") == "1"}
+
+
+class CompleteSetupRequest(BaseModel):
+    admin_password:  str
+    company_name:    Optional[str] = "My Company"
+    company_email:   Optional[str] = ""
+    default_currency: Optional[str] = "USD"
+
+
+@router.post("/complete-setup")
+def complete_setup(body: CompleteSetupRequest, db: sqlite3.Connection = Depends(get_db)):
+    """
+    Public — no auth. One-time endpoint: sets admin password, saves basic company
+    info, and marks setup as complete. Returns 403 if already completed.
+    """
+    data = _get_all(db)
+    if data.get("setup_complete", "0") == "1":
+        raise HTTPException(403, "Setup already completed.")
+    if len(body.admin_password) < 8:
+        raise HTTPException(400, "Password must be at least 8 characters.")
+
+    # Update admin password and clear must_change_password
+    from auth_utils import hash_password
+    db.execute(
+        "UPDATE users SET password_hash=?, must_change_password=0 WHERE username='admin'",
+        (hash_password(body.admin_password),)
+    )
+
+    # Save company settings + mark complete
+    _set_keys(db, {
+        "company_name":     body.company_name or "My Company",
+        "company_email":    body.company_email or "",
+        "default_currency": body.default_currency or "USD",
+        "setup_complete":   "1",
+    })
+    db.commit()
+    return {"ok": True, "message": "Setup complete. You can now log in."}
+
+
+@router.get("/integrity-check")
+def integrity_check(user=Depends(require_admin)):
+    """Run PRAGMA integrity_check on the live database and return the result."""
+    try:
+        backend_dir = os.path.dirname(os.path.dirname(__file__))
+        if backend_dir not in sys.path:
+            sys.path.insert(0, backend_dir)
+        import backup_manager
+        result = backup_manager.run_integrity_check()
+        return result
+    except Exception as e:
+        raise HTTPException(500, f"Integrity check error: {e}")

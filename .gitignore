@@ -1,0 +1,28 @@
+# Secrets — NEVER commit
+.secret_key
+backend/.secret_key
+backend/.env
+
+# Databases
+*.db
+backend/erp.db
+erp.db
+
+# Backups
+backups/
+
+# Python bytecode
+__pycache__/
+*.pyc
+*.pyo
+
+# Vite build output
+static/
+
+# Logs & temp files
+startup_log.txt
+*.bak
+
+# OS
+.DS_Store
+Thumbs.db

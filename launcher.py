@@ -1,0 +1,193 @@
+"""
+ERP System Launcher
+"""
+import sys, os, time, socket, threading, webbrowser, traceback
+
+NO_BROWSER = '--no-browser' in sys.argv
+
+# ── Paths ──────────────────────────────────────────────────────────────────
+# When frozen by PyInstaller (onedir):
+#   - Read-only bundled files (backend .py, static) live in sys._MEIPASS
+#     because they are declared in datas[] in ERP.spec.
+#   - Writable files (erp.db, logs, backups) go to APPDATA so they work
+#     even when installed to Program Files (read-protected for non-admins).
+# When running from source (dev mode) everything stays next to this file.
+
+FROZEN = getattr(sys, 'frozen', False)
+
+if FROZEN:
+    BUNDLE_DIR = sys._MEIPASS
+    DATA_DIR   = os.path.join(os.environ.get('APPDATA', os.path.expanduser('~')), 'ERP System')
+else:
+    BUNDLE_DIR = os.path.dirname(os.path.abspath(__file__))
+    DATA_DIR   = BUNDLE_DIR
+
+BACKEND_DIR = os.path.join(BUNDLE_DIR, 'backend')
+STATIC_DIR  = os.path.join(BUNDLE_DIR, 'static')
+
+# Writable files always go to DATA_DIR — safe on every Windows install location
+DB_PATH  = os.environ.get('DB_PATH', os.path.join(DATA_DIR, 'erp.db'))
+LOG_FILE = os.path.join(DATA_DIR, 'startup_log.txt')
+
+# Create the writable data dir on first run
+os.makedirs(DATA_DIR, exist_ok=True)
+
+os.environ['DB_PATH'] = DB_PATH
+sys.path.insert(0, BACKEND_DIR)
+
+# ── Logger ─────────────────────────────────────────────────────────────────
+def log(msg):
+    print(msg, flush=True)
+    try:
+        with open(LOG_FILE, 'a', encoding='utf-8') as f:
+            f.write(msg + '\n')
+    except Exception:
+        pass
+
+log(f'\n=== ERP System {time.strftime("%Y-%m-%d %H:%M:%S")} ===')
+log(f'Bundle dir : {BUNDLE_DIR}')
+log(f'Data dir   : {DATA_DIR}')
+log(f'Static dir : {STATIC_DIR}  exists={os.path.isdir(STATIC_DIR)}')
+log(f'Backend dir: {BACKEND_DIR}  exists={os.path.isdir(BACKEND_DIR)}')
+log(f'DB path    : {DB_PATH}')
+
+# ── Port ───────────────────────────────────────────────────────────────────
+def port_free(p):
+    try:
+        with socket.socket(socket.AF_INET, socket.SOCK_STREAM) as s:
+            s.bind(('127.0.0.1', p))
+            return True
+    except OSError:
+        return False
+
+PORT      = int(os.environ.get('PORT', 8765))
+BIND_HOST = os.environ.get('BIND_HOST', '0.0.0.0')   # 0.0.0.0 = LAN accessible
+for _ in range(5):
+    if port_free(PORT):
+        break
+    PORT += 1
+log(f'Port       : {PORT}')
+log(f'Bind host  : {BIND_HOST}')
+
+# Discover LAN IP for display
+def _lan_ip():
+    try:
+        import socket
+        s = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
+        s.connect(('8.8.8.8', 80))
+        ip = s.getsockname()[0]
+        s.close()
+        return ip
+    except Exception:
+        return '127.0.0.1'
+
+LAN_IP = _lan_ip()
+log(f'LAN access : http://{LAN_IP}:{PORT}  (share this URL with office computers)')
+
+try:
+    from fastapi import FastAPI
+    from fastapi.responses import FileResponse, Response
+    from fastapi.middleware.cors import CORSMiddleware
+    import uvicorn
+
+    from routers import (auth, dashboard, clients, projects, quotations,
+                         inventory, invoices, finance, purchases, settings,
+                         archives, documents, suppliers, audit, users, roles, search, reports, crm, planning,
+                         notifications, approval_policies, approval_requests, hr)
+    import database
+    import backup_manager
+    backup_manager.init(DB_PATH)
+
+    app = FastAPI(title='ERP System')
+    app.add_middleware(CORSMiddleware, allow_origins=['*'],
+                       allow_credentials=False, allow_methods=['*'], allow_headers=['*'])
+
+    app.include_router(auth.router,               prefix='/api/auth')
+    app.include_router(dashboard.router,          prefix='/api/dashboard')
+    app.include_router(clients.router,            prefix='/api/clients')
+    app.include_router(projects.router,           prefix='/api/projects')
+    app.include_router(quotations.router,         prefix='/api/quotations')
+    app.include_router(inventory.router,          prefix='/api/inventory')
+    app.include_router(invoices.router,           prefix='/api/invoices')
+    app.include_router(finance.router,            prefix='/api/finance')
+    app.include_router(purchases.router,          prefix='/api/purchases')
+    app.include_router(settings.router,           prefix='/api/settings')
+    app.include_router(archives.router,           prefix='/api/archives')
+    app.include_router(documents.router,          prefix='/api/documents')
+    app.include_router(suppliers.router,          prefix='/api/suppliers')
+    app.include_router(audit.router,              prefix='/api/audit')
+    app.include_router(users.router,              prefix='/api/users')
+    app.include_router(roles.router,              prefix='/api/roles')
+    app.include_router(search.router,             prefix='/api/search')
+    app.include_router(reports.router,            prefix='/api/reports')
+    app.include_router(crm.router,               prefix='/api/crm')
+    app.include_router(planning.router,           prefix='/api/planning')
+    app.include_router(notifications.router,      prefix='/api/notifications')
+    app.include_router(approval_policies.router,  prefix='/api/approval-policies')
+    app.include_router(approval_requests.router,  prefix='/api/approval-requests')
+    app.include_router(hr.router,                 prefix='/api/hr')
+
+    @app.get('/api/health')
+    def health():
+        return {'status': 'ok', 'db': DB_PATH}
+
+    NO_CACHE    = {'Cache-Control': 'no-store, no-cache, must-revalidate',
+                   'Pragma': 'no-cache', 'Expires': '0'}
+    STATIC_EXTS = ('.png','.jpg','.jpeg','.gif','.svg','.ico',
+                   '.css','.js','.woff','.woff2','.ttf','.map','.webp')
+
+    @app.get('/{full_path:path}')
+    @app.get('/')
+    def serve_spa(full_path: str = ''):
+        if full_path.startswith('api/'):
+            return Response('{"detail":"Not found"}', status_code=404,
+                            media_type='application/json')
+        if full_path:
+            p = os.path.join(STATIC_DIR, full_path)
+            if os.path.isfile(p):
+                hdrs = {'Cache-Control': 'public, max-age=31536000, immutable'} \
+                       if '/assets/' in full_path else {}
+                return FileResponse(p, headers=hdrs)
+            if any(full_path.endswith(e) for e in STATIC_EXTS):
+                return Response(status_code=404)
+        idx = os.path.join(STATIC_DIR, 'index.html')
+        if os.path.exists(idx):
+            return FileResponse(idx, headers=NO_CACHE)
+        return Response(f'Frontend missing at {STATIC_DIR}', status_code=500)
+
+    def open_browser():
+        url = f'http://127.0.0.1:{PORT}'   # localhost for the server machine itself
+        for _ in range(60):
+            try:
+                with socket.create_connection(('127.0.0.1', PORT), timeout=1):
+                    break
+            except OSError:
+                time.sleep(0.25)
+        webbrowser.open(url)
+
+    if not NO_BROWSER:
+        threading.Thread(target=open_browser, daemon=True).start()
+
+    log('Server starting...')
+
+    log_config = {
+        'version': 1, 'disable_existing_loggers': False,
+        'formatters': {'plain': {'format': '%(asctime)s %(levelname)s %(message)s'}},
+        'handlers': {'h': {'class': 'logging.StreamHandler', 'formatter': 'plain',
+                           'stream': 'ext://sys.stdout'}},
+        'loggers': {
+            'uvicorn':        {'handlers': ['h'], 'level': 'WARNING'},
+            'uvicorn.error':  {'handlers': ['h'], 'level': 'WARNING'},
+            'uvicorn.access': {'handlers': ['h'], 'level': 'WARNING'},
+        },
+    }
+    uvicorn.run(app, host=BIND_HOST, port=PORT, log_config=log_config)
+
+except Exception:
+    err = traceback.format_exc()
+    log(f'\nFATAL ERROR:\n{err}')
+    try:
+        input('\nPress Enter to close...')
+    except Exception:
+        time.sleep(60)
+    sys.exit(1)
