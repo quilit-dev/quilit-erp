@@ -2,6 +2,7 @@ import { useState, useEffect, useRef, useCallback } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { searchAll } from '../api/client';
 import { useLocale } from '../hooks/useLocale.jsx';
+import { usePermissions } from '../hooks/usePermissions.js';
 
 const TYPE_ICONS = {
   client:    '👤',
@@ -11,6 +12,14 @@ const TYPE_ICONS = {
   inventory: '📦',
   supplier:  '🏭',
   purchase:  '🛒',
+  expense:   '💸',
+  lead:      '🎯',
+  deal:      '💼',
+  contact:   '📇',
+  employee:  '👔',
+  planning:  '🗓️',
+  task:      '✓',
+  user:      '🧑‍💼',
 };
 
 const TYPE_LABELS = {
@@ -21,18 +30,41 @@ const TYPE_LABELS = {
   inventory: 'Inventory',
   supplier:  'Supplier',
   purchase:  'Purchase',
+  expense:   'Expense',
+  lead:      'Lead',
+  deal:      'Deal',
+  contact:   'Contact',
+  employee:  'Employee',
+  planning:  'Planning',
+  task:      'Task',
+  user:      'User',
 };
 
-const QUICK_LINKS = [
-  { title: 'Dashboard',   url: '/',            icon: '🏠', subtitle: 'Overview & KPIs' },
-  { title: 'Clients',     url: '/clients',     icon: '👥', subtitle: 'Manage clients' },
-  { title: 'Projects',    url: '/projects',    icon: '📁', subtitle: 'Active projects' },
-  { title: 'Invoices',    url: '/invoices',    icon: '🧾', subtitle: 'Billing & payments' },
-  { title: 'Quotations',  url: '/quotations',  icon: '📋', subtitle: 'Proposals & quotes' },
-  { title: 'Inventory',   url: '/inventory',   icon: '📦', subtitle: 'Stock management' },
-  { title: 'Finance',     url: '/finance',     icon: '💰', subtitle: 'Reports & expenses' },
-  { title: 'Suppliers',   url: '/suppliers',   icon: '🏭', subtitle: 'Vendor management' },
-  { title: 'Purchases',   url: '/purchases',   icon: '🛒', subtitle: 'Purchase orders' },
+// Every navigable module/page. `module` items are gated by view permission;
+// `admin` items are shown only to superadmins; the rest are always available.
+const NAV_ITEMS = [
+  { title: 'Dashboard',         url: '/',                  icon: '🏠', subtitle: 'Overview & KPIs',            module: 'dashboard',  keywords: 'home kpi' },
+  { title: 'Clients',           url: '/clients',           icon: '👥', subtitle: 'Manage clients',             module: 'clients',    keywords: 'customers' },
+  { title: 'Projects',          url: '/projects',          icon: '📁', subtitle: 'Active projects',            module: 'projects',   keywords: 'jobs' },
+  { title: 'Quotations',        url: '/quotations',        icon: '📋', subtitle: 'Proposals & quotes',         module: 'quotations', keywords: 'quote proposal estimate' },
+  { title: 'Invoices',          url: '/invoices',          icon: '🧾', subtitle: 'Billing & payments',         module: 'invoices',   keywords: 'billing payment' },
+  { title: 'Inventory',         url: '/inventory',         icon: '📦', subtitle: 'Stock management',           module: 'inventory',  keywords: 'stock items products' },
+  { title: 'Purchases',         url: '/purchases',         icon: '🛒', subtitle: 'Purchase orders',            module: 'purchases',  keywords: 'po procurement' },
+  { title: 'Suppliers',         url: '/suppliers',         icon: '🏭', subtitle: 'Vendor management',          module: 'suppliers',  keywords: 'vendors' },
+  { title: 'Expenses',          url: '/expenses',          icon: '💸', subtitle: 'Track spending',             module: 'expenses',   keywords: 'spending costs' },
+  { title: 'Finance',           url: '/finance',           icon: '💰', subtitle: 'Cash flow & accounts',       module: 'finance',    keywords: 'accounting cash' },
+  { title: 'Reports',           url: '/reports',           icon: '📊', subtitle: 'Analytics & exports',        module: 'reports',    keywords: 'analytics charts' },
+  { title: 'CRM',               url: '/crm',               icon: '🤝', subtitle: 'Leads & pipeline',           module: 'crm',        keywords: 'leads sales pipeline' },
+  { title: 'Planning',          url: '/planning',          icon: '🗓️', subtitle: 'Schedules & tasks',          module: 'planning',   keywords: 'calendar schedule tasks' },
+  { title: 'HR',                url: '/hr',                icon: '👔', subtitle: 'Employees & payroll',        module: 'hr',         keywords: 'human resources staff payroll' },
+  { title: 'Approvals',         url: '/approvals',         icon: '✅', subtitle: 'Approval requests',          keywords: 'approve requests' },
+  { title: 'Approval Policies', url: '/approval-policies', icon: '🛡️', subtitle: 'Automated approval rules',   keywords: 'policy rules workflow' },
+  { title: 'Archives',          url: '/archives',          icon: '🗄️', subtitle: 'Archived records',           keywords: 'archive deleted history' },
+  { title: 'Notifications',     url: '/notifications',     icon: '🔔', subtitle: 'Alerts & updates',           keywords: 'alerts' },
+  { title: 'Settings',          url: '/settings',          icon: '⚙️', subtitle: 'System configuration',       keywords: 'config preferences company' },
+  { title: 'User Management',   url: '/users',             icon: '🧑‍💼', subtitle: 'Manage users',             admin: true, keywords: 'users accounts' },
+  { title: 'Role Management',   url: '/roles',             icon: '🔑', subtitle: 'Roles & permissions',        admin: true, keywords: 'roles permissions rbac' },
+  { title: 'Admin Panel',       url: '/admin',             icon: '🛠️', subtitle: 'Sessions & audit log',       admin: true, keywords: 'audit sessions' },
 ];
 
 export default function CommandPalette({ open, onClose }) {
@@ -46,6 +78,14 @@ export default function CommandPalette({ open, onClose }) {
   const timerRef  = useRef(null);
   const navigate  = useNavigate();
   const { t } = useLocale();
+  const { isSuperadmin, can } = usePermissions();
+
+  // Nav items the current user is allowed to see
+  const visibleNav = NAV_ITEMS.filter(item => {
+    if (item.admin)  return isSuperadmin;
+    if (item.module) return can(item.module, 'view');
+    return true;
+  });
 
   // Focus input when opened
   useEffect(() => {
@@ -81,7 +121,15 @@ export default function CommandPalette({ open, onClose }) {
     return () => clearTimeout(timerRef.current);
   }, [query]);
 
-  const displayed = query.trim() ? results : QUICK_LINKS;
+  // When searching, match nav items locally and show them above record results
+  const q = query.trim().toLowerCase();
+  const navMatches = q
+    ? visibleNav.filter(i =>
+        i.title.toLowerCase().includes(q) ||
+        (i.subtitle && i.subtitle.toLowerCase().includes(q)) ||
+        (i.keywords && i.keywords.includes(q)))
+    : visibleNav;
+  const displayed = q ? [...navMatches, ...results] : visibleNav;
 
   const go = useCallback((url) => {
     navigate(url);
@@ -135,7 +183,7 @@ export default function CommandPalette({ open, onClose }) {
         {displayed.length > 0 && (
           <>
             <div className="cp-section-label">
-              {query.trim() ? `${results.length} result${results.length !== 1 ? 's' : ''}` : 'Quick navigation'}
+              {q ? `${displayed.length} result${displayed.length !== 1 ? 's' : ''}` : 'Quick navigation'}
             </div>
             <ul className="cp-list" ref={listRef} role="listbox">
               {displayed.map((item, idx) => (
@@ -163,7 +211,7 @@ export default function CommandPalette({ open, onClose }) {
           </>
         )}
 
-        {query.trim() && !loading && results.length === 0 && (
+        {q && !loading && displayed.length === 0 && (
           <div className="cp-empty">{t('commandPalette.noResults')}</div>
         )}
 

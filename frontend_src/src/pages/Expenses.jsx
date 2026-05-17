@@ -4,35 +4,13 @@ import { useData } from '../hooks/useData';
 import { getExpenses, getProjects, createExpense, updateExpense, voidExpense } from '../api/client';
 import {
   LoadingSpinner, ErrorAlert, EmptyState, Modal,
-  ExportButton, fmt, fmtDate, toast, SortableTh, Pagination
+  ExportButton, fmt, fmtDate, toast, SortableTh, Pagination,
+  CATEGORY_COLORS, CategoryBadge,
 } from '../components/shared';
 import { useSortPaginate } from '../hooks/useSortPaginate';
 import { useLocale } from '../hooks/useLocale.jsx';
 
 const CATEGORIES = ['Labour', 'Materials', 'Equipment', 'Transport', 'Subcontractor', 'Permits', 'Other'];
-
-const CATEGORY_COLORS = {
-  Labour:        { bg: '#EFF6FF', color: '#2563EB' },
-  Materials:     { bg: '#ECFDF5', color: '#059669' },
-  Equipment:     { bg: '#FFFBEB', color: '#D97706' },
-  Transport:     { bg: '#F5F3FF', color: '#7C3AED' },
-  Subcontractor: { bg: '#FFF7ED', color: '#EA580C' },
-  Permits:       { bg: '#F0FDF4', color: '#16A34A' },
-  Other:         { bg: '#F9FAFB', color: '#6B7280' },
-};
-
-function CategoryBadge({ category }) {
-  const style = CATEGORY_COLORS[category] || CATEGORY_COLORS.Other;
-  return (
-    <span style={{
-      display: 'inline-flex', alignItems: 'center', padding: '2px 9px',
-      borderRadius: 20, fontSize: 11, fontWeight: 600, whiteSpace: 'nowrap',
-      background: style.bg, color: style.color,
-    }}>
-      {category}
-    </span>
-  );
-}
 
 export default function Expenses() {
   const { data: expenses, loading, error, reload } = useData(getExpenses);

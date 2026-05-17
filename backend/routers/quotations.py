@@ -224,6 +224,13 @@ def convert_to_invoice(
     if not q:
         raise HTTPException(404, "Quotation not found")
 
+    # A cancelled / rejected quotation is a terminal state — no invoice may be
+    # raised from it (the UI promises this; enforce it on the server too).
+    if q["status"] in ("Cancelled", "Rejected"):
+        raise HTTPException(
+            400, f"Cannot create an invoice from a {q['status'].lower()} quotation."
+        )
+
     # Check if an invoice already exists for this quotation
     existing_inv = db.execute(
         "SELECT id, invoice_number FROM invoices WHERE quotation_id = ?",
@@ -245,7 +252,6 @@ def convert_to_invoice(
     now    = _now()
 
     # Auto-calculate due_date from payment_terms_days setting
-    from datetime import timedelta
     terms_row = db.execute("SELECT value FROM settings WHERE key='payment_terms_days'").fetchone()
     days = int(terms_row["value"]) if terms_row else 15
     due_date = (datetime.utcnow() + timedelta(days=days)).strftime("%Y-%m-%d")

@@ -1,6 +1,6 @@
 import { useState, useEffect } from 'react';
 import {
-  getRoles, getRoleModules, createRole, updateRole, deleteRole, setRolePermissions,
+  getRoles, createRole, updateRole, deleteRole, setRolePermissions,
 } from '../api/client';
 import { Modal, ConfirmModal, LoadingSpinner, ErrorAlert, toast } from '../components/shared';
 import { useLocale } from '../hooks/useLocale.jsx';

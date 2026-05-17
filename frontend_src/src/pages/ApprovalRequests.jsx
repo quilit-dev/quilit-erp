@@ -14,10 +14,10 @@ import {
 // ── Display config ──────────────────────────────────────────────────────────
 
 const STATUS_CFG = {
-  pending:   { label: 'Pending',   bg: '#fef3c7', color: '#b45309' },
-  approved:  { label: 'Approved',  bg: '#dcfce7', color: '#16a34a' },
-  rejected:  { label: 'Rejected',  bg: '#fee2e2', color: '#dc2626' },
-  cancelled: { label: 'Cancelled', bg: 'var(--bg)', color: 'var(--text-3)' },
+  pending:   { labelKey: 'statusPending',   bg: '#fef3c7', color: '#b45309' },
+  approved:  { labelKey: 'approved',        bg: '#dcfce7', color: '#16a34a' },
+  rejected:  { labelKey: 'rejected',        bg: '#fee2e2', color: '#dc2626' },
+  cancelled: { labelKey: 'statusCancelled', bg: 'var(--bg)', color: 'var(--text-3)' },
 };
 
 const MODULE_CFG = {
@@ -35,20 +35,21 @@ const STEP_STATUS_CFG = {
   skipped:  { icon: '⤼',  color: 'var(--text-3)' },
 };
 
-function timeAgo(ts) {
+function timeAgo(ts, t) {
   if (!ts) return '';
   const diff = (Date.now() - new Date(ts + 'Z')) / 1000;
-  if (diff < 60)    return 'just now';
-  if (diff < 3600)  return `${Math.floor(diff / 60)}m ago`;
-  if (diff < 86400) return `${Math.floor(diff / 3600)}h ago`;
-  return `${Math.floor(diff / 86400)}d ago`;
+  if (diff < 60)    return t('approvals.justNow');
+  if (diff < 3600)  return t('approvals.minutesAgo', { n: Math.floor(diff / 60) });
+  if (diff < 86400) return t('approvals.hoursAgo', { n: Math.floor(diff / 3600) });
+  return t('approvals.daysAgo', { n: Math.floor(diff / 86400) });
 }
 
 function StatusBadge({ status }) {
+  const { t } = useLocale();
   const cfg = STATUS_CFG[status] || STATUS_CFG.pending;
   return (
     <span style={{ padding: '3px 10px', borderRadius: 99, fontSize: 11, fontWeight: 700, background: cfg.bg, color: cfg.color }}>
-      {cfg.label}
+      {t('approvals.' + cfg.labelKey)}
     </span>
   );
 }
@@ -109,6 +110,7 @@ function StepTimeline({ steps, currentStep }) {
 // ── Comment Thread ──────────────────────────────────────────────────────────
 
 function CommentThread({ req, onRefresh }) {
+  const { t } = useLocale();
   const [text, setText]       = useState('');
   const [sending, setSending] = useState(false);
   const comments = req.comments || [];
@@ -122,7 +124,7 @@ function CommentThread({ req, onRefresh }) {
       setText('');
       onRefresh();
     } catch (err) {
-      toast(err.message || 'Could not post comment', 'error');
+      toast(err.message || t('approvals.couldNotPostComment'), 'error');
     } finally {
       setSending(false);
     }
@@ -131,7 +133,7 @@ function CommentThread({ req, onRefresh }) {
   return (
     <div style={{ marginBottom: 12 }}>
       <div style={{ fontSize: 11, fontWeight: 700, color: 'var(--text-3)', marginBottom: 6, textTransform: 'uppercase', letterSpacing: '.5px' }}>
-        Discussion {comments.length > 0 && `(${comments.length})`}
+        {t('approvals.discussion')} {comments.length > 0 && `(${comments.length})`}
       </div>
 
       {comments.length > 0 && (
@@ -139,8 +141,8 @@ function CommentThread({ req, onRefresh }) {
           {comments.map(c => (
             <div key={c.id} style={{ fontSize: 12, background: 'var(--bg)', border: '1px solid var(--border)', borderRadius: 6, padding: '6px 10px' }}>
               <div style={{ display: 'flex', justifyContent: 'space-between', marginBottom: 2 }}>
-                <strong style={{ color: 'var(--text)' }}>{c.author_name || 'Unknown'}</strong>
-                <span style={{ fontSize: 10, color: 'var(--text-3)' }}>{timeAgo(c.created_at)}</span>
+                <strong style={{ color: 'var(--text)' }}>{c.author_name || t('approvals.unknownAuthor')}</strong>
+                <span style={{ fontSize: 10, color: 'var(--text-3)' }}>{timeAgo(c.created_at, t)}</span>
               </div>
               <div style={{ color: 'var(--text-2)' }}>{c.comment}</div>
             </div>
@@ -152,14 +154,14 @@ function CommentThread({ req, onRefresh }) {
         <textarea
           className="form-control"
           rows={2}
-          placeholder="Write a comment…"
+          placeholder={t('approvals.writeComment')}
           value={text}
           onChange={e => setText(e.target.value)}
           onKeyDown={e => { if (e.key === 'Enter' && (e.metaKey || e.ctrlKey)) send(); }}
           style={{ flex: 1, resize: 'none' }}
         />
         <button className="btn btn-outline btn-sm" onClick={send} disabled={sending || !text.trim()}>
-          {sending ? 'Sending…' : 'Send'}
+          {sending ? t('approvals.sending') : t('approvals.send')}
         </button>
       </div>
     </div>
@@ -169,6 +171,7 @@ function CommentThread({ req, onRefresh }) {
 // ── Action Panel ────────────────────────────────────────────────────────────
 
 function ActionPanel({ req, onDone }) {
+  const { t } = useLocale();
   const [comment, setComment] = useState('');
   const [loading, setLoading] = useState(null);
 
@@ -185,14 +188,14 @@ function ActionPanel({ req, onDone }) {
       if (action === 'force-approve') await forceApproveRequest(req.id, payload);
       if (action === 'cancel')        await cancelApprovalRequest(req.id, payload);
       toast({
-        approve:         'Request approved',
-        reject:          'Request rejected',
-        'force-approve': 'Request force-approved',
-        cancel:          'Request cancelled',
+        approve:         t('approvals.requestApproved'),
+        reject:          t('approvals.requestRejected'),
+        'force-approve': t('approvals.requestForceApproved'),
+        cancel:          t('approvals.requestCancelled'),
       }[action]);
       onDone();
     } catch (err) {
-      toast(err.message || 'Action failed', 'error');
+      toast(err.message || t('approvals.actionFailed'), 'error');
     } finally {
       setLoading(null);
     }
@@ -203,7 +206,7 @@ function ActionPanel({ req, onDone }) {
       <textarea
         className="form-control"
         rows={2}
-        placeholder="Decision note (optional)…"
+        placeholder={t('approvals.decisionNote')}
         value={comment}
         onChange={e => setComment(e.target.value)}
         style={{ marginBottom: 8, resize: 'none' }}
@@ -212,23 +215,23 @@ function ActionPanel({ req, onDone }) {
         {canCancel && (
           <button className="btn btn-outline btn-sm" onClick={() => act('cancel')} disabled={!!loading}
             style={{ color: 'var(--text-3)' }}>
-            {loading === 'cancel' ? 'Cancelling…' : 'Cancel Request'}
+            {loading === 'cancel' ? t('approvals.cancelling') : t('approvals.cancelRequest')}
           </button>
         )}
         {canForce && (
           <button className="btn btn-outline btn-sm" onClick={() => act('force-approve')} disabled={!!loading}
             style={{ color: '#7c3aed', borderColor: '#7c3aed' }}
-            title="Approve immediately, skipping any remaining steps">
-            {loading === 'force-approve' ? 'Forcing…' : '⚡ Force Approve'}
+            title={t('approvals.forceApproveTitle')}>
+            {loading === 'force-approve' ? t('approvals.forcing') : t('approvals.forceApprove')}
           </button>
         )}
         {canAct && <>
           <button className="btn btn-outline btn-sm" onClick={() => act('reject')} disabled={!!loading}
             style={{ color: 'var(--red)', borderColor: 'var(--red)' }}>
-            {loading === 'reject' ? 'Rejecting…' : '✗ Reject'}
+            {loading === 'reject' ? t('approvals.rejecting') : t('approvals.reject')}
           </button>
           <button className="btn btn-primary btn-sm" onClick={() => act('approve')} disabled={!!loading}>
-            {loading === 'approve' ? 'Approving…' : '✓ Approve'}
+            {loading === 'approve' ? t('approvals.approving') : t('approvals.approve')}
           </button>
         </>}
       </div>
@@ -239,6 +242,7 @@ function ActionPanel({ req, onDone }) {
 // ── Request Row ─────────────────────────────────────────────────────────────
 
 function RequestRow({ req, onRefresh }) {
+  const { t } = useLocale();
   const [expanded, setExpanded] = useState(false);
   const snapshot = req.entity_snapshot || {};
 
@@ -263,11 +267,11 @@ function RequestRow({ req, onRefresh }) {
         <td><StepTimeline steps={req.steps_detail} currentStep={req.current_step} /></td>
         <td style={{ fontSize: 12, color: 'var(--text-2)' }}>
           {req.requester_name || '—'}
-          <div style={{ fontSize: 10, color: 'var(--text-3)' }}>{timeAgo(req.requested_at)}</div>
+          <div style={{ fontSize: 10, color: 'var(--text-3)' }}>{timeAgo(req.requested_at, t)}</div>
         </td>
         <td style={{ fontSize: 12, color: 'var(--text-2)' }}>
           {req.status !== 'pending'
-            ? <>{req.resolver_name || '—'}<div style={{ fontSize: 10, color: 'var(--text-3)' }}>{timeAgo(req.resolved_at)}</div></>
+            ? <>{req.resolver_name || '—'}<div style={{ fontSize: 10, color: 'var(--text-3)' }}>{timeAgo(req.resolved_at, t)}</div></>
             : <span style={{ color: 'var(--text-3)' }}>—</span>}
         </td>
       </tr>
@@ -279,7 +283,7 @@ function RequestRow({ req, onRefresh }) {
               {Object.keys(snapshot).length > 0 && (
                 <div style={{ marginBottom: 12 }}>
                   <div style={{ fontSize: 11, fontWeight: 700, color: 'var(--text-3)', marginBottom: 6, textTransform: 'uppercase', letterSpacing: '.5px' }}>
-                    Snapshot at time of request
+                    {t('approvals.snapshot')}
                   </div>
                   <div style={{ display: 'flex', flexWrap: 'wrap', gap: 8 }}>
                     {Object.entries(snapshot).map(([k, v]) => (
@@ -294,7 +298,7 @@ function RequestRow({ req, onRefresh }) {
 
               <div style={{ marginBottom: 12 }}>
                 <div style={{ fontSize: 11, fontWeight: 700, color: 'var(--text-3)', marginBottom: 6, textTransform: 'uppercase', letterSpacing: '.5px' }}>
-                  Approval Steps
+                  {t('approvals.approvalSteps')}
                 </div>
                 <div style={{ display: 'flex', flexDirection: 'column', gap: 6 }}>
                   {(req.steps_detail || []).map(s => {
@@ -307,9 +311,9 @@ function RequestRow({ req, onRefresh }) {
                           background: `${cfg.color}22`, fontSize: 11, color: cfg.color, fontWeight: 700,
                         }}>{s.step_number}</div>
                         <span style={{ color: 'var(--text)', fontWeight: 600, minWidth: 140 }}>{s.approver_role}</span>
-                        <span style={{ color: cfg.color, fontWeight: 600, fontSize: 11 }}>{s.status.toUpperCase()}</span>
-                        {s.actor_name && <span style={{ color: 'var(--text-3)' }}>by {s.actor_name}</span>}
-                        {s.acted_at   && <span style={{ color: 'var(--text-3)' }}>· {timeAgo(s.acted_at)}</span>}
+                        <span style={{ color: cfg.color, fontWeight: 600, fontSize: 11 }}>{t('approvals.step_' + s.status)}</span>
+                        {s.actor_name && <span style={{ color: 'var(--text-3)' }}>{t('approvals.by')} {s.actor_name}</span>}
+                        {s.acted_at   && <span style={{ color: 'var(--text-3)' }}>· {timeAgo(s.acted_at, t)}</span>}
                         {s.comment    && <span style={{ color: 'var(--text-2)', fontStyle: 'italic' }}>"{s.comment}"</span>}
                       </div>
                     );
@@ -319,7 +323,7 @@ function RequestRow({ req, onRefresh }) {
 
               {req.resolution_comment && (
                 <div style={{ fontSize: 12, color: 'var(--text-2)', padding: '6px 10px', borderLeft: '3px solid var(--border)', marginBottom: 12 }}>
-                  <strong>Final comment:</strong> {req.resolution_comment}
+                  <strong>{t('approvals.finalComment')}:</strong> {req.resolution_comment}
                 </div>
               )}
 
@@ -336,11 +340,11 @@ function RequestRow({ req, onRefresh }) {
 // ── Main Page ───────────────────────────────────────────────────────────────
 
 const TABS = [
-  { key: 'all',      label: 'All Requests' },
-  { key: 'pending',  label: 'Pending' },
-  { key: 'mine',     label: 'My Requests' },
-  { key: 'approved', label: 'Approved' },
-  { key: 'rejected', label: 'Rejected' },
+  { key: 'all',      labelKey: 'tabAll' },
+  { key: 'pending',  labelKey: 'tabPending' },
+  { key: 'mine',     labelKey: 'tabMine' },
+  { key: 'approved', labelKey: 'tabApproved' },
+  { key: 'rejected', labelKey: 'tabRejected' },
 ];
 
 const MODULE_OPTIONS = ['expense', 'invoice', 'purchase', 'project'];
@@ -387,9 +391,9 @@ export default function ApprovalRequests() {
 
       <div style={{ display: 'grid', gridTemplateColumns: 'repeat(3, 1fr)', gap: 12, marginBottom: 20 }}>
         {[
-          { label: 'Pending',  value: pending,  accent: '#b45309', bg: '#fef3c7' },
-          { label: 'Approved', value: approved, accent: '#16a34a', bg: '#dcfce7' },
-          { label: 'Rejected', value: rejected, accent: '#dc2626', bg: '#fee2e2' },
+          { label: t('approvals.statusPending'), value: pending,  accent: '#b45309', bg: '#fef3c7' },
+          { label: t('approvals.approved'),      value: approved, accent: '#16a34a', bg: '#dcfce7' },
+          { label: t('approvals.rejected'),      value: rejected, accent: '#dc2626', bg: '#fee2e2' },
         ].map(c => (
           <div key={c.label} className="stat-card" style={{ background: c.bg }}>
             <div className="stat-label" style={{ color: c.accent }}>{c.label}</div>
@@ -404,13 +408,13 @@ export default function ApprovalRequests() {
             <button key={tb.key}
               className={`tab-btn${tab === tb.key ? ' active' : ''}`}
               onClick={() => setTab(tb.key)}>
-              {tb.label}
+              {t('approvals.' + tb.labelKey)}
             </button>
           ))}
         </div>
         <select className="form-control" style={{ width: 160, marginLeft: 'auto' }}
           value={modFil} onChange={e => setModFil(e.target.value)}>
-          <option value="">All Modules</option>
+          <option value="">{t('common.allModules')}</option>
           {MODULE_OPTIONS.map(m => (
             <option key={m} value={m}>{m.charAt(0).toUpperCase() + m.slice(1)}</option>
           ))}
@@ -424,18 +428,18 @@ export default function ApprovalRequests() {
               <thead>
                 <tr>
                   <th style={{ width: 28 }} />
-                  <th>Entity / Policy</th>
-                  <th>Module</th>
-                  <th>Status</th>
-                  <th>Approval Chain</th>
-                  <th>Requested By</th>
-                  <th>Resolved By</th>
+                  <th>{t('approvals.entityPolicy')}</th>
+                  <th>{t('approvals.module')}</th>
+                  <th>{t('common.status')}</th>
+                  <th>{t('approvals.approvalChain')}</th>
+                  <th>{t('approvals.requestedBy')}</th>
+                  <th>{t('approvals.resolvedBy')}</th>
                 </tr>
               </thead>
               <tbody>
                 {safeReqs.length === 0 ? (
                   <tr><td colSpan={7} style={{ textAlign: 'center', padding: 48, color: 'var(--text-3)' }}>
-                    No requests found.
+                    {t('approvals.noRequests')}
                   </td></tr>
                 ) : safeReqs.map(req => (
                   <RequestRow key={req.id} req={req} onRefresh={reload} />

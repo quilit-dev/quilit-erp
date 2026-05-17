@@ -224,13 +224,31 @@ def unarchive_department(
 # EMPLOYEES
 # ══════════════════════════════════════════════════════════════════════════════
 
-_EMPLOYEE_SELECT = """
+# Fixed literal statements. The list query's filters are each a no-op when the
+# bound value is NULL, so no user input is ever concatenated into the SQL text.
+_EMPLOYEE_BY_ID = """
     SELECT e.*,
            d.name  AS department_name,
            m.full_name AS manager_name
     FROM hr_employees e
     LEFT JOIN hr_departments d ON e.department_id = d.id
     LEFT JOIN hr_employees   m ON e.manager_id    = m.id
+    WHERE e.id = ?
+"""
+
+_EMPLOYEE_LIST_SQL = """
+    SELECT e.*,
+           d.name  AS department_name,
+           m.full_name AS manager_name
+    FROM hr_employees e
+    LEFT JOIN hr_departments d ON e.department_id = d.id
+    LEFT JOIN hr_employees   m ON e.manager_id    = m.id
+    WHERE e.archived_at IS NULL
+      AND (? IS NULL OR (e.full_name LIKE ? OR e.job_title LIKE ?
+                         OR e.employee_code LIKE ? OR e.email LIKE ?))
+      AND (? IS NULL OR e.department_id = ?)
+      AND (? IS NULL OR e.status = ?)
+    ORDER BY e.full_name ASC
 """
 
 
@@ -260,20 +278,10 @@ def list_employees(
     user=Depends(require_perm("hr", "view")),
     db: sqlite3.Connection = Depends(get_db),
 ):
-    query  = _EMPLOYEE_SELECT + " WHERE e.archived_at IS NULL"
-    params: list = []
-    if search:
-        query += " AND (e.full_name LIKE ? OR e.job_title LIKE ? OR e.employee_code LIKE ? OR e.email LIKE ?)"
-        q = f"%{search}%"
-        params += [q, q, q, q]
-    if department_id:
-        query += " AND e.department_id = ?"
-        params.append(department_id)
-    if status:
-        query += " AND e.status = ?"
-        params.append(status)
-    query += " ORDER BY e.full_name ASC"
-    return [dict(r) for r in db.execute(query, params).fetchall()]
+    like = f"%{search}%" if search else None
+    params = [search, like, like, like, like,
+              department_id, department_id, status, status]
+    return [dict(r) for r in db.execute(_EMPLOYEE_LIST_SQL, params).fetchall()]
 
 
 @router.get("/employees/{emp_id}")
@@ -282,7 +290,7 @@ def get_employee(
     user=Depends(require_perm("hr", "view")),
     db: sqlite3.Connection = Depends(get_db),
 ):
-    row = db.execute(_EMPLOYEE_SELECT + " WHERE e.id=?", (emp_id,)).fetchone()
+    row = db.execute(_EMPLOYEE_BY_ID, (emp_id,)).fetchone()
     if not row:
         raise HTTPException(404, "Employee not found")
     result = dict(row)

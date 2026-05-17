@@ -117,6 +117,25 @@ def get_unread_count(
     return {"unread_count": count}
 
 
+# Fixed literal queries. Each optional filter is a no-op when its bound value is
+# NULL, so no user input is ever concatenated into the SQL text.
+_NOTIF_COUNT_SQL = """
+    SELECT COUNT(*) FROM notifications
+     WHERE (user_id IS NULL OR user_id = ?)
+       AND (? IS NULL OR is_read = 0)
+       AND (? IS NULL OR type = ?)
+"""
+
+_NOTIF_LIST_SQL = """
+    SELECT * FROM notifications
+     WHERE (user_id IS NULL OR user_id = ?)
+       AND (? IS NULL OR is_read = 0)
+       AND (? IS NULL OR type = ?)
+     ORDER BY is_read ASC, created_at DESC
+     LIMIT ? OFFSET ?
+"""
+
+
 @router.get("/")
 def list_notifications(
     limit:  int = Query(60, ge=1, le=200),
@@ -133,32 +152,21 @@ def list_notifications(
     except Exception:
         pass
 
-    where = ["(user_id IS NULL OR user_id = ?)"]
-    params: list = [user["id"]]
+    # Positional binds shared by the count and list queries, in clause order.
+    notif_params = [
+        user["id"],
+        1 if unread_only else None,
+        type_filter, type_filter,
+    ]
 
-    if unread_only:
-        where.append("is_read = 0")
-    if type_filter:
-        where.append("type = ?")
-        params.append(type_filter)
-
-    where_sql = " AND ".join(where)
-
-    total = db.execute(
-        f"SELECT COUNT(*) FROM notifications WHERE {where_sql}", params
-    ).fetchone()[0]
+    total = db.execute(_NOTIF_COUNT_SQL, notif_params).fetchone()[0]
 
     unread_count = db.execute(
         "SELECT COUNT(*) FROM notifications WHERE (user_id IS NULL OR user_id=?) AND is_read=0",
         (user["id"],),
     ).fetchone()[0]
 
-    rows = db.execute(
-        f"""SELECT * FROM notifications WHERE {where_sql}
-            ORDER BY is_read ASC, created_at DESC
-            LIMIT ? OFFSET ?""",
-        params + [limit, offset],
-    ).fetchall()
+    rows = db.execute(_NOTIF_LIST_SQL, notif_params + [limit, offset]).fetchall()
 
     return {
         "notifications": [dict(r) for r in rows],

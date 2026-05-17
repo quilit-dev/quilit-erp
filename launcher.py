@@ -99,7 +99,12 @@ try:
     backup_manager.init(DB_PATH)
 
     app = FastAPI(title='ERP System')
-    app.add_middleware(CORSMiddleware, allow_origins=['*'],
+    # Restrict CORS to the exact origins this server is reachable on — the SPA
+    # is served same-origin, so a wildcard policy is unnecessary and unsafe.
+    app.add_middleware(CORSMiddleware,
+                       allow_origins=[f'http://localhost:{PORT}',
+                                      f'http://127.0.0.1:{PORT}',
+                                      f'http://{LAN_IP}:{PORT}'],
                        allow_credentials=False, allow_methods=['*'], allow_headers=['*'])
 
     app.include_router(auth.router,               prefix='/api/auth')

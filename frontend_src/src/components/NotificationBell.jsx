@@ -82,7 +82,6 @@ export default function NotificationBell() {
   const [unread, setUnread]       = useState(0);
   const [loading, setLoading]     = useState(false);
   const wrapRef                   = useRef(null);
-  const prevUnread                = useRef(0);
 
   const fetchCount = useCallback(async () => {
     try {

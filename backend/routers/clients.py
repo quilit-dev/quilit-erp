@@ -115,6 +115,11 @@ def create_client(data: ClientCreate, user=Depends(require_perm("clients", "crea
 
 @router.put("/{client_id}")
 def update_client(client_id: int, data: ClientCreate, user=Depends(require_perm("clients", "edit")), db: sqlite3.Connection = Depends(get_db)):
+    # A soft-deleted (or non-existent) client must not be updatable.
+    if not db.execute(
+        "SELECT 1 FROM clients WHERE id=? AND deleted_at IS NULL", (client_id,)
+    ).fetchone():
+        raise HTTPException(404, "Client not found")
     db.execute(
         "UPDATE clients SET name=?, company=?, phone=?, email=?, address=?, type=?, notes=? WHERE id=?",
         (data.name, data.company, data.phone, data.email, data.address, data.type, data.notes, client_id)

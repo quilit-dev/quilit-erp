@@ -60,6 +60,12 @@ export const api = {
   delete: (p, s)    => request('DELETE', p, undefined, s),
 };
 
+// Build a query-string suffix ("?a=1&b=2" or "") from a params object.
+const _qs = (params = {}) => {
+  const q = new URLSearchParams(params).toString();
+  return q ? '?' + q : '';
+};
+
 // Auth — login bypasses the shared interceptor so a 401 (wrong password)
 // is shown as "Invalid credentials" instead of "Session expired."
 export async function login(username, password) {
@@ -140,10 +146,7 @@ export const archivePurchase      = (id)   => api.patch(`/api/purchases/${id}/ar
 export const unarchivePurchase    = (id)   => api.patch(`/api/purchases/${id}/unarchive`);
 
 // Finance
-export const getFinanceSummary = (params = {}, s) => {
-  const q = new URLSearchParams(params).toString();
-  return api.get(`/api/finance/summary${q ? '?' + q : ''}`, s);
-};
+export const getFinanceSummary = (params = {}, s) => api.get(`/api/finance/summary${_qs(params)}`, s);
 export const getMonthlyReport = (s) => api.get('/api/finance/monthly', s);
 export const getExpenses        = (s) => api.get('/api/finance/expenses', s);
 export const createExpense      = (d) => api.post('/api/finance/expenses', d);
@@ -153,18 +156,9 @@ export const unarchiveExpense   = (id) => api.patch(`/api/finance/expenses/${id}
 export const voidExpense        = (id, reason) => api.patch(`/api/finance/expenses/${id}/void`, { reason });
 
 // Finance — range-based endpoints
-export const getFinanceRangeSummary = (params = {}, s) => {
-  const q = new URLSearchParams(params).toString();
-  return api.get(`/api/finance/range-summary${q ? '?' + q : ''}`, s);
-};
-export const getFinanceRangeMonthly = (params = {}, s) => {
-  const q = new URLSearchParams(params).toString();
-  return api.get(`/api/finance/range-monthly${q ? '?' + q : ''}`, s);
-};
-export const getFinanceRangeDetail = (params = {}, s) => {
-  const q = new URLSearchParams(params).toString();
-  return api.get(`/api/finance/range-detail${q ? '?' + q : ''}`, s);
-};
+export const getFinanceRangeSummary = (params = {}, s) => api.get(`/api/finance/range-summary${_qs(params)}`, s);
+export const getFinanceRangeMonthly = (params = {}, s) => api.get(`/api/finance/range-monthly${_qs(params)}`, s);
+export const getFinanceRangeDetail  = (params = {}, s) => api.get(`/api/finance/range-detail${_qs(params)}`, s);
 
 // Fetch existing categories from inventory table (already supported by your backend)
 export async function getCategories() {
@@ -173,7 +167,7 @@ export async function getCategories() {
   return res.json();
 }
 // Users (admin only)
-export const getUsers            = (params = {}) => { const q = new URLSearchParams(params).toString(); return api.get(`/api/users/${q ? '?' + q : ''}`); };
+export const getUsers            = (params = {}) => api.get(`/api/users/${_qs(params)}`);
 export const getUser             = (id)    => api.get(`/api/users/${id}`);
 export const createUser          = (d)     => api.post('/api/users/', d);
 export const updateUser          = (id, d) => api.put(`/api/users/${id}`, d);
@@ -193,10 +187,7 @@ export const setRolePermissions  = (id, d) => api.put(`/api/roles/${id}/permissi
 export const getRoleModules      = ()      => api.get('/api/roles/modules');
 
 // Suppliers
-export const getSuppliers      = (params = {}) => {
-  const q = new URLSearchParams(params).toString();
-  return api.get(`/api/suppliers/${q ? '?' + q : ''}`);
-};
+export const getSuppliers      = (params = {}) => api.get(`/api/suppliers/${_qs(params)}`);
 export const getSupplier       = (id)    => api.get(`/api/suppliers/${id}`);
 export const createSupplier    = (d)     => api.post('/api/suppliers/', d);
 export const updateSupplier    = (id, d) => api.put(`/api/suppliers/${id}`, d);
@@ -204,26 +195,17 @@ export const archiveSupplier   = (id)    => api.patch(`/api/suppliers/${id}/arch
 export const unarchiveSupplier = (id)    => api.patch(`/api/suppliers/${id}/unarchive`);
 
 // Audit log
-export const getAuditLog = (params = {}) => {
-  const q = new URLSearchParams(params).toString();
-  return api.get(`/api/audit/${q ? '?' + q : ''}`);
-};
+export const getAuditLog = (params = {}) => api.get(`/api/audit/${_qs(params)}`);
 export const purgeAuditLog = (olderThanDays) =>
   api.delete(`/api/audit/purge?older_than_days=${olderThanDays}`);
 
 // Archives
-export const getArchives    = (params = {}) => {
-  const q = new URLSearchParams(params).toString();
-  return api.get(q ? `/api/archives/?${q}` : '/api/archives/');
-};
+export const getArchives    = (params = {}) => api.get(`/api/archives/${_qs(params)}`);
 export const unarchiveItem = (module, id) => api.patch(`/api/archives/${module}/${id}/unarchive`);
 
 // Documents
 export const saveDocument       = (d)         => api.post('/api/documents/', d);
-export const getDocuments       = (params = {}) => {
-  const q = new URLSearchParams(params).toString();
-  return api.get(`/api/documents/${q ? '?' + q : ''}`);
-};
+export const getDocuments       = (params = {}) => api.get(`/api/documents/${_qs(params)}`);
 export const getDocumentContent = (id)        => api.get(`/api/documents/${id}/content`);
 export const deleteDocument     = (id)        => api.delete(`/api/documents/${id}`);
 
@@ -260,31 +242,31 @@ export function restoreBackup(file) {
 }
 
 // Reports
-export const getReportFinancial    = (params = {}, s) => { const q = new URLSearchParams(params).toString(); return api.get(`/api/reports/financial${q ? '?' + q : ''}`, s); };
-export const getReportProjects     = (params = {}, s) => { const q = new URLSearchParams(params).toString(); return api.get(`/api/reports/projects${q ? '?' + q : ''}`, s); };
-export const getReportClients      = (params = {}, s) => { const q = new URLSearchParams(params).toString(); return api.get(`/api/reports/clients${q ? '?' + q : ''}`, s); };
+export const getReportFinancial    = (params = {}, s) => api.get(`/api/reports/financial${_qs(params)}`, s);
+export const getReportProjects     = (params = {}, s) => api.get(`/api/reports/projects${_qs(params)}`, s);
+export const getReportClients      = (params = {}, s) => api.get(`/api/reports/clients${_qs(params)}`, s);
 export const getReportInvoiceAging = (s)              => api.get('/api/reports/invoice-aging', s);
-export const getReportExpenses     = (params = {}, s) => { const q = new URLSearchParams(params).toString(); return api.get(`/api/reports/expenses${q ? '?' + q : ''}`, s); };
-export const getReportPipeline     = (params = {}, s) => { const q = new URLSearchParams(params).toString(); return api.get(`/api/reports/pipeline${q ? '?' + q : ''}`, s); };
+export const getReportExpenses     = (params = {}, s) => api.get(`/api/reports/expenses${_qs(params)}`, s);
+export const getReportPipeline     = (params = {}, s) => api.get(`/api/reports/pipeline${_qs(params)}`, s);
 
 // CRM
 export const getCRMDashboard   = (s)              => api.get('/api/crm/dashboard', s);
-export const getCRMLeads       = (params = {}, s) => { const q = new URLSearchParams(params).toString(); return api.get(`/api/crm/leads${q ? '?' + q : ''}`, s); };
+export const getCRMLeads       = (params = {}, s) => api.get(`/api/crm/leads${_qs(params)}`, s);
 export const getCRMLead        = (id)             => api.get(`/api/crm/leads/${id}`);
 export const createCRMLead     = (d)              => api.post('/api/crm/leads', d);
 export const updateCRMLead     = (id, d)          => api.put(`/api/crm/leads/${id}`, d);
 export const archiveCRMLead    = (id)             => api.patch(`/api/crm/leads/${id}/archive`);
 export const convertCRMLead    = (id, d)          => api.post(`/api/crm/leads/${id}/convert`, d);
-export const getCRMContacts    = (params = {}, s) => { const q = new URLSearchParams(params).toString(); return api.get(`/api/crm/contacts${q ? '?' + q : ''}`, s); };
+export const getCRMContacts    = (params = {}, s) => api.get(`/api/crm/contacts${_qs(params)}`, s);
 export const createCRMContact  = (d)              => api.post('/api/crm/contacts', d);
 export const updateCRMContact  = (id, d)          => api.put(`/api/crm/contacts/${id}`, d);
 export const deleteCRMContact  = (id)             => api.delete(`/api/crm/contacts/${id}`);
-export const getCRMActivities  = (params = {}, s) => { const q = new URLSearchParams(params).toString(); return api.get(`/api/crm/activities${q ? '?' + q : ''}`, s); };
+export const getCRMActivities  = (params = {}, s) => api.get(`/api/crm/activities${_qs(params)}`, s);
 export const createCRMActivity = (d)              => api.post('/api/crm/activities', d);
 export const updateCRMActivity = (id, d)          => api.put(`/api/crm/activities/${id}`, d);
 export const toggleActivityDone = (id)            => api.patch(`/api/crm/activities/${id}/done`);
 export const deleteCRMActivity = (id)             => api.delete(`/api/crm/activities/${id}`);
-export const getCRMDeals       = (params = {}, s) => { const q = new URLSearchParams(params).toString(); return api.get(`/api/crm/deals${q ? '?' + q : ''}`, s); };
+export const getCRMDeals       = (params = {}, s) => api.get(`/api/crm/deals${_qs(params)}`, s);
 export const createCRMDeal     = (d)              => api.post('/api/crm/deals', d);
 export const updateCRMDeal     = (id, d)          => api.put(`/api/crm/deals/${id}`, d);
 export const updateDealStage   = (id, d)          => api.patch(`/api/crm/deals/${id}/stage`, d);
@@ -294,18 +276,18 @@ export const getCRMDropdownQuotations = ()         => api.get('/api/crm/dropdown
 export const getCRMDropdownUsers      = ()         => api.get('/api/crm/dropdown/users');
 
 // Planning
-export const getPlanningProjects    = (params = {}, s) => { const q = new URLSearchParams(params).toString(); return api.get(`/api/planning/projects${q ? '?' + q : ''}`, s); };
+export const getPlanningProjects    = (params = {}, s) => api.get(`/api/planning/projects${_qs(params)}`, s);
 export const createPlanningProject  = (d)              => api.post('/api/planning/projects', d);
 export const updatePlanningProject  = (id, d)          => api.put(`/api/planning/projects/${id}`, d);
 export const archivePlanningProject = (id)             => api.patch(`/api/planning/projects/${id}/archive`);
-export const getPlanningTasks       = (params = {}, s) => { const q = new URLSearchParams(params).toString(); return api.get(`/api/planning/tasks${q ? '?' + q : ''}`, s); };
+export const getPlanningTasks       = (params = {}, s) => api.get(`/api/planning/tasks${_qs(params)}`, s);
 export const createPlanningTask     = (d)              => api.post('/api/planning/tasks', d);
 export const updatePlanningTask     = (id, d)          => api.put(`/api/planning/tasks/${id}`, d);
 export const updateTaskDates        = (id, d)          => api.patch(`/api/planning/tasks/${id}/dates`, d);
 export const updateTaskStatus       = (id, d)          => api.patch(`/api/planning/tasks/${id}/status`, d);
 export const updateTaskProgress     = (id, d)          => api.patch(`/api/planning/tasks/${id}/progress`, d);
 export const archivePlanningTask    = (id)             => api.patch(`/api/planning/tasks/${id}/archive`);
-export const getPlanningMilestones  = (params = {}, s) => { const q = new URLSearchParams(params).toString(); return api.get(`/api/planning/milestones${q ? '?' + q : ''}`, s); };
+export const getPlanningMilestones  = (params = {}, s) => api.get(`/api/planning/milestones${_qs(params)}`, s);
 export const createPlanningMilestone = (d)             => api.post('/api/planning/milestones', d);
 export const updatePlanningMilestone = (id, d)         => api.put(`/api/planning/milestones/${id}`, d);
 export const deletePlanningMilestone = (id)            => api.delete(`/api/planning/milestones/${id}`);
@@ -320,7 +302,7 @@ export const unlockPeriod        = (year, month)   => api.post(`/api/finance/per
 export const getReconciliation   = ()              => api.get('/api/finance/reconciliation');
 
 // Notifications
-export const getNotifications      = (params = {}) => { const q = new URLSearchParams(params).toString(); return api.get(`/api/notifications/${q ? '?' + q : ''}`); };
+export const getNotifications      = (params = {}) => api.get(`/api/notifications/${_qs(params)}`);
 export const getNotificationCount  = ()            => api.get('/api/notifications/count');
 export const markNotificationRead  = (id)          => api.patch(`/api/notifications/${id}/read`);
 export const markAllNotificationsRead = ()          => api.patch('/api/notifications/mark-all-read');
@@ -336,7 +318,7 @@ export const toggleApprovalPolicy   = (id)      => api.patch(`/api/approval-poli
 export const deleteApprovalPolicy   = (id)      => api.delete(`/api/approval-policies/${id}`);
 
 // Approval Requests
-export const getApprovalRequests    = (params = {}) => { const q = new URLSearchParams(params).toString(); return api.get(`/api/approval-requests/${q ? '?' + q : ''}`); };
+export const getApprovalRequests    = (params = {}) => api.get(`/api/approval-requests/${_qs(params)}`);
 export const getApprovalRequest     = (id)          => api.get(`/api/approval-requests/${id}`);
 export const getApprovalCount       = ()             => api.get('/api/approval-requests/count');
 export const approveRequest         = (id, d = {})  => api.post(`/api/approval-requests/${id}/approve`, d);
@@ -346,7 +328,6 @@ export const cancelApprovalRequest  = (id, d = {})  => api.post(`/api/approval-r
 export const addApprovalComment     = (id, comment) => api.post(`/api/approval-requests/${id}/comments`, { comment });
 
 // Human Resources
-const _qs = (params) => { const q = new URLSearchParams(params).toString(); return q ? '?' + q : ''; };
 export const getHRSummary        = ()            => api.get('/api/hr/summary');
 export const getDepartments      = ()            => api.get('/api/hr/departments');
 export const createDepartment    = (d)           => api.post('/api/hr/departments', d);
@@ -365,7 +346,7 @@ export const rejectLeave         = (id, d = {})  => api.post(`/api/hr/leave/${id
 export const deleteLeaveRequest  = (id)          => api.delete(`/api/hr/leave/${id}`);
 
 // Recycle Bin
-export const getRecycleBin      = (params = {}) => { const q = new URLSearchParams(params).toString(); return api.get(`/api/recycle_bin/${q ? '?' + q : ''}`); };
+export const getRecycleBin      = (params = {}) => api.get(`/api/recycle_bin/${_qs(params)}`);
 export const restoreItem        = (module, id)  => api.post(`/api/recycle_bin/restore/${module}/${id}`);
 export const purgeItem          = (module, id)  => api.delete(`/api/recycle_bin/${module}/${id}`);
 export const bulkRestoreItems   = (items)       => api.post('/api/recycle_bin/bulk-restore', { items });

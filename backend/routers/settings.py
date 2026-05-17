@@ -8,7 +8,7 @@ from fastapi.responses import FileResponse
 from pydantic import BaseModel
 from typing import Optional
 from database import get_db, DB_PATH
-from permissions import require_perm, require_auth, require_admin
+from permissions import require_auth, require_admin
 import sqlite3, os, shutil, tempfile, sys
 
 router = APIRouter()

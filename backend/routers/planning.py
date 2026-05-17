@@ -4,7 +4,7 @@ Interactive project planning with Gantt, Board, List, and Calendar views.
 """
 from fastapi import APIRouter, Depends, HTTPException, Query
 from pydantic import BaseModel
-from typing import Optional, List
+from typing import Optional
 from database import get_db
 from permissions import require_perm
 from routers.audit import log_action
@@ -162,15 +162,24 @@ def update_project(
     user=Depends(require_perm("planning", "edit")),
     db: sqlite3.Connection = Depends(get_db),
 ):
-    _ALLOWED_PROJECT = {'name','description','client_id','color','start_date','end_date','status'}
     row = db.execute("SELECT id FROM planning_projects WHERE id=? AND archived_at IS NULL", (pid,)).fetchone()
     if not row:
         raise HTTPException(status_code=404, detail="Project not found")
-    fields = {k: v for k, v in body.dict().items() if v is not None and k in _ALLOWED_PROJECT}
-    if not fields:
+    # Fixed column list; COALESCE keeps the existing value when a field is None,
+    # so the statement is a constant literal with no interpolated identifiers.
+    data   = body.dict()
+    cols   = ('name', 'description', 'client_id', 'color', 'start_date', 'end_date', 'status')
+    values = [data.get(c) for c in cols]
+    if all(v is None for v in values):
         return {"message": "Nothing to update"}
-    set_clause = ", ".join(f"{k}=?" for k in fields)
-    db.execute(f"UPDATE planning_projects SET {set_clause} WHERE id=?", list(fields.values()) + [pid])
+    db.execute(
+        "UPDATE planning_projects SET "
+        "name=COALESCE(?,name), description=COALESCE(?,description), "
+        "client_id=COALESCE(?,client_id), color=COALESCE(?,color), "
+        "start_date=COALESCE(?,start_date), end_date=COALESCE(?,end_date), "
+        "status=COALESCE(?,status) WHERE id=?",
+        values + [pid],
+    )
     db.commit()
     log_action(db, user, "edit", "planning", pid, body.name or str(pid))
     return {"message": "Project updated"}
@@ -281,15 +290,25 @@ def update_task(
     user=Depends(require_perm("planning", "edit")),
     db: sqlite3.Connection = Depends(get_db),
 ):
-    _ALLOWED_TASK = {'name','description','assigned_to','status','priority','start_date','end_date','progress','milestone_id','depends_on','color','sort_order'}
     row = db.execute("SELECT id FROM planning_tasks WHERE id=? AND archived_at IS NULL", (tid,)).fetchone()
     if not row:
         raise HTTPException(status_code=404, detail="Task not found")
-    fields = {k: v for k, v in body.dict().items() if v is not None and k in _ALLOWED_TASK}
-    if not fields:
+    data   = body.dict()
+    cols   = ('name', 'description', 'assigned_to', 'status', 'priority', 'start_date',
+              'end_date', 'progress', 'milestone_id', 'depends_on', 'color', 'sort_order')
+    values = [data.get(c) for c in cols]
+    if all(v is None for v in values):
         return {"message": "Nothing to update"}
-    set_clause = ", ".join(f"{k}=?" for k in fields)
-    db.execute(f"UPDATE planning_tasks SET {set_clause} WHERE id=?", list(fields.values()) + [tid])
+    db.execute(
+        "UPDATE planning_tasks SET "
+        "name=COALESCE(?,name), description=COALESCE(?,description), "
+        "assigned_to=COALESCE(?,assigned_to), status=COALESCE(?,status), "
+        "priority=COALESCE(?,priority), start_date=COALESCE(?,start_date), "
+        "end_date=COALESCE(?,end_date), progress=COALESCE(?,progress), "
+        "milestone_id=COALESCE(?,milestone_id), depends_on=COALESCE(?,depends_on), "
+        "color=COALESCE(?,color), sort_order=COALESCE(?,sort_order) WHERE id=?",
+        values + [tid],
+    )
     db.commit()
     log_action(db, user, "edit", "planning", tid, body.name or str(tid))
     return {"message": "Task updated"}
@@ -404,12 +423,17 @@ def update_milestone(
     user=Depends(require_perm("planning", "edit")),
     db: sqlite3.Connection = Depends(get_db),
 ):
-    _ALLOWED_MILESTONE = {'name','due_date','reached_at'}
-    fields = {k: v for k, v in body.dict().items() if v is not None and k in _ALLOWED_MILESTONE}
-    if not fields:
+    data   = body.dict()
+    cols   = ('name', 'due_date', 'reached_at')
+    values = [data.get(c) for c in cols]
+    if all(v is None for v in values):
         return {"message": "Nothing to update"}
-    set_clause = ", ".join(f"{k}=?" for k in fields)
-    db.execute(f"UPDATE planning_milestones SET {set_clause} WHERE id=?", list(fields.values()) + [mid])
+    db.execute(
+        "UPDATE planning_milestones SET "
+        "name=COALESCE(?,name), due_date=COALESCE(?,due_date), "
+        "reached_at=COALESCE(?,reached_at) WHERE id=?",
+        values + [mid],
+    )
     db.commit()
     return {"message": "Milestone updated"}
 

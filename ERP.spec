@@ -13,39 +13,82 @@ a = Analysis(
         # Ship the entire backend folder as real files on disk next to the exe.
         # PyInstaller's pathex makes Python *find* the modules, but without datas
         # the .py files don't actually exist on disk — so sys.path tricks fail.
-        ('backend',  'backend'),
-        ('static',   'static'),
+        ('backend', 'backend'),
+        ('static',  'static'),
     ] + uvicorn_datas + fastapi_datas + anyio_datas,
     hiddenimports=[
+        # FastAPI / Starlette
         'fastapi', 'fastapi.middleware', 'fastapi.middleware.cors',
-        'fastapi.responses',
+        'fastapi.responses', 'fastapi.staticfiles',
         'starlette', 'starlette.middleware', 'starlette.middleware.cors',
-        'starlette.responses', 'starlette.routing',
+        'starlette.responses', 'starlette.routing', 'starlette.staticfiles',
+
+        # Uvicorn
         'uvicorn', 'uvicorn.loops', 'uvicorn.loops.asyncio',
         'uvicorn.protocols.http', 'uvicorn.protocols.http.auto',
         'uvicorn.protocols.http.h11_impl',
         'uvicorn.protocols.websockets', 'uvicorn.protocols.websockets.auto',
         'uvicorn.lifespan', 'uvicorn.lifespan.on',
+
+        # Async / networking
         'anyio', 'anyio._backends._asyncio',
-        'pydantic', 'pydantic.networks', 'pydantic.types', 'pydantic_core',
-        'jwt', 'jwt.algorithms',
-        'sqlite3', 'hashlib', 'hmac', 'base64',
-        'multipart', 'python_multipart',
         'h11', 'httptools', 'websockets',
-        'routers', 'routers.auth', 'routers.dashboard',
-        'routers.clients', 'routers.projects', 'routers.quotations',
-        'routers.inventory', 'routers.invoices', 'routers.finance',
-        'routers.purchases', 'routers.settings', 'routers.recycle_bin',
-        'routers.suppliers', 'routers.audit', 'routers.users', 'routers.roles',
-        'routers.search',
+
+        # Pydantic
+        'pydantic', 'pydantic.networks', 'pydantic.types', 'pydantic_core',
+
+        # Auth
+        'jwt', 'jwt.algorithms',
+        'python_dotenv', 'dotenv',
+
+        # File uploads
+        'multipart', 'python_multipart',
+
+        # Stdlib used explicitly
+        'sqlite3', 'hashlib', 'hmac', 'base64',
+        'socket', 'threading', 'webbrowser', 'traceback',
+
+        # Backend core modules
         'database', 'auth_utils', 'backup_manager', 'permissions', 'utils',
+        'approval_engine',
+
+        # All routers (keep in sync with launcher.py imports)
+        'routers',
+        'routers.auth',
+        'routers.dashboard',
+        'routers.clients',
+        'routers.projects',
+        'routers.quotations',
+        'routers.inventory',
+        'routers.invoices',
+        'routers.finance',
+        'routers.purchases',
+        'routers.settings',
+        'routers.archives',
+        'routers.documents',
+        'routers.suppliers',
+        'routers.audit',
+        'routers.users',
+        'routers.roles',
+        'routers.search',
+        'routers.reports',
+        'routers.crm',
+        'routers.planning',
+        'routers.recycle_bin',
+        'routers.notifications',
+        'routers.approval_policies',
+        'routers.approval_requests',
+        'routers.hr',
     ] + uvicorn_hiddenimports + fastapi_hiddenimports + anyio_hiddenimports
       + collect_submodules('starlette')
       + collect_submodules('pydantic'),
     hookspath=[],
     runtime_hooks=[],
-    excludes=['tkinter', 'matplotlib', 'numpy', 'pandas', 'PIL', 'cv2',
-              'scipy', 'sklearn', 'torch', 'tensorflow'],
+    excludes=[
+        'tkinter', 'matplotlib', 'numpy', 'pandas', 'PIL', 'cv2',
+        'scipy', 'sklearn', 'torch', 'tensorflow',
+        'IPython', 'notebook', 'pytest',
+    ],
     noarchive=False,
 )
 

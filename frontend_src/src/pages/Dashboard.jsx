@@ -2,7 +2,8 @@ import { useData } from '../hooks/useData';
 import { getDashboard, getMonthlyReport } from '../api/client';
 import { LoadingSpinner, ErrorAlert, fmt as fmtStatic } from '../components/shared';
 import { useLocale } from '../hooks/useLocale.jsx';
-import { useState, useEffect } from 'react';
+import { useState } from 'react';
+import { useNavigate } from 'react-router-dom';
 
 // ── Sparkline ───────────────────────────────────────────────────
 function Sparkline({ data = [], color = 'var(--accent)', height = 32, width = 80 }) {
@@ -86,17 +87,33 @@ function BarChart({ data = [], height = 160 }) {
 }
 
 // ── KPI Card ─────────────────────────────────────────────────────
-function KpiCard({ label, value, sub, icon, accentColor, accentBg, sparkData, trend }) {
+function KpiCard({ label, value, sub, icon, accentColor, accentBg, sparkData, trend, onClick }) {
+  const [hover, setHover] = useState(false);
+  const clickable = !!onClick;
   return (
-    <div className="stat-card" style={{ '--card-accent': accentColor }}>
+    <div
+      className="stat-card"
+      onClick={onClick}
+      onMouseEnter={() => setHover(true)}
+      onMouseLeave={() => setHover(false)}
+      style={{
+        '--card-accent': accentColor,
+        cursor: clickable ? 'pointer' : 'default',
+        transition: 'transform .15s ease, box-shadow .15s ease',
+        transform: clickable && hover ? 'translateY(-2px)' : 'none',
+        boxShadow: clickable && hover ? '0 8px 22px rgba(15,23,42,.12)' : undefined,
+      }}
+    >
       <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', marginBottom: 10 }}>
         <div style={{ width: 34, height: 34, borderRadius: 9, background: accentBg || 'var(--surface-2)', display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: 16 }}>
           {icon}
         </div>
-        {trend != null && (
+        {trend != null ? (
           <span className={trend >= 0 ? 'trend-up' : 'trend-down'}>
             {trend >= 0 ? '↑' : '↓'} {Math.abs(trend)}%
           </span>
+        ) : clickable && (
+          <span style={{ fontSize: 15, fontWeight: 700, color: accentColor || 'var(--accent)', opacity: hover ? 1 : 0, transition: 'opacity .15s' }}>→</span>
         )}
       </div>
       <div className="stat-label">{label}</div>
@@ -136,11 +153,27 @@ function HealthRing({ score = 0 }) {
 }
 
 // ── Insight row ──────────────────────────────────────────────────
-function Insight({ icon, text, color }) {
+function Insight({ icon, text, color, onClick }) {
+  const [hover, setHover] = useState(false);
+  const clickable = !!onClick;
   return (
-    <div style={{ display: 'flex', alignItems: 'center', gap: 8, fontSize: 12, padding: '4px 0' }}>
+    <div
+      onClick={onClick}
+      onMouseEnter={() => setHover(true)}
+      onMouseLeave={() => setHover(false)}
+      style={{
+        display: 'flex', alignItems: 'center', gap: 8, fontSize: 12,
+        padding: '4px 6px', margin: '0 -6px', borderRadius: 6,
+        cursor: clickable ? 'pointer' : 'default',
+        background: clickable && hover ? 'var(--surface-3)' : 'transparent',
+        transition: 'background .15s',
+      }}
+    >
       <div style={{ width: 20, height: 20, borderRadius: 5, background: color + '20', display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: 11, flexShrink: 0 }}>{icon}</div>
-      <span style={{ color: 'var(--text-2)' }}>{text}</span>
+      <span style={{ color: 'var(--text-2)', flex: 1 }}>{text}</span>
+      {clickable && (
+        <span style={{ fontSize: 11, color: 'var(--text-3)', opacity: hover ? 1 : 0, transition: 'opacity .15s' }}>→</span>
+      )}
     </div>
   );
 }
@@ -150,6 +183,7 @@ export default function Dashboard() {
   const { data, loading, error, reload } = useData(getDashboard);
   const { data: monthly } = useData(getMonthlyReport);
   const { t, fmt, isRTL } = useLocale();
+  const navigate = useNavigate();
 
   if (loading) return <LoadingSpinner />;
   if (error)   return <ErrorAlert message={error} onRetry={reload} />;
@@ -208,21 +242,21 @@ export default function Dashboard() {
       {/* Primary KPIs — finance/invoice-gated */}
       {(canFinance || canInvoices) && (
         <div className="stats-grid" style={{ gridTemplateColumns: 'repeat(auto-fit, minmax(190px, 1fr))' }}>
-          {canFinance && <KpiCard label={t('dashboard.monthlyRevenue')}  value={fmt(income)}     sub={t('dashboard.collectedThisMonth')}    icon="💰" accentColor="var(--green)"  accentBg="var(--green-light)"  sparkData={incSpark} />}
-          {canFinance && <KpiCard label={t('dashboard.monthlyExpenses')} value={fmt(expenses)}   sub={t('dashboard.operatingCosts')}          icon="📉" accentColor="var(--red)"    accentBg="var(--red-light)"    sparkData={expSpark} />}
-          {canFinance && <KpiCard label={t('dashboard.netProfit')}       value={fmt(profit)}     sub={t('dashboard.margin', { pct: margin })} icon={profit >= 0 ? '📈' : '⚠️'} accentColor={profit >= 0 ? 'var(--green)' : 'var(--red)'} accentBg={profit >= 0 ? 'var(--green-light)' : 'var(--red-light)'} sparkData={profSpark} />}
-          {canInvoices && <KpiCard label={t('dashboard.unpaidInvoices')}  value={fmt(unpaidAmt)}  sub={t('dashboard.outstanding', { count: data.unpaid_invoices_count ?? 0 })} icon="🧾" accentColor={(data.unpaid_invoices_count ?? 0) > 0 ? 'var(--yellow)' : 'var(--green)'} accentBg={(data.unpaid_invoices_count ?? 0) > 0 ? 'var(--yellow-light)' : 'var(--green-light)'} />}
-          {canInvoices && <KpiCard label={t('dashboard.overdueInvoices')} value={fmt(overdueAmt)} sub={t('dashboard.pastDue', { count: overdueCount })} icon="⏰" accentColor={overdueCount > 0 ? 'var(--red)' : 'var(--green)'} accentBg={overdueCount > 0 ? 'var(--red-light)' : 'var(--green-light)'} />}
+          {canFinance && <KpiCard label={t('dashboard.monthlyRevenue')}  value={fmt(income)}     sub={t('dashboard.collectedThisMonth')}    icon="💰" accentColor="var(--green)"  accentBg="var(--green-light)"  sparkData={incSpark}  onClick={() => navigate('/finance')} />}
+          {canFinance && <KpiCard label={t('dashboard.monthlyExpenses')} value={fmt(expenses)}   sub={t('dashboard.operatingCosts')}          icon="📉" accentColor="var(--red)"    accentBg="var(--red-light)"    sparkData={expSpark}  onClick={() => navigate('/finance')} />}
+          {canFinance && <KpiCard label={t('dashboard.netProfit')}       value={fmt(profit)}     sub={t('dashboard.margin', { pct: margin })} icon={profit >= 0 ? '📈' : '⚠️'} accentColor={profit >= 0 ? 'var(--green)' : 'var(--red)'} accentBg={profit >= 0 ? 'var(--green-light)' : 'var(--red-light)'} sparkData={profSpark} onClick={() => navigate('/finance')} />}
+          {canInvoices && <KpiCard label={t('dashboard.unpaidInvoices')}  value={fmt(unpaidAmt)}  sub={t('dashboard.outstanding', { count: data.unpaid_invoices_count ?? 0 })} icon="🧾" accentColor={(data.unpaid_invoices_count ?? 0) > 0 ? 'var(--yellow)' : 'var(--green)'} accentBg={(data.unpaid_invoices_count ?? 0) > 0 ? 'var(--yellow-light)' : 'var(--green-light)'} onClick={() => navigate('/invoices')} />}
+          {canInvoices && <KpiCard label={t('dashboard.overdueInvoices')} value={fmt(overdueAmt)} sub={t('dashboard.pastDue', { count: overdueCount })} icon="⏰" accentColor={overdueCount > 0 ? 'var(--red)' : 'var(--green)'} accentBg={overdueCount > 0 ? 'var(--red-light)' : 'var(--green-light)'} onClick={() => navigate('/invoices')} />}
         </div>
       )}
 
       {/* Secondary KPIs */}
       {(canProjects || canQuotes || canInventory || canFinance) && (
         <div className="stats-grid" style={{ gridTemplateColumns: 'repeat(auto-fit, minmax(160px,1fr))', marginBottom: 20 }}>
-          {canProjects  && <KpiCard label={t('dashboard.activeProjects')} value={data.active_projects  ?? 0} icon="🏗"  accentColor="var(--blue)"   accentBg="var(--blue-light)" />}
-          {canQuotes    && <KpiCard label={t('dashboard.pendingQuotes')}  value={data.pending_quotes   ?? 0} icon="📋" accentColor="var(--purple)" accentBg="var(--purple-light)" />}
-          {canInventory && <KpiCard label={t('dashboard.lowStockItems')}  value={data.low_stock_alerts ?? 0} icon="📦" accentColor={(data.low_stock_alerts ?? 0) > 0 ? 'var(--red)' : 'var(--green)'} accentBg={(data.low_stock_alerts ?? 0) > 0 ? 'var(--red-light)' : 'var(--green-light)'} />}
-          {canFinance   && <KpiCard label={t('dashboard.profitMargin')}   value={`${margin}%`}               icon="📊" accentColor={margin > 15 ? 'var(--green)' : margin > 0 ? 'var(--yellow)' : 'var(--red)'} accentBg={margin > 15 ? 'var(--green-light)' : margin > 0 ? 'var(--yellow-light)' : 'var(--red-light)'} />}
+          {canProjects  && <KpiCard label={t('dashboard.activeProjects')} value={data.active_projects  ?? 0} icon="🏗"  accentColor="var(--blue)"   accentBg="var(--blue-light)" onClick={() => navigate('/projects')} />}
+          {canQuotes    && <KpiCard label={t('dashboard.pendingQuotes')}  value={data.pending_quotes   ?? 0} icon="📋" accentColor="var(--purple)" accentBg="var(--purple-light)" onClick={() => navigate('/quotations')} />}
+          {canInventory && <KpiCard label={t('dashboard.lowStockItems')}  value={data.low_stock_alerts ?? 0} icon="📦" accentColor={(data.low_stock_alerts ?? 0) > 0 ? 'var(--red)' : 'var(--green)'} accentBg={(data.low_stock_alerts ?? 0) > 0 ? 'var(--red-light)' : 'var(--green-light)'} onClick={() => navigate('/inventory')} />}
+          {canFinance   && <KpiCard label={t('dashboard.profitMargin')}   value={`${margin}%`}               icon="📊" accentColor={margin > 15 ? 'var(--green)' : margin > 0 ? 'var(--yellow)' : 'var(--red)'} accentBg={margin > 15 ? 'var(--green-light)' : margin > 0 ? 'var(--yellow-light)' : 'var(--red-light)'} onClick={() => navigate('/finance')} />}
         </div>
       )}
 
@@ -260,14 +294,14 @@ export default function Dashboard() {
               <HealthRing score={healthScore} />
               <div style={{ width: '100%', background: 'var(--surface-2)', borderRadius: 8, padding: '12px 14px', border: '1px solid var(--border)' }}>
                 <div style={{ fontSize: 10, fontWeight: 700, color: 'var(--text-3)', marginBottom: 8, textTransform: 'uppercase', letterSpacing: '.6px' }}>{t('dashboard.keyInsights')}</div>
-                {canFinance && margin > 20 && <Insight icon="✅" text={t('dashboard.strongMargin', { pct: margin })} color="var(--green)" />}
-                {canFinance && margin > 0 && margin <= 20 && <Insight icon="⚠️" text={t('dashboard.thinMargin', { pct: margin })} color="var(--yellow)" />}
-                {canFinance && margin < 0 && <Insight icon="🔴" text={t('dashboard.operatingLoss')} color="var(--red)" />}
-                {canInvoices && (data.unpaid_invoices_count ?? 0) > 0 && <Insight icon="📬" text={t(data.unpaid_invoices_count > 1 ? 'dashboard.unpaidInvoiceCount_plural' : 'dashboard.unpaidInvoiceCount', { count: data.unpaid_invoices_count })} color="var(--yellow)" />}
-                {canInvoices && overdueCount > 0 && <Insight icon="⏰" text={t('dashboard.overdueAction', { count: overdueCount })} color="var(--red)" />}
-                {canInventory && (data.low_stock_alerts ?? 0) > 0 && <Insight icon="📦" text={t(data.low_stock_alerts > 1 ? 'dashboard.lowStockAlert_plural' : 'dashboard.lowStockAlert', { count: data.low_stock_alerts })} color="var(--red)" />}
-                {canProjects && (data.active_projects ?? 0) > 0 && <Insight icon="🏗" text={t(data.active_projects > 1 ? 'dashboard.projectsInProgress_plural' : 'dashboard.projectsInProgress', { count: data.active_projects })} color="var(--blue)" />}
-                {canQuotes && (data.pending_quotes ?? 0) > 0 && <Insight icon="📋" text={t(data.pending_quotes > 1 ? 'dashboard.quotesAwaiting_plural' : 'dashboard.quotesAwaiting', { count: data.pending_quotes })} color="var(--purple)" />}
+                {canFinance && margin > 20 && <Insight icon="✅" text={t('dashboard.strongMargin', { pct: margin })} color="var(--green)" onClick={() => navigate('/finance')} />}
+                {canFinance && margin > 0 && margin <= 20 && <Insight icon="⚠️" text={t('dashboard.thinMargin', { pct: margin })} color="var(--yellow)" onClick={() => navigate('/finance')} />}
+                {canFinance && margin < 0 && <Insight icon="🔴" text={t('dashboard.operatingLoss')} color="var(--red)" onClick={() => navigate('/finance')} />}
+                {canInvoices && (data.unpaid_invoices_count ?? 0) > 0 && <Insight icon="📬" text={t(data.unpaid_invoices_count > 1 ? 'dashboard.unpaidInvoiceCount_plural' : 'dashboard.unpaidInvoiceCount', { count: data.unpaid_invoices_count })} color="var(--yellow)" onClick={() => navigate('/invoices')} />}
+                {canInvoices && overdueCount > 0 && <Insight icon="⏰" text={t('dashboard.overdueAction', { count: overdueCount })} color="var(--red)" onClick={() => navigate('/invoices')} />}
+                {canInventory && (data.low_stock_alerts ?? 0) > 0 && <Insight icon="📦" text={t(data.low_stock_alerts > 1 ? 'dashboard.lowStockAlert_plural' : 'dashboard.lowStockAlert', { count: data.low_stock_alerts })} color="var(--red)" onClick={() => navigate('/inventory')} />}
+                {canProjects && (data.active_projects ?? 0) > 0 && <Insight icon="🏗" text={t(data.active_projects > 1 ? 'dashboard.projectsInProgress_plural' : 'dashboard.projectsInProgress', { count: data.active_projects })} color="var(--blue)" onClick={() => navigate('/projects')} />}
+                {canQuotes && (data.pending_quotes ?? 0) > 0 && <Insight icon="📋" text={t(data.pending_quotes > 1 ? 'dashboard.quotesAwaiting_plural' : 'dashboard.quotesAwaiting', { count: data.pending_quotes })} color="var(--purple)" onClick={() => navigate('/quotations')} />}
                 {margin >= 0 && (data.unpaid_invoices_count ?? 0) === 0 && (data.low_stock_alerts ?? 0) === 0 && <Insight icon="✅" text={t('common.allNominal')} color="var(--green)" />}
               </div>
             </div>
@@ -282,10 +316,10 @@ export default function Dashboard() {
             <div className="card">
               <div className="card-header">
                 <span className="card-title">{t('dashboard.recentProjects')}</span>
-                <a href="/projects" style={{ fontSize: 12, color: 'var(--accent)', fontWeight: 600, display: 'flex', alignItems: 'center', gap: 4 }}>
+                <span onClick={() => navigate('/projects')} style={{ fontSize: 12, color: 'var(--accent)', fontWeight: 600, display: 'flex', alignItems: 'center', gap: 4, cursor: 'pointer' }}>
                   {t('common.viewAll')}
                   <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round"><polyline points="9 18 15 12 9 6"/></svg>
-                </a>
+                </span>
               </div>
               <div className="table-wrap">
                 <table>
@@ -294,7 +328,12 @@ export default function Dashboard() {
                     {!(data.recent_projects?.length)
                       ? <tr><td colSpan={3} style={{ textAlign: 'center', color: 'var(--text-3)', padding: 28 }}>{t('dashboard.noProjectsYet')}</td></tr>
                       : data.recent_projects.map(p => (
-                        <tr key={p.id}>
+                        <tr key={p.id}
+                          onClick={() => navigate(`/projects/${p.id}`)}
+                          style={{ cursor: 'pointer' }}
+                          onMouseEnter={e => e.currentTarget.style.background = 'var(--surface-2)'}
+                          onMouseLeave={e => e.currentTarget.style.background = 'transparent'}
+                        >
                           <td className="td-primary">{p.name}</td>
                           <td>{p.client_name || '—'}</td>
                           <td><span className="badge badge-blue">{p.status}</span></td>
@@ -311,10 +350,10 @@ export default function Dashboard() {
             <div className="card">
               <div className="card-header">
                 <span className="card-title">{t('dashboard.recentInvoices')}</span>
-                <a href="/invoices" style={{ fontSize: 12, color: 'var(--accent)', fontWeight: 600, display: 'flex', alignItems: 'center', gap: 4 }}>
+                <span onClick={() => navigate('/invoices')} style={{ fontSize: 12, color: 'var(--accent)', fontWeight: 600, display: 'flex', alignItems: 'center', gap: 4, cursor: 'pointer' }}>
                   {t('common.viewAll')}
                   <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round"><polyline points="9 18 15 12 9 6"/></svg>
-                </a>
+                </span>
               </div>
               <div className="table-wrap">
                 <table>
@@ -325,7 +364,12 @@ export default function Dashboard() {
                       : data.recent_invoices.map(i => {
                         const cls = i.payment_status === 'Paid' ? 'badge-green' : i.payment_status === 'Partial' ? 'badge-yellow' : 'badge-red';
                         return (
-                          <tr key={i.id}>
+                          <tr key={i.id}
+                            onClick={() => navigate('/invoices')}
+                            style={{ cursor: 'pointer' }}
+                            onMouseEnter={e => e.currentTarget.style.background = 'var(--surface-2)'}
+                            onMouseLeave={e => e.currentTarget.style.background = 'transparent'}
+                          >
                             <td className="td-mono">{i.invoice_number}</td>
                             <td>{i.client_name || '—'}</td>
                             <td><span className={`badge ${cls}`}>{i.payment_status}</span></td>

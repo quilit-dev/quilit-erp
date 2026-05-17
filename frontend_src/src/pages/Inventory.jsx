@@ -1,12 +1,12 @@
 import { usePersistedState } from '../hooks/usePersistedState';
 import { useState, useEffect, useCallback } from 'react';
 import {
-  getInventory, createInventoryItem, updateInventoryItem,
+  createInventoryItem, updateInventoryItem,
   archiveInventoryItem, updateStock, getStockMovements,
 } from '../api/client';
 import {
   LoadingSpinner, ErrorAlert, EmptyState, Modal, ConfirmModal,
-  ExportButton, fmtDate, toast, SortableTh, Pagination
+  ExportButton, toast, SortableTh, Pagination
 } from '../components/shared';
 import { useSortPaginate } from '../hooks/useSortPaginate';
 import { useLocale } from '../hooks/useLocale.jsx';

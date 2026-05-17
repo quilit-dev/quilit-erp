@@ -43,20 +43,40 @@ def log_action(
     except Exception:
         pass  # Never crash the calling request due to audit failure
 
-# ── Shared filter builder ─────────────────────────────────────────────────────
-def _build_filters(module, action, username, from_date, to_date):
-    where, params = "WHERE 1=1", []
-    if module:
-        where += " AND module = ?";    params.append(module)
-    if action:
-        where += " AND action = ?";    params.append(action)
-    if username:
-        where += " AND username LIKE ?"; params.append(f"%{username}%")
-    if from_date:
-        where += " AND created_at >= ?"; params.append(from_date)
-    if to_date:
-        where += " AND created_at <= ?"; params.append(to_date + " 23:59:59")
-    return where, params
+# ── Audit-list queries ────────────────────────────────────────────────────────
+# Both statements are fixed literal strings. Every filter is optional and turns
+# into a no-op when its bound value is NULL, so no user input is ever
+# concatenated into the SQL text.
+_AUDIT_LIST_SQL = """
+    SELECT * FROM audit_log
+     WHERE (? IS NULL OR module = ?)
+       AND (? IS NULL OR action = ?)
+       AND (? IS NULL OR username LIKE ?)
+       AND (? IS NULL OR created_at >= ?)
+       AND (? IS NULL OR created_at <= ?)
+     ORDER BY created_at DESC
+     LIMIT ? OFFSET ?
+"""
+
+_AUDIT_COUNT_SQL = """
+    SELECT COUNT(*) FROM audit_log
+     WHERE (? IS NULL OR module = ?)
+       AND (? IS NULL OR action = ?)
+       AND (? IS NULL OR username LIKE ?)
+       AND (? IS NULL OR created_at >= ?)
+       AND (? IS NULL OR created_at <= ?)
+"""
+
+
+def _audit_filter_params(module, action, username, from_date, to_date):
+    """Positional bind values for the optional-filter clauses, in query order."""
+    return [
+        module,    module,
+        action,    action,
+        username,  f"%{username}%" if username else None,
+        from_date, from_date,
+        to_date,   (to_date + " 23:59:59") if to_date else None,
+    ]
 
 
 # ── List endpoint (read-only, admin only) ─────────────────────────────────────
@@ -72,11 +92,10 @@ def list_audit_log(
     user=Depends(require_admin),
     db: sqlite3.Connection = Depends(get_db),
 ):
-    where, params = _build_filters(module, action, username, from_date, to_date)
+    params = _audit_filter_params(module, action, username, from_date, to_date)
 
-    rows  = db.execute(f"SELECT * FROM audit_log {where} ORDER BY created_at DESC LIMIT ? OFFSET ?",
-                       params + [min(limit, 500), offset]).fetchall()
-    total = db.execute(f"SELECT COUNT(*) FROM audit_log {where}", params).fetchone()[0]
+    rows  = db.execute(_AUDIT_LIST_SQL, params + [min(limit, 500), offset]).fetchall()
+    total = db.execute(_AUDIT_COUNT_SQL, params).fetchone()[0]
 
     return {"total": total, "offset": offset, "limit": limit, "rows": [dict(r) for r in rows]}
 
@@ -92,7 +111,6 @@ def purge_old_logs(
     if older_than_days < 30:
         from fastapi import HTTPException
         raise HTTPException(400, "Minimum retention is 30 days.")
-    cutoff = _now()
     # SQLite date arithmetic
     deleted = db.execute(
         "DELETE FROM audit_log WHERE created_at < datetime('now', ?)",

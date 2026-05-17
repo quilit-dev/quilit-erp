@@ -6,7 +6,6 @@ import ToastContainer from './components/ToastContainer';
 import CommandPalette from './components/CommandPalette';
 import NotificationBell from './components/NotificationBell';
 import { LoadingSpinner } from './components/shared';
-import { useSettings } from './hooks/useSettings.jsx';
 import { useTheme } from './hooks/useTheme.jsx';
 import { useLocale } from './hooks/useLocale.jsx';
 import { logout, getSetupStatus } from './api/client';
@@ -133,7 +132,6 @@ function LangToggleButton() {
 }
 
 function Layout({ children }) {
-  const { settings } = useSettings();
   const { t } = useLocale();
   const location = useLocation();
   const [paletteOpen, setPaletteOpen] = useState(false);

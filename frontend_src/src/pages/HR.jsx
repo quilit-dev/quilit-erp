@@ -4,7 +4,7 @@ import { usePermissions } from '../hooks/usePermissions.js';
 import { useLocale } from '../hooks/useLocale.jsx';
 import {
   LoadingSpinner, ErrorAlert, EmptyState, Modal, ConfirmModal,
-  fmt, fmtDate, toast,
+  fmtDate, toast,
 } from '../components/shared';
 import {
   getHRSummary,
