@@ -14,6 +14,7 @@ import { exportInvoicePDF, exportInvoiceExcel } from '../utils/exportUtils';
 import InventoryCombobox from '../components/InventoryCombobox';
 import { useLocale } from '../hooks/useLocale.jsx';
 import { useSortPaginate } from '../hooks/useSortPaginate';
+import { useRecordExport } from '../hooks/useRecordExport';
 
 const METHODS    = ['Cash', 'Bank Transfer', 'Cheque', 'Card', 'Other'];
 const EMPTY_ITEM = { name: '', quantity: 1, unit_price: 0 };
@@ -192,7 +193,13 @@ export default function Invoices() {
   const [paySubmitting, setPaySubmitting] = useState(false);
 
   const [deleteId, setDeleteId] = useState(null);
-  const [exportLoading, setExportLoading] = useState({});
+
+  const { exportLoading, handleExport } = useRecordExport({
+    fetchFull:   getInvoice,
+    exportPDF:   exportInvoicePDF,
+    exportExcel: exportInvoiceExcel,
+    getClients:  () => clients,
+  });
 
   const q = search.toLowerCase();
   const filtered = (invoices||[]).filter(i => {
@@ -350,26 +357,6 @@ export default function Invoices() {
     } catch (err) { toast(err.message, 'red'); }
   }
 
-  async function handleExport(inv, type) {
-    setExportLoading(prev => ({ ...prev, [inv.id]: type }));
-    try {
-      const full      = await getInvoice(inv.id);
-      const clientObj = (clients || []).find(c => c.id === full.client_id) || null;
-      const enriched  = { ...full, client: clientObj };
-
-      if (type === 'pdf') {
-        await exportInvoicePDF(enriched);
-        toast('PDF ready — use your browser\'s Save as PDF option.');
-      } else {
-        exportInvoiceExcel(enriched);
-        toast('Excel file downloaded.');
-      }
-    } catch (err) {
-      toast(`Export failed: ${err.message}`, 'red');
-    } finally {
-      setExportLoading(prev => ({ ...prev, [inv.id]: null }));
-    }
-  }
 
   const exportData = (filtered || []).map(i => ({
     'Invoice #':     i.invoice_number,

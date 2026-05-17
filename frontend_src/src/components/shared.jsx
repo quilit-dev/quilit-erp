@@ -75,6 +75,30 @@ export function Badge({ status }) {
   return <span className={`badge badge-${color}`}>{tStatus(status)}</span>;
 }
 
+// ── Expense category badge ─────────────────────────────────────
+export const CATEGORY_COLORS = {
+  Labour:        { bg: '#EFF6FF', color: '#2563EB' },
+  Materials:     { bg: '#ECFDF5', color: '#059669' },
+  Equipment:     { bg: '#FFFBEB', color: '#D97706' },
+  Transport:     { bg: '#F5F3FF', color: '#7C3AED' },
+  Subcontractor: { bg: '#FFF7ED', color: '#EA580C' },
+  Permits:       { bg: '#F0FDF4', color: '#16A34A' },
+  Other:         { bg: '#F9FAFB', color: '#6B7280' },
+};
+
+export function CategoryBadge({ category }) {
+  const style = CATEGORY_COLORS[category] || CATEGORY_COLORS.Other;
+  return (
+    <span style={{
+      display: 'inline-flex', alignItems: 'center', padding: '2px 9px',
+      borderRadius: 20, fontSize: 11, fontWeight: 600, whiteSpace: 'nowrap',
+      background: style.bg, color: style.color,
+    }}>
+      {category}
+    </span>
+  );
+}
+
 // ── Currency format (static fallback — prefer useLocale().fmt in components) ──
 export function fmt(val, currency) {
   const cur = currency || localStorage.getItem('erp_currency') || 'USD';

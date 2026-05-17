@@ -1,4 +1,4 @@
-import { createContext, useContext, useState, useEffect, useCallback, useMemo } from 'react';
+import { createContext, useContext, useState, useEffect, useCallback } from 'react';
 import en from '../locales/en';
 import ar from '../locales/ar';
 
@@ -25,12 +25,14 @@ export function LocaleProvider({ children }) {
 
   // t('nav.clients') — dot-path lookup with optional {{var}} interpolation
   const t = useCallback((key, vars) => {
-    const parts = key.split('.');
-    let val = locale;
-    for (const p of parts) {
-      if (val == null) break;
-      val = val[p];
-    }
+    // Walk the dot-path, descending only into own properties (never the
+    // prototype chain) so a crafted key cannot reach __proto__ / constructor.
+    const val = key.split('.').reduce(
+      (node, p) => (node != null && Object.prototype.hasOwnProperty.call(node, p))
+        ? node[p]
+        : undefined,
+      locale,
+    );
     if (typeof val !== 'string') return key;
     if (!vars) return val;
     return val.replace(/\{\{(\w+)\}\}/g, (_, k) => (vars[k] != null ? vars[k] : `{{${k}}}`));

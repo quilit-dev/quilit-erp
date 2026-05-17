@@ -445,11 +445,13 @@ def _notify_requester(db: sqlite3.Connection, req, status: str, comment) -> None
 # 4. RESOLUTION — side-effects on the originating business entity
 # ══════════════════════════════════════════════════════════════════════════════
 
-_MODULE_TABLE = {
-    "expense":  "expenses",
-    "invoice":  "invoices",
-    "purchase": "purchases",
-    "project":  "projects",
+# Pre-built, fully-parameterised UPDATE per module. The table name is baked into
+# each literal statement and is never interpolated, so `module` cannot reach raw SQL.
+_RESOLUTION_UPDATE = {
+    "expense":  "UPDATE expenses  SET status=? WHERE id=?",
+    "invoice":  "UPDATE invoices  SET status=? WHERE id=?",
+    "purchase": "UPDATE purchases SET status=? WHERE id=?",
+    "project":  "UPDATE projects  SET status=? WHERE id=?",
 }
 _APPROVED_STATUS = {"expense": "Approved", "invoice": "Sent",  "purchase": "Ordered",   "project": "Active"}
 _REJECTED_STATUS = {"expense": "Rejected", "invoice": "Draft", "purchase": "Cancelled", "project": "Cancelled"}
@@ -458,10 +460,10 @@ _REJECTED_STATUS = {"expense": "Rejected", "invoice": "Draft", "purchase": "Canc
 def apply_resolution(db: sqlite3.Connection, module: str, entity_id: int,
                      resolution: str) -> None:
     """Update the originating entity once its request is fully resolved."""
-    table  = _MODULE_TABLE.get(module)
-    status = (_APPROVED_STATUS if resolution == "approved" else _REJECTED_STATUS).get(module)
-    if table and status:
-        db.execute(f"UPDATE {table} SET status=? WHERE id=?", (status, entity_id))
+    update_sql = _RESOLUTION_UPDATE.get(module)
+    status     = (_APPROVED_STATUS if resolution == "approved" else _REJECTED_STATUS).get(module)
+    if update_sql and status:
+        db.execute(update_sql, (status, entity_id))
 
     # An approved expense rolls its amount into the linked project's actual cost.
     if module == "expense" and resolution == "approved":

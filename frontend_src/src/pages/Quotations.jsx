@@ -1,5 +1,5 @@
 import { usePersistedState } from '../hooks/usePersistedState';
-import { useState } from 'react';
+import { useState, useRef, useEffect } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { useData } from '../hooks/useData';
 import { useSettings } from '../hooks/useSettings';
@@ -16,10 +16,108 @@ import { exportQuotationPDF, exportQuotationExcel } from '../utils/exportUtils';
 import { useLocale } from '../hooks/useLocale.jsx';
 import InventoryCombobox from '../components/InventoryCombobox';
 import { useSortPaginate } from '../hooks/useSortPaginate';
+import { useRecordExport } from '../hooks/useRecordExport';
 
 const STATUSES   = ['Draft', 'Sent', 'Accepted', 'Rejected'];
 const EMPTY_ITEM = { name: '', quantity: 1, unit_price: 0 };
 const makeEmpty  = () => ({ client_id: '', project_id: '', project_name: '', status: 'Draft', notes: '', items: [{ ...EMPTY_ITEM }] });
+
+const menuItemStyle = {
+  display: 'flex', alignItems: 'center', gap: 8, width: '100%', padding: '8px 14px',
+  background: 'none', border: 'none', textAlign: 'left',
+  fontSize: 13, cursor: 'pointer', color: 'var(--text)',
+};
+
+// ── Per-row action dropdown (Edit / exports / Cancel / Archive) ───────────
+function QuoteActionMenu({ exporting, onEdit, onExport, onCancel, onArchive }) {
+  const { t } = useLocale();
+  const [open, setOpen]     = useState(false);
+  const [dropUp, setDropUp] = useState(false);
+  const ref    = useRef(null);
+  const btnRef = useRef(null);
+
+  useEffect(() => {
+    if (!open) return;
+    if (btnRef.current) {
+      const rect = btnRef.current.getBoundingClientRect();
+      setDropUp(window.innerHeight - rect.bottom < 230);
+    }
+    function handleClick(e) {
+      if (ref.current && !ref.current.contains(e.target)) setOpen(false);
+    }
+    document.addEventListener('mousedown', handleClick);
+    return () => document.removeEventListener('mousedown', handleClick);
+  }, [open]);
+
+  const isExporting = !!exporting;
+  const divider = <div style={{ height: 1, background: 'var(--border)', margin: '4px 0' }} />;
+
+  return (
+    <div ref={ref} style={{ position: 'relative', display: 'inline-block' }}>
+      <button
+        ref={btnRef}
+        className="btn btn-sm btn-secondary"
+        title={t('common.actions')}
+        onClick={() => setOpen(o => !o)}
+        style={{ padding: '0 8px', letterSpacing: 1, fontWeight: 700 }}
+      >
+        ⋯
+      </button>
+
+      {open && (
+        <div style={{
+          position: 'fixed',
+          left: (() => {
+            if (!btnRef.current) return 4;
+            const r  = btnRef.current.getBoundingClientRect();
+            const mw = 180;
+            let left = r.right - mw;
+            if (left < 4) left = r.left;
+            if (left + mw > window.innerWidth - 4) left = window.innerWidth - mw - 4;
+            return Math.max(4, left);
+          })(),
+          ...(dropUp
+            ? { bottom: window.innerHeight - btnRef.current.getBoundingClientRect().top + 4 }
+            : { top: btnRef.current.getBoundingClientRect().bottom + 4 }),
+          zIndex: 9999,
+          background: 'var(--surface)', border: '1px solid var(--border)',
+          borderRadius: 'var(--radius)', boxShadow: 'var(--shadow-lg)',
+          minWidth: 180, padding: '4px 0', whiteSpace: 'nowrap',
+        }}>
+          <button style={menuItemStyle} onClick={() => { setOpen(false); onEdit(); }}>
+            ✏️ {t('common.edit')}
+          </button>
+
+          {divider}
+
+          <button
+            style={{ ...menuItemStyle, color: '#166534', opacity: isExporting ? 0.5 : 1 }}
+            disabled={isExporting}
+            onClick={() => { setOpen(false); onExport('excel'); }}
+          >
+            {exporting === 'excel' ? '⏳ ' + t('common.exporting') : '📊 ' + t('quotations.exportXls')}
+          </button>
+          <button
+            style={{ ...menuItemStyle, color: '#991b1b', opacity: isExporting ? 0.5 : 1 }}
+            disabled={isExporting}
+            onClick={() => { setOpen(false); onExport('pdf'); }}
+          >
+            {exporting === 'pdf' ? '⏳ ' + t('common.exporting') : '📄 ' + t('quotations.exportPdf')}
+          </button>
+
+          {divider}
+
+          <button style={{ ...menuItemStyle, color: '#92400e' }} onClick={() => { setOpen(false); onCancel(); }}>
+            🚫 {t('quotations.cancelQuote')}
+          </button>
+          <button style={{ ...menuItemStyle, color: 'var(--red)' }} onClick={() => { setOpen(false); onArchive(); }}>
+            🗄 {t('common.archive')}
+          </button>
+        </div>
+      )}
+    </div>
+  );
+}
 
 export default function Quotations() {
   const { t, tStatus } = useLocale();
@@ -41,7 +139,13 @@ export default function Quotations() {
   const [search, setSearch] = usePersistedState('quotations.search', '');
   const [clientFilter, setClientFilter] = usePersistedState('quotations.clientFilter', '');
   const [projectFilter, setProjectFilter] = usePersistedState('quotations.projectFilter', '');
-  const [exportLoading, setExportLoading] = useState({});
+
+  const { exportLoading, handleExport } = useRecordExport({
+    fetchFull:   getQuotation,
+    exportPDF:   exportQuotationPDF,
+    exportExcel: exportQuotationExcel,
+    getClients:  () => clients,
+  });
 
   function openCreate() {
     reloadClients(); reloadProjects();
@@ -141,27 +245,6 @@ export default function Quotations() {
     } catch (err) { toast(err.message, 'red'); }
   }
 
-  async function handleExport(q, type) {
-    setExportLoading(prev => ({ ...prev, [q.id]: type }));
-    try {
-      const full      = await getQuotation(q.id);
-      const clientObj = (clients || []).find(c => c.id === full.client_id) || null;
-      const enriched  = { ...full, client: clientObj };
-
-      if (type === 'pdf') {
-        await exportQuotationPDF(enriched);
-        toast('PDF ready — use your browser\'s Save as PDF option.');
-      } else {
-        exportQuotationExcel(enriched);
-        toast('Excel file downloaded.');
-      }
-    } catch (err) {
-      toast(`Export failed: ${err.message}`, 'red');
-    } finally {
-      setExportLoading(prev => ({ ...prev, [q.id]: null }));
-    }
-  }
-
   const q2 = search.toLowerCase();
   const filtered = (quotations || []).filter(q => {
     if (statusFilter  && q.status !== statusFilter) return false;
@@ -174,23 +257,6 @@ export default function Quotations() {
   const dropdownsReady = !cLoading && !pLoading;
 
   const { sorted: pagedQuotations, page, pageSize, totalPages, setPage, setPageSize, sortKey, sortDir, requestSort, PAGE_SIZES } = useSortPaginate(filtered);
-
-  const ExcelIcon = () => (
-    <svg width="11" height="11" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.2">
-      <path d="M14 2H6a2 2 0 00-2 2v16a2 2 0 002 2h12a2 2 0 002-2V8z"/>
-      <polyline points="14,2 14,8 20,8"/>
-      <line x1="8" y1="13" x2="16" y2="13"/>
-      <line x1="8" y1="17" x2="16" y2="17"/>
-    </svg>
-  );
-  const PDFIcon = () => (
-    <svg width="11" height="11" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.2">
-      <path d="M14 2H6a2 2 0 00-2 2v16a2 2 0 002 2h12a2 2 0 002-2V8z"/>
-      <polyline points="14,2 14,8 20,8"/>
-      <path d="M9 15v-4h2a2 2 0 010 4H9z"/><line x1="15" y1="11" x2="15" y2="15"/>
-      <line x1="13" y1="11" x2="17" y2="11"/>
-    </svg>
-  );
 
   const exportData = (filtered || []).map(q => ({
     'Quote #':               q.quote_number,
@@ -303,48 +369,29 @@ export default function Quotations() {
                       </td>
                       <td>{fmtDate(q.created_at)}</td>
                       <td>
-                        <div style={{ display:'flex', gap:5, flexWrap:'wrap' }}>
-                          <button className="btn btn-sm btn-secondary" onClick={() => openEdit(q)}>
-                            {t('common.edit')}
-                          </button>
-                          <button
-                            className="btn btn-sm btn-secondary"
-                            title="Export to Excel — internal use"
-                            disabled={!!exporting}
-                            onClick={() => handleExport(q, 'excel')}
-                            style={{ display:'flex', alignItems:'center', gap:4, color:'#166534', borderColor:'#bbf7d0', background:'#f0fdf4' }}
-                          >
-                            {exporting === 'excel' ? <span style={{ fontSize:11 }}>…</span> : <><ExcelIcon /> XLS</>}
-                          </button>
-                          <button
-                            className="btn btn-sm btn-secondary"
-                            title="Export to PDF — client copy"
-                            disabled={!!exporting}
-                            onClick={() => handleExport(q, 'pdf')}
-                            style={{ display:'flex', alignItems:'center', gap:4, color:'#991b1b', borderColor:'#fecaca', background:'#fef2f2' }}
-                          >
-                            {exporting === 'pdf' ? <span style={{ fontSize:11 }}>…</span> : <><PDFIcon /> PDF</>}
-                          </button>
+                        <div style={{ display:'flex', gap:6, alignItems:'center', justifyContent:'flex-end' }}>
                           {q.invoice_count === 0 && (
                             <button
                               className="btn btn-sm btn-secondary"
-                              style={{ background:'var(--accent)', color:'#fff' }}
+                              style={{ background:'var(--accent)', color:'#fff', whiteSpace:'nowrap' }}
                               onClick={() => setConvertInvoiceId(q)}
                             >
                               {t('quotations.toInvoice')}
                             </button>
                           )}
                           {!q.project_id && (
-                            <button className="btn btn-sm btn-secondary" onClick={() => setConvertProjectId(q)}>
+                            <button className="btn btn-sm btn-secondary" style={{ whiteSpace:'nowrap' }}
+                              onClick={() => setConvertProjectId(q)}>
                               {t('quotations.toProject')}
                             </button>
                           )}
-                          <button className="btn btn-sm btn-warning" onClick={() => setCancelId(q.id)}>
-                            Cancel
-                          </button>
-                          <button className="btn btn-sm btn-danger" onClick={() => setArchiveId(q.id)}>
-                            Archive
-                          </button>
+                          <QuoteActionMenu
+                            exporting={exporting}
+                            onEdit={() => openEdit(q)}
+                            onExport={(type) => handleExport(q, type)}
+                            onCancel={() => setCancelId(q.id)}
+                            onArchive={() => setArchiveId(q.id)}
+                          />
                         </div>
                       </td>
                     </tr>

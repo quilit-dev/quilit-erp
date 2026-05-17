@@ -1,7 +1,7 @@
 import { useState, useEffect } from 'react';
 import * as XLSX from 'xlsx';
 import { getUserSessions, getAuditLog, purgeAuditLog, getUsers, getRoles, revokeSession } from '../api/client';
-import { LoadingSpinner, ErrorAlert, fmtDate, toast } from '../components/shared';
+import { LoadingSpinner, ErrorAlert, toast } from '../components/shared';
 import { useLocale } from '../hooks/useLocale.jsx';
 
 const ACTION_COLORS = {

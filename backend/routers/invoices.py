@@ -194,6 +194,17 @@ def create_invoice(
     db: sqlite3.Connection = Depends(get_db),
 ):
     _ensure_invoice_items_table(db)
+    # Validate foreign relations up front: a stale id must return a clean 400,
+    # never an unhandled FOREIGN KEY IntegrityError (HTTP 500).
+    if data.client_id is not None and not db.execute(
+        "SELECT 1 FROM clients WHERE id=?", (data.client_id,)).fetchone():
+        raise HTTPException(400, "Client not found")
+    if data.project_id is not None and not db.execute(
+        "SELECT 1 FROM projects WHERE id=?", (data.project_id,)).fetchone():
+        raise HTTPException(400, "Project not found")
+    if data.quotation_id is not None and not db.execute(
+        "SELECT 1 FROM quotations WHERE id=?", (data.quotation_id,)).fetchone():
+        raise HTTPException(400, "Quotation not found")
     items    = data.items or []
     subtotal = sum(i.quantity * i.unit_price for i in items) if items else data.amount
     computed_amount = round(subtotal * _get_tax_multiplier(db), 4)
@@ -205,7 +216,6 @@ def create_invoice(
     if not due_date:
         terms_row = db.execute("SELECT value FROM settings WHERE key='payment_terms_days'").fetchone()
         days = int(terms_row["value"]) if terms_row else 15
-        from datetime import timedelta
         due_date = (datetime.utcnow() + timedelta(days=days)).strftime("%Y-%m-%d")
     cur = db.execute(
         "INSERT INTO invoices "

@@ -6,7 +6,7 @@ from fastapi import APIRouter, Depends, HTTPException
 from pydantic import BaseModel, validator
 from typing import Optional
 from database import get_db
-from permissions import require_perm, require_auth, require_admin
+from permissions import require_perm, require_admin
 from routers.audit import log_action
 from utils import _now
 from approval_engine import evaluate_and_apply
@@ -333,7 +333,7 @@ def monthly_report(
 def list_expenses(
     project_id: Optional[int] = None,
     category:   Optional[str] = None,
-    user=Depends(require_perm("finance", "view")),
+    user=Depends(require_perm("expenses", "view")),
     db: sqlite3.Connection = Depends(get_db),
 ):
     query  = """SELECT e.*, p.name AS project_name FROM expenses e
@@ -359,7 +359,7 @@ class VoidExpenseRequest(BaseModel):
 def void_expense(
     expense_id: int,
     data: VoidExpenseRequest,
-    user=Depends(require_perm("finance", "delete")),
+    user=Depends(require_perm("expenses", "delete")),
     db: sqlite3.Connection = Depends(get_db),
 ):
     exp = db.execute(
@@ -400,7 +400,7 @@ class ExpenseUpdate(BaseModel):
 @router.post("/expenses")
 def create_expense(
     data: ExpenseCreate,
-    user=Depends(require_perm("finance", "create")),
+    user=Depends(require_perm("expenses", "create")),
     db: sqlite3.Connection = Depends(get_db),
 ):
     _check_period_locked(db, data.date or datetime.utcnow().strftime("%Y-%m-%d"))
@@ -443,7 +443,7 @@ def create_expense(
 def update_expense(
     expense_id: int,
     data: ExpenseUpdate,
-    user=Depends(require_perm("finance", "edit")),
+    user=Depends(require_perm("expenses", "edit")),
     db: sqlite3.Connection = Depends(get_db),
 ):
     exp = db.execute(
@@ -490,7 +490,7 @@ def update_expense(
 @router.patch("/expenses/{expense_id}/archive")
 def archive_expense(
     expense_id: int,
-    user=Depends(require_perm("finance", "delete")),
+    user=Depends(require_perm("expenses", "delete")),
     db: sqlite3.Connection = Depends(get_db),
 ):
     exp = db.execute(
@@ -516,7 +516,7 @@ def archive_expense(
 @router.patch("/expenses/{expense_id}/unarchive")
 def unarchive_expense(
     expense_id: int,
-    user=Depends(require_perm("finance", "edit")),
+    user=Depends(require_perm("expenses", "edit")),
     db: sqlite3.Connection = Depends(get_db),
 ):
     exp = db.execute(

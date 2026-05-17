@@ -126,6 +126,12 @@ def get_project(project_id: int, user=Depends(require_perm("projects", "view")),
 
 @router.post("/")
 def create_project(data: ProjectCreate, user=Depends(require_perm("projects", "create")), db: sqlite3.Connection = Depends(get_db)):
+    # Validate the client relation up front so a stale id returns a clean 400
+    # instead of an unhandled FOREIGN KEY IntegrityError (HTTP 500).
+    if data.client_id is not None and not db.execute(
+        "SELECT 1 FROM clients WHERE id=?", (data.client_id,)
+    ).fetchone():
+        raise HTTPException(400, "Client not found")
     now = _now()
     c = db.execute(
         """INSERT INTO projects (name, client_id, location, status, start_date, end_date,

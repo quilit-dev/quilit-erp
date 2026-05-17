@@ -7,7 +7,6 @@ import { Modal, ConfirmModal, LoadingSpinner, ErrorAlert, fmtDate, toast } from 
 import { useLocale } from '../hooks/useLocale.jsx';
 
 const EMPTY_CREATE = { username: '', password: '', full_name: '', email: '', role_id: '', is_superadmin: false };
-const EMPTY_EDIT   = { full_name: '', email: '', role_id: '', is_active: true, is_superadmin: false };
 
 function Avatar({ name, username }) {
   const parts = (name || '').trim().split(/\s+/).filter(Boolean);
@@ -57,7 +56,7 @@ export default function UserManagement() {
 
   function openEdit(u) {
     setEditUser(u);
-    setForm({ full_name: u.full_name || '', email: u.email || '', role_id: u.role_id || '', is_active: u.is_active, is_superadmin: Boolean(u.is_superadmin) });
+    setForm({ username: u.username || '', full_name: u.full_name || '', email: u.email || '', role_id: u.role_id || '', is_active: u.is_active, is_superadmin: Boolean(u.is_superadmin) });
     setModal('edit');
   }
 
@@ -80,12 +79,13 @@ export default function UserManagement() {
   }
 
   async function handleEdit() {
+    if (!form.username || !form.username.trim()) return toast(t('users.usernameRequired'), 'red');
     setSaving(true);
     try {
       await updateUser(editUser.id, { ...form, role_id: form.role_id || null });
       if (editUser.id === me.id) {
         const stored = JSON.parse(localStorage.getItem('user') || '{}');
-        localStorage.setItem('user', JSON.stringify({ ...stored, full_name: form.full_name, email: form.email }));
+        localStorage.setItem('user', JSON.stringify({ ...stored, username: form.username.trim(), full_name: form.full_name, email: form.email }));
         window.dispatchEvent(new Event('user-updated'));
       }
       toast(t('users.userUpdated'));
@@ -276,6 +276,7 @@ export default function UserManagement() {
       {modal === 'edit' && editUser && (
         <Modal title={`Edit — @${editUser.username}`} onClose={() => setModal(null)}>
           <div className="modal-body">
+            {F('username', 'Username', 'text', true)}
             {F('full_name', 'Full Name')}
             {F('email', 'Email', 'email')}
             <RoleSelect />

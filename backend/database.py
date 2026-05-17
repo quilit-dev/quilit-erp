@@ -44,7 +44,11 @@ def _run_migrations(conn, c):
         return name not in applied
 
     def cols(table):
-        return [r[1] for r in c.execute(f"PRAGMA table_info({table})").fetchall()]
+        # pragma_table_info() is a table-valued function and accepts a bound
+        # parameter, so the table name is never interpolated into SQL text.
+        return [r[0] for r in c.execute(
+            "SELECT name FROM pragma_table_info(?)", (table,)
+        ).fetchall()]
 
     def all_tables():
         return [r[0] for r in c.execute(
@@ -59,11 +63,22 @@ def _run_migrations(conn, c):
         done(name)
 
     # ── 001: soft-delete columns ─────────────────────────────────────────
+    # Each ALTER is a fixed literal statement — ALTER TABLE cannot bind an
+    # identifier as a parameter, so the table name is hard-coded, not built.
     if need("001_soft_delete"):
         tbls = all_tables()
-        for tbl in ["clients", "projects", "quotations", "invoices", "inventory", "purchases", "expenses"]:
+        _soft_delete_alters = {
+            "clients":    "ALTER TABLE clients ADD COLUMN deleted_at TEXT DEFAULT NULL",
+            "projects":   "ALTER TABLE projects ADD COLUMN deleted_at TEXT DEFAULT NULL",
+            "quotations": "ALTER TABLE quotations ADD COLUMN deleted_at TEXT DEFAULT NULL",
+            "invoices":   "ALTER TABLE invoices ADD COLUMN deleted_at TEXT DEFAULT NULL",
+            "inventory":  "ALTER TABLE inventory ADD COLUMN deleted_at TEXT DEFAULT NULL",
+            "purchases":  "ALTER TABLE purchases ADD COLUMN deleted_at TEXT DEFAULT NULL",
+            "expenses":   "ALTER TABLE expenses ADD COLUMN deleted_at TEXT DEFAULT NULL",
+        }
+        for tbl, alter_sql in _soft_delete_alters.items():
             if tbl in tbls and "deleted_at" not in cols(tbl):
-                c.execute(f"ALTER TABLE {tbl} ADD COLUMN deleted_at TEXT DEFAULT NULL")
+                c.execute(alter_sql)
         done("001_soft_delete")
 
     # ── 002: migrate paid_amount column → invoice_payments rows ──────────
@@ -184,14 +199,33 @@ def _run_migrations(conn, c):
             "ALTER TABLE expenses ADD COLUMN void_reason TEXT DEFAULT NULL")
 
     # ── 022: archived_at + archive_reason for all entity tables ──────────
+    # Fixed literal ALTER statements per table — see the note on migration 001.
     if need("022_archive_columns"):
-        for tbl in ["clients", "projects", "quotations", "invoices",
-                    "inventory", "purchases", "expenses", "suppliers"]:
-            if tbl in all_tables():
+        _archive_col_alters = {
+            "clients":    ("ALTER TABLE clients ADD COLUMN archived_at TEXT DEFAULT NULL",
+                           "ALTER TABLE clients ADD COLUMN archive_reason TEXT DEFAULT NULL"),
+            "projects":   ("ALTER TABLE projects ADD COLUMN archived_at TEXT DEFAULT NULL",
+                           "ALTER TABLE projects ADD COLUMN archive_reason TEXT DEFAULT NULL"),
+            "quotations": ("ALTER TABLE quotations ADD COLUMN archived_at TEXT DEFAULT NULL",
+                           "ALTER TABLE quotations ADD COLUMN archive_reason TEXT DEFAULT NULL"),
+            "invoices":   ("ALTER TABLE invoices ADD COLUMN archived_at TEXT DEFAULT NULL",
+                           "ALTER TABLE invoices ADD COLUMN archive_reason TEXT DEFAULT NULL"),
+            "inventory":  ("ALTER TABLE inventory ADD COLUMN archived_at TEXT DEFAULT NULL",
+                           "ALTER TABLE inventory ADD COLUMN archive_reason TEXT DEFAULT NULL"),
+            "purchases":  ("ALTER TABLE purchases ADD COLUMN archived_at TEXT DEFAULT NULL",
+                           "ALTER TABLE purchases ADD COLUMN archive_reason TEXT DEFAULT NULL"),
+            "expenses":   ("ALTER TABLE expenses ADD COLUMN archived_at TEXT DEFAULT NULL",
+                           "ALTER TABLE expenses ADD COLUMN archive_reason TEXT DEFAULT NULL"),
+            "suppliers":  ("ALTER TABLE suppliers ADD COLUMN archived_at TEXT DEFAULT NULL",
+                           "ALTER TABLE suppliers ADD COLUMN archive_reason TEXT DEFAULT NULL"),
+        }
+        tbls = all_tables()
+        for tbl, (archived_at_sql, archive_reason_sql) in _archive_col_alters.items():
+            if tbl in tbls:
                 if "archived_at" not in cols(tbl):
-                    c.execute(f"ALTER TABLE {tbl} ADD COLUMN archived_at TEXT DEFAULT NULL")
+                    c.execute(archived_at_sql)
                 if "archive_reason" not in cols(tbl):
-                    c.execute(f"ALTER TABLE {tbl} ADD COLUMN archive_reason TEXT DEFAULT NULL")
+                    c.execute(archive_reason_sql)
         done("022_archive_columns")
 
     # ── 023: documents table for PDF/HTML attachments ─────────────────────
@@ -967,7 +1001,9 @@ def init_db():
     _set_perm('Auditor', 'hr', *_V)
 
     # ── Seed admin user ───────────────────────────────────────────────────
-    existing_admin = c.execute("SELECT id FROM users WHERE username='admin'").fetchone()
+    existing_admin = c.execute(
+        "SELECT id FROM users WHERE is_superadmin=1 AND deleted_at IS NULL"
+    ).fetchone()
     if not existing_admin:
         import secrets, string
         from auth_utils import hash_password

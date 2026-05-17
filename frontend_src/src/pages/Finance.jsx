@@ -273,7 +273,6 @@ function ProfitBarChart({ data }) {
   const iW = W - PL - PR, iH = H - PT - PB;
 
   // Zero line position: center if we have negatives, bottom if all positive
-  const negFrac = hasNeg ? maxNeg / (maxPos + maxNeg || 1) : 0;
   const zeroY = PT + iH * (hasNeg ? maxV / (2 * maxV) : 1);
   const posH = zeroY - PT;
   const negH = PT + iH - zeroY;
@@ -430,8 +429,6 @@ function DonutChart({ data }) {
           {slices.map((s, i) => {
             const isH = hovered === i;
             // Expand hovered slice outward
-            const midX = cx + (isH ? 6 : 0) * Math.cos(s.midA);
-            const midY = cy + (isH ? 6 : 0) * Math.sin(s.midA);
             const dx = (isH ? 6 : 0) * Math.cos(s.midA);
             const dy = (isH ? 6 : 0) * Math.sin(s.midA);
             return (
@@ -697,7 +694,6 @@ function generateInsights(summary, monthly) {
     }
 
     // Consistent profitability streak
-    const profitableMonths = monthly.filter(m => m.profit > 0).length;
     const streak = (() => {
       let s = 0;
       for (let i = monthly.length - 1; i >= 0; i--) {
@@ -815,48 +811,16 @@ function generateInsights(summary, monthly) {
 
 // ── Smart Insights UI Component ───────────────────────────────────────────
 const INSIGHT_STYLES = {
-  critical: {
-    border: '#FCA5A5',
-    bg: 'linear-gradient(135deg, #FFF5F5 0%, #FFF 100%)',
-    iconBg: '#FEE2E2',
-    titleColor: '#991B1B',
-    badge: '#FEE2E2',
-    badgeText: '#991B1B',
-    dot: '#DC2626',
-  },
-  warning: {
-    border: '#FCD34D',
-    bg: 'linear-gradient(135deg, #FFFBEB 0%, #FFF 100%)',
-    iconBg: '#FEF3C7',
-    titleColor: '#92400E',
-    badge: '#FEF3C7',
-    badgeText: '#92400E',
-    dot: '#D97706',
-  },
-  positive: {
-    border: '#6EE7B7',
-    bg: 'linear-gradient(135deg, #F0FDF4 0%, #FFF 100%)',
-    iconBg: '#D1FAE5',
-    titleColor: '#065F46',
-    badge: '#D1FAE5',
-    badgeText: '#065F46',
-    dot: '#059669',
-  },
-  neutral: {
-    border: '#E5E7EB',
-    bg: 'linear-gradient(135deg, #F9FAFB 0%, #FFF 100%)',
-    iconBg: '#F3F4F6',
-    titleColor: '#374151',
-    badge: '#F3F4F6',
-    badgeText: '#6B7280',
-    dot: '#9CA3AF',
-  },
+  critical: { accent: '#DC2626', soft: '#FEE2E2', text: '#991B1B' },
+  warning:  { accent: '#D97706', soft: '#FEF3C7', text: '#92400E' },
+  positive: { accent: '#059669', soft: '#D1FAE5', text: '#065F46' },
+  neutral:  { accent: '#6B7280', soft: '#F3F4F6', text: '#374151' },
 };
 
 function InsightCard({ insight, index }) {
   const { t } = useLocale();
   const [expanded, setExpanded] = useState(false);
-  const [hovered, setHovered] = useState(false);
+  const [hovered, setHovered]   = useState(false);
   const s = INSIGHT_STYLES[insight.type] || INSIGHT_STYLES.neutral;
 
   return (
@@ -865,71 +829,74 @@ function InsightCard({ insight, index }) {
       onMouseEnter={() => setHovered(true)}
       onMouseLeave={() => setHovered(false)}
       style={{
+        position: 'relative',
         background: 'var(--surface)',
-        border: `1px solid ${hovered || expanded ? 'var(--border)' : 'var(--border)'}`,
-        borderLeft: `3px solid ${s.dot}`,
-        borderRadius: 10,
-        padding: '12px 14px',
+        border: '1px solid',
+        borderColor: hovered ? s.accent : 'var(--border)',
+        borderRadius: 12,
+        padding: '14px 16px 14px 19px',
         cursor: insight.action ? 'pointer' : 'default',
-        transition: 'all .2s ease',
-        transform: hovered ? 'translateY(-1px)' : 'none',
-        boxShadow: hovered ? '0 4px 16px rgba(0,0,0,0.08)' : 'none',
-        animationDelay: `${index * 0.06}s`,
+        overflow: 'hidden',
+        transition: 'transform .18s ease, box-shadow .18s ease, border-color .18s ease',
+        transform: hovered ? 'translateY(-2px)' : 'none',
+        boxShadow: hovered ? '0 8px 24px rgba(15,23,42,.10)' : '0 1px 2px rgba(15,23,42,.04)',
+        animation: 'fadeSlideUp .35s ease both',
+        animationDelay: `${index * 0.05}s`,
       }}
     >
-      <div style={{ display: 'flex', alignItems: 'flex-start', gap: 10 }}>
-        {/* Icon bubble */}
+      {/* Severity accent bar */}
+      <div style={{ position: 'absolute', left: 0, top: 0, bottom: 0, width: 4, background: s.accent }} />
+
+      <div style={{ display: 'flex', alignItems: 'flex-start', gap: 12 }}>
         <div style={{
-          width: 34, height: 34, borderRadius: 8, background: s.iconBg,
+          width: 38, height: 38, borderRadius: 10, background: s.soft,
           display: 'flex', alignItems: 'center', justifyContent: 'center',
-          fontSize: 16, flexShrink: 0,
+          fontSize: 18, flexShrink: 0,
         }}>
           {insight.icon}
         </div>
 
         <div style={{ flex: 1, minWidth: 0 }}>
-          {/* Category badge + title */}
-          <div style={{ display: 'flex', alignItems: 'center', gap: 6, marginBottom: 3, flexWrap: 'wrap' }}>
-            <span style={{
-              fontSize: 9.5, fontWeight: 700, textTransform: 'uppercase', letterSpacing: '.5px',
-              background: s.badge, color: s.badgeText, borderRadius: 4, padding: '1px 6px',
-            }}>
-              {insight.category}
-            </span>
-            <span style={{ fontSize: 13, fontWeight: 700, color: 'var(--text)', lineHeight: 1.3 }}>
-              {insight.title}
-            </span>
+          <span style={{
+            display: 'inline-block', fontSize: 9, fontWeight: 800, letterSpacing: '.6px',
+            textTransform: 'uppercase', background: s.soft, color: s.text,
+            borderRadius: 5, padding: '2px 7px', marginBottom: 5,
+          }}>
+            {insight.category}
+          </span>
+
+          <div style={{ fontSize: 13.5, fontWeight: 700, color: 'var(--text)', lineHeight: 1.35, marginBottom: 3 }}>
+            {insight.title}
           </div>
 
-          {/* Detail text */}
-          <p style={{ fontSize: 12, color: 'var(--text-3)', margin: 0, lineHeight: 1.5 }}>
+          <p style={{ fontSize: 12, color: 'var(--text-3)', margin: 0, lineHeight: 1.55 }}>
             {insight.detail}
           </p>
 
-          {/* Action (expandable) */}
           {insight.action && (
-            <div style={{
-              marginTop: expanded ? 8 : 0,
-              maxHeight: expanded ? 60 : 0,
-              overflow: 'hidden',
-              transition: 'max-height .25s ease, margin-top .25s ease',
-            }}>
+            <>
               <div style={{
-                fontSize: 11.5, color: '#1B4F72', fontWeight: 600,
-                background: '#EFF6FF', borderRadius: 6, padding: '6px 10px',
-                borderLeft: '2px solid #3B82F6',
+                maxHeight: expanded ? 90 : 0,
+                marginTop: expanded ? 10 : 0,
+                overflow: 'hidden',
+                transition: 'max-height .25s ease, margin-top .25s ease',
               }}>
-                💡 {insight.action}
+                <div style={{
+                  display: 'flex', gap: 8, fontSize: 11.5, lineHeight: 1.5,
+                  color: 'var(--text-2)', background: 'var(--surface-2)',
+                  borderRadius: 8, padding: '8px 10px', borderLeft: `2px solid ${s.accent}`,
+                }}>
+                  <span style={{ flexShrink: 0 }}>💡</span>
+                  <span style={{ fontWeight: 600 }}>{insight.action}</span>
+                </div>
               </div>
-            </div>
-          )}
-
-          {/* "Tap for advice" hint */}
-          {insight.action && !expanded && (
-            <div style={{ fontSize: 10.5, color: 'var(--text-3)', marginTop: 4, display: 'flex', alignItems: 'center', gap: 3 }}>
-              <span style={{ opacity: 0.6 }}>→</span>
-              <span>{t('finance.clickForRec')}</span>
-            </div>
+              {!expanded && (
+                <div style={{ marginTop: 7, fontSize: 10.5, fontWeight: 700, color: s.accent, display: 'flex', alignItems: 'center', gap: 4 }}>
+                  <span>{t('finance.clickForRec')}</span>
+                  <span>→</span>
+                </div>
+              )}
+            </>
           )}
         </div>
       </div>
@@ -942,63 +909,56 @@ function SmartInsightsPanel({ insights }) {
   const [collapsed, setCollapsed] = useState(false);
   if (!insights || insights.length === 0) return null;
 
-  const criticalCount = insights.filter(i => i.type === 'critical').length;
-  const warningCount = insights.filter(i => i.type === 'warning').length;
-  const positiveCount = insights.filter(i => i.type === 'positive').length;
+  const counts = [
+    { n: insights.filter(i => i.type === 'critical').length, ...INSIGHT_STYLES.critical },
+    { n: insights.filter(i => i.type === 'warning').length,  ...INSIGHT_STYLES.warning },
+    { n: insights.filter(i => i.type === 'positive').length, ...INSIGHT_STYLES.positive },
+  ].filter(c => c.n > 0);
 
   return (
-    <div
-      className="fin-card"
-      style={{
-        animationDelay: '0.3s',
-        background: 'var(--surface)',
-        border: '1px solid var(--border)',
-        borderRadius: 12,
-        marginBottom: 24,
-        overflow: 'hidden',
-      }}
-    >
+    <div className="card fin-card" style={{ animationDelay: '0.6s', marginBottom: 24, overflow: 'hidden', padding: 0 }}>
       {/* Panel header */}
       <div
         onClick={() => setCollapsed(c => !c)}
         style={{
-          display: 'flex', alignItems: 'center', justifyContent: 'space-between',
-          padding: '14px 18px', cursor: 'pointer',
+          display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 12,
+          padding: '16px 20px', cursor: 'pointer', userSelect: 'none',
+          background: 'linear-gradient(120deg, var(--surface-2) 0%, var(--surface) 100%)',
           borderBottom: collapsed ? 'none' : '1px solid var(--border)',
-          background: 'var(--surface-2)',
-          userSelect: 'none',
         }}
       >
-        <div style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
-          <span style={{ fontSize: 16 }}>🧠</span>
-          <span style={{ fontSize: 13, fontWeight: 700, color: 'var(--text)', letterSpacing: '.2px' }}>
-            {t('finance.smartInsights')}
-          </span>
-          <div style={{ display: 'flex', gap: 5 }}>
-            {criticalCount > 0 && (
-              <span style={{ fontSize: 10.5, fontWeight: 700, background: '#FEE2E2', color: '#991B1B', borderRadius: 20, padding: '2px 8px' }}>
-                {criticalCount} {t('finance.criticalLabel')}
-              </span>
-            )}
-            {warningCount > 0 && (
-              <span style={{ fontSize: 10.5, fontWeight: 700, background: '#FEF3C7', color: '#92400E', borderRadius: 20, padding: '2px 8px' }}>
-                {warningCount} {t('finance.warningLabel')}
-              </span>
-            )}
-            {positiveCount > 0 && (
-              <span style={{ fontSize: 10.5, fontWeight: 700, background: '#D1FAE5', color: '#065F46', borderRadius: 20, padding: '2px 8px' }}>
-                {positiveCount} {t('finance.positiveLabel')}
-              </span>
-            )}
+        <div style={{ display: 'flex', alignItems: 'center', gap: 13 }}>
+          <div style={{
+            width: 40, height: 40, borderRadius: 11,
+            background: 'linear-gradient(135deg, #6366F1 0%, #8B5CF6 100%)',
+            display: 'flex', alignItems: 'center', justifyContent: 'center',
+            fontSize: 19, flexShrink: 0, boxShadow: '0 4px 12px rgba(99,102,241,.35)',
+          }}>
+            🧠
+          </div>
+          <div>
+            <div style={{ fontSize: 14.5, fontWeight: 800, color: 'var(--text)', letterSpacing: '.2px' }}>
+              {t('finance.smartInsights')}
+            </div>
+            <div style={{ fontSize: 11.5, color: 'var(--text-3)', marginTop: 1 }}>
+              {t('finance.insightsSubtitle')}
+            </div>
           </div>
         </div>
-        <div style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
-          <span style={{ fontSize: 10.5, color: 'var(--text-3)' }}>{insights.length} {t('finance.insightsCount')}</span>
+
+        <div style={{ display: 'flex', alignItems: 'center', gap: 7 }}>
+          {counts.map((c, i) => (
+            <span key={i} style={{
+              fontSize: 11.5, fontWeight: 800, minWidth: 24, textAlign: 'center',
+              background: c.soft, color: c.text, borderRadius: 20, padding: '3px 9px',
+            }}>
+              {c.n}
+            </span>
+          ))}
           <span style={{
-            fontSize: 11, color: 'var(--text-3)',
+            fontSize: 11, color: 'var(--text-3)', marginLeft: 2,
             transform: collapsed ? 'rotate(0deg)' : 'rotate(180deg)',
-            transition: 'transform .2s',
-            display: 'inline-block',
+            transition: 'transform .2s', display: 'inline-block',
           }}>▼</span>
         </div>
       </div>
@@ -1007,9 +967,9 @@ function SmartInsightsPanel({ insights }) {
       {!collapsed && (
         <div style={{
           display: 'grid',
-          gridTemplateColumns: 'repeat(auto-fill, minmax(280px, 1fr))',
-          gap: 10,
-          padding: 16,
+          gridTemplateColumns: 'repeat(auto-fill, minmax(300px, 1fr))',
+          gap: 12,
+          padding: 18,
         }}>
           {insights.map((ins, i) => (
             <InsightCard key={ins.id} insight={ins} index={i} />
@@ -1441,7 +1401,7 @@ export default function Finance() {
     try {
       const data = await getFinanceRangeDetail({ start, end });
       setDrillData(data);
-    } catch (e) { /* detail stays null */ }
+    } catch { /* detail stays null */ }
     finally { setDrillLoading(false); }
   }
 
@@ -1543,9 +1503,6 @@ export default function Finance() {
               </div>
             ))}
           </div>
-
-          {/* ── Smart Insights Panel ── */}
-          <SmartInsightsPanel insights={insights} />
 
           {/* Charts row 1: Line chart full width */}
           <div className="card fin-card" style={{ animationDelay: '0.35s', marginBottom: 16 }}>
@@ -1686,6 +1643,9 @@ export default function Finance() {
               </div>
             </div>
           )}
+
+          {/* ── Smart Insights Panel — placed at the bottom of the module ── */}
+          <SmartInsightsPanel insights={insights} />
 
           {!summary && !loading && (
             <div style={{ textAlign: 'center', padding: '60px 20px', color: 'var(--text-3)' }}>

@@ -14,7 +14,6 @@ from typing import Optional
 from database import get_db
 from permissions import require_perm
 import sqlite3
-from datetime import datetime
 
 router = APIRouter()
 
@@ -53,6 +52,19 @@ UNARCHIVE_ENDPOINTS = {
     "suppliers":      "/api/suppliers/{id}/unarchive",
     "hr_employees":   "/api/hr/employees/{id}/unarchive",
     "hr_departments": "/api/hr/departments/{id}/unarchive",
+}
+
+
+# Pre-built statements keyed by module. Table and label-column identifiers come
+# only from the MODULES registry above (never from the request); the literal SQL
+# is assembled once here at import time, not per call.
+_ARCHIVE_SELECT_SQL = {
+    mod: f"SELECT id, {label_col} AS label, archived_at FROM {table} WHERE id = ?"
+    for mod, (table, label_col) in MODULES.items()
+}
+_UNARCHIVE_SQL = {
+    mod: f"UPDATE {table} SET archived_at = NULL, archive_reason = NULL WHERE id = ?"
+    for mod, (table, _label_col) in MODULES.items()
 }
 
 
@@ -121,20 +133,14 @@ def unarchive_item(
     user=Depends(require_perm("dashboard", "create")),
     db: sqlite3.Connection = Depends(get_db),
 ):
-    table, label_col = _assert_module(module)
-    row = db.execute(
-        f"SELECT id, {label_col} AS label, archived_at FROM {table} WHERE id = ?",
-        (item_id,),
-    ).fetchone()
+    _assert_module(module)
+    row = db.execute(_ARCHIVE_SELECT_SQL[module], (item_id,)).fetchone()
     if not row:
         raise HTTPException(404, "Item not found")
     if not row["archived_at"]:
         raise HTTPException(400, "Item is not archived")
 
-    db.execute(
-        f"UPDATE {table} SET archived_at = NULL, archive_reason = NULL WHERE id = ?",
-        (item_id,),
-    )
+    db.execute(_UNARCHIVE_SQL[module], (item_id,))
     db.commit()
     return {
         "message": f"'{row['label']}' restored from {DISPLAY_NAMES.get(module, module)} archives",

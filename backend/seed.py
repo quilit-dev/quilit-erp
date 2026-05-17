@@ -773,22 +773,38 @@ def run():
 
     # ── Clear existing business data (children first) ─────────────────────────
     print("Clearing existing business data ...")
-    for tbl in [
-        "approval_steps", "approval_requests", "approval_policies",
-        "hr_leave_requests", "hr_employees", "hr_departments",
-        "planning_tasks", "planning_milestones", "planning_projects",
-        "crm_deals", "crm_activities", "crm_contacts", "crm_leads",
-        "invoice_payments", "invoice_items", "invoices",
-        "stock_movements", "purchases",
-        "expenses",
-        "quotation_items", "quotations",
-        "projects",
-        "clients",
-        "inventory",
-        "suppliers",
-    ]:
+    # Fixed literal DELETE per table (children first) — table names are never
+    # interpolated into the statement. dict preserves the deletion order.
+    _CLEAR_TABLES = {
+        "approval_steps":      "DELETE FROM approval_steps",
+        "approval_requests":   "DELETE FROM approval_requests",
+        "approval_policies":   "DELETE FROM approval_policies",
+        "hr_leave_requests":   "DELETE FROM hr_leave_requests",
+        "hr_employees":        "DELETE FROM hr_employees",
+        "hr_departments":      "DELETE FROM hr_departments",
+        "planning_tasks":      "DELETE FROM planning_tasks",
+        "planning_milestones": "DELETE FROM planning_milestones",
+        "planning_projects":   "DELETE FROM planning_projects",
+        "crm_deals":           "DELETE FROM crm_deals",
+        "crm_activities":      "DELETE FROM crm_activities",
+        "crm_contacts":        "DELETE FROM crm_contacts",
+        "crm_leads":           "DELETE FROM crm_leads",
+        "invoice_payments":    "DELETE FROM invoice_payments",
+        "invoice_items":       "DELETE FROM invoice_items",
+        "invoices":            "DELETE FROM invoices",
+        "stock_movements":     "DELETE FROM stock_movements",
+        "purchases":           "DELETE FROM purchases",
+        "expenses":            "DELETE FROM expenses",
+        "quotation_items":     "DELETE FROM quotation_items",
+        "quotations":          "DELETE FROM quotations",
+        "projects":            "DELETE FROM projects",
+        "clients":             "DELETE FROM clients",
+        "inventory":           "DELETE FROM inventory",
+        "suppliers":           "DELETE FROM suppliers",
+    }
+    for tbl, delete_sql in _CLEAR_TABLES.items():
         try:
-            c.execute(f"DELETE FROM {tbl}")
+            c.execute(delete_sql)
             c.execute("DELETE FROM sqlite_sequence WHERE name=?", (tbl,))
         except sqlite3.OperationalError:
             pass

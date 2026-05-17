@@ -1,6 +1,6 @@
 """Shared utilities imported by all routers."""
 from datetime import datetime
-import sqlite3, json
+import sqlite3
 
 
 def _now() -> str:

@@ -7,9 +7,8 @@ from pydantic import BaseModel
 from typing import Optional
 from database import get_db
 from auth_utils import hash_password
-from permissions import require_admin, require_auth
+from permissions import require_admin
 from routers.audit import log_action
-from utils import _now
 import sqlite3
 
 router = APIRouter()
@@ -25,6 +24,7 @@ class UserCreate(BaseModel):
 
 
 class UserUpdate(BaseModel):
+    username:     Optional[str] = None
     full_name:    Optional[str] = None
     email:        Optional[str] = None
     role_id:      Optional[int] = None
@@ -165,6 +165,17 @@ def update_user(
         if count == 0:
             raise HTTPException(400, "Cannot remove superadmin from the last administrator.")
 
+    new_username = None
+    if data.username is not None:
+        new_username = data.username.strip()
+        if not new_username:
+            raise HTTPException(400, "Username cannot be empty.")
+        if new_username != row["username"]:
+            if db.execute("SELECT id FROM users WHERE username=? AND id!=? AND deleted_at IS NULL", (new_username, user_id)).fetchone():
+                raise HTTPException(400, f"Username '{new_username}' is already taken.")
+        else:
+            new_username = None
+
     if data.email and data.email != row["email"]:
         if db.execute("SELECT id FROM users WHERE email=? AND id!=? AND deleted_at IS NULL", (data.email, user_id)).fetchone():
             raise HTTPException(400, f"Email '{data.email}' is already in use.")
@@ -173,22 +184,28 @@ def update_user(
         if not rrow:
             raise HTTPException(400, "Role not found.")
 
-    fields, params = [], []
-    for field, col in [("full_name","full_name"), ("email","email"), ("role_id","role_id")]:
-        val = getattr(data, field)
-        if val is not None:
-            fields.append(f"{col}=?"); params.append(val)
-    # Keep the legacy `role` text column in sync with the assigned RBAC role
-    if data.role_id is not None:
-        fields.append("role=?"); params.append(rrow["name"])
-    if data.is_active is not None:
-        fields.append("is_active=?"); params.append(1 if data.is_active else 0)
-    if data.is_superadmin is not None:
-        fields.append("is_superadmin=?"); params.append(1 if data.is_superadmin else 0)
-
-    if fields:
-        params.append(user_id)
-        db.execute(f"UPDATE users SET {', '.join(fields)} WHERE id=?", params)
+    # Keep the legacy `role` text column in sync with the assigned RBAC role.
+    role_name = rrow["name"] if data.role_id is not None else None
+    # Fixed column list; COALESCE keeps the current value for any field left as
+    # None, so the statement is a constant literal — no identifiers are built.
+    values = [
+        new_username,
+        data.full_name,
+        data.email,
+        data.role_id,
+        role_name,
+        (1 if data.is_active else 0)     if data.is_active     is not None else None,
+        (1 if data.is_superadmin else 0) if data.is_superadmin is not None else None,
+    ]
+    if any(v is not None for v in values):
+        db.execute(
+            "UPDATE users SET "
+            "username=COALESCE(?,username), full_name=COALESCE(?,full_name), "
+            "email=COALESCE(?,email), role_id=COALESCE(?,role_id), "
+            "role=COALESCE(?,role), is_active=COALESCE(?,is_active), "
+            "is_superadmin=COALESCE(?,is_superadmin) WHERE id=?",
+            values + [user_id],
+        )
         log_action(db, caller, "update", "user", user_id, row["username"])
         db.commit()
     return {"message": "User updated."}

@@ -8,7 +8,6 @@ from database import get_db
 from permissions import require_admin, ALL_MODULES, ACTIONS
 from routers.audit import log_action
 import sqlite3
-from datetime import datetime
 
 router = APIRouter()
 

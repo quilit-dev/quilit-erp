@@ -18,11 +18,6 @@ const MODULE_COLORS = {
   project:  { bg: '#fce7f3', color: '#be185d' },
 };
 
-const TYPE_CONFIG = {
-  single:     { label: 'Single Approver', color: 'blue' },
-  multi_step: { label: 'Multi-Step',      color: 'purple' },
-};
-
 function ModuleBadge({ module }) {
   const cfg = MODULE_COLORS[module] || { bg: 'var(--bg)', color: 'var(--text-2)' };
   return (
@@ -38,6 +33,7 @@ function ModuleBadge({ module }) {
 // ── Condition Row ─────────────────────────────────────────────────────────────
 
 function ConditionRow({ cond, index, fields, onUpdate, onRemove }) {
+  const { t } = useLocale();
   const fieldDef = fields.find(f => f.key === cond.field) || fields[0] || {};
   const fieldType = fieldDef.type || 'text';
 
@@ -49,7 +45,7 @@ function ConditionRow({ cond, index, fields, onUpdate, onRemove }) {
     <div style={{ display: 'flex', gap: 8, alignItems: 'center', marginBottom: 6 }}>
       {index > 0 && (
         <span style={{ fontSize: 10, fontWeight: 700, color: 'var(--text-3)', minWidth: 28, textAlign: 'center' }}>
-          AND
+          {t('approvals.logicAnd')}
         </span>
       )}
       {index === 0 && <span style={{ minWidth: 28 }} />}
@@ -70,7 +66,7 @@ function ConditionRow({ cond, index, fields, onUpdate, onRemove }) {
         className="form-control"
         style={{ flex: 1 }}
         type={fieldType === 'number' ? 'number' : 'text'}
-        placeholder="value"
+        placeholder={t('approvals.conditionValue')}
         value={cond.value}
         onChange={e => onUpdate(index, { ...cond, value: e.target.value })}
       />
@@ -87,6 +83,7 @@ function ConditionRow({ cond, index, fields, onUpdate, onRemove }) {
 // ── Step Row (multi-step) ─────────────────────────────────────────────────────
 
 function StepRow({ step, index, roles, total, onUpdate, onRemove, onMove }) {
+  const { t } = useLocale();
   return (
     <div style={{ display: 'flex', gap: 8, alignItems: 'center', marginBottom: 6 }}>
       <span style={{
@@ -101,7 +98,7 @@ function StepRow({ step, index, roles, total, onUpdate, onRemove, onMove }) {
       <select className="form-control" style={{ flex: 1 }}
         value={step.role}
         onChange={e => onUpdate(index, { ...step, role: e.target.value })}>
-        <option value="">— Select role —</option>
+        <option value="">{t('approvals.selectRole')}</option>
         {roles.map(r => <option key={r} value={r}>{r}</option>)}
       </select>
 
@@ -181,25 +178,25 @@ function PolicyForm({ initial, meta, roles, onSave, onClose }) {
 
   async function handleSubmit(e) {
     e.preventDefault();
-    if (!form.name.trim()) { toast('Policy name is required', 'error'); return; }
+    if (!form.name.trim()) { toast(t('approvals.policyNameRequired'), 'error'); return; }
     if (form.approval_type === 'single' && form.approver_roles.length === 0) {
-      toast('Select at least one approver role', 'error'); return;
+      toast(t('approvals.selectApproverRole'), 'error'); return;
     }
     if (form.approval_type === 'multi_step' && form.steps.length === 0) {
-      toast('Add at least one approval step', 'error'); return;
+      toast(t('approvals.addApprovalStepMsg'), 'error'); return;
     }
     setSaving(true);
     try {
       if (initial?.id) {
         await updateApprovalPolicy(initial.id, form);
-        toast('Policy updated');
+        toast(t('approvals.policyUpdated'));
       } else {
         await createApprovalPolicy(form);
-        toast('Policy created');
+        toast(t('approvals.policyCreated'));
       }
       onSave();
     } catch (err) {
-      toast(err.message || 'Error saving policy', 'error');
+      toast(err.message || t('approvals.errorSavingPolicy'), 'error');
     } finally {
       setSaving(false);
     }
@@ -214,16 +211,16 @@ function PolicyForm({ initial, meta, roles, onSave, onClose }) {
         {/* Basic info */}
         <div style={sectionStyle}>
           <div className="form-group form-full">
-            <label className="form-label">Policy Name *</label>
-            <input className="form-control" value={form.name} onChange={e => set('name', e.target.value)} placeholder="e.g. Large Purchase Approval" required />
+            <label className="form-label">{t('approvals.policyName')} *</label>
+            <input className="form-control" value={form.name} onChange={e => set('name', e.target.value)} placeholder={t('approvals.policyNamePlaceholder')} required />
           </div>
           <div className="form-group form-full">
-            <label className="form-label">Description</label>
-            <textarea className="form-control" rows={2} value={form.description || ''} onChange={e => set('description', e.target.value)} placeholder="Optional description of when this policy applies" />
+            <label className="form-label">{t('common.description')}</label>
+            <textarea className="form-control" rows={2} value={form.description || ''} onChange={e => set('description', e.target.value)} placeholder={t('approvals.descriptionPlaceholder')} />
           </div>
           <div className="form-grid">
             <div className="form-group">
-              <label className="form-label">Module</label>
+              <label className="form-label">{t('approvals.module')}</label>
               <select className="form-control" value={form.module} onChange={e => set('module', e.target.value)}>
                 {(meta?.modules || ['expense', 'invoice', 'purchase', 'project']).map(m => (
                   <option key={m} value={m} style={{ textTransform: 'capitalize' }}>{m.charAt(0).toUpperCase() + m.slice(1)}</option>
@@ -231,7 +228,7 @@ function PolicyForm({ initial, meta, roles, onSave, onClose }) {
               </select>
             </div>
             <div className="form-group">
-              <label className="form-label">Trigger Action</label>
+              <label className="form-label">{t('approvals.triggerAction')}</label>
               <select className="form-control" value={form.trigger_action} onChange={e => set('trigger_action', e.target.value)}>
                 {moduleActions.map(a => (
                   <option key={a} value={a} style={{ textTransform: 'capitalize' }}>{a.charAt(0).toUpperCase() + a.slice(1)}</option>
@@ -239,13 +236,13 @@ function PolicyForm({ initial, meta, roles, onSave, onClose }) {
               </select>
             </div>
             <div className="form-group">
-              <label className="form-label">Priority</label>
+              <label className="form-label">{t('approvals.priority')}</label>
               <input type="number" className="form-control" value={form.priority} onChange={e => set('priority', Number(e.target.value))} min={0} />
             </div>
             <div className="form-group" style={{ display: 'flex', alignItems: 'flex-end' }}>
               <label style={{ display: 'flex', alignItems: 'center', gap: 8, cursor: 'pointer', fontSize: 13, fontWeight: 500, color: 'var(--text)' }}>
                 <input type="checkbox" checked={form.is_active} onChange={e => set('is_active', e.target.checked)} />
-                Active Policy
+                {t('approvals.activePolicy')}
               </label>
             </div>
           </div>
@@ -255,8 +252,8 @@ function PolicyForm({ initial, meta, roles, onSave, onClose }) {
         <div style={sectionStyle}>
           <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: 10 }}>
             <div>
-              <div style={{ fontWeight: 700, fontSize: 13, color: 'var(--text)', marginBottom: 2 }}>Conditions</div>
-              <div style={{ fontSize: 11, color: 'var(--text-3)' }}>Leave empty to match all {form.module}s</div>
+              <div style={{ fontWeight: 700, fontSize: 13, color: 'var(--text)', marginBottom: 2 }}>{t('approvals.conditions')}</div>
+              <div style={{ fontSize: 11, color: 'var(--text-3)' }}>{t('approvals.conditionsHint', { module: form.module })}</div>
             </div>
             {form.conditions.length > 1 && (
               <div style={{ display: 'flex', gap: 4 }}>
@@ -269,7 +266,7 @@ function PolicyForm({ initial, meta, roles, onSave, onClose }) {
                       background: form.condition_logic === logic ? 'var(--accent-light)' : 'transparent',
                       color: form.condition_logic === logic ? 'var(--accent)' : 'var(--text-3)',
                     }}
-                  >{logic}</button>
+                  >{logic === 'AND' ? t('approvals.logicAnd') : t('approvals.logicOr')}</button>
                 ))}
               </div>
             )}
@@ -277,7 +274,7 @@ function PolicyForm({ initial, meta, roles, onSave, onClose }) {
 
           {form.conditions.length === 0 ? (
             <div style={{ padding: '12px 0', fontSize: 12, color: 'var(--text-3)', fontStyle: 'italic' }}>
-              No conditions — this policy applies to all {form.module}s
+              {t('approvals.noConditions', { module: form.module })}
             </div>
           ) : (
             form.conditions.map((cond, i) => (
@@ -292,18 +289,18 @@ function PolicyForm({ initial, meta, roles, onSave, onClose }) {
           {moduleFields.length > 0 && (
             <button type="button" onClick={addCondition}
               style={{ fontSize: 12, color: 'var(--accent)', background: 'none', border: '1px dashed var(--accent)', borderRadius: 6, padding: '5px 12px', cursor: 'pointer', marginTop: 4 }}>
-              + Add Condition
+              {t('approvals.addCondition')}
             </button>
           )}
         </div>
 
         {/* Approval type */}
         <div style={sectionStyle}>
-          <div style={{ fontWeight: 700, fontSize: 13, color: 'var(--text)', marginBottom: 10 }}>Approval Type</div>
+          <div style={{ fontWeight: 700, fontSize: 13, color: 'var(--text)', marginBottom: 10 }}>{t('approvals.approvalType')}</div>
           <div style={{ display: 'flex', gap: 10, marginBottom: 14 }}>
             {[
-              { key: 'single',     label: 'Single Approver',  desc: 'Any one approver in the selected roles can approve' },
-              { key: 'multi_step', label: 'Multi-Step',       desc: 'Approval flows through ordered steps sequentially' },
+              { key: 'single',     label: t('approvals.single'),    desc: t('approvals.singleDesc') },
+              { key: 'multi_step', label: t('approvals.multiStep'), desc: t('approvals.multiStepDesc') },
             ].map(opt => (
               <div key={opt.key}
                 onClick={() => set('approval_type', opt.key)}
@@ -331,9 +328,9 @@ function PolicyForm({ initial, meta, roles, onSave, onClose }) {
           {/* Single approver roles */}
           {form.approval_type === 'single' && (
             <div>
-              <div style={{ fontSize: 12, fontWeight: 600, color: 'var(--text-2)', marginBottom: 8 }}>Approver Roles (any one can approve)</div>
+              <div style={{ fontSize: 12, fontWeight: 600, color: 'var(--text-2)', marginBottom: 8 }}>{t('approvals.approverRolesLabel')}</div>
               {roles.length === 0 ? (
-                <div style={{ fontSize: 12, color: 'var(--text-3)' }}>No roles found. Create roles in Admin → Roles.</div>
+                <div style={{ fontSize: 12, color: 'var(--text-3)' }}>{t('approvals.noRolesFound')}</div>
               ) : (
                 <div style={{ display: 'flex', flexWrap: 'wrap', gap: 8 }}>
                   {roles.map(role => {
@@ -342,6 +339,7 @@ function PolicyForm({ initial, meta, roles, onSave, onClose }) {
                       <button key={role} type="button" onClick={() => toggleRole(role)}
                         style={{
                           padding: '5px 12px', borderRadius: 99, fontSize: 12, cursor: 'pointer', transition: 'all .15s',
+                          whiteSpace: 'nowrap',
                           border: `1.5px solid ${sel ? 'var(--accent)' : 'var(--border)'}`,
                           background: sel ? 'var(--accent)' : 'transparent',
                           color: sel ? '#fff' : 'var(--text-2)',
@@ -359,9 +357,9 @@ function PolicyForm({ initial, meta, roles, onSave, onClose }) {
           {/* Multi-step */}
           {form.approval_type === 'multi_step' && (
             <div>
-              <div style={{ fontSize: 12, fontWeight: 600, color: 'var(--text-2)', marginBottom: 8 }}>Approval Steps (executed in order)</div>
+              <div style={{ fontSize: 12, fontWeight: 600, color: 'var(--text-2)', marginBottom: 8 }}>{t('approvals.approvalStepsLabel')}</div>
               {form.steps.length === 0 ? (
-                <div style={{ fontSize: 12, color: 'var(--text-3)', marginBottom: 8, fontStyle: 'italic' }}>No steps yet — add at least one</div>
+                <div style={{ fontSize: 12, color: 'var(--text-3)', marginBottom: 8, fontStyle: 'italic' }}>{t('approvals.noSteps')}</div>
               ) : (
                 form.steps.map((step, i) => (
                   <StepRow key={i} step={step} index={i} roles={roles} total={form.steps.length}
@@ -370,7 +368,7 @@ function PolicyForm({ initial, meta, roles, onSave, onClose }) {
               )}
               <button type="button" onClick={addStep}
                 style={{ fontSize: 12, color: 'var(--accent)', background: 'none', border: '1px dashed var(--accent)', borderRadius: 6, padding: '5px 12px', cursor: 'pointer', marginTop: 4 }}>
-                + Add Step
+                {t('approvals.addStep')}
               </button>
             </div>
           )}
@@ -378,9 +376,9 @@ function PolicyForm({ initial, meta, roles, onSave, onClose }) {
       </div>
 
       <div className="modal-footer">
-        <button type="button" className="btn btn-outline btn-sm" onClick={onClose}>Cancel</button>
+        <button type="button" className="btn btn-outline btn-sm" onClick={onClose}>{t('common.cancel')}</button>
         <button type="submit" className="btn btn-primary btn-sm" disabled={saving}>
-          {saving ? 'Saving…' : (initial?.id ? 'Save Changes' : 'Create Policy')}
+          {saving ? t('common.saving') : (initial?.id ? t('common.save') : t('approvals.createPolicy'))}
         </button>
       </div>
     </form>
@@ -390,6 +388,7 @@ function PolicyForm({ initial, meta, roles, onSave, onClose }) {
 // ── Policy Row ────────────────────────────────────────────────────────────────
 
 function PolicyRow({ policy, onEdit, onToggle, onDelete }) {
+  const { t } = useLocale();
   const conditions = Array.isArray(policy.conditions) ? policy.conditions : [];
   const steps      = Array.isArray(policy.steps)      ? policy.steps      : [];
   const roles      = Array.isArray(policy.approver_roles) ? policy.approver_roles : [];
@@ -406,12 +405,12 @@ function PolicyRow({ policy, onEdit, onToggle, onDelete }) {
       <td style={{ fontSize: 12, color: 'var(--text-2)', textTransform: 'capitalize' }}>{policy.trigger_action}</td>
       <td>
         {conditions.length === 0 ? (
-          <span style={{ fontSize: 11, color: 'var(--text-3)', fontStyle: 'italic' }}>Always</span>
+          <span style={{ fontSize: 11, color: 'var(--text-3)', fontStyle: 'italic' }}>{t('approvals.alwaysShort')}</span>
         ) : (
           <div style={{ display: 'flex', flexDirection: 'column', gap: 3 }}>
             {conditions.map((c, i) => (
               <div key={i} style={{ display: 'flex', alignItems: 'center', gap: 4 }}>
-                {i > 0 && <span style={{ fontSize: 9, fontWeight: 700, color: 'var(--text-3)' }}>{policy.condition_logic}</span>}
+                {i > 0 && <span style={{ fontSize: 9, fontWeight: 700, color: 'var(--text-3)' }}>{policy.condition_logic === 'OR' ? t('approvals.logicOr') : t('approvals.logicAnd')}</span>}
                 <code style={{ fontSize: 10, background: 'var(--bg)', padding: '1px 6px', borderRadius: 4, color: 'var(--text-2)', border: '1px solid var(--border)' }}>
                   {c.field} {c.op} {c.value}
                 </code>
@@ -423,10 +422,10 @@ function PolicyRow({ policy, onEdit, onToggle, onDelete }) {
       <td>
         {policy.approval_type === 'multi_step' ? (
           <div style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
-            <div style={{ display: 'flex', alignItems: 'center', gap: 0 }}>
+            <div style={{ display: 'flex', alignItems: 'center', flexWrap: 'wrap', gap: 0, rowGap: 4 }}>
               {steps.map((s, i) => (
                 <div key={i} style={{ display: 'flex', alignItems: 'center' }}>
-                  <span style={{ fontSize: 10, background: 'var(--accent)', color: '#fff', borderRadius: 99, padding: '1px 7px', fontWeight: 600 }}>
+                  <span style={{ display: 'inline-flex', alignItems: 'center', whiteSpace: 'nowrap', fontSize: 10, background: 'var(--surface)', border: '1px solid var(--border)', color: 'var(--text-2)', borderRadius: 6, padding: '2px 8px', fontWeight: 600 }}>
                     {s.role || '?'}
                   </span>
                   {i < steps.length - 1 && (
@@ -452,15 +451,15 @@ function PolicyRow({ policy, onEdit, onToggle, onDelete }) {
             background: policy.is_active ? 'var(--green-light)' : 'var(--bg)',
             color: policy.is_active ? 'var(--green)' : 'var(--text-3)',
           }}>
-          {policy.is_active ? 'Active' : 'Inactive'}
+          {policy.is_active ? t('approvals.active') : t('approvals.inactive')}
         </button>
       </td>
       <td>
         <div style={{ display: 'flex', gap: 4, justifyContent: 'flex-end' }}>
-          <button className="btn btn-outline btn-sm" onClick={() => onEdit(policy)} title="Edit">
+          <button className="btn btn-outline btn-sm" onClick={() => onEdit(policy)} title={t('common.edit')}>
             <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><path d="M11 4H4a2 2 0 00-2 2v14a2 2 0 002 2h14a2 2 0 002-2v-7"/><path d="M18.5 2.5a2.121 2.121 0 013 3L12 15l-4 1 1-4 9.5-9.5z"/></svg>
           </button>
-          <button className="btn btn-outline btn-sm" onClick={() => onDelete(policy)} title="Delete"
+          <button className="btn btn-outline btn-sm" onClick={() => onDelete(policy)} title={t('common.delete')}
             style={{ color: 'var(--red)' }}>
             <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><polyline points="3 6 5 6 21 6"/><path d="M19 6l-1 14a2 2 0 01-2 2H8a2 2 0 01-2-2L5 6"/></svg>
           </button>
@@ -511,9 +510,9 @@ export default function ApprovalPolicies() {
     try {
       const res = await toggleApprovalPolicy(policy.id);
       reload();
-      toast(res.is_active ? 'Policy activated' : 'Policy deactivated');
+      toast(res.is_active ? t('approvals.policyActivated') : t('approvals.policyDeactivated'));
     } catch (err) {
-      toast(err.message || 'Error', 'error');
+      toast(err.message || t('common.error'), 'error');
     }
   }
 
@@ -521,11 +520,11 @@ export default function ApprovalPolicies() {
     if (!delConf) return;
     try {
       await deleteApprovalPolicy(delConf.id);
-      toast('Policy deleted');
+      toast(t('approvals.policyDeleted'));
       setDelConf(null);
       reload();
     } catch (err) {
-      toast(err.message || 'Error', 'error');
+      toast(err.message || t('common.error'), 'error');
     }
   }
 
@@ -550,7 +549,7 @@ export default function ApprovalPolicies() {
       }}>
         <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="var(--accent)" strokeWidth="2" style={{ flexShrink: 0, marginTop: 1 }}><circle cx="12" cy="12" r="10"/><line x1="12" y1="8" x2="12" y2="12"/><line x1="12" y1="16" x2="12.01" y2="16"/></svg>
         <div style={{ fontSize: 12, color: 'var(--text-2)', lineHeight: 1.6 }}>
-          <strong style={{ color: 'var(--accent)' }}>How policies work:</strong> When a matching action occurs (e.g. creating a purchase), the system evaluates conditions top-to-bottom by priority. The first matching active policy triggers an approval request and sets the record to <em>Pending Approval</em>. Once approved or rejected, the record status updates automatically.
+          <strong style={{ color: 'var(--accent)' }}>{t('approvals.howItWorksTitle')}</strong> {t('approvals.howItWorksBody')}
         </div>
       </div>
 
@@ -559,7 +558,7 @@ export default function ApprovalPolicies() {
         <div className="card-header">
           <div className="search-bar" style={{ margin: 0, flex: 1, gap: 8 }}>
             <div style={{ display: 'flex', gap: 4, borderRadius: 6, overflow: 'hidden', border: '1px solid var(--border)' }}>
-              {[['all', 'All'], ['active', 'Active'], ['inactive', 'Inactive']].map(([v, l]) => (
+              {[['all', t('approvals.filterAll')], ['active', t('approvals.active')], ['inactive', t('approvals.inactive')]].map(([v, l]) => (
                 <button key={v} type="button"
                   onClick={() => setFilter(v)}
                   className={filter === v ? 'btn btn-primary btn-sm' : 'btn btn-outline btn-sm'}
@@ -569,11 +568,13 @@ export default function ApprovalPolicies() {
               ))}
             </div>
             <select className="form-control" style={{ width: 160 }} value={modFilt} onChange={e => setModFilt(e.target.value)}>
-              <option value="">All Modules</option>
+              <option value="">{t('common.allModules')}</option>
               {modules.map(m => <option key={m} value={m} style={{ textTransform: 'capitalize' }}>{m.charAt(0).toUpperCase() + m.slice(1)}</option>)}
             </select>
-            <span style={{ fontSize: 12, color: 'var(--text-3)', marginLeft: 'auto' }}>
-              {filtered.length} {filtered.length === 1 ? 'policy' : 'policies'}
+            <span style={{ fontSize: 12, color: 'var(--text-3)', marginInlineStart: 'auto' }}>
+              {filtered.length === 1
+                ? t('approvals.onePolicy', { count: filtered.length })
+                : t('approvals.manyPolicies', { count: filtered.length })}
             </span>
           </div>
         </div>
@@ -583,20 +584,20 @@ export default function ApprovalPolicies() {
             <table>
               <thead>
                 <tr>
-                  <th>Policy Name</th>
-                  <th>Module</th>
-                  <th>Trigger</th>
-                  <th>Conditions</th>
-                  <th>Approvers / Steps</th>
-                  <th>Priority</th>
-                  <th>Status</th>
+                  <th>{t('approvals.policyName')}</th>
+                  <th>{t('approvals.module')}</th>
+                  <th>{t('approvals.trigger')}</th>
+                  <th>{t('approvals.conditions')}</th>
+                  <th>{t('approvals.approversSteps')}</th>
+                  <th>{t('approvals.priority')}</th>
+                  <th>{t('common.status')}</th>
                   <th style={{ width: 80 }}></th>
                 </tr>
               </thead>
               <tbody>
                 {filtered.length === 0 ? (
                   <tr><td colSpan={8} style={{ textAlign: 'center', padding: 48, color: 'var(--text-3)' }}>
-                    No policies yet. Create one to start automating approvals.
+                    {t('approvals.noPolicies')}
                   </td></tr>
                 ) : filtered.map(p => (
                   <PolicyRow key={p.id} policy={p}
@@ -613,7 +614,7 @@ export default function ApprovalPolicies() {
 
       {modal && (
         <Modal
-          title={editing ? 'Edit Policy' : 'New Approval Policy'}
+          title={editing ? t('approvals.editPolicy') : t('approvals.newApprovalPolicy')}
           onClose={() => { setModal(false); setEditing(null); }}
           size="lg"
         >
@@ -629,8 +630,8 @@ export default function ApprovalPolicies() {
 
       {delConf && (
         <ConfirmModal
-          title="Delete Policy"
-          message={`Delete policy "${delConf.name}"? Existing approval requests will remain in the system.`}
+          title={t('approvals.deletePolicy')}
+          message={t('approvals.deletePolicyConfirm', { name: delConf.name })}
           onConfirm={handleDelete}
           onCancel={() => setDelConf(null)}
         />

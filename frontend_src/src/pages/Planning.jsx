@@ -6,7 +6,7 @@ import {
   getPlanningProjects, createPlanningProject, updatePlanningProject, archivePlanningProject,
   getPlanningTasks, createPlanningTask, updatePlanningTask, archivePlanningTask,
   updateTaskDates, updateTaskStatus, updateTaskProgress,
-  getPlanningMilestones, createPlanningMilestone, deletePlanningMilestone,
+  getPlanningMilestones,
   getPlanningSummary, getPlanningDropdownClients, getPlanningDropdownUsers,
 } from '../api/client';
 
@@ -33,6 +33,32 @@ const PROJECT_COLORS = [
   '#4f8ef7', '#10b981', '#f59e0b', '#ef4444', '#8b5cf6',
   '#06b6d4', '#f97316', '#ec4899', '#14b8a6', '#6366f1',
 ];
+
+// Maps for translating the English values stored in DB / used as keys
+const STATUS_KEY = {
+  'To Do':       'planning.statusTodo',
+  'In Progress': 'planning.statusInProgress',
+  'Review':      'planning.statusReview',
+  'Done':        'planning.statusDone',
+  'Blocked':     'planning.statusBlocked',
+};
+const PRIORITY_KEY = {
+  Low:      'planning.priorityLow',
+  Medium:   'planning.priorityMedium',
+  High:     'planning.priorityHigh',
+  Critical: 'planning.priorityCritical',
+};
+const PROJ_STATUS_KEY = {
+  Active:      'planning.projectActive',
+  'On Hold':   'planning.projectOnHold',
+  Completed:   'planning.projectCompleted',
+  Cancelled:   'planning.projectCancelled',
+};
+
+// Translate an enum value, falling back to the raw value if it has no key
+function tEnum(t, map, val) {
+  return map[val] ? t(map[val]) : (val ?? '');
+}
 
 // Gantt constants
 const DAY_W  = 30;   // px per day
@@ -116,20 +142,20 @@ function ProjectForm({ initial, clients, onSave, onClose }) {
 
   async function handleSubmit(e) {
     e.preventDefault();
-    if (!form.name.trim()) { toast('Project name is required', 'error'); return; }
+    if (!form.name.trim()) { toast(t('planning.projectNameRequired'), 'error'); return; }
     setSaving(true);
     try {
       const payload = { ...form, client_id: form.client_id || null };
       if (initial?.id) {
         await updatePlanningProject(initial.id, payload);
-        toast('Project updated');
+        toast(t('planning.projectUpdated'));
       } else {
         await createPlanningProject(payload);
-        toast('Project created');
+        toast(t('planning.projectCreated'));
       }
       onSave();
     } catch (err) {
-      toast(err.message || 'Error', 'error');
+      toast(err.message || t('common.error'), 'error');
     } finally {
       setSaving(false);
     }
@@ -152,14 +178,14 @@ function ProjectForm({ initial, clients, onSave, onClose }) {
           <div className="form-group">
             <label className="form-label">{t('planning.projectClient')}</label>
             <select className="form-control" value={form.client_id} onChange={e => set('client_id', e.target.value)}>
-              <option value="">— None —</option>
+              <option value="">{t('planning.noneOption')}</option>
               {clients.map(c => <option key={c.id} value={c.id}>{c.name}</option>)}
             </select>
           </div>
           <div className="form-group">
             <label className="form-label">{t('planning.projectStatus')}</label>
             <select className="form-control" value={form.status} onChange={e => set('status', e.target.value)}>
-              {PROJ_STATUSES.map(s => <option key={s} value={s}>{s}</option>)}
+              {PROJ_STATUSES.map(s => <option key={s} value={s}>{t(PROJ_STATUS_KEY[s])}</option>)}
             </select>
           </div>
           <div className="form-group">
@@ -220,8 +246,8 @@ function TaskForm({ initial, projects, users, milestones, tasks, onSave, onClose
 
   async function handleSubmit(e) {
     e.preventDefault();
-    if (!form.name.trim()) { toast('Task name is required', 'error'); return; }
-    if (!form.project_id)  { toast('Project is required', 'error'); return; }
+    if (!form.name.trim()) { toast(t('planning.taskNameRequired'), 'error'); return; }
+    if (!form.project_id)  { toast(t('planning.projectRequired'), 'error'); return; }
     setSaving(true);
     try {
       const payload = {
@@ -234,14 +260,14 @@ function TaskForm({ initial, projects, users, milestones, tasks, onSave, onClose
       };
       if (initial?.id) {
         await updatePlanningTask(initial.id, payload);
-        toast('Task updated');
+        toast(t('planning.taskUpdated'));
       } else {
         await createPlanningTask(payload);
-        toast('Task created');
+        toast(t('planning.taskCreated'));
       }
       onSave();
     } catch (err) {
-      toast(err.message || 'Error', 'error');
+      toast(err.message || t('common.error'), 'error');
     } finally {
       setSaving(false);
     }
@@ -260,29 +286,29 @@ function TaskForm({ initial, projects, users, milestones, tasks, onSave, onClose
             <input className="form-control" value={form.name} onChange={e => set('name', e.target.value)} required />
           </div>
           <div className="form-group">
-            <label className="form-label">Project *</label>
+            <label className="form-label">{t('planning.project')} *</label>
             <select className="form-control" value={form.project_id} onChange={e => set('project_id', e.target.value)} required>
-              <option value="">— Select project —</option>
+              <option value="">{t('planning.selectProject')}</option>
               {projects.map(p => <option key={p.id} value={p.id}>{p.name}</option>)}
             </select>
           </div>
           <div className="form-group">
             <label className="form-label">{t('planning.assignedTo')}</label>
             <select className="form-control" value={form.assigned_to} onChange={e => set('assigned_to', e.target.value)}>
-              <option value="">— Unassigned —</option>
+              <option value="">{t('planning.unassignedOption')}</option>
               {users.map(u => <option key={u.id} value={u.id}>{u.name}</option>)}
             </select>
           </div>
           <div className="form-group">
             <label className="form-label">{t('common.status')}</label>
             <select className="form-control" value={form.status} onChange={e => set('status', e.target.value)}>
-              {STATUSES.map(s => <option key={s} value={s}>{s}</option>)}
+              {STATUSES.map(s => <option key={s} value={s}>{t(STATUS_KEY[s])}</option>)}
             </select>
           </div>
           <div className="form-group">
             <label className="form-label">{t('planning.priority')}</label>
             <select className="form-control" value={form.priority} onChange={e => set('priority', e.target.value)}>
-              {PRIORITIES.map(p => <option key={p} value={p}>{p}</option>)}
+              {PRIORITIES.map(p => <option key={p} value={p}>{t(PRIORITY_KEY[p])}</option>)}
             </select>
           </div>
           <div className="form-group">
@@ -304,7 +330,7 @@ function TaskForm({ initial, projects, users, milestones, tasks, onSave, onClose
             <div className="form-group">
               <label className="form-label">{t('planning.milestone')}</label>
               <select className="form-control" value={form.milestone_id} onChange={e => set('milestone_id', e.target.value)}>
-                <option value="">— None —</option>
+                <option value="">{t('planning.noneOption')}</option>
                 {projMilestones.map(m => <option key={m.id} value={m.id}>{m.name}</option>)}
               </select>
             </div>
@@ -313,7 +339,7 @@ function TaskForm({ initial, projects, users, milestones, tasks, onSave, onClose
             <div className="form-group">
               <label className="form-label">{t('planning.dependsOn')}</label>
               <select className="form-control" value={form.depends_on} onChange={e => set('depends_on', e.target.value)}>
-                <option value="">— None —</option>
+                <option value="">{t('planning.noneOption')}</option>
                 {projTasks.map(tk => <option key={tk.id} value={tk.id}>{tk.name}</option>)}
               </select>
             </div>
@@ -337,7 +363,8 @@ function TaskForm({ initial, projects, users, milestones, tasks, onSave, onClose
 // ─── GANTT VIEW ───────────────────────────────────────────────────────────────
 
 function GanttView({ tasks, projects, milestones, onRefresh }) {
-  const { t } = useLocale();
+  const { t, lang } = useLocale();
+  const dateLocale = lang === 'ar' ? 'ar-SA-u-nu-latn' : 'en';
   const [selProject, setSelProject] = useState('');
   const [viewMode, setViewMode] = useState('month'); // 'week' | 'month'
   const dragRef      = useRef(null);
@@ -383,8 +410,8 @@ function GanttView({ tasks, projects, milestones, onRefresh }) {
   }
 
   const navLabel = viewMode === 'week'
-    ? `${rangeStart.toLocaleDateString('en', { month: 'short', day: 'numeric' })} – ${rangeEnd.toLocaleDateString('en', { month: 'short', day: 'numeric', year: 'numeric' })}`
-    : rangeStart.toLocaleDateString('en', { month: 'long', year: 'numeric' });
+    ? `${rangeStart.toLocaleDateString(dateLocale, { month: 'short', day: 'numeric' })} – ${rangeEnd.toLocaleDateString(dateLocale, { month: 'short', day: 'numeric', year: 'numeric' })}`
+    : rangeStart.toLocaleDateString(dateLocale, { month: 'long', year: 'numeric' });
 
   const filtered = selProject
     ? localTasks.filter(tk => String(tk.project_id) === selProject)
@@ -404,7 +431,7 @@ function GanttView({ tasks, projects, milestones, onRefresh }) {
     const key = `${cursor.getFullYear()}-${cursor.getMonth()}`;
     const ex = months.find(m => m.key === key);
     if (ex) { ex.days++; }
-    else { months.push({ key, label: cursor.toLocaleDateString('en', { month: 'short', year: 'numeric' }), days: 1 }); }
+    else { months.push({ key, label: cursor.toLocaleDateString(dateLocale, { month: 'short', year: 'numeric' }), days: 1 }); }
     cursor = addDays(cursor, 1);
   }
 
@@ -444,7 +471,7 @@ function GanttView({ tasks, projects, milestones, onRefresh }) {
       try {
         await updateTaskDates(dr.taskId, { start_date: toIso(dr.curStart), end_date: toIso(dr.curEnd) });
       } catch {
-        toast('Failed to save dates', 'error');
+        toast(t('planning.failedSaveDates'), 'error');
         onRefresh();
       }
     }
@@ -478,17 +505,17 @@ function GanttView({ tasks, projects, milestones, onRefresh }) {
           {(['week', 'month']).map(mode => (
             <button key={mode}
               className={viewMode === mode ? 'btn btn-primary btn-sm' : 'btn btn-outline btn-sm'}
-              style={{ borderRadius: 0, border: 'none', textTransform: 'capitalize', fontSize: 12 }}
+              style={{ borderRadius: 0, border: 'none', fontSize: 12 }}
               onClick={() => setViewMode(mode)}
             >
-              {mode}
+              {t('planning.' + mode)}
             </button>
           ))}
         </div>
       </div>
 
       {visibleTasks.length === 0 ? (
-        <EmptyState message="No tasks in this date range. Use navigation to find tasks or add dates to tasks." />
+        <EmptyState message={t('planning.noTasksInRange')} />
       ) : (
         <div className="card" style={{ overflow: 'hidden', padding: 0 }}>
           <div style={{ display: 'flex', userSelect: 'none' }}>
@@ -496,7 +523,7 @@ function GanttView({ tasks, projects, milestones, onRefresh }) {
             {/* Left label column — fixed width, no scroll */}
             <div style={{ width: LEFT_W, flexShrink: 0, borderRight: '1px solid var(--border)', background: 'var(--surface)' }}>
               <div style={{ height: MONTH_HDR_H, borderBottom: '1px solid var(--border)', background: 'var(--surface-2)', display: 'flex', alignItems: 'center', paddingLeft: 14, fontWeight: 700, fontSize: 12, color: 'var(--text-2)' }}>
-                Task
+                {t('planning.taskColumn')}
               </div>
               <div style={{ height: DAY_HDR_H, borderBottom: '2px solid var(--border)', background: 'var(--surface-2)' }} />
               {visibleTasks.map((task, i) => (
@@ -604,7 +631,7 @@ function GanttView({ tasks, projects, milestones, onRefresh }) {
                           overflow: 'hidden',
                           boxShadow: `0 2px 8px ${color}44, inset 0 1px 0 rgba(255,255,255,.25)`,
                         }}
-                        title={`${task.name}  •  ${task.start_date} → ${task.end_date}  •  ${pct}% done`}
+                        title={`${task.name}  •  ${task.start_date} → ${task.end_date}  •  ${t('planning.pctDone', { p: pct })}`}
                       >
                         {/* Progress fill overlay */}
                         <div style={{ position: 'absolute', left: 0, top: 0, height: '100%', width: `${pct}%`, background: 'rgba(255,255,255,.18)', pointerEvents: 'none', borderRadius: '5px 0 0 5px', transition: 'width .3s' }} />
@@ -669,7 +696,7 @@ function BoardView({ tasks, projects, onRefresh, onEdit }) {
       await updateTaskStatus(taskId, { status: targetStatus });
       onRefresh();
     } catch {
-      toast('Failed to update status', 'error');
+      toast(t('planning.failedUpdateStatus'), 'error');
     }
   }
 
@@ -681,7 +708,7 @@ function BoardView({ tasks, projects, onRefresh, onEdit }) {
           <option value="">{t('planning.allProjects')}</option>
           {projects.map(p => <option key={p.id} value={p.id}>{p.name}</option>)}
         </select>
-        <span style={{ fontSize: 11, color: 'var(--text-3)', marginLeft: 'auto' }}>Drag cards between columns to update status</span>
+        <span style={{ fontSize: 11, color: 'var(--text-3)', marginLeft: 'auto' }}>{t('planning.dragColumnsHint')}</span>
       </div>
 
       <div style={{ display: 'grid', gridTemplateColumns: `repeat(${STATUSES.length}, 1fr)`, gap: 12, alignItems: 'start' }}>
@@ -697,7 +724,7 @@ function BoardView({ tasks, projects, onRefresh, onEdit }) {
             }}
           >
             <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: 10, paddingBottom: 8, borderBottom: '1px solid var(--border)' }}>
-              <Badge color={STATUS_BADGE[col.status]}>{col.status}</Badge>
+              <Badge color={STATUS_BADGE[col.status]}>{tEnum(t, STATUS_KEY, col.status)}</Badge>
               <span style={{ fontSize: 11, color: 'var(--text-3)', fontWeight: 600 }}>{col.tasks.length}</span>
             </div>
 
@@ -718,7 +745,7 @@ function BoardView({ tasks, projects, onRefresh, onEdit }) {
                     </div>
                   )}
                   <div style={{ display: 'flex', alignItems: 'center', gap: 4, flexWrap: 'wrap', marginBottom: task.progress > 0 ? 6 : 0 }}>
-                    <Badge color={PRIORITY_BADGE[task.priority] || 'blue'} style={{ fontSize: 9 }}>{task.priority}</Badge>
+                    <Badge color={PRIORITY_BADGE[task.priority] || 'blue'} style={{ fontSize: 9 }}>{tEnum(t, PRIORITY_KEY, task.priority)}</Badge>
                     {task.assignee_name && <span style={{ fontSize: 10, color: 'var(--text-3)' }}>· {task.assignee_name}</span>}
                     {task.end_date && (
                       <span style={{ fontSize: 10, color: new Date(task.end_date) < new Date() && task.status !== 'Done' ? 'var(--red)' : 'var(--text-3)', marginLeft: 'auto' }}>
@@ -732,7 +759,7 @@ function BoardView({ tasks, projects, onRefresh, onEdit }) {
 
               {col.tasks.length === 0 && (
                 <div style={{ padding: '16px 0', textAlign: 'center', color: 'var(--text-3)', fontSize: 12, fontStyle: 'italic' }}>
-                  Drop tasks here
+                  {t('planning.dropTasksHere')}
                 </div>
               )}
             </div>
@@ -767,7 +794,7 @@ function ListView({ tasks, projects, onEdit, onArchive, onRefresh }) {
       await updateTaskProgress(taskId, { progress: value });
       onRefresh();
     } catch {
-      toast('Failed to update progress', 'error');
+      toast(t('planning.failedUpdateProgress'), 'error');
     }
   }
 
@@ -786,11 +813,11 @@ function ListView({ tasks, projects, onEdit, onArchive, onRefresh }) {
           </select>
           <select className="form-control" style={{ width: 140 }} value={selStatus} onChange={e => setSelStatus(e.target.value)}>
             <option value="">{t('common.allStatuses')}</option>
-            {STATUSES.map(s => <option key={s} value={s}>{s}</option>)}
+            {STATUSES.map(s => <option key={s} value={s}>{t(STATUS_KEY[s])}</option>)}
           </select>
           <select className="form-control" style={{ width: 130 }} value={selPriority} onChange={e => setSelPriority(e.target.value)}>
-            <option value="">All Priorities</option>
-            {PRIORITIES.map(p => <option key={p} value={p}>{p}</option>)}
+            <option value="">{t('planning.allPriorities')}</option>
+            {PRIORITIES.map(p => <option key={p} value={p}>{t(PRIORITY_KEY[p])}</option>)}
           </select>
         </div>
       </div>
@@ -800,7 +827,7 @@ function ListView({ tasks, projects, onEdit, onArchive, onRefresh }) {
           <thead>
             <tr>
               <th>{t('planning.taskName')}</th>
-              <th>Project</th>
+              <th>{t('planning.project')}</th>
               <th>{t('planning.assignedTo')}</th>
               <th>{t('common.status')}</th>
               <th>{t('planning.priority')}</th>
@@ -832,8 +859,8 @@ function ListView({ tasks, projects, onEdit, onArchive, onRefresh }) {
                 <td style={{ fontSize: 12, color: task.assignee_name ? 'var(--text-2)' : 'var(--text-3)' }}>
                   {task.assignee_name || '—'}
                 </td>
-                <td><Badge color={STATUS_BADGE[task.status] || 'blue'}>{task.status}</Badge></td>
-                <td><Badge color={PRIORITY_BADGE[task.priority] || 'blue'}>{task.priority}</Badge></td>
+                <td><Badge color={STATUS_BADGE[task.status] || 'blue'}>{tEnum(t, STATUS_KEY, task.status)}</Badge></td>
+                <td><Badge color={PRIORITY_BADGE[task.priority] || 'blue'}>{tEnum(t, PRIORITY_KEY, task.priority)}</Badge></td>
                 <td style={{ fontSize: 12, color: 'var(--text-2)', whiteSpace: 'nowrap' }}>{task.start_date || '—'}</td>
                 <td style={{ fontSize: 12, whiteSpace: 'nowrap', color: task.end_date && new Date(task.end_date) < new Date() && task.status !== 'Done' ? 'var(--red)' : 'var(--text-2)' }}>
                   {task.end_date || '—'}
@@ -849,7 +876,7 @@ function ListView({ tasks, projects, onEdit, onArchive, onRefresh }) {
                   ) : (
                     <div style={{ display: 'flex', alignItems: 'center', gap: 6, cursor: 'pointer' }}
                       onClick={() => setEditingProgress(task.id)}
-                      title="Click to edit progress">
+                      title={t('planning.clickEditProgress')}>
                       <ProgressBar value={task.progress} color={task.project_color || '#4f8ef7'} style={{ flex: 1 }} />
                       <span style={{ fontSize: 11, color: 'var(--text-3)', minWidth: 30, textAlign: 'right', fontWeight: 600 }}>{task.progress || 0}%</span>
                     </div>
@@ -857,10 +884,10 @@ function ListView({ tasks, projects, onEdit, onArchive, onRefresh }) {
                 </td>
                 <td>
                   <div style={{ display: 'flex', gap: 4, justifyContent: 'flex-end' }}>
-                    <button className="btn btn-outline btn-sm" onClick={() => onEdit(task)} title="Edit task">
+                    <button className="btn btn-outline btn-sm" onClick={() => onEdit(task)} title={t('planning.editTaskTitle')}>
                       <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><path d="M11 4H4a2 2 0 00-2 2v14a2 2 0 002 2h14a2 2 0 002-2v-7"/><path d="M18.5 2.5a2.121 2.121 0 013 3L12 15l-4 1 1-4 9.5-9.5z"/></svg>
                     </button>
-                    <button className="btn btn-outline btn-sm" onClick={() => onArchive(task)} title="Archive task"
+                    <button className="btn btn-outline btn-sm" onClick={() => onArchive(task)} title={t('planning.archiveTaskTitle')}
                       style={{ color: 'var(--text-3)' }}>
                       <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><polyline points="21 8 21 21 3 21 3 8"/><rect x="1" y="3" width="22" height="5"/><line x1="10" y1="12" x2="14" y2="12"/></svg>
                     </button>
@@ -878,7 +905,8 @@ function ListView({ tasks, projects, onEdit, onArchive, onRefresh }) {
 // ─── CALENDAR VIEW ────────────────────────────────────────────────────────────
 
 function CalendarView({ tasks, projects }) {
-  const { t } = useLocale();
+  const { t, lang } = useLocale();
+  const dateLocale = lang === 'ar' ? 'ar-SA-u-nu-latn' : 'en';
   const today = new Date();
   const [year, setYear]   = useState(today.getFullYear());
   const [month, setMonth] = useState(today.getMonth());
@@ -906,8 +934,10 @@ function CalendarView({ tasks, projects }) {
     });
   }
 
-  const monthLabel = firstDay.toLocaleDateString('en', { month: 'long', year: 'numeric' });
-  const dayNames = ['Sun', 'Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat'];
+  const monthLabel = firstDay.toLocaleDateString(dateLocale, { month: 'long', year: 'numeric' });
+  // 2023-01-01 was a Sunday — build localized short weekday names Sun…Sat
+  const dayNames = Array.from({ length: 7 }, (_, i) =>
+    new Date(2023, 0, 1 + i).toLocaleDateString(dateLocale, { weekday: 'short' }));
 
   return (
     <div style={{ display: 'flex', flexDirection: 'column', gap: 12 }}>
@@ -929,8 +959,8 @@ function CalendarView({ tasks, projects }) {
       <div className="card" style={{ padding: 0, overflow: 'hidden', display: 'flex', flexDirection: 'column', height: 'calc(100vh - 300px)', minHeight: 380 }}>
         {/* Day name header */}
         <div style={{ display: 'grid', gridTemplateColumns: 'repeat(7, 1fr)', borderBottom: '1px solid var(--border)', background: 'var(--bg)', flexShrink: 0 }}>
-          {dayNames.map(d => (
-            <div key={d} style={{ padding: '8px 0', textAlign: 'center', fontSize: 11, fontWeight: 700, color: 'var(--text-3)' }}>{d}</div>
+          {dayNames.map((d, i) => (
+            <div key={i} style={{ padding: '8px 0', textAlign: 'center', fontSize: 11, fontWeight: 700, color: 'var(--text-3)' }}>{d}</div>
           ))}
         </div>
 
@@ -978,7 +1008,7 @@ function CalendarView({ tasks, projects }) {
                         </div>
                       ))}
                       {dayTasks.length > 3 && (
-                        <div style={{ fontSize: 9, color: 'var(--text-3)', paddingLeft: 4 }}>+{dayTasks.length - 3} more</div>
+                        <div style={{ fontSize: 9, color: 'var(--text-3)', paddingLeft: 4 }}>{t('planning.moreCount', { n: dayTasks.length - 3 })}</div>
                       )}
                     </div>
                   </>
@@ -1013,13 +1043,13 @@ function ProjectsPanel({ projects, tasks, onNew, onEdit, onArchive }) {
                   {proj.client_name && <div style={{ fontSize: 11, color: 'var(--text-3)', marginTop: 2 }}>{proj.client_name}</div>}
                 </div>
                 <Badge color={proj.status === 'Active' ? 'green' : proj.status === 'On Hold' ? 'yellow' : proj.status === 'Completed' ? 'blue' : 'red'}>
-                  {proj.status}
+                  {tEnum(t, PROJ_STATUS_KEY, proj.status)}
                 </Badge>
               </div>
               {proj.description && <div style={{ fontSize: 12, color: 'var(--text-2)', marginBottom: 8, lineHeight: 1.4 }}>{proj.description}</div>}
 
               <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: 6 }}>
-                <span style={{ fontSize: 11, color: 'var(--text-3)' }}>{done} / {projTasks.length} tasks done</span>
+                <span style={{ fontSize: 11, color: 'var(--text-3)' }}>{done} / {projTasks.length} {t('planning.tasksDone')}</span>
                 <span style={{ fontSize: 11, color: 'var(--text-3)', fontWeight: 600 }}>{pct}%</span>
               </div>
               <ProgressBar value={pct} color={proj.color || '#4f8ef7'} />
@@ -1029,7 +1059,7 @@ function ProjectsPanel({ projects, tasks, onNew, onEdit, onArchive }) {
                 {proj.start_date && proj.end_date && <span style={{ fontSize: 10, color: 'var(--text-3)' }}>→</span>}
                 {proj.end_date && <span style={{ fontSize: 10, color: 'var(--text-3)' }}>{proj.end_date}</span>}
                 <div style={{ marginLeft: 'auto', display: 'flex', gap: 4 }}>
-                  <button className="btn btn-outline btn-sm" onClick={() => onEdit(proj)}>Edit</button>
+                  <button className="btn btn-outline btn-sm" onClick={() => onEdit(proj)}>{t('common.edit')}</button>
                   <button className="btn btn-outline btn-sm" style={{ color: 'var(--text-3)' }} onClick={() => onArchive(proj)}>
                     <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><polyline points="21 8 21 21 3 21 3 8"/><rect x="1" y="3" width="22" height="5"/></svg>
                   </button>
@@ -1105,9 +1135,9 @@ export default function Planning() {
     setArchProj(null);
     try {
       await archivePlanningProject(proj.id);
-      toast('Project archived');
+      toast(t('planning.projectArchived'));
       reloadAll();
-    } catch (e) { toast(e.message || 'Error', 'error'); }
+    } catch (e) { toast(e.message || t('common.error'), 'error'); }
   }
 
   // Archive task
@@ -1115,13 +1145,13 @@ export default function Planning() {
     setArchTask(null);
     try {
       await archivePlanningTask(task.id);
-      toast('Task archived');
+      toast(t('planning.taskArchived'));
       reloadAll();
-    } catch (e) { toast(e.message || 'Error', 'error'); }
+    } catch (e) { toast(e.message || t('common.error'), 'error'); }
   }
 
   const VIEWS = [
-    { key: 'projects', label: 'Projects' },
+    { key: 'projects', label: t('planning.viewProjects') },
     { key: 'gantt',    label: t('planning.viewGantt') },
     { key: 'board',    label: t('planning.viewBoard') },
     { key: 'list',     label: t('planning.viewList') },
