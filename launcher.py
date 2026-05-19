@@ -93,7 +93,9 @@ try:
     from routers import (auth, dashboard, clients, projects, quotations,
                          inventory, invoices, finance, purchases, settings,
                          archives, documents, suppliers, audit, users, roles, search, reports, crm, planning,
-                         notifications, approval_policies, approval_requests, hr)
+                         notifications, approval_policies, approval_requests, hr,
+                         recycle_bin, tax_rates, pos, cash, manufacturing,
+                         assets, recurring)
     import database
     import backup_manager
     backup_manager.init(DB_PATH)
@@ -131,6 +133,13 @@ try:
     app.include_router(approval_policies.router,  prefix='/api/approval-policies')
     app.include_router(approval_requests.router,  prefix='/api/approval-requests')
     app.include_router(hr.router,                 prefix='/api/hr')
+    app.include_router(recycle_bin.router,        prefix='/api/recycle_bin')
+    app.include_router(tax_rates.router,          prefix='/api/tax-rates')
+    app.include_router(pos.router,                prefix='/api/pos')
+    app.include_router(cash.router,               prefix='/api/cash')
+    app.include_router(manufacturing.router,      prefix='/api/manufacturing')
+    app.include_router(assets.router,             prefix='/api/assets')
+    app.include_router(recurring.router,          prefix='/api/recurring-expenses')
 
     @app.get('/api/health')
     def health():

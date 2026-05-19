@@ -19,9 +19,21 @@ __pycache__/
 # Vite build output
 static/
 
+# Build / packaging artifacts
+build/
+dist/
+installer/Output/
+
 # Logs & temp files
 startup_log.txt
 *.bak
+
+# Front-end dependencies
+frontend_src/node_modules/
+node_modules/
+
+# Tooling
+.claude/
 
 # OS
 .DS_Store

@@ -1,7 +1,7 @@
 import { useState, useEffect, useRef, useCallback } from 'react';
 import { usePersistedState } from '../hooks/usePersistedState';
 import { getFinanceRangeSummary, getFinanceRangeMonthly, getFinanceRangeDetail, getReconciliation, getFinancePeriods, lockPeriod, unlockPeriod } from '../api/client';
-import { LoadingSpinner, ErrorAlert, fmt } from '../components/shared';
+import { LoadingSpinner, ErrorAlert, fmt, DualMoney, ExchangeRateBadge } from '../components/shared';
 import { useLocale } from '../hooks/useLocale.jsx';
 import * as XLSX from 'xlsx';
 
@@ -1447,7 +1447,8 @@ export default function Finance() {
           <h1 className="page-title">{t('finance.title')}</h1>
           <p className="page-subtitle">{periodLabel} · {t('finance.subtitle')}</p>
         </div>
-        <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap' }}>
+        <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap', alignItems: 'center' }}>
+          <ExchangeRateBadge />
           <button className="btn btn-outline btn-sm" onClick={() => setShowRecon(true)}>
             🔍 {t('finance.reconcile')}
           </button>
@@ -1493,9 +1494,9 @@ export default function Finance() {
           {/* KPI Cards */}
           <div className="stats-grid" style={{ gridTemplateColumns: 'repeat(auto-fit, minmax(200px, 1fr))', marginBottom: 24 }}>
             {[
-              { label: t('finance.totalIncome'),   value: fmt(summary?.income || 0),   color: '#059669', icon: '💰', change: prev.income_change,   sub: t('finance.incomePeriod') },
-              { label: t('finance.totalExpenses'), value: fmt(summary?.expenses || 0), color: '#DC2626', icon: '🧾', change: prev.expenses_change != null ? -prev.expenses_change : null, sub: t('finance.allCosts') },
-              { label: t('finance.netProfit'),     value: fmt(summary?.profit || 0),   color: (summary?.profit || 0) >= 0 ? '#1B4F72' : '#DC2626', icon: '📊', change: prev.profit_change, sub: t('finance.incomeMinus') },
+              { label: t('finance.totalIncome'),   value: <DualMoney value={summary?.income || 0} />,   color: '#059669', icon: '💰', change: prev.income_change,   sub: t('finance.incomePeriod') },
+              { label: t('finance.totalExpenses'), value: <DualMoney value={summary?.expenses || 0} />, color: '#DC2626', icon: '🧾', change: prev.expenses_change != null ? -prev.expenses_change : null, sub: t('finance.allCosts') },
+              { label: t('finance.netProfit'),     value: <DualMoney value={summary?.profit || 0} />,   color: (summary?.profit || 0) >= 0 ? '#1B4F72' : '#DC2626', icon: '📊', change: prev.profit_change, sub: t('finance.incomeMinus') },
               { label: t('finance.profitMargin'),  value: margin !== null ? `${margin}%` : '—', color: '#7C3AED', icon: '🎯', change: prev.margin_change, sub: t('finance.netOverIncome') },
             ].map((kpi, i) => (
               <div key={kpi.label} className="fin-card" style={{ animationDelay: `${i * 0.07}s` }}>

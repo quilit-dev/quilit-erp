@@ -120,6 +120,64 @@ def run_manual_backup() -> dict:
     return _do_backup(reason="manual")
 
 
+def export_to_path(dest_dir: str) -> dict:
+    """
+    One-click "Backup to USB" — copy the live database to an external folder
+    (a USB drive, a network share, any path on the server machine). Writes a
+    timestamped .db plus a .sha256 sidecar and runs a restore test on the copy.
+    Works fully offline; nothing leaves the local machine.
+    """
+    if not _db_path or not os.path.exists(_db_path):
+        return {"ok": False, "error": "Database not available"}
+    if not dest_dir or not str(dest_dir).strip():
+        return {"ok": False, "error": "No destination folder specified"}
+
+    dest = Path(str(dest_dir).strip())
+    with _lock:
+        try:
+            dest.mkdir(parents=True, exist_ok=True)
+        except Exception as e:
+            return {"ok": False, "error": f"Cannot open destination folder: {e}"}
+        if not os.access(str(dest), os.W_OK):
+            return {"ok": False, "error": "Destination folder is not writable"}
+
+        # Need at least 2x the DB size (copy + restore-test copy).
+        try:
+            db_size = os.path.getsize(_db_path)
+            free    = shutil.disk_usage(str(dest)).free
+            if free < db_size * 2:
+                return {"ok": False,
+                        "error": f"Not enough free space on destination "
+                                 f"({free // 1024 // 1024} MB available)"}
+        except OSError:
+            pass  # some removable media report no usage stats — proceed anyway
+
+        stamp = datetime.now().strftime("%Y-%m-%d_%H%M%S")
+        fname = f"erp_backup_{stamp}.db"
+        fpath = dest / fname
+        try:
+            _sqlite_online_backup(_db_path, str(fpath))
+        except Exception as e:
+            return {"ok": False, "error": f"Backup failed: {e}"}
+
+        try:
+            _write_checksum(str(fpath))
+        except Exception as e:
+            logger.warning(f"Checksum write failed for USB backup (copy still ok): {e}")
+
+        verified, _ = _test_restore(str(fpath))
+        size_kb = round(fpath.stat().st_size / 1024, 1)
+        logger.info(f"USB/folder backup written: {fpath} ({size_kb} KB)")
+        return {
+            "ok":          True,
+            "file":        fname,
+            "path":        str(fpath),
+            "size_kb":     size_kb,
+            "verified":    verified,
+            "exported_at": datetime.now().strftime("%Y-%m-%d %H:%M:%S"),
+        }
+
+
 def run_integrity_check(db_path: str = None) -> dict:
     """
     Run PRAGMA integrity_check and quick_check on the live (or specified)

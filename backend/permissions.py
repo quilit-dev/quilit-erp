@@ -12,7 +12,8 @@ _SESSION_TIMEOUT = timedelta(minutes=30)
 
 MODULES = [
     'dashboard', 'clients', 'projects', 'quotations', 'invoices',
-    'inventory', 'purchases', 'suppliers', 'finance', 'expenses', 'reports', 'crm', 'planning', 'hr',
+    'inventory', 'purchases', 'suppliers', 'finance', 'expenses', 'reports', 'crm', 'planning', 'hr', 'pos', 'cash',
+    'manufacturing', 'assets',
 ]
 ADMIN_MODULES = ['settings', 'users', 'roles', 'audit']
 ALL_MODULES   = MODULES + ADMIN_MODULES

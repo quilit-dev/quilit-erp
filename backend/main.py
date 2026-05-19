@@ -17,7 +17,8 @@ import os
 from routers import clients, projects, quotations, inventory, invoices, finance, dashboard, auth
 from routers import purchases, settings, archives, documents, suppliers, audit, users, roles, search
 from routers import reports, crm, planning, recycle_bin, notifications
-from routers import approval_policies, approval_requests, hr
+from routers import approval_policies, approval_requests, hr, tax_rates, pos, cash, manufacturing
+from routers import assets, recurring
 
 app = FastAPI(title="ERP System", version="2.0.0")
 
@@ -58,6 +59,12 @@ app.include_router(notifications.router,     prefix="/api/notifications",      t
 app.include_router(approval_policies.router, prefix="/api/approval-policies",  tags=["approvals"])
 app.include_router(approval_requests.router, prefix="/api/approval-requests",  tags=["approvals"])
 app.include_router(hr.router,                prefix="/api/hr",                 tags=["hr"])
+app.include_router(tax_rates.router,         prefix="/api/tax-rates",          tags=["tax"])
+app.include_router(pos.router,               prefix="/api/pos",                tags=["pos"])
+app.include_router(cash.router,              prefix="/api/cash",               tags=["cash"])
+app.include_router(manufacturing.router,     prefix="/api/manufacturing",      tags=["manufacturing"])
+app.include_router(assets.router,            prefix="/api/assets",             tags=["assets"])
+app.include_router(recurring.router,         prefix="/api/recurring-expenses", tags=["expenses"])
 
 @app.get("/")
 def root():

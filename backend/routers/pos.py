@@ -1,0 +1,643 @@
+"""
+Point of Sale — over-the-counter selling, fully integrated with the rest of the ERP.
+
+Integration model
+------------------
+Every completed checkout creates a real `invoices` row plus an immediate
+`invoice_payments` row, so POS revenue flows automatically into Finance, the
+VAT report, reconciliation and aging. A thin `pos_sales` table links the sale
+to its register session and holds POS-only fields (cashier, tendered, change).
+Financial line data lives in `invoice_items`; `pos_sale_items` records only the
+inventory linkage needed to restock on a return.
+
+Atomicity
+---------
+`checkout` and `return_sale` perform every write on one connection and commit
+exactly once at the end. Any HTTPException raised mid-way leaves the
+transaction uncommitted, so SQLite discards every write — a stock failure
+rolls back the invoice, the payment and any earlier movements.
+"""
+from fastapi import APIRouter, Depends, HTTPException
+from pydantic import BaseModel
+from typing import Optional
+from datetime import datetime
+from database import get_db
+from permissions import require_perm
+from routers.audit import log_action
+from routers.finance import _check_period_locked
+from utils import _now, _today, notify, get_tax_context, resolve_inclusive_tax, money
+import sqlite3
+
+router = APIRouter()
+
+
+# ── Models ─────────────────────────────────────────────────────────────────
+class PosSessionOpen(BaseModel):
+    opening_float:     float = 0      # USD float in the drawer at open
+    opening_float_lbp: float = 0      # LBP float in the drawer at open
+    note: Optional[str] = None
+
+
+class PosSessionClose(BaseModel):
+    closing_count:     float          # USD notes counted at close
+    closing_count_lbp: float = 0      # LBP notes counted at close
+    note: Optional[str] = None
+
+
+class PosCartItem(BaseModel):
+    name:         str
+    inventory_id: Optional[int] = None
+    quantity:     float = 1
+    unit_price:   float = 0          # VAT-inclusive price per unit
+    discount:     float = 0          # markdown amount applied to this line
+    tax_rate_id:  Optional[int] = None
+    line_type:    str = "product"
+
+
+class PosCheckout(BaseModel):
+    client_id:       Optional[int] = None
+    items:           list[PosCartItem]
+    payment_method:  str = "Cash"
+    currency:        str = "USD"
+    exchange_rate:   Optional[float] = None
+    amount_tendered: float = 0
+    order_discount:  float = 0       # discount applied to the whole sale
+    cash_drawer_id:  Optional[int] = None   # drawer a cash sale belongs to
+    idempotency_key: str
+    note:            Optional[str] = None
+
+
+class PosReturn(BaseModel):
+    reason: Optional[str] = None
+
+
+# ── Helpers ────────────────────────────────────────────────────────────────
+def _open_session(db, user_id):
+    """The caller's currently-open register session, or None."""
+    return db.execute(
+        "SELECT * FROM pos_sessions WHERE cashier_id=? AND status='open' "
+        "ORDER BY id DESC LIMIT 1",
+        (user_id,),
+    ).fetchone()
+
+
+def _next_pos_invoice_number(db):
+    """A unique invoice number with the POS prefix (so receipts stay separable
+    from regular invoices in the shared MAX(id) sequence)."""
+    row = db.execute("SELECT value FROM settings WHERE key='pos_invoice_prefix'").fetchone()
+    prefix = (row["value"] if row and row["value"] else "POS-")
+    mx = db.execute("SELECT COALESCE(MAX(id), 0) AS m FROM invoices").fetchone()
+    return f"{prefix}{datetime.utcnow().year}-{mx['m'] + 1:04d}"
+
+
+# ── Register sessions ──────────────────────────────────────────────────────
+@router.get("/session/current")
+def current_session(
+    user=Depends(require_perm("pos", "view")),
+    db: sqlite3.Connection = Depends(get_db),
+):
+    """The caller's open session plus its running sale count/total, or null."""
+    session = _open_session(db, user["id"])
+    if not session:
+        return None
+    s = dict(session)
+    agg = db.execute(
+        "SELECT COUNT(*) AS n, COALESCE(SUM(total_usd), 0) AS total "
+        "FROM pos_sales WHERE session_id=? AND status='completed'",
+        (s["id"],),
+    ).fetchone()
+    s["sales_count"] = agg["n"]
+    s["sales_total"] = round(float(agg["total"]), 2)
+    return s
+
+
+@router.post("/session/open")
+def open_session(
+    data: PosSessionOpen,
+    user=Depends(require_perm("pos", "create")),
+    db: sqlite3.Connection = Depends(get_db),
+):
+    if _open_session(db, user["id"]):
+        raise HTTPException(409, "You already have an open register session.")
+    if data.opening_float < 0 or data.opening_float_lbp < 0:
+        raise HTTPException(400, "Opening float cannot be negative.")
+    now = _now()
+    cur = db.execute(
+        "INSERT INTO pos_sessions "
+        "(cashier_id, cashier_name, status, opening_float, opening_float_lbp, note, opened_at) "
+        "VALUES (?,?,'open',?,?,?,?)",
+        (user["id"], user.get("username"), data.opening_float, data.opening_float_lbp,
+         data.note, now),
+    )
+    log_action(db, user, "open", "pos", cur.lastrowid, f"Session #{cur.lastrowid}",
+               {"opening_float": data.opening_float, "opening_float_lbp": data.opening_float_lbp})
+    db.commit()
+    return {"id": cur.lastrowid, "message": "Register session opened"}
+
+
+@router.post("/session/close")
+def close_session(
+    data: PosSessionClose,
+    user=Depends(require_perm("pos", "edit")),
+    db: sqlite3.Connection = Depends(get_db),
+):
+    session = _open_session(db, user["id"])
+    if not session:
+        raise HTTPException(409, "You have no open register session.")
+    if data.closing_count < 0 or (data.closing_count_lbp or 0) < 0:
+        raise HTTPException(400, "Counted cash cannot be negative.")
+
+    # Expected drawer = opening float + cash taken in − cash refunded, computed
+    # PER CURRENCY (USD and LBP are never summed). Cash-in is attributed to the
+    # session that recorded the sale; a refund counts against the session that
+    # processed the return. `amount_tendered − change_given` is the net cash
+    # kept, in that sale's own currency.
+    def _cash_in(currency):
+        return float(db.execute(
+            "SELECT COALESCE(SUM(amount_tendered - change_given), 0) FROM pos_sales "
+            "WHERE session_id=? AND payment_method='Cash' AND paid_currency=?",
+            (session["id"], currency),
+        ).fetchone()[0])
+
+    def _cash_out(currency):
+        return float(db.execute(
+            "SELECT COALESCE(SUM(s.amount_tendered - s.change_given), 0) "
+            "FROM pos_returns r JOIN pos_sales s ON r.pos_sale_id = s.id "
+            "WHERE r.session_id=? AND s.payment_method='Cash' AND s.paid_currency=?",
+            (session["id"], currency),
+        ).fetchone()[0])
+
+    exp_usd = round(float(session["opening_float"]) + _cash_in("USD") - _cash_out("USD"), 2)
+    exp_lbp = round(float(session["opening_float_lbp"] or 0) + _cash_in("LBP") - _cash_out("LBP"), 2)
+    var_usd = round(float(data.closing_count) - exp_usd, 2)
+    var_lbp = round(float(data.closing_count_lbp or 0) - exp_lbp, 2)
+    now = _now()
+    db.execute(
+        "UPDATE pos_sessions SET status='closed', "
+        "closing_count=?, expected_cash=?, variance=?, "
+        "closing_count_lbp=?, expected_cash_lbp=?, variance_lbp=?, "
+        "note=COALESCE(?, note), closed_at=? WHERE id=?",
+        (data.closing_count, exp_usd, var_usd,
+         (data.closing_count_lbp or 0), exp_lbp, var_lbp,
+         data.note, now, session["id"]),
+    )
+    log_action(db, user, "close", "pos", session["id"], f"Session #{session['id']}",
+               {"expected_usd": exp_usd, "variance_usd": var_usd,
+                "expected_lbp": exp_lbp, "variance_lbp": var_lbp})
+    db.commit()
+    return {
+        "message":           "Register session closed",
+        "expected_cash":     exp_usd,
+        "closing_count":     data.closing_count,
+        "variance":          var_usd,
+        "expected_cash_lbp": exp_lbp,
+        "closing_count_lbp": (data.closing_count_lbp or 0),
+        "variance_lbp":      var_lbp,
+    }
+
+
+@router.get("/sessions")
+def list_sessions(
+    user=Depends(require_perm("pos", "view")),
+    db: sqlite3.Connection = Depends(get_db),
+):
+    rows = db.execute("SELECT * FROM pos_sessions ORDER BY id DESC LIMIT 100").fetchall()
+    return [dict(r) for r in rows]
+
+
+@router.get("/sessions/{session_id}")
+def get_session(
+    session_id: int,
+    user=Depends(require_perm("pos", "view")),
+    db: sqlite3.Connection = Depends(get_db),
+):
+    row = db.execute("SELECT * FROM pos_sessions WHERE id=?", (session_id,)).fetchone()
+    if not row:
+        raise HTTPException(404, "Session not found")
+    s = dict(row)
+    sales = db.execute(
+        "SELECT ps.*, i.invoice_number FROM pos_sales ps "
+        "JOIN invoices i ON ps.invoice_id = i.id "
+        "WHERE ps.session_id=? ORDER BY ps.id DESC",
+        (session_id,),
+    ).fetchall()
+    s["sales"] = [dict(x) for x in sales]
+    return s
+
+
+# ── Product lookup for the register ────────────────────────────────────────
+@router.get("/products")
+def search_products(
+    search: Optional[str] = None,
+    user=Depends(require_perm("pos", "view")),
+    db: sqlite3.Connection = Depends(get_db),
+):
+    """Fast item lookup for the cashier — matches name, category or exact barcode."""
+    query  = ("SELECT id, name, category, quantity, unit, unit_cost, sale_price, barcode "
+              "FROM inventory WHERE archived_at IS NULL")
+    params = []
+    if search:
+        query += " AND (name LIKE ? OR category LIKE ? OR barcode = ?)"
+        like = f"%{search}%"
+        params += [like, like, search]
+    query += " ORDER BY name LIMIT 50"
+    return [dict(r) for r in db.execute(query, params).fetchall()]
+
+
+@router.get("/cash-drawers")
+def list_cash_drawers(
+    user=Depends(require_perm("pos", "view")),
+    db: sqlite3.Connection = Depends(get_db),
+):
+    """Active cash drawers for the register's drawer picker (no cash permission
+    needed — a cashier must be able to choose which till a sale lands in)."""
+    try:
+        return [dict(r) for r in db.execute(
+            "SELECT id, name, auto_capture FROM cash_drawers "
+            "WHERE is_active=1 ORDER BY name"
+        ).fetchall()]
+    except sqlite3.OperationalError:
+        return []
+
+
+# ── Checkout ───────────────────────────────────────────────────────────────
+@router.post("/checkout")
+def checkout(
+    data: PosCheckout,
+    user=Depends(require_perm("pos", "create")),
+    db: sqlite3.Connection = Depends(get_db),
+):
+    """Record a complete sale: invoice + line items + payment + real-time stock
+    deduction + pos_sale, all in one atomic transaction."""
+    # 1. Accounting period must be open.
+    _check_period_locked(db, _now()[:7] + "-01")
+
+    # 2. A sale requires an open register session.
+    session = _open_session(db, user["id"])
+    if not session:
+        raise HTTPException(409, "Open a register session before recording a sale.")
+
+    # 3. Validate the cart and the optional customer.
+    if not data.items:
+        raise HTTPException(400, "Cannot complete a sale with an empty cart.")
+    for it in data.items:
+        if it.quantity <= 0:
+            raise HTTPException(400, f"Quantity for '{it.name}' must be positive.")
+        if it.unit_price < 0:
+            raise HTTPException(400, f"Price for '{it.name}' cannot be negative.")
+    if data.client_id is not None and not db.execute(
+        "SELECT 1 FROM clients WHERE id=?", (data.client_id,)
+    ).fetchone():
+        raise HTTPException(400, "Client not found")
+
+    # 4. Idempotency — a repeated submit (same key) is rejected before any write.
+    if not data.idempotency_key:
+        raise HTTPException(400, "An idempotency key is required.")
+    if db.execute(
+        "SELECT id FROM invoice_payments WHERE idempotency_key=?", (data.idempotency_key,)
+    ).fetchone():
+        raise HTTPException(409, "This sale was already recorded (duplicate submission).")
+
+    # 5. Currency.
+    currency = (data.currency or "USD").upper()
+    if currency not in ("USD", "LBP"):
+        raise HTTPException(400, "Unsupported payment currency")
+    rate = None
+    if currency == "LBP":
+        if not data.exchange_rate or data.exchange_rate <= 0:
+            raise HTTPException(400, "An exchange rate is required for LBP payments.")
+        rate = float(data.exchange_rate)
+
+    # 6. Pre-flight stock check — aggregate per item so the same product added
+    #    to the cart twice is validated against the combined quantity.
+    needed = {}
+    for it in data.items:
+        if it.inventory_id is not None:
+            needed[it.inventory_id] = needed.get(it.inventory_id, 0.0) + float(it.quantity)
+    stock_rows = {}
+    for inv_id, qty_needed in needed.items():
+        row = db.execute(
+            "SELECT * FROM inventory WHERE id=? AND archived_at IS NULL", (inv_id,)
+        ).fetchone()
+        if not row:
+            raise HTTPException(400, f"Inventory item #{inv_id} not found.")
+        if round(float(row["quantity"]) - qty_needed, 6) < 0:
+            raise HTTPException(
+                400,
+                f"Insufficient stock for '{row['name']}': "
+                f"{row['quantity']} available, {qty_needed} requested.",
+            )
+        stock_rows[inv_id] = row
+
+    # 7. Per-line pricing. POS prices are VAT-INCLUSIVE: apply the line
+    #    markdown, distribute any order-level discount proportionally, then
+    #    EXTRACT the tax from the resulting gross (retail standard).
+    ctx = get_tax_context(db)
+    gross_after_line = []                       # line gross after its own markdown
+    for it in data.items:
+        line_gross = round(float(it.quantity) * float(it.unit_price), 4)
+        line_disc  = round(float(it.discount or 0), 4)
+        if line_disc < 0:
+            raise HTTPException(400, f"Discount for '{it.name}' cannot be negative.")
+        if line_disc > line_gross + 0.001:
+            raise HTTPException(400, f"Discount for '{it.name}' exceeds the line total.")
+        gross_after_line.append(round(line_gross - line_disc, 4))
+
+    order_discount = round(float(data.order_discount or 0), 4)
+    if order_discount < 0:
+        raise HTTPException(400, "Order discount cannot be negative.")
+    gross_sum = round(sum(gross_after_line), 4)
+    if order_discount > gross_sum + 0.001:
+        raise HTTPException(400, "Order discount exceeds the order total.")
+
+    # Distribute the order discount proportionally; the last line absorbs the
+    # rounding remainder so the shares sum to exactly order_discount.
+    order_shares = [0.0] * len(data.items)
+    if order_discount > 0 and gross_sum > 0:
+        acc, last = 0.0, len(data.items) - 1
+        for i, g in enumerate(gross_after_line):
+            if i == last:
+                order_shares[i] = round(order_discount - acc, 4)
+            else:
+                order_shares[i] = round(order_discount * g / gross_sum, 4)
+                acc += order_shares[i]
+
+    lines = []
+    subtotal = tax_total = grand_total = cogs_total = discount_total = 0.0
+    for idx, it in enumerate(data.items):
+        # Cent-rounded gross per line — guarantees the customer-facing total
+        # equals SUM(line gross) exactly.
+        final_gross = money(gross_after_line[idx] - order_shares[idx])
+        if final_gross < 0:
+            final_gross = 0.0
+        rid, line_rate, tax_amt = resolve_inclusive_tax(ctx, it.tax_rate_id, final_gross)
+        net      = money(final_gross - tax_amt)
+        qty      = float(it.quantity)
+        # Net unit price stays at 6 dp so a unit-priced item can round-trip
+        # without losing precision on small qty * unit_price = small total.
+        net_unit = round(net / qty, 6) if qty else 0.0
+        line_disc_total = money(float(it.discount or 0) + order_shares[idx])
+        unit_cost = (float(stock_rows[it.inventory_id]["unit_cost"] or 0)
+                     if it.inventory_id is not None else 0.0)
+        lines.append({
+            "rid": rid, "rate": line_rate, "tax_amt": tax_amt, "net_unit": net_unit,
+            "discount": line_disc_total, "unit_cost": unit_cost,
+        })
+        subtotal       += net
+        tax_total      += tax_amt
+        grand_total    += final_gross
+        cogs_total     += unit_cost * qty
+        discount_total += line_disc_total
+    subtotal       = money(subtotal)
+    tax_total      = money(tax_total)
+    grand_total    = money(grand_total)
+    cogs_total     = money(cogs_total)
+    discount_total = money(discount_total)
+    if grand_total <= 0:
+        raise HTTPException(400, "Sale total must be positive.")
+    total_in_currency = grand_total if currency == "USD" else round(grand_total * rate, 2)
+
+    # 8. Payment must cover the total.
+    method = (data.payment_method or "Cash").strip() or "Cash"
+    # A cash sale may be attributed to a specific cash drawer.
+    pos_drawer_id = data.cash_drawer_id if method.lower() == "cash" else None
+    if pos_drawer_id is not None and not db.execute(
+        "SELECT 1 FROM cash_drawers WHERE id=?", (pos_drawer_id,)).fetchone():
+        raise HTTPException(400, "Cash drawer not found")
+    if method.lower() == "cash":
+        if data.amount_tendered + 0.01 < total_in_currency:
+            raise HTTPException(400, "Amount tendered is less than the sale total.")
+        tendered     = float(data.amount_tendered)
+        change_given = round(tendered - total_in_currency, 2)
+    else:
+        tendered     = total_in_currency       # card etc. — charged exactly
+        change_given = 0.0
+
+    now, today = _now(), _today()
+
+    # 9. Invoice (amount = the VAT-inclusive total the customer pays).
+    inv_no = _next_pos_invoice_number(db)
+    cur = db.execute(
+        "INSERT INTO invoices "
+        "(invoice_number, client_id, amount, subtotal, tax_total, due_date, notes, created_at, version) "
+        "VALUES (?,?,?,?,?,?,?,?,1)",
+        (inv_no, data.client_id, grand_total, subtotal, tax_total, today,
+         data.note or "POS sale", now),
+    )
+    invoice_id = cur.lastrowid
+
+    # 10. Invoice line items — normalised to the exclusive form (unit_price =
+    #     post-discount NET unit price) so every existing invoice / VAT /
+    #     finance reader stays correct without modification.
+    invoice_item_ids = []
+    for idx, it in enumerate(data.items):
+        ln = lines[idx]
+        ic = db.execute(
+            "INSERT INTO invoice_items "
+            "(invoice_id, name, quantity, unit_price, tax_rate_id, tax_rate, tax_amount, discount) "
+            "VALUES (?,?,?,?,?,?,?,?)",
+            (invoice_id, it.name, it.quantity, ln["net_unit"],
+             ln["rid"], ln["rate"], ln["tax_amt"], ln["discount"]),
+        )
+        invoice_item_ids.append(ic.lastrowid)
+
+    # 11. Payment — the sale is settled in full immediately.
+    db.execute(
+        "INSERT INTO invoice_payments "
+        "(invoice_id, amount, method, note, paid_at, idempotency_key, "
+        " paid_currency, paid_amount, exchange_rate, cash_drawer_id) "
+        "VALUES (?,?,?,?,?,?,?,?,?,?)",
+        (invoice_id, grand_total, method, "POS sale", now, data.idempotency_key,
+         currency, total_in_currency, rate, pos_drawer_id),
+    )
+
+    # 12. Real-time stock deduction.
+    for inv_id, qty_needed in needed.items():
+        row        = stock_rows[inv_id]
+        qty_before = float(row["quantity"])
+        qty_after  = round(qty_before - qty_needed, 6)
+        if qty_after < 0:                       # defensive — pre-flight already checked
+            raise HTTPException(400, f"Insufficient stock for '{row['name']}'.")
+        db.execute("UPDATE inventory SET quantity=? WHERE id=?", (qty_after, inv_id))
+        db.execute(
+            "INSERT INTO stock_movements "
+            "(inventory_id, type, delta, qty_before, qty_after, reference, note, created_at) "
+            "VALUES (?,?,?,?,?,?,?,?)",
+            (inv_id, "sale", -qty_needed, qty_before, qty_after, inv_no, "POS sale", now),
+        )
+        min_stock = float(row["min_stock"] or 0)
+        if min_stock > 0 and qty_after <= min_stock:
+            notify(db, type="low_stock",
+                   title=f"Low stock alert: {row['name']}",
+                   body=f"Only {qty_after} {row['unit'] or 'units'} remaining (minimum: {min_stock})",
+                   link="/inventory", entity_type="inventory", entity_id=inv_id,
+                   dedup_hours=24)
+
+    # 13. POS sale record (carries the sale's discount + cost-of-goods-sold).
+    ps = db.execute(
+        "INSERT INTO pos_sales "
+        "(session_id, invoice_id, cashier_id, cashier_name, payment_method, paid_currency, "
+        " amount_tendered, change_given, total_usd, discount_total, cogs_total, status, created_at) "
+        "VALUES (?,?,?,?,?,?,?,?,?,?,?, 'completed', ?)",
+        (session["id"], invoice_id, user["id"], user.get("username"), method, currency,
+         tendered, change_given, grand_total, discount_total, cogs_total, now),
+    )
+    pos_sale_id = ps.lastrowid
+
+    # 14. POS sale items — the receipt-native view: VAT-inclusive unit price,
+    #     the discount applied, and the unit-cost snapshot used for COGS.
+    for idx, it in enumerate(data.items):
+        ln = lines[idx]
+        line_type = "product" if it.inventory_id is not None else "service"
+        db.execute(
+            "INSERT INTO pos_sale_items "
+            "(pos_sale_id, invoice_item_id, inventory_id, name, quantity, unit_price, "
+            " line_type, discount, unit_cost) "
+            "VALUES (?,?,?,?,?,?,?,?,?)",
+            (pos_sale_id, invoice_item_ids[idx], it.inventory_id, it.name,
+             it.quantity, it.unit_price, line_type, ln["discount"], ln["unit_cost"]),
+        )
+
+    # 15. Audit + single commit.
+    log_action(db, user, "create", "pos", pos_sale_id, inv_no,
+               {"total": grand_total, "method": method, "currency": currency})
+    db.commit()
+    return {
+        "id":             pos_sale_id,
+        "invoice_id":     invoice_id,
+        "invoice_number": inv_no,
+        "subtotal":       subtotal,
+        "tax_total":      tax_total,
+        "discount_total": discount_total,
+        "cogs_total":     cogs_total,
+        "total":          grand_total,
+        "change_given":   change_given,
+        "payment_status": "Paid",
+        "message":        "Sale completed",
+    }
+
+
+# ── Sales history ──────────────────────────────────────────────────────────
+@router.get("/sales")
+def list_sales(
+    session_id: Optional[int] = None,
+    status:     Optional[str] = None,
+    user=Depends(require_perm("pos", "view")),
+    db: sqlite3.Connection = Depends(get_db),
+):
+    query  = ("SELECT ps.*, i.invoice_number, c.name AS client_name "
+              "FROM pos_sales ps "
+              "JOIN invoices i ON ps.invoice_id = i.id "
+              "LEFT JOIN clients c ON i.client_id = c.id WHERE 1=1")
+    params = []
+    if session_id is not None:
+        query += " AND ps.session_id=?"
+        params.append(session_id)
+    if status:
+        query += " AND ps.status=?"
+        params.append(status)
+    query += " ORDER BY ps.id DESC LIMIT 200"
+    return [dict(r) for r in db.execute(query, params).fetchall()]
+
+
+@router.get("/sales/{sale_id}")
+def get_sale(
+    sale_id: int,
+    user=Depends(require_perm("pos", "view")),
+    db: sqlite3.Connection = Depends(get_db),
+):
+    row = db.execute(
+        "SELECT ps.*, i.invoice_number, i.amount, i.subtotal, i.tax_total, "
+        "       i.voided_at, c.name AS client_name "
+        "FROM pos_sales ps "
+        "JOIN invoices i ON ps.invoice_id = i.id "
+        "LEFT JOIN clients c ON i.client_id = c.id "
+        "WHERE ps.id=?",
+        (sale_id,),
+    ).fetchone()
+    if not row:
+        raise HTTPException(404, "Sale not found")
+    d = dict(row)
+    # POS-native line view: VAT-inclusive unit price, discount and cost.
+    d["items"] = [dict(x) for x in db.execute(
+        "SELECT * FROM pos_sale_items WHERE pos_sale_id=? ORDER BY id", (sale_id,)
+    ).fetchall()]
+    payment = db.execute(
+        "SELECT * FROM invoice_payments WHERE invoice_id=? ORDER BY id LIMIT 1",
+        (d["invoice_id"],),
+    ).fetchone()
+    d["payment"] = dict(payment) if payment else None
+    # Margin = net (ex-VAT) revenue − cost of goods sold.
+    d["margin"] = round(float(d["subtotal"] or 0) - float(d["cogs_total"] or 0), 2)
+    return d
+
+
+# ── Return / refund ────────────────────────────────────────────────────────
+@router.post("/sales/{sale_id}/return")
+def return_sale(
+    sale_id: int,
+    data: PosReturn,
+    user=Depends(require_perm("pos", "edit")),
+    db: sqlite3.Connection = Depends(get_db),
+):
+    """Full return: void the sale's invoice, restock every inventory-backed
+    line, and record a pos_returns row — all in one atomic transaction."""
+    sale = db.execute("SELECT * FROM pos_sales WHERE id=?", (sale_id,)).fetchone()
+    if not sale:
+        raise HTTPException(404, "Sale not found")
+    if sale["status"] == "returned":
+        raise HTTPException(400, "This sale has already been returned.")
+
+    session = _open_session(db, user["id"])
+    if not session:
+        raise HTTPException(409, "Open a register session before processing a return.")
+
+    inv = db.execute("SELECT * FROM invoices WHERE id=?", (sale["invoice_id"],)).fetchone()
+    if not inv:
+        raise HTTPException(404, "Linked invoice not found")
+    if inv["voided_at"]:
+        raise HTTPException(400, "The linked invoice is already voided.")
+
+    # The original sale's accounting period must still be open.
+    _check_period_locked(db, str(sale["created_at"])[:7] + "-01")
+
+    now = _now()
+
+    # Void the invoice (keeps the payment row for audit; finance/VAT exclude voids).
+    db.execute(
+        "UPDATE invoices SET voided_at=?, void_reason=?, version=version+1 WHERE id=?",
+        (now, f"POS return: {data.reason or 'Customer return'}", inv["id"]),
+    )
+
+    # Restock every inventory-backed line.
+    for it in db.execute(
+        "SELECT * FROM pos_sale_items WHERE pos_sale_id=? AND inventory_id IS NOT NULL",
+        (sale_id,),
+    ).fetchall():
+        row = db.execute("SELECT * FROM inventory WHERE id=?", (it["inventory_id"],)).fetchone()
+        if not row:
+            continue
+        qty_before = float(row["quantity"])
+        qty_after  = round(qty_before + float(it["quantity"]), 6)
+        db.execute("UPDATE inventory SET quantity=? WHERE id=?", (qty_after, it["inventory_id"]))
+        db.execute(
+            "INSERT INTO stock_movements "
+            "(inventory_id, type, delta, qty_before, qty_after, reference, note, created_at) "
+            "VALUES (?,?,?,?,?,?,?,?)",
+            (it["inventory_id"], "return", float(it["quantity"]), qty_before, qty_after,
+             inv["invoice_number"], "POS return", now),
+        )
+
+    refund_amount = float(sale["total_usd"])
+    db.execute(
+        "INSERT INTO pos_returns "
+        "(pos_sale_id, session_id, invoice_id, cashier_id, refund_amount, reason, created_at) "
+        "VALUES (?,?,?,?,?,?,?)",
+        (sale_id, session["id"], inv["id"], user["id"], refund_amount, data.reason, now),
+    )
+    db.execute("UPDATE pos_sales SET status='returned', returned_at=? WHERE id=?", (now, sale_id))
+
+    log_action(db, user, "return", "pos", sale_id, inv["invoice_number"],
+               {"refund_amount": refund_amount, "reason": data.reason})
+    db.commit()
+    return {"message": "Sale returned", "refund_amount": refund_amount}

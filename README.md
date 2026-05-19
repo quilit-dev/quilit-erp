@@ -10,12 +10,15 @@ A full-stack business management platform for small-to-medium enterprises. Centr
 
 | Module | Capabilities |
 |--------|-------------|
-| **Sales** | Quotations, invoices, payment tracking, aging reports |
-| **Finance** | Revenue/expense tracking, period locking, reconciliation, financial reports |
+| **Sales** | Quotations, invoices, partial & multi-currency payment tracking, aging reports |
+| **Finance** | Revenue/expense tracking, period locking, VAT reporting, reconciliation |
+| **Taxation** | Admin-managed named tax rates (standard / zero-rated / exempt), per-line tax |
+| **Multi-Currency** | Dual-currency (USD base + secondary, e.g. LBP) with manual exchange-rate history |
 | **Projects** | Project lifecycle, cost tracking, milestone planning, Gantt charts |
 | **CRM** | Lead management, deal pipeline, contact tracking, activity logging |
 | **Inventory** | Stock management, low-stock alerts, stock movements, purchase integration |
-| **HR & Access** | Role-based permissions, multi-user sessions, approval workflows, audit trail |
+| **HR** | Employee directory, departments, leave requests and approval |
+| **Access Control** | Role-based permissions, multi-user sessions, approval workflows, audit trail |
 | **Localization** | Full English and Arabic (RTL) support |
 
 ---
@@ -51,25 +54,26 @@ cd erp-system
 # 2. Set up the backend
 cd backend
 pip install -r requirements.txt
+cd ..
 ```
 
 ```bash
 # 3. Configure environment
-cp .env.example .env
+cp backend/env.example backend/.env
 # Edit backend/.env and set your SECRET_KEY:
 # python -c "import secrets; print(secrets.token_hex(32))"
 ```
 
 ```bash
 # 4. Set up the frontend
-cd ../frontend_src
+cd frontend_src
 npm install
 npm run build
+cd ..
 ```
 
 ```bash
-# 5. Start the server
-cd ..
+# 5. Start the server (run from the project root, not the backend folder)
 python launcher.py
 ```
 
@@ -91,8 +95,7 @@ On first launch, you'll be redirected to `/setup` where you configure:
 Run the backend and frontend dev servers separately for hot reload:
 
 ```bash
-# Terminal 1 — backend
-cd backend
+# Terminal 1 — backend (run from the project root)
 python launcher.py
 
 # Terminal 2 — frontend (hot reload on http://localhost:5173)
@@ -114,12 +117,25 @@ python seed_inventory.py # Inventory items and stock movements
 
 ## Environment Variables
 
-Create `backend/.env` from the example below. Never commit the real file.
+Copy `.env.example` to `backend/.env` and fill in your values. Never commit the real `.env` file.
 
 ```env
-SECRET_KEY=your_secret_key_here        # Required — generate with secrets.token_hex(32)
+# Required
+SECRET_KEY=your_secret_key_here        # Generate with: python -c "import secrets; print(secrets.token_hex(32))"
+
+# Auth
+TOKEN_EXPIRE_HOURS=24                  # JWT lifetime in hours (default: 24)
 COOKIE_SECURE=false                    # Set to true in production (HTTPS only)
+
+# CORS
 ALLOWED_ORIGINS=http://localhost:5173  # Comma-separated list of allowed frontend origins
+
+# Server
+PORT=8765                              # Auto-increments if port is already in use
+BIND_HOST=0.0.0.0                      # Use 127.0.0.1 to restrict to localhost only
+
+# Database
+DB_PATH=erp.db                         # Path to the SQLite database file
 ```
 
 ---
@@ -130,10 +146,10 @@ ALLOWED_ORIGINS=http://localhost:5173  # Comma-separated list of allowed fronten
 erp-system/
 ├── backend/
 │   ├── main.py              # FastAPI app and router registration
-│   ├── launcher.py          # Entry point — DB init, port detection, server start
 │   ├── database.py          # SQLite schema, migrations, connection management
 │   ├── auth_utils.py        # JWT and password hashing
 │   ├── permissions.py       # RBAC middleware
+│   ├── approval_engine.py   # Multi-step approval workflow logic
 │   ├── backup_manager.py    # Automatic and manual backup logic
 │   ├── routers/             # One file per module (clients, invoices, hr…)
 │   ├── seed.py              # Sample data seeder
@@ -147,9 +163,11 @@ erp-system/
 │   │   └── locales/         # en.js and ar.js translation strings
 │   └── vite.config.js
 ├── backups/                 # Auto-managed daily/weekly DB backups (gitignored)
-├── launcher.py              # Desktop launcher with port detection
+├── installer/               # Inno Setup installer files
+├── launcher.py              # Entry point — run this from the project root
+├── build.ps1                # Windows build script (frontend + exe + installer)
+├── backend/env.example      # Environment variable template
 ├── ERP.spec                 # PyInstaller build spec
-├── installer.iss            # Inno Setup Windows installer script
 └── DOCUMENTATION.md         # Full technical documentation
 ```
 
@@ -162,26 +180,28 @@ The backend exposes a REST API at `/api/*`. Interactive docs are available at:
 - Swagger UI: `http://localhost:8765/docs`
 - ReDoc: `http://localhost:8765/redoc`
 
-Key endpoint groups: `/api/auth`, `/api/clients`, `/api/projects`, `/api/invoices`, `/api/finance`, `/api/inventory`, `/api/hr`, `/api/crm`, `/api/reports`, and more.
+Key endpoint groups: `/api/auth`, `/api/clients`, `/api/projects`, `/api/invoices`, `/api/finance`, `/api/inventory`, `/api/purchases`, `/api/suppliers`, `/api/hr`, `/api/crm`, `/api/planning`, `/api/reports`, `/api/tax-rates`, `/api/approval-policies`, `/api/approval-requests`, `/api/notifications`, `/api/recycle_bin`, `/api/search`, `/api/audit`, and more.
 
 ---
 
 ## Building for Windows
 
-Requires PyInstaller and Inno Setup (Windows only):
+Requires Node.js, PyInstaller, and Inno Setup 6 (Windows only). The `build.ps1`
+script runs the full pipeline — frontend build, executable bundling, and installer
+compilation:
 
-```bash
-# Build standalone .exe
-pyinstaller ERP.spec
-
-# Package into installer (run installer.iss in Inno Setup)
+```powershell
+.\build.ps1
 ```
+
+The compiled installer is written to `installer/Output/`. To build only the
+standalone executable, run `python -m PyInstaller ERP.spec`.
 
 ---
 
 ## Backups
 
-The system automatically creates daily and weekly SQLite backups in `backups/`. Each backup includes a `.sha256` checksum file for integrity verification. You can also trigger a manual backup from the Settings page in the app.
+The system automatically creates daily and weekly SQLite backups in `backups/`. Each backup includes a `.sha256` checksum file for integrity verification. You can also trigger a manual backup or restore from the Settings page in the app.
 
 ---
 

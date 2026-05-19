@@ -13,6 +13,13 @@ import { useLocale } from '../hooks/useLocale.jsx';
 
 const UNITS = ['pcs', 'kg', 'g', 'l', 'ml', 'm', 'm²', 'm³', 'box', 'roll', 'set', 'pair'];
 const DEFAULT_CATEGORIES = ['Equipment', 'Materials', 'Safety', 'Tools', 'Consumables', 'Other'];
+const PRODUCT_TYPES = ['raw_material', 'semi_finished', 'finished', 'consumable'];
+const PRODUCT_TYPE_COLORS = {
+  raw_material:  { bg: '#EFF6FF', color: '#2563EB' },
+  semi_finished: { bg: '#FFFBEB', color: '#D97706' },
+  finished:      { bg: '#ECFDF5', color: '#059669' },
+  consumable:    { bg: '#F5F3FF', color: '#7C3AED' },
+};
 
 const fmtNum = (n) =>
   Number(n || 0).toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 });
@@ -20,6 +27,18 @@ const fmtNum = (n) =>
 function CategoryBadge({ category }) {
   if (!category) return <span style={{ color: 'var(--text-3)' }}>—</span>;
   return <span className="badge badge-accent">{category}</span>;
+}
+
+function ProductTypeBadge({ type }) {
+  const { t } = useLocale();
+  if (!type) return <span style={{ color: 'var(--text-3)' }}>—</span>;
+  const s = PRODUCT_TYPE_COLORS[type] || { bg: '#F3F4F6', color: '#6B7280' };
+  return (
+    <span style={{
+      display: 'inline-flex', padding: '2px 8px', borderRadius: 20,
+      fontSize: 11, fontWeight: 600, whiteSpace: 'nowrap', background: s.bg, color: s.color,
+    }}>{t(`inventory.ptype_${type}`)}</span>
+  );
 }
 
 function ItemForm({ initial = {}, knownCategories = [], onSave, onCancel, saving }) {
@@ -30,12 +49,15 @@ function ItemForm({ initial = {}, knownCategories = [], onSave, onCancel, saving
   const [form, setForm] = useState({
     name:           initial.name       || '',
     category:       initial.category   || '',
+    product_type:   initial.product_type || '',
     customCategory: '',
     quantity:       initial.quantity   ?? 0,
     min_stock:      initial.min_stock  ?? 0,
     unit_cost:      initial.unit_cost ?? 0,
+    sale_price:     initial.sale_price ?? 0,
     supplier:       initial.supplier   || '',
     unit:           initial.unit       || 'pcs',
+    barcode:        initial.barcode    || '',
   });
 
   const useCustom = form.category === '__custom__';
@@ -44,7 +66,7 @@ function ItemForm({ initial = {}, knownCategories = [], onSave, onCancel, saving
   function submit(e) {
     e.preventDefault();
     const category = useCustom ? form.customCategory.trim() : form.category.trim();
-    onSave({ ...form, category: category || null });
+    onSave({ ...form, category: category || null, product_type: form.product_type || null });
   }
 
   return (
@@ -73,6 +95,15 @@ function ItemForm({ initial = {}, knownCategories = [], onSave, onCancel, saving
             )}
           </div>
 
+          <div className="form-group">
+            <label className="form-label">{t('inventory.productTypeLabel')}</label>
+            <select className="form-control" value={form.product_type}
+              onChange={e => set('product_type', e.target.value)}>
+              <option value="">{t('inventory.ptypeUnclassified')}</option>
+              {PRODUCT_TYPES.map(p => <option key={p} value={p}>{t(`inventory.ptype_${p}`)}</option>)}
+            </select>
+          </div>
+
           {!isEdit && (
             <div className="form-group">
               <label className="form-label">{t('inventory.initialQuantity')}</label>
@@ -94,6 +125,12 @@ function ItemForm({ initial = {}, knownCategories = [], onSave, onCancel, saving
           </div>
 
           <div className="form-group">
+            <label className="form-label">{t('inventory.salePriceLabel')}</label>
+            <input className="form-control" type="number" step="any" min="0"
+              value={form.sale_price} onChange={e => set('sale_price', e.target.value)} />
+          </div>
+
+          <div className="form-group">
             <label className="form-label">{t('inventory.unitLabel')}</label>
             <select className="form-control" value={form.unit}
               onChange={e => set('unit', e.target.value)}>
@@ -105,6 +142,13 @@ function ItemForm({ initial = {}, knownCategories = [], onSave, onCancel, saving
             <label className="form-label">{t('inventory.supplierLabel')}</label>
             <input className="form-control" value={form.supplier}
               onChange={e => set('supplier', e.target.value)} />
+          </div>
+
+          <div className="form-group form-full">
+            <label className="form-label">{t('inventory.barcodeLabel')}</label>
+            <input className="form-control" value={form.barcode}
+              placeholder={t('inventory.barcodePlaceholder')}
+              onChange={e => set('barcode', e.target.value)} />
           </div>
         </div>
       </div>
@@ -308,7 +352,8 @@ export default function Inventory() {
   const { sorted: pagedItems, page, pageSize, totalPages, setPage, setPageSize, sortKey, sortDir, requestSort, PAGE_SIZES } = useSortPaginate(items);
 
   const exportData = items.map(i => ({
-    Name: i.name, Category: i.category || '', Quantity: i.quantity, Unit: i.unit,
+    Name: i.name, Category: i.category || '', Type: i.product_type || '',
+    Quantity: i.quantity, Reserved: i.reserved_quantity || 0, Unit: i.unit,
     'Min Stock': i.min_stock, 'Unit Cost (Landed)': i.unit_cost,
     'Total Value': fmtNum(i.quantity * i.unit_cost),
     Supplier: i.supplier || '',
@@ -380,6 +425,7 @@ export default function Inventory() {
                 <tr>
                   <SortableTh label={t('inventory.itemName')} sortKey="name"       currentKey={sortKey} currentDir={sortDir} onSort={requestSort} />
                   <SortableTh label={t('common.category')}    sortKey="category"   currentKey={sortKey} currentDir={sortDir} onSort={requestSort} />
+                  <SortableTh label={t('inventory.typeHeader')} sortKey="product_type" currentKey={sortKey} currentDir={sortDir} onSort={requestSort} />
                   <SortableTh label={t('inventory.stockHeader')} sortKey="quantity" currentKey={sortKey} currentDir={sortDir} onSort={requestSort} />
                   <SortableTh label={t('inventory.minStock')} sortKey="min_stock"  currentKey={sortKey} currentDir={sortDir} onSort={requestSort} />
                   <SortableTh label={t('inventory.unitCost')} sortKey="unit_cost"  currentKey={sortKey} currentDir={sortDir} onSort={requestSort} />
@@ -398,8 +444,14 @@ export default function Inventory() {
                         {isLow && <span className="badge badge-red" style={{ marginLeft: 6 }}>{t('inventory.lowStock')}</span>}
                       </td>
                       <td><CategoryBadge category={item.category} /></td>
+                      <td><ProductTypeBadge type={item.product_type} /></td>
                       <td style={{ color: isLow ? 'var(--red)' : undefined, fontWeight: isLow ? 600 : undefined }}>
                         {item.quantity} {item.unit}
+                        {item.reserved_quantity > 0 && (
+                          <div style={{ fontSize: 10, color: 'var(--text-3)', fontWeight: 400 }}>
+                            {t('inventory.reservedQty', { qty: item.reserved_quantity })}
+                          </div>
+                        )}
                       </td>
                       <td>{item.min_stock} {item.unit}</td>
                       <td>${fmtNum(item.unit_cost)}</td>

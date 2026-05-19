@@ -252,6 +252,49 @@ _EMPLOYEE_LIST_SQL = """
 """
 
 
+def _refresh_leave_statuses(db: sqlite3.Connection) -> None:
+    """Reconcile employees' `On Leave` flag with today's approved-leave window.
+
+    We have no scheduled job runner, so this lazy refresh runs on every HR
+    read (list / single / summary). Two cheap UPDATEs:
+      • An Active employee whose approved leave covers today → On Leave.
+      • An On-Leave employee with no approved leave covering today → back to
+        Active. (Terminated employees are never auto-changed.)
+
+    Without this, the first time someone takes a vacation they get stuck
+    `On Leave` forever — the Notifications page and HR dashboard would
+    over-report long after the leave window closed.
+    """
+    today = _now()[:10]
+    # Flip into On Leave
+    db.execute(
+        """UPDATE hr_employees SET status='On Leave'
+           WHERE archived_at IS NULL
+             AND status='Active'
+             AND EXISTS (
+                 SELECT 1 FROM hr_leave_requests l
+                 WHERE l.employee_id = hr_employees.id
+                   AND l.status='Approved'
+                   AND l.start_date <= ?  AND l.end_date >= ?
+             )""",
+        (today, today),
+    )
+    # Flip back to Active
+    db.execute(
+        """UPDATE hr_employees SET status='Active'
+           WHERE archived_at IS NULL
+             AND status='On Leave'
+             AND NOT EXISTS (
+                 SELECT 1 FROM hr_leave_requests l
+                 WHERE l.employee_id = hr_employees.id
+                   AND l.status='Approved'
+                   AND l.start_date <= ?  AND l.end_date >= ?
+             )""",
+        (today, today),
+    )
+    db.commit()
+
+
 def _validate_refs(db: sqlite3.Connection, data: EmployeeBody, self_id: Optional[int] = None):
     if data.department_id and not db.execute(
         "SELECT id FROM hr_departments WHERE id=? AND archived_at IS NULL", (data.department_id,)
@@ -278,6 +321,7 @@ def list_employees(
     user=Depends(require_perm("hr", "view")),
     db: sqlite3.Connection = Depends(get_db),
 ):
+    _refresh_leave_statuses(db)
     like = f"%{search}%" if search else None
     params = [search, like, like, like, like,
               department_id, department_id, status, status]
@@ -290,6 +334,7 @@ def get_employee(
     user=Depends(require_perm("hr", "view")),
     db: sqlite3.Connection = Depends(get_db),
 ):
+    _refresh_leave_statuses(db)
     row = db.execute(_EMPLOYEE_BY_ID, (emp_id,)).fetchone()
     if not row:
         raise HTTPException(404, "Employee not found")
@@ -558,6 +603,7 @@ def hr_summary(
     user=Depends(require_perm("hr", "view")),
     db: sqlite3.Connection = Depends(get_db),
 ):
+    _refresh_leave_statuses(db)
     totals = db.execute(
         """SELECT
                COUNT(*)                                          AS total_employees,

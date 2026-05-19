@@ -149,12 +149,13 @@ def delete_policy(
 def get_modules(user=Depends(require_auth)):
     """Return module/field/action metadata for the policy builder UI."""
     return {
-        "modules": ["expense", "invoice", "purchase", "project"],
+        "modules": ["expense", "invoice", "purchase", "project", "fixed_asset"],
         "module_actions": {
-            "expense":  ["create"],
-            "invoice":  ["create", "void"],
-            "purchase": ["create"],
-            "project":  ["create", "cancel"],
+            "expense":     ["create"],
+            "invoice":     ["create", "void"],
+            "purchase":    ["create"],
+            "project":     ["create", "cancel"],
+            "fixed_asset": ["create"],
         },
         "module_fields": {
             "expense":  [
@@ -174,6 +175,11 @@ def get_modules(user=Depends(require_auth)):
             "project":  [
                 {"key": "budget", "label": "Budget", "type": "number"},
                 {"key": "status", "label": "Status", "type": "text"},
+            ],
+            "fixed_asset": [
+                {"key": "acquisition_cost", "label": "Acquisition Cost", "type": "number"},
+                {"key": "category",         "label": "Category",         "type": "text"},
+                {"key": "depreciation_method", "label": "Method",        "type": "text"},
             ],
         },
         "operators": {

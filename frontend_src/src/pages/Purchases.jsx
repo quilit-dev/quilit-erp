@@ -11,6 +11,7 @@ import {
 } from '../components/shared';
 import { useSortPaginate } from '../hooks/useSortPaginate';
 import { useLocale } from '../hooks/useLocale.jsx';
+import { useSettings } from '../hooks/useSettings.jsx';
 
 const PURCHASE_CATEGORIES = [
   'Equipment', 'Materials', 'Safety', 'Tools', 'Consumables', 'Other'
@@ -87,7 +88,12 @@ function SupplierCombobox({ value, suppliers = [], onChange }) {
 
 function PurchaseForm({ initial = {}, inventoryItems = [], inventoryCategories = [], suppliers = [], onSave, onCancel, saving }) {
   const { t, tStatus } = useLocale();
+  const { settings, taxRates } = useSettings();
   const isEdit = !!initial.id;
+
+  const taxEnabled     = settings?.tax_enabled === '1';
+  const activeTaxRates = (taxRates || []).filter(r => r.is_active);
+  const defaultTaxRate = (taxRates || []).find(r => r.is_default) || null;
 
   const allCats = [...new Set([...inventoryCategories, ...PURCHASE_CATEGORIES])].sort();
 
@@ -100,6 +106,7 @@ function PurchaseForm({ initial = {}, inventoryItems = [], inventoryCategories =
     quantity:         initial.quantity         || '',
     unit_cost:        initial.unit_cost        || '',
     additional_costs: initial.additional_costs || 0,
+    tax_rate_id:      initial.tax_rate_id      ?? null,
     status:           initial.status           || 'Ordered',
     notes:            initial.notes            || '',
   });
@@ -131,13 +138,18 @@ function PurchaseForm({ initial = {}, inventoryItems = [], inventoryCategories =
       quantity:         parseFloat(form.quantity),
       unit_cost:        parseFloat(form.unit_cost)        || 0,
       additional_costs: parseFloat(form.additional_costs) || 0,
+      tax_rate_id:      taxEnabled ? (form.tax_rate_id ?? null) : null,
       status:           form.status,
       notes:            form.notes,
     });
   }
 
-  const total = (parseFloat(form.quantity) || 0) * (parseFloat(form.unit_cost) || 0)
-              + (parseFloat(form.additional_costs) || 0);
+  const goods   = (parseFloat(form.quantity) || 0) * (parseFloat(form.unit_cost) || 0);
+  const selRate = taxEnabled
+    ? ((taxRates || []).find(r => r.id === form.tax_rate_id) || defaultTaxRate)
+    : null;
+  const taxAmt  = selRate ? goods * (Number(selRate.rate) || 0) / 100 : 0;
+  const total   = goods + (parseFloat(form.additional_costs) || 0) + taxAmt;
 
   return (
     <form onSubmit={submit}>
@@ -203,6 +215,19 @@ function PurchaseForm({ initial = {}, inventoryItems = [], inventoryCategories =
             <input className="form-control" type="number" step="any" min="0"
               value={form.additional_costs} onChange={e => set('additional_costs', e.target.value)} />
           </div>
+
+          {taxEnabled && (
+            <div className="form-group">
+              <label className="form-label">{t('common.taxCol')}</label>
+              <select className="form-control"
+                value={form.tax_rate_id ?? (defaultTaxRate?.id ?? '')}
+                onChange={e => set('tax_rate_id', Number(e.target.value) || null)}>
+                {activeTaxRates.map(r => (
+                  <option key={r.id} value={r.id}>{r.name} ({r.rate}%)</option>
+                ))}
+              </select>
+            </div>
+          )}
 
           {!isEdit && (
             <div className="form-group">

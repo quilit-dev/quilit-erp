@@ -4,11 +4,12 @@ import { useSettings } from '../hooks/useSettings';
 import {
   getInvoices, getInvoice, getClients, getProjects, getInventory,
   createInvoice, updateInvoice, archiveInvoice, voidInvoice,
-  addInvoicePayment, deleteInvoicePayment,
+  addInvoicePayment, deleteInvoicePayment, getCashDrawers,
 } from '../api/client';
 import {
   LoadingSpinner, ErrorAlert, EmptyState, Modal, ConfirmModal,
-  Badge, ExportButton, fmt, fmtDate, toast, SortableTh, Pagination
+  Badge, ExportButton, fmt, fmtDate, toast, SortableTh, Pagination,
+  DualMoney, ExchangeRateBadge, DisplayCurrencyToggle, WhatsAppShareButton,
 } from '../components/shared';
 import { exportInvoicePDF, exportInvoiceExcel } from '../utils/exportUtils';
 import InventoryCombobox from '../components/InventoryCombobox';
@@ -17,8 +18,17 @@ import { useSortPaginate } from '../hooks/useSortPaginate';
 import { useRecordExport } from '../hooks/useRecordExport';
 
 const METHODS    = ['Cash', 'Bank Transfer', 'Cheque', 'Card', 'Other'];
-const EMPTY_ITEM = { name: '', quantity: 1, unit_price: 0 };
+const EMPTY_ITEM = { name: '', quantity: 1, unit_price: 0, tax_rate_id: null };
 const EMPTY_FORM = { quotation_id: '', project_id: '', client_id: '', due_date: '', notes: '', items: [{ ...EMPTY_ITEM }] };
+
+// Pre-built WhatsApp message for an invoice — bilingual short form so the
+// client immediately sees what they're being sent before opening the file.
+function _waMessage(inv) {
+  const who = inv.client_name ? `, ${inv.client_name}` : '';
+  const total = `$${Number(inv.amount || 0).toFixed(2)}`;
+  const due   = inv.due_date ? ` due ${inv.due_date}` : '';
+  return `Hello${who}, here is invoice ${inv.invoice_number} for ${total}${due}. Thank you!`;
+}
 
 // ── Per-row action dropdown ───────────────────────────────────────────────
 function ActionMenu({ inv, exporting, onEdit, onPay, onExport, onVoid, onDelete }) {
@@ -49,6 +59,9 @@ function ActionMenu({ inv, exporting, onEdit, onPay, onExport, onVoid, onDelete 
 
   return (
     <div style={{ display: 'flex', gap: 5, alignItems: 'center', justifyContent: 'flex-end' }}>
+      {!isVoided && (
+        <WhatsAppShareButton phone={inv.client_phone} message={_waMessage(inv)} />
+      )}
       {isVoided ? (
         <span style={{ fontSize: 11, color: 'var(--text-3)', fontStyle: 'italic' }}>{t('invoices.voidedLabel')}</span>
       ) : !isPaid ? (
@@ -165,10 +178,20 @@ export default function Invoices() {
   const { data: clients  } = useData(getClients);
   const { data: projects } = useData(getProjects);
   const { data: inventory } = useData(getInventory);
-  const { settings } = useSettings();
+  const { settings, exchangeRate, displayCurrency, taxRates } = useSettings();
 
-  const taxEnabled = settings?.tax_enabled === '1';
-  const taxRate    = parseFloat(settings?.default_tax_rate || '0');
+  const taxEnabled     = settings?.tax_enabled === '1';
+  const activeTaxRates = (taxRates || []).filter(r => r.is_active);
+  const defaultTaxRate = (taxRates || []).find(r => r.is_default) || null;
+  const rateById = (id) =>
+    (taxRates || []).find(r => r.id === id) || defaultTaxRate || null;
+  // Tax on one editor line, using the resolved (chosen or default) rate.
+  const lineTaxAmt = (item) => {
+    if (!taxEnabled) return 0;
+    const r = rateById(item.tax_rate_id);
+    const net = (Number(item.quantity) || 0) * (Number(item.unit_price) || 0);
+    return r ? net * (Number(r.rate) || 0) / 100 : 0;
+  };
 
   const [statusFilter, setStatusFilter] = useState('');
   const [search,       setSearch]       = useState('');
@@ -189,7 +212,11 @@ export default function Invoices() {
 
   const [payModal,   setPayModal]   = useState(null);
   const [payLoading, setPayLoading] = useState(false);
-  const [payForm,    setPayForm]    = useState({ amount: '', method: 'Cash', note: '' });
+  const [payForm,    setPayForm]    = useState({ amount: '', method: 'Cash', note: '', currency: 'USD', rate: '', cash_drawer_id: '' });
+  const [cashDrawers, setCashDrawers] = useState([]);
+  useEffect(() => {
+    getCashDrawers().then(d => setCashDrawers((d || []).filter(x => x.is_active))).catch(() => {});
+  }, []);
   const [paySubmitting, setPaySubmitting] = useState(false);
 
   const [deleteId, setDeleteId] = useState(null);
@@ -199,6 +226,7 @@ export default function Invoices() {
     exportPDF:   exportInvoicePDF,
     exportExcel: exportInvoiceExcel,
     getClients:  () => clients,
+    getExportOpts: () => ({ displayCurrency, exchangeRate }),
   });
 
   const q = search.toLowerCase();
@@ -237,7 +265,8 @@ export default function Invoices() {
         due_date:     full.due_date     || '',
         notes:        full.notes        || '',
         items: full.items?.length
-          ? full.items.map(i => ({ name: i.name, quantity: i.quantity, unit_price: i.unit_price }))
+          ? full.items.map(i => ({ name: i.name, quantity: i.quantity,
+                                   unit_price: i.unit_price, tax_rate_id: i.tax_rate_id ?? null }))
           : [{ ...EMPTY_ITEM }],
       });
     } catch (err) {
@@ -257,7 +286,7 @@ export default function Invoices() {
       : item),
   }));
   const invoiceSubtotal = (form.items || []).reduce((s, i) => s + (Number(i.quantity)||0) * (Number(i.unit_price)||0), 0);
-  const invoiceTaxAmt   = (taxEnabled && taxRate > 0) ? invoiceSubtotal * (taxRate / 100) : 0;
+  const invoiceTaxAmt   = (form.items || []).reduce((s, i) => s + lineTaxAmt(i), 0);
   const invoiceTotal    = invoiceSubtotal + invoiceTaxAmt;
 
   async function handleSave(e) {
@@ -275,6 +304,7 @@ export default function Invoices() {
         notes:        form.notes    || null,
         items:        (form.items || []).map(i => ({
           name: i.name, quantity: Number(i.quantity)||0, unit_price: Number(i.unit_price)||0,
+          tax_rate_id: i.tax_rate_id ?? null,
         })),
         version:      editVersion,
       };
@@ -309,7 +339,7 @@ export default function Invoices() {
 
   async function openPayModal(inv) {
     setPayLoading(true);
-    setPayForm({ amount: '', method: 'Cash', note: '' });
+    setPayForm({ amount: '', method: 'Cash', note: '', currency: 'USD', rate: exchangeRate?.rate || '', cash_drawer_id: '' });
     setPayModal(inv);
     try {
       const full = await getInvoice(inv.id);
@@ -322,16 +352,27 @@ export default function Invoices() {
     e.preventDefault();
     const amt = Number(payForm.amount);
     if (!amt || amt <= 0) { toast('Enter a valid amount', 'red'); return; }
+    const currency = payForm.currency === 'LBP' ? 'LBP' : 'USD';
+    let exchange_rate = null;
+    if (currency === 'LBP') {
+      exchange_rate = Number(payForm.rate);
+      if (!exchange_rate || exchange_rate <= 0) {
+        toast(t('invoices.rateRequired'), 'red'); return;
+      }
+    }
     if (paySubmitting) return;
     setPaySubmitting(true);
     try {
       const idempotency_key = crypto.randomUUID ? crypto.randomUUID()
         : `${Date.now()}-${Math.random().toString(36).slice(2)}`;
       await addInvoicePayment(payModal.id, {
-        amount: amt, method: payForm.method, note: payForm.note || null, idempotency_key,
+        amount: amt, currency, exchange_rate,
+        method: payForm.method, note: payForm.note || null, idempotency_key,
+        cash_drawer_id: payForm.method === 'Cash' && payForm.cash_drawer_id
+          ? Number(payForm.cash_drawer_id) : null,
       });
       toast(t('invoices.paymentRecorded'));
-      setPayForm({ amount: '', method: 'Cash', note: '' });
+      setPayForm({ amount: '', method: 'Cash', note: '', currency: 'USD', rate: exchangeRate?.rate || '', cash_drawer_id: '' });
       const full = await getInvoice(payModal.id);
       setPayModal(full);
       reload();
@@ -378,7 +419,9 @@ export default function Invoices() {
           <h1 className="page-title">{t('invoices.title')}</h1>
           <p className="page-subtitle">{t('invoices.totalInvoices', { count: invoices?.length ?? 0 })}</p>
         </div>
-        <div style={{display:'flex',gap:8}}>
+        <div style={{display:'flex',gap:8,alignItems:'center'}}>
+          <ExchangeRateBadge />
+          <DisplayCurrencyToggle />
           <ExportButton data={exportData} filename="Invoices" sheetName="Invoices" />
           <button className="btn btn-primary" onClick={openCreate}>{t('invoices.addInvoice')}</button>
         </div>
@@ -541,10 +584,15 @@ export default function Invoices() {
                 )}
               </div>
 
-              <div style={{ display:'grid', gridTemplateColumns:'1fr 90px 110px 90px' + (amountsLocked ? '' : ' 34px'), gap:8, marginBottom:4, alignItems:'center' }}>
+              {(() => {
+              const itemGrid = '1fr 78px 96px' + (taxEnabled ? ' 124px' : '') + ' 88px'
+                             + (amountsLocked ? '' : ' 34px');
+              return <>
+              <div style={{ display:'grid', gridTemplateColumns:itemGrid, gap:8, marginBottom:4, alignItems:'center' }}>
                 <span style={{ fontSize:11, fontWeight:600, color:'var(--text-3)', paddingLeft:4 }}>{t('invoices.descriptionCol')}</span>
                 <span style={{ fontSize:11, fontWeight:600, color:'var(--text-3)', textAlign:'center' }}>{t('invoices.qtyCol')}</span>
                 <span style={{ fontSize:11, fontWeight:600, color:'var(--text-3)', textAlign:'center' }}>{t('invoices.unitPriceCol')}</span>
+                {taxEnabled && <span style={{ fontSize:11, fontWeight:600, color:'var(--text-3)', textAlign:'center' }}>{t('common.taxCol')}</span>}
                 <span style={{ fontSize:11, fontWeight:600, color:'var(--text-3)', textAlign:'right' }}>{t('common.total')}</span>
                 {!amountsLocked && <span />}
               </div>
@@ -552,7 +600,7 @@ export default function Invoices() {
               {(form.items||[]).map((item, i) => {
                 const lineTotal = (Number(item.quantity)||0) * (Number(item.unit_price)||0);
                 return (
-                  <div key={i} style={{ display:'grid', gridTemplateColumns:'1fr 90px 110px 90px' + (amountsLocked ? '' : ' 34px'), gap:8, marginBottom:8, alignItems:'center' }}>
+                  <div key={i} style={{ display:'grid', gridTemplateColumns:itemGrid, gap:8, marginBottom:8, alignItems:'center' }}>
                     {amountsLocked ? (
                       <span style={{ fontSize:13, padding:'6px 4px', color:'var(--text-2)' }}>{item.name || '—'}</span>
                     ) : (
@@ -568,6 +616,21 @@ export default function Invoices() {
                     <input type="number" className="form-control" placeholder="Unit $" min="0" step="0.01"
                       value={item.unit_price} onChange={e => setItem(i, 'unit_price', e.target.value)}
                       disabled={amountsLocked} style={amountsLocked ? { opacity:0.6 } : {}} />
+                    {taxEnabled && (
+                      amountsLocked ? (
+                        <span style={{ fontSize:12, padding:'6px 2px', color:'var(--text-3)', textAlign:'center' }}>
+                          {(rateById(item.tax_rate_id)?.rate ?? 0)}%
+                        </span>
+                      ) : (
+                        <select className="form-control" style={{ fontSize:12, padding:'6px 4px' }}
+                          value={item.tax_rate_id ?? (defaultTaxRate?.id ?? '')}
+                          onChange={e => setItem(i, 'tax_rate_id', Number(e.target.value) || null)}>
+                          {activeTaxRates.map(r => (
+                            <option key={r.id} value={r.id}>{r.name} ({r.rate}%)</option>
+                          ))}
+                        </select>
+                      )
+                    )}
                     <span style={{ textAlign:'right', fontWeight:600, fontSize:13, color:'var(--text-1)' }}>
                       ${lineTotal.toFixed(2)}
                     </span>
@@ -578,12 +641,14 @@ export default function Invoices() {
                   </div>
                 );
               })}
+              </>;
+              })()}
 
               <div style={{ textAlign:'right', marginTop:14, fontSize:13, color:'var(--text-2)' }}>
                 {!amountsLocked && invoiceTaxAmt > 0 && (
                   <>
                     <div>{t('common.subtotal')}: ${invoiceSubtotal.toFixed(2)}</div>
-                    <div>{t('common.tax', { rate: taxRate })}: ${invoiceTaxAmt.toFixed(2)}</div>
+                    <div>{t('common.taxCol')}: ${invoiceTaxAmt.toFixed(2)}</div>
                   </>
                 )}
                 <div style={{ fontWeight:700, fontSize:16, color:'var(--text-1)', marginTop: invoiceTaxAmt > 0 ? 4 : 0 }}>
@@ -617,16 +682,16 @@ export default function Invoices() {
           <div className="modal-body">
             <div style={{ display:'grid', gridTemplateColumns:'repeat(3,1fr)', gap:12, marginBottom:20 }}>
               {[
-                { label: t('invoices.invoiceTotal'), value: fmt(payModal.amount),          color:'var(--text-1)' },
-                { label: t('invoices.totalPaidLabel'), value: fmt(payModal.total_paid || 0), color:'var(--green)' },
-                { label: t('invoices.remaining'),     value: fmt(payModal.remaining ?? 0),
+                { label: t('invoices.invoiceTotal'),   amount: payModal.amount || 0,     color:'var(--text-1)' },
+                { label: t('invoices.totalPaidLabel'), amount: payModal.total_paid || 0, color:'var(--green)' },
+                { label: t('invoices.remaining'),      amount: payModal.remaining ?? 0,
                   color: (payModal.remaining??0) > 0 ? 'var(--red)' : 'var(--green)' },
               ].map(s => (
                 <div key={s.label} style={{
                   background:'var(--surface-2)', borderRadius:8, padding:'12px 16px', textAlign:'center',
                 }}>
                   <div style={{ fontSize:11, color:'var(--text-3)', marginBottom:4 }}>{s.label}</div>
-                  <div style={{ fontSize:18, fontWeight:700, color:s.color }}>{s.value}</div>
+                  <div style={{ fontSize:18, fontWeight:700, color:s.color }}><DualMoney value={s.amount} /></div>
                 </div>
               ))}
             </div>
@@ -650,8 +715,9 @@ export default function Invoices() {
                       </div>
                     ))}
                     {(() => {
-                      const subtotal = (payModal.items || []).reduce((s, it) => s + (Number(it.quantity)||0) * (Number(it.unit_price)||0), 0);
-                      const taxAmt   = (taxEnabled && taxRate > 0) ? subtotal * (taxRate / 100) : 0;
+                      const taxAmt = Number(payModal.tax_total) || 0;
+                      const subtotal = Number(payModal.subtotal)
+                        || ((payModal.items || []).reduce((s, it) => s + (Number(it.quantity)||0) * (Number(it.unit_price)||0), 0));
                       return taxAmt > 0 ? (
                         <>
                           <div style={{ padding:'6px 12px', borderTop:'1px solid var(--border)', fontSize:12, display:'grid', gridTemplateColumns:'1fr 70px 90px 80px', gap:8, color:'var(--text-2)' }}>
@@ -659,7 +725,7 @@ export default function Invoices() {
                             <span style={{textAlign:'right'}}>${subtotal.toFixed(2)}</span>
                           </div>
                           <div style={{ padding:'6px 12px', borderTop:'1px solid var(--border)', fontSize:12, display:'grid', gridTemplateColumns:'1fr 70px 90px 80px', gap:8, color:'var(--text-2)' }}>
-                            <span style={{gridColumn:'1/4', textAlign:'right'}}>{t('common.tax', { rate: taxRate })}</span>
+                            <span style={{gridColumn:'1/4', textAlign:'right'}}>{t('common.taxCol')}</span>
                             <span style={{textAlign:'right', color:'var(--accent)'}}>${taxAmt.toFixed(2)}</span>
                           </div>
                         </>
@@ -668,24 +734,65 @@ export default function Invoices() {
                   </div>
                 )}
 
-                {(payModal.remaining ?? 0) > 0.001 && (
+                {(payModal.remaining ?? 0) > 0.001 && (() => {
+                  const payInLbp  = payForm.currency === 'LBP';
+                  const rateNum   = Number(payForm.rate);
+                  const amtNum    = Number(payForm.amount);
+                  const usdEquiv  = payInLbp && rateNum > 0 ? amtNum / rateNum : 0;
+                  return (
                   <form onSubmit={handleAddPayment}
-                    style={{ display:'grid', gridTemplateColumns:'1fr 1fr 2fr auto', gap:8, marginBottom:20, alignItems:'end' }}>
-                    <div className="form-group" style={{ margin:0 }}>
+                    style={{ display:'flex', flexWrap:'wrap', gap:8, marginBottom:20, alignItems:'flex-end' }}>
+                    {exchangeRate?.rate && (
+                      <div className="form-group" style={{ margin:0, width:90 }}>
+                        <label className="form-label">{t('invoices.paymentCurrency')}</label>
+                        <select className="form-control" value={payForm.currency}
+                          onChange={e => setPayForm(f => ({
+                            ...f, currency: e.target.value,
+                            rate: e.target.value === 'LBP' ? (f.rate || exchangeRate?.rate || '') : f.rate,
+                          }))}>
+                          <option value="USD">{exchangeRate.base || 'USD'}</option>
+                          <option value="LBP">{exchangeRate.secondary || 'LBP'}</option>
+                        </select>
+                      </div>
+                    )}
+                    <div className="form-group" style={{ margin:0, flex:'1 1 130px', minWidth:120 }}>
                       <label className="form-label">{t('invoices.paymentAmount')} *</label>
                       <input type="number" className="form-control" min="0.01" step="0.01"
                         required value={payForm.amount}
                         onChange={e => setPayForm(f => ({ ...f, amount: e.target.value }))}
-                        placeholder={t('invoices.maxAmount', { amount: fmt(payModal.remaining) })} />
+                        placeholder={payInLbp ? '' : t('invoices.maxAmount', { amount: fmt(payModal.remaining) })} />
+                      {payInLbp && usdEquiv > 0 && (
+                        <div style={{ fontSize:11, color:'var(--text-3)', marginTop:3 }}>
+                          ≈ {fmt(usdEquiv)}
+                        </div>
+                      )}
                     </div>
-                    <div className="form-group" style={{ margin:0 }}>
+                    {payInLbp && (
+                      <div className="form-group" style={{ margin:0, width:140 }}>
+                        <label className="form-label">{t('invoices.exchangeRateLabel')} *</label>
+                        <input type="number" className="form-control" min="0.01" step="any"
+                          required value={payForm.rate}
+                          onChange={e => setPayForm(f => ({ ...f, rate: e.target.value }))} />
+                      </div>
+                    )}
+                    <div className="form-group" style={{ margin:0, width:130 }}>
                       <label className="form-label">{t('invoices.methodLabel')}</label>
                       <select className="form-control" value={payForm.method}
                         onChange={e => setPayForm(f => ({ ...f, method: e.target.value }))}>
                         {METHODS.map(m => <option key={m}>{m}</option>)}
                       </select>
                     </div>
-                    <div className="form-group" style={{ margin:0 }}>
+                    {payForm.method === 'Cash' && cashDrawers.length > 0 && (
+                      <div className="form-group" style={{ margin:0, width:150 }}>
+                        <label className="form-label">{t('pos.cashDrawer')}</label>
+                        <select className="form-control" value={payForm.cash_drawer_id}
+                          onChange={e => setPayForm(f => ({ ...f, cash_drawer_id: e.target.value }))}>
+                          <option value="">{t('expenses.defaultDrawer')}</option>
+                          {cashDrawers.map(d => <option key={d.id} value={d.id}>{d.name}</option>)}
+                        </select>
+                      </div>
+                    )}
+                    <div className="form-group" style={{ margin:0, flex:'1 1 140px', minWidth:120 }}>
                       <label className="form-label">{t('invoices.noteOptional')}</label>
                       <input className="form-control" value={payForm.note}
                         onChange={e => setPayForm(f => ({ ...f, note: e.target.value }))}
@@ -696,7 +803,8 @@ export default function Invoices() {
                       {paySubmitting ? t('invoices.recording') : t('invoices.recordBtn')}
                     </button>
                   </form>
-                )}
+                  );
+                })()}
 
                 <div style={{ fontWeight:600, fontSize:13, marginBottom:8, borderTop:'1px solid var(--border)', paddingTop:16 }}>
                   {t('invoices.paymentHistory')}
@@ -721,7 +829,16 @@ export default function Invoices() {
                           <td style={{ color:'var(--text-3)', fontSize:12 }}>
                             {payModal.payments.length - i}
                           </td>
-                          <td style={{ fontWeight:600, color:'var(--green)' }}>{fmt(p.amount)}</td>
+                          <td style={{ fontWeight:600, color:'var(--green)' }}>
+                            {p.paid_currency === 'LBP' ? (
+                              <>
+                                {Number(p.paid_amount ?? 0).toLocaleString('en-US')} LBP
+                                <div style={{ fontSize:11, fontWeight:400, color:'var(--text-3)' }}>
+                                  = {fmt(p.amount)} @ {Number(p.exchange_rate || 0).toLocaleString('en-US')}
+                                </div>
+                              </>
+                            ) : fmt(p.amount)}
+                          </td>
                           <td>{p.method}</td>
                           <td>{p.note || '—'}</td>
                           <td>{fmtDate(p.paid_at)}</td>

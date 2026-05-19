@@ -29,12 +29,16 @@ const EMPTY_EMPLOYEE = {
 const EMPTY_DEPT  = { name: '', description: '' };
 const EMPTY_LEAVE = { employee_id: '', leave_type: 'Annual', start_date: '', end_date: '', reason: '' };
 
-// ── KPI card ────────────────────────────────────────────────────────────────
-function Kpi({ label, value, accent, bg }) {
+// ── KPI card — matches the canonical pattern used across the rest of the
+//    app (Manufacturing, Fixed Assets, Recurring Expenses, ...): default
+//    `stat-card` surface, muted label, value coloured by the accent. The
+//    older tinted-background variant has been retired so every module
+//    presents KPIs with the same visual weight. ───────────────────────────
+function Kpi({ label, value, color = 'var(--text)' }) {
   return (
-    <div className="stat-card" style={{ background: bg }}>
-      <div className="stat-label" style={{ color: accent }}>{label}</div>
-      <div className="stat-value" style={{ color: accent }}>{value}</div>
+    <div className="stat-card" style={{ padding: '14px 18px' }}>
+      <div className="stat-label">{label}</div>
+      <div style={{ fontSize: 20, fontWeight: 700, color, marginTop: 2 }}>{value}</div>
     </div>
   );
 }
@@ -177,12 +181,13 @@ export default function HR() {
       </div>
 
       {/* KPI strip */}
-      <div style={{ display: 'grid', gridTemplateColumns: 'repeat(5, 1fr)', gap: 12, marginBottom: 20 }}>
-        <Kpi label={t('hr.kpiTotal')}    value={s.total_employees ?? 0} accent="#1d4ed8" bg="#dbeafe" />
-        <Kpi label={t('hr.kpiActive')}   value={s.active ?? 0}          accent="#16a34a" bg="#dcfce7" />
-        <Kpi label={t('hr.kpiOnLeave')}  value={s.on_leave ?? 0}        accent="#b45309" bg="#fef3c7" />
-        <Kpi label={t('hr.kpiDepts')}    value={s.departments ?? 0}     accent="#7c3aed" bg="#ede9fe" />
-        <Kpi label={t('hr.kpiPending')}  value={s.pending_leave ?? 0}   accent="#dc2626" bg="#fee2e2" />
+      <div style={{ display: 'grid', gridTemplateColumns: 'repeat(5, 1fr)', gap: 14, marginBottom: 20 }}>
+        <Kpi label={t('hr.kpiTotal')}   value={s.total_employees ?? 0} />
+        <Kpi label={t('hr.kpiActive')}  value={s.active ?? 0}          color="var(--green)" />
+        <Kpi label={t('hr.kpiOnLeave')} value={s.on_leave ?? 0}        color="var(--yellow)" />
+        <Kpi label={t('hr.kpiDepts')}   value={s.departments ?? 0}     color="var(--accent)" />
+        <Kpi label={t('hr.kpiPending')} value={s.pending_leave ?? 0}
+             color={s.pending_leave > 0 ? 'var(--red)' : 'var(--text-3)'} />
       </div>
 
       {/* Tabs */}

@@ -9,6 +9,7 @@ from pydantic import BaseModel
 from typing import Optional
 from database import get_db, DB_PATH
 from permissions import require_auth, require_admin
+from utils import _now
 import sqlite3, os, shutil, tempfile, sys
 
 router = APIRouter()
@@ -28,13 +29,14 @@ DEFAULTS = {
     "company_tax_number":  "",
     "company_reg_number":  "",
     "default_currency":    "USD",
+    "secondary_currency":  "LBP",
     # Bank Details
     "bank_name":           "",
     "bank_account":        "",
     "bank_iban":           "",
     "bank_swift":          "",
     # Financial
-    "default_tax_rate":    "0",
+    "default_tax_rate":    "11",   # Lebanon VAT — preset; applies to fresh installs
     "tax_enabled":         "0",
     "payment_terms_days":  "15",
     "invoice_prefix":      "INV-",
@@ -59,6 +61,7 @@ class SettingsUpdate(BaseModel):
     company_tax_number: Optional[str] = None
     company_reg_number: Optional[str] = None
     default_currency:   Optional[str] = None
+    secondary_currency: Optional[str] = None
     bank_name:          Optional[str] = None
     bank_account:       Optional[str] = None
     bank_iban:          Optional[str] = None
@@ -120,6 +123,59 @@ def update_settings(
     updates = {k: v for k, v in body.dict().items() if v is not None}
     _set_keys(db, updates)
     return _get_all(db)
+
+
+# ── Exchange rate (dual-currency foundation) ──────────────────────────────────
+# The rate is the number of `secondary_currency` units per 1 `default_currency`
+# unit (e.g. LBP per 1 USD). It is set MANUALLY by an administrator — there is no
+# automatic / online rate lookup — and every change is kept in `exchange_rates`
+# as an audit history.
+
+class ExchangeRateUpdate(BaseModel):
+    rate: float
+    note: Optional[str] = None
+
+
+@router.get("/exchange-rate")
+def get_exchange_rate(user=Depends(require_auth), db: sqlite3.Connection = Depends(get_db)):
+    """Latest manual exchange rate + recent change history. Readable by any signed-in user."""
+    cfg = _get_all(db)
+    try:
+        current = db.execute(
+            "SELECT id, rate, set_by_name, note, created_at "
+            "FROM exchange_rates ORDER BY id DESC LIMIT 1"
+        ).fetchone()
+        history = db.execute(
+            "SELECT id, rate, set_by_name, note, created_at "
+            "FROM exchange_rates ORDER BY id DESC LIMIT 20"
+        ).fetchall()
+    except sqlite3.OperationalError:
+        current, history = None, []
+    return {
+        "base_currency":      cfg.get("default_currency", "USD"),
+        "secondary_currency": cfg.get("secondary_currency", "LBP"),
+        "current":            dict(current) if current else None,
+        "history":            [dict(h) for h in history],
+    }
+
+
+@router.post("/exchange-rate")
+def set_exchange_rate(
+    body: ExchangeRateUpdate,
+    user=Depends(require_admin),
+    db: sqlite3.Connection = Depends(get_db),
+):
+    """Record a new manual exchange rate. Administrator only; each change is kept as history."""
+    if body.rate is None or body.rate <= 0:
+        raise HTTPException(400, "Exchange rate must be a positive number.")
+    db.execute(
+        "INSERT INTO exchange_rates (rate, set_by, set_by_name, note, created_at) "
+        "VALUES (?,?,?,?,?)",
+        (body.rate, user["id"], user.get("full_name") or user.get("username"),
+         (body.note or None), _now()),
+    )
+    db.commit()
+    return get_exchange_rate(user, db)
 
 
 MAX_LOGO_SIZE  = 2 * 1024 * 1024   # 2 MB
@@ -220,6 +276,28 @@ def backup_now(user=Depends(require_admin)):
         raise
     except Exception as e:
         raise HTTPException(500, f"Backup error: {e}")
+
+
+class BackupExportRequest(BaseModel):
+    path: str
+
+
+@router.post("/backup-export")
+def backup_export(body: BackupExportRequest, user=Depends(require_admin)):
+    """One-click backup to an external folder (USB drive / network share)."""
+    try:
+        backend_dir = os.path.dirname(os.path.dirname(__file__))
+        if backend_dir not in sys.path:
+            sys.path.insert(0, backend_dir)
+        import backup_manager
+        result = backup_manager.export_to_path(body.path)
+        if not result.get("ok"):
+            raise HTTPException(400, result.get("error", "Backup export failed"))
+        return result
+    except HTTPException:
+        raise
+    except Exception as e:
+        raise HTTPException(500, f"Backup export error: {e}")
 
 
 @router.post("/restore")

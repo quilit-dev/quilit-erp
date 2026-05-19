@@ -11,12 +11,31 @@
 import * as XLSX from 'xlsx';
 
 // ─── Formatters ────────────────────────────────────────────────────────────────
-const fmtCurrency = (v, currency = 'USD') =>
+const fmtCurrency = (v, currency = 'USD', decimals = 2) =>
   new Intl.NumberFormat('en-US', {
-    style: 'currency', currency, minimumFractionDigits: 2, maximumFractionDigits: 2,
+    style: 'currency', currency,
+    minimumFractionDigits: decimals, maximumFractionDigits: decimals,
   }).format(Number(v) || 0);
 
+// `USD` is the document money formatter. Despite the name it formats whichever
+// currency the export is rendered in — it is reassigned per-export so an LBP
+// export converts and formats in LBP. See currencyContext().
 let USD = (v) => fmtCurrency(v, 'USD');
+
+// Resolve how money is shown for one export. The document is always stored in
+// the base currency (USD); when the user picked the LBP view AND an admin rate
+// exists, amounts are converted at that rate for display only.
+function currencyContext(C, opts) {
+  const useLbp = opts?.displayCurrency === 'LBP' && Number(opts?.exchangeRate?.rate) > 0;
+  const rate   = useLbp ? Number(opts.exchangeRate.rate) : 1;
+  const code   = useLbp ? (opts.exchangeRate.secondary || 'LBP') : C.currency;
+  const dec    = useLbp ? 0 : 2;
+  return {
+    useLbp, rate, code,
+    money: (v) => fmtCurrency((Number(v) || 0) * rate, code, dec),
+    conv:  (v) => (Number(v) || 0) * rate,
+  };
+}
 
 const fmtDate = (d) => {
   if (!d) return '—';
@@ -245,6 +264,8 @@ function buildCompany(s) {
 
 // ─── Per-line computation ──────────────────────────────────────────────────────
 // discountPct: item-level override first, then document-level fallback (0 = no discount)
+// Tax: each line carries its own `tax_rate` snapshot; legacy lines with none
+// fall back to the company default rate.
 function lineCalc(item, taxRate, taxOn, docDiscountPct) {
   const qty       = Number(item.quantity)   || 0;
   const unitPrice = Number(item.unit_price) || 0;
@@ -252,9 +273,11 @@ function lineCalc(item, taxRate, taxOn, docDiscountPct) {
   const disc      = Number(item.discount_pct ?? docDiscountPct ?? 0);
   const discAmt   = gross * (disc / 100);
   const net       = gross - discAmt;
-  const taxAmt    = taxOn ? net * (taxRate / 100) : 0;
+  const hasLineRate = item.tax_rate !== undefined && item.tax_rate !== null;
+  const rate      = hasLineRate ? Number(item.tax_rate) : (taxOn ? taxRate : 0);
+  const taxAmt    = rate > 0 ? net * (rate / 100) : 0;
   const lineTotal = net + taxAmt;
-  return { qty, unitPrice, gross, disc, discAmt, net, taxAmt, lineTotal };
+  return { qty, unitPrice, gross, disc, discAmt, net, taxAmt, lineTotal, rate };
 }
 
 function aggregateLines(items, C, docDiscountPct = 0) {
@@ -286,7 +309,7 @@ function itemTableHTML(items, C, docDiscountPct = 0) {
     <th style="width:8%" class="r">Qty</th>
     <th style="width:14%" class="r">Unit Price</th>
     ${hasDis ? `<th style="width:10%" class="r">Discount</th>` : ''}
-    ${hasTax ? `<th style="width:10%" class="r">Tax (${C.taxRate}%)</th>` : ''}
+    ${hasTax ? `<th style="width:10%" class="r">Tax</th>` : ''}
     <th style="width:14%" class="r">Amount</th>
   </tr></thead>`;
 
@@ -295,7 +318,7 @@ function itemTableHTML(items, C, docDiscountPct = 0) {
   }
 
   const rows = items.map((item, i) => {
-    const { qty, unitPrice, disc, discAmt, taxAmt, lineTotal } =
+    const { qty, unitPrice, disc, discAmt, taxAmt, lineTotal, rate } =
       lineCalc(item, C.taxRate, taxOn, docDiscountPct);
     return `<tr>
       <td class="seq">${i + 1}</td>
@@ -303,7 +326,7 @@ function itemTableHTML(items, C, docDiscountPct = 0) {
       <td class="r">${qty.toLocaleString('en-US', { maximumFractionDigits: 4 })}</td>
       <td class="r">${USD(unitPrice)}</td>
       ${hasDis ? `<td class="r" style="color:#d97706">${disc > 0 ? `${disc}%<br><span style="font-size:8px">(${USD(discAmt)})</span>` : '—'}</td>` : ''}
-      ${hasTax ? `<td class="r" style="color:#1B4F72">${taxAmt > 0 ? USD(taxAmt) : '—'}</td>` : ''}
+      ${hasTax ? `<td class="r" style="color:#1B4F72">${taxAmt > 0 ? `${rate}%<br><span style="font-size:8px">(${USD(taxAmt)})</span>` : '—'}</td>` : ''}
       <td class="r num">${USD(lineTotal)}</td>
     </tr>`;
   }).join('');
@@ -320,7 +343,7 @@ function totalsBoxHTML(subtotal, totalDiscount, totalTax, grandTotal, C, extraRo
   <div class="totals-wrap"><div class="totals-box">
     <div class="totals-row"><span class="k">Subtotal</span><span class="v">${USD(subtotal)}</span></div>
     ${C.showDiscountCol && totalDiscount > 0 ? `<div class="totals-row"><span class="k">Discount</span><span class="v" style="color:#d97706">(${USD(totalDiscount)})</span></div>` : ''}
-    ${taxOn ? `<div class="totals-row"><span class="k">Tax (${C.taxRate}%)</span><span class="v">${USD(totalTax)}</span></div>` : ''}
+    ${totalTax > 0 ? `<div class="totals-row"><span class="k">Tax</span><span class="v">${USD(totalTax)}</span></div>` : ''}
     <div class="totals-row grand"><span class="k">Grand Total</span><span class="v">${USD(grandTotal)}</span></div>
     ${extraRows}
   </div></div>`;
@@ -355,10 +378,11 @@ function paymentInstructions(C) {
 // ═══════════════════════════════════════════════════════════════════════════════
 // QUOTATION PDF
 // ═══════════════════════════════════════════════════════════════════════════════
-export async function exportQuotationPDF(quotation) {
+export async function exportQuotationPDF(quotation, opts = {}) {
   const [logoDataURL, settings] = await Promise.all([getLogoDataURL(), getSettings()]);
-  const C = buildCompany(settings);
-  USD = (v) => fmtCurrency(v, C.currency);
+  const C  = buildCompany(settings);
+  const CC = currencyContext(C, opts);
+  USD = CC.money;
 
   const items          = quotation.items || [];
   const docDiscountPct = Number(quotation.discount_pct || 0);
@@ -378,6 +402,9 @@ export async function exportQuotationPDF(quotation) {
   const validUntil = fmtDate(addDays(quotation.created_at, C.paymentDays));
   const logo       = logoDataURL ? `<img src="${logoDataURL}" class="company-logo" alt="logo" />` : '';
   const taxOn      = C.taxOn && C.taxRate > 0;
+  const rateNote   = CC.useLbp
+    ? `<div class="band slate"><span class="band-label">Currency Note:</span> Amounts are shown in ${CC.code}, converted from ${C.currency} at 1 ${C.currency} = ${CC.rate.toLocaleString('en-US')} ${CC.code}.</div>`
+    : '';
 
   const html = `<!DOCTYPE html><html lang="en"><head><meta charset="UTF-8"><title>Quotation ${docNo}</title><style>${SHARED_CSS}</style></head><body>
 <div class="page">
@@ -386,7 +413,7 @@ export async function exportQuotationPDF(quotation) {
     <div style="text-align:right">
       <div class="doc-title">Quotation</div>
       <div class="doc-ref">${docNo}</div>
-      <div class="doc-dates">Issued: <strong>${issueDate}</strong> • Valid: <strong>${validUntil}</strong><br>Terms: <strong>Net ${C.paymentDays} Days</strong> • Currency: <strong>${C.currency}</strong></div>
+      <div class="doc-dates">Issued: <strong>${issueDate}</strong> • Valid: <strong>${validUntil}</strong><br>Terms: <strong>Net ${C.paymentDays} Days</strong> • Currency: <strong>${CC.code}</strong></div>
       <div class="status-badge" style="${statusStyle}">${status}</div>
     </div>
   </div>
@@ -399,17 +426,17 @@ export async function exportQuotationPDF(quotation) {
       <div class="meta-row"><span class="meta-key">Ref</span><span>${docNo}</span></div>
       <div class="meta-row"><span class="meta-key">Issued</span><span>${issueDate}</span></div>
       <div class="meta-row"><span class="meta-key">Expires</span><span>${validUntil}</span></div>
-      ${taxOn ? `<div class="meta-row"><span class="meta-key">Tax Rate</span><span>${C.taxRate}%</span></div>` : ''}
     </div>
   </div>
 
   <table>${itemTableHTML(items, C, docDiscountPct)}</table>
 
   ${totalsBoxHTML(subtotal, totalDiscount, totalTax, grandTotal, C)}
+  ${rateNote}
 
   <div class="band amber"><span class="band-label">Valid Until:</span> ${validUntil} (${C.paymentDays} days from issue). Prices are subject to change thereafter.</div>
   ${quotation.notes ? `<div class="band"><span class="band-label">Notes:</span> ${quotation.notes}</div>` : ''}
-  <div class="band"><span class="band-label">Terms and Conditions:</span> All prices in ${C.currency}. Payment due Net ${C.paymentDays} days. Quotation binding upon written acceptance. Goods remain property of ${C.name} until paid in full. Scope changes may affect pricing.</div>
+  <div class="band"><span class="band-label">Terms and Conditions:</span> All prices in ${CC.code}. Payment due Net ${C.paymentDays} days. Quotation binding upon written acceptance. Goods remain property of ${C.name} until paid in full. Scope changes may affect pricing.</div>
   ${paymentInstructions(C)}
   ${C.footer ? `<div class="band"><span class="band-label">Note:</span> ${C.footer}</div>` : ''}
 
@@ -438,10 +465,11 @@ export async function exportQuotationPDF(quotation) {
 // ═══════════════════════════════════════════════════════════════════════════════
 // INVOICE PDF
 // ═══════════════════════════════════════════════════════════════════════════════
-export async function exportInvoicePDF(invoice) {
+export async function exportInvoicePDF(invoice, opts = {}) {
   const [logoDataURL, settings] = await Promise.all([getLogoDataURL(), getSettings()]);
-  const C = buildCompany(settings);
-  USD = (v) => fmtCurrency(v, C.currency);
+  const C  = buildCompany(settings);
+  const CC = currencyContext(C, opts);
+  USD = CC.money;
 
   const items          = invoice.items    || [];
   const payments       = invoice.payments || [];
@@ -466,6 +494,9 @@ export async function exportInvoicePDF(invoice) {
   const isOverdue = !isPaid && new Date(dueDate) < new Date();
   const logo      = logoDataURL ? `<img src="${logoDataURL}" class="company-logo" alt="logo" />` : '';
   const taxOn     = C.taxOn && C.taxRate > 0;
+  const rateNote  = CC.useLbp
+    ? `<div class="band slate"><span class="band-label">Currency Note:</span> Amounts are shown in ${CC.code}, converted from ${C.currency} at 1 ${C.currency} = ${CC.rate.toLocaleString('en-US')} ${CC.code}.</div>`
+    : '';
 
   const paymentRows = payments.map((p, i) =>
     `<tr>
@@ -488,7 +519,7 @@ export async function exportInvoicePDF(invoice) {
     <div style="text-align:right">
       <div class="doc-title">Invoice</div>
       <div class="doc-ref">${docNo}</div>
-      <div class="doc-dates">Date: <strong>${fmtDate(invDate)}</strong> • Due: <strong>${fmtDate(dueDate)}</strong><br>${invoice.quote_number ? `Quote Ref: <strong>${invoice.quote_number}</strong> • ` : ''}Terms: <strong>Net ${C.paymentDays} Days</strong> • ${C.currency}</div>
+      <div class="doc-dates">Date: <strong>${fmtDate(invDate)}</strong> • Due: <strong>${fmtDate(dueDate)}</strong><br>${invoice.quote_number ? `Quote Ref: <strong>${invoice.quote_number}</strong> • ` : ''}Terms: <strong>Net ${C.paymentDays} Days</strong> • ${CC.code}</div>
       <div class="status-badge" style="${statusStyle}">${status}</div>
     </div>
   </div>
@@ -501,13 +532,13 @@ export async function exportInvoicePDF(invoice) {
       <div class="meta-row"><span class="meta-key">No.</span><span>${docNo}</span></div>
       <div class="meta-row"><span class="meta-key">Issued</span><span>${fmtDate(invDate)}</span></div>
       <div class="meta-row"><span class="meta-key">Due</span><span>${fmtDate(dueDate)}</span></div>
-      ${taxOn ? `<div class="meta-row"><span class="meta-key">Tax Rate</span><span>${C.taxRate}%</span></div>` : ''}
     </div>
   </div>
 
   <table>${itemTableHTML(items, C, docDiscountPct)}</table>
 
   ${totalsBoxHTML(subtotal, totalDiscount, totalTax, grandTotal, C, extraTotalsRows)}
+  ${rateNote}
 
   ${isPaid
     ? `<div class="band green"><span class="band-label">✓ Paid in Full:</span> Settled. Thank you for your prompt payment.</div>`
@@ -545,15 +576,16 @@ export async function exportInvoicePDF(invoice) {
 // ═══════════════════════════════════════════════════════════════════════════════
 // EXCEL — shared helpers
 // ═══════════════════════════════════════════════════════════════════════════════
-function excelItemsSheet(items, C, docDiscountPct, cur) {
+function excelItemsSheet(items, C, docDiscountPct, CC) {
   const taxOn  = C.taxOn && C.taxRate > 0;
   const hasDis = C.showDiscountCol;
   const hasTax = C.showTaxCol && taxOn;
+  const cur    = CC.code;
 
   const headers = [
     '#', 'Description', 'Qty', `Unit Price (${cur})`,
     ...(hasDis ? ['Discount %', `Discount Amt (${cur})`] : []),
-    ...(hasTax ? [`Tax (${C.taxRate}%) (${cur})`]         : []),
+    ...(hasTax ? [`Tax (${cur})`]                         : []),
     `Line Total (${cur})`,
   ];
 
@@ -561,10 +593,10 @@ function excelItemsSheet(items, C, docDiscountPct, cur) {
     const { qty, unitPrice, disc, discAmt, taxAmt, lineTotal } =
       lineCalc(item, C.taxRate, taxOn, docDiscountPct);
     return [
-      idx + 1, item.name, qty, unitPrice,
-      ...(hasDis ? [disc, discAmt] : []),
-      ...(hasTax ? [taxAmt]        : []),
-      lineTotal,
+      idx + 1, item.name, qty, CC.conv(unitPrice),
+      ...(hasDis ? [disc, CC.conv(discAmt)] : []),
+      ...(hasTax ? [CC.conv(taxAmt)]        : []),
+      CC.conv(lineTotal),
     ];
   });
 
@@ -585,23 +617,24 @@ function excelItemsSheet(items, C, docDiscountPct, cur) {
     headers,
     ...rows,
     blank,
-    summaryRow('SUBTOTAL', subtotal),
-    ...(hasDis && totalDiscount > 0 ? [summaryRow('DISCOUNT', -totalDiscount)] : []),
-    ...(taxOn ? [summaryRow(`TAX (${C.taxRate}%)`, totalTax)] : []),
-    summaryRow('GRAND TOTAL', grandTotal),
+    summaryRow('SUBTOTAL', CC.conv(subtotal)),
+    ...(hasDis && totalDiscount > 0 ? [summaryRow('DISCOUNT', CC.conv(-totalDiscount))] : []),
+    ...(totalTax > 0 ? [summaryRow('TAX', CC.conv(totalTax))] : []),
+    summaryRow('GRAND TOTAL', CC.conv(grandTotal)),
   ];
 }
 
 // ═══════════════════════════════════════════════════════════════════════════════
 // QUOTATION EXCEL
 // ═══════════════════════════════════════════════════════════════════════════════
-export async function exportQuotationExcel(quotation) {
+export async function exportQuotationExcel(quotation, opts = {}) {
   const s = await getSettings();
-  const C = buildCompany(s);
+  const C  = buildCompany(s);
+  const CC = currencyContext(C, opts);
   const items          = quotation.items || [];
   const docDiscountPct = Number(quotation.discount_pct || 0);
   const { subtotal, totalDiscount, totalTax, grandTotal } = aggregateLines(items, C, docDiscountPct);
-  const cur   = C.currency;
+  const cur   = CC.code;
   const taxOn = C.taxOn && C.taxRate > 0;
 
   const summary = [
@@ -614,17 +647,18 @@ export async function exportQuotationExcel(quotation) {
     ['Valid Until', fmtShort(addDays(quotation.created_at, C.paymentDays))],
     ['Terms',       `Net ${C.paymentDays} days`],
     ['Currency',    cur],
+    ...(CC.useLbp ? [['Exchange Rate', `1 ${C.currency} = ${CC.rate.toLocaleString('en-US')} ${cur}`]] : []),
     ['Notes',       quotation.notes || ''],
     [],
-    ['Subtotal',    subtotal],
-    ...(C.showDiscountCol && totalDiscount > 0 ? [['Discount', -totalDiscount]] : []),
-    ...(taxOn ? [['Tax Rate (%)', C.taxRate], ['Tax Amount', totalTax]] : []),
-    ['GRAND TOTAL', grandTotal],
+    ['Subtotal',    CC.conv(subtotal)],
+    ...(C.showDiscountCol && totalDiscount > 0 ? [['Discount', CC.conv(-totalDiscount)]] : []),
+    ...(totalTax > 0 ? [['Tax', CC.conv(totalTax)]] : []),
+    ['GRAND TOTAL', CC.conv(grandTotal)],
   ];
 
   const wb  = XLSX.utils.book_new();
   const ws1 = XLSX.utils.aoa_to_sheet(summary);
-  const ws2 = XLSX.utils.aoa_to_sheet(excelItemsSheet(items, C, docDiscountPct, cur));
+  const ws2 = XLSX.utils.aoa_to_sheet(excelItemsSheet(items, C, docDiscountPct, CC));
   ws1['!cols'] = [{ wch: 18 }, { wch: 34 }];
   ws2['!cols'] = [{ wch: 4 }, { wch: 38 }, { wch: 8 }, { wch: 14 }, { wch: 12 }, { wch: 14 }, { wch: 14 }];
   XLSX.utils.book_append_sheet(wb, ws1, 'Summary');
@@ -635,16 +669,17 @@ export async function exportQuotationExcel(quotation) {
 // ═══════════════════════════════════════════════════════════════════════════════
 // INVOICE EXCEL
 // ═══════════════════════════════════════════════════════════════════════════════
-export async function exportInvoiceExcel(invoice) {
+export async function exportInvoiceExcel(invoice, opts = {}) {
   const s = await getSettings();
-  const C = buildCompany(s);
+  const C  = buildCompany(s);
+  const CC = currencyContext(C, opts);
   const items          = invoice.items    || [];
   const payments       = invoice.payments || [];
   const docDiscountPct = Number(invoice.discount_pct || 0);
   const { subtotal, totalDiscount, totalTax, grandTotal } = aggregateLines(items, C, docDiscountPct);
   const paid    = payments.reduce((sum, p) => sum + (Number(p.amount) || 0), 0);
   const balance = Math.max(0, grandTotal - paid);
-  const cur     = C.currency;
+  const cur     = CC.code;
   const taxOn   = C.taxOn && C.taxRate > 0;
 
   const summary = [
@@ -658,27 +693,28 @@ export async function exportInvoiceExcel(invoice) {
     ['Due',       invoice.due_date ? fmtShort(invoice.due_date) : fmtShort(addDays(invoice.created_at, C.paymentDays))],
     ['Terms',     `Net ${C.paymentDays} days`],
     ['Currency',  cur],
+    ...(CC.useLbp ? [['Exchange Rate', `1 ${C.currency} = ${CC.rate.toLocaleString('en-US')} ${cur}`]] : []),
     ['Notes',     invoice.notes || ''],
     [],
-    ['Subtotal',    subtotal],
-    ...(C.showDiscountCol && totalDiscount > 0 ? [['Discount', -totalDiscount]] : []),
-    ...(taxOn ? [['Tax Rate (%)', C.taxRate], ['Tax Amount', totalTax]] : []),
-    ['Total',       grandTotal],
-    ['Paid',        paid],
-    ['Balance Due', balance],
+    ['Subtotal',    CC.conv(subtotal)],
+    ...(C.showDiscountCol && totalDiscount > 0 ? [['Discount', CC.conv(-totalDiscount)]] : []),
+    ...(totalTax > 0 ? [['Tax', CC.conv(totalTax)]] : []),
+    ['Total',       CC.conv(grandTotal)],
+    ['Paid',        CC.conv(paid)],
+    ['Balance Due', CC.conv(balance)],
   ];
 
   const payRows = payments.length ? [
     ['#', 'Date', `Amount (${cur})`, 'Method', 'Note'],
-    ...payments.map((p, i) => [i + 1, fmtShort(p.paid_at), Number(p.amount), p.method || '', p.note || '']),
+    ...payments.map((p, i) => [i + 1, fmtShort(p.paid_at), CC.conv(p.amount), p.method || '', p.note || '']),
     [],
-    ['', 'TOTAL PAID',  paid,    '', ''],
-    ['', 'BALANCE DUE', balance, '', ''],
+    ['', 'TOTAL PAID',  CC.conv(paid),    '', ''],
+    ['', 'BALANCE DUE', CC.conv(balance), '', ''],
   ] : [];
 
   const wb = XLSX.utils.book_new();
   XLSX.utils.book_append_sheet(wb, XLSX.utils.aoa_to_sheet(summary), 'Summary');
-  XLSX.utils.book_append_sheet(wb, XLSX.utils.aoa_to_sheet(excelItemsSheet(items, C, docDiscountPct, cur)), 'Items');
+  XLSX.utils.book_append_sheet(wb, XLSX.utils.aoa_to_sheet(excelItemsSheet(items, C, docDiscountPct, CC)), 'Items');
   if (payRows.length) XLSX.utils.book_append_sheet(wb, XLSX.utils.aoa_to_sheet(payRows), 'Payments');
   XLSX.writeFile(wb, `${invoice.invoice_number || 'Invoice'}_export.xlsx`);
 }

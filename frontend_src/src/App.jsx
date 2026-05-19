@@ -21,9 +21,13 @@ const ProjectDetail  = lazy(() => import('./pages/ProjectDetail'));
 const Quotations     = lazy(() => import('./pages/Quotations'));
 const Invoices       = lazy(() => import('./pages/Invoices'));
 const Inventory      = lazy(() => import('./pages/Inventory'));
+const POS            = lazy(() => import('./pages/POS'));
+const Manufacturing  = lazy(() => import('./pages/Manufacturing'));
 const Purchases      = lazy(() => import('./pages/Purchases'));
 const Finance        = lazy(() => import('./pages/Finance'));
 const Expenses       = lazy(() => import('./pages/Expenses'));
+const FixedAssets    = lazy(() => import('./pages/FixedAssets'));
+const Cash           = lazy(() => import('./pages/Cash'));
 const Settings       = lazy(() => import('./pages/Settings'));
 const Archives       = lazy(() => import('./pages/Archives'));
 const Notifications   = lazy(() => import('./pages/Notifications'));
@@ -149,8 +153,8 @@ function Layout({ children }) {
   }, []);
 
   const pageKeys = [
-    '/', '/clients', '/projects', '/quotations', '/invoices', '/inventory',
-    '/purchases', '/suppliers', '/expenses', '/finance', '/reports', '/crm', '/planning', '/hr', '/archives',
+    '/', '/clients', '/projects', '/quotations', '/invoices', '/inventory', '/pos',
+    '/purchases', '/suppliers', '/manufacturing', '/expenses', '/fixed-assets', '/finance', '/cash', '/reports', '/crm', '/planning', '/hr', '/archives',
     '/notifications', '/approvals', '/approval-policies', '/settings', '/users', '/roles', '/admin',
   ];
   const path = location.pathname;
@@ -235,14 +239,18 @@ export default function App() {
             <Route path="/quotations"   element={Auth(<Quotations />)} />
             <Route path="/invoices"     element={Auth(<Invoices />)} />
             <Route path="/inventory"    element={Auth(<Inventory />)} />
+            <Route path="/pos"          element={Auth(<POS />)} />
+            <Route path="/manufacturing" element={Auth(<Manufacturing />)} />
             <Route path="/purchases"    element={Auth(<Purchases />)} />
             <Route path="/suppliers"    element={Auth(<Suppliers />)} />
             <Route path="/finance"      element={Auth(<Finance />)} />
+            <Route path="/cash"         element={Auth(<Cash />)} />
             <Route path="/reports"      element={Auth(<Reports />)} />
             <Route path="/crm"          element={Auth(<CRM />)} />
             <Route path="/planning"     element={Auth(<Planning />)} />
             <Route path="/hr"           element={Auth(<HR />)} />
             <Route path="/expenses"     element={Auth(<Expenses />)} />
+            <Route path="/fixed-assets" element={Auth(<FixedAssets />)} />
             <Route path="/archives"     element={Auth(<Archives />)} />
             <Route path="/notifications"  element={Auth(<Notifications />)} />
             <Route path="/approvals"          element={Auth(<ApprovalRequests />)} />

@@ -8,16 +8,25 @@ import sqlite3
 
 router = APIRouter()
 
+_PRODUCT_TYPES = {"raw_material", "semi_finished", "finished", "consumable"}
+
+
 class InventoryCreate(BaseModel):
     name: str
     category: Optional[str] = None
+    # product_type classifies the item for manufacturing:
+    # raw_material · semi_finished · finished · consumable.
+    product_type: Optional[str] = None
     quantity: Optional[float] = 0
     min_stock: Optional[float] = 0
     # unit_cost = landed cost per unit (purchase price + apportioned import/freight costs).
-    # This is an asset valuation field only. Selling prices are set on Quotation line items.
+    # Used for stock valuation and POS cost-of-goods-sold.
     unit_cost: Optional[float] = 0
+    # sale_price = retail price the POS rings the item up at (VAT-inclusive).
+    sale_price: Optional[float] = 0
     supplier: Optional[str] = None
     unit: Optional[str] = "pcs"
+    barcode: Optional[str] = None
 
 class StockUpdate(BaseModel):
     delta: float
@@ -32,9 +41,9 @@ def list_inventory(search: Optional[str] = None, category: Optional[str] = None,
     query = "SELECT * FROM inventory WHERE archived_at IS NULL"
     params = []
     if search:
-        query += " AND (name LIKE ? OR supplier LIKE ?)"
+        query += " AND (name LIKE ? OR supplier LIKE ? OR barcode = ?)"
         s = f"%{search}%"
-        params.extend([s, s])
+        params.extend([s, s, search])
     if category:
         query += " AND category = ?"
         params.append(category)
@@ -70,9 +79,17 @@ def get_movements(item_id: int, user=Depends(require_perm("inventory", "view")),
 def create_item(data: InventoryCreate, user=Depends(require_perm("inventory", "create")),
                 db: sqlite3.Connection = Depends(get_db)):
     now = _now()
+    barcode = (data.barcode or "").strip() or None
+    if barcode and db.execute(
+        "SELECT 1 FROM inventory WHERE barcode = ? AND archived_at IS NULL", (barcode,)
+    ).fetchone():
+        raise HTTPException(400, "Another item already uses this barcode.")
+    ptype = (data.product_type or None)
+    if ptype and ptype not in _PRODUCT_TYPES:
+        raise HTTPException(400, "Invalid product type.")
     c = db.execute(
-        "INSERT INTO inventory (name, category, quantity, min_stock, unit_cost, supplier, unit, created_at) VALUES (?,?,?,?,?,?,?,?)",
-        (data.name, data.category, data.quantity, data.min_stock, data.unit_cost, data.supplier, data.unit, now)
+        "INSERT INTO inventory (name, category, product_type, quantity, min_stock, unit_cost, sale_price, supplier, unit, barcode, created_at) VALUES (?,?,?,?,?,?,?,?,?,?,?)",
+        (data.name, data.category, ptype, data.quantity, data.min_stock, data.unit_cost, data.sale_price, data.supplier, data.unit, barcode, now)
     )
     item_id = c.lastrowid
     if data.quantity and data.quantity != 0:
@@ -89,10 +106,18 @@ def update_item(item_id: int, data: InventoryCreate, user=Depends(require_perm("
     existing = db.execute("SELECT quantity FROM inventory WHERE id = ? AND archived_at IS NULL", (item_id,)).fetchone()
     if not existing:
         raise HTTPException(404, "Item not found")
+    barcode = (data.barcode or "").strip() or None
+    if barcode and db.execute(
+        "SELECT 1 FROM inventory WHERE barcode = ? AND id <> ? AND archived_at IS NULL", (barcode, item_id)
+    ).fetchone():
+        raise HTTPException(400, "Another item already uses this barcode.")
+    ptype = (data.product_type or None)
+    if ptype and ptype not in _PRODUCT_TYPES:
+        raise HTTPException(400, "Invalid product type.")
     # quantity is managed exclusively via /stock — never overwritten by edit
     db.execute(
-        "UPDATE inventory SET name=?, category=?, min_stock=?, unit_cost=?, supplier=?, unit=? WHERE id=?",
-        (data.name, data.category, data.min_stock, data.unit_cost, data.supplier, data.unit, item_id)
+        "UPDATE inventory SET name=?, category=?, product_type=?, min_stock=?, unit_cost=?, sale_price=?, supplier=?, unit=?, barcode=? WHERE id=?",
+        (data.name, data.category, ptype, data.min_stock, data.unit_cost, data.sale_price, data.supplier, data.unit, barcode, item_id)
     )
     db.commit()
     return {"message": "Item updated"}
@@ -202,6 +227,8 @@ def archive_item(item_id: int, user=Depends(require_perm("inventory", "delete"))
         raise HTTPException(404, "Item not found")
     if float(row["quantity"]) > 0:
         raise HTTPException(400, f"Cannot archive item with {row['quantity']} units in stock. Adjust stock to 0 first.")
+    if float(row["reserved_quantity"] or 0) > 0:
+        raise HTTPException(400, "Cannot archive an item reserved by an open production order.")
     now = _now()
     db.execute("UPDATE inventory SET archived_at = ? WHERE id = ?", (now, item_id))
     db.commit()

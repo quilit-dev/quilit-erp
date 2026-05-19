@@ -1,21 +1,28 @@
 import { usePersistedState } from '../hooks/usePersistedState';
 import { useState, useMemo } from 'react';
 import { useData } from '../hooks/useData';
-import { getExpenses, getProjects, createExpense, updateExpense, voidExpense } from '../api/client';
+import { getExpenses, getProjects, createExpense, updateExpense, voidExpense, getCashDrawers } from '../api/client';
 import {
   LoadingSpinner, ErrorAlert, EmptyState, Modal,
   ExportButton, fmt, fmtDate, toast, SortableTh, Pagination,
-  CATEGORY_COLORS, CategoryBadge,
+  CATEGORY_COLORS, CategoryBadge, EXPENSE_CATEGORIES,
 } from '../components/shared';
 import { useSortPaginate } from '../hooks/useSortPaginate';
 import { useLocale } from '../hooks/useLocale.jsx';
+import { useSettings } from '../hooks/useSettings.jsx';
+import RecurringExpensesPanel from '../components/RecurringExpensesPanel';
 
-const CATEGORIES = ['Labour', 'Materials', 'Equipment', 'Transport', 'Subcontractor', 'Permits', 'Other'];
+const CATEGORIES = EXPENSE_CATEGORIES;
 
-export default function Expenses() {
+function TransactionsPanel() {
   const { data: expenses, loading, error, reload } = useData(getExpenses);
   const { data: projects } = useData(getProjects);
+  const { data: cashDrawersData } = useData(getCashDrawers);
+  const cashDrawers = (cashDrawersData || []).filter(d => d.is_active);
   const { t } = useLocale();
+  const { settings, taxRates } = useSettings();
+  const taxEnabled     = settings?.tax_enabled === '1';
+  const activeTaxRates = (taxRates || []).filter(r => r.is_active);
 
   const [catFilter, setCatFilter] = usePersistedState('expenses.catFilter', '');
   const [projFilter, setProjFilter] = usePersistedState('expenses.projFilter', '');
@@ -29,12 +36,14 @@ export default function Expenses() {
   const [saving,     setSaving]     = useState(false);
   const [form, setForm] = useState({
     project_id: '', category: 'Other', description: '',
-    amount: '', date: new Date().toISOString().slice(0, 10),
+    amount: '', date: new Date().toISOString().slice(0, 10), tax_rate_id: null,
+    payment_method: '', cash_drawer_id: null,
   });
 
   const EMPTY_FORM = {
     project_id: '', category: 'Other', description: '',
-    amount: '', date: new Date().toISOString().slice(0, 10),
+    amount: '', date: new Date().toISOString().slice(0, 10), tax_rate_id: null,
+    payment_method: '', cash_drawer_id: null,
   };
 
   function openAdd() { setForm(EMPTY_FORM); setEditId(null); setModal(true); }
@@ -46,6 +55,9 @@ export default function Expenses() {
       description: exp.description || '',
       amount:      exp.amount      || '',
       date:        exp.date        || new Date().toISOString().slice(0, 10),
+      tax_rate_id: exp.tax_rate_id ?? null,
+      payment_method: exp.payment_method || '',
+      cash_drawer_id: exp.cash_drawer_id ?? null,
     });
     setEditId(exp.id);
     setModal(true);
@@ -57,8 +69,9 @@ export default function Expenses() {
     try {
       const payload = {
         ...form,
-        project_id: form.project_id ? Number(form.project_id) : null,
-        amount:     Number(form.amount),
+        project_id:  form.project_id ? Number(form.project_id) : null,
+        amount:      Number(form.amount),
+        tax_rate_id: taxEnabled ? (form.tax_rate_id ?? null) : null,
       };
       if (editId) {
         await updateExpense(editId, payload);
@@ -328,6 +341,40 @@ export default function Expenses() {
                     {(projects || []).map(p => <option key={p.id} value={p.id}>{p.name}</option>)}
                   </select>
                 </div>
+                <div className="form-group">
+                  <label className="form-label">{t('expenses.paymentMethodLabel')}</label>
+                  <select className="form-control" value={form.payment_method || ''}
+                    onChange={e => setForm(f => ({ ...f, payment_method: e.target.value }))}>
+                    <option value="">—</option>
+                    <option value="Cash">{t('expenses.methodCash')}</option>
+                    <option value="Bank Transfer">{t('expenses.methodBank')}</option>
+                    <option value="Cheque">{t('expenses.methodCheque')}</option>
+                    <option value="Card">{t('expenses.methodCard')}</option>
+                    <option value="Other">{t('expenses.methodOther')}</option>
+                  </select>
+                </div>
+                {form.payment_method === 'Cash' && cashDrawers.length > 0 && (
+                  <div className="form-group">
+                    <label className="form-label">{t('expenses.cashDrawerLabel')}</label>
+                    <select className="form-control" value={form.cash_drawer_id ?? ''}
+                      onChange={e => setForm(f => ({ ...f, cash_drawer_id: e.target.value ? Number(e.target.value) : null }))}>
+                      <option value="">{t('expenses.defaultDrawer')}</option>
+                      {cashDrawers.map(d => <option key={d.id} value={d.id}>{d.name}</option>)}
+                    </select>
+                  </div>
+                )}
+                {taxEnabled && (
+                  <div className="form-group">
+                    <label className="form-label">{t('common.taxCol')}</label>
+                    <select className="form-control" value={form.tax_rate_id ?? ''}
+                      onChange={e => setForm(f => ({ ...f, tax_rate_id: Number(e.target.value) || null }))}>
+                      <option value="">{t('expenses.noTax')}</option>
+                      {activeTaxRates.map(r => (
+                        <option key={r.id} value={r.id}>{r.name} ({r.rate}%)</option>
+                      ))}
+                    </select>
+                  </div>
+                )}
                 <div className="form-group form-full">
                   <label className="form-label">{t('expenses.descriptionLabel')}</label>
                   <input className="form-control" value={form.description || ''}
@@ -371,6 +418,37 @@ export default function Expenses() {
           </div>
         </Modal>
       )}
+    </div>
+  );
+}
+
+export default function Expenses() {
+  const { t } = useLocale();
+  const [tab, setTab] = usePersistedState('expenses.tab', 'transactions');
+  const tabs = [
+    { key: 'transactions', label: t('expenses.tabTransactions') },
+    { key: 'recurring',    label: t('expenses.tabRecurring') },
+  ];
+  return (
+    <div>
+      <div style={{ display: 'flex', gap: 4, marginBottom: 18, borderBottom: '1px solid var(--border)' }}>
+        {tabs.map(tb => (
+          <button
+            key={tb.key}
+            onClick={() => setTab(tb.key)}
+            style={{
+              padding: '8px 16px', fontSize: 13, fontWeight: 600, cursor: 'pointer',
+              background: 'none', border: 'none',
+              borderBottom: `2px solid ${tab === tb.key ? 'var(--accent)' : 'transparent'}`,
+              color: tab === tb.key ? 'var(--accent)' : 'var(--text-3)',
+              marginBottom: -1,
+            }}
+          >
+            {tb.label}
+          </button>
+        ))}
+      </div>
+      {tab === 'transactions' ? <TransactionsPanel /> : <RecurringExpensesPanel />}
     </div>
   );
 }
