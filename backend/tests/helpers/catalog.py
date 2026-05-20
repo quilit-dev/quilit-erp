@@ -13,7 +13,9 @@ MODULE_VIEW_ENDPOINTS = {
     "projects":   "/api/projects/",
     "quotations": "/api/quotations/",
     "invoices":   "/api/invoices/",
+    "pos":        "/api/pos/sales",
     "inventory":  "/api/inventory/",
+    "manufacturing": "/api/manufacturing/boms",
     "purchases":  "/api/purchases/",
     "suppliers":  "/api/suppliers/",
     "crm":        "/api/crm/leads",
@@ -22,6 +24,7 @@ MODULE_VIEW_ENDPOINTS = {
     "reports":    "/api/reports/financial",
     "finance":    "/api/finance/summary",
     "expenses":   "/api/finance/expenses",
+    "cash":       "/api/cash/drawers",
     "dashboard":  "/api/dashboard/",
 }
 

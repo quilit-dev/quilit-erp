@@ -14,7 +14,7 @@ from typing import Optional, List
 from database import get_db
 from permissions import require_perm
 from routers.audit import log_action
-from utils import _now, _get_tax_multiplier
+from utils import _now, get_tax_context, resolve_line_tax, money, notify
 import sqlite3
 from datetime import datetime, timedelta
 
@@ -30,6 +30,23 @@ class QuoteItem(BaseModel):
     name: str
     quantity: float
     unit_price: float
+    tax_rate_id: Optional[int] = None
+
+
+def _price_quote_items(db, items):
+    """Roll up quotation line totals with per-line tax.
+    Returns (subtotal, tax_total, line_tax) — line_tax parallel to `items`.
+    Lines are cent-rounded so SUM(line.tax_amount) == header.tax_total."""
+    ctx = get_tax_context(db)
+    subtotal = tax_total = 0.0
+    line_tax = []
+    for it in items:
+        net = money(float(it.quantity) * float(it.unit_price))
+        rid, rate, tax_amt = resolve_line_tax(ctx, it.tax_rate_id, net)
+        subtotal  += net
+        tax_total += tax_amt
+        line_tax.append((rid, rate, tax_amt))
+    return money(subtotal), money(tax_total), line_tax
 
 class QuotationCreate(BaseModel):
     project_id:   Optional[int] = None
@@ -56,7 +73,7 @@ def list_quotations(
     query = """
         SELECT q.*,
                p.name  AS project_name,
-               c.name  AS client_name,
+               c.name  AS client_name, c.phone AS client_phone,
                -- show whether an invoice has already been raised
                (SELECT COUNT(*) FROM invoices i WHERE i.quotation_id = q.id) AS invoice_count
         FROM quotations q
@@ -70,11 +87,10 @@ def list_quotations(
         params.append(status)
     query += " ORDER BY q.created_at DESC"
     rows = db.execute(query, params).fetchall()
-    tax_mult = _get_tax_multiplier(db)
     result = []
     for r in rows:
         d = dict(r)
-        d["total_with_tax"] = round(float(d["total"] or 0) * tax_mult, 2)
+        d["total_with_tax"] = round(float(d["total"] or 0) + float(d["tax_total"] or 0), 2)
         result.append(d)
     return result
 
@@ -86,7 +102,8 @@ def get_quotation(
     db: sqlite3.Connection = Depends(get_db),
 ):
     row = db.execute(
-        """SELECT q.*, p.name AS project_name, c.name AS client_name
+        """SELECT q.*, p.name AS project_name,
+                  c.name AS client_name, c.phone AS client_phone, c.email AS client_email
            FROM quotations q
            LEFT JOIN projects p ON q.project_id = p.id
            LEFT JOIN clients  c ON q.client_id  = c.id
@@ -103,6 +120,7 @@ def get_quotation(
 
     result = dict(row)
     result["items"] = [dict(i) for i in items]
+    result["total_with_tax"] = round(float(result["total"] or 0) + float(result["tax_total"] or 0), 2)
     return result
 
 # ── Create ────────────────────────────────────────────────────────────────
@@ -112,23 +130,26 @@ def create_quotation(
     user=Depends(require_perm("quotations", "create")),
     db: sqlite3.Connection = Depends(get_db),
 ):
-    total = sum(i.quantity * i.unit_price for i in data.items)
+    total, tax_total, line_tax = _price_quote_items(db, data.items)
     qn    = _next_quote_number(db)
     now   = _now()
 
     cur = db.execute(
         "INSERT INTO quotations "
-        "(quote_number, project_id, client_id, project_name, status, notes, total, created_at) "
-        "VALUES (?,?,?,?,?,?,?,?)",
-        (qn, data.project_id, data.client_id, data.project_name, data.status, data.notes, total, now),
+        "(quote_number, project_id, client_id, project_name, status, notes, total, tax_total, created_at) "
+        "VALUES (?,?,?,?,?,?,?,?,?)",
+        (qn, data.project_id, data.client_id, data.project_name, data.status,
+         data.notes, total, tax_total, now),
     )
     qid = cur.lastrowid
-    for item in data.items:
+    for idx, item in enumerate(data.items):
+        rid, rate, tax_amt = line_tax[idx]
         db.execute(
             "INSERT INTO quotation_items "
-            "(quotation_id, name, quantity, unit_price, total) VALUES (?,?,?,?,?)",
+            "(quotation_id, name, quantity, unit_price, total, tax_rate_id, tax_rate, tax_amount) "
+            "VALUES (?,?,?,?,?,?,?,?)",
             (qid, item.name, item.quantity, item.unit_price,
-             item.quantity * item.unit_price),
+             round(item.quantity * item.unit_price, 4), rid, rate, tax_amt),
         )
     log_action(db, user, "create", "quotation", qid, qn)
     db.commit()
@@ -143,13 +164,13 @@ def update_quotation(
     db: sqlite3.Connection = Depends(get_db),
 ):
     existing = db.execute(
-        "SELECT id FROM quotations WHERE id = ?", (quote_id,)
+        "SELECT id, status, quote_number FROM quotations WHERE id = ?", (quote_id,)
     ).fetchone()
     if not existing:
         raise HTTPException(404, "Quotation not found")
 
-    total = sum(i.quantity * i.unit_price for i in data.items)
-    invoice_amount = round(total * _get_tax_multiplier(db), 4)
+    total, tax_total, line_tax = _price_quote_items(db, data.items)
+    invoice_amount = round(total + tax_total, 4)
 
     # Check if this quotation has already been converted to an invoice.
     # If the total has changed, update the invoice amount — but only when
@@ -174,35 +195,49 @@ def update_quotation(
                 )
             # Safe to sync — no payments yet
             db.execute(
-                "UPDATE invoices SET amount = ? WHERE id = ?",
-                (invoice_amount, inv["id"]),
+                "UPDATE invoices SET amount=?, subtotal=?, tax_total=? WHERE id=?",
+                (invoice_amount, total, tax_total, inv["id"]),
             )
             # Replace invoice line items to stay in sync
             db.execute("DELETE FROM invoice_items WHERE invoice_id = ?", (inv["id"],))
-            for item in data.items:
+            for idx, item in enumerate(data.items):
+                rid, rate, tax_amt = line_tax[idx]
                 db.execute(
-                    "INSERT INTO invoice_items (invoice_id, name, quantity, unit_price) VALUES (?,?,?,?)",
-                    (inv["id"], item.name, item.quantity, item.unit_price),
+                    "INSERT INTO invoice_items "
+                    "(invoice_id, name, quantity, unit_price, tax_rate_id, tax_rate, tax_amount) "
+                    "VALUES (?,?,?,?,?,?,?)",
+                    (inv["id"], item.name, item.quantity, item.unit_price, rid, rate, tax_amt),
                 )
 
     db.execute(
         "UPDATE quotations "
-        "SET project_id=?, client_id=?, project_name=?, status=?, notes=?, total=? WHERE id=?",
-        (data.project_id, data.client_id, data.project_name, data.status, data.notes, total, quote_id),
+        "SET project_id=?, client_id=?, project_name=?, status=?, notes=?, total=?, tax_total=? "
+        "WHERE id=?",
+        (data.project_id, data.client_id, data.project_name, data.status,
+         data.notes, total, tax_total, quote_id),
     )
     db.execute(
         "DELETE FROM quotation_items WHERE quotation_id = ?", (quote_id,)
     )
-    for item in data.items:
+    for idx, item in enumerate(data.items):
+        rid, rate, tax_amt = line_tax[idx]
         db.execute(
             "INSERT INTO quotation_items "
-            "(quotation_id, name, quantity, unit_price, total) VALUES (?,?,?,?,?)",
+            "(quotation_id, name, quantity, unit_price, total, tax_rate_id, tax_rate, tax_amount) "
+            "VALUES (?,?,?,?,?,?,?,?)",
             (quote_id, item.name, item.quantity, item.unit_price,
-             item.quantity * item.unit_price),
+             round(item.quantity * item.unit_price, 4), rid, rate, tax_amt),
         )
     qref = db.execute("SELECT quote_number FROM quotations WHERE id = ?", (quote_id,)).fetchone()
     log_action(db, user, "update", "quotation", quote_id,
                qref["quote_number"] if qref else "")
+    # First transition into the Accepted state — notify the team so a sales
+    # rep can promptly raise the invoice / kick off delivery.
+    if data.status == "Accepted" and existing["status"] != "Accepted":
+        notify(db, type="quotation_accepted",
+               title=f"Quotation accepted: {existing['quote_number']}",
+               body=f"Total ${invoice_amount:,.2f} — ready to invoice.",
+               link="/quotations", entity_type="quotation", entity_id=quote_id)
     db.commit()
     return {"message": "Quotation updated"}
 
@@ -267,25 +302,33 @@ def convert_to_invoice(
         )
     """)
 
-    invoice_amount = round(float(q["total"]) * _get_tax_multiplier(db), 4)
+    quote_subtotal = float(q["total"] or 0)
+    quote_tax      = float(q["tax_total"] or 0)
+    invoice_amount = round(quote_subtotal + quote_tax, 4)
     cur = db.execute(
         "INSERT INTO invoices "
-        "(invoice_number, quotation_id, project_id, client_id, amount, due_date, notes, created_at) "
-        "VALUES (?,?,?,?,?,?,?,?)",
+        "(invoice_number, quotation_id, project_id, client_id, amount, subtotal, tax_total, "
+        " due_date, notes, created_at) "
+        "VALUES (?,?,?,?,?,?,?,?,?,?)",
         (inv_no, quote_id, q["project_id"], q["client_id"],
-         invoice_amount, due_date, f"From {q['quote_number']}", now),
+         invoice_amount, quote_subtotal, quote_tax, due_date,
+         f"From {q['quote_number']}", now),
     )
     inv_id = cur.lastrowid
 
-    # Copy all line items from quotation_items -> invoice_items
+    # Copy all line items (with their tax snapshot) from quotation -> invoice
     quote_items = db.execute(
-        "SELECT name, quantity, unit_price FROM quotation_items WHERE quotation_id = ? ORDER BY id",
+        "SELECT name, quantity, unit_price, tax_rate_id, tax_rate, tax_amount "
+        "FROM quotation_items WHERE quotation_id = ? ORDER BY id",
         (quote_id,),
     ).fetchall()
     for item in quote_items:
         db.execute(
-            "INSERT INTO invoice_items (invoice_id, name, quantity, unit_price) VALUES (?,?,?,?)",
-            (inv_id, item["name"], item["quantity"], item["unit_price"]),
+            "INSERT INTO invoice_items "
+            "(invoice_id, name, quantity, unit_price, tax_rate_id, tax_rate, tax_amount) "
+            "VALUES (?,?,?,?,?,?,?)",
+            (inv_id, item["name"], item["quantity"], item["unit_price"],
+             item["tax_rate_id"], item["tax_rate"], item["tax_amount"]),
         )
 
     # Mark quotation as Accepted (if not already)

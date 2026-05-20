@@ -215,7 +215,18 @@ export const searchAll = (q, signal) => api.get(`/api/search/?q=${encodeURICompo
 // Settings — backup & integrity
 export const getBackupStatus   = ()  => api.get('/api/settings/backup-status');
 export const runBackupNow      = ()  => api.post('/api/settings/backup-now');
+export const exportBackup      = (d) => api.post('/api/settings/backup-export', d);
 export const runIntegrityCheck = ()  => api.get('/api/settings/integrity-check');
+
+// Settings — exchange rate (manual, admin-set)
+export const getExchangeRate   = ()  => api.get('/api/settings/exchange-rate');
+export const setExchangeRate   = (d) => api.post('/api/settings/exchange-rate', d);
+
+// Tax rates (admin-managed configuration)
+export const getTaxRates    = (s)     => api.get('/api/tax-rates/', s);
+export const createTaxRate  = (d)     => api.post('/api/tax-rates/', d);
+export const updateTaxRate  = (id, d) => api.put(`/api/tax-rates/${id}`, d);
+export const deleteTaxRate  = (id)    => api.delete(`/api/tax-rates/${id}`);
 
 // Setup wizard (no auth)
 export const getSetupStatus  = ()  => fetch('/api/settings/setup-status').then(r => r.json());
@@ -248,6 +259,7 @@ export const getReportClients      = (params = {}, s) => api.get(`/api/reports/c
 export const getReportInvoiceAging = (s)              => api.get('/api/reports/invoice-aging', s);
 export const getReportExpenses     = (params = {}, s) => api.get(`/api/reports/expenses${_qs(params)}`, s);
 export const getReportPipeline     = (params = {}, s) => api.get(`/api/reports/pipeline${_qs(params)}`, s);
+export const getReportVAT          = (params = {}, s) => api.get(`/api/reports/vat${_qs(params)}`, s);
 
 // CRM
 export const getCRMDashboard   = (s)              => api.get('/api/crm/dashboard', s);
@@ -344,6 +356,76 @@ export const updateLeaveRequest  = (id, d)       => api.put(`/api/hr/leave/${id}
 export const approveLeave        = (id, d = {})  => api.post(`/api/hr/leave/${id}/approve`, d);
 export const rejectLeave         = (id, d = {})  => api.post(`/api/hr/leave/${id}/reject`, d);
 export const deleteLeaveRequest  = (id)          => api.delete(`/api/hr/leave/${id}`);
+
+// Point of Sale
+export const getPosSession     = (s)          => api.get('/api/pos/session/current', s);
+export const openPosSession    = (d)          => api.post('/api/pos/session/open', d);
+export const closePosSession   = (d)          => api.post('/api/pos/session/close', d);
+export const getPosSessions    = (params = {}) => api.get(`/api/pos/sessions${_qs(params)}`);
+export const getPosSessionById = (id)         => api.get(`/api/pos/sessions/${id}`);
+export const posCheckout       = (d)          => api.post('/api/pos/checkout', d);
+export const getPosSales       = (params = {}) => api.get(`/api/pos/sales${_qs(params)}`);
+export const getPosSale        = (id)         => api.get(`/api/pos/sales/${id}`);
+export const returnPosSale     = (id, reason) => api.post(`/api/pos/sales/${id}/return`, { reason });
+export const getPosProducts    = (search, s)  => api.get(`/api/pos/products${_qs(search ? { search } : {})}`, s);
+export const getPosCashDrawers = ()            => api.get('/api/pos/cash-drawers');
+
+// Cash & Daily Reconciliation
+export const getCashDrawers          = ()           => api.get('/api/cash/drawers');
+export const createCashDrawer        = (d)          => api.post('/api/cash/drawers', d);
+export const updateCashDrawer        = (id, d)      => api.put(`/api/cash/drawers/${id}`, d);
+export const getCashSummary          = (date)       => api.get(`/api/cash/summary${_qs(date ? { date } : {})}`);
+export const getCashReconciliations  = (params = {}) => api.get(`/api/cash/reconciliations${_qs(params)}`);
+export const getCashReconciliation   = (id)         => api.get(`/api/cash/reconciliations/${id}`);
+export const openCashReconciliation  = (d)          => api.post('/api/cash/reconciliations', d);
+export const addCashMovement         = (id, d)      => api.post(`/api/cash/reconciliations/${id}/movements`, d);
+export const deleteCashMovement      = (id, mid)    => api.delete(`/api/cash/reconciliations/${id}/movements/${mid}`);
+export const closeCashReconciliation = (id, d)      => api.post(`/api/cash/reconciliations/${id}/close`, d);
+export const reopenCashReconciliation = (id)        => api.post(`/api/cash/reconciliations/${id}/reopen`);
+
+// Manufacturing — versioned BOMs & production-order lifecycle
+export const getBoms                  = ()          => api.get('/api/manufacturing/boms');
+export const getBom                   = (id)        => api.get(`/api/manufacturing/boms/${id}`);
+export const getBomVersions            = (id)        => api.get(`/api/manufacturing/boms/${id}/versions`);
+export const createBom                = (d)         => api.post('/api/manufacturing/boms', d);
+export const updateBom                = (id, d)     => api.put(`/api/manufacturing/boms/${id}`, d);
+export const createBomVersion          = (id, d)     => api.post(`/api/manufacturing/boms/${id}/new-version`, d);
+export const archiveBom                = (id)       => api.patch(`/api/manufacturing/boms/${id}/archive`);
+export const unarchiveBom              = (id)       => api.patch(`/api/manufacturing/boms/${id}/unarchive`);
+export const getProductionOrders       = (params = {}) => api.get(`/api/manufacturing/orders${_qs(params)}`);
+export const getProductionOrder        = (id)       => api.get(`/api/manufacturing/orders/${id}`);
+export const createProductionOrder     = (d)        => api.post('/api/manufacturing/orders', d);
+export const updateProductionOrder     = (id, d)    => api.put(`/api/manufacturing/orders/${id}`, d);
+export const confirmProductionOrder    = (id)       => api.post(`/api/manufacturing/orders/${id}/confirm`);
+export const startProductionOrder      = (id)       => api.post(`/api/manufacturing/orders/${id}/start`);
+export const completeProductionOrder   = (id, d = {}) => api.post(`/api/manufacturing/orders/${id}/complete`, d);
+export const cancelProductionOrder     = (id, reason) => api.post(`/api/manufacturing/orders/${id}/cancel`, { reason });
+export const archiveProductionOrder    = (id)       => api.patch(`/api/manufacturing/orders/${id}/archive`);
+export const getManufacturingProducts  = (params = {}) => api.get(`/api/manufacturing/products${_qs(params)}`);
+export const getManufacturingSummary   = ()         => api.get('/api/manufacturing/summary');
+
+// Fixed Assets
+export const getAssets          = (params = {}, s) => api.get(`/api/assets${_qs(params)}`, s);
+export const getAsset           = (id)       => api.get(`/api/assets/${id}`);
+export const getAssetsSummary   = (s)        => api.get('/api/assets/summary', s);
+export const createAsset        = (d)        => api.post('/api/assets', d);
+export const updateAsset        = (id, d)    => api.put(`/api/assets/${id}`, d);
+export const depreciateAsset    = (id, d = {}) => api.post(`/api/assets/${id}/depreciate`, d);
+export const runDepreciation    = (d = {})   => api.post('/api/assets/depreciation/run', d);
+export const disposeAsset       = (id, d)    => api.post(`/api/assets/${id}/dispose`, d);
+export const archiveAsset       = (id)       => api.patch(`/api/assets/${id}/archive`);
+export const unarchiveAsset     = (id)       => api.patch(`/api/assets/${id}/unarchive`);
+
+// Recurring Expenses
+export const getRecurringExpenses   = (s)     => api.get('/api/recurring-expenses', s);
+export const getRecurringExpense    = (id)    => api.get(`/api/recurring-expenses/${id}`);
+export const createRecurringExpense = (d)     => api.post('/api/recurring-expenses', d);
+export const updateRecurringExpense = (id, d) => api.put(`/api/recurring-expenses/${id}`, d);
+export const toggleRecurringExpense = (id)    => api.patch(`/api/recurring-expenses/${id}/toggle`);
+export const runRecurringExpense    = (id)    => api.post(`/api/recurring-expenses/${id}/run`);
+export const runDueRecurringExpenses = ()     => api.post('/api/recurring-expenses/run-due');
+export const archiveRecurringExpense = (id)   => api.patch(`/api/recurring-expenses/${id}/archive`);
+export const unarchiveRecurringExpense = (id) => api.patch(`/api/recurring-expenses/${id}/unarchive`);
 
 // Recycle Bin
 export const getRecycleBin      = (params = {}) => api.get(`/api/recycle_bin/${_qs(params)}`);

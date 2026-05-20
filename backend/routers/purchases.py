@@ -4,7 +4,7 @@ from typing import Optional
 from database import get_db
 from permissions import require_perm
 from routers.audit import log_action
-from utils import _now, notify
+from utils import _now, notify, get_tax_context, resolve_purchase_tax, money
 from approval_engine import evaluate_and_apply
 import sqlite3
 from datetime import datetime
@@ -19,6 +19,7 @@ class PurchaseCreate(BaseModel):
     quantity: float
     unit_cost: float = 0
     additional_costs: float = 0
+    tax_rate_id: Optional[int] = None
     status: Optional[str] = "Ordered"
     notes: Optional[str] = None
 
@@ -28,6 +29,7 @@ class PurchaseUpdate(BaseModel):
     quantity: Optional[float] = None
     unit_cost: Optional[float] = None
     additional_costs: Optional[float] = None
+    tax_rate_id: Optional[int] = None
     notes: Optional[str] = None
 
 class StatusUpdate(BaseModel):
@@ -40,7 +42,16 @@ def next_po_number(db):
     return f"PO-{year}-{n:04d}"
 
 def _total_cost(quantity, unit_cost, additional_costs):
-    return round((float(quantity) * float(unit_cost)) + float(additional_costs), 4)
+    """Pre-tax cost: goods value plus additional (shipping, handling) costs."""
+    return money(float(quantity) * float(unit_cost) + float(additional_costs))
+
+def _compute_purchase_tax(db, quantity, unit_cost, tax_rate_id):
+    """Resolve (tax_rate_id, tax_rate, tax_amount) for a purchase. Tax applies
+    to the goods value (quantity × unit_cost) only — shipping, customs and
+    other additional costs are outside the taxable base in this model."""
+    ctx = get_tax_context(db)
+    net = money(float(quantity) * float(unit_cost))
+    return resolve_purchase_tax(ctx, tax_rate_id, net)
 
 @router.get("/")
 def list_purchases(status: Optional[str] = None, supplier: Optional[str] = None,
@@ -59,7 +70,8 @@ def list_purchases(status: Optional[str] = None, supplier: Optional[str] = None,
     result = []
     for r in rows:
         d = dict(r)
-        d["total_cost"] = _total_cost(d["quantity"], d["unit_cost"], d["additional_costs"])
+        d["total_cost"]  = _total_cost(d["quantity"], d["unit_cost"], d["additional_costs"])
+        d["grand_total"] = money(d["total_cost"] + float(d.get("tax_amount") or 0))
         result.append(d)
     return result
 
@@ -68,9 +80,12 @@ def purchase_stats(user=Depends(require_perm("purchases", "view")), db: sqlite3.
     rows = db.execute("SELECT status, COUNT(*) as count FROM purchases WHERE deleted_at IS NULL GROUP BY status").fetchall()
     stats = {r["status"]: r["count"] for r in rows}
     paid_rows = db.execute(
-        "SELECT quantity, unit_cost, additional_costs FROM purchases WHERE status='Paid' AND archived_at IS NULL"
+        "SELECT quantity, unit_cost, additional_costs, tax_amount FROM purchases WHERE status='Paid' AND archived_at IS NULL"
     ).fetchall()
-    total_spent = sum(_total_cost(r["quantity"], r["unit_cost"], r["additional_costs"]) for r in paid_rows)
+    total_spent = sum(
+        _total_cost(r["quantity"], r["unit_cost"], r["additional_costs"]) + float(r["tax_amount"] or 0)
+        for r in paid_rows
+    )
     return {
         "ordered":     stats.get("Ordered", 0),
         "received":    stats.get("Received", 0),
@@ -88,7 +103,8 @@ def get_purchase(purchase_id: int, user=Depends(require_perm("purchases", "view"
     if not row:
         raise HTTPException(404, "Purchase not found")
     d = dict(row)
-    d["total_cost"] = _total_cost(d["quantity"], d["unit_cost"], d["additional_costs"])
+    d["total_cost"]  = _total_cost(d["quantity"], d["unit_cost"], d["additional_costs"])
+    d["grand_total"] = round(d["total_cost"] + float(d.get("tax_amount") or 0), 4)
     return d
 
 @router.post("/")
@@ -114,14 +130,16 @@ def create_purchase(data: PurchaseCreate, user=Depends(require_perm("purchases",
         )
         inventory_id = cur.lastrowid
 
+    tax_rate_id, tax_rate, tax_amount = _compute_purchase_tax(
+        db, data.quantity, data.unit_cost, data.tax_rate_id)
     c = db.execute(
         """INSERT INTO purchases
            (po_number, supplier, inventory_id, product_name, quantity, unit_cost,
-            additional_costs, status, notes, ordered_at)
-           VALUES (?,?,?,?,?,?,?,?,?,?)""",
+            additional_costs, tax_rate_id, tax_rate, tax_amount, status, notes, ordered_at)
+           VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?)""",
         (po, data.supplier, inventory_id, data.product_name,
          data.quantity, data.unit_cost, data.additional_costs,
-         data.status, data.notes, now)
+         tax_rate_id, tax_rate, tax_amount, data.status, data.notes, now)
     )
     purchase_id = c.lastrowid
 
@@ -181,6 +199,13 @@ def update_purchase(purchase_id: int, data: PurchaseUpdate,
         fields.append("notes=?");             params.append(data.notes)
 
     if fields:
+        # Recompute tax from the effective (new or unchanged) values.
+        eff_qty  = data.quantity    if data.quantity    is not None else row["quantity"]
+        eff_cost = data.unit_cost   if data.unit_cost   is not None else row["unit_cost"]
+        eff_trid = data.tax_rate_id if data.tax_rate_id is not None else row["tax_rate_id"]
+        t_rid, t_rate, t_amt = _compute_purchase_tax(db, eff_qty, eff_cost, eff_trid)
+        fields += ["tax_rate_id=?", "tax_rate=?", "tax_amount=?"]
+        params += [t_rid, t_rate, t_amt]
         params.append(purchase_id)
         db.execute(f"UPDATE purchases SET {', '.join(fields)} WHERE id=?", params)
         log_action(db, user, "update", "purchase", purchase_id, row["po_number"])
@@ -280,11 +305,15 @@ def _record_expense(purchase_id: int, db: sqlite3.Connection):
     row = db.execute("SELECT * FROM purchases WHERE id = ? AND archived_at IS NULL", (purchase_id,)).fetchone()
     if not row or row["expense_recorded"]:
         return
-    total = _total_cost(row["quantity"], row["unit_cost"], row["additional_costs"])
+    base    = _total_cost(row["quantity"], row["unit_cost"], row["additional_costs"])
+    tax_amt = float(row["tax_amount"] or 0)
+    gross   = money(base + tax_amt)   # expense amount is the tax-inclusive cost
     now = _now()
     db.execute(
-        "INSERT INTO expenses (category, description, amount, date, created_at) VALUES (?,?,?,date('now'),?)",
-        ("Purchase", f"{row['po_number']} – {row['product_name']} from {row['supplier']}", total, now)
+        "INSERT INTO expenses (category, description, amount, date, created_at, "
+        " tax_rate_id, tax_rate, tax_amount) VALUES (?,?,?,date('now'),?,?,?,?)",
+        ("Purchase", f"{row['po_number']} – {row['product_name']} from {row['supplier']}",
+         gross, now, row["tax_rate_id"], row["tax_rate"] or 0, tax_amt)
     )
     db.execute("UPDATE purchases SET expense_recorded = 1 WHERE id = ?", (purchase_id,))
 

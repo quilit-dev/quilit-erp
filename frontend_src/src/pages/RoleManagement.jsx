@@ -24,8 +24,23 @@ const COLORS = [
 
 const ACTIONS_ORDER = ['view','create','edit','delete','approve'];
 
-// Must mirror backend permissions.py ALL_MODULES order
-const CORE_MODULES  = ['dashboard','clients','projects','quotations','invoices','inventory','purchases','suppliers','finance','expenses','reports','crm','planning'];
+// Must mirror backend permissions.py ALL_MODULES order. Modules added since
+// the original RBAC seed: hr, pos, cash, manufacturing, assets. They appear
+// here in the same operational order the sidebar groups them by, so the
+// permission matrix stays scannable and matches the rest of the navigation.
+const CORE_MODULES  = [
+  'dashboard',
+  // Sales
+  'crm', 'clients', 'quotations', 'invoices', 'pos',
+  // Delivery
+  'projects', 'planning',
+  // Procurement / stock
+  'suppliers', 'purchases', 'inventory', 'manufacturing',
+  // Finance
+  'expenses', 'assets', 'finance', 'cash', 'reports',
+  // People
+  'hr',
+];
 const ADMIN_MODULES = ['settings','users','roles','audit'];
 const MODULES_ORDER = [...CORE_MODULES, ...ADMIN_MODULES];
 
@@ -107,23 +122,28 @@ export default function RoleManagement() {
   const { t } = useLocale();
 
   const MODULE_LABELS = {
-    dashboard:  t('nav.dashboard'),
-    clients:    t('nav.clients'),
-    projects:   t('nav.projects'),
-    quotations: t('nav.quotations'),
-    invoices:   t('nav.invoices'),
-    inventory:  t('nav.inventory'),
-    purchases:  t('nav.purchases'),
-    suppliers:  t('nav.suppliers'),
-    finance:    t('nav.finance'),
-    expenses:   t('nav.expenses'),
-    reports:    t('nav.reports'),
-    crm:        t('nav.crm'),
-    planning:   t('nav.planning'),
-    settings:   t('nav.settings'),
-    users:      t('nav.users'),
-    roles:      t('nav.roles'),
-    audit:      t('nav.audit'),
+    dashboard:     t('nav.dashboard'),
+    clients:       t('nav.clients'),
+    projects:      t('nav.projects'),
+    quotations:    t('nav.quotations'),
+    invoices:      t('nav.invoices'),
+    inventory:     t('nav.inventory'),
+    purchases:     t('nav.purchases'),
+    suppliers:     t('nav.suppliers'),
+    finance:       t('nav.finance'),
+    expenses:      t('nav.expenses'),
+    reports:       t('nav.reports'),
+    crm:           t('nav.crm'),
+    planning:      t('nav.planning'),
+    pos:           t('nav.pos'),
+    cash:          t('nav.cash'),
+    manufacturing: t('nav.manufacturing'),
+    assets:        t('nav.fixedAssets'),
+    hr:            t('nav.hr'),
+    settings:      t('nav.settings'),
+    users:         t('nav.users'),
+    roles:         t('nav.roles'),
+    audit:         t('nav.audit'),
   };
 
   const ACTION_LABELS = {

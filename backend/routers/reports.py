@@ -4,6 +4,7 @@ Reports router — cross-entity analytical reports for business intelligence.
 from fastapi import APIRouter, Depends, Query
 from database import get_db
 from permissions import require_perm
+from utils import get_tax_context
 from datetime import date
 from typing import Optional
 import sqlite3
@@ -87,12 +88,29 @@ def report_financial(
         (start, end),
     ).fetchall()
 
-    total_invoiced = db.execute(
-        """SELECT COALESCE(SUM(amount), 0) FROM invoices
+    inv_totals = db.execute(
+        """SELECT COALESCE(SUM(amount),0)    AS gross,
+                  COALESCE(SUM(subtotal),0)  AS net,
+                  COALESCE(SUM(tax_total),0) AS vat
+           FROM invoices
            WHERE voided_at IS NULL AND archived_at IS NULL
              AND DATE(created_at) BETWEEN ? AND ?""",
         (start, end),
-    ).fetchone()[0]
+    ).fetchone()
+    total_invoiced = float(inv_totals["gross"] or 0)
+
+    # Net-of-VAT view: VAT is a pass-through, not income. We expose it so a
+    # P&L reader can see "real" revenue/cost separately from the cash-flow
+    # totals above. Expense net is computed line by line because each row's
+    # `tax_amount` is the VAT extracted from its inclusive `amount`.
+    exp_net_row = db.execute(
+        """SELECT COALESCE(SUM(amount - tax_amount), 0) AS net,
+                  COALESCE(SUM(tax_amount), 0)          AS vat
+           FROM expenses
+           WHERE archived_at IS NULL AND voided_at IS NULL
+             AND DATE(date) BETWEEN ? AND ?""",
+        (start, end),
+    ).fetchone()
 
     return {
         "total_income":    total_income,
@@ -103,6 +121,11 @@ def report_financial(
         "outstanding":     max(0, total_invoiced - total_income),
         "monthly":         monthly,
         "by_category":     [dict(r) for r in by_category],
+        # ── Net-of-VAT view (accrual-basis, derived from frozen snapshots) ─
+        "invoiced_net":    round(float(inv_totals["net"] or 0), 2),
+        "invoiced_vat":    round(float(inv_totals["vat"] or 0), 2),
+        "expenses_net":    round(float(exp_net_row["net"] or 0), 2),
+        "expenses_vat":    round(float(exp_net_row["vat"] or 0), 2),
     }
 
 
@@ -419,4 +442,162 @@ def report_pipeline(
         "by_status":        [dict(r) for r in by_status],
         "top_clients":      [dict(r) for r in top_clients],
         "monthly":          [dict(r) for r in monthly_quotes],
+    }
+
+
+# ── 7. VAT Summary (Lebanon) ────────────────────────────────────────────────
+@router.get("/vat")
+def report_vat(
+    start: Optional[str] = Query(None),
+    end:   Optional[str] = Query(None),
+    user=Depends(require_perm("reports", "view")),
+    db: sqlite3.Connection = Depends(get_db),
+):
+    """VAT declaration figures for the period.
+
+    Methodology
+    -----------
+    Every figure is read from the **frozen tax snapshot** that was written
+    onto the document at creation — `invoice_items.tax_rate / .tax_amount`,
+    `expenses.tax_rate / .tax_amount`, etc. The report never re-applies the
+    current `tax_rates` table to historical data: changing a rate's value
+    or deactivating it never rewrites already-issued documents.
+
+    Output VAT  — invoices issued in the period, excluding voids and
+                  archived. A POS refund voids the linked invoice, so
+                  refunded sales are correctly excluded here.
+
+    Input VAT   — expenses dated in the period, excluding voided/archived.
+                  Purchases (PO) post a matching expense row when their
+                  status reaches Paid, with the same tax snapshot — so
+                  PO input VAT is included via that path without being
+                  double-counted from the `purchases` table.
+
+    Per-rate breakdown — taxable base + VAT for each active rate, plus a
+    catch-all bucket for historical rates that have since been deactivated
+    or had their value changed (handled gracefully by joining on the
+    snapshot, not the live tax_rates table).
+    """
+    start = start or _year_start()
+    end   = end   or _today()
+
+    ctx      = get_tax_context(db)
+    def_rate = ctx["rates"].get(ctx["default_id"], {}).get("rate", 0) if ctx["default_id"] else 0
+
+    # ── Headline totals ────────────────────────────────────────────────────
+    out_row = db.execute(
+        """SELECT COALESCE(SUM(amount),0) AS gross, COALESCE(SUM(tax_total),0) AS vat
+           FROM invoices
+           WHERE voided_at IS NULL AND archived_at IS NULL
+             AND DATE(created_at) BETWEEN ? AND ?""",
+        (start, end),
+    ).fetchone()
+    inp_row = db.execute(
+        """SELECT COALESCE(SUM(amount),0) AS gross, COALESCE(SUM(tax_amount),0) AS vat
+           FROM expenses
+           WHERE archived_at IS NULL AND voided_at IS NULL
+             AND DATE(date) BETWEEN ? AND ?""",
+        (start, end),
+    ).fetchone()
+
+    def split(gross, vat):
+        gross, vat = round(gross or 0, 2), round(vat or 0, 2)
+        return {"gross": gross, "vat": vat, "net": round(gross - vat, 2)}
+
+    out = split(out_row["gross"], out_row["vat"])
+    inp = split(inp_row["gross"], inp_row["vat"])
+
+    # ── Per-rate breakdown ─────────────────────────────────────────────────
+    # We group by the *snapshot rate value* on the line so a historical rate
+    # that was 10% and later edited to 11% still surfaces as "10%". Lines
+    # with no rate / 0% are bucketed as "exempt or zero-rated".
+    out_by_rate = db.execute(
+        """SELECT ii.tax_rate AS rate,
+                  COALESCE(SUM(ii.quantity * ii.unit_price), 0) AS base,
+                  COALESCE(SUM(ii.tax_amount), 0)               AS vat
+           FROM invoice_items ii
+           JOIN invoices i ON ii.invoice_id = i.id
+           WHERE i.voided_at IS NULL AND i.archived_at IS NULL
+             AND DATE(i.created_at) BETWEEN ? AND ?
+           GROUP BY ii.tax_rate ORDER BY ii.tax_rate""",
+        (start, end),
+    ).fetchall()
+    inp_by_rate = db.execute(
+        """SELECT tax_rate AS rate,
+                  COALESCE(SUM(amount - tax_amount), 0) AS base,
+                  COALESCE(SUM(tax_amount), 0)          AS vat
+           FROM expenses
+           WHERE archived_at IS NULL AND voided_at IS NULL
+             AND DATE(date) BETWEEN ? AND ?
+           GROUP BY tax_rate ORDER BY tax_rate""",
+        (start, end),
+    ).fetchall()
+
+    def _by_rate(rows):
+        out = []
+        for r in rows:
+            rate = round(float(r["rate"] or 0), 4)
+            out.append({
+                "rate":  rate,
+                "label": ("Exempt / zero-rated" if rate <= 0 else f"{rate:g}%"),
+                "base":  round(float(r["base"] or 0), 2),
+                "vat":   round(float(r["vat"] or 0), 2),
+            })
+        return out
+
+    output_by_rate = _by_rate(out_by_rate)
+    input_by_rate  = _by_rate(inp_by_rate)
+
+    # ── Monthly timeline ───────────────────────────────────────────────────
+    inc_rows = db.execute(
+        """SELECT strftime('%Y-%m', created_at) AS m,
+                  COALESCE(SUM(tax_total),0) AS v,
+                  COALESCE(SUM(subtotal),0)  AS b
+           FROM invoices
+           WHERE voided_at IS NULL AND archived_at IS NULL
+             AND DATE(created_at) BETWEEN ? AND ?
+           GROUP BY m""",
+        (start, end),
+    ).fetchall()
+    exp_rows = db.execute(
+        """SELECT strftime('%Y-%m', date) AS m,
+                  COALESCE(SUM(tax_amount),0)         AS v,
+                  COALESCE(SUM(amount - tax_amount),0) AS b
+           FROM expenses
+           WHERE archived_at IS NULL AND voided_at IS NULL
+             AND DATE(date) BETWEEN ? AND ?
+           GROUP BY m""",
+        (start, end),
+    ).fetchall()
+    inc_map = {r["m"]: {"v": r["v"], "b": r["b"]} for r in inc_rows}
+    exp_map = {r["m"]: {"v": r["v"], "b": r["b"]} for r in exp_rows}
+    monthly = []
+    empty = {"v": 0, "b": 0}
+    for m in sorted(set(inc_map) | set(exp_map)):
+        ov = round(float(inc_map.get(m, empty)["v"] or 0), 2)
+        iv = round(float(exp_map.get(m, empty)["v"] or 0), 2)
+        ob = round(float(inc_map.get(m, empty)["b"] or 0), 2)
+        ib = round(float(exp_map.get(m, empty)["b"] or 0), 2)
+        monthly.append({
+            "month": m,
+            "output_base": ob, "output_vat": ov,
+            "input_base":  ib, "input_vat":  iv,
+            "net_vat":     round(ov - iv, 2),
+        })
+
+    return {
+        "vat_enabled":    ctx["enabled"] or (out["vat"] + inp["vat"]) > 0,
+        "rate":           round(def_rate, 4),     # legacy single-rate field
+        "start":          start,
+        "end":            end,
+        "output":         out,
+        "input":          inp,
+        "net_vat":        round(out["vat"] - inp["vat"], 2),
+        "monthly":        monthly,
+        "output_by_rate": output_by_rate,
+        "input_by_rate":  input_by_rate,
+        "active_rates":   [
+            {"id": rid, "name": r["name"], "rate": r["rate"], "tax_type": r["tax_type"]}
+            for rid, r in ctx["rates"].items()
+        ],
     }

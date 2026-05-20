@@ -33,6 +33,9 @@ export default function Login() {
         const me = await getMe();
         localStorage.setItem('user', JSON.stringify(me));
       } catch { /* keep base info */ }
+      // Tell the SettingsProvider to (re)load settings + exchange rate now that
+      // a session exists — login is a client-side nav, so it does not remount.
+      window.dispatchEvent(new Event('user-updated'));
       navigate('/');
     } catch (err) {
       setError(err.message || t('login.invalidCredentials'));

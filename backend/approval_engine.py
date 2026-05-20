@@ -448,13 +448,20 @@ def _notify_requester(db: sqlite3.Connection, req, status: str, comment) -> None
 # Pre-built, fully-parameterised UPDATE per module. The table name is baked into
 # each literal statement and is never interpolated, so `module` cannot reach raw SQL.
 _RESOLUTION_UPDATE = {
-    "expense":  "UPDATE expenses  SET status=? WHERE id=?",
-    "invoice":  "UPDATE invoices  SET status=? WHERE id=?",
-    "purchase": "UPDATE purchases SET status=? WHERE id=?",
-    "project":  "UPDATE projects  SET status=? WHERE id=?",
+    "expense":     "UPDATE expenses     SET status=? WHERE id=?",
+    "invoice":     "UPDATE invoices     SET status=? WHERE id=?",
+    "purchase":    "UPDATE purchases    SET status=? WHERE id=?",
+    "project":     "UPDATE projects     SET status=? WHERE id=?",
+    "fixed_asset": "UPDATE fixed_assets SET status=? WHERE id=?",
 }
-_APPROVED_STATUS = {"expense": "Approved", "invoice": "Sent",  "purchase": "Ordered",   "project": "Active"}
-_REJECTED_STATUS = {"expense": "Rejected", "invoice": "Draft", "purchase": "Cancelled", "project": "Cancelled"}
+_APPROVED_STATUS = {
+    "expense":     "Approved", "invoice": "Sent",  "purchase": "Ordered",
+    "project":     "Active",   "fixed_asset": "Active",
+}
+_REJECTED_STATUS = {
+    "expense":     "Rejected", "invoice": "Draft", "purchase": "Cancelled",
+    "project":     "Cancelled", "fixed_asset": "Disposed",
+}
 
 
 def apply_resolution(db: sqlite3.Connection, module: str, entity_id: int,
@@ -475,3 +482,15 @@ def apply_resolution(db: sqlite3.Connection, module: str, entity_id: int,
                 "UPDATE projects SET actual_cost = actual_cost + ? WHERE id=?",
                 (row["amount"], row["project_id"]),
             )
+
+    # A rejected fixed-asset purchase is stamped as a same-day disposal with
+    # zero proceeds, so the ledger stays internally consistent (the status
+    # column alone would leave disposal_date/reason NULL and break reporting).
+    if module == "fixed_asset" and resolution == "rejected":
+        from datetime import datetime
+        db.execute(
+            "UPDATE fixed_assets SET disposal_date=?, disposal_proceeds=0, "
+            " disposal_reason=? WHERE id=? AND disposal_date IS NULL",
+            (datetime.utcnow().strftime("%Y-%m-%d"),
+             "Approval rejected", entity_id),
+        )

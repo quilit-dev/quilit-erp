@@ -1,7 +1,7 @@
 import { useState, useEffect, useRef, useCallback } from 'react';
 import { usePersistedState } from '../hooks/usePersistedState';
 import { getFinanceRangeSummary, getFinanceRangeMonthly, getFinanceRangeDetail, getReconciliation, getFinancePeriods, lockPeriod, unlockPeriod } from '../api/client';
-import { LoadingSpinner, ErrorAlert, fmt } from '../components/shared';
+import { LoadingSpinner, ErrorAlert, fmt, DualMoney, ExchangeRateBadge } from '../components/shared';
 import { useLocale } from '../hooks/useLocale.jsx';
 import * as XLSX from 'xlsx';
 
@@ -810,95 +810,105 @@ function generateInsights(summary, monthly) {
 }
 
 // ── Smart Insights UI Component ───────────────────────────────────────────
+// ── Smart Insights — statistical-report visual treatment ──────────────────
+// Theme-aware severity tokens. We deliberately use the design system's
+// status colours (var(--red)/--yellow/--green) so dark mode just works.
 const INSIGHT_STYLES = {
-  critical: { accent: '#DC2626', soft: '#FEE2E2', text: '#991B1B' },
-  warning:  { accent: '#D97706', soft: '#FEF3C7', text: '#92400E' },
-  positive: { accent: '#059669', soft: '#D1FAE5', text: '#065F46' },
-  neutral:  { accent: '#6B7280', soft: '#F3F4F6', text: '#374151' },
+  critical: { tone: 'var(--red)',    soft: 'var(--red-light)',    glow: 'var(--red-glow)'    },
+  warning:  { tone: 'var(--yellow)', soft: 'var(--yellow-light)', glow: 'var(--yellow-glow)' },
+  positive: { tone: 'var(--green)',  soft: 'var(--green-light)',  glow: 'var(--green-glow)'  },
+  neutral:  { tone: 'var(--text-3)', soft: 'var(--surface-3)',    glow: 'transparent'         },
 };
 
+// One row in the insight list. Reads as a single statistical observation:
+//   • severity dot anchors the eye
+//   • category chip + title carry the headline
+//   • detail is the explanatory body
+//   • recommendation is a labelled inline aside, not a "click to reveal"
 function InsightCard({ insight, index }) {
   const { t } = useLocale();
-  const [expanded, setExpanded] = useState(false);
-  const [hovered, setHovered]   = useState(false);
   const s = INSIGHT_STYLES[insight.type] || INSIGHT_STYLES.neutral;
 
   return (
     <div
-      onClick={() => insight.action && setExpanded(e => !e)}
-      onMouseEnter={() => setHovered(true)}
-      onMouseLeave={() => setHovered(false)}
       style={{
         position: 'relative',
+        display: 'grid',
+        gridTemplateColumns: 'auto 1fr',
+        gap: 14,
         background: 'var(--surface)',
-        border: '1px solid',
-        borderColor: hovered ? s.accent : 'var(--border)',
-        borderRadius: 12,
-        padding: '14px 16px 14px 19px',
-        cursor: insight.action ? 'pointer' : 'default',
-        overflow: 'hidden',
-        transition: 'transform .18s ease, box-shadow .18s ease, border-color .18s ease',
-        transform: hovered ? 'translateY(-2px)' : 'none',
-        boxShadow: hovered ? '0 8px 24px rgba(15,23,42,.10)' : '0 1px 2px rgba(15,23,42,.04)',
+        border: '1px solid var(--border)',
+        borderRadius: 'var(--radius-lg)',
+        padding: '14px 16px',
         animation: 'fadeSlideUp .35s ease both',
-        animationDelay: `${index * 0.05}s`,
+        animationDelay: `${index * 0.04}s`,
+        transition: 'border-color var(--motion-fast) var(--ease), box-shadow var(--motion-med) var(--ease), transform var(--motion-med) var(--ease)',
+      }}
+      onMouseEnter={e => {
+        e.currentTarget.style.borderColor = s.tone;
+        e.currentTarget.style.boxShadow = `0 0 0 1px ${s.glow}, 0 6px 18px rgba(15,23,42,.06)`;
+        e.currentTarget.style.transform = 'translateY(-1px)';
+      }}
+      onMouseLeave={e => {
+        e.currentTarget.style.borderColor = 'var(--border)';
+        e.currentTarget.style.boxShadow   = 'none';
+        e.currentTarget.style.transform   = 'none';
       }}
     >
-      {/* Severity accent bar */}
-      <div style={{ position: 'absolute', left: 0, top: 0, bottom: 0, width: 4, background: s.accent }} />
-
-      <div style={{ display: 'flex', alignItems: 'flex-start', gap: 12 }}>
+      {/* Severity column — a refined indicator pair: thin vertical rail +
+          a small dot at the top. Reads as a "status meter" rather than an
+          emoji avatar — the deliberately editorial look. */}
+      <div style={{ position: 'relative', width: 18, display: 'flex', flexDirection: 'column', alignItems: 'center', paddingTop: 4 }}>
         <div style={{
-          width: 38, height: 38, borderRadius: 10, background: s.soft,
-          display: 'flex', alignItems: 'center', justifyContent: 'center',
-          fontSize: 18, flexShrink: 0,
-        }}>
-          {insight.icon}
-        </div>
+          width: 8, height: 8, borderRadius: '50%',
+          background: s.tone,
+          boxShadow: `0 0 0 3px ${s.soft}`,
+        }} />
+        <div style={{
+          flex: 1, width: 2, marginTop: 6,
+          background: `linear-gradient(180deg,${s.soft} 0%,transparent 100%)`,
+          borderRadius: 999,
+        }} />
+      </div>
 
-        <div style={{ flex: 1, minWidth: 0 }}>
+      {/* Content */}
+      <div style={{ minWidth: 0 }}>
+        <div style={{ display: 'flex', gap: 6, alignItems: 'center', marginBottom: 4, flexWrap: 'wrap' }}>
           <span style={{
-            display: 'inline-block', fontSize: 9, fontWeight: 800, letterSpacing: '.6px',
-            textTransform: 'uppercase', background: s.soft, color: s.text,
-            borderRadius: 5, padding: '2px 7px', marginBottom: 5,
-          }}>
-            {insight.category}
+            fontSize: 10, fontWeight: 700, letterSpacing: '.6px',
+            textTransform: 'uppercase', color: s.tone,
+          }}>{insight.category}</span>
+          <span style={{ fontSize: 10, color: 'var(--text-3)' }}>·</span>
+          <span style={{ fontSize: 10, color: 'var(--text-3)', fontWeight: 500 }}>
+            {t(`finance.severity_${insight.type}`) || insight.type}
           </span>
-
-          <div style={{ fontSize: 13.5, fontWeight: 700, color: 'var(--text)', lineHeight: 1.35, marginBottom: 3 }}>
-            {insight.title}
-          </div>
-
-          <p style={{ fontSize: 12, color: 'var(--text-3)', margin: 0, lineHeight: 1.55 }}>
-            {insight.detail}
-          </p>
-
-          {insight.action && (
-            <>
-              <div style={{
-                maxHeight: expanded ? 90 : 0,
-                marginTop: expanded ? 10 : 0,
-                overflow: 'hidden',
-                transition: 'max-height .25s ease, margin-top .25s ease',
-              }}>
-                <div style={{
-                  display: 'flex', gap: 8, fontSize: 11.5, lineHeight: 1.5,
-                  color: 'var(--text-2)', background: 'var(--surface-2)',
-                  borderRadius: 8, padding: '8px 10px', borderLeft: `2px solid ${s.accent}`,
-                }}>
-                  <span style={{ flexShrink: 0 }}>💡</span>
-                  <span style={{ fontWeight: 600 }}>{insight.action}</span>
-                </div>
-              </div>
-              {!expanded && (
-                <div style={{ marginTop: 7, fontSize: 10.5, fontWeight: 700, color: s.accent, display: 'flex', alignItems: 'center', gap: 4 }}>
-                  <span>{t('finance.clickForRec')}</span>
-                  <span>→</span>
-                </div>
-              )}
-            </>
-          )}
         </div>
+
+        <div style={{ fontSize: 13.5, fontWeight: 600, color: 'var(--text)', lineHeight: 1.35, marginBottom: 4, letterSpacing: '-0.1px' }}>
+          {insight.title}
+        </div>
+
+        <p style={{ fontSize: 12, color: 'var(--text-2)', margin: 0, lineHeight: 1.55 }}>
+          {insight.detail}
+        </p>
+
+        {insight.action && (
+          <div style={{
+            display: 'flex', gap: 8, alignItems: 'flex-start',
+            marginTop: 10, paddingTop: 10,
+            borderTop: '1px dashed var(--border)',
+          }}>
+            <div style={{
+              fontSize: 9, fontWeight: 700, letterSpacing: '.5px',
+              color: s.tone, textTransform: 'uppercase', minWidth: 90, paddingTop: 1,
+            }}>
+              {t('finance.recommendation') || 'Recommendation'}
+            </div>
+            <div style={{ flex: 1, fontSize: 12, color: 'var(--text-2)', lineHeight: 1.5 }}>
+              {insight.action}
+            </div>
+          </div>
+        )}
       </div>
     </div>
   );
@@ -906,76 +916,120 @@ function InsightCard({ insight, index }) {
 
 function SmartInsightsPanel({ insights }) {
   const { t } = useLocale();
-  const [collapsed, setCollapsed] = useState(false);
   if (!insights || insights.length === 0) return null;
 
-  const counts = [
-    { n: insights.filter(i => i.type === 'critical').length, ...INSIGHT_STYLES.critical },
-    { n: insights.filter(i => i.type === 'warning').length,  ...INSIGHT_STYLES.warning },
-    { n: insights.filter(i => i.type === 'positive').length, ...INSIGHT_STYLES.positive },
-  ].filter(c => c.n > 0);
+  // Sort by severity — critical first, then warning, then positive — so the
+  // most actionable items always sit at the top of the column.
+  const order = { critical: 0, warning: 1, positive: 2, neutral: 3 };
+  const sorted = [...insights].sort((a, b) =>
+    (order[a.type] ?? 9) - (order[b.type] ?? 9)
+  );
+
+  const tally = {
+    critical: insights.filter(i => i.type === 'critical').length,
+    warning:  insights.filter(i => i.type === 'warning').length,
+    positive: insights.filter(i => i.type === 'positive').length,
+  };
+
+  // Tiny summary "stat tiles" at the top of the panel — gives the section
+  // an at-a-glance statistical feel before the reader scans the detail.
+  const summaryTiles = [
+    { label: t('finance.tileCritical') || 'Needs attention', n: tally.critical, ...INSIGHT_STYLES.critical },
+    { label: t('finance.tileWarning')  || 'Worth watching',  n: tally.warning,  ...INSIGHT_STYLES.warning  },
+    { label: t('finance.tilePositive') || 'Trending well',   n: tally.positive, ...INSIGHT_STYLES.positive },
+  ];
 
   return (
-    <div className="card fin-card" style={{ animationDelay: '0.6s', marginBottom: 24, overflow: 'hidden', padding: 0 }}>
-      {/* Panel header */}
-      <div
-        onClick={() => setCollapsed(c => !c)}
-        style={{
-          display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 12,
-          padding: '16px 20px', cursor: 'pointer', userSelect: 'none',
-          background: 'linear-gradient(120deg, var(--surface-2) 0%, var(--surface) 100%)',
-          borderBottom: collapsed ? 'none' : '1px solid var(--border)',
-        }}
-      >
-        <div style={{ display: 'flex', alignItems: 'center', gap: 13 }}>
+    <div className="card fin-card" style={{
+      animationDelay: '0.6s', marginBottom: 24, overflow: 'hidden', padding: 0,
+    }}>
+      {/* Header — minimal, no emoji avatar. A small pulsing dot signals "live
+          analytics" the way modern data dashboards do. */}
+      <div style={{
+        display: 'flex', alignItems: 'center', justifyContent: 'space-between',
+        gap: 14, padding: '16px 20px 14px',
+        borderBottom: '1px solid var(--border)',
+      }}>
+        <div style={{ display: 'flex', alignItems: 'center', gap: 10, minWidth: 0 }}>
           <div style={{
-            width: 40, height: 40, borderRadius: 11,
-            background: 'linear-gradient(135deg, #6366F1 0%, #8B5CF6 100%)',
-            display: 'flex', alignItems: 'center', justifyContent: 'center',
-            fontSize: 19, flexShrink: 0, boxShadow: '0 4px 12px rgba(99,102,241,.35)',
-          }}>
-            🧠
-          </div>
-          <div>
-            <div style={{ fontSize: 14.5, fontWeight: 800, color: 'var(--text)', letterSpacing: '.2px' }}>
+            position: 'relative', width: 8, height: 8, borderRadius: '50%',
+            background: 'var(--accent)', flexShrink: 0,
+            boxShadow: '0 0 0 4px var(--accent-light)',
+          }} />
+          <div style={{ minWidth: 0 }}>
+            <div style={{
+              fontSize: 13.5, fontWeight: 700, color: 'var(--text)',
+              letterSpacing: '-0.1px',
+            }}>
               {t('finance.smartInsights')}
             </div>
-            <div style={{ fontSize: 11.5, color: 'var(--text-3)', marginTop: 1 }}>
+            <div style={{ fontSize: 11, color: 'var(--text-3)', marginTop: 1 }}>
               {t('finance.insightsSubtitle')}
             </div>
           </div>
         </div>
-
-        <div style={{ display: 'flex', alignItems: 'center', gap: 7 }}>
-          {counts.map((c, i) => (
-            <span key={i} style={{
-              fontSize: 11.5, fontWeight: 800, minWidth: 24, textAlign: 'center',
-              background: c.soft, color: c.text, borderRadius: 20, padding: '3px 9px',
-            }}>
-              {c.n}
-            </span>
-          ))}
-          <span style={{
-            fontSize: 11, color: 'var(--text-3)', marginLeft: 2,
-            transform: collapsed ? 'rotate(0deg)' : 'rotate(180deg)',
-            transition: 'transform .2s', display: 'inline-block',
-          }}>▼</span>
+        <div style={{
+          fontSize: 10, fontWeight: 700, color: 'var(--text-3)',
+          textTransform: 'uppercase', letterSpacing: '.6px',
+          whiteSpace: 'nowrap',
+        }}>
+          {sorted.length} {t('finance.observations') || 'observations'}
         </div>
       </div>
 
-      {/* Cards grid */}
-      {!collapsed && (
-        <div style={{
-          display: 'grid',
-          gridTemplateColumns: 'repeat(auto-fill, minmax(300px, 1fr))',
-          gap: 12,
-          padding: 18,
-        }}>
-          {insights.map((ins, i) => (
-            <InsightCard key={ins.id} insight={ins} index={i} />
-          ))}
-        </div>
-      )}
+      {/* Summary tiles — three at-a-glance counts. Each tile is uniform
+          width and uses tokens so it adapts to dark mode. */}
+      <div style={{
+        display: 'grid', gridTemplateColumns: 'repeat(3, 1fr)',
+        gap: 12, padding: '14px 20px',
+        borderBottom: '1px solid var(--border)',
+        background: 'var(--surface-2)',
+      }}>
+        {summaryTiles.map(t_ => (
+          <div key={t_.label} style={{
+            background: 'var(--surface)',
+            border: '1px solid var(--border)',
+            borderRadius: 'var(--radius)',
+            padding: '10px 12px',
+            display: 'flex', alignItems: 'center', justifyContent: 'space-between',
+            gap: 8,
+            position: 'relative', overflow: 'hidden',
+          }}>
+            <div style={{
+              position: 'absolute', left: 0, top: 0, bottom: 0, width: 3,
+              background: t_.tone, opacity: t_.n ? 1 : 0.25,
+            }} />
+            <div style={{
+              fontSize: 10, fontWeight: 700, color: 'var(--text-3)',
+              textTransform: 'uppercase', letterSpacing: '.5px',
+              paddingLeft: 6,
+            }}>{t_.label}</div>
+            <div style={{
+              fontSize: 18, fontWeight: 700,
+              color: t_.n ? t_.tone : 'var(--text-3)',
+              letterSpacing: '-0.5px',
+              fontFeatureSettings: '"tnum"',
+            }}>
+              {t_.n}
+            </div>
+          </div>
+        ))}
+      </div>
+
+      {/* Insight list — vertical column, single-track. Reads top-to-bottom
+          like a published report rather than a wall of equally-weighted
+          tiles. Two-column layout kicks in above 720px so wide screens
+          surface more at once without losing scannability. */}
+      <div style={{
+        display: 'grid',
+        gridTemplateColumns: 'repeat(auto-fit, minmax(360px, 1fr))',
+        gap: 10,
+        padding: 16,
+      }}>
+        {sorted.map((ins, i) => (
+          <InsightCard key={ins.id} insight={ins} index={i} />
+        ))}
+      </div>
     </div>
   );
 }
@@ -1447,7 +1501,8 @@ export default function Finance() {
           <h1 className="page-title">{t('finance.title')}</h1>
           <p className="page-subtitle">{periodLabel} · {t('finance.subtitle')}</p>
         </div>
-        <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap' }}>
+        <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap', alignItems: 'center' }}>
+          <ExchangeRateBadge />
           <button className="btn btn-outline btn-sm" onClick={() => setShowRecon(true)}>
             🔍 {t('finance.reconcile')}
           </button>
@@ -1493,9 +1548,9 @@ export default function Finance() {
           {/* KPI Cards */}
           <div className="stats-grid" style={{ gridTemplateColumns: 'repeat(auto-fit, minmax(200px, 1fr))', marginBottom: 24 }}>
             {[
-              { label: t('finance.totalIncome'),   value: fmt(summary?.income || 0),   color: '#059669', icon: '💰', change: prev.income_change,   sub: t('finance.incomePeriod') },
-              { label: t('finance.totalExpenses'), value: fmt(summary?.expenses || 0), color: '#DC2626', icon: '🧾', change: prev.expenses_change != null ? -prev.expenses_change : null, sub: t('finance.allCosts') },
-              { label: t('finance.netProfit'),     value: fmt(summary?.profit || 0),   color: (summary?.profit || 0) >= 0 ? '#1B4F72' : '#DC2626', icon: '📊', change: prev.profit_change, sub: t('finance.incomeMinus') },
+              { label: t('finance.totalIncome'),   value: <DualMoney value={summary?.income || 0} />,   color: '#059669', icon: '💰', change: prev.income_change,   sub: t('finance.incomePeriod') },
+              { label: t('finance.totalExpenses'), value: <DualMoney value={summary?.expenses || 0} />, color: '#DC2626', icon: '🧾', change: prev.expenses_change != null ? -prev.expenses_change : null, sub: t('finance.allCosts') },
+              { label: t('finance.netProfit'),     value: <DualMoney value={summary?.profit || 0} />,   color: (summary?.profit || 0) >= 0 ? '#1B4F72' : '#DC2626', icon: '📊', change: prev.profit_change, sub: t('finance.incomeMinus') },
               { label: t('finance.profitMargin'),  value: margin !== null ? `${margin}%` : '—', color: '#7C3AED', icon: '🎯', change: prev.margin_change, sub: t('finance.netOverIncome') },
             ].map((kpi, i) => (
               <div key={kpi.label} className="fin-card" style={{ animationDelay: `${i * 0.07}s` }}>

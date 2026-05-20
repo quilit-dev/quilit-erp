@@ -9,17 +9,27 @@ import { useLocale } from '../hooks/useLocale.jsx';
 
 // ── Type config (same palette as NotificationBell) ───────────────────────────
 const TYPE_CONFIG = {
-  invoice_paid:       { bg: 'var(--green-light)',  color: 'var(--green)',  label: 'Invoice Paid',       icon: 'check-circle' },
-  payment_received:   { bg: 'var(--green-light)',  color: 'var(--green)',  label: 'Payment',             icon: 'credit-card'  },
-  invoice_overdue:    { bg: 'var(--red-light)',    color: 'var(--red)',    label: 'Overdue',             icon: 'alert-circle' },
-  low_stock:          { bg: 'var(--yellow-light)', color: 'var(--yellow)', label: 'Low Stock',           icon: 'package'      },
-  purchase_received:  { bg: 'var(--blue-light)',   color: 'var(--blue)',   label: 'Purchase',            icon: 'truck'        },
-  quotation_accepted: { bg: 'var(--green-light)',  color: 'var(--green)',  label: 'Quotation',           icon: 'file-check'   },
-  task_due_soon:      { bg: 'var(--yellow-light)', color: 'var(--yellow)', label: 'Task Due',            icon: 'calendar'     },
-  deal_won:           { bg: 'var(--purple-light)', color: 'var(--purple)', label: 'Deal Won',            icon: 'trophy'       },
-  deal_lost:          { bg: 'var(--red-light)',    color: 'var(--red)',    label: 'Deal Lost',           icon: 'x-circle'     },
-  lead_converted:     { bg: 'var(--blue-light)',   color: 'var(--blue)',   label: 'Lead Converted',      icon: 'user-check'   },
-  system:             { bg: 'var(--surface-3)',    color: 'var(--text-3)', label: 'System',              icon: 'info'         },
+  invoice_paid:         { bg: 'var(--green-light)',  color: 'var(--green)',  label: 'Invoice Paid',    icon: 'check-circle' },
+  payment_received:     { bg: 'var(--green-light)',  color: 'var(--green)',  label: 'Payment',         icon: 'credit-card'  },
+  invoice_overdue:      { bg: 'var(--red-light)',    color: 'var(--red)',    label: 'Overdue',         icon: 'alert-circle' },
+  low_stock:            { bg: 'var(--yellow-light)', color: 'var(--yellow)', label: 'Low Stock',       icon: 'package'      },
+  purchase_received:    { bg: 'var(--blue-light)',   color: 'var(--blue)',   label: 'Purchase',        icon: 'truck'        },
+  quotation_accepted:   { bg: 'var(--green-light)',  color: 'var(--green)',  label: 'Quotation',       icon: 'file-check'   },
+  task_due_soon:        { bg: 'var(--yellow-light)', color: 'var(--yellow)', label: 'Task Due',        icon: 'calendar'     },
+  deal_won:             { bg: 'var(--purple-light)', color: 'var(--purple)', label: 'Deal Won',        icon: 'trophy'       },
+  deal_lost:            { bg: 'var(--red-light)',    color: 'var(--red)',    label: 'Deal Lost',       icon: 'x-circle'     },
+  lead_converted:       { bg: 'var(--blue-light)',   color: 'var(--blue)',   label: 'Lead Converted',  icon: 'user-check'   },
+  // Manufacturing
+  production_completed: { bg: 'var(--purple-light)', color: 'var(--purple)', label: 'Production',      icon: 'package'      },
+  // Fixed Assets
+  asset_depreciated:    { bg: 'var(--blue-light)',   color: 'var(--blue)',   label: 'Depreciation',    icon: 'trending-down' },
+  // Cash
+  cash_variance:        { bg: 'var(--red-light)',    color: 'var(--red)',    label: 'Cash Variance',   icon: 'dollar-sign'  },
+  // Approval workflow (emitted by approval_engine on every module that uses it)
+  approval_request:     { bg: 'var(--yellow-light)', color: 'var(--yellow)', label: 'Approval Needed', icon: 'clock'        },
+  approval_approved:    { bg: 'var(--green-light)',  color: 'var(--green)',  label: 'Approved',        icon: 'check-circle' },
+  approval_rejected:    { bg: 'var(--red-light)',    color: 'var(--red)',    label: 'Rejected',        icon: 'x-circle'     },
+  system:               { bg: 'var(--surface-3)',    color: 'var(--text-3)', label: 'System',          icon: 'info'         },
 };
 
 const ICONS = {
@@ -33,16 +43,20 @@ const ICONS = {
   'trophy':       <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M6 9H4.5a2.5 2.5 0 0 1 0-5H6"/><path d="M18 9h1.5a2.5 2.5 0 0 0 0-5H18"/><path d="M4 22h16"/><path d="M10 14.66V17c0 .55-.47.98-.97 1.21C7.85 18.75 7 20.24 7 22"/><path d="M14 14.66V17c0 .55.47.98.97 1.21C16.15 18.75 17 20.24 17 22"/><path d="M18 2H6v7a6 6 0 0 0 12 0V2z"/></svg>,
   'x-circle':     <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><circle cx="12" cy="12" r="10"/><line x1="15" y1="9" x2="9" y2="15"/><line x1="9" y1="9" x2="15" y2="15"/></svg>,
   'user-check':   <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M16 21v-2a4 4 0 0 0-4-4H6a4 4 0 0 0-4 4v2"/><circle cx="9" cy="7" r="4"/><polyline points="16 11 18 13 22 9"/></svg>,
+  'trending-down':<svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><polyline points="23 18 13.5 8.5 8.5 13.5 1 6"/><polyline points="17 18 23 18 23 12"/></svg>,
+  'dollar-sign':  <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><line x1="12" y1="1" x2="12" y2="23"/><path d="M17 5H9.5a3.5 3.5 0 0 0 0 7h5a3.5 3.5 0 0 1 0 7H6"/></svg>,
+  'clock':        <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><circle cx="12" cy="12" r="10"/><polyline points="12 6 12 12 16 14"/></svg>,
   'info':         <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><circle cx="12" cy="12" r="10"/><line x1="12" y1="16" x2="12" y2="12"/><line x1="12" y1="8" x2="12.01" y2="8"/></svg>,
 };
 
 const TABS = [
-  { key: 'all',      label: 'All' },
-  { key: 'unread',   label: 'Unread' },
-  { key: 'finance',  label: 'Finance',  types: ['invoice_paid','payment_received','invoice_overdue'] },
-  { key: 'stock',    label: 'Inventory',types: ['low_stock','purchase_received'] },
-  { key: 'crm',      label: 'CRM',      types: ['deal_won','deal_lost','lead_converted','quotation_accepted'] },
-  { key: 'tasks',    label: 'Tasks',    types: ['task_due_soon'] },
+  { key: 'all',         label: 'All' },
+  { key: 'unread',      label: 'Unread' },
+  { key: 'finance',     label: 'Finance',     types: ['invoice_paid','payment_received','invoice_overdue','cash_variance','asset_depreciated'] },
+  { key: 'stock',       label: 'Inventory',   types: ['low_stock','purchase_received','production_completed'] },
+  { key: 'crm',         label: 'CRM',         types: ['deal_won','deal_lost','lead_converted','quotation_accepted'] },
+  { key: 'approvals',   label: 'Approvals',   types: ['approval_request','approval_approved','approval_rejected'] },
+  { key: 'tasks',       label: 'Tasks',       types: ['task_due_soon'] },
 ];
 
 function typeConf(type) {

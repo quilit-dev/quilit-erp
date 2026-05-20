@@ -10,7 +10,8 @@ import {
 } from '../api/client';
 import {
   LoadingSpinner, ErrorAlert, EmptyState, Modal, ConfirmModal,
-  Badge, ExportButton, fmt, fmtDate, toast, SortableTh, Pagination
+  Badge, ExportButton, fmt, fmtDate, toast, SortableTh, Pagination,
+  DualMoney, ExchangeRateBadge, DisplayCurrencyToggle, WhatsAppShareButton,
 } from '../components/shared';
 import { exportQuotationPDF, exportQuotationExcel } from '../utils/exportUtils';
 import { useLocale } from '../hooks/useLocale.jsx';
@@ -19,7 +20,7 @@ import { useSortPaginate } from '../hooks/useSortPaginate';
 import { useRecordExport } from '../hooks/useRecordExport';
 
 const STATUSES   = ['Draft', 'Sent', 'Accepted', 'Rejected'];
-const EMPTY_ITEM = { name: '', quantity: 1, unit_price: 0 };
+const EMPTY_ITEM = { name: '', quantity: 1, unit_price: 0, tax_rate_id: null };
 const makeEmpty  = () => ({ client_id: '', project_id: '', project_name: '', status: 'Draft', notes: '', items: [{ ...EMPTY_ITEM }] });
 
 const menuItemStyle = {
@@ -126,7 +127,7 @@ export default function Quotations() {
   const { data: clients,  loading: cLoading,  reload: reloadClients }  = useData(getClients);
   const { data: projects, loading: pLoading, reload: reloadProjects } = useData(getProjects);
   const { data: inventory } = useData(getInventory);
-  const { settings } = useSettings();
+  const { settings, exchangeRate, displayCurrency, taxRates } = useSettings();
 
   const [modalOpen,    setModalOpen]    = useState(false);
   const [form,         setForm]         = useState(makeEmpty);
@@ -145,6 +146,7 @@ export default function Quotations() {
     exportPDF:   exportQuotationPDF,
     exportExcel: exportQuotationExcel,
     getClients:  () => clients,
+    getExportOpts: () => ({ displayCurrency, exchangeRate }),
   });
 
   function openCreate() {
@@ -164,7 +166,8 @@ export default function Quotations() {
         status:     full.status || 'Draft',
         notes:      full.notes  || '',
         items: full.items?.length
-          ? full.items.map(i => ({ name: i.name, quantity: i.quantity, unit_price: i.unit_price }))
+          ? full.items.map(i => ({ name: i.name, quantity: i.quantity,
+                                   unit_price: i.unit_price, tax_rate_id: i.tax_rate_id ?? null }))
           : [{ ...EMPTY_ITEM }],
       });
     } catch (err) {
@@ -184,10 +187,19 @@ export default function Quotations() {
     ...f, items: f.items.map((item, x) => x === i ? { ...item, name } : item),
   }));
 
-  const taxEnabled   = settings?.tax_enabled === '1';
-  const taxRate      = parseFloat(settings?.default_tax_rate || '0');
+  const taxEnabled     = settings?.tax_enabled === '1';
+  const activeTaxRates = (taxRates || []).filter(r => r.is_active);
+  const defaultTaxRate = (taxRates || []).find(r => r.is_default) || null;
+  const rateById = (id) =>
+    (taxRates || []).find(r => r.id === id) || defaultTaxRate || null;
+  const lineTaxAmt = (item) => {
+    if (!taxEnabled) return 0;
+    const r = rateById(item.tax_rate_id);
+    const net = (Number(item.quantity) || 0) * (Number(item.unit_price) || 0);
+    return r ? net * (Number(r.rate) || 0) / 100 : 0;
+  };
   const subtotal     = form.items.reduce((s, i) => s + (Number(i.quantity)||0) * (Number(i.unit_price)||0), 0);
-  const quoteTaxAmt  = (taxEnabled && taxRate > 0) ? subtotal * (taxRate / 100) : 0;
+  const quoteTaxAmt  = form.items.reduce((s, i) => s + lineTaxAmt(i), 0);
   const total        = subtotal + quoteTaxAmt;
 
   async function handleSave(e) {
@@ -200,6 +212,7 @@ export default function Quotations() {
         status: form.status, notes: form.notes || null,
         items: form.items.map(i => ({
           name: i.name, quantity: Number(i.quantity)||0, unit_price: Number(i.unit_price)||0,
+          tax_rate_id: i.tax_rate_id ?? null,
         })),
       };
       if (editId) { await updateQuotation(editId, payload); toast(t('quotations.quotationUpdated')); }
@@ -276,7 +289,9 @@ export default function Quotations() {
           <h1 className="page-title">{t('quotations.title')}</h1>
           <p className="page-subtitle">{t('quotations.totalQuotations', { count: quotations?.length ?? 0 })}</p>
         </div>
-        <div style={{display:'flex',gap:8}}>
+        <div style={{display:'flex',gap:8,alignItems:'center'}}>
+          <ExchangeRateBadge />
+          <DisplayCurrencyToggle />
           <ExportButton data={exportData} filename="Quotations" sheetName="Quotations" />
           <button className="btn btn-primary" onClick={openCreate}>{t('quotations.addQuotation')}</button>
         </div>
@@ -370,6 +385,10 @@ export default function Quotations() {
                       <td>{fmtDate(q.created_at)}</td>
                       <td>
                         <div style={{ display:'flex', gap:6, alignItems:'center', justifyContent:'flex-end' }}>
+                          <WhatsAppShareButton
+                            phone={q.client_phone}
+                            message={`Hello${q.client_name ? `, ${q.client_name}` : ''}, please find our quotation ${q.quote_number} for ${fmt(q.total_with_tax ?? q.total)}. Looking forward to your feedback.`}
+                          />
                           {q.invoice_count === 0 && (
                             <button
                               className="btn btn-sm btn-secondary"
@@ -472,7 +491,7 @@ export default function Quotations() {
                 </div>
 
                 {form.items.map((item, i) => (
-                  <div key={i} style={{ display:'grid', gridTemplateColumns:'1fr 90px 110px 34px', gap:8, marginBottom:8, alignItems:'center' }}>
+                  <div key={i} style={{ display:'grid', gridTemplateColumns:'1fr 78px 96px' + (taxEnabled ? ' 124px' : '') + ' 34px', gap:8, marginBottom:8, alignItems:'center' }}>
                     <InventoryCombobox
                       value={item.name}
                       inventory={inventory || []}
@@ -482,6 +501,15 @@ export default function Quotations() {
                       value={item.quantity} onChange={e => setItem(i, 'quantity', e.target.value)} />
                     <input type="number" className="form-control" placeholder="Unit $" min="0" step="0.01"
                       value={item.unit_price} onChange={e => setItem(i, 'unit_price', e.target.value)} />
+                    {taxEnabled && (
+                      <select className="form-control" style={{ fontSize:12, padding:'6px 4px' }}
+                        value={item.tax_rate_id ?? (defaultTaxRate?.id ?? '')}
+                        onChange={e => setItem(i, 'tax_rate_id', Number(e.target.value) || null)}>
+                        {activeTaxRates.map(r => (
+                          <option key={r.id} value={r.id}>{r.name} ({r.rate}%)</option>
+                        ))}
+                      </select>
+                    )}
                     <button type="button" className="btn btn-sm btn-danger"
                       onClick={() => removeItem(i)} disabled={form.items.length === 1}>✕</button>
                   </div>
@@ -491,11 +519,11 @@ export default function Quotations() {
                   {quoteTaxAmt > 0 && (
                     <>
                       <div>{t('common.subtotal')}: {fmt(subtotal)}</div>
-                      <div>{t('common.tax', { rate: taxRate })}: {fmt(quoteTaxAmt)}</div>
+                      <div>{t('common.taxCol')}: {fmt(quoteTaxAmt)}</div>
                     </>
                   )}
                   <div style={{ fontWeight:700, fontSize:16, color:'var(--text-1)', marginTop: quoteTaxAmt > 0 ? 4 : 0 }}>
-                    {t('common.total')}: {fmt(total)}
+                    {t('common.total')}: <DualMoney value={total} block={false} />
                   </div>
                 </div>
               </div>

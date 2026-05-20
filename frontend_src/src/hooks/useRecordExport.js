@@ -10,11 +10,14 @@ import { toast } from '../components/shared';
  *     exportPDF:   exportQuotationPDF,
  *     exportExcel: exportQuotationExcel,
  *     getClients:  () => clients,
+ *     getExportOpts: () => ({ displayCurrency, exchangeRate }),
  *   });
  *
+ * `getExportOpts` (optional) supplies per-export options — e.g. the display
+ * currency — passed as the 2nd argument to the exporter.
  * `exportLoading` maps record id → 'pdf' | 'excel' | null while a job runs.
  */
-export function useRecordExport({ fetchFull, exportPDF, exportExcel, getClients }) {
+export function useRecordExport({ fetchFull, exportPDF, exportExcel, getClients, getExportOpts }) {
   const [exportLoading, setExportLoading] = useState({});
 
   async function handleExport(record, type) {
@@ -23,12 +26,13 @@ export function useRecordExport({ fetchFull, exportPDF, exportExcel, getClients 
       const full      = await fetchFull(record.id);
       const clientObj = (getClients?.() || []).find(c => c.id === full.client_id) || null;
       const enriched  = { ...full, client: clientObj };
+      const opts      = getExportOpts?.() || {};
 
       if (type === 'pdf') {
-        await exportPDF(enriched);
+        await exportPDF(enriched, opts);
         toast('PDF ready — use your browser\'s Save as PDF option.');
       } else {
-        exportExcel(enriched);
+        exportExcel(enriched, opts);
         toast('Excel file downloaded.');
       }
     } catch (err) {

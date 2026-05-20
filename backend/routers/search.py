@@ -350,6 +350,154 @@ def search_all(
         except Exception:
             logger.warning("global search: a module query failed", exc_info=True)
 
+    # ── Manufacturing — Production orders & BOMs ──────────────────────────
+    if _can(user, db, "manufacturing"):
+        try:
+            rows = db.execute(
+                "SELECT po.id, po.order_number, po.status, po.quantity,"
+                "       i.name AS output_name"
+                " FROM production_orders po"
+                " LEFT JOIN inventory i ON po.output_inventory_id = i.id"
+                " WHERE po.archived_at IS NULL"
+                "   AND (po.order_number LIKE ? OR i.name LIKE ? OR po.notes LIKE ?)"
+                " LIMIT ?",
+                (term, term, term, limit),
+            ).fetchall()
+            for r in rows:
+                bits = [r["status"] or "", r["output_name"] or ""]
+                results.append({
+                    "id":       r["id"],
+                    "type":     "production",
+                    "title":    r["order_number"],
+                    "subtitle": " — ".join(b for b in bits if b),
+                    "url":      "/manufacturing",
+                })
+        except Exception:
+            logger.warning("global search: a module query failed", exc_info=True)
+
+        try:
+            rows = db.execute(
+                "SELECT b.id, b.name, b.version, i.name AS output_name"
+                " FROM boms b LEFT JOIN inventory i ON b.output_inventory_id = i.id"
+                " WHERE b.archived_at IS NULL"
+                "   AND (b.name LIKE ? OR i.name LIKE ?)"
+                " LIMIT ?",
+                (term, term, limit),
+            ).fetchall()
+            for r in rows:
+                bits = [f"v{r['version']}" if r["version"] else "", r["output_name"] or ""]
+                results.append({
+                    "id":       r["id"],
+                    "type":     "bom",
+                    "title":    r["name"],
+                    "subtitle": " — ".join(b for b in bits if b),
+                    "url":      "/manufacturing",
+                })
+        except Exception:
+            logger.warning("global search: a module query failed", exc_info=True)
+
+    # ── Fixed Assets ──────────────────────────────────────────────────────
+    if _can(user, db, "assets"):
+        try:
+            rows = db.execute(
+                "SELECT id, asset_code, name, category, status, acquisition_cost"
+                " FROM fixed_assets"
+                " WHERE archived_at IS NULL"
+                "   AND (asset_code LIKE ? OR name LIKE ? OR category LIKE ?"
+                "        OR description LIKE ?)"
+                " LIMIT ?",
+                (term, term, term, term, limit),
+            ).fetchall()
+            for r in rows:
+                bits = [r["asset_code"] or "", r["category"] or "",
+                        r["status"] or "", _money(r["acquisition_cost"])]
+                results.append({
+                    "id":       r["id"],
+                    "type":     "asset",
+                    "title":    r["name"],
+                    "subtitle": " — ".join(b for b in bits if b),
+                    "url":      "/fixed-assets",
+                })
+        except Exception:
+            logger.warning("global search: a module query failed", exc_info=True)
+
+    # ── POS — Sales (matched by invoice / cashier / payment method) ───────
+    if _can(user, db, "pos"):
+        try:
+            rows = db.execute(
+                "SELECT s.id, s.cashier_name, s.payment_method, s.total_usd,"
+                "       s.status, s.created_at, i.invoice_number"
+                " FROM pos_sales s"
+                " LEFT JOIN invoices i ON s.invoice_id = i.id"
+                " WHERE (i.invoice_number LIKE ? OR s.cashier_name LIKE ?"
+                "        OR s.payment_method LIKE ?)"
+                " LIMIT ?",
+                (term, term, term, limit),
+            ).fetchall()
+            for r in rows:
+                bits = [r["cashier_name"] or "", r["payment_method"] or "",
+                        _money(r["total_usd"])]
+                if r["status"] and r["status"] != "completed":
+                    bits.append(r["status"])
+                results.append({
+                    "id":       r["id"],
+                    "type":     "pos_sale",
+                    "title":    r["invoice_number"] or f"Sale #{r['id']}",
+                    "subtitle": " — ".join(b for b in bits if b),
+                    "url":      "/pos",
+                })
+        except Exception:
+            logger.warning("global search: a module query failed", exc_info=True)
+
+    # ── Cash — Drawers ────────────────────────────────────────────────────
+    if _can(user, db, "cash"):
+        try:
+            rows = db.execute(
+                "SELECT id, name, is_active, auto_capture FROM cash_drawers"
+                " WHERE name LIKE ?"
+                " LIMIT ?",
+                (term, limit),
+            ).fetchall()
+            for r in rows:
+                tags = []
+                if r["auto_capture"]: tags.append("default")
+                tags.append("active" if r["is_active"] else "inactive")
+                results.append({
+                    "id":       r["id"],
+                    "type":     "cash_drawer",
+                    "title":    r["name"],
+                    "subtitle": " — ".join(tags),
+                    "url":      "/cash",
+                })
+        except Exception:
+            logger.warning("global search: a module query failed", exc_info=True)
+
+    # ── Recurring expense templates ───────────────────────────────────────
+    if _can(user, db, "expenses"):
+        try:
+            rows = db.execute(
+                "SELECT id, name, category, amount, frequency, is_active"
+                " FROM recurring_expenses"
+                " WHERE archived_at IS NULL"
+                "   AND (name LIKE ? OR category LIKE ? OR description LIKE ?)"
+                " LIMIT ?",
+                (term, term, term, limit),
+            ).fetchall()
+            for r in rows:
+                bits = [r["category"] or "", r["frequency"] or "",
+                        _money(r["amount"])]
+                if not r["is_active"]:
+                    bits.append("paused")
+                results.append({
+                    "id":       r["id"],
+                    "type":     "recurring",
+                    "title":    r["name"],
+                    "subtitle": " — ".join(b for b in bits if b),
+                    "url":      "/expenses",
+                })
+        except Exception:
+            logger.warning("global search: a module query failed", exc_info=True)
+
     # ── Users (superadmin only) ───────────────────────────────────────────
     if user.get("is_superadmin"):
         try:
