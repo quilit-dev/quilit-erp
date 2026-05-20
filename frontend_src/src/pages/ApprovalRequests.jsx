@@ -8,7 +8,6 @@ import {
   rejectRequest,
   forceApproveRequest,
   cancelApprovalRequest,
-  addApprovalComment,
 } from '../api/client';
 
 // ── Display config ──────────────────────────────────────────────────────────
@@ -107,68 +106,13 @@ function StepTimeline({ steps, currentStep }) {
   );
 }
 
-// ── Comment Thread ──────────────────────────────────────────────────────────
-
-function CommentThread({ req, onRefresh }) {
-  const { t } = useLocale();
-  const [text, setText]       = useState('');
-  const [sending, setSending] = useState(false);
-  const comments = req.comments || [];
-
-  async function send() {
-    const body = text.trim();
-    if (!body) return;
-    setSending(true);
-    try {
-      await addApprovalComment(req.id, body);
-      setText('');
-      onRefresh();
-    } catch (err) {
-      toast(err.message || t('approvals.couldNotPostComment'), 'error');
-    } finally {
-      setSending(false);
-    }
-  }
-
-  return (
-    <div style={{ marginBottom: 12 }}>
-      <div style={{ fontSize: 11, fontWeight: 700, color: 'var(--text-3)', marginBottom: 6, textTransform: 'uppercase', letterSpacing: '.5px' }}>
-        {t('approvals.discussion')} {comments.length > 0 && `(${comments.length})`}
-      </div>
-
-      {comments.length > 0 && (
-        <div style={{ display: 'flex', flexDirection: 'column', gap: 6, marginBottom: 8 }}>
-          {comments.map(c => (
-            <div key={c.id} style={{ fontSize: 12, background: 'var(--bg)', border: '1px solid var(--border)', borderRadius: 6, padding: '6px 10px' }}>
-              <div style={{ display: 'flex', justifyContent: 'space-between', marginBottom: 2 }}>
-                <strong style={{ color: 'var(--text)' }}>{c.author_name || t('approvals.unknownAuthor')}</strong>
-                <span style={{ fontSize: 10, color: 'var(--text-3)' }}>{timeAgo(c.created_at, t)}</span>
-              </div>
-              <div style={{ color: 'var(--text-2)' }}>{c.comment}</div>
-            </div>
-          ))}
-        </div>
-      )}
-
-      <div style={{ display: 'flex', gap: 8, alignItems: 'flex-start' }}>
-        <textarea
-          className="form-control"
-          rows={2}
-          placeholder={t('approvals.writeComment')}
-          value={text}
-          onChange={e => setText(e.target.value)}
-          onKeyDown={e => { if (e.key === 'Enter' && (e.metaKey || e.ctrlKey)) send(); }}
-          style={{ flex: 1, resize: 'none' }}
-        />
-        <button className="btn btn-outline btn-sm" onClick={send} disabled={sending || !text.trim()}>
-          {sending ? t('approvals.sending') : t('approvals.send')}
-        </button>
-      </div>
-    </div>
-  );
-}
-
 // ── Action Panel ────────────────────────────────────────────────────────────
+// Decision note: written by the approver on approve/reject/cancel/force,
+// surfaced to every viewer of the request as the per-step `s.comment` line
+// in the step list and as the bottom "Final note" callout once the request
+// is resolved. There is intentionally no free-form discussion thread — a
+// request carries exactly one note per decision so the audit trail stays
+// crisp and unambiguous.
 
 function ActionPanel({ req, onDone }) {
   const { t } = useLocale();
@@ -323,11 +267,10 @@ function RequestRow({ req, onRefresh }) {
 
               {req.resolution_comment && (
                 <div style={{ fontSize: 12, color: 'var(--text-2)', padding: '6px 10px', borderLeft: '3px solid var(--border)', marginBottom: 12 }}>
-                  <strong>{t('approvals.finalComment')}:</strong> {req.resolution_comment}
+                  <strong>{t('approvals.decisionNote')}:</strong> {req.resolution_comment}
                 </div>
               )}
 
-              <CommentThread req={req} onRefresh={onRefresh} />
               <ActionPanel req={req} onDone={onRefresh} />
             </div>
           </td>
@@ -389,15 +332,23 @@ export default function ApprovalRequests() {
         </div>
       </div>
 
-      <div style={{ display: 'grid', gridTemplateColumns: 'repeat(3, 1fr)', gap: 12, marginBottom: 20 }}>
+      {/* KPI strip — matches the canonical stat-card pattern used by every
+          other module (Manufacturing, Fixed Assets, HR, ...): default
+          surface, muted label, status colour reserved for the value only.
+          Pending grey-fades when there's nothing waiting, same treatment
+          as Recurring Expenses' "Due" card. */}
+      <div style={{ display: 'grid', gridTemplateColumns: 'repeat(3, 1fr)', gap: 14, marginBottom: 20 }}>
         {[
-          { label: t('approvals.statusPending'), value: pending,  accent: '#b45309', bg: '#fef3c7' },
-          { label: t('approvals.approved'),      value: approved, accent: '#16a34a', bg: '#dcfce7' },
-          { label: t('approvals.rejected'),      value: rejected, accent: '#dc2626', bg: '#fee2e2' },
+          { label: t('approvals.statusPending'), value: pending,
+            color: pending  > 0 ? 'var(--yellow)' : 'var(--text-3)' },
+          { label: t('approvals.approved'),      value: approved,
+            color: approved > 0 ? 'var(--green)'  : 'var(--text-3)' },
+          { label: t('approvals.rejected'),      value: rejected,
+            color: rejected > 0 ? 'var(--red)'    : 'var(--text-3)' },
         ].map(c => (
-          <div key={c.label} className="stat-card" style={{ background: c.bg }}>
-            <div className="stat-label" style={{ color: c.accent }}>{c.label}</div>
-            <div className="stat-value" style={{ color: c.accent }}>{c.value}</div>
+          <div key={c.label} className="stat-card" style={{ padding: '14px 18px' }}>
+            <div className="stat-label">{c.label}</div>
+            <div style={{ fontSize: 20, fontWeight: 700, color: c.color, marginTop: 2 }}>{c.value}</div>
           </div>
         ))}
       </div>
