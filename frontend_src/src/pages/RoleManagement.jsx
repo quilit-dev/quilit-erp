@@ -40,6 +40,8 @@ const CORE_MODULES  = [
   'expenses', 'assets', 'finance', 'cash', 'reports',
   // People
   'hr',
+  // Internal comms
+  'announcements',
 ];
 const ADMIN_MODULES = ['settings','users','roles','audit'];
 const MODULES_ORDER = [...CORE_MODULES, ...ADMIN_MODULES];
@@ -140,6 +142,7 @@ export default function RoleManagement() {
     manufacturing: t('nav.manufacturing'),
     assets:        t('nav.fixedAssets'),
     hr:            t('nav.hr'),
+    announcements: t('nav.announcements'),
     settings:      t('nav.settings'),
     users:         t('nav.users'),
     roles:         t('nav.roles'),

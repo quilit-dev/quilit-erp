@@ -200,7 +200,7 @@ function PurchaseForm({ initial = {}, inventoryItems = [], inventoryCategories =
 
           <div className="form-group">
             <label className="form-label">{t('purchases.quantityLabel')}</label>
-            <input className="form-control" type="number" step="any" min="0.001" required
+            <input className="form-control" type="number" step="1" min="1" required
               value={form.quantity} onChange={e => set('quantity', e.target.value)} />
           </div>
 
@@ -298,13 +298,12 @@ export default function Purchases() {
     setLoading(true);
     setFetchError(null);
     try {
+      const qs = new URLSearchParams({
+        ...(statusFilter   ? { status:   statusFilter   } : {}),
+        ...(supplierSearch ? { supplier: supplierSearch } : {}),
+      }).toString();
       const [purch, st, cats] = await Promise.all([
-        getPurchases(statusFilter || supplierSearch
-          ? new URLSearchParams({
-              ...(statusFilter   ? { status:   statusFilter   } : {}),
-              ...(supplierSearch ? { supplier: supplierSearch } : {}),
-            })
-          : undefined),
+        getPurchases(qs ? `?${qs}` : ''),
         getPurchaseStats(),
         getCategories(),
       ]);

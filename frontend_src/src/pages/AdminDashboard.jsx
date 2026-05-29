@@ -1,6 +1,6 @@
 import { useState, useEffect } from 'react';
 import * as XLSX from 'xlsx';
-import { getUserSessions, getAuditLog, purgeAuditLog, getUsers, getRoles, revokeSession } from '../api/client';
+import { getUserSessions, getOnlineUsers, getAuditLog, purgeAuditLog, getUsers, getRoles, revokeSession } from '../api/client';
 import { LoadingSpinner, ErrorAlert, toast } from '../components/shared';
 import { useLocale } from '../hooks/useLocale.jsx';
 
@@ -49,6 +49,7 @@ export default function AdminDashboard() {
 
   const [tab,      setTab]      = useState('sessions');
   const [sessions, setSessions] = useState([]);
+  const [online,   setOnline]   = useState({ count: 0, users: [], window_minutes: 5 });
   const [audit,    setAudit]    = useState({ rows: [], total: 0 });
   const [users,    setUsers]    = useState([]);
   const [roles,    setRoles]    = useState([]);
@@ -68,8 +69,8 @@ export default function AdminDashboard() {
   async function loadOverview() {
     setLoading(true); setError('');
     try {
-      const [s, u, r] = await Promise.all([getUserSessions(), getUsers(), getRoles()]);
-      setSessions(s); setUsers(u); setRoles(r);
+      const [s, u, r, o] = await Promise.all([getUserSessions(), getUsers(), getRoles(), getOnlineUsers()]);
+      setSessions(s); setUsers(u); setRoles(r); setOnline(o);
     } catch (e) { setError(e.message); }
     finally { setLoading(false); }
   }
@@ -121,8 +122,19 @@ export default function AdminDashboard() {
   useEffect(() => { loadOverview(); }, []);
   useEffect(() => { if (tab === 'audit') loadAudit(); }, [tab, af, offset]);
 
+  // Live online indicator — poll every 30s without reloading the whole page.
+  useEffect(() => {
+    const tick = () => {
+      getOnlineUsers().then(setOnline).catch(() => {});
+      getUserSessions().then(setSessions).catch(() => {});
+    };
+    const id = setInterval(tick, 30000);
+    return () => clearInterval(id);
+  }, []);
+
   const activeUsers   = users.filter(u => u.is_active).length;
   const disabledUsers = users.length - activeUsers;
+  const onlineIds     = new Set((online.users || []).map(u => u.id));
 
   const tabs = [
     { key: 'sessions', label: t('admin.activeSessions') },
@@ -156,6 +168,17 @@ export default function AdminDashboard() {
         <KpiCard label={t('admin.activeUsersLabel')} value={activeUsers}     color="green" />
         <KpiCard label={t('admin.disabledUsersLabel')} value={disabledUsers} color="red" />
         <KpiCard label={t('admin.liveSessions')}     value={sessions.length} color="blue" />
+        {/* Online-now indicator — a live count with a pulsing green dot. */}
+        <div className="card" style={{ padding: '16px 20px', flex: 1, minWidth: 120 }}>
+          <div style={{ fontSize: 11, fontWeight: 600, color: 'var(--text-3)', textTransform: 'uppercase', letterSpacing: '.6px' }}>{t('admin.onlineNow')}</div>
+          <div style={{ display: 'flex', alignItems: 'center', gap: 9, margin: '4px 0 2px' }}>
+            <span style={{ width: 10, height: 10, borderRadius: '50%', flexShrink: 0,
+                           background: online.count > 0 ? 'var(--green)' : 'var(--text-3)',
+                           boxShadow: online.count > 0 ? '0 0 0 3px rgba(34,197,94,0.25)' : 'none' }} />
+            <span style={{ fontSize: 28, fontWeight: 800, color: 'var(--green)' }}>{online.count}</span>
+          </div>
+          <div style={{ fontSize: 12, color: 'var(--text-3)' }}>{t('admin.onlineSub', { min: online.window_minutes })}</div>
+        </div>
         <KpiCard label={t('admin.rolesDefined')}     value={roles.length}    color="accent" />
       </div>
 
@@ -201,8 +224,18 @@ export default function AdminDashboard() {
                 {sessions.map(s => (
                   <tr key={s.id}>
                     <td>
-                      <div style={{ fontWeight: 600, fontSize: 13 }}>{s.full_name || s.username}</div>
-                      <div style={{ fontSize: 11.5, color: 'var(--text-3)' }}>@{s.username}</div>
+                      <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
+                        <span
+                          title={onlineIds.has(s.user_id) ? t('admin.online') : t('admin.idle')}
+                          style={{ width: 8, height: 8, borderRadius: '50%', flexShrink: 0,
+                                   background: onlineIds.has(s.user_id) ? 'var(--green)' : 'var(--text-3)',
+                                   boxShadow: onlineIds.has(s.user_id) ? '0 0 0 3px rgba(34,197,94,0.25)' : 'none' }}
+                        />
+                        <div>
+                          <div style={{ fontWeight: 600, fontSize: 13 }}>{s.full_name || s.username}</div>
+                          <div style={{ fontSize: 11.5, color: 'var(--text-3)' }}>@{s.username}</div>
+                        </div>
+                      </div>
                     </td>
                     <td style={{ fontSize: 12.5, fontFamily: 'monospace', color: 'var(--text-2)' }}>{s.ip_address || '—'}</td>
                     <td style={{ fontSize: 12.5, color: 'var(--text-2)' }}>{parseUa(s.user_agent)}</td>

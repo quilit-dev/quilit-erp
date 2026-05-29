@@ -1,6 +1,6 @@
 # ERP System — Technical Documentation
 
-> **Version:** 2.0 &nbsp;|&nbsp; **Last Updated:** 2026-05-18 &nbsp;|&nbsp; **Stack:** Python · FastAPI · React 18 · SQLite
+> **Version:** 2.1 &nbsp;|&nbsp; **Last Updated:** 2026-05-20 &nbsp;|&nbsp; **Stack:** Python · FastAPI · React 18 · SQLite
 
 ---
 
@@ -13,15 +13,15 @@
 5. [Authentication & Security](#5-authentication--security)
 6. [User Management & RBAC](#6-user-management--rbac)
 7. [Modules](#7-modules)
-   - 7.1 [Dashboard](#71-dashboard)
-   - 7.2 [Clients](#72-clients)
-   - 7.3 [Projects](#73-projects)
-   - 7.4 [Quotations](#74-quotations)
-   - 7.5 [Invoices](#75-invoices)
-   - 7.6 [Inventory](#76-inventory)
-   - 7.7 [Purchases](#77-purchases)
-   - 7.8 [Suppliers](#78-suppliers)
-   - 7.9 [Finance](#79-finance)
+   - 7.1  [Dashboard](#71-dashboard)
+   - 7.2  [Clients](#72-clients)
+   - 7.3  [Projects](#73-projects)
+   - 7.4  [Quotations](#74-quotations)
+   - 7.5  [Invoices](#75-invoices)
+   - 7.6  [Inventory](#76-inventory)
+   - 7.7  [Purchases](#77-purchases)
+   - 7.8  [Suppliers](#78-suppliers)
+   - 7.9  [Finance](#79-finance)
    - 7.10 [Expenses](#710-expenses)
    - 7.11 [CRM](#711-crm)
    - 7.12 [Planning](#712-planning)
@@ -34,6 +34,11 @@
    - 7.19 [Approval Policies](#719-approval-policies)
    - 7.20 [Approval Requests](#720-approval-requests)
    - 7.21 [Tax Rates](#721-tax-rates)
+   - 7.22 [POS — Point of Sale](#722-pos--point-of-sale)
+   - 7.23 [Cash Management](#723-cash-management)
+   - 7.24 [Manufacturing](#724-manufacturing)
+   - 7.25 [Fixed Assets](#725-fixed-assets)
+   - 7.26 [Recurring Expenses](#726-recurring-expenses)
 8. [Taxation & Multi-Currency](#8-taxation--multi-currency)
 9. [API Reference](#9-api-reference)
 10. [Database Schema](#10-database-schema)
@@ -41,6 +46,7 @@
 12. [Backup & Recovery](#12-backup--recovery)
 13. [Localization](#13-localization)
 14. [Testing & QA](#14-testing--qa)
+15. [Notifications](#15-notifications)
 
 ---
 
@@ -52,17 +58,24 @@ This ERP (Enterprise Resource Planning) system is a full-stack business manageme
 
 | Area | Capabilities |
 |------|-------------|
-| **Sales** | Quotations, invoices, partial & multi-currency payment tracking, aging reports |
-| **Finance** | Revenue/expense tracking, period locking, VAT reporting, reconciliation |
-| **Taxation** | Admin-managed named tax rates (standard / zero-rated / exempt), per-line tax |
-| **Multi-Currency** | Dual-currency (USD base + secondary, e.g. LBP) with manual exchange-rate history |
-| **Projects** | Project lifecycle, cost tracking, milestone planning, Gantt charts |
-| **CRM** | Lead management, deal pipeline, contact tracking, activity logging |
-| **Inventory** | Stock management, low-stock alerts, stock movements, purchase integration |
-| **HR** | Employee directory, departments, leave requests and approval |
-| **Access Control** | Role-based permissions, multi-user sessions, approval workflows, audit trail |
-| **Localization** | Full English and Arabic (RTL) support |
+| **Sales** | Quotations → invoices → payments, partial / multi-currency payment tracking, aging reports, WhatsApp share |
+| **POS** | Cash-drawer sessions, USD/LBP checkout, refunds that void invoices + restock, inventory autocomplete on custom lines |
+| **Manufacturing** | Versioned BOMs with scrap %, multi-level sub-assemblies, production-order lifecycle, weighted-average production costing |
+| **Inventory** | Raw / semi-finished / finished / consumable items, weighted-average landed cost, low-stock alerts, stock movements |
+| **Procurement** | Suppliers, PO lifecycle (Ordered → Received → Paid) that auto-posts expense + adjusts landed cost |
+| **Finance** | Revenue / expense tracking, accrual + cash views, period locking, smart insights, recurring expense templates |
+| **Fixed Assets** | Capital register, straight-line depreciation auto-posted as expenses, disposal, capex approval workflow |
+| **Cash** | Daily till reconciliation with auto-captured sales + expenses, USD/LBP variance reporting |
+| **Taxation** | Admin-managed named tax rates (multiple standard / reduced / zero / exempt), per-line tax snapshot, VAT report with per-rate breakdown |
+| **Multi-Currency** | Dual-currency (USD base + LBP secondary by default) with manual exchange-rate history |
+| **Projects** | Project lifecycle, budget-vs-actual, milestone planning, Gantt-style planning board |
+| **CRM** | Leads → deals → conversion to clients, contact directory, activity log |
+| **HR** | Employee directory, departments, leave requests (auto-status flip while on leave) |
+| **Approvals** | Rule-based multi-step approval chains; expenses, invoices, purchases, projects, fixed-asset purchases |
+| **Access Control** | RBAC across 19+ modules, JWT sessions with revocation, audit trail, recycle bin |
+| **Localization** | Full English and Arabic (RTL) |
 | **Resilience** | Automatic + manual backups, one-click backup to USB / network folder |
+| **Per-customer builds** | Module visibility baked in via `backend/vendor_config.py` (immutable at runtime). The vendor edits the constant before building each customer's installer |
 
 ### Technology Stack
 
@@ -89,45 +102,33 @@ erp-system/
 │   ├── backup_manager.py       # Automatic and manual backup logic
 │   ├── utils.py                # Shared helpers (timestamps, tax calculations)
 │   ├── routers/                # API endpoints (one file per module)
-│   │   ├── auth.py
-│   │   ├── clients.py
-│   │   ├── projects.py
-│   │   ├── quotations.py
-│   │   ├── invoices.py
-│   │   ├── inventory.py
-│   │   ├── purchases.py
-│   │   ├── suppliers.py
-│   │   ├── finance.py          # Finance + expenses
-│   │   ├── crm.py
-│   │   ├── planning.py
-│   │   ├── hr.py               # HR: departments, employees, leave
-│   │   ├── reports.py
-│   │   ├── documents.py
-│   │   ├── audit.py
-│   │   ├── users.py
-│   │   ├── roles.py
-│   │   ├── archives.py
-│   │   ├── recycle_bin.py      # Soft-delete recycle bin
-│   │   ├── notifications.py
-│   │   ├── approval_policies.py
-│   │   ├── approval_requests.py
+│   │   ├── auth.py             clients.py     projects.py
+│   │   ├── quotations.py       invoices.py    inventory.py
+│   │   ├── purchases.py        suppliers.py   finance.py
+│   │   ├── pos.py              # Point-of-sale sessions + checkout + refunds
+│   │   ├── cash.py             # Cash-drawer reconciliations
+│   │   ├── manufacturing.py    # BOMs + production orders
+│   │   ├── assets.py           # Fixed assets + depreciation
+│   │   ├── recurring.py        # Recurring expense templates
 │   │   ├── tax_rates.py        # Admin-managed named tax rates
-│   │   ├── settings.py
-│   │   ├── dashboard.py
-│   │   └── search.py
-│   ├── tests/                  # Pytest QA suite (see §14)
+│   │   ├── crm.py              planning.py    hr.py
+│   │   ├── reports.py          dashboard.py   search.py
+│   │   ├── notifications.py    approval_policies.py  approval_requests.py
+│   │   ├── settings.py         documents.py   audit.py
+│   │   ├── archives.py         announcements.py
+│   │   └── users.py            roles.py
+│   ├── tests/                  # Pytest QA suite (see §14) — 431 tests
 │   │   ├── conftest.py         # Fixtures: fresh DB per test, auth clients
-│   │   ├── test_smoke_endpoints.py
-│   │   ├── test_auth_session.py
+│   │   ├── test_smoke_endpoints.py     test_auth_session.py
 │   │   ├── test_role_permission_matrix.py
-│   │   ├── test_tax_system.py
+│   │   ├── test_tax_system.py          test_tax_engine.py
 │   │   ├── test_vat_report.py
-│   │   ├── test_exchange_rate.py
-│   │   ├── test_lbp_payment.py
+│   │   ├── test_pos.py                 test_cash.py
+│   │   ├── test_manufacturing.py
+│   │   ├── test_exchange_rate.py       test_lbp_payment.py
 │   │   ├── test_usb_backup.py
 │   │   └── …
-│   ├── seed.py                 # Sample business data seeder
-│   ├── seed_inventory.py       # Sample inventory seeder
+│   ├── seed.py                 # Comprehensive sample-data seeder
 │   ├── env.example             # Environment variable template
 │   └── requirements.txt
 │
@@ -299,6 +300,11 @@ Stored in the `settings` table and editable from **Settings → Company / Financ
 | `show_discount_col` | `1` to display the discount column on documents |
 | `show_tax_col` | `1` to display the tax column on documents |
 
+`enabled_modules` is **not** a settings-table field — it lives in
+`backend/vendor_config.py` as a build-time constant and is read-only from
+the API. Editing the `settings` table directly has no effect; the API
+always reports the value baked into the running build.
+
 ---
 
 ## 5. Authentication & Security
@@ -371,29 +377,37 @@ Each role can be granted permissions per module and per action.
 
 **Available modules:**
 
-| Module | Permission Key |
-|--------|---------------|
-| Dashboard | `dashboard` |
-| Clients | `clients` |
-| Projects | `projects` |
-| Quotations | `quotations` |
-| Invoices | `invoices` |
-| Inventory | `inventory` |
-| Purchases | `purchases` |
-| Suppliers | `suppliers` |
-| Finance | `finance` |
-| Expenses | `expenses` |
-| Reports | `reports` |
-| CRM | `crm` |
-| Planning | `planning` |
-| HR | `hr` |
-| Approvals | `approvals` |
-| Settings | `settings` |
-| Users | `users` |
-| Roles | `roles` |
-| Audit Log | `audit` |
+| Module | Permission Key | Notes |
+|--------|---------------|-------|
+| Dashboard | `dashboard` | |
+| Clients | `clients` | |
+| Projects | `projects` | |
+| Quotations | `quotations` | |
+| Invoices | `invoices` | |
+| Inventory | `inventory` | |
+| Purchases | `purchases` | |
+| Suppliers | `suppliers` | |
+| **POS** | `pos` | Cash-drawer sessions + checkout |
+| **Cash** | `cash` | Daily reconciliation |
+| **Manufacturing** | `manufacturing` | BOMs + production orders |
+| **Fixed Assets** | `assets` | Asset register + depreciation |
+| Finance | `finance` | |
+| Expenses | `expenses` | Includes recurring-expense templates |
+| Reports | `reports` | |
+| CRM | `crm` | |
+| Planning | `planning` | |
+| HR | `hr` | |
+| Approvals | `approvals` | Workflow rules + decisions |
+| Settings | `settings` | Admin-only |
+| Users | `users` | Admin-only |
+| Roles | `roles` | Admin-only |
+| Audit Log | `audit` | Admin-only |
 
-**Actions per module:** `view`, `create`, `edit`, `delete`, `approve`
+**Actions per module:** `view`, `create`, `edit`, `delete`, `approve`.
+
+The Role Management UI lists modules in the same operational order as the
+sidebar (Sales → Delivery → Procurement → Finance → People → Admin), so the
+permission matrix is scannable.
 
 ### Superadmin
 
@@ -401,7 +415,18 @@ The `is_superadmin` flag bypasses all RBAC checks. The initial admin created dur
 
 ### Sidebar Visibility
 
-Navigation links are automatically hidden for modules the logged-in user does not have `view` permission on. The sidebar reflects the user's actual permissions in real time.
+Navigation links are hidden by **two independent gates**:
+
+1. **`vendor_config.ENABLED_MODULES`** — a vendor-level whitelist
+   (comma-separated module keys) baked into each customer's build. Empty
+   string means every module is visible (the dev + demo default). When
+   set, only modules in the whitelist appear in the sidebar. The value is
+   immutable at runtime — even a vendor superadmin cannot change it via
+   the API; the source must be edited and the installer rebuilt. This
+   closes the "delete `erp.db` + relaunch to get a fresh superadmin"
+   attack against module gating.
+2. **RBAC `view` permission** — the per-user check. The sidebar reflects
+   the logged-in user's permissions in real time.
 
 ---
 
@@ -970,17 +995,217 @@ A managed list of **named tax rates** used across quotations, invoices, purchase
 
 ---
 
+### 7.22 POS — Point of Sale
+
+**URL:** `/pos` &nbsp;|&nbsp; **Router:** `routers/pos.py` &nbsp;|&nbsp;
+**Permission:** `pos`
+
+A register UI for retail-style sales that integrates directly with
+Inventory, Cash and Invoicing.
+
+**Sessions.** A cashier opens a session (with an opening cash float), runs
+sales against it, and closes it at the end of the shift. Only one session
+per user can be open at a time. The session's drawer auto-captures
+cash-tendered sales unless the cashier picks a specific drawer at
+checkout.
+
+**Pricing model.** POS prices are **tax-inclusive** (retail shelf
+pricing). The line gross is the customer-facing price; line and order
+discounts come off the gross; VAT is then *extracted* via
+`resolve_inclusive_tax`. The resulting invoice is stored in the standard
+`invoices` table in the **exclusive form** (`unit_price` = post-discount
+net unit price) so every existing invoice / VAT / finance reader keeps
+working without modification.
+
+**Checkout flow.**
+1. Verify open session, validate cart lines (qty > 0, discount ≤ line gross).
+2. Distribute the order-level discount proportionally across lines.
+3. Decrement inventory; reject if any item would go negative.
+4. Create `invoices` + `invoice_items` + `invoice_payments` (atomic).
+5. Create `pos_sales` + `pos_sale_items` (the cashier-facing record).
+6. Auto-capture into the linked cash drawer.
+
+**Returns.** `POST /api/pos/sales/{id}/return` voids the matching invoice,
+re-credits inventory, and posts a reversing cash movement. The refunded
+sale drops out of every revenue/VAT report automatically because the
+underlying invoice has `voided_at` set.
+
+**Custom lines.** Lines without an `inventory_id` are treated as
+service/free-text items (no stock decrement). The UI offers
+**autocomplete against the inventory** as the cashier types a line name —
+selecting a match promotes the line into a proper inventory-backed line.
+
+**Idempotency.** Every checkout requires an `idempotency_key`; a
+duplicate POST with the same key returns the existing sale instead of
+creating a duplicate.
+
+---
+
+### 7.23 Cash Management
+
+**URL:** `/cash` &nbsp;|&nbsp; **Router:** `routers/cash.py` &nbsp;|&nbsp;
+**Permission:** `cash`
+
+Daily reconciliation of cash drawers. A drawer is a named cash point
+(e.g., **Main Till**, **Workshop Petty Cash**). Exactly one drawer is the
+**default** (`auto_capture=1`) — it receives cash sales and cash
+expenses that aren't tagged to a specific drawer.
+
+**Reconciliation lifecycle.** `open → closed`. Per business date per
+drawer:
+
+| Step | What happens |
+|------|--------------|
+| **Open** | Captures the opening balance (defaults to yesterday's counted close). |
+| **Movements** | The day accumulates auto cash-in (cash payments), auto cash-out (cash expenses), and any manual cash-in / cash-out entries. |
+| **Close** | The cashier enters the counted cash. The system computes USD and LBP variances separately and freezes the figures. A variance ≥ $5 (or ≥ 100,000 LBP) raises a `cash_variance` notification (deduped 24 h). |
+
+USD and LBP are reconciled separately — never summed into a single
+number, because exchange rates fluctuate mid-day.
+
+---
+
+### 7.24 Manufacturing
+
+**URL:** `/manufacturing` &nbsp;|&nbsp;
+**Router:** `routers/manufacturing.py` &nbsp;|&nbsp;
+**Permission:** `manufacturing`
+
+Bills of materials and production orders, integrated with Inventory.
+
+**Product types.** Inventory items now carry a `product_type` column —
+`raw_material` / `semi_finished` / `finished` / `consumable`. Only
+finished / semi-finished items can be a BOM output.
+
+**Versioned BOMs.** `bom_group_id` groups every version of a recipe; the
+highest non-archived version is the **current** one used by new
+production orders. Each BOM line carries an optional `scrap_pct`
+allowance folded into the required quantity at order time. Sub-assemblies
+(a BOM output used as a component of another BOM) are supported with a
+depth limit of 8.
+
+**Production-order lifecycle.**
+`Draft → Confirmed → In Progress → Completed` (or `Cancelled`).
+
+| Transition | Side effects |
+|------------|--------------|
+| **Confirm** | Snapshots the BOM components (scaled by quantity + scrap) onto the order. Reserves raw materials on `inventory.reserved_quantity`. |
+| **Start** | No accounting impact — pure status change so the floor knows the order is in flight. |
+| **Complete** | Releases the reservation, consumes the **actual** quantities recorded by the operator (variance vs plan is captured per line), raises finished-goods stock at the frozen unit cost, posts `stock_movements`. All in one transaction — atomicity is preserved on shortage. |
+| **Cancel** | Releases any reservation; no stock or cost impact. |
+
+**Costing.** Weighted-average. Material is valued at the moving-average
+`inventory.unit_cost` at the moment of consumption — net of recoverable
+VAT — so manufacturing cost stays consistent with POS COGS and inventory
+valuation. The finished good's `unit_cost` is updated weighted-average on
+each completion. Producing goods posts **no expense** — it transforms
+raw-material inventory value into finished-goods value.
+
+---
+
+### 7.25 Fixed Assets
+
+**URL:** `/fixed-assets` &nbsp;|&nbsp;
+**Router:** `routers/assets.py` &nbsp;|&nbsp;
+**Permission:** `assets`
+
+Capital register with **straight-line depreciation** posted as expenses.
+
+**Asset states.** `Active → Fully Depreciated` (auto when the
+depreciable base reaches zero) or `Active → Disposed` (manual). A new
+**`Pending Approval`** state is set on creation when the seeded "Capex >
+$5k" approval policy triggers.
+
+**Depreciation.** Per month per asset, the system posts one row into the
+shared `expenses` table (category `Depreciation`, `fixed_asset_id` set)
+so the charge appears on the Finance P&L exactly like any other expense.
+Locked accounting periods stop the run cleanly at the first locked
+month rather than writing into a sealed period.
+
+**Disposal.** Stamps `disposal_date`, `disposal_proceeds` and computes
+the gain/loss against net book value. A rejected approval auto-stamps a
+same-day disposal with zero proceeds so the ledger stays internally
+consistent.
+
+---
+
+### 7.26 Recurring Expenses
+
+**URL:** Expenses → Recurring tab &nbsp;|&nbsp;
+**Router:** `routers/recurring.py` &nbsp;|&nbsp;
+**Permission:** `expenses`
+
+Templates that generate real `expenses` rows on a schedule. The template
+itself is never counted on the P&L — only the rows it produces are.
+
+**Frequencies.** `weekly`, `monthly`, `quarterly`, `annual`.
+
+**Cursor model.** `next_run_date` is advanced one frequency step at a
+time. It only ever moves forward, so running a template twice cannot
+double-post. A template paused on a locked accounting period stops
+cleanly at that month and reports it in `locked_stop`.
+
+**Tax snapshot.** Re-resolved on every iteration so a rate change between
+runs is respected for occurrences posted after the change — but never
+rewrites historical ones.
+
+---
+
 ## 8. Taxation & Multi-Currency
 
 ### 8.1 Tax Model
 
-When `tax_enabled = 1`, tax is computed **per line item** and rolled up to the document level.
+The tax engine has a **single canonical helper** (`utils.money()` —
+`Decimal` + `ROUND_HALF_UP`) and a **frozen per-line snapshot** invariant
+that runs through every module. The four resolvers in `backend/utils.py`
+share a `_pick_rate` core:
 
-- **Sales lines** (invoice & quotation items) and **purchases** use a **tax-exclusive base**: `tax_amount = net × rate / 100`, where `net` is the line amount before tax. A line falls back to the default rate when no (or an unknown) `tax_rate_id` is supplied.
-- **Expenses** use a **tax-inclusive (extraction) base**: the entered amount is the gross total paid, so VAT is *extracted* — `tax_amount = gross × rate / (100 + rate)`. An expense is tax-free unless a rate is explicitly selected (no default fallback).
-- Each line stores a **snapshot** of `tax_rate_id`, `tax_rate`, and the computed `tax_amount`, so changing a rate later never alters historical documents.
-- Documents store rolled-up totals: invoices keep `subtotal` + `tax_total` (`amount` remains the grand total); quotations keep `tax_total` (`total` remains the net subtotal).
-- The **VAT Report** (§7.14) aggregates output VAT (invoice tax) against input VAT (expense + purchase tax) for the selected period.
+| Helper | Used by | Base | Default fallback |
+|---|---|---|---|
+| `resolve_line_tax(ctx, rid, net)` | Invoices, Quotations, Purchases | **Exclusive** — `tax = net × rate / 100` | Yes |
+| `resolve_purchase_tax(...)` | Purchases | Same as `resolve_line_tax` | Yes |
+| `resolve_inclusive_tax(...)` | POS | **Inclusive** — `tax = gross × rate / (100 + rate)` | Yes |
+| `resolve_expense_tax(...)` | Expenses, Recurring expenses | Inclusive | **No** — an expense is tax-free unless a rate is explicitly chosen |
+
+**Rounding policy.** All persisted monetary amounts are quantised to 2 dp
+through `money()`. Lines are cent-rounded individually so that:
+
+```
+SUM(line.tax_amount) == document.tax_total
+```
+
+holds **exactly** for every document — no 1¢ drift on 30-line invoices.
+
+**Snapshot invariance.** Each line stores `tax_rate_id`, `tax_rate` (the
+rate value at the moment of write) and the computed `tax_amount`. Changing
+a rate in the `tax_rates` table — even deactivating it — never rewrites
+historical documents. Reports read these frozen columns; they never
+recompute against the live rate table.
+
+**Master switch.** `settings.tax_enabled` is the on/off flag. When off,
+every resolver short-circuits to `(None, 0.0, 0.0)` regardless of what
+clients send.
+
+**Document totals.**
+- Invoices: `subtotal` + `tax_total` (with `amount` = grand total). POS
+  invoices follow the same shape so VAT reports treat them identically.
+- Quotations: `total` (net subtotal) + `tax_total`.
+- Purchases: header `tax_amount`. Tax applies only to `quantity × unit_cost`,
+  not to additional shipping/customs costs.
+- Expenses: gross `amount` + extracted `tax_amount` (when a rate is chosen).
+
+**VAT report.** `/api/reports/vat` returns output / input / net VAT for the
+selected period plus a **per-rate breakdown** (`output_by_rate`,
+`input_by_rate`) — each bucket carries the taxable base + the VAT amount.
+A monthly timeline includes both base and VAT for the income and expense
+sides, so external reconciliations have everything they need.
+
+**Procurement → Expenses bridge.** A paid PO automatically posts a matching
+expense row carrying the *same tax snapshot*; the VAT report reads input
+VAT from expenses only, so PO input VAT is counted exactly once. Inventory
+`unit_cost` updates to the landed cost (goods + additional costs ÷ qty) —
+**net of recoverable VAT** — so manufacturing weighted-average costing
+pulls clean NET costs without ever touching tax math.
 
 ### 8.2 Multi-Currency
 
@@ -1361,19 +1586,6 @@ Interactive API documentation is available at:
 | GET | `/notifications/count` | Unread notification count |
 | PATCH | `/notifications/{id}/read` | Mark a notification as read |
 | POST | `/notifications/read-all` | Mark all notifications as read |
-
----
-
-### Recycle Bin
-
-| Method | Endpoint | Description |
-|--------|----------|-------------|
-| GET | `/recycle_bin/` | List all soft-deleted items (filterable by module, search, date) |
-| POST | `/recycle_bin/restore/{module}/{id}` | Restore a single item |
-| DELETE | `/recycle_bin/{module}/{id}` | Permanently delete a single item |
-| POST | `/recycle_bin/bulk-restore` | Restore multiple items at once |
-| POST | `/recycle_bin/bulk-purge` | Permanently delete multiple items at once |
-| DELETE | `/recycle_bin/purge-expired` | Permanently remove items soft-deleted more than 30 days ago |
 
 ---
 
@@ -2148,10 +2360,51 @@ An autouse `fresh_db` fixture rebuilds the SQLite database from scratch before *
 | `test_concurrency.py` | Optimistic locking, idempotent payments, simultaneous approvals |
 | `test_edge_cases.py` | Boundary inputs and error handling |
 | `test_tax_system.py` | Tax rate CRUD, default-rate invariants, per-line tax computation |
+| `test_tax_engine.py` | End-to-end tax regressions: cent-perfect reconciliation, mixed rates, snapshot invariance, POS refund, per-rate breakdown, PO→expense bridge, recurring rate refresh, net-of-VAT P&L |
 | `test_vat_report.py` | Output vs. input VAT aggregation |
+| `test_pos.py` | POS session lifecycle, checkout, refund, idempotency |
+| `test_cash.py` | Cash-drawer reconciliation, variance, auto-capture |
+| `test_manufacturing.py` | BOM costing, production-order lifecycle, scrap, atomicity on shortage |
 | `test_exchange_rate.py` | Manual exchange-rate recording and history |
 | `test_lbp_payment.py` | Secondary-currency (LBP) invoice payments and conversion |
 | `test_usb_backup.py` | Backup-to-folder export, checksum, and restore verification |
+
+Latest baseline: **431 passing, 1 skipped** across the whole suite.
+
+---
+
+## 15. Notifications
+
+The system emits in-app notifications to surface time-sensitive events
+without polling. They render in two places:
+
+- The bell icon in the topbar (with an animated badge for unread count).
+- The full Notifications page (`/notifications`) with filter tabs:
+  All / Unread / Finance / Inventory / CRM / **Approvals** / Tasks.
+
+**Types emitted today:**
+
+| Type | Triggered by | Body summarises |
+|------|--------------|-----------------|
+| `invoice_paid` | Full-payment of an invoice | Invoice # + amount |
+| `payment_received` | Any payment received | Invoice + amount + method |
+| `invoice_overdue` | Periodic check | Invoice # + days overdue |
+| `low_stock` | Stock dropping to/below `min_stock` (purchase, POS sale, production consumption) | Item + remaining qty + min. Dedup 24 h. |
+| `purchase_received` | PO marked Received | PO# + supplier + qty + value |
+| `quotation_accepted` | Quotation transitions into Accepted | Quote # + total |
+| `production_completed` | Production order completed | Order # + qty produced + total cost |
+| `asset_depreciated` | Bulk depreciation run posts something | Total amount + assets affected |
+| `cash_variance` | Cash reconciliation closed with `\|USD\|≥$5` or `\|LBP\|≥100,000` | Day + variance values. Dedup 24 h. |
+| `deal_won` / `deal_lost` | CRM deal stage transition | Title + value |
+| `lead_converted` | Lead → client conversion | Lead name + new client id |
+| `task_due_soon` | Periodic planning sweep | Task name + due date |
+| `approval_request` | A new approval step activates | Policy + entity label. Sent to every active user holding the step's role. |
+| `approval_approved` / `approval_rejected` | Request resolves | Sent to the original requester only. |
+| `system` | Generic catch-all | — |
+
+All notification types are styled with theme tokens (icon + colour) in
+both `Notifications.jsx` (full page) and `NotificationBell.jsx`
+(dropdown), so dark mode is supported without extra rules.
 
 ---
 

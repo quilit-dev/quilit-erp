@@ -3,7 +3,8 @@ import { useLocale } from '../hooks/useLocale.jsx';
 import { usePermissions } from '../hooks/usePermissions.js';
 import { useSettings } from '../hooks/useSettings.jsx';
 import {
-  LoadingSpinner, ErrorAlert, EmptyState, Modal, ConfirmModal, DualMoney, toast,
+  LoadingSpinner, ErrorAlert, EmptyState, Modal, ConfirmModal,
+  DisplayCurrencyToggle, ExportButton, fmt, secondaryAmount, toast,
 } from '../components/shared';
 import {
   getBoms, getBom, getBomVersions, createBom, updateBom, createBomVersion, archiveBom,
@@ -14,6 +15,17 @@ import {
 } from '../api/client';
 
 const num = (v) => new Intl.NumberFormat('en-US', { maximumFractionDigits: 4 }).format(Number(v) || 0);
+
+// Single-currency money display — shows USD or LBP based on the page-header
+// DisplayCurrencyToggle. Replaces DualMoney here so the user sees one figure
+// at a time instead of "USD ≈ LBP" stacked together.
+function Money({ value }) {
+  const { exchangeRate, displayCurrency } = useSettings();
+  if (displayCurrency === 'LBP' && exchangeRate?.rate) {
+    return <span>{secondaryAmount(value, exchangeRate)}</span>;
+  }
+  return <span>{fmt(value)}</span>;
+}
 
 const OUTPUT_TYPES = ['finished', 'semi_finished'];
 
@@ -156,7 +168,7 @@ function BomModal({ mode, bom, products, onClose, onSaved }) {
           </div>
           <div className="form-group">
             <label className="form-label">{t('manufacturing.batchYield')}</label>
-            <input className="form-control" type="number" step="any" min="0.0001" value={yieldQty}
+            <input className="form-control" type="number" step="1" min="1" value={yieldQty}
               onChange={e => setYieldQty(e.target.value)} />
           </div>
           <div className="form-group">
@@ -194,7 +206,7 @@ function BomModal({ mode, bom, products, onClose, onSaved }) {
                   </select>
                 </td>
                 <td>
-                  <input className="form-control" style={{ height: 32 }} type="number" step="any" min="0"
+                  <input className="form-control" style={{ height: 32 }} type="number" step="1" min="1"
                     value={l.quantity} onChange={e => setLine(l.key, { quantity: e.target.value })} />
                 </td>
                 <td>
@@ -292,8 +304,8 @@ function BomDetailModal({ bomId, canEdit, canDelete, onClose, onEdit, onNewVersi
                       )}
                     </td>
                     <td style={{ textAlign: 'end' }}>{num(c.effective_quantity)}</td>
-                    <td style={{ textAlign: 'end' }}><DualMoney value={c.unit_cost} block={false} /></td>
-                    <td style={{ textAlign: 'end' }}><DualMoney value={c.line_cost} block={false} /></td>
+                    <td style={{ textAlign: 'end' }}><Money value={c.unit_cost} /></td>
+                    <td style={{ textAlign: 'end' }}><Money value={c.line_cost} /></td>
                   </tr>
                 ))}
               </tbody>
@@ -301,20 +313,20 @@ function BomDetailModal({ bomId, canEdit, canDelete, onClose, onEdit, onNewVersi
 
             <div style={{ borderTop: '1px solid var(--border)', marginTop: 8, paddingTop: 8, fontSize: 13 }}>
               <div style={{ display: 'flex', justifyContent: 'space-between' }}>
-                <span>{t('manufacturing.materialsCost')}</span><DualMoney value={bom.material_cost} block={false} />
+                <span>{t('manufacturing.materialsCost')}</span><Money value={bom.material_cost} />
               </div>
               <div style={{ display: 'flex', justifyContent: 'space-between', color: 'var(--text-3)' }}>
-                <span>{t('manufacturing.laborCost')}</span><DualMoney value={bom.labor_cost} block={false} />
+                <span>{t('manufacturing.laborCost')}</span><Money value={bom.labor_cost} />
               </div>
               <div style={{ display: 'flex', justifyContent: 'space-between', color: 'var(--text-3)' }}>
-                <span>{t('manufacturing.overheadCost')}</span><DualMoney value={bom.overhead_cost} block={false} />
+                <span>{t('manufacturing.overheadCost')}</span><Money value={bom.overhead_cost} />
               </div>
               <div style={{ display: 'flex', justifyContent: 'space-between', fontWeight: 700, marginTop: 2 }}>
-                <span>{t('manufacturing.batchCost')}</span><DualMoney value={bom.batch_cost} block={false} />
+                <span>{t('manufacturing.batchCost')}</span><Money value={bom.batch_cost} />
               </div>
               <div style={{ display: 'flex', justifyContent: 'space-between', color: 'var(--accent)', fontWeight: 600 }}>
                 <span>{t('manufacturing.unitCost')}</span>
-                <span><DualMoney value={bom.unit_cost} block={false} /> {t('manufacturing.perUnit')}</span>
+                <span><Money value={bom.unit_cost} /> {t('manufacturing.perUnit')}</span>
               </div>
             </div>
 
@@ -408,12 +420,12 @@ function OrderModal({ boms, initialBom, onClose, onCreated }) {
         </div>
         {bom && (
           <p style={{ fontSize: 12, color: 'var(--text-3)', margin: '0 0 8px' }}>
-            {t('manufacturing.unitCost')}: <DualMoney value={bom.unit_cost} block={false} /> {t('manufacturing.perUnit')}
+            {t('manufacturing.unitCost')}: <Money value={bom.unit_cost} /> {t('manufacturing.perUnit')}
           </p>
         )}
         <div className="form-group">
           <label className="form-label">{t('manufacturing.quantityToProduce')}</label>
-          <input className="form-control" type="number" step="any" min="0.0001" value={qty}
+          <input className="form-control" type="number" step="1" min="1" value={qty}
             onChange={e => setQty(e.target.value)} autoFocus />
         </div>
         <div className="form-grid">
@@ -502,11 +514,11 @@ function CompleteModal({ order, onClose, onDone }) {
                 <td>{r.name}</td>
                 <td style={{ textAlign: 'end', color: 'var(--text-3)' }}>{num(r.required)}</td>
                 <td>
-                  <input className="form-control" style={{ height: 32 }} type="number" step="any" min="0"
+                  <input className="form-control" style={{ height: 32 }} type="number" step="1" min="0"
                     value={r.consumed} onChange={e => setRow(r.id, { consumed: e.target.value })} />
                 </td>
                 <td>
-                  <input className="form-control" style={{ height: 32 }} type="number" step="any" min="0"
+                  <input className="form-control" style={{ height: 32 }} type="number" step="1" min="0"
                     value={r.scrapped} onChange={e => setRow(r.id, { scrapped: e.target.value })} />
                 </td>
               </tr>
@@ -516,7 +528,7 @@ function CompleteModal({ order, onClose, onDone }) {
         <div className="form-grid" style={{ marginTop: 10 }}>
           <div className="form-group">
             <label className="form-label">{t('manufacturing.quantityProduced')}</label>
-            <input className="form-control" type="number" step="any" min="0.0001" value={produced}
+            <input className="form-control" type="number" step="1" min="1" value={produced}
               onChange={e => setProduced(e.target.value)} />
           </div>
           <div className="form-group">
@@ -634,7 +646,7 @@ function OrderDetailModal({ orderId, canEdit, canDelete, onClose, onChanged }) {
                         </td>
                       )}
                       {isCompleted && <td style={{ textAlign: 'end', color: 'var(--text-3)' }}>{num(it.quantity_scrapped)}</td>}
-                      {isCompleted && <td style={{ textAlign: 'end' }}><DualMoney value={it.line_cost} block={false} /></td>}
+                      {isCompleted && <td style={{ textAlign: 'end' }}><Money value={it.line_cost} /></td>}
                     </tr>
                   ))}
                 </tbody>
@@ -644,27 +656,27 @@ function OrderDetailModal({ orderId, canEdit, canDelete, onClose, onChanged }) {
             <div style={{ borderTop: '1px solid var(--border)', marginTop: 8, paddingTop: 8, fontSize: 13 }}>
               <div style={{ display: 'flex', justifyContent: 'space-between' }}>
                 <span>{t('manufacturing.materialsCost')}</span>
-                <DualMoney value={order.materials_cost} block={false} />
+                <Money value={order.materials_cost} />
               </div>
               <div style={{ display: 'flex', justifyContent: 'space-between', color: 'var(--text-3)' }}>
-                <span>{t('manufacturing.laborCost')}</span><DualMoney value={order.labor_cost} block={false} />
+                <span>{t('manufacturing.laborCost')}</span><Money value={order.labor_cost} />
               </div>
               <div style={{ display: 'flex', justifyContent: 'space-between', color: 'var(--text-3)' }}>
-                <span>{t('manufacturing.overheadCost')}</span><DualMoney value={order.overhead_cost} block={false} />
+                <span>{t('manufacturing.overheadCost')}</span><Money value={order.overhead_cost} />
               </div>
               {isCompleted && order.scrap_cost > 0 && (
                 <div style={{ display: 'flex', justifyContent: 'space-between', color: 'var(--red)' }}>
-                  <span>{t('manufacturing.scrapCost')}</span><DualMoney value={order.scrap_cost} block={false} />
+                  <span>{t('manufacturing.scrapCost')}</span><Money value={order.scrap_cost} />
                 </div>
               )}
               <div style={{ display: 'flex', justifyContent: 'space-between', fontWeight: 700, marginTop: 2 }}>
-                <span>{t('manufacturing.totalCost')}</span><DualMoney value={order.total_cost} block={false} />
+                <span>{t('manufacturing.totalCost')}</span><Money value={order.total_cost} />
               </div>
               {isCompleted && (
                 <>
                   <div style={{ display: 'flex', justifyContent: 'space-between', color: 'var(--accent)', fontWeight: 600 }}>
                     <span>{t('manufacturing.unitCost')}</span>
-                    <span><DualMoney value={order.unit_cost} block={false} /> {t('manufacturing.perUnit')}</span>
+                    <span><Money value={order.unit_cost} /> {t('manufacturing.perUnit')}</span>
                   </div>
                   <div style={{ display: 'flex', justifyContent: 'space-between', color: 'var(--text-3)' }}>
                     <span>{t('manufacturing.outputPlannedVsActual')}</span>
@@ -768,6 +780,15 @@ function OrdersView({ canCreate, canEdit, canDelete, boms, refreshKey, bump }) {
   }, [statusFilter]);
   useEffect(() => { load(); }, [load, refreshKey]);
 
+  const exportData = (rows || []).map(o => ({
+    Order:      o.order_number,
+    Product:    o.output_name,
+    Quantity:   o.quantity_produced ?? o.quantity,
+    Status:     o.status,
+    Total_Cost: o.status === 'Completed' ? (o.total_cost || 0) : '',
+    Created:    fmtDate(o.created_at),
+  }));
+
   return (
     <div>
       <div style={{ display: 'flex', gap: 8, marginBottom: 12, alignItems: 'center', flexWrap: 'wrap' }}>
@@ -782,6 +803,11 @@ function OrdersView({ canCreate, canEdit, canDelete, boms, refreshKey, bump }) {
             <option key={s} value={s}>{t(`manufacturing.st_${s.replace(/ /g, '')}`)}</option>
           ))}
         </select>
+        {rows && rows.length > 0 && (
+          <div style={{ marginInlineStart: 'auto' }}>
+            <ExportButton data={exportData} filename="Production_Orders" sheetName="Orders" />
+          </div>
+        )}
       </div>
       {error && <ErrorAlert message={error} onRetry={load} />}
       {!rows && !error && <LoadingSpinner />}
@@ -808,7 +834,7 @@ function OrdersView({ canCreate, canEdit, canDelete, boms, refreshKey, bump }) {
                     <td>{o.output_name}</td>
                     <td>{num(o.quantity_produced ?? o.quantity)}</td>
                     <td><StatusPill status={o.status} /></td>
-                    <td>{o.status === 'Completed' ? <DualMoney value={o.total_cost} block={false} /> : '—'}</td>
+                    <td>{o.status === 'Completed' ? <Money value={o.total_cost} /> : '—'}</td>
                     <td style={{ whiteSpace: 'nowrap' }}>{fmtDate(o.created_at)}</td>
                     <td onClick={e => e.stopPropagation()}>
                       <button className="btn btn-secondary btn-sm" onClick={() => setDetailId(o.id)}>
@@ -883,8 +909,8 @@ function BomsView({ canCreate, canEdit, canDelete, products, refreshKey, bump })
                     <td>{b.output_name} <TypeTag type={b.output_product_type} /></td>
                     <td>v{b.version}</td>
                     <td>{b.component_count}</td>
-                    <td><DualMoney value={b.batch_cost} block={false} /></td>
-                    <td><DualMoney value={b.unit_cost} block={false} /></td>
+                    <td><Money value={b.batch_cost} /></td>
+                    <td><Money value={b.unit_cost} /></td>
                     <td onClick={e => e.stopPropagation()}>
                       <button className="btn btn-secondary btn-sm" onClick={() => setDetailId(b.id)}>
                         {t('common.view')}
@@ -958,14 +984,17 @@ export default function Manufacturing() {
       <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center',
                     flexWrap: 'wrap', gap: 8, marginBottom: 4 }}>
         <h2 style={{ margin: 0 }}>{t('manufacturing.title')}</h2>
-        <div style={{ display: 'flex', gap: 4 }}>
-          {tabs.map(tb => (
-            <button key={tb.key}
-              className={`btn btn-sm ${view === tb.key ? 'btn-primary' : 'btn-secondary'}`}
-              onClick={() => setView(tb.key)}>
-              {tb.label}
-            </button>
-          ))}
+        <div style={{ display: 'flex', gap: 8, alignItems: 'center' }}>
+          <DisplayCurrencyToggle />
+          <div style={{ display: 'flex', gap: 4 }}>
+            {tabs.map(tb => (
+              <button key={tb.key}
+                className={`btn btn-sm ${view === tb.key ? 'btn-primary' : 'btn-secondary'}`}
+                onClick={() => setView(tb.key)}>
+                {tb.label}
+              </button>
+            ))}
+          </div>
         </div>
       </div>
       <p style={{ color: 'var(--text-3)', fontSize: 13, margin: '0 0 16px' }}>{t('manufacturing.subtitle')}</p>
@@ -976,7 +1005,7 @@ export default function Manufacturing() {
             <div key={k.label} className="stat-card" style={{ padding: '12px 14px' }}>
               <div className="stat-label" style={{ fontSize: 11 }}>{k.label}</div>
               <div style={{ fontSize: 18, fontWeight: 700, marginTop: 2 }}>
-                {k.money ? <DualMoney value={k.value} block={false} /> : k.value}
+                {k.money ? <Money value={k.value} /> : k.value}
               </div>
             </div>
           ))}

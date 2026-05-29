@@ -2,6 +2,11 @@
 Settings — single-row configuration table.
 Covers: Company Info, Financial Defaults, Document Preferences.
 Backup/Restore endpoints are also here.
+
+Note: `enabled_modules` is NOT a settings-table field. It lives in
+`backend/vendor_config.py` as a compile-time constant so a customer can't
+flip it from a running ERP. The GET endpoint here surfaces it for the
+Sidebar to read, but no write path accepts the field.
 """
 from fastapi import APIRouter, Depends, HTTPException, UploadFile, File
 from fastapi.responses import FileResponse
@@ -10,6 +15,7 @@ from typing import Optional
 from database import get_db, DB_PATH
 from permissions import require_auth, require_admin
 from utils import _now
+import vendor_config
 import sqlite3, os, shutil, tempfile, sys
 
 router = APIRouter()
@@ -41,6 +47,12 @@ DEFAULTS = {
     "payment_terms_days":  "15",
     "invoice_prefix":      "INV-",
     "quotation_prefix":    "QTN-",
+    "contract_prefix":     "CTR-",
+    # Payroll defaults — all 0 = no tax / no NSSF (opt-in per install).
+    "payroll_tax_pct":              "0",
+    "payroll_nssf_employee_pct":    "0",
+    "payroll_nssf_employer_pct":    "0",
+    "payroll_overtime_multiplier":  "1.5",
     # Document
     "footer_text":         "Thank you for your business.",
     "show_discount_col":   "0",
@@ -71,9 +83,21 @@ class SettingsUpdate(BaseModel):
     payment_terms_days: Optional[str] = None
     invoice_prefix:     Optional[str] = None
     quotation_prefix:   Optional[str] = None
+    contract_prefix:    Optional[str] = None
+    payroll_tax_pct:             Optional[str] = None
+    payroll_nssf_employee_pct:   Optional[str] = None
+    payroll_nssf_employer_pct:   Optional[str] = None
+    payroll_overtime_multiplier: Optional[str] = None
     footer_text:        Optional[str] = None
     show_discount_col:  Optional[str] = None
     show_tax_col:       Optional[str] = None
+    # `enabled_modules` is deliberately absent — it lives in vendor_config.py
+    # as an immutable constant. A PUT body containing it is rejected by
+    # pydantic with 422 ("extra field not permitted") via model_config below.
+
+    # Pydantic v2 — reject unknown fields outright (e.g. enabled_modules) so
+    # the caller gets an immediate 422 instead of silently dropping the field.
+    model_config = {"extra": "forbid"}
 
 
 # ── Helpers ───────────────────────────────────────────────────────────────────
@@ -93,6 +117,11 @@ def _get_all(db: sqlite3.Connection) -> dict:
     data = {**DEFAULTS}
     for r in rows:
         data[r["key"]] = r["value"]
+    # `enabled_modules` is sourced from the immutable build-time constant,
+    # not the settings table. Any stale row in the DB (e.g. from a pre-080
+    # install) is overwritten here so the API only ever reports the value
+    # baked into this build.
+    data["enabled_modules"] = vendor_config.ENABLED_MODULES
     return data
 
 def _set_keys(db: sqlite3.Connection, updates: dict):
@@ -120,6 +149,9 @@ def update_settings(
     user=Depends(require_admin),
     db: sqlite3.Connection = Depends(get_db),
 ):
+    # `enabled_modules` cannot reach this handler — it's not declared on
+    # SettingsUpdate, and the model rejects unknown fields outright. The
+    # immutable source of truth is vendor_config.ENABLED_MODULES.
     updates = {k: v for k, v in body.dict().items() if v is not None}
     _set_keys(db, updates)
     return _get_all(db)
@@ -359,6 +391,21 @@ def complete_setup(body: CompleteSetupRequest, db: sqlite3.Connection = Depends(
         raise HTTPException(403, "Setup already completed.")
     if len(body.admin_password) < 8:
         raise HTTPException(400, "Password must be at least 8 characters.")
+
+    # If the database file was deleted while the server was running, a new empty
+    # file gets created on the next request and the wizard's status check
+    # auto-creates only the `settings` table — leaving the rest of the schema
+    # (including `users`) absent. Detect that half-initialised state and return
+    # a clean, actionable error instead of a raw 500: a restart re-runs init_db
+    # and recreates everything.
+    if not db.execute(
+        "SELECT 1 FROM sqlite_master WHERE type='table' AND name='users'"
+    ).fetchone():
+        raise HTTPException(
+            503,
+            "The database isn't fully initialised yet. Please restart the "
+            "application, then complete setup.",
+        )
 
     # Update admin password and clear must_change_password
     from auth_utils import hash_password

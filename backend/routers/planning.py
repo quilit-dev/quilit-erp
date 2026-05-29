@@ -8,7 +8,7 @@ from typing import Optional
 from database import get_db
 from permissions import require_perm
 from routers.audit import log_action
-from utils import _now
+from utils import _now, notify
 import sqlite3
 
 router = APIRouter()
@@ -34,7 +34,10 @@ class ProjectUpdate(BaseModel):
     status: Optional[str] = None
 
 class TaskCreate(BaseModel):
-    project_id: int
+    # project_id is optional — tasks without a specific project are bucketed
+    # under a shared "(General)" project that's auto-created on first need.
+    # Pre-existing rows that always had a project keep working unchanged.
+    project_id: Optional[int] = None
     name: str
     description: Optional[str] = None
     assigned_to: Optional[int] = None
@@ -81,6 +84,35 @@ class MilestoneUpdate(BaseModel):
     name: Optional[str] = None
     due_date: Optional[str] = None
     reached_at: Optional[str] = None
+
+# Standalone planning events — shown in the Planning > Calendar view. These
+# are independent of projects/tasks: meetings, reminders, deadlines, etc.
+class EventCreate(BaseModel):
+    title:        str
+    description:  Optional[str] = None
+    start_date:   str                          # required, 'YYYY-MM-DD'
+    end_date:     Optional[str] = None         # nullable; defaults to start_date
+    start_time:   Optional[str] = None         # 'HH:MM'
+    end_time:     Optional[str] = None         # 'HH:MM'
+    all_day:      Optional[int] = 1
+    color:        Optional[str] = None
+    # Optional attendee list. Active user IDs; the creator is implicit and
+    # need not be included. When non-empty, each non-self attendee receives
+    # a notification on create / on being added in an update.
+    attendees:    Optional[list[int]] = None
+
+class EventUpdate(BaseModel):
+    title:        Optional[str] = None
+    description:  Optional[str] = None
+    start_date:   Optional[str] = None
+    end_date:     Optional[str] = None
+    start_time:   Optional[str] = None
+    end_time:     Optional[str] = None
+    all_day:      Optional[int] = None
+    color:        Optional[str] = None
+    # Full replacement of the attendee list — pass [] to clear it. Only the
+    # newly added attendees are notified to avoid resending invites.
+    attendees:    Optional[list[int]] = None
 
 # ─── Helper ─────────────────────────────────────────────────────────────────
 
@@ -238,22 +270,54 @@ def list_tasks(
     return [dict(r) for r in rows]
 
 
+def _ensure_general_project(db: sqlite3.Connection) -> int:
+    """
+    Return the id of the shared "(General)" project — a single bucket that
+    holds tasks not tied to any specific project. Auto-created on first
+    need. The leading parenthesis sorts it ahead of normal project names
+    alphabetically and makes it visually clear in dropdowns that it's a
+    catch-all, not a real project.
+    """
+    row = db.execute(
+        "SELECT id FROM planning_projects WHERE name='(General)' AND archived_at IS NULL"
+    ).fetchone()
+    if row:
+        return row["id"]
+    cur = db.execute(
+        """INSERT INTO planning_projects (name, description, color, status, created_at)
+           VALUES (?, ?, ?, ?, ?)""",
+        ("(General)", "Tasks not tied to a specific project.",
+         "#6B7280", "Active", _now()),
+    )
+    return cur.lastrowid
+
+
 @router.post("/tasks")
 def create_task(
     body: TaskCreate,
     user=Depends(require_perm("planning", "create")),
     db: sqlite3.Connection = Depends(get_db),
 ):
-    proj = db.execute("SELECT id FROM planning_projects WHERE id=? AND archived_at IS NULL", (body.project_id,)).fetchone()
-    if not proj:
-        raise HTTPException(status_code=404, detail="Project not found")
+    # When the caller didn't pick a project, route the task into the shared
+    # "(General)" bucket. The bucket is created lazily so installs that
+    # never use the feature don't accumulate an empty placeholder project.
+    project_id = body.project_id
+    if not project_id:
+        project_id = _ensure_general_project(db)
+    else:
+        proj = db.execute(
+            "SELECT id FROM planning_projects WHERE id=? AND archived_at IS NULL",
+            (project_id,),
+        ).fetchone()
+        if not proj:
+            raise HTTPException(status_code=404, detail="Project not found")
     now = _now()
     cur = db.execute(
         """INSERT INTO planning_tasks
            (project_id, name, description, assigned_to, status, priority,
             start_date, end_date, progress, milestone_id, depends_on, color, sort_order, created_at)
            VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?)""",
-        (body.project_id, body.name, body.description, body.assigned_to,
+        (project_id, body.name, body.description, body.assigned_to,
          body.status or "To Do", body.priority or "Medium",
          body.start_date, body.end_date, body.progress or 0,
          body.milestone_id, body.depends_on, body.color, body.sort_order or 0, now)
@@ -500,3 +564,275 @@ def planning_summary(
         "overdue_tasks":   overdue_tasks,
         "in_progress":     in_progress,
     }
+
+
+# ─── Calendar events ────────────────────────────────────────────────────────
+# Standalone events shown only in the Planning > Calendar view. Decoupled
+# from projects/tasks on purpose — the calendar is for meetings, reminders
+# and deadlines a user wants to plan, not for re-rendering Gantt content.
+
+@router.get("/events")
+def list_events(
+    start: Optional[str] = Query(None, description="Window start (YYYY-MM-DD)"),
+    end:   Optional[str] = Query(None, description="Window end (YYYY-MM-DD)"),
+    user=Depends(require_perm("planning", "view")),
+    db: sqlite3.Connection = Depends(get_db),
+):
+    """
+    Return active (non-archived) events visible to the calling user.
+    An event is visible when the user is its owner OR is listed in its
+    `attendees` CSV — so HR's applicant calls, a manager's 1:1s and other
+    personal/private meetings stay scoped to the people involved instead of
+    leaking to every teammate with planning-view permission.
+
+    If start/end are provided the result is also filtered to events that
+    *overlap* the window (effective end ≥ start AND start_date ≤ end).
+    """
+    # Attendees is a CSV like "3,5,7" — wrapping with commas on both sides
+    # lets a single LIKE pattern match the user-id whether it's the first,
+    # middle or last token without false-positives on substrings (e.g. user
+    # id 3 should NOT match attendees "13,30").
+    uid = int(user["id"])
+    attendee_like = f"%,{uid},%"
+
+    sql  = ("SELECT id, title, description, start_date, end_date, "
+            "start_time, end_time, all_day, color, owner_id, owner_name, "
+            "attendees, created_at, updated_at "
+            "FROM planning_events "
+            "WHERE archived_at IS NULL "
+            "  AND (owner_id = ? "
+            "       OR (',' || COALESCE(attendees, '') || ',') LIKE ?)")
+    args = [uid, attendee_like]
+    if start and end:
+        sql += " AND COALESCE(end_date, start_date) >= ? AND start_date <= ?"
+        args += [start, end]
+    sql += " ORDER BY start_date, COALESCE(start_time, '00:00'), id"
+    rows = db.execute(sql, args).fetchall()
+    out = []
+    for r in rows:
+        d = dict(r)
+        d["attendees"] = _parse_attendees(d.get("attendees"))
+        out.append(d)
+    return out
+
+
+# ── Attendee helpers ────────────────────────────────────────────────────────
+# Stored as a CSV of integer user IDs. The CSV layout is easy to query
+# ("contains user X"), survives migration cleanly (TEXT column), and avoids
+# pulling in JSON1 in case an older SQLite is in the field.
+
+def _parse_attendees(raw):
+    """'3,5,7' → [3, 5, 7]. Empty / None → []. Bad tokens skipped."""
+    if not raw:
+        return []
+    out = []
+    for tok in str(raw).split(","):
+        tok = tok.strip()
+        if tok.isdigit():
+            out.append(int(tok))
+    return out
+
+
+def _normalise_attendees(db, user_id_self, attendee_ids):
+    """
+    Validate and dedupe a list of attendee IDs.
+    - Strips the creator (no point notifying the owner).
+    - Filters to active, non-deleted users.
+    - Preserves order; returns the cleaned list.
+    Raises 400 if any of the supplied IDs do not match a real active user.
+    """
+    if not attendee_ids:
+        return []
+    cleaned = []
+    seen = set()
+    for uid in attendee_ids:
+        if not isinstance(uid, int) or uid in seen or uid == user_id_self:
+            continue
+        seen.add(uid)
+        cleaned.append(uid)
+    if not cleaned:
+        return []
+    rows = db.execute(
+        f"SELECT id FROM users WHERE is_active=1 AND deleted_at IS NULL "
+        f"AND id IN ({','.join('?' for _ in cleaned)})",
+        cleaned,
+    ).fetchall()
+    valid = {r["id"] for r in rows}
+    missing = set(cleaned) - valid
+    if missing:
+        raise HTTPException(
+            status_code=400,
+            detail=f"Unknown or inactive user IDs: {sorted(missing)}",
+        )
+    return [uid for uid in cleaned if uid in valid]
+
+
+def _notify_invitees(db, *, event_id, title, date, owner_name, invitee_ids):
+    """Fire one notification per newly-invited user."""
+    if not invitee_ids:
+        return
+    snippet = f"{owner_name} invited you to '{title}' on {date}."
+    for uid in invitee_ids:
+        notify(
+            db,
+            user_id=uid,
+            type="planning_event",
+            title=f"📅 {title}",
+            body=snippet,
+            link="/planning",
+            entity_type="planning_event",
+            entity_id=event_id,
+        )
+
+
+@router.post("/events")
+def create_event(
+    body: EventCreate,
+    user=Depends(require_perm("planning", "create")),
+    db: sqlite3.Connection = Depends(get_db),
+):
+    if not body.title or not body.title.strip():
+        raise HTTPException(status_code=400, detail="Title is required")
+    if not body.start_date:
+        raise HTTPException(status_code=400, detail="Start date is required")
+    if body.end_date and body.end_date < body.start_date:
+        raise HTTPException(status_code=400, detail="End date cannot be earlier than start date")
+
+    now = _now()
+    all_day = 1 if (body.all_day is None or body.all_day) else 0
+    # When all_day, ignore any time values so we never store stale times that
+    # are hidden in the UI.
+    start_time = None if all_day else body.start_time
+    end_time   = None if all_day else body.end_time
+
+    attendees_clean = _normalise_attendees(db, user["id"], body.attendees or [])
+    attendees_csv = ",".join(str(i) for i in attendees_clean) or None
+
+    cur = db.execute(
+        """INSERT INTO planning_events
+           (title, description, start_date, end_date, start_time, end_time,
+            all_day, color, owner_id, owner_name, attendees, created_at)
+           VALUES (?,?,?,?,?,?,?,?,?,?,?,?)""",
+        (body.title.strip(), body.description, body.start_date, body.end_date,
+         start_time, end_time, all_day, body.color,
+         user["id"], user.get("full_name") or user.get("username"),
+         attendees_csv, now),
+    )
+    eid = cur.lastrowid
+    # Notify each attendee before committing — keeps the side-effect in the
+    # same transaction so we never end up with an event and a missing batch
+    # of notifications (or vice versa).
+    _notify_invitees(
+        db,
+        event_id=eid,
+        title=body.title.strip(),
+        date=body.start_date,
+        owner_name=user.get("full_name") or user.get("username") or "Someone",
+        invitee_ids=attendees_clean,
+    )
+    db.commit()
+    log_action(db, user, "create", "planning_event", eid, body.title)
+    return {"id": eid, "message": "Event created",
+            "attendees_notified": len(attendees_clean)}
+
+
+@router.put("/events/{eid}")
+def update_event(
+    eid: int,
+    body: EventUpdate,
+    user=Depends(require_perm("planning", "edit")),
+    db: sqlite3.Connection = Depends(get_db),
+):
+    row = db.execute(
+        "SELECT id, title, start_date, end_date, all_day, attendees, owner_id, owner_name "
+        "FROM planning_events WHERE id=? AND archived_at IS NULL", (eid,)
+    ).fetchone()
+    if not row:
+        raise HTTPException(status_code=404, detail="Event not found")
+    # Only the owner can mutate an event — attendees see it but can't edit.
+    # Mirrors how every common calendar tool (Google, Outlook) behaves and
+    # keeps the visibility rule and the mutation rule in sync.
+    if row["owner_id"] != user["id"] and not user.get("is_superadmin"):
+        raise HTTPException(status_code=403, detail="Only the event owner can edit this event")
+
+    # Resolve end vs start consistency on the merged values.
+    merged_start = body.start_date if body.start_date is not None else row["start_date"]
+    merged_end   = body.end_date   if body.end_date   is not None else row["end_date"]
+    if merged_end and merged_end < merged_start:
+        raise HTTPException(status_code=400, detail="End date cannot be earlier than start date")
+
+    # If switching to all-day, blank out the time fields.
+    if body.all_day is not None and body.all_day:
+        body.start_time = ""
+        body.end_time   = ""
+
+    # Attendee handling — only touched when the caller explicitly passes the
+    # field. Diff against the existing CSV so we notify ONLY users newly
+    # added, never re-notifying everyone on every edit.
+    new_attendees_csv = None     # Sentinel: don't update the column
+    new_invitee_ids   = []
+    if body.attendees is not None:
+        cleaned = _normalise_attendees(db, user["id"], body.attendees)
+        existing = set(_parse_attendees(row["attendees"]))
+        new_invitee_ids = [uid for uid in cleaned if uid not in existing]
+        new_attendees_csv = ",".join(str(i) for i in cleaned) or ""
+
+    db.execute(
+        """UPDATE planning_events SET
+              title       = COALESCE(?, title),
+              description = COALESCE(?, description),
+              start_date  = COALESCE(?, start_date),
+              end_date    = COALESCE(?, end_date),
+              start_time  = CASE WHEN ? IS NULL THEN start_time
+                                 WHEN ? = '' THEN NULL ELSE ? END,
+              end_time    = CASE WHEN ? IS NULL THEN end_time
+                                 WHEN ? = '' THEN NULL ELSE ? END,
+              all_day     = COALESCE(?, all_day),
+              color       = COALESCE(?, color),
+              attendees   = CASE WHEN ? IS NULL THEN attendees
+                                 WHEN ? = '' THEN NULL ELSE ? END,
+              updated_at  = ?
+           WHERE id = ?""",
+        (
+            body.title, body.description, body.start_date, body.end_date,
+            body.start_time, body.start_time, body.start_time,
+            body.end_time,   body.end_time,   body.end_time,
+            body.all_day, body.color,
+            new_attendees_csv, new_attendees_csv, new_attendees_csv,
+            _now(), eid,
+        ),
+    )
+
+    # Only ping users that weren't already on the invite list.
+    _notify_invitees(
+        db,
+        event_id=eid,
+        title=body.title or row["title"],
+        date=body.start_date or row["start_date"],
+        owner_name=row["owner_name"] or "Someone",
+        invitee_ids=new_invitee_ids,
+    )
+    db.commit()
+    log_action(db, user, "edit", "planning_event", eid, body.title or str(eid))
+    return {"message": "Event updated",
+            "attendees_notified": len(new_invitee_ids)}
+
+
+@router.delete("/events/{eid}")
+def delete_event(
+    eid: int,
+    user=Depends(require_perm("planning", "delete")),
+    db: sqlite3.Connection = Depends(get_db),
+):
+    """Soft-delete (sets archived_at). The list endpoint already filters those out."""
+    row = db.execute(
+        "SELECT id, title, owner_id FROM planning_events WHERE id=? AND archived_at IS NULL", (eid,)
+    ).fetchone()
+    if not row:
+        raise HTTPException(status_code=404, detail="Event not found")
+    if row["owner_id"] != user["id"] and not user.get("is_superadmin"):
+        raise HTTPException(status_code=403, detail="Only the event owner can delete this event")
+    db.execute("UPDATE planning_events SET archived_at = ? WHERE id = ?", (_now(), eid))
+    db.commit()
+    log_action(db, user, "delete", "planning_event", eid, row["title"])
+    return {"message": "Event deleted"}

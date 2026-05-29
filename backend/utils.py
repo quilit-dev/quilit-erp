@@ -1,6 +1,8 @@
 """Shared utilities imported by all routers."""
 from datetime import datetime
 from decimal import Decimal, ROUND_HALF_UP
+from fastapi import HTTPException
+import math
 import sqlite3
 
 
@@ -157,11 +159,21 @@ def notify(
     entity_type: str = None,
     entity_id: int = None,
     dedup_hours: int = 0,
-) -> None:
+    deliver_at: str = None,
+) -> "Optional[int]":
     """
     Insert a notification row. Call BEFORE db.commit() to include in the same transaction.
-    dedup_hours > 0: skip insertion if an identical (type, entity_id) notification
-    was already created within that many hours (prevents repeat alerts).
+
+    dedup_hours > 0
+        Skip insertion if an identical (type, entity_id) notification was already
+        created within that many hours (prevents repeat alerts).
+    deliver_at
+        Optional 'YYYY-MM-DD HH:MM:SS' timestamp. The row is inserted now but the
+        notifications list endpoint hides it until the wall-clock catches up.
+        Used by reminder workflows (HR Activities) to schedule a future ping
+        without needing a background scheduler.
+
+    Returns the newly inserted notification id, or None on dedup-skip / error.
     """
     if dedup_hours > 0 and entity_id is not None:
         recent = db.execute(
@@ -171,16 +183,57 @@ def notify(
             (type, entity_id, f"-{dedup_hours} hours"),
         ).fetchone()
         if recent:
-            return
+            return None
     try:
-        db.execute(
+        cur = db.execute(
             """INSERT INTO notifications
-                   (user_id, type, title, body, link, entity_type, entity_id, is_read, created_at)
-               VALUES (?, ?, ?, ?, ?, ?, ?, 0, ?)""",
-            (user_id, type, title, body, link, entity_type, entity_id, _now()),
+                   (user_id, type, title, body, link, entity_type, entity_id,
+                    is_read, created_at, deliver_at)
+               VALUES (?, ?, ?, ?, ?, ?, ?, 0, ?, ?)""",
+            (user_id, type, title, body, link, entity_type, entity_id,
+             _now(), deliver_at),
         )
+        return cur.lastrowid
     except Exception:
-        pass  # never let a notification failure break the main operation
+        return None  # never let a notification failure break the main operation
 
 # Approval-workflow logic lives in approval_engine.py (policy evaluation,
 # workflow execution, notification routing and entity resolution).
+
+
+# ════════════════════════════════════════════════════════════════════════════
+# Inventory quantity validation
+# ════════════════════════════════════════════════════════════════════════════
+#
+# Business rule: inventory moves in whole units only — no fractional pieces
+# can be inserted, deducted, sold, purchased, produced or consumed. This is
+# enforced at every endpoint that touches stock so the rule can't be bypassed
+# by hitting a different router. Manufacturing's *derived* requirements are
+# rounded up via math.ceil (see routers/manufacturing.py); these helpers
+# guard the *user-supplied* quantities themselves.
+
+def _is_whole(v) -> bool:
+    """True iff v is a whole-number value (e.g. 3, 3.0, '3', '3.0')."""
+    try:
+        f = float(v)
+    except (TypeError, ValueError):
+        return False
+    if math.isnan(f) or math.isinf(f):
+        return False
+    # Tolerate the float-binary noise that creeps in via JSON (3.0000000004).
+    return abs(f - round(f)) < 1e-9
+
+
+def validate_int_qty(value, label: str = "Quantity") -> int:
+    """Validate a stock-affecting quantity is a whole number; return it as int.
+
+    Rejects fractional values with HTTP 400 — caller decides whether sign or
+    zero are acceptable for their context (POS quantity must be > 0; a stock
+    adjustment delta may be negative). The check is purely about *integrality*.
+    """
+    if value is None or not _is_whole(value):
+        raise HTTPException(
+            400,
+            f"{label} must be a whole number — inventory is tracked in whole units only."
+        )
+    return int(round(float(value)))

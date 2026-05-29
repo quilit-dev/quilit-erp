@@ -12,7 +12,9 @@ _SESSION_TIMEOUT = timedelta(minutes=30)
 
 MODULES = [
     'dashboard', 'clients', 'projects', 'quotations', 'invoices',
-    'inventory', 'purchases', 'suppliers', 'finance', 'expenses', 'reports', 'crm', 'planning', 'hr', 'pos', 'cash',
+    'inventory', 'purchases', 'suppliers', 'finance', 'expenses', 'reports', 'crm', 'planning',
+    'hr', 'hr_contracts', 'recruitment', 'hr_activities',
+    'pos', 'cash',
     'manufacturing', 'assets',
 ]
 ADMIN_MODULES = ['settings', 'users', 'roles', 'audit']
@@ -33,9 +35,12 @@ def _resolve_user(user: dict, db: sqlite3.Connection) -> dict:
     # column is unreliable, so `role_name` is the single source of truth used
     # for approval routing and any role-based logic.
     role_name = None
+    role_is_admin = False
     if row["role_id"]:
-        rr = db.execute("SELECT name FROM roles WHERE id=?", (row["role_id"],)).fetchone()
-        role_name = rr["name"] if rr else None
+        rr = db.execute("SELECT name, is_admin FROM roles WHERE id=?", (row["role_id"],)).fetchone()
+        if rr:
+            role_name = rr["name"]
+            role_is_admin = bool(rr["is_admin"])
 
     jti = user.get("jti")
     if jti:
@@ -59,10 +64,18 @@ def _resolve_user(user: dict, db: sqlite3.Connection) -> dict:
         db.execute("UPDATE user_sessions SET last_active=? WHERE id=?", (now, session["id"]))
         db.commit()
 
+    is_superadmin = bool(row["is_superadmin"])
     return {
         **user,
         "id":           int(user["sub"]),
-        "is_superadmin": bool(row["is_superadmin"]),
+        "is_superadmin": is_superadmin,
+        # `is_admin` = the role is flagged as an admin-tier role (e.g. "Business
+        # Owner"). `admin_access` = the caller can reach administrative surfaces
+        # (users/roles/settings/audit/backups) — either a vendor superadmin or
+        # an admin-tier role. Module installs stay superadmin-only (see
+        # require_superadmin), so admin_access deliberately does NOT unlock them.
+        "is_admin":      role_is_admin,
+        "admin_access":  is_superadmin or role_is_admin,
         "role_id":       row["role_id"],
         "role":          role_name or row["role"],
         "role_name":     role_name,
@@ -110,10 +123,30 @@ def require_admin(
     user: dict = Depends(get_current_user),
     db:   sqlite3.Connection = Depends(get_db),
 ) -> dict:
-    """Require superadmin. Used for user/role management and system settings."""
+    """
+    Require administrative access — a vendor superadmin OR an admin-tier role
+    (e.g. "Business Owner"). Used for user/role management, system settings,
+    audit and backups. NOTE: this does NOT grant the module-marketplace
+    surfaces (Module Requests + enabled_modules) — those use require_superadmin.
+    """
+    resolved = _resolve_user(user, db)
+    if not resolved["admin_access"]:
+        raise HTTPException(status_code=403, detail="Administrator access required.")
+    return resolved
+
+
+def require_superadmin(
+    user: dict = Depends(get_current_user),
+    db:   sqlite3.Connection = Depends(get_db),
+) -> dict:
+    """
+    Require a true vendor superadmin. Reserved for surfaces the customer must
+    never reach even with admin-tier access: the module-marketplace inbox and
+    changing which modules are installed.
+    """
     resolved = _resolve_user(user, db)
     if not resolved["is_superadmin"]:
-        raise HTTPException(status_code=403, detail="Administrator access required.")
+        raise HTTPException(status_code=403, detail="Superadmin access required.")
     return resolved
 
 

@@ -107,14 +107,14 @@ function ItemForm({ initial = {}, knownCategories = [], onSave, onCancel, saving
           {!isEdit && (
             <div className="form-group">
               <label className="form-label">{t('inventory.initialQuantity')}</label>
-              <input className="form-control" type="number" step="any" min="0"
+              <input className="form-control" type="number" step="1" min="0"
                 value={form.quantity} onChange={e => set('quantity', e.target.value)} />
             </div>
           )}
 
           <div className="form-group">
             <label className="form-label">{t('inventory.minStockAlert')}</label>
-            <input className="form-control" type="number" step="any" min="0"
+            <input className="form-control" type="number" step="1" min="0"
               value={form.min_stock} onChange={e => set('min_stock', e.target.value)} />
           </div>
 
@@ -191,7 +191,7 @@ function StockForm({ item, onDone, onCancel }) {
         <div className="form-grid">
           <div className="form-group form-full">
             <label className="form-label">{t('inventory.qtyChange')}</label>
-            <input className="form-control" type="number" step="any" required
+            <input className="form-control" type="number" step="1" required
               placeholder="e.g. 10 or -5"
               value={delta} onChange={e => setDelta(e.target.value)} />
           </div>

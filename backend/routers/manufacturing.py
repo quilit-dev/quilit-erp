@@ -38,7 +38,8 @@ from datetime import datetime
 from database import get_db
 from permissions import require_perm
 from routers.audit import log_action
-from utils import _now, notify
+from utils import _now, notify, validate_int_qty
+import math
 import sqlite3
 
 router = APIRouter()
@@ -207,12 +208,18 @@ def _next_order_number(db):
 
 
 def _snapshot_components(db, order_id, bom, quantity):
-    """(Re)write an order's component requirements, scaled + scrap-adjusted."""
+    """(Re)write an order's component requirements, scaled + scrap-adjusted.
+
+    Required quantities are always rounded UP to the next whole unit — a
+    production order can't physically consume 3.6667 of a component, you have
+    to grab 4 of them. Rounding up is also the safe direction for material
+    planning (never under-reserve)."""
     db.execute("DELETE FROM production_order_items WHERE production_order_id=?", (order_id,))
     scale = quantity / (float(bom["output_quantity"] or 1) or 1)
     for comp in _bom_component_rows(db, bom["id"]):
         scrap    = _q(comp["scrap_pct"])
-        required = _q(float(comp["quantity"]) * scale * (1 + scrap / 100.0))
+        raw_qty  = float(comp["quantity"]) * scale * (1 + scrap / 100.0)
+        required = float(math.ceil(raw_qty))
         db.execute(
             "INSERT INTO production_order_items "
             "(production_order_id, component_inventory_id, name, quantity_required, scrap_pct) "
@@ -375,6 +382,7 @@ def _validate_bom(db, data: BomIn):
             400, "A BOM output must be a finished or semi-finished product.")
     if data.output_quantity <= 0:
         raise HTTPException(400, "Output (batch) quantity must be positive.")
+    validate_int_qty(data.output_quantity, "Output (batch) quantity")
     if data.labor_cost < 0 or data.overhead_cost < 0:
         raise HTTPException(400, "Labour and overhead costs cannot be negative.")
     if not data.components:
@@ -384,6 +392,7 @@ def _validate_bom(db, data: BomIn):
             raise HTTPException(400, "A product cannot be a component of itself.")
         if comp.quantity <= 0:
             raise HTTPException(400, "Component quantity must be positive.")
+        validate_int_qty(comp.quantity, "Component quantity")
         if comp.scrap_pct < 0 or comp.scrap_pct > 100:
             raise HTTPException(400, "Scrap % must be between 0 and 100.")
         if not db.execute("SELECT 1 FROM inventory WHERE id=?",
@@ -567,6 +576,7 @@ def create_order(
         raise HTTPException(400, "BOM not found")
     if data.quantity <= 0:
         raise HTTPException(400, "Quantity to produce must be positive.")
+    validate_int_qty(data.quantity, "Quantity to produce")
     if not db.execute("SELECT 1 FROM bom_components WHERE bom_id=?", (data.bom_id,)).fetchone():
         raise HTTPException(400, "This BOM has no components.")
 
@@ -608,6 +618,7 @@ def update_order(
         raise HTTPException(400, "Only a draft order can be edited.")
     if data.quantity <= 0:
         raise HTTPException(400, "Quantity to produce must be positive.")
+    validate_int_qty(data.quantity, "Quantity to produce")
     db.execute(
         "UPDATE production_orders SET quantity=?, labor_cost=?, overhead_cost=?, notes=? WHERE id=?",
         (data.quantity, _c(data.labor_cost), _c(data.overhead_cost), data.notes, order_id),
@@ -691,6 +702,8 @@ def complete_order(
             raise HTTPException(400, f"Line #{ci.id} does not belong to this order.")
         if ci.quantity_consumed < 0 or ci.quantity_scrapped < 0:
             raise HTTPException(400, "Consumed and scrapped quantities cannot be negative.")
+        validate_int_qty(ci.quantity_consumed, "Consumed quantity")
+        validate_int_qty(ci.quantity_scrapped, "Scrapped quantity")
         if ci.quantity_scrapped > ci.quantity_consumed + 1e-9:
             raise HTTPException(400, "Scrapped quantity cannot exceed the consumed quantity.")
         actual[ci.id] = {"consumed": float(ci.quantity_consumed),
@@ -726,6 +739,7 @@ def complete_order(
                     else float(order["quantity"]))
     if qty_produced <= 0:
         raise HTTPException(400, "Produced quantity must be positive.")
+    validate_int_qty(qty_produced, "Produced quantity")
 
     now = _now()
 

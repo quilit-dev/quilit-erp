@@ -8,7 +8,6 @@ so historical documents that reference them stay intact.
 """
 from fastapi import APIRouter, Depends, HTTPException
 from pydantic import BaseModel
-from typing import Optional
 from database import get_db
 from permissions import require_auth, require_admin
 from routers.audit import log_action

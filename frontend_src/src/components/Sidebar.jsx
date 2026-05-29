@@ -3,7 +3,7 @@ import { useState, useEffect } from 'react';
 import { useSettings } from '../hooks/useSettings.jsx';
 import { usePermissions } from '../hooks/usePermissions.js';
 import { useLocale } from '../hooks/useLocale.jsx';
-import { logout as apiLogout } from '../api/client';
+import { logout as apiLogout, getAnnouncementsUnread } from '../api/client';
 
 const Icons = {
   dashboard: <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><rect x="3" y="3" width="7" height="7" rx="1"/><rect x="14" y="3" width="7" height="7" rx="1"/><rect x="3" y="14" width="7" height="7" rx="1"/><rect x="14" y="14" width="7" height="7" rx="1"/></svg>,
@@ -24,14 +24,17 @@ const Icons = {
   crm:       <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M20 21v-2a4 4 0 00-4-4H8a4 4 0 00-4 4v2"/><circle cx="12" cy="7" r="4"/><path d="M16 3.13a4 4 0 010 7.75"/><path d="M21 21v-2a4 4 0 00-3-3.87"/></svg>,
   planning:  <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><rect x="3" y="4" width="18" height="18" rx="2"/><line x1="16" y1="2" x2="16" y2="6"/><line x1="8" y1="2" x2="8" y2="6"/><line x1="3" y1="10" x2="21" y2="10"/><line x1="8" y1="14" x2="16" y2="14"/><line x1="8" y1="18" x2="13" y2="18"/></svg>,
   hr:        <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M16 21v-2a4 4 0 00-4-4H6a4 4 0 00-4 4v2"/><circle cx="9" cy="7" r="4"/><path d="M22 21v-2a4 4 0 00-3-3.87"/><path d="M16 3.13a4 4 0 010 7.75"/></svg>,
+  recruitment: <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M20 21v-2a4 4 0 00-4-4H8a4 4 0 00-4 4v2"/><path d="M12 11a4 4 0 100-8 4 4 0 000 8z"/><path d="M19 8v6M16 11h6"/></svg>,
+  hrActivities: <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><circle cx="12" cy="12" r="10"/><polyline points="12 6 12 12 16 14"/></svg>,
   archives:  <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><polyline points="21 8 21 21 3 21 3 8"/><rect x="1" y="3" width="22" height="5"/><line x1="10" y1="12" x2="14" y2="12"/></svg>,
   approvals: <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M9 11l3 3L22 4"/><path d="M21 12v7a2 2 0 01-2 2H5a2 2 0 01-2-2V5a2 2 0 012-2h11"/></svg>,
   policies:  <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M12 22s8-4 8-10V5l-8-3-8 3v7c0 6 8 10 8 10z"/><polyline points="9 12 11 14 15 10"/></svg>,
-  recycle:   <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><polyline points="3 6 5 6 21 6"/><path d="M19 6l-1 14a2 2 0 01-2 2H8a2 2 0 01-2-2L5 6"/><path d="M10 11v6"/><path d="M14 11v6"/><path d="M9 6V4a1 1 0 011-1h4a1 1 0 011 1v2"/></svg>,
   settings:  <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><circle cx="12" cy="12" r="3"/><path d="M19.4 15a1.65 1.65 0 00.33 1.82l.06.06a2 2 0 010 2.83 2 2 0 01-2.83 0l-.06-.06a1.65 1.65 0 00-1.82-.33 1.65 1.65 0 00-1 1.51V21a2 2 0 01-4 0v-.09A1.65 1.65 0 009 19.4a1.65 1.65 0 00-1.82.33l-.06.06a2 2 0 01-2.83-2.83l.06-.06A1.65 1.65 0 004.68 15a1.65 1.65 0 00-1.51-1H3a2 2 0 010-4h.09A1.65 1.65 0 004.6 9a1.65 1.65 0 00-.33-1.82l-.06-.06a2 2 0 012.83-2.83l.06.06A1.65 1.65 0 009 4.68a1.65 1.65 0 001-1.51V3a2 2 0 014 0v.09a1.65 1.65 0 001 1.51 1.65 1.65 0 001.82-.33l.06-.06a2 2 0 012.83 2.83l-.06.06A1.65 1.65 0 0019.4 9a1.65 1.65 0 001.51 1H21a2 2 0 010 4h-.09a1.65 1.65 0 00-1.51 1z"/></svg>,
   users:     <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M17 21v-2a4 4 0 00-4-4H5a4 4 0 00-4 4v2"/><circle cx="9" cy="7" r="4"/><path d="M23 21v-2a4 4 0 00-3-3.87"/><path d="M16 3.13a4 4 0 010 7.75"/></svg>,
   roles:     <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><rect x="3" y="11" width="18" height="11" rx="2"/><path d="M7 11V7a5 5 0 0110 0v4"/></svg>,
   admin:     <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M12 22s8-4 8-10V5l-8-3-8 3v7c0 6 8 10 8 10z"/></svg>,
+  discover:  <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><rect x="2" y="4" width="20" height="16" rx="2"/><path d="M22 7l-10 5L2 7"/></svg>,
+  announce:  <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M3 11l18-8v18l-18-8z"/><path d="M11.6 16.8a3 3 0 11-5.2 0"/></svg>,
   logout:    <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M9 21H5a2 2 0 01-2-2V5a2 2 0 012-2h4"/><polyline points="16 17 21 12 16 7"/><line x1="21" y1="12" x2="9" y2="12"/></svg>,
 };
 
@@ -61,10 +64,13 @@ const mainLinkDefs = [
   { to: '/cash',       navKey: 'cash',       icon: Icons.cash,       module: 'cash' },
   { to: '/reports',    navKey: 'reports',    icon: Icons.reports,    module: 'reports' },
   // People
-  { to: '/hr',         navKey: 'hr',         icon: Icons.hr,         module: 'hr' },
+  { to: '/hr',           navKey: 'hr',          icon: Icons.hr,          module: 'hr' },
+  { to: '/recruitment',   navKey: 'recruitment',  icon: Icons.recruitment,  module: 'recruitment' },
+  { to: '/hr-activities', navKey: 'hrActivities', icon: Icons.hrActivities, module: 'hr_activities' },
 ];
 
 const systemLinkDefs = [
+  { to: '/announcements',      navKey: 'announcements',      icon: Icons.announce,  badge: 'announcements' },
   { to: '/approvals',          navKey: 'approvals',          icon: Icons.approvals },
   { to: '/approval-policies',  navKey: 'approvalPolicies',   icon: Icons.policies  },
   { to: '/archives',           navKey: 'archives',           icon: Icons.archives  },
@@ -72,19 +78,38 @@ const systemLinkDefs = [
 ];
 
 const adminLinkDefs = [
-  { to: '/users',  navKey: 'users',      icon: Icons.users },
-  { to: '/roles',  navKey: 'roles',      icon: Icons.roles },
-  { to: '/admin',  navKey: 'adminPanel', icon: Icons.admin },
+  { to: '/users',                  navKey: 'users',          icon: Icons.users },
+  { to: '/roles',                  navKey: 'roles',          icon: Icons.roles },
+  { to: '/admin',                  navKey: 'adminPanel',     icon: Icons.admin },
 ];
 
 export default function Sidebar() {
   const navigate = useNavigate();
   const { settings } = useSettings();
-  const { user, isSuperadmin, can } = usePermissions();
+  const { user, isSuperadmin, isAdmin, can } = usePermissions();
   const { t } = useLocale();
   const companyName = settings?.company_name || 'ERP System';
   const [logoError, setLogoError] = useState(false);
   const [logoKey, setLogoKey] = useState(Date.now());
+
+  // Lightweight poll for the announcements badge. 60s feels right — fresh
+  // enough that users see new broadcasts during a working session, slow
+  // enough that we never spam the API.
+  const [unread, setUnread] = useState({ unread: 0, pending_ack: 0 });
+  useEffect(() => {
+    let alive = true;
+    async function tick() {
+      try {
+        const data = await getAnnouncementsUnread();
+        if (alive) setUnread(data || { unread: 0, pending_ack: 0 });
+      } catch { /* silent — auth or network blips are not worth surfacing here */ }
+    }
+    tick();
+    const id = setInterval(tick, 60000);
+    function refreshOnFocus() { if (document.visibilityState === 'visible') tick(); }
+    document.addEventListener('visibilitychange', refreshOnFocus);
+    return () => { alive = false; clearInterval(id); document.removeEventListener('visibilitychange', refreshOnFocus); };
+  }, []);
 
   useEffect(() => {
     setLogoError(false);
@@ -106,7 +131,22 @@ export default function Sidebar() {
     navigate('/login');
   }
 
-  const visibleMain = mainLinkDefs.filter(l => can(l.module, 'view'));
+  // Two-stage visibility filter:
+  //   1. settings.enabled_modules — sourced from the immutable build-time
+  //      constant vendor_config.ENABLED_MODULES. Empty == every module
+  //      visible (dev + demo default). When set, it whitelists which
+  //      modules ship to this customer; everything else is hidden from
+  //      the sidebar.
+  //   2. RBAC view permission — the per-user check the rest of the app
+  //      already runs.
+  const enabledRaw = (settings?.enabled_modules || '').trim();
+  const enabledSet = enabledRaw
+    ? new Set(enabledRaw.split(',').map(s => s.trim()).filter(Boolean))
+    : null;          // null = no whitelist → all modules visible
+  const visibleMain = mainLinkDefs.filter(l =>
+    (!enabledSet || enabledSet.has(l.module) || l.module === 'dashboard') &&
+    can(l.module, 'view')
+  );
 
   return (
     <div className="sidebar">
@@ -136,22 +176,41 @@ export default function Sidebar() {
         ))}
 
         <div className="nav-section-label" style={{ marginTop: 8 }}>{t('nav.system')}</div>
-        {systemLinkDefs.map(l => (
-          <NavLink
-            key={l.to} to={l.to}
-            className={({ isActive }) => `nav-link${isActive ? ' active' : ''}`}
-          >
-            <span className="nav-link-icon">{l.icon}</span>
-            {t(`nav.${l.navKey}`)}
-          </NavLink>
-        ))}
+        {systemLinkDefs.map(l => {
+          const count =
+            l.badge === 'announcements'
+              ? (unread.unread || 0) + (unread.pending_ack || 0)
+              : 0;
+          return (
+            <NavLink
+              key={l.to} to={l.to} end={l.end}
+              className={({ isActive }) => `nav-link${isActive ? ' active' : ''}`}
+              style={{ position: 'relative' }}
+            >
+              <span className="nav-link-icon">{l.icon}</span>
+              <span style={{ flex: 1 }}>{t(`nav.${l.navKey}`)}</span>
+              {count > 0 && (
+                <span style={{
+                  display: 'inline-flex', alignItems: 'center', justifyContent: 'center',
+                  minWidth: 18, height: 18, padding: '0 6px',
+                  borderRadius: 999,
+                  background: 'var(--red, #ef4444)', color: '#fff',
+                  fontSize: 10, fontWeight: 700, letterSpacing: '.2px',
+                  marginInlineStart: 'auto',
+                }}>
+                  {count > 99 ? '99+' : count}
+                </span>
+              )}
+            </NavLink>
+          );
+        })}
 
-        {isSuperadmin && (
+        {isAdmin && (
           <>
             <div className="nav-section-label" style={{ marginTop: 8 }}>{t('nav.admin')}</div>
             {adminLinkDefs.map(l => (
               <NavLink
-                key={l.to} to={l.to}
+                key={l.to} to={l.to} end={l.end}
                 className={({ isActive }) => `nav-link${isActive ? ' active' : ''}`}
               >
                 <span className="nav-link-icon">{l.icon}</span>

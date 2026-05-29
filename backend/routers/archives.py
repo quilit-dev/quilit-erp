@@ -28,6 +28,10 @@ MODULES = {
     "suppliers":      ("suppliers",      "name"),
     "hr_employees":   ("hr_employees",   "full_name"),
     "hr_departments": ("hr_departments", "name"),
+    "crm_leads":         ("crm_leads",         "name"),
+    "crm_deals":         ("crm_deals",         "title"),
+    "planning_projects": ("planning_projects", "name"),
+    "planning_tasks":    ("planning_tasks",    "name"),
 }
 
 DISPLAY_NAMES = {
@@ -40,6 +44,10 @@ DISPLAY_NAMES = {
     "suppliers":      "Suppliers",
     "hr_employees":   "HR — Employees",
     "hr_departments": "HR — Departments",
+    "crm_leads":         "CRM — Leads",
+    "crm_deals":         "CRM — Deals",
+    "planning_projects": "Planning — Projects",
+    "planning_tasks":    "Planning — Tasks",
 }
 
 UNARCHIVE_ENDPOINTS = {
@@ -52,6 +60,12 @@ UNARCHIVE_ENDPOINTS = {
     "suppliers":      "/api/suppliers/{id}/unarchive",
     "hr_employees":   "/api/hr/employees/{id}/unarchive",
     "hr_departments": "/api/hr/departments/{id}/unarchive",
+    # CRM & Planning have no per-module unarchive endpoint — they are restored
+    # exclusively through this generic Archives route.
+    "crm_leads":         "/api/archives/crm_leads/{id}/unarchive",
+    "crm_deals":         "/api/archives/crm_deals/{id}/unarchive",
+    "planning_projects": "/api/archives/planning_projects/{id}/unarchive",
+    "planning_tasks":    "/api/archives/planning_tasks/{id}/unarchive",
 }
 
 

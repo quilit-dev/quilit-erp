@@ -3,7 +3,7 @@ import { useNavigate } from 'react-router-dom';
 import { useLocale } from '../hooks/useLocale.jsx';
 import { useData } from '../hooks/useData';
 import {
-  LoadingSpinner, ErrorAlert, EmptyState, Modal, ConfirmModal, toast, fmtDate,
+  LoadingSpinner, ErrorAlert, EmptyState, Modal, ConfirmModal, ExportButton, toast, fmtDate,
 } from '../components/shared';
 import {
   getCRMDashboard, getCRMLeads, createCRMLead, updateCRMLead, archiveCRMLead, convertCRMLead,
@@ -246,7 +246,7 @@ function LeadsTab({ t }) {
     return getCRMLeads(p, sig);
   }, [search, statusFilter]);
 
-  const { data: leads, loading, error, reload } = useData(fetchLeads);
+  const { data: leads, loading, error, reload } = useData(fetchLeads, [search, statusFilter]);
   const { data: users } = useData(getCRMDropdownUsers);
 
   const statusLabel = { New: t('crm.statusNew'), Contacted: t('crm.statusContacted'), Qualified: t('crm.statusQualified'), Proposal: t('crm.statusProposal'), Negotiation: t('crm.statusNegotiation'), Won: t('crm.statusWon'), Lost: t('crm.statusLost') };
@@ -292,9 +292,27 @@ function LeadsTab({ t }) {
               {LEAD_STATUSES.map(s => <option key={s} value={s}>{statusLabel[s]}</option>)}
             </select>
           </div>
-          <button className="btn btn-primary btn-sm" onClick={() => { setSelected(null); setModal('form'); }}>
-            {t('crm.addLead')}
-          </button>
+          <div style={{ display: 'flex', gap: 8 }}>
+            {leads && leads.length > 0 && (
+              <ExportButton
+                data={leads.map(l => ({
+                  Lead:           l.name,
+                  Company:        l.company || '',
+                  Source:         l.source || '',
+                  Status:         l.status,
+                  Estimated_Value: l.estimated_value || 0,
+                  Expected_Close: l.expected_close || '',
+                  Assigned_To:    l.assigned_name || '',
+                  Converted:      l.client_id ? 'Yes' : 'No',
+                  Email:          l.email || '',
+                  Phone:          l.phone || '',
+                }))}
+                filename="CRM_Leads" sheetName="Leads" />
+            )}
+            <button className="btn btn-primary btn-sm" onClick={() => { setSelected(null); setModal('form'); }}>
+              {t('crm.addLead')}
+            </button>
+          </div>
         </div>
 
         {loading ? <LoadingSpinner /> :
@@ -409,14 +427,21 @@ function ContactForm({ initial, clients, leads, onSave, onClose, t }) {
           </div>
           <div className="form-group">
             <label className="form-label">{t('crm.linkedClient')}</label>
-            <select className="form-control" value={form.client_id || ''} onChange={f('client_id')}>
+            <select className="form-control" value={form.client_id || ''}
+              onChange={e => setForm(p => ({ ...p, client_id: e.target.value, lead_id: e.target.value ? '' : p.lead_id }))}>
               <option value="">{t('crm.selectClient')}</option>
               {(clients || []).map(c => <option key={c.id} value={c.id}>{c.name}{c.company ? ` — ${c.company}` : ''}</option>)}
             </select>
           </div>
           <div className="form-group">
-            <label className="form-label">{t('crm.linkedLead')}</label>
-            <select className="form-control" value={form.lead_id || ''} onChange={f('lead_id')}>
+            <label className="form-label">
+              {t('crm.linkedLead')}
+              <span style={{ color:'var(--text-3)', marginLeft:6, fontSize:11, fontStyle:'italic' }}>
+                (instead of a client)
+              </span>
+            </label>
+            <select className="form-control" value={form.lead_id || ''}
+              onChange={e => setForm(p => ({ ...p, lead_id: e.target.value, client_id: e.target.value ? '' : p.client_id }))}>
               <option value="">{t('crm.selectLead')}</option>
               {(leads || []).map(l => <option key={l.id} value={l.id}>{l.name}{l.company ? ` — ${l.company}` : ''}</option>)}
             </select>
@@ -451,9 +476,9 @@ function ContactsTab({ t }) {
   const [selected, setSelected] = useState(null);
 
   const fetchContacts = useCallback(sig => getCRMContacts({ search }, sig), [search]);
-  const { data: contacts, loading, error, reload } = useData(fetchContacts);
+  const { data: contacts, loading, error, reload } = useData(fetchContacts, [search]);
   const { data: clients } = useData(getCRMDropdownClients);
-  const { data: leads }   = useData(getCRMLeads);
+  const { data: leads }   = useData((s) => getCRMLeads({}, s));
 
   async function handleSave(data) {
     try {
@@ -481,9 +506,25 @@ function ContactsTab({ t }) {
               <input className="form-control search-input" placeholder={t('crm.searchContacts')} value={search} onChange={e => setSearch(e.target.value)} />
             </div>
           </div>
-          <button className="btn btn-primary btn-sm" onClick={() => { setSelected(null); setModal('form'); }}>
-            {t('crm.addContact')}
-          </button>
+          <div style={{ display: 'flex', gap: 8 }}>
+            {contacts && contacts.length > 0 && (
+              <ExportButton
+                data={contacts.map(c => ({
+                  Name:    c.name,
+                  Title:   c.title || '',
+                  Email:   c.email || '',
+                  Phone:   c.phone || '',
+                  Client:  c.client_name || '',
+                  Lead:    c.lead_name || '',
+                  Primary: c.is_primary ? 'Yes' : 'No',
+                  Notes:   c.notes || '',
+                }))}
+                filename="CRM_Contacts" sheetName="Contacts" />
+            )}
+            <button className="btn btn-primary btn-sm" onClick={() => { setSelected(null); setModal('form'); }}>
+              {t('crm.addContact')}
+            </button>
+          </div>
         </div>
 
         {loading ? <LoadingSpinner /> :
@@ -590,14 +631,21 @@ function ActivityForm({ initial, clients, leads, onSave, onClose, t }) {
           </div>
           <div className="form-group">
             <label className="form-label">{t('crm.linkedClient')}</label>
-            <select className="form-control" value={form.client_id || ''} onChange={f('client_id')}>
+            <select className="form-control" value={form.client_id || ''}
+              onChange={e => setForm(p => ({ ...p, client_id: e.target.value, lead_id: e.target.value ? '' : p.lead_id }))}>
               <option value="">{t('crm.selectClient')}</option>
               {(clients || []).map(c => <option key={c.id} value={c.id}>{c.name}</option>)}
             </select>
           </div>
           <div className="form-group">
-            <label className="form-label">{t('crm.linkedLead')}</label>
-            <select className="form-control" value={form.lead_id || ''} onChange={f('lead_id')}>
+            <label className="form-label">
+              {t('crm.linkedLead')}
+              <span style={{ color:'var(--text-3)', marginLeft:6, fontSize:11, fontStyle:'italic' }}>
+                (instead of a client)
+              </span>
+            </label>
+            <select className="form-control" value={form.lead_id || ''}
+              onChange={e => setForm(p => ({ ...p, lead_id: e.target.value, client_id: e.target.value ? '' : p.client_id }))}>
               <option value="">{t('crm.selectLead')}</option>
               {(leads || []).map(l => <option key={l.id} value={l.id}>{l.name}</option>)}
             </select>
@@ -639,9 +687,9 @@ function ActivitiesTab({ t }) {
     return getCRMActivities(p, sig);
   }, [search, typeFilter, doneFilter]);
 
-  const { data: activities, loading, error, reload } = useData(fetchActivities);
+  const { data: activities, loading, error, reload } = useData(fetchActivities, [search, typeFilter, doneFilter]);
   const { data: clients } = useData(getCRMDropdownClients);
-  const { data: leads }   = useData(getCRMLeads);
+  const { data: leads }   = useData((s) => getCRMLeads({}, s));
 
   const typeLabel = { call: t('crm.typeCall'), email: t('crm.typeEmail'), meeting: t('crm.typeMeeting'), task: t('crm.typeTask'), note: t('crm.typeNote') };
 
@@ -790,14 +838,21 @@ function DealForm({ initial, clients, quotations, users, leads, onSave, onClose,
           </div>
           <div className="form-group">
             <label className="form-label">{t('crm.linkedClient')}</label>
-            <select className="form-control" value={form.client_id || ''} onChange={f('client_id')}>
+            <select className="form-control" value={form.client_id || ''}
+              onChange={e => setForm(p => ({ ...p, client_id: e.target.value, lead_id: e.target.value ? '' : p.lead_id }))}>
               <option value="">{t('crm.selectClient')}</option>
               {(clients || []).map(c => <option key={c.id} value={c.id}>{c.name}</option>)}
             </select>
           </div>
           <div className="form-group">
-            <label className="form-label">{t('crm.linkedLead')}</label>
-            <select className="form-control" value={form.lead_id || ''} onChange={f('lead_id')}>
+            <label className="form-label">
+              {t('crm.linkedLead')}
+              <span style={{ color:'var(--text-3)', marginLeft:6, fontSize:11, fontStyle:'italic' }}>
+                (instead of a client)
+              </span>
+            </label>
+            <select className="form-control" value={form.lead_id || ''}
+              onChange={e => setForm(p => ({ ...p, lead_id: e.target.value, client_id: e.target.value ? '' : p.client_id }))}>
               <option value="">{t('crm.selectLead')}</option>
               {(leads || []).map(l => <option key={l.id} value={l.id}>{l.name}</option>)}
             </select>
@@ -862,7 +917,7 @@ function PipelineTab({ t }) {
   const { data: clients }    = useData(getCRMDropdownClients);
   const { data: quotations } = useData(getCRMDropdownQuotations);
   const { data: users }      = useData(getCRMDropdownUsers);
-  const { data: leads }      = useData(getCRMLeads);
+  const { data: leads }      = useData((s) => getCRMLeads({}, s));
 
   const stageLabel = { Qualification: t('crm.stageQualification'), Proposal: t('crm.stageProposal'), Negotiation: t('crm.stageNegotiation'), Won: t('crm.stageWon'), Lost: t('crm.stageLost') };
   const stageAccentVar = { Qualification: 'var(--blue)', Proposal: 'var(--accent)', Negotiation: 'var(--orange)', Won: 'var(--green)', Lost: 'var(--red)' };
@@ -907,9 +962,27 @@ function PipelineTab({ t }) {
         <span style={{ fontSize: 13, color: 'var(--text-2)' }}>
           <strong>{t('crm.totalPipelineValue')}:</strong> {fmtCurr(totalPipeline)}
         </span>
-        <button className="btn btn-primary btn-sm" onClick={() => { setSelected(null); setModal('create'); }}>
-          {t('crm.addDeal')}
-        </button>
+        <div style={{ display: 'flex', gap: 8 }}>
+          {deals && deals.length > 0 && (
+            <ExportButton
+              data={deals.map(d => ({
+                Deal:            d.name,
+                Client:          d.client_name || '',
+                Stage:           d.stage,
+                Value:           d.value || 0,
+                Probability:     d.probability ?? '',
+                Expected_Close:  d.expected_close || '',
+                Assigned_To:     d.assigned_name || '',
+                Quotation:       d.quotation_number || '',
+                Lost_Reason:     d.lost_reason || '',
+                Created:         fmtDate(d.created_at),
+              }))}
+              filename="CRM_Deals" sheetName="Pipeline" />
+          )}
+          <button className="btn btn-primary btn-sm" onClick={() => { setSelected(null); setModal('create'); }}>
+            {t('crm.addDeal')}
+          </button>
+        </div>
       </div>
 
       {loading ? <LoadingSpinner /> :
@@ -1040,7 +1113,7 @@ export default function CRM() {
     <div>
       <div className="page-header">
         <div>
-          <h1 className="page-title">{t('crm.title')}</h1>
+          <h1 className="page-title">{t('crm.pageTitle')}</h1>
           <p className="page-subtitle">{t('crm.subtitle')}</p>
         </div>
       </div>

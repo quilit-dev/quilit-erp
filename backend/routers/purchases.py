@@ -4,7 +4,7 @@ from typing import Optional
 from database import get_db
 from permissions import require_perm
 from routers.audit import log_action
-from utils import _now, notify, get_tax_context, resolve_purchase_tax, money
+from utils import _now, notify, get_tax_context, resolve_purchase_tax, money, validate_int_qty
 from approval_engine import evaluate_and_apply
 import sqlite3
 from datetime import datetime
@@ -26,6 +26,7 @@ class PurchaseCreate(BaseModel):
 class PurchaseUpdate(BaseModel):
     supplier: Optional[str] = None
     product_name: Optional[str] = None
+    category: Optional[str] = None
     quantity: Optional[float] = None
     unit_cost: Optional[float] = None
     additional_costs: Optional[float] = None
@@ -82,10 +83,10 @@ def purchase_stats(user=Depends(require_perm("purchases", "view")), db: sqlite3.
     paid_rows = db.execute(
         "SELECT quantity, unit_cost, additional_costs, tax_amount FROM purchases WHERE status='Paid' AND archived_at IS NULL"
     ).fetchall()
-    total_spent = sum(
+    total_spent = money(sum(
         _total_cost(r["quantity"], r["unit_cost"], r["additional_costs"]) + float(r["tax_amount"] or 0)
         for r in paid_rows
-    )
+    ))
     return {
         "ordered":     stats.get("Ordered", 0),
         "received":    stats.get("Received", 0),
@@ -104,13 +105,14 @@ def get_purchase(purchase_id: int, user=Depends(require_perm("purchases", "view"
         raise HTTPException(404, "Purchase not found")
     d = dict(row)
     d["total_cost"]  = _total_cost(d["quantity"], d["unit_cost"], d["additional_costs"])
-    d["grand_total"] = round(d["total_cost"] + float(d.get("tax_amount") or 0), 4)
+    d["grand_total"] = money(d["total_cost"] + float(d.get("tax_amount") or 0))
     return d
 
 @router.post("/")
 def create_purchase(data: PurchaseCreate, user=Depends(require_perm("purchases", "create")), db: sqlite3.Connection = Depends(get_db)):
     if data.quantity <= 0:
         raise HTTPException(400, "Quantity must be positive")
+    validate_int_qty(data.quantity, "Purchase quantity")
     po = next_po_number(db)
     now = _now()
 
@@ -134,10 +136,10 @@ def create_purchase(data: PurchaseCreate, user=Depends(require_perm("purchases",
         db, data.quantity, data.unit_cost, data.tax_rate_id)
     c = db.execute(
         """INSERT INTO purchases
-           (po_number, supplier, inventory_id, product_name, quantity, unit_cost,
+           (po_number, supplier, inventory_id, product_name, category, quantity, unit_cost,
             additional_costs, tax_rate_id, tax_rate, tax_amount, status, notes, ordered_at)
-           VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?)""",
-        (po, data.supplier, inventory_id, data.product_name,
+           VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?)""",
+        (po, data.supplier, inventory_id, data.product_name, (data.category or 'Other'),
          data.quantity, data.unit_cost, data.additional_costs,
          tax_rate_id, tax_rate, tax_amount, data.status, data.notes, now)
     )
@@ -183,12 +185,16 @@ def update_purchase(purchase_id: int, data: PurchaseUpdate,
         raise HTTPException(404, "Purchase not found")
     if row["status"] != "Ordered":
         raise HTTPException(400, "Can only edit purchases in Ordered status")
+    if data.quantity is not None:
+        validate_int_qty(data.quantity, "Purchase quantity")
 
     fields, params = [], []
     if data.supplier is not None:
         fields.append("supplier=?");         params.append(data.supplier)
     if data.product_name is not None:
         fields.append("product_name=?");     params.append(data.product_name)
+    if data.category is not None:
+        fields.append("category=?");         params.append(data.category)
     if data.quantity is not None:
         fields.append("quantity=?");          params.append(data.quantity)
     if data.unit_cost is not None:
@@ -257,10 +263,14 @@ def update_status(purchase_id: int, data: StatusUpdate,
 
 def _credit_stock(purchase_id: int, db: sqlite3.Connection):
     """Increase inventory stock when purchase is received. Idempotent.
-    Also updates inventory.unit_cost with the per-unit landed cost
-    (unit_cost + additional_costs apportioned over quantity) so the
-    asset valuation stays current. Selling prices are NEVER set here —
-    those live exclusively on quotation_items.
+    Blends the receipt into inventory.unit_cost using a WEIGHTED AVERAGE of
+    the value already on hand and the landed value of this lot, so the
+    moving-average cost stays correct when the same item is restocked at a
+    different price. This is the costing every downstream reader assumes —
+    POS COGS, project consumption and manufacturing material cost all value
+    stock at inventory.unit_cost, and manufacturing output blends the same
+    way. Selling prices are NEVER set here — those live exclusively on
+    quotation_items.
     """
     # Atomic claim: only one concurrent request can credit stock
     claimed = db.execute(
@@ -278,19 +288,25 @@ def _credit_stock(purchase_id: int, db: sqlite3.Connection):
         return
 
     qty_before = float(inv["quantity"])
-    qty = float(row["quantity"])
+    old_cost   = float(inv["unit_cost"] or 0)
+    qty        = float(row["quantity"])
     qty_after  = round(qty_before + qty, 6)
 
-    # Landed cost per unit = (unit_cost × qty + additional_costs) / qty
-    landed_unit_cost = round(
-        (float(row["unit_cost"]) * qty + float(row["additional_costs"])) / qty, 6
-    ) if qty else float(row["unit_cost"])
+    # Landed VALUE of this receipt = goods value + apportioned additional
+    # (shipping / customs / handling) costs.
+    lot_value = float(row["unit_cost"]) * qty + float(row["additional_costs"])
+    # Weighted-average the receipt into the value already on hand. With no
+    # prior stock this reduces to the lot's landed cost; with existing stock
+    # it correctly blends, instead of overwriting the average with this lot's
+    # price (which would mis-state inventory value and every downstream COGS).
+    new_unit_cost = (round((qty_before * old_cost + lot_value) / qty_after, 6)
+                     if qty_after > 0 else old_cost)
 
     now = _now()
 
     db.execute(
         "UPDATE inventory SET quantity = ?, unit_cost = ? WHERE id = ?",
-        (qty_after, landed_unit_cost, row["inventory_id"])
+        (qty_after, new_unit_cost, row["inventory_id"])
     )
     db.execute(
         """INSERT INTO stock_movements

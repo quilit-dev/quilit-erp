@@ -1,7 +1,7 @@
 import { useState, useEffect, useCallback } from 'react';
 import { useLocale } from '../hooks/useLocale.jsx';
 import { usePermissions } from '../hooks/usePermissions.js';
-import { LoadingSpinner, ErrorAlert, EmptyState, Modal, ConfirmModal, toast } from '../components/shared';
+import { LoadingSpinner, ErrorAlert, EmptyState, Modal, ConfirmModal, ExportButton, toast } from '../components/shared';
 import {
   getCashDrawers, createCashDrawer, updateCashDrawer, getCashSummary,
   getCashReconciliations, getCashReconciliation, openCashReconciliation,
@@ -516,9 +516,21 @@ function HistoryView({ drawers, openDetail, refreshKey }) {
   }, [date, drawerId]);
   useEffect(() => { load(); }, [load, refreshKey]);
 
+  const exportData = (rows || []).map(r => ({
+    Drawer:           r.drawer_name,
+    Business_Date:    fmtDate(r.business_date),
+    Status:           r.status === 'open' ? 'Open' : 'Closed',
+    Expected_USD:     r.expected_cash || 0,
+    Expected_LBP:     r.expected_cash_lbp || 0,
+    Counted_USD:      r.counted_cash || 0,
+    Counted_LBP:      r.counted_cash_lbp || 0,
+    Variance_USD:     r.variance || 0,
+    Variance_LBP:     r.variance_lbp || 0,
+  }));
+
   return (
     <div>
-      <div style={{ display: 'flex', gap: 8, marginBottom: 12, flexWrap: 'wrap' }}>
+      <div style={{ display: 'flex', gap: 8, marginBottom: 12, flexWrap: 'wrap', alignItems: 'center' }}>
         <input type="date" className="form-control" style={{ width: 170 }} value={date}
           onChange={e => setDate(e.target.value)} />
         <select className="form-control" style={{ width: 180 }} value={drawerId}
@@ -526,6 +538,11 @@ function HistoryView({ drawers, openDetail, refreshKey }) {
           <option value="">{t('cash.drawers')}</option>
           {drawers.map(d => <option key={d.id} value={d.id}>{d.name}</option>)}
         </select>
+        {rows && rows.length > 0 && (
+          <div style={{ marginInlineStart: 'auto' }}>
+            <ExportButton data={exportData} filename="Cash_Reconciliations" sheetName="Reconciliations" />
+          </div>
+        )}
       </div>
       {error && <ErrorAlert message={error} onRetry={load} />}
       {!rows && !error && <LoadingSpinner />}

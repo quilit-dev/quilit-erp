@@ -25,7 +25,7 @@ from database import get_db
 from permissions import require_perm
 from routers.audit import log_action
 from routers.finance import _check_period_locked
-from utils import _now, _today, notify, get_tax_context, resolve_inclusive_tax, money
+from utils import _now, _today, notify, get_tax_context, resolve_inclusive_tax, money, validate_int_qty
 import sqlite3
 
 router = APIRouter()
@@ -81,13 +81,11 @@ def _open_session(db, user_id):
     ).fetchone()
 
 
-def _next_pos_invoice_number(db):
-    """A unique invoice number with the POS prefix (so receipts stay separable
-    from regular invoices in the shared MAX(id) sequence)."""
+def _pos_invoice_prefix(db) -> str:
+    """The POS receipt prefix (keeps POS receipts separable from regular
+    invoices in the shared invoice-id sequence)."""
     row = db.execute("SELECT value FROM settings WHERE key='pos_invoice_prefix'").fetchone()
-    prefix = (row["value"] if row and row["value"] else "POS-")
-    mx = db.execute("SELECT COALESCE(MAX(id), 0) AS m FROM invoices").fetchone()
-    return f"{prefix}{datetime.utcnow().year}-{mx['m'] + 1:04d}"
+    return row["value"] if row and row["value"] else "POS-"
 
 
 # ── Register sessions ──────────────────────────────────────────────────────
@@ -283,6 +281,7 @@ def checkout(
     for it in data.items:
         if it.quantity <= 0:
             raise HTTPException(400, f"Quantity for '{it.name}' must be positive.")
+        validate_int_qty(it.quantity, f"Quantity for '{it.name}'")
         if it.unit_price < 0:
             raise HTTPException(400, f"Price for '{it.name}' cannot be negative.")
     if data.client_id is not None and not db.execute(
@@ -416,15 +415,19 @@ def checkout(
     now, today = _now(), _today()
 
     # 9. Invoice (amount = the VAT-inclusive total the customer pays).
-    inv_no = _next_pos_invoice_number(db)
+    #    Insert with a placeholder number, then derive the real number from the
+    #    new row's id — collision-free under concurrent checkouts (see
+    #    routers/invoices.py helpers).
+    from routers.invoices import _placeholder_invoice_number, _finalize_invoice_number
     cur = db.execute(
         "INSERT INTO invoices "
         "(invoice_number, client_id, amount, subtotal, tax_total, due_date, notes, created_at, version) "
         "VALUES (?,?,?,?,?,?,?,?,1)",
-        (inv_no, data.client_id, grand_total, subtotal, tax_total, today,
+        (_placeholder_invoice_number(), data.client_id, grand_total, subtotal, tax_total, today,
          data.note or "POS sale", now),
     )
     invoice_id = cur.lastrowid
+    inv_no = _finalize_invoice_number(db, invoice_id, _pos_invoice_prefix(db))
 
     # 10. Invoice line items — normalised to the exclusive form (unit_price =
     #     post-discount NET unit price) so every existing invoice / VAT /

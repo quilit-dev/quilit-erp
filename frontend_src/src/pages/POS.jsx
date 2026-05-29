@@ -2,7 +2,7 @@ import { useState, useEffect, useRef, useCallback } from 'react';
 import { useLocale } from '../hooks/useLocale.jsx';
 import { usePermissions } from '../hooks/usePermissions.js';
 import { useSettings } from '../hooks/useSettings.jsx';
-import { LoadingSpinner, ErrorAlert, EmptyState, Modal, ConfirmModal, Badge, toast } from '../components/shared';
+import { LoadingSpinner, ErrorAlert, EmptyState, Modal, ConfirmModal, Badge, ExportButton, toast } from '../components/shared';
 import {
   getPosSession, openPosSession, closePosSession, getPosSessions,
   posCheckout, getPosSales, getPosSale, returnPosSale, getPosProducts, getClients,
@@ -11,27 +11,46 @@ import {
 
 const num = (v) => new Intl.NumberFormat('en-US', { maximumFractionDigits: 2 }).format(Number(v) || 0);
 
+// Round to cents, half-up — mirrors the backend's money() so the figures the
+// cashier sees match the persisted receipt to the cent. The epsilon nudge
+// avoids binary-float cases like 2.675 rounding down.
+const r2 = (v) => Math.round((Number(v) + Number.EPSILON) * 100) / 100;
+
 // Compute a sale's pricing the same way the backend does: prices are
-// VAT-INCLUSIVE, line + order discounts come off the gross, tax is extracted.
+// VAT-INCLUSIVE, line + order discounts come off the gross, tax is extracted,
+// and every line is rounded to cents BEFORE summing (so the subtotal / VAT
+// split shown here equals what checkout stores).
 function priceCart(cart, orderDiscount, taxEnabled, rateOf, defaultRate) {
   const grossAfterLine = cart.map(l => {
-    const g = (Number(l.quantity) || 0) * (Number(l.unit_price) || 0);
-    return Math.max(0, g - (Number(l.discount) || 0));
+    const g = r2((Number(l.quantity) || 0) * (Number(l.unit_price) || 0));
+    return Math.max(0, r2(g - (Number(l.discount) || 0)));
   });
-  const grossSum = grossAfterLine.reduce((a, b) => a + b, 0);
+  const grossSum = r2(grossAfterLine.reduce((a, b) => a + b, 0));
   const od = Math.min(Math.max(0, Number(orderDiscount) || 0), grossSum);
+
+  // Distribute the order discount proportionally; the last line absorbs the
+  // rounding remainder so the shares sum to exactly `od` — matches the backend.
+  const shares = grossAfterLine.map(() => 0);
+  if (od > 0 && grossSum > 0) {
+    let acc = 0; const last = cart.length - 1;
+    grossAfterLine.forEach((g, i) => {
+      if (i === last) shares[i] = r2(od - acc);
+      else { shares[i] = r2(od * g / grossSum); acc += shares[i]; }
+    });
+  }
+
   let subtotal = 0, taxTotal = 0, total = 0;
   cart.forEach((l, i) => {
-    const share = grossSum > 0 ? od * grossAfterLine[i] / grossSum : 0;
-    const finalGross = Math.max(0, grossAfterLine[i] - share);
-    const r = taxEnabled ? (rateOf(l.tax_rate_id) || defaultRate) : null;
-    const tax = r ? finalGross * (Number(r.rate) || 0) / (100 + (Number(r.rate) || 0)) : 0;
-    subtotal += finalGross - tax;
-    taxTotal += tax;
-    total    += finalGross;
+    const finalGross = Math.max(0, r2(grossAfterLine[i] - shares[i]));
+    const r    = taxEnabled ? (rateOf(l.tax_rate_id) || defaultRate) : null;
+    const rate = r ? (Number(r.rate) || 0) : 0;
+    const tax  = rate ? r2(finalGross * rate / (100 + rate)) : 0;
+    subtotal  += r2(finalGross - tax);
+    taxTotal  += tax;
+    total     += finalGross;
   });
-  const discountTotal = cart.reduce((a, l) => a + (Number(l.discount) || 0), 0) + od;
-  return { subtotal, taxTotal, total, discountTotal, orderDiscount: od };
+  const discountTotal = r2(cart.reduce((a, l) => a + (Number(l.discount) || 0), 0) + od);
+  return { subtotal: r2(subtotal), taxTotal: r2(taxTotal), total: r2(total), discountTotal, orderDiscount: od };
 }
 
 // ── Open-register panel ─────────────────────────────────────────────────────
@@ -137,38 +156,202 @@ function CloseRegisterModal({ session, onClose, onClosed }) {
 }
 
 // ── Receipt modal ───────────────────────────────────────────────────────────
+// Designed to look like a real thermal-printer slip: narrow column,
+// monospace digits, dotted dividers, condensed item list. Includes
+// print-only CSS so the browser's Print dialog produces just the receipt
+// strip — no app chrome, no nav, no buttons.
+
 function ReceiptModal({ sale, onClose }) {
   const { t, fmt } = useLocale();
+  const { settings } = useSettings();
+  const co = settings || {};
+
+  const now = new Date();
+  const dateStr = now.toLocaleString(undefined, {
+    year: 'numeric', month: '2-digit', day: '2-digit',
+    hour: '2-digit', minute: '2-digit',
+  });
+
+  const items   = Array.isArray(sale.items) ? sale.items : [];
+  const showTax = (sale.tax_total || 0) > 0.005;
+  const showDiscount = (sale.discount_total || 0) > 0.005;
+  // Cash sales show "Tender / Change"; non-cash skip those rows.
+  const isCash  = (sale.payment_method || 'Cash').toLowerCase() === 'cash';
+
+  function doPrint() {
+    // Add a "printing" class to body so the print-only CSS in this modal
+    // hides everything except the receipt strip. The class is cleared by
+    // the afterprint event so subsequent app rendering stays normal.
+    document.body.classList.add('pos-receipt-printing');
+    const cleanup = () => {
+      document.body.classList.remove('pos-receipt-printing');
+      window.removeEventListener('afterprint', cleanup);
+    };
+    window.addEventListener('afterprint', cleanup);
+    window.print();
+    // Safety net for browsers that don't fire afterprint reliably.
+    setTimeout(cleanup, 1500);
+  }
+
+  // Inline styles only — keeps the receipt visually isolated from the
+  // rest of the app's design tokens (light text on dark theme would
+  // ruin a printed receipt).
+  const RECEIPT_WIDTH = 320;     // px on screen ~= 80mm thermal paper
+  const MONO = '"JetBrains Mono", "Courier New", ui-monospace, monospace';
+
   return (
     <Modal title={t('pos.receipt')} onClose={onClose}>
-      <div className="modal-body">
-        <div style={{ textAlign: 'center', marginBottom: 12 }}>
-          <div style={{ fontSize: 28 }}>✅</div>
-          <div style={{ fontWeight: 700 }}>{t('pos.saleCompleted')}</div>
-          <div style={{ color: 'var(--text-3)', fontSize: 12 }}>{sale.invoice_number}</div>
-        </div>
-        <table className="table" style={{ fontSize: 13 }}>
-          <tbody>
-            <tr><td>{t('pos.subtotal')}</td><td style={{ textAlign: 'end' }}>{fmt(sale.subtotal)}</td></tr>
-            <tr><td>{t('pos.taxTotal')}</td><td style={{ textAlign: 'end' }}>{fmt(sale.tax_total)}</td></tr>
-            {sale.discount_total > 0 && (
-              <tr><td>{t('pos.savings')}</td>
-                  <td style={{ textAlign: 'end', color: 'var(--green)' }}>−{fmt(sale.discount_total)}</td></tr>
+      <style>{`
+        /* Print-only: show ONLY the receipt strip. The modal renders inline
+           inside #root (not a body-level portal), so hiding body's direct
+           children would hide the receipt too. Instead we hide everything via
+           visibility, then re-show the receipt subtree and pull it to the page
+           origin — this works regardless of how deeply the modal is nested.
+           The .pos-receipt-printing class is added by doPrint(). */
+        @media print {
+          body.pos-receipt-printing * { visibility: hidden !important; }
+          body.pos-receipt-printing .pos-receipt,
+          body.pos-receipt-printing .pos-receipt * { visibility: visible !important; }
+          body.pos-receipt-printing .pos-receipt {
+            position: absolute !important; left: 0 !important; top: 0 !important;
+            width: 80mm !important; padding: 4mm !important; margin: 0 !important;
+            border: none !important; border-radius: 0 !important; box-shadow: none !important;
+          }
+          @page { margin: 0; size: 80mm auto; }
+        }
+      `}</style>
+
+      <div className="modal-body" style={{ background: 'var(--bg)' }}>
+        <div className="pos-receipt" style={{
+          width: RECEIPT_WIDTH, margin: '0 auto',
+          background: '#fff', color: '#111',
+          fontFamily: MONO, fontSize: 12, lineHeight: 1.45,
+          padding: '14px 16px',
+          border: '1px solid var(--border)',
+          borderRadius: 4,
+          boxShadow: '0 2px 8px rgba(0,0,0,0.04)',
+        }}>
+          {/* Header — company info */}
+          <div style={{ textAlign: 'center', marginBottom: 8 }}>
+            <div style={{ fontSize: 14, fontWeight: 700, letterSpacing: '.5px' }}>
+              {(co.company_name || 'My Company').toUpperCase()}
+            </div>
+            {(co.company_address || co.company_city) && (
+              <div style={{ fontSize: 10.5, color: '#555' }}>
+                {[co.company_address, co.company_city, co.company_country].filter(Boolean).join(', ')}
+              </div>
             )}
-            <tr><td><strong>{t('pos.total')}</strong></td>
-                <td style={{ textAlign: 'end' }}><strong>{fmt(sale.total)}</strong></td></tr>
-            <tr><td>{t('pos.change')}</td><td style={{ textAlign: 'end' }}>{num(sale.change_given)}</td></tr>
-          </tbody>
-        </table>
-        <p style={{ fontSize: 11, color: 'var(--text-3)', textAlign: 'center', marginTop: 6 }}>
-          {t('pos.taxIncluded')}
-        </p>
+            {co.company_phone && (
+              <div style={{ fontSize: 10.5, color: '#555' }}>Tel: {co.company_phone}</div>
+            )}
+            {co.company_tax_number && (
+              <div style={{ fontSize: 10.5, color: '#555' }}>VAT #: {co.company_tax_number}</div>
+            )}
+          </div>
+
+          {/* Sale meta */}
+          <Divider />
+          <Row label={t('pos.receiptNumber') || 'Receipt'} value={sale.invoice_number} bold />
+          <Row label={t('common.date') || 'Date'} value={dateStr} />
+          {sale.client_name && <Row label={t('pos.customer') || 'Customer'} value={sale.client_name} />}
+
+          {/* Items */}
+          <Divider />
+          {items.length === 0 ? (
+            <div style={{ textAlign: 'center', fontSize: 11, color: '#888', padding: '6px 0' }}>
+              {t('pos.noItems') || 'No items'}
+            </div>
+          ) : items.map((it, i) => {
+            const qty = Number(it.quantity) || 0;
+            const price = Number(it.unit_price) || 0;
+            const lineTotal = qty * price - (Number(it.discount) || 0);
+            return (
+              <div key={i} style={{ marginBottom: 4 }}>
+                <div style={{ fontWeight: 600, color: '#111' }}>
+                  {it.name || t('pos.customLineName')}
+                </div>
+                <div style={{
+                  display: 'flex', justifyContent: 'space-between',
+                  fontSize: 11, color: '#444',
+                }}>
+                  <span>{qty} × {price.toFixed(2)}</span>
+                  <span>{lineTotal.toFixed(2)}</span>
+                </div>
+                {(Number(it.discount) || 0) > 0 && (
+                  <div style={{ fontSize: 10, color: '#15803d', textAlign: 'end' }}>
+                    {t('pos.lineDiscount') || 'Disc'}: −{Number(it.discount).toFixed(2)}
+                  </div>
+                )}
+              </div>
+            );
+          })}
+
+          {/* Totals */}
+          <Divider />
+          <Row label={t('pos.subtotal')} value={fmt(sale.subtotal)} />
+          {showTax       && <Row label={t('pos.taxTotal')} value={fmt(sale.tax_total)} />}
+          {showDiscount  && <Row label={t('pos.savings')} value={'−' + fmt(sale.discount_total)} hint />}
+          <DividerDouble />
+          <Row label={t('pos.total')} value={fmt(sale.total)} bold size={14} />
+
+          {/* Payment */}
+          <Divider />
+          <Row label={t('pos.paymentMethod') || 'Payment'} value={sale.payment_method || 'Cash'} />
+          {isCash && sale.amount_tendered != null && (
+            <Row label={t('pos.amountTendered') || 'Tendered'}
+                 value={fmt(sale.amount_tendered)} />
+          )}
+          {isCash && (sale.change_given || 0) > 0 && (
+            <Row label={t('pos.change')}
+                 value={fmt(sale.change_given)} bold />
+          )}
+
+          {/* Footer */}
+          <Divider />
+          <div style={{ textAlign: 'center', fontSize: 10.5, color: '#555', lineHeight: 1.5 }}>
+            {co.footer_text || 'Thank you for your business!'}
+          </div>
+          {showTax && (
+            <div style={{ textAlign: 'center', fontSize: 9, color: '#888', marginTop: 3 }}>
+              {t('pos.taxIncluded')}
+            </div>
+          )}
+        </div>
       </div>
+
       <div className="modal-footer">
-        <button className="btn btn-secondary" onClick={() => window.print()}>{t('pos.printReceipt')}</button>
+        <button className="btn btn-secondary" onClick={doPrint}>{t('pos.printReceipt')}</button>
         <button className="btn btn-primary" onClick={onClose}>{t('pos.newSale')}</button>
       </div>
     </Modal>
+  );
+}
+
+// ── Receipt building blocks ───────────────────────────────────────────────
+// Small inline helpers so the receipt JSX above stays scannable.
+
+function Divider() {
+  return <div style={{ borderTop: '1px dashed #999', margin: '6px 0' }} />;
+}
+function DividerDouble() {
+  return (
+    <div style={{
+      borderTop: '1px solid #000', borderBottom: '1px solid #000',
+      height: 3, margin: '5px 0',
+    }} />
+  );
+}
+function Row({ label, value, bold, hint, size = 12 }) {
+  return (
+    <div style={{
+      display: 'flex', justifyContent: 'space-between',
+      fontSize: size, color: hint ? '#15803d' : '#111',
+      fontWeight: bold ? 700 : 400,
+      padding: '1px 0',
+    }}>
+      <span>{label}</span>
+      <span style={{ fontVariantNumeric: 'tabular-nums' }}>{value}</span>
+    </div>
   );
 }
 
@@ -208,7 +391,22 @@ function CheckoutModal({ pricing, clients, drawers, onClose, onDone }) {
         cash_drawer_id: method === 'Cash' && drawerId ? Number(drawerId) : null,
         idempotency_key: crypto.randomUUID(),
       });
-      onDone(res);
+      // The checkout endpoint returns only totals + ids. Stitch in the
+      // presentation data the receipt needs (line items, client name,
+      // payment method, amount tendered) so the receipt doesn't have to
+      // make a second roundtrip for what we already know.
+      const clientName = clientId
+        ? (clients.find(c => String(c.id) === String(clientId))?.name || '')
+        : '';
+      onDone({
+        ...res,
+        items:           pricing.items,
+        client_name:     clientName,
+        payment_method:  method,
+        currency,
+        exchange_rate:   currency === 'LBP' ? fxRate : null,
+        amount_tendered: method === 'Cash' ? tenderedNum : totalInCurrency,
+      });
     } catch (e) {
       toast(e.message, 'red');
       setBusy(false);
@@ -424,6 +622,15 @@ function RegisterView({ session, onClose, onSold }) {
   const taxEnabled = settings?.tax_enabled === '1' && taxRates.length > 0;
   const defaultRate = taxRates.find(r => r.is_default);
   const rateOf = (id) => taxRates.find(r => r.id === id);
+  // POS lines default to the Zero-rated tax — the cashier picks VAT per line
+  // when it applies. Every other module keeps the standard default rate
+  // (the is_default, e.g. VAT 11%). Falls back to the standard default if no
+  // zero-rated rate is configured.
+  const posDefaultRate = taxRates.find(r => r.tax_type === 'zero') || defaultRate;
+  // Same options as everywhere else, but Zero-rated listed first in POS.
+  const posTaxRates = posDefaultRate
+    ? [posDefaultRate, ...taxRates.filter(r => r.id !== posDefaultRate.id)]
+    : taxRates;
 
   useEffect(() => {
     getClients().then(setClients).catch(() => {});
@@ -447,7 +654,7 @@ function RegisterView({ session, onClose, onSold }) {
       return [...prev, {
         key: ++keyRef.current, name: p.name, inventory_id: p.id,
         quantity: 1, unit_price: Number(p.sale_price) || 0, discount: 0,
-        tax_rate_id: defaultRate ? defaultRate.id : null,
+        tax_rate_id: posDefaultRate ? posDefaultRate.id : null,
         line_type: 'product', stock: Number(p.quantity) || 0,
       }];
     });
@@ -457,7 +664,7 @@ function RegisterView({ session, onClose, onSold }) {
     setCart(prev => [...prev, {
       key: ++keyRef.current, name: '', inventory_id: null,
       quantity: 1, unit_price: 0, discount: 0,
-      tax_rate_id: defaultRate ? defaultRate.id : null,
+      tax_rate_id: posDefaultRate ? posDefaultRate.id : null,
       line_type: 'service', stock: null,
     }]);
   }
@@ -475,7 +682,7 @@ function RegisterView({ session, onClose, onSold }) {
     }
   }
 
-  const pricing = priceCart(cart, orderDiscount, taxEnabled, rateOf, defaultRate);
+  const pricing = priceCart(cart, orderDiscount, taxEnabled, rateOf, posDefaultRate);
 
   const checkoutItems = cart.map(l => ({
     name: l.name || t('pos.customLineName'),
@@ -483,7 +690,7 @@ function RegisterView({ session, onClose, onSold }) {
     quantity: Number(l.quantity) || 0,
     unit_price: Number(l.unit_price) || 0,
     discount: Number(l.discount) || 0,
-    tax_rate_id: taxEnabled ? l.tax_rate_id : null,
+    tax_rate_id: taxEnabled ? (l.tax_rate_id ?? (posDefaultRate ? posDefaultRate.id : null)) : null,
     line_type: l.line_type,
   }));
 
@@ -573,23 +780,33 @@ function RegisterView({ session, onClose, onSold }) {
                         : <CustomLineNameCombobox
                             line={l}
                             taxEnabled={taxEnabled}
-                            defaultRate={defaultRate}
+                            defaultRate={posDefaultRate}
                             placeholder={t('pos.customLineName')}
                             onPatch={(patch) => setLine(l.key, patch)}
                           />}
                     </td>
                     <td>
-                      <input className="form-control" style={{ height: 30 }} type="number"
-                        step="any" min="0" value={l.quantity}
-                        onChange={e => setLine(l.key, { quantity: e.target.value })} />
+                      <input
+                        className="form-control pos-num-input"
+                        style={{ height: 30, minWidth: 64, textAlign: 'right' }}
+                        type="number" step="1" min="1"
+                        value={l.quantity}
+                        onChange={e => setLine(l.key, { quantity: e.target.value })}
+                        onFocus={e => e.target.select()}
+                      />
                       {l.stock != null && Number(l.quantity) > l.stock && (
                         <span style={{ color: 'var(--red)', fontSize: 10 }}>{t('pos.insufficientStock')}</span>
                       )}
                     </td>
                     <td>
-                      <input className="form-control" style={{ height: 30 }} type="number"
-                        step="any" min="0" value={l.unit_price}
-                        onChange={e => setLine(l.key, { unit_price: e.target.value })} />
+                      <input
+                        className="form-control pos-num-input"
+                        style={{ height: 30, minWidth: 80, textAlign: 'right' }}
+                        type="number" step="any" min="0"
+                        value={l.unit_price}
+                        onChange={e => setLine(l.key, { unit_price: e.target.value })}
+                        onFocus={e => e.target.select()}
+                      />
                     </td>
                     <td>
                       <input className="form-control" style={{ height: 30 }} type="number"
@@ -599,9 +816,9 @@ function RegisterView({ session, onClose, onSold }) {
                     {taxEnabled && (
                       <td>
                         <select className="form-control" style={{ height: 30 }}
-                          value={l.tax_rate_id ?? ''}
+                          value={l.tax_rate_id ?? (posDefaultRate?.id ?? '')}
                           onChange={e => setLine(l.key, { tax_rate_id: e.target.value ? Number(e.target.value) : null })}>
-                          {taxRates.map(r => (
+                          {posTaxRates.map(r => (
                             <option key={r.id} value={r.id}>{r.name}</option>
                           ))}
                         </select>
@@ -842,6 +1059,19 @@ function HistoryView({ canReturn }) {
   if (!rows) return <LoadingSpinner />;
   if (rows.length === 0) return <EmptyState message={t('pos.noSales')} />;
 
+  // Flat shape — keys become Excel column headers when XLSX.json_to_sheet
+  // serialises this. Use the same column order the table uses.
+  const exportData = rows.map(s => ({
+    Sale:          s.invoice_number,
+    Customer:      s.client_name || 'Walk-in',
+    Cashier:       s.cashier_name || '',
+    Payment:       s.payment_method || '',
+    Total_USD:     s.total_usd || 0,
+    Total_LBP:     s.total_lbp || 0,
+    Status:        s.status === 'returned' ? 'Returned' : 'Paid',
+    Date:          fmtDate(s.created_at),
+  }));
+
   return (
     <div className="card">
       {openId && (
@@ -851,6 +1081,9 @@ function HistoryView({ canReturn }) {
           onReturned={() => { setOpenId(null); load(); }}
         />
       )}
+      <div className="card-header" style={{ justifyContent: 'flex-end' }}>
+        <ExportButton data={exportData} filename="POS_Sales" sheetName="Sales" />
+      </div>
       <table className="table">
         <thead>
           <tr>

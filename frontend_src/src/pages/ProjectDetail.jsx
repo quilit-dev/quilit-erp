@@ -555,8 +555,8 @@ export default function ProjectDetail() {
                         type="number"
                         className="form-control"
                         required
-                        min="0.001"
-                        step="any"
+                        min="1"
+                        step="1"
                         max={sel?.quantity}
                         value={deductQty}
                         onChange={e => setDeductQty(e.target.value)}

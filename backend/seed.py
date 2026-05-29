@@ -122,6 +122,15 @@ with sqlite3.connect(DB_PATH) as _con:
     _con.commit()
 
 
+# ── Per-role logins — one active user per RBAC role so every permission set can
+#    be exercised end-to-end. All share Test1234! with must_change_password=0.
+#    seed_users reads DB_PATH from the env we just set above. ─────────────────
+import seed_users  # noqa: E402
+
+ROLE_PASSWORD = seed_users.TEST_PASSWORD
+seed_users.seed()
+
+
 # ── Authenticated TestClient — every record below goes through the same
 #    HTTP path the UI uses, so tax snapshots / audit logs / notifications /
 #    stock movements all fire exactly like real usage ─────────────────────
@@ -588,7 +597,7 @@ bom_table_v1 = POST("/api/manufacturing/boms", {
     "components": [
         {"component_inventory_id": inv["wood"]["id"],     "quantity": 4, "scrap_pct": 5},
         {"component_inventory_id": inv["nails"]["id"],    "quantity": 20},
-        {"component_inventory_id": inv["varnish"]["id"],  "quantity": 0.2},
+        {"component_inventory_id": inv["varnish"]["id"],  "quantity": 1},
     ],
 })
 # Bump to v2 — production manager refined the recipe
@@ -600,7 +609,7 @@ POST(f"/api/manufacturing/boms/{bom_table_v1['id']}/new-version", {
     "components": [
         {"component_inventory_id": inv["wood"]["id"],     "quantity": 4, "scrap_pct": 5},
         {"component_inventory_id": inv["nails"]["id"],    "quantity": 18},
-        {"component_inventory_id": inv["varnish"]["id"],  "quantity": 0.15},
+        {"component_inventory_id": inv["varnish"]["id"],  "quantity": 1},
         {"component_inventory_id": inv["subframe"]["id"], "quantity": 1},
     ],
 })
@@ -610,9 +619,9 @@ bom_chair = POST("/api/manufacturing/boms", {
     "output_inventory_id": inv["chair"]["id"],
     "output_quantity":     1, "labor_cost": 8, "overhead_cost": 3,
     "components": [
-        {"component_inventory_id": inv["wood"]["id"],    "quantity": 1.5},
+        {"component_inventory_id": inv["wood"]["id"],    "quantity": 2},
         {"component_inventory_id": inv["nails"]["id"],   "quantity": 12},
-        {"component_inventory_id": inv["varnish"]["id"], "quantity": 0.05},
+        {"component_inventory_id": inv["varnish"]["id"], "quantity": 1},
     ],
 })
 
@@ -890,14 +899,377 @@ print("  +2 policies (expense + fixed_asset); +1 pending request")
 
 
 # ════════════════════════════════════════════════════════════════════════════
+# 19. More clients — scale the book of business up to ~16
+# ════════════════════════════════════════════════════════════════════════════
+header("More clients")
+more_clients_seed = [
+    {"name": "Mountain Roasters",  "company": "Mountain Roasters SAL",
+     "phone": "03 121 314", "email": "buy@mountainroasters.lb",
+     "address": "Broumana Main Rd", "type": "business"},
+    {"name": "Levant Interiors",   "company": "Levant Interiors SARL",
+     "phone": "01 488 277", "email": "projects@levantinteriors.com",
+     "address": "Dbayeh Highway", "type": "business"},
+    {"name": "Byblos Resort",      "company": "Byblos Resort & Spa",
+     "phone": "09 540 540", "email": "procurement@byblosresort.lb",
+     "address": "Jbeil Seafront", "type": "business"},
+    {"name": "Tripoli Traders",    "company": "Tripoli Traders Co",
+     "phone": "06 430 430", "email": "info@tripolitraders.lb",
+     "address": "Tripoli Souks", "type": "business"},
+    {"name": "Zahle Vineyards",    "company": "Zahle Vineyards SAL",
+     "phone": "08 800 220", "email": "orders@zahlevineyards.lb",
+     "address": "Bekaa Valley", "type": "business"},
+    {"name": "Rami Fares",   "phone": "70 909 010",
+     "email": "rami.fares@example.com", "type": "private"},
+    {"name": "Nour Hamdan",  "phone": "76 313 414",
+     "email": "nour.hamdan@example.com", "type": "private"},
+    {"name": "Elie Karam",   "phone": "03 717 818",
+     "email": "elie.karam@example.com", "type": "private"},
+]
+more_client_ids = [POST("/api/clients/", c)["id"] for c in more_clients_seed]
+(CL_ROASTERS, CL_LEVANT, CL_BYBLOS, CL_TRIPOLI, CL_ZAHLE,
+ CL_RAMI, CL_NOUR, CL_ELIE) = more_client_ids
+print(f"  +{len(more_client_ids)} clients (5 business + 3 private) → 16 total")
+
+
+# ════════════════════════════════════════════════════════════════════════════
+# 20. More projects — push to ~12 across the full status spectrum
+# ════════════════════════════════════════════════════════════════════════════
+header("More projects")
+more_projects_seed = [
+    {"name": "Resort lobby refit", "client_id": CL_BYBLOS, "status": "Active",
+     "start_date": days_ago(20), "estimated_cost": 9000, "expected_revenue": 14000,
+     "description": "Reception desk + lounge seating"},
+    {"name": "Roastery counter build", "client_id": CL_ROASTERS, "status": "Active",
+     "start_date": days_ago(10), "estimated_cost": 3500, "expected_revenue": 5500},
+    {"name": "Levant showroom shelving", "client_id": CL_LEVANT, "status": "Inquiry",
+     "start_date": days_ahead(10), "estimated_cost": 6000, "expected_revenue": 9000},
+    {"name": "Vineyard tasting room", "client_id": CL_ZAHLE, "status": "Completed",
+     "start_date": days_ago(120), "end_date": days_ago(20),
+     "estimated_cost": 7000, "expected_revenue": 11000},
+    {"name": "Tripoli store fixtures", "client_id": CL_TRIPOLI, "status": "Active",
+     "start_date": days_ago(35), "estimated_cost": 4200, "expected_revenue": 6800},
+    {"name": "Private library — Karam", "client_id": CL_ELIE, "status": "On Hold",
+     "start_date": days_ago(50), "estimated_cost": 2000, "expected_revenue": 3200,
+     "description": "Awaiting client material choice"},
+    {"name": "Home office — Fares", "client_id": CL_RAMI, "status": "Completed",
+     "start_date": days_ago(80), "end_date": days_ago(30),
+     "estimated_cost": 1300, "expected_revenue": 2100},
+    {"name": "Cedar warehouse racking", "client_id": CL_CEDAR_LOG, "status": "Active",
+     "start_date": days_ago(15), "estimated_cost": 5500, "expected_revenue": 8500},
+]
+more_projects = [POST("/api/projects/", p) for p in more_projects_seed]
+(PRJ_RESORT, PRJ_ROASTERY, PRJ_LEVANT, PRJ_VINEYARD,
+ PRJ_TRIPOLI, PRJ_LIBRARY, PRJ_HOMEOFFICE, PRJ_RACKING) = (p["id"] for p in more_projects)
+print(f"  +{len(more_projects)} projects → 12 total")
+
+
+# ════════════════════════════════════════════════════════════════════════════
+# 21. More quotations — varied statuses, two converted to invoices
+# ════════════════════════════════════════════════════════════════════════════
+header("More quotations")
+more_quotes_seed = [
+    (CL_BYBLOS, PRJ_RESORT, "Sent", [
+        {"name": "Reception desk", "quantity": 1, "unit_price": 2600, "tax_rate_id": TAX_DEFAULT},
+        {"name": "Lounge sofas",   "quantity": 4, "unit_price": 480,  "tax_rate_id": TAX_DEFAULT}]),
+    (CL_ROASTERS, PRJ_ROASTERY, "Accepted", [
+        {"name": "Service counter", "quantity": 1, "unit_price": 1900, "tax_rate_id": TAX_DEFAULT},
+        {"name": "Bar stools",      "quantity": 4, "unit_price": 130,  "tax_rate_id": TAX_DEFAULT}]),
+    (CL_LEVANT, PRJ_LEVANT, "Draft", [
+        {"name": "Display shelving (×10)", "quantity": 10, "unit_price": 220, "tax_rate_id": TAX_DEFAULT}]),
+    (CL_TRIPOLI, PRJ_TRIPOLI, "Accepted", [
+        {"name": "Store fixtures set", "quantity": 1, "unit_price": 3400, "tax_rate_id": TAX_DEFAULT}]),
+    (CL_ZAHLE, None, "Sent", [
+        {"name": "Tasting tables", "quantity": 3, "unit_price": 520, "tax_rate_id": TAX_REDUCED}]),
+    (CL_NOUR, None, "Rejected", [
+        {"name": "Custom wardrobe", "quantity": 1, "unit_price": 1250, "tax_rate_id": TAX_DEFAULT}]),
+]
+_converted = 0
+for cid, pid, status, items in more_quotes_seed:
+    body = {"client_id": cid, "items": items}
+    if pid:
+        body["project_id"] = pid
+    q = POST("/api/quotations/", body)
+    if status != "Draft":
+        upd = {"client_id": cid, "status": status, "items": items}
+        if pid:
+            upd["project_id"] = pid
+        PUT(f"/api/quotations/{q['id']}", upd)
+    if status == "Accepted":
+        POST(f"/api/quotations/{q['id']}/convert-to-invoice")
+        _converted += 1
+print(f"  +{len(more_quotes_seed)} quotations ({_converted} accepted → invoices)")
+
+
+# ════════════════════════════════════════════════════════════════════════════
+# 22. More invoices — broaden the AR ledger across payment states
+# ════════════════════════════════════════════════════════════════════════════
+header("More invoices")
+# (client_id, item_name, qty, price, due_offset_days, pay) where pay in
+# {"full","partial","none"} and due_offset<0 makes it overdue.
+more_inv_specs = [
+    (CL_BYBLOS,   "Lobby furniture deposit", 1, 4000, 15,  "partial"),
+    (CL_ROASTERS, "Counter build — final",   1, 1900, 30,  "full"),
+    (CL_LEVANT,   "Shelving advance",        1, 1100, 10,  "none"),
+    (CL_TRIPOLI,  "Fixtures milestone 1",    1, 1700, -15, "partial"),
+    (CL_ZAHLE,    "Tasting tables",          3, 520,  -25, "none"),
+    (CL_RAMI,     "Home office build",       1, 2100, 20,  "full"),
+    (CL_NOUR,     "Repair + refinish",       1, 340,  -10, "none"),
+    (CL_ELIE,     "Bookshelf deposit",       1, 900,  25,  "partial"),
+]
+for cid, name, qty, price, due_off, pay in more_inv_specs:
+    iv = POST("/api/invoices/", {
+        "client_id": cid,
+        "items": [{"name": name, "quantity": qty, "unit_price": price,
+                   "tax_rate_id": TAX_DEFAULT}],
+        "due_date": days_ahead(due_off) if due_off >= 0 else days_ago(-due_off),
+    })
+    amt = GET(f"/api/invoices/{iv['id']}")["amount"]
+    if pay == "full":
+        POST(f"/api/invoices/{iv['id']}/payments",
+             {"amount": amt, "method": "Bank Transfer", "idempotency_key": str(uuid.uuid4())})
+    elif pay == "partial":
+        POST(f"/api/invoices/{iv['id']}/payments",
+             {"amount": round(amt * 0.4, 2), "method": "Cash", "idempotency_key": str(uuid.uuid4())})
+print(f"  +{len(more_inv_specs)} invoices (full / partial / unpaid / overdue mix)")
+
+
+# ════════════════════════════════════════════════════════════════════════════
+# 23. More POS sales — keep the open session busy (high-stock items only)
+# ════════════════════════════════════════════════════════════════════════════
+header("More POS sales")
+_more_pos = [
+    ([{"inventory_id": inv["coffee"]["id"], "name": "Coffee Beans 1kg",
+       "quantity": 3, "unit_price": 18, "tax_rate_id": TAX_DEFAULT}], "Cash"),
+    ([{"inventory_id": inv["cups"]["id"], "name": "Disposable Cups",
+       "quantity": 10, "unit_price": 0.5, "tax_rate_id": TAX_DEFAULT}], "Cash"),
+    ([{"inventory_id": inv["coffee"]["id"], "name": "Coffee Beans 1kg",
+       "quantity": 2, "unit_price": 18, "tax_rate_id": TAX_DEFAULT},
+      {"inventory_id": inv["chair"]["id"], "name": "Wooden Chair",
+       "quantity": 1, "unit_price": 55, "tax_rate_id": TAX_DEFAULT}], "Card"),
+    ([{"inventory_id": None, "name": "Gift wrapping",
+       "quantity": 2, "unit_price": 5, "tax_rate_id": TAX_DEFAULT}], "Cash"),
+    ([{"inventory_id": inv["coffee"]["id"], "name": "Coffee Beans 1kg",
+       "quantity": 1, "unit_price": 18, "tax_rate_id": TAX_DEFAULT}], "Card"),
+    ([{"inventory_id": inv["cups"]["id"], "name": "Disposable Cups",
+       "quantity": 20, "unit_price": 0.5, "tax_rate_id": TAX_DEFAULT}], "Cash"),
+]
+for items, method in _more_pos:
+    _checkout(items, method=method)
+print(f"  +{len(_more_pos)} POS sales added to the open session")
+
+
+# ════════════════════════════════════════════════════════════════════════════
+# 24. More expenses — deepen the P&L
+# ════════════════════════════════════════════════════════════════════════════
+header("More expenses")
+more_expense_seed = [
+    {"category": "Utilities",    "amount": 198, "tax_rate_id": TAX_DEFAULT,
+     "description": "Water + generator — May", "payment_method": "Bank Transfer"},
+    {"category": "Transport",    "amount": 140,
+     "description": "Delivery fuel — May",     "payment_method": "Cash"},
+    {"category": "Materials",    "amount": 640, "project_id": PRJ_RESORT,
+     "description": "Upholstery fabric",       "tax_rate_id": TAX_DEFAULT},
+    {"category": "Subcontractor","amount": 900, "project_id": PRJ_TRIPOLI,
+     "description": "Electrician — fixtures",  "payment_method": "Cash"},
+    {"category": "Subscription", "amount": 320, "tax_rate_id": TAX_DEFAULT,
+     "description": "Social media ads — Q2",   "payment_method": "Card"},
+    {"category": "Equipment",    "amount": 210,
+     "description": "Workshop tool servicing", "payment_method": "Cash"},
+]
+for e in more_expense_seed:
+    POST("/api/finance/expenses", e)
+print(f"  +{len(more_expense_seed)} expenses")
+
+
+# ════════════════════════════════════════════════════════════════════════════
+# 25. Recruitment — positions → applicants → interviews → offers → one hire
+# ════════════════════════════════════════════════════════════════════════════
+header("Recruitment")
+pos_carpenter = POST("/api/recruitment/positions", {
+    "title": "Junior Carpenter", "department_id": dept_ops["id"],
+    "employment_type": "Full-time", "headcount": 2, "status": "Open",
+    "location": "Workshop — Hamra", "salary_min": 800, "salary_max": 1200,
+    "description": "Hands-on furniture build role.",
+    "requirements": "1+ yr carpentry; reads cut lists."})
+pos_sales = POST("/api/recruitment/positions", {
+    "title": "Sales Associate", "department_id": dept_sales["id"],
+    "employment_type": "Full-time", "headcount": 1, "status": "Open",
+    "salary_min": 900, "salary_max": 1300})
+pos_account = POST("/api/recruitment/positions", {
+    "title": "Junior Accountant", "department_id": dept_admin["id"],
+    "employment_type": "Full-time", "headcount": 1, "status": "On Hold",
+    "salary_min": 1000, "salary_max": 1400})
+POST("/api/recruitment/positions", {
+    "title": "Seasonal Helper", "department_id": dept_ops["id"],
+    "employment_type": "Contract", "headcount": 3, "status": "Open"})
+
+# Applicants spread across the pipeline.
+def _applicant(name, pos_id, stages, *, rating=None, salary=None, source="LinkedIn",
+               email=None, phone=None):
+    body = {"full_name": name, "position_id": pos_id, "source": source}
+    if rating: body["rating"] = rating
+    if salary: body["expected_salary"] = salary
+    if email:  body["email"] = email
+    if phone:  body["phone"] = phone
+    app = POST("/api/recruitment/applicants", body)
+    for st in stages:
+        POST(f"/api/recruitment/applicants/{app['id']}/status", {"new_status": st})
+    return app
+
+# Full hire chain — interviewed, offered, accepted, converted to employee.
+app_hire = _applicant("Ziad Murr", pos_carpenter["id"],
+                      ["Screening", "Interview"], rating=5, salary=1050,
+                      email="ziad.murr@example.com", phone="70 654 321")
+POST(f"/api/recruitment/applicants/{app_hire['id']}/interviews", {
+    "interview_type": "Phone", "scheduled_at": days_ago(10) + " 10:00",
+    "duration_min": 45, "status": "Completed", "score": 8, "decision": "Hire",
+    "notes": "Strong portfolio."})
+POST(f"/api/recruitment/applicants/{app_hire['id']}/interviews", {
+    "interview_type": "On-site", "scheduled_at": days_ago(6) + " 14:00",
+    "duration_min": 90, "status": "Completed", "score": 9, "decision": "Strong hire",
+    "notes": "Excellent bench test."})
+offer_hire = POST(f"/api/recruitment/applicants/{app_hire['id']}/offers", {
+    "contract_type": "Permanent", "job_title": "Junior Carpenter",
+    "department_id": dept_ops["id"], "start_date": days_ahead(14),
+    "salary": 1050, "salary_currency": "USD", "payment_schedule": "Monthly",
+    "probation_months": 3, "weekly_hours": 45, "annual_leave_days": 15})
+POST(f"/api/recruitment/offers/{offer_hire['id']}/status", {"status": "Sent"})
+POST(f"/api/recruitment/offers/{offer_hire['id']}/status", {"status": "Accepted"})
+POST(f"/api/recruitment/applicants/{app_hire['id']}/status",
+     {"new_status": "Accepted", "reason": "Top candidate — accepted offer."})
+hire = POST(f"/api/recruitment/applicants/{app_hire['id']}/convert", {
+    "accepted_offer_id": offer_hire["id"], "department_id": dept_ops["id"],
+    "job_title": "Junior Carpenter", "salary": 1050, "hire_date": days_ahead(14)})
+
+# Other applicants in mid-pipeline + one rejected.
+_applicant("Carla Rizk", pos_carpenter["id"], ["Screening"], rating=3,
+           salary=950, email="carla.rizk@example.com")
+_applicant("Hadi Salloum", pos_sales["id"], ["Screening", "Interview"],
+           rating=4, salary=1100, source="Referral",
+           email="hadi.salloum@example.com")
+_applicant("Maya Trad", pos_sales["id"], ["Screening", "Interview", "Technical Test"],
+           rating=4, salary=1200, source="Website")
+_applicant("Fadi Obeid", pos_account["id"], ["Screening"], rating=2, salary=1000)
+_applicant("Rita Daou", pos_carpenter["id"],
+           ["Screening", "Rejected"], rating=2, source="Walk-in")
+print("  +4 positions, 6 applicants (1 hired → employee), interviews + offers")
+
+
+# ════════════════════════════════════════════════════════════════════════════
+# 26. HR — contracts, a paid payroll run, and HR activities
+# ════════════════════════════════════════════════════════════════════════════
+header("HR contracts")
+# Formal contracts for the founding staff; activating syncs the salary timeline.
+contract_specs = [
+    (emp_ids[0], "Permanent", "Carpenter",      days_ago(700), 1200),
+    (emp_ids[2], "Permanent", "Sales Manager",  days_ago(450), 1800),
+    (emp_ids[4], "Permanent", "Bookkeeper",     days_ago(900), 1500),
+    (emp_ids[1], "Fixed-term", "Cashier",       days_ago(120), 700),
+]
+for eid, ctype, title, start, salary in contract_specs:
+    c = POST("/api/hr/contracts/", {
+        "employee_id": eid, "contract_type": ctype, "status": "Draft",
+        "start_date": start, "job_title": title, "salary": salary,
+        "weekly_hours": 48 if ctype == "Permanent" else 24,
+        "work_schedule": "Mon–Fri 9:00–18:00"})
+    POST(f"/api/hr/contracts/{c['id']}/status", {"status": "Active"})
+print(f"  +{len(contract_specs)} contracts activated")
+
+header("Payroll")
+run = POST("/api/hr/payroll/runs", {
+    "period_start": days_ago(31), "period_end": days_ago(1),
+    "notes": "Monthly payroll — current period"})
+POST(f"/api/hr/payroll/runs/{run['id']}/approve")
+paid = POST(f"/api/hr/payroll/runs/{run['id']}/mark-paid")
+# A second run left in Draft so the Payroll screen shows both states.
+POST("/api/hr/payroll/runs", {
+    "period_start": days_ago(61), "period_end": days_ago(32),
+    "notes": "Prior period — draft"})
+print(f"  1 paid run (expense {paid.get('expense_id')}) + 1 draft run")
+
+header("HR activities")
+hr_acts = [
+    {"activity_type": "Meeting", "subject": "1:1 with Omar",
+     "scheduled_at": days_ahead(2) + " 10:00", "duration_min": 30,
+     "employee_id": emp_ids[0], "reminder_minutes_before": 30},
+    {"activity_type": "Call", "subject": "Reference check — Ziad",
+     "scheduled_at": days_ahead(1) + " 15:00", "duration_min": 20,
+     "applicant_id": app_hire["id"], "reminder_minutes_before": 15},
+    {"activity_type": "Interview", "subject": "Panel — Sales Associate",
+     "scheduled_at": days_ahead(4) + " 11:00", "duration_min": 60,
+     "reminder_minutes_before": 60},
+    {"activity_type": "Note", "subject": "Update employee handbook",
+     "scheduled_at": days_ahead(6) + " 09:00", "duration_min": 0,
+     "reminder_minutes_before": 0},
+]
+for a in hr_acts:
+    POST("/api/hr-activities", a)
+print(f"  +{len(hr_acts)} HR activities (with reminders)")
+
+
+# ════════════════════════════════════════════════════════════════════════════
+# 27. Announcements — company-wide comms
+# ════════════════════════════════════════════════════════════════════════════
+header("Announcements")
+POST("/api/announcements/", {
+    "title": "Welcome to the new ERP",
+    "body": "We've migrated to the new system. Please review your module access "
+            "and report any issues to IT. Thanks for your patience during the rollout.",
+    "priority": "high", "audience_type": "all",
+    "requires_ack": True, "pinned": True})
+POST("/api/announcements/", {
+    "title": "Q2 inventory count — June 1",
+    "body": "A full stock count is scheduled for June 1. Operations team please "
+            "freeze non-urgent movements the evening before.",
+    "priority": "medium", "audience_type": "all", "requires_ack": False})
+POST("/api/announcements/", {
+    "title": "Office closed — public holiday",
+    "body": "The office will be closed for the upcoming public holiday. POS and "
+            "online orders continue as normal.",
+    "priority": "low", "audience_type": "all",
+    "expires_at": days_ahead(30)})
+print("  +3 announcements (1 pinned + ack-required)")
+
+
+# ════════════════════════════════════════════════════════════════════════════
+# 28. Planning — milestones + calendar events on the existing plans
+# ════════════════════════════════════════════════════════════════════════════
+header("Planning extras")
+for mb in [
+    {"project_id": plan_cafe["id"],   "name": "Design approved",   "due_date": days_ago(15)},
+    {"project_id": plan_cafe["id"],   "name": "Bar counter installed", "due_date": days_ahead(2)},
+    {"project_id": plan_cafe["id"],   "name": "Handover",          "due_date": days_ahead(14)},
+    {"project_id": plan_office["id"], "name": "Measurements done", "due_date": days_ahead(9)},
+    {"project_id": plan_office["id"], "name": "Install complete",  "due_date": days_ahead(27)},
+]:
+    POST("/api/planning/milestones", mb)
+
+for eb in [
+    {"title": "Weekly team standup", "start_date": days_ahead(1),
+     "all_day": 0, "start_time": "09:00", "end_time": "09:30"},
+    {"title": "Café site walkthrough", "start_date": days_ahead(3),
+     "all_day": 0, "start_time": "14:00", "end_time": "15:30",
+     "description": "Review bar install progress"},
+    {"title": "Supplier review meeting", "start_date": days_ahead(8),
+     "all_day": 1, "color": "#f5a623"},
+]:
+    POST("/api/planning/events", eb)
+print("  +5 milestones + 3 calendar events")
+
+
+# ════════════════════════════════════════════════════════════════════════════
 print()
 print(f"✓  Database seeded at {DB_PATH}")
-print(f"   Login: admin / {ADMIN_PASSWORD}")
+print(f"   Admin login:     admin / {ADMIN_PASSWORD}  (superadmin)")
+print(f"   Per-role logins: u_<role> / {ROLE_PASSWORD}  (e.g. u_finance_manager)")
 print()
 print("   Try the UI tour:")
 print("   • Dashboard          — KPIs, revenue trend, recent activity")
-print("   • Notifications bell — ~8 unread across low-stock / sales / variance")
+print("   • Notifications bell — low-stock / sales / variance / approvals")
 print("   • Invoices           — every payment state including the voided one")
 print("   • Manufacturing      — orders in Draft / In Progress / Completed")
 print("   • Reports → VAT      — per-rate breakdown across 11% / 5% / 0%")
-print("   • Approvals          — 1 pending Finance review")
+print("   • Recruitment        — pipeline from Applied → hired employee")
+print("   • HR → Payroll       — 1 paid run posted to Finance + 1 draft")
+print("   • Announcements      — pinned company-wide notice (ack required)")
+print("   • Approvals          — pending Finance review")

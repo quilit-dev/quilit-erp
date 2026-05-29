@@ -296,13 +296,18 @@ export function ConfirmModal({
   title,
   confirmLabel,
   confirmClass = 'btn-primary',
+  confirmDisabled = false,
 }) {
   const { t } = useLocale();
   const resolvedTitle = title || t('common.confirmAction');
   const resolvedConfirm = confirmLabel || t('common.confirm');
   const resolvedMessage = message || 'Are you sure you want to proceed?';
+  // Render the message inline (<p>) for plain strings, but use a block <div>
+  // for ReactNode payloads so callers can pass nested block elements without
+  // tripping the "<p> cannot contain <p>" HTML warning.
+  const isPlain = typeof resolvedMessage === 'string';
   return (
-    <div className="modal-overlay" onClick={(e) => e.target === e.currentTarget && onCancel()}>
+    <div className="modal-overlay" onClick={(e) => e.target === e.currentTarget && !confirmDisabled && onCancel()}>
       <div className="modal" style={{ maxWidth: 400 }}>
         <div className="modal-header">
           <div style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
@@ -316,11 +321,13 @@ export function ConfirmModal({
           </div>
         </div>
         <div className="modal-body">
-          <p style={{ fontSize: 13.5, color: 'var(--text-2)', lineHeight: 1.6 }}>{resolvedMessage}</p>
+          {isPlain
+            ? <p style={{ fontSize: 13.5, color: 'var(--text-2)', lineHeight: 1.6 }}>{resolvedMessage}</p>
+            : <div style={{ fontSize: 13.5, color: 'var(--text-2)', lineHeight: 1.6 }}>{resolvedMessage}</div>}
         </div>
         <div className="modal-footer">
-          <button className="btn btn-secondary" onClick={onCancel}>{t('common.cancel')}</button>
-          <button className={`btn ${confirmClass}`} onClick={onConfirm}>{resolvedConfirm}</button>
+          <button className="btn btn-secondary" onClick={onCancel} disabled={confirmDisabled}>{t('common.cancel')}</button>
+          <button className={`btn ${confirmClass}`} onClick={onConfirm} disabled={confirmDisabled}>{resolvedConfirm}</button>
         </div>
       </div>
     </div>

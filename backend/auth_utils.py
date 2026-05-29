@@ -53,8 +53,15 @@ TOKEN_EXPIRE_HOURS = int(os.environ.get("TOKEN_EXPIRE_HOURS", "24"))
 ITERATIONS         = 260000  # OWASP recommended minimum for PBKDF2-SHA256
 
 COOKIE_NAME   = "session"
-# Set COOKIE_SECURE=false only for local HTTP development; always true in production.
-COOKIE_SECURE = os.environ.get("COOKIE_SECURE", "true").lower() != "false"
+# Default to NOT requiring HTTPS, because this product is shipped to SMB
+# customers as a self-hosted LAN-only install on plain HTTP. The `Secure`
+# flag, when set on a cookie served over HTTP, makes browsers silently
+# drop the cookie from anything except `localhost` / `127.0.0.1` — which
+# breaks cross-machine login (login appears to succeed, then redirects
+# back to /login on the next request).
+# Customers who put the ERP behind an HTTPS reverse proxy should flip
+# COOKIE_SECURE=true in `backend/.env`.
+COOKIE_SECURE = os.environ.get("COOKIE_SECURE", "false").lower() == "true"
 
 
 def hash_password(password: str) -> str:

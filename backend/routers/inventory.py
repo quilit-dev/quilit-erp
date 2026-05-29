@@ -3,7 +3,7 @@ from pydantic import BaseModel
 from typing import Optional
 from database import get_db
 from permissions import require_perm, require_auth
-from utils import _now, notify
+from utils import _now, notify, validate_int_qty
 import sqlite3
 
 router = APIRouter()
@@ -79,6 +79,9 @@ def get_movements(item_id: int, user=Depends(require_perm("inventory", "view")),
 def create_item(data: InventoryCreate, user=Depends(require_perm("inventory", "create")),
                 db: sqlite3.Connection = Depends(get_db)):
     now = _now()
+    # Stock-affecting numbers must be whole units everywhere they're accepted.
+    validate_int_qty(data.quantity or 0,  "Initial quantity")
+    validate_int_qty(data.min_stock or 0, "Minimum stock")
     barcode = (data.barcode or "").strip() or None
     if barcode and db.execute(
         "SELECT 1 FROM inventory WHERE barcode = ? AND archived_at IS NULL", (barcode,)
@@ -103,6 +106,9 @@ def create_item(data: InventoryCreate, user=Depends(require_perm("inventory", "c
 @router.put("/{item_id}")
 def update_item(item_id: int, data: InventoryCreate, user=Depends(require_perm("inventory", "edit")),
                 db: sqlite3.Connection = Depends(get_db)):
+    # Stock-quantity is managed via /stock so we don't validate data.quantity
+    # here, but min_stock still has to be whole.
+    validate_int_qty(data.min_stock or 0, "Minimum stock")
     existing = db.execute("SELECT quantity FROM inventory WHERE id = ? AND archived_at IS NULL", (item_id,)).fetchone()
     if not existing:
         raise HTTPException(404, "Item not found")
@@ -125,6 +131,8 @@ def update_item(item_id: int, data: InventoryCreate, user=Depends(require_perm("
 @router.patch("/{item_id}/stock")
 def update_stock(item_id: int, data: StockUpdate, user=Depends(require_perm("inventory", "edit")),
                  db: sqlite3.Connection = Depends(get_db)):
+    # Stock adjustments (positive or negative) move whole units only.
+    validate_int_qty(data.delta, "Adjustment")
     row = db.execute("SELECT * FROM inventory WHERE id = ? AND archived_at IS NULL", (item_id,)).fetchone()
     if not row:
         raise HTTPException(404, "Item not found")
@@ -177,6 +185,7 @@ def deduct_to_project(item_id: int, data: DeductToProject,
 
     if data.quantity <= 0:
         raise HTTPException(400, "Quantity must be positive")
+    validate_int_qty(data.quantity, "Quantity")
 
     qty_before = float(item["quantity"])
     if data.quantity > qty_before:
