@@ -93,13 +93,17 @@ def test_list_endpoints_return_json_collection(module, path, make_client):
 
 
 @pytest.mark.api
-def test_create_echoes_resource_with_id(make_client):
-    """A successful create returns the persisted resource, including its id."""
-    r = make_client("superadmin").post("/api/clients/", json={"name": "Echo Co"})
+def test_create_returns_id_of_persisted_resource(make_client):
+    """A successful create returns a JSON object carrying the new resource's id."""
+    c = make_client("superadmin")
+    r = c.post("/api/clients/", json={"name": "Echo Co"})
     assert r.status_code in (200, 201), f"create -> {r.status_code}: {r.text[:160]}"
     body = r.json()
     assert isinstance(body, dict) and body.get("id"), f"create body missing id: {body}"
-    assert body.get("name") == "Echo Co", f"create did not echo name: {body}"
+    # The id must address a real, fetchable resource.
+    got = c.get(f"/api/clients/{body['id']}")
+    assert got.status_code == 200, f"created id {body['id']} not fetchable: {got.status_code}"
+    assert got.json().get("name") == "Echo Co", f"persisted name mismatch: {got.json()}"
 
 
 @pytest.mark.api

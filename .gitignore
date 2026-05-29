@@ -27,6 +27,8 @@ installer/Output/
 # Logs & temp files
 startup_log.txt
 *.bak
+backend/_dbdump.txt
+backend/_tables.txt
 
 # Front-end dependencies
 frontend_src/node_modules/
