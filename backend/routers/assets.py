@@ -27,6 +27,7 @@ from permissions import require_perm
 from routers.audit import log_action
 from utils import _now, _today, notify
 from approval_engine import evaluate_and_apply
+import accounting
 
 router = APIRouter()
 
@@ -206,6 +207,18 @@ def _post_depreciation(db, asset: dict, target_period: str, user: dict, now: str
             "  expense_id, posted_at, posted_by) "
             "VALUES (?,?,?,?,?,?,?,?)",
             (asset['id'], cursor, amount, acc, book, expense_id, now, user['id']),
+        )
+        # Auto-post to the general ledger: DR Depreciation Expense,
+        # CR Accumulated Depreciation (a non-cash contra-asset charge).
+        accounting.post_entry(
+            db,
+            entry_date=_period_last_day(cursor),
+            memo=f"Depreciation — {asset['name']} ({cursor})",
+            lines=[
+                {"code": accounting.DEPRECIATION, "debit":  amount},
+                {"code": accounting.ACC_DEP,      "credit": amount},
+            ],
+            source_type="depreciation", source_id=expense_id, created_by=user['id'],
         )
         posted.append({"period": cursor, "amount": amount,
                         "book_value": book, "expense_id": expense_id})

@@ -1,4 +1,5 @@
 import sqlite3, os
+from datetime import datetime
 
 DB_PATH = os.environ.get("DB_PATH", "erp.db")
 
@@ -1216,6 +1217,1058 @@ def _run_migrations(conn, c):
          "ALTER TABLE production_order_items ADD COLUMN scrap_pct REAL NOT NULL DEFAULT 0"),
     ])
 
+    # ── 076: module-request inbox ─────────────────────────────────────────
+    # Captures prospect submissions from the public /discover configurator:
+    # a card-grid of business-friendly modules → company + contact details
+    # + the JSON list of selected module keys. Status moves new → contacted
+    # → converted (or archived) as the sales conversation progresses.
+    if need("076_module_requests"):
+        c.execute("""
+            CREATE TABLE IF NOT EXISTS module_requests (
+                id                INTEGER PRIMARY KEY AUTOINCREMENT,
+                company           TEXT    NOT NULL,
+                contact_name      TEXT    NOT NULL,
+                email             TEXT,
+                phone             TEXT,
+                country           TEXT,
+                employee_count    TEXT,                 -- "1-5", "6-20", ...
+                industry          TEXT,
+                selected_modules  TEXT    NOT NULL,     -- JSON array of module keys
+                notes             TEXT,
+                status            TEXT    NOT NULL DEFAULT 'new',
+                ip_address        TEXT,
+                user_agent        TEXT,
+                created_at        TEXT    NOT NULL DEFAULT (datetime('now')),
+                contacted_at      TEXT,
+                converted_at      TEXT,
+                archived_at       TEXT,
+                internal_notes    TEXT
+            )
+        """)
+        c.execute("CREATE INDEX IF NOT EXISTS idx_module_requests_status "
+                  "ON module_requests(status)")
+        done("076_module_requests")
+
+    # ── 077: standalone planning events ───────────────────────────────────
+    # Calendar in the Planning module shows user-planned events (meetings,
+    # reminders, deadlines), NOT project tasks — the Gantt + Board + List
+    # views already cover those. Events are independent of projects: any
+    # signed-in user with planning.view can read; create/edit/delete is
+    # gated by the usual planning permissions. A single date is required;
+    # end_date is optional for multi-day events; start_time/end_time are
+    # optional and only used when all_day is 0.
+    if need("077_planning_events"):
+        c.execute("""
+            CREATE TABLE IF NOT EXISTS planning_events (
+                id           INTEGER PRIMARY KEY AUTOINCREMENT,
+                title        TEXT    NOT NULL,
+                description  TEXT,
+                start_date   TEXT    NOT NULL,
+                end_date     TEXT,                      -- nullable; defaults to start_date
+                start_time   TEXT,                      -- 'HH:MM' or NULL
+                end_time     TEXT,                      -- 'HH:MM' or NULL
+                all_day      INTEGER NOT NULL DEFAULT 1,
+                color        TEXT,                      -- hex; NULL → use accent
+                owner_id     INTEGER,                   -- creator (FK to users.id)
+                owner_name   TEXT,                      -- denormalised for display
+                created_at   TEXT    NOT NULL DEFAULT (datetime('now')),
+                updated_at   TEXT,
+                archived_at  TEXT
+            )
+        """)
+        c.execute("CREATE INDEX IF NOT EXISTS idx_planning_events_start_date "
+                  "ON planning_events(start_date)")
+        c.execute("CREATE INDEX IF NOT EXISTS idx_planning_events_owner "
+                  "ON planning_events(owner_id)")
+        done("077_planning_events")
+
+    # ── 078: announcement system ──────────────────────────────────────────
+    # Internal announcements broadcast top-down by users who hold the
+    # `announcements.create` permission. Recipients are materialised at
+    # publish time so we can compute per-user unread counts and
+    # acknowledgement progress with simple JOINs. New users joining later
+    # do not retroactively receive historical announcements — that is the
+    # intended scope for an internal-comms tool.
+    if need("078_announcements"):
+        c.execute("""
+            CREATE TABLE IF NOT EXISTS announcements (
+                id                INTEGER PRIMARY KEY AUTOINCREMENT,
+                title             TEXT    NOT NULL,
+                body              TEXT    NOT NULL,
+                priority          TEXT    NOT NULL DEFAULT 'medium',  -- low|medium|high|critical
+                audience_type     TEXT    NOT NULL,                   -- all|roles|users
+                audience_payload  TEXT,                                -- JSON list of role_ids/user_ids; NULL when audience_type='all'
+                requires_ack      INTEGER NOT NULL DEFAULT 0,
+                pinned            INTEGER NOT NULL DEFAULT 0,
+                author_id         INTEGER NOT NULL,
+                author_name       TEXT,
+                published_at      TEXT    NOT NULL DEFAULT (datetime('now')),
+                expires_at        TEXT,                                -- nullable; auto-archived after this date
+                archived_at       TEXT
+            )
+        """)
+        c.execute("""
+            CREATE TABLE IF NOT EXISTS announcement_recipients (
+                id              INTEGER PRIMARY KEY AUTOINCREMENT,
+                announcement_id INTEGER NOT NULL REFERENCES announcements(id),
+                user_id         INTEGER NOT NULL REFERENCES users(id),
+                read_at         TEXT,
+                acknowledged_at TEXT,
+                UNIQUE(announcement_id, user_id)
+            )
+        """)
+        c.execute("""
+            CREATE TABLE IF NOT EXISTS announcement_comments (
+                id              INTEGER PRIMARY KEY AUTOINCREMENT,
+                announcement_id INTEGER NOT NULL REFERENCES announcements(id),
+                author_id       INTEGER NOT NULL REFERENCES users(id),
+                author_name     TEXT,
+                body            TEXT    NOT NULL,
+                created_at      TEXT    NOT NULL DEFAULT (datetime('now')),
+                deleted_at      TEXT
+            )
+        """)
+        c.execute("CREATE INDEX IF NOT EXISTS idx_ann_pub        ON announcements(published_at)")
+        c.execute("CREATE INDEX IF NOT EXISTS idx_ann_archived   ON announcements(archived_at)")
+        c.execute("CREATE INDEX IF NOT EXISTS idx_ann_rec_user   ON announcement_recipients(user_id)")
+        c.execute("CREATE INDEX IF NOT EXISTS idx_ann_rec_ann    ON announcement_recipients(announcement_id)")
+        c.execute("CREATE INDEX IF NOT EXISTS idx_ann_cmt_ann    ON announcement_comments(announcement_id)")
+        done("078_announcements")
+
+    # ── 079: attendees on planning_events ─────────────────────────────────
+    # Stored as a comma-separated string of user IDs (e.g. "3,7,12"). Lets
+    # the creator invite teammates so a notification fires for the people
+    # who actually need to know about the meeting, while keeping personal
+    # reminders (no attendees) a no-op for the rest of the team.
+    add_col("079_event_attendees", "planning_events", "attendees",
+            "ALTER TABLE planning_events ADD COLUMN attendees TEXT DEFAULT NULL")
+
+    # ── 080: admin-tier role flag ─────────────────────────────────────────
+    # Marks a role as having administrative access (users/roles/settings/audit/
+    # backups) WITHOUT being a vendor superadmin. Drives the "Business Owner"
+    # role: full admin EXCEPT the module marketplace (Module Requests +
+    # enabled_modules), which stays superadmin-only.
+    add_col("080_roles_is_admin", "roles", "is_admin",
+            "ALTER TABLE roles ADD COLUMN is_admin INTEGER DEFAULT 0")
+
+    # ── 081: drop the stale enabled_modules row ───────────────────────────
+    # `enabled_modules` is no longer a runtime setting — it lives in
+    # `backend/vendor_config.py` as an immutable build-time constant. Old
+    # installs may still carry a row in `settings` from the pre-081 era.
+    # The settings GET endpoint already ignores it (overrides with the
+    # constant), but we delete the row so a future operator inspecting the
+    # DB isn't misled by a value that has no effect.
+    if need("081_drop_enabled_modules_setting"):
+        c.execute("DELETE FROM settings WHERE key='enabled_modules'")
+        done("081_drop_enabled_modules_setting")
+
+    # ── 082: drop the module_requests table ───────────────────────────────
+    # The Module Requests inbox no longer exists in the customer's ERP —
+    # it has been moved to the vendor-hosted marketing site. Any data
+    # collected pre-082 is dropped along with the table.
+    if need("082_drop_module_requests_table"):
+        c.execute("DROP TABLE IF EXISTS module_requests")
+        done("082_drop_module_requests_table")
+
+    # ── 083: rolled back — invoice write-off ──────────────────────────────
+    # The feature was retracted to keep invoice settlement auditable: every
+    # closed invoice now must be backed by actual `invoice_payments` rows,
+    # never a phantom write-off amount. We drop the columns on installs
+    # that briefly had them so the schema stays clean. SQLite supports
+    # ALTER TABLE DROP COLUMN since 3.35; the try/except handles older
+    # SQLite and fresh installs that never had the columns in the first
+    # place — both are harmless no-ops.
+    if need("083_drop_invoice_writeoff"):
+        for col in ("written_off", "writeoff_reason"):
+            try:
+                c.execute(f"ALTER TABLE invoices DROP COLUMN {col}")
+            except sqlite3.OperationalError:
+                pass
+        done("083_drop_invoice_writeoff")
+
+    # ── 084: archive_reason for CRM & Planning entities ───────────────────
+    # CRM leads/deals and Planning projects/tasks could be archived but never
+    # restored — they lacked the `archive_reason` column the Archives router
+    # writes and weren't registered there, so an archived row vanished from
+    # every list with no way back. Add the column so the generic
+    # archive/unarchive (and the Archives page) cover them like every other
+    # entity. The column defaults NULL, so existing archived rows are unaffected.
+    add_col("084_crm_leads_archive_reason", "crm_leads", "archive_reason",
+            "ALTER TABLE crm_leads ADD COLUMN archive_reason TEXT DEFAULT NULL")
+    add_col("084_crm_deals_archive_reason", "crm_deals", "archive_reason",
+            "ALTER TABLE crm_deals ADD COLUMN archive_reason TEXT DEFAULT NULL")
+    add_col("084_planning_projects_archive_reason", "planning_projects", "archive_reason",
+            "ALTER TABLE planning_projects ADD COLUMN archive_reason TEXT DEFAULT NULL")
+    add_col("084_planning_tasks_archive_reason", "planning_tasks", "archive_reason",
+            "ALTER TABLE planning_tasks ADD COLUMN archive_reason TEXT DEFAULT NULL")
+
+    # ── 085: purchases.category ────────────────────────────────────────────
+    # The Purchases form/payload has always carried a `category` field, but it
+    # was only ever written to the linked `inventory.category` — never stored
+    # on the purchase row itself. Result: the table and filter dropdown in the
+    # Purchases page were permanently empty. Persist it on the purchase too so
+    # historical orders keep their classification independent of the inventory
+    # item (which can be re-categorised later).
+    add_col("085_purchases_category", "purchases", "category",
+            "ALTER TABLE purchases ADD COLUMN category TEXT")
+
+    # ── 086: quotations.lead_id ────────────────────────────────────────────
+    # Quotations can be sent to CRM leads, not only existing clients. Add an
+    # optional FK to crm_leads so a quote can be addressed to either party.
+    # Conversion to invoice/project requires a real client_id — leads must be
+    # converted first (the routers enforce that at runtime).
+    add_col("086_quotations_lead_id", "quotations", "lead_id",
+            "ALTER TABLE quotations ADD COLUMN lead_id INTEGER REFERENCES crm_leads(id)")
+
+    # ── 087: hr_employment_changes ─────────────────────────────────────────
+    # Immutable history of compensation / role / department / manager changes.
+    # One row per change — a promotion may move several columns simultaneously
+    # (title + salary + manager), captured atomically as one row.
+    # change_type values: hire | raise | promotion | demotion | role_change
+    #                     transfer | termination | adjustment
+    # The PUT /api/hr/employees endpoint diffs old vs new and writes one row
+    # whenever any tracked field differs (see routers/hr.py).
+    if need("087_hr_employment_changes"):
+        c.execute("""
+            CREATE TABLE IF NOT EXISTS hr_employment_changes (
+                id                  INTEGER PRIMARY KEY AUTOINCREMENT,
+                employee_id         INTEGER NOT NULL REFERENCES hr_employees(id) ON DELETE CASCADE,
+                effective_date      TEXT    NOT NULL,
+                change_type         TEXT    NOT NULL DEFAULT 'adjustment',
+                old_salary          REAL,
+                new_salary          REAL,
+                old_title           TEXT,
+                new_title           TEXT,
+                old_department_id   INTEGER REFERENCES hr_departments(id) ON DELETE SET NULL,
+                new_department_id   INTEGER REFERENCES hr_departments(id) ON DELETE SET NULL,
+                old_manager_id      INTEGER REFERENCES hr_employees(id)   ON DELETE SET NULL,
+                new_manager_id      INTEGER REFERENCES hr_employees(id)   ON DELETE SET NULL,
+                reason              TEXT,
+                created_by          INTEGER REFERENCES users(id) ON DELETE SET NULL,
+                created_at          TEXT    NOT NULL
+            )
+        """)
+        c.execute("CREATE INDEX IF NOT EXISTS idx_hr_emp_changes_emp ON hr_employment_changes(employee_id)")
+        c.execute("CREATE INDEX IF NOT EXISTS idx_hr_emp_changes_date ON hr_employment_changes(effective_date)")
+        done("087_hr_employment_changes")
+
+    # ── 088: hr_payroll_runs ───────────────────────────────────────────────
+    # One row per pay period (typically a month). Lifecycle:
+    #   Draft → Approved → Paid
+    # `posted_expense_id` links to the single `expenses` row inserted when the
+    # run is marked Paid — payroll cost flows into Finance automatically, no
+    # double-entry. Cancellation deletes the linked expense if not yet paid.
+    if need("088_hr_payroll_runs"):
+        c.execute("""
+            CREATE TABLE IF NOT EXISTS hr_payroll_runs (
+                id                  INTEGER PRIMARY KEY AUTOINCREMENT,
+                period_start        TEXT    NOT NULL,
+                period_end          TEXT    NOT NULL,
+                status              TEXT    NOT NULL DEFAULT 'Draft',
+                total_gross         REAL    NOT NULL DEFAULT 0,
+                total_bonuses       REAL    NOT NULL DEFAULT 0,
+                total_deductions    REAL    NOT NULL DEFAULT 0,
+                total_net           REAL    NOT NULL DEFAULT 0,
+                posted_expense_id   INTEGER REFERENCES expenses(id) ON DELETE SET NULL,
+                notes               TEXT,
+                approved_at         TEXT,
+                approved_by         INTEGER REFERENCES users(id) ON DELETE SET NULL,
+                paid_at             TEXT,
+                paid_by             INTEGER REFERENCES users(id) ON DELETE SET NULL,
+                archived_at         TEXT,
+                created_by          INTEGER REFERENCES users(id) ON DELETE SET NULL,
+                created_at          TEXT    NOT NULL
+            )
+        """)
+        c.execute("CREATE INDEX IF NOT EXISTS idx_hr_payroll_runs_status ON hr_payroll_runs(status)")
+        c.execute("CREATE INDEX IF NOT EXISTS idx_hr_payroll_runs_period ON hr_payroll_runs(period_start, period_end)")
+        done("088_hr_payroll_runs")
+
+    # ── 089: hr_payroll_lines ──────────────────────────────────────────────
+    # One row per (run × employee). Frozen at run creation from the employee's
+    # current salary; bonuses/deductions/notes are edited on the line itself.
+    if need("089_hr_payroll_lines"):
+        c.execute("""
+            CREATE TABLE IF NOT EXISTS hr_payroll_lines (
+                id                  INTEGER PRIMARY KEY AUTOINCREMENT,
+                payroll_run_id      INTEGER NOT NULL REFERENCES hr_payroll_runs(id) ON DELETE CASCADE,
+                employee_id         INTEGER NOT NULL REFERENCES hr_employees(id)    ON DELETE RESTRICT,
+                base_salary         REAL    NOT NULL DEFAULT 0,
+                bonuses             REAL    NOT NULL DEFAULT 0,
+                deductions          REAL    NOT NULL DEFAULT 0,
+                net_amount          REAL    NOT NULL DEFAULT 0,
+                notes               TEXT,
+                created_at          TEXT    NOT NULL,
+                UNIQUE (payroll_run_id, employee_id)
+            )
+        """)
+        c.execute("CREATE INDEX IF NOT EXISTS idx_hr_payroll_lines_run ON hr_payroll_lines(payroll_run_id)")
+        c.execute("CREATE INDEX IF NOT EXISTS idx_hr_payroll_lines_emp ON hr_payroll_lines(employee_id)")
+        done("089_hr_payroll_lines")
+
+    # ── 090: hr_employee_files ─────────────────────────────────────────────
+    # PDF attachments per employee (CV, contract, other). Stored as BLOB inside
+    # SQLite so the customer's install ships one self-contained DB file — no
+    # extra filesystem layout to back up. Capped at 8MB / file (enforced in the
+    # router). `kind` is a lightweight tag: cv | contract | other.
+    if need("090_hr_employee_files"):
+        c.execute("""
+            CREATE TABLE IF NOT EXISTS hr_employee_files (
+                id              INTEGER PRIMARY KEY AUTOINCREMENT,
+                employee_id     INTEGER NOT NULL REFERENCES hr_employees(id) ON DELETE CASCADE,
+                kind            TEXT    NOT NULL DEFAULT 'other',
+                filename        TEXT    NOT NULL,
+                content_type    TEXT    NOT NULL DEFAULT 'application/pdf',
+                size_bytes      INTEGER NOT NULL DEFAULT 0,
+                data            BLOB    NOT NULL,
+                uploaded_by     INTEGER REFERENCES users(id) ON DELETE SET NULL,
+                created_at      TEXT    NOT NULL
+            )
+        """)
+        c.execute("CREATE INDEX IF NOT EXISTS idx_hr_emp_files_emp ON hr_employee_files(employee_id)")
+        done("090_hr_employee_files")
+
+    # ── 092: recruitment_positions ─────────────────────────────────────────
+    # Open job postings the company is recruiting for. An applicant is always
+    # attached to a position so analytics like "30 candidates per opening"
+    # are trivial. Positions are soft-deleted via archived_at.
+    if need("092_recruitment_positions"):
+        c.execute("""
+            CREATE TABLE IF NOT EXISTS recruitment_positions (
+                id              INTEGER PRIMARY KEY AUTOINCREMENT,
+                title           TEXT    NOT NULL,
+                department_id   INTEGER REFERENCES hr_departments(id) ON DELETE SET NULL,
+                employment_type TEXT    NOT NULL DEFAULT 'Full-time',
+                location        TEXT,
+                salary_min      REAL,
+                salary_max      REAL,
+                headcount       INTEGER NOT NULL DEFAULT 1,
+                status          TEXT    NOT NULL DEFAULT 'Open',
+                description     TEXT,
+                requirements    TEXT,
+                posted_at       TEXT,
+                closed_at       TEXT,
+                created_by      INTEGER REFERENCES users(id) ON DELETE SET NULL,
+                archived_at     TEXT,
+                created_at      TEXT    NOT NULL
+            )
+        """)
+        c.execute("CREATE INDEX IF NOT EXISTS idx_recr_pos_status ON recruitment_positions(status)")
+        c.execute("CREATE INDEX IF NOT EXISTS idx_recr_pos_dept   ON recruitment_positions(department_id)")
+        done("092_recruitment_positions")
+
+    # ── 093: recruitment_applicants ────────────────────────────────────────
+    # Pipeline: Applied → Screening → Interview → Technical Test →
+    #          Accepted / Rejected / Withdrawn
+    # `converted_employee_id` is filled when an Accepted applicant is converted
+    # into an hr_employees row — keeps the link both ways.
+    if need("093_recruitment_applicants"):
+        c.execute("""
+            CREATE TABLE IF NOT EXISTS recruitment_applicants (
+                id                    INTEGER PRIMARY KEY AUTOINCREMENT,
+                position_id           INTEGER REFERENCES recruitment_positions(id) ON DELETE SET NULL,
+                full_name             TEXT    NOT NULL,
+                email                 TEXT,
+                phone                 TEXT,
+                source                TEXT    DEFAULT 'Other',
+                expected_salary       REAL,
+                offered_salary        REAL,
+                status                TEXT    NOT NULL DEFAULT 'Applied',
+                rating                INTEGER,
+                rejected_reason       TEXT,
+                notes                 TEXT,
+                assigned_to           INTEGER REFERENCES users(id) ON DELETE SET NULL,
+                converted_employee_id INTEGER REFERENCES hr_employees(id) ON DELETE SET NULL,
+                applied_at            TEXT    NOT NULL,
+                last_status_change    TEXT,
+                archived_at           TEXT,
+                created_by            INTEGER REFERENCES users(id) ON DELETE SET NULL,
+                created_at            TEXT    NOT NULL
+            )
+        """)
+        c.execute("CREATE INDEX IF NOT EXISTS idx_recr_app_position ON recruitment_applicants(position_id)")
+        c.execute("CREATE INDEX IF NOT EXISTS idx_recr_app_status   ON recruitment_applicants(status)")
+        c.execute("CREATE INDEX IF NOT EXISTS idx_recr_app_emp      ON recruitment_applicants(converted_employee_id)")
+        done("093_recruitment_applicants")
+
+    # ── 094: recruitment_applicant_status_history ──────────────────────────
+    # Every status transition is logged: who changed it, when, from / to, and
+    # an optional reason. Append-only audit trail.
+    if need("094_recruitment_status_history"):
+        c.execute("""
+            CREATE TABLE IF NOT EXISTS recruitment_status_history (
+                id            INTEGER PRIMARY KEY AUTOINCREMENT,
+                applicant_id  INTEGER NOT NULL REFERENCES recruitment_applicants(id) ON DELETE CASCADE,
+                old_status    TEXT,
+                new_status    TEXT NOT NULL,
+                note          TEXT,
+                changed_by    INTEGER REFERENCES users(id) ON DELETE SET NULL,
+                created_at    TEXT NOT NULL
+            )
+        """)
+        c.execute("CREATE INDEX IF NOT EXISTS idx_recr_sh_app ON recruitment_status_history(applicant_id)")
+        done("094_recruitment_status_history")
+
+    # ── 095: recruitment_interviews ────────────────────────────────────────
+    # One row per scheduled interview. `interviewer_id` may be NULL when the
+    # interviewer is external. `score` is 1–10 (NULL until completed).
+    if need("095_recruitment_interviews"):
+        c.execute("""
+            CREATE TABLE IF NOT EXISTS recruitment_interviews (
+                id               INTEGER PRIMARY KEY AUTOINCREMENT,
+                applicant_id     INTEGER NOT NULL REFERENCES recruitment_applicants(id) ON DELETE CASCADE,
+                interview_type   TEXT    NOT NULL DEFAULT 'Phone',
+                scheduled_at     TEXT    NOT NULL,
+                duration_min     INTEGER DEFAULT 60,
+                location         TEXT,
+                interviewer_id   INTEGER REFERENCES users(id) ON DELETE SET NULL,
+                interviewer_name TEXT,
+                status           TEXT    NOT NULL DEFAULT 'Scheduled',
+                score            INTEGER,
+                decision         TEXT,
+                notes            TEXT,
+                completed_at     TEXT,
+                created_by       INTEGER REFERENCES users(id) ON DELETE SET NULL,
+                created_at       TEXT    NOT NULL
+            )
+        """)
+        c.execute("CREATE INDEX IF NOT EXISTS idx_recr_int_app ON recruitment_interviews(applicant_id)")
+        c.execute("CREATE INDEX IF NOT EXISTS idx_recr_int_when ON recruitment_interviews(scheduled_at)")
+        done("095_recruitment_interviews")
+
+    # ── 096: recruitment_applicant_files ───────────────────────────────────
+    # Applicants attach PDFs (CV, cover letter, portfolio, certificates, etc.)
+    # before they become employees. Stored as BLOB inside SQLite, capped to
+    # 8MB / file by the router (same policy as hr_employee_files).
+    if need("096_recruitment_applicant_files"):
+        c.execute("""
+            CREATE TABLE IF NOT EXISTS recruitment_applicant_files (
+                id            INTEGER PRIMARY KEY AUTOINCREMENT,
+                applicant_id  INTEGER NOT NULL REFERENCES recruitment_applicants(id) ON DELETE CASCADE,
+                kind          TEXT    NOT NULL DEFAULT 'cv',
+                filename      TEXT    NOT NULL,
+                content_type  TEXT    NOT NULL DEFAULT 'application/pdf',
+                size_bytes    INTEGER NOT NULL DEFAULT 0,
+                data          BLOB    NOT NULL,
+                uploaded_by   INTEGER REFERENCES users(id) ON DELETE SET NULL,
+                created_at    TEXT    NOT NULL
+            )
+        """)
+        c.execute("CREATE INDEX IF NOT EXISTS idx_recr_af_app ON recruitment_applicant_files(applicant_id)")
+        done("096_recruitment_applicant_files")
+
+    # ── 097: hr_contracts ──────────────────────────────────────────────────
+    # First-class employment contracts (separate from the contract PDF the user
+    # uploads as an attachment). Carries the legal terms of employment so a
+    # printable PDF can be generated server-side from structured data:
+    #   • contract_type    Permanent | Fixed-term | Probation | Internship | Consultant
+    #   • salary_currency  Stored separately so multi-currency installs print correctly.
+    #   • benefits         Free-text bullets / JSON-string blob; rendered verbatim on PDF.
+    #   • status           Draft → Active → Expired / Terminated
+    if need("097_hr_contracts"):
+        c.execute("""
+            CREATE TABLE IF NOT EXISTS hr_contracts (
+                id                 INTEGER PRIMARY KEY AUTOINCREMENT,
+                employee_id        INTEGER NOT NULL REFERENCES hr_employees(id) ON DELETE CASCADE,
+                contract_number    TEXT,
+                contract_type      TEXT    NOT NULL DEFAULT 'Permanent',
+                status             TEXT    NOT NULL DEFAULT 'Draft',
+                start_date         TEXT    NOT NULL,
+                end_date           TEXT,
+                probation_end_date TEXT,
+                job_title          TEXT,
+                work_schedule      TEXT,
+                weekly_hours       REAL,
+                salary             REAL    NOT NULL DEFAULT 0,
+                salary_currency    TEXT    DEFAULT 'USD',
+                benefits           TEXT,
+                terms              TEXT,
+                signed_at          TEXT,
+                terminated_at      TEXT,
+                terminated_reason  TEXT,
+                created_by         INTEGER REFERENCES users(id) ON DELETE SET NULL,
+                archived_at        TEXT,
+                created_at         TEXT    NOT NULL
+            )
+        """)
+        c.execute("CREATE INDEX IF NOT EXISTS idx_hr_contracts_emp ON hr_contracts(employee_id)")
+        c.execute("CREATE INDEX IF NOT EXISTS idx_hr_contracts_status ON hr_contracts(status)")
+        done("097_hr_contracts")
+
+    # ── 098: payroll line breakdown — tax + NSSF + overtime ────────────────
+    # Each payroll line carries the full breakdown so payslip PDFs and Finance
+    # reconciliation can show employer cost vs. take-home. Defaults keep
+    # existing rows unchanged (all zero). Computed by the payroll engine on
+    # line creation / edit.
+    add_col("098_payroll_lines_tax",          "hr_payroll_lines", "tax_amount",
+            "ALTER TABLE hr_payroll_lines ADD COLUMN tax_amount REAL NOT NULL DEFAULT 0")
+    add_col("098_payroll_lines_nssf_emp",     "hr_payroll_lines", "nssf_employee",
+            "ALTER TABLE hr_payroll_lines ADD COLUMN nssf_employee REAL NOT NULL DEFAULT 0")
+    add_col("098_payroll_lines_nssf_co",      "hr_payroll_lines", "nssf_employer",
+            "ALTER TABLE hr_payroll_lines ADD COLUMN nssf_employer REAL NOT NULL DEFAULT 0")
+    add_col("098_payroll_lines_ovt_hours",    "hr_payroll_lines", "overtime_hours",
+            "ALTER TABLE hr_payroll_lines ADD COLUMN overtime_hours REAL NOT NULL DEFAULT 0")
+    add_col("098_payroll_lines_ovt_amount",   "hr_payroll_lines", "overtime_amount",
+            "ALTER TABLE hr_payroll_lines ADD COLUMN overtime_amount REAL NOT NULL DEFAULT 0")
+    add_col("098_payroll_lines_gross",        "hr_payroll_lines", "gross_total",
+            "ALTER TABLE hr_payroll_lines ADD COLUMN gross_total REAL NOT NULL DEFAULT 0")
+    add_col("098_payroll_runs_tax",           "hr_payroll_runs",  "total_tax",
+            "ALTER TABLE hr_payroll_runs ADD COLUMN total_tax REAL NOT NULL DEFAULT 0")
+    add_col("098_payroll_runs_nssf_emp",      "hr_payroll_runs",  "total_nssf_employee",
+            "ALTER TABLE hr_payroll_runs ADD COLUMN total_nssf_employee REAL NOT NULL DEFAULT 0")
+    add_col("098_payroll_runs_nssf_co",       "hr_payroll_runs",  "total_nssf_employer",
+            "ALTER TABLE hr_payroll_runs ADD COLUMN total_nssf_employer REAL NOT NULL DEFAULT 0")
+    add_col("098_payroll_runs_overtime",      "hr_payroll_runs",  "total_overtime",
+            "ALTER TABLE hr_payroll_runs ADD COLUMN total_overtime REAL NOT NULL DEFAULT 0")
+
+    # ── 099: notifications.deliver_at ──────────────────────────────────────
+    # Nullable timestamp that lets a notification be created *now* but only
+    # surfaced to the user when the wall-clock catches up. Powers the HR
+    # Activities reminder system (e.g. "ping me 15 minutes before") without
+    # needing a background scheduler — the list endpoint filters on
+    # `deliver_at IS NULL OR deliver_at <= now()`. Existing notifications
+    # default to NULL and therefore remain immediately visible.
+    add_col("099_notifications_deliver_at", "notifications", "deliver_at",
+            "ALTER TABLE notifications ADD COLUMN deliver_at TEXT DEFAULT NULL")
+
+    # ── 100: hr_activities ─────────────────────────────────────────────────
+    # A unified log of HR touchpoints — calls, meetings, interviews, emails,
+    # notes — owned by a specific HR user and optionally linked to an
+    # applicant or an existing employee. Distinct from recruitment_interviews
+    # (which stays as-is) because it covers activities that aren't tied to
+    # any applicant (1:1s, general meetings, follow-up emails) and the
+    # owner-private visibility model differs from the applicant-centric
+    # interview record.
+    #
+    # Reminder model: when an activity is created/edited with a non-zero
+    # `reminder_minutes_before`, the router inserts a notification row whose
+    # `deliver_at = scheduled_at - reminder_minutes_before`. The notification
+    # list endpoint filters on deliver_at so the bell stays quiet until the
+    # reminder is due — no scheduler, no daemon.
+    if need("100_hr_activities"):
+        c.execute("""
+            CREATE TABLE IF NOT EXISTS hr_activities (
+                id                      INTEGER PRIMARY KEY AUTOINCREMENT,
+                owner_id                INTEGER NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+                activity_type           TEXT    NOT NULL DEFAULT 'Meeting',
+                subject                 TEXT    NOT NULL,
+                description             TEXT,
+                scheduled_at            TEXT    NOT NULL,
+                duration_min            INTEGER NOT NULL DEFAULT 30,
+                location                TEXT,
+                status                  TEXT    NOT NULL DEFAULT 'Planned',
+                applicant_id            INTEGER REFERENCES recruitment_applicants(id) ON DELETE SET NULL,
+                employee_id             INTEGER REFERENCES hr_employees(id)           ON DELETE SET NULL,
+                reminder_minutes_before INTEGER NOT NULL DEFAULT 15,
+                reminder_notif_id       INTEGER REFERENCES notifications(id)          ON DELETE SET NULL,
+                completed_at            TEXT,
+                completed_notes         TEXT,
+                archived_at             TEXT,
+                created_at              TEXT    NOT NULL,
+                updated_at              TEXT
+            )
+        """)
+        c.execute("CREATE INDEX IF NOT EXISTS idx_hr_activities_owner_sched "
+                  "ON hr_activities(owner_id, scheduled_at)")
+        c.execute("CREATE INDEX IF NOT EXISTS idx_hr_activities_applicant "
+                  "ON hr_activities(applicant_id)")
+        c.execute("CREATE INDEX IF NOT EXISTS idx_hr_activities_employee "
+                  "ON hr_activities(employee_id)")
+        done("100_hr_activities")
+
+    # ── 101: recruitment_interviews.hr_activity_id ─────────────────────────
+    # Each scheduled interview now mirrors itself as an HR Activity in the
+    # interviewer's personal queue so reminders + the daily-touchpoints view
+    # both pick it up. The link column lets edits and deletes on the
+    # interview keep the mirror row in sync (one-to-one). Existing
+    # interviews stay NULL — they pre-date the feature and don't need a
+    # retroactive mirror.
+    add_col("101_recr_interviews_hr_activity_id", "recruitment_interviews",
+            "hr_activity_id",
+            "ALTER TABLE recruitment_interviews ADD COLUMN hr_activity_id "
+            "INTEGER REFERENCES hr_activities(id) ON DELETE SET NULL")
+
+    # ── 102: recruitment_applicants.accepted_reason ────────────────────────
+    # Symmetric to rejected_reason — captures *why* the applicant was hired
+    # (strongest portfolio, referral, etc.) so a future hiring retrospective
+    # has the rationale next to the outcome. Stored only when the new status
+    # is 'Accepted'.
+    add_col("102_recr_applicants_accepted_reason", "recruitment_applicants",
+            "accepted_reason",
+            "ALTER TABLE recruitment_applicants ADD COLUMN accepted_reason TEXT")
+
+    # ── 101: recruitment_offers ────────────────────────────────────────────
+    # An "offer letter" / pre-employment draft contract for an applicant who
+    # hasn't yet been onboarded. Distinct from hr_contracts (which requires
+    # an employee_id and is the *final* contract activated on hire):
+    #   * Attached to recruitment_applicants, so it can exist before HR has
+    #     created the employee record.
+    #   * Holds the Lebanon-aware toggles the print template renders (NSSF,
+    #     end-of-service indemnity clause, confidentiality, non-compete).
+    #   * Lifecycle: Draft → Sent → Accepted / Declined / Expired. When the
+    #     applicant later runs through the Convert flow, the values from an
+    #     Accepted offer pre-fill the employee record and an Active row in
+    #     hr_contracts is auto-minted to mirror the offer.
+    if need("101_recruitment_offers"):
+        c.execute("""
+            CREATE TABLE IF NOT EXISTS recruitment_offers (
+                id                       INTEGER PRIMARY KEY AUTOINCREMENT,
+                applicant_id             INTEGER NOT NULL REFERENCES recruitment_applicants(id) ON DELETE CASCADE,
+                offer_number             TEXT,
+                status                   TEXT    NOT NULL DEFAULT 'Draft',
+                contract_type            TEXT    NOT NULL DEFAULT 'Permanent',
+                job_title                TEXT,
+                department_id            INTEGER REFERENCES hr_departments(id) ON DELETE SET NULL,
+                start_date               TEXT    NOT NULL,
+                end_date                 TEXT,
+                probation_months         INTEGER NOT NULL DEFAULT 3,
+                probation_end_date       TEXT,
+                work_schedule            TEXT,
+                weekly_hours             REAL    DEFAULT 48,
+                annual_leave_days        INTEGER NOT NULL DEFAULT 15,
+                notice_period_days       INTEGER NOT NULL DEFAULT 30,
+                salary                   REAL    NOT NULL DEFAULT 0,
+                salary_currency          TEXT    NOT NULL DEFAULT 'USD',
+                payment_schedule         TEXT    NOT NULL DEFAULT 'Monthly',
+                -- Lebanon-aware clause toggles. Default to standard practice
+                -- (NSSF registration + EOS indemnity), confidentiality is
+                -- common; non-compete is opt-in.
+                include_nssf             INTEGER NOT NULL DEFAULT 1,
+                include_eos              INTEGER NOT NULL DEFAULT 1,
+                include_confidentiality  INTEGER NOT NULL DEFAULT 1,
+                include_non_compete      INTEGER NOT NULL DEFAULT 0,
+                non_compete_months       INTEGER NOT NULL DEFAULT 6,
+                benefits                 TEXT,
+                additional_terms         TEXT,
+                place_of_work            TEXT,
+                sent_at                  TEXT,
+                accepted_at              TEXT,
+                declined_at              TEXT,
+                declined_reason          TEXT,
+                expires_at               TEXT,
+                created_by               INTEGER REFERENCES users(id) ON DELETE SET NULL,
+                created_at               TEXT    NOT NULL,
+                updated_at               TEXT,
+                archived_at              TEXT
+            )
+        """)
+        c.execute("CREATE INDEX IF NOT EXISTS idx_recruitment_offers_applicant "
+                  "ON recruitment_offers(applicant_id, archived_at)")
+        c.execute("CREATE INDEX IF NOT EXISTS idx_recruitment_offers_status "
+                  "ON recruitment_offers(status, archived_at)")
+        done("101_recruitment_offers")
+
+    # ── 105: manufacturing work centers + routing + actual-time costing ────
+    # Work centers carry hourly rates (labor / machine / overhead) and a power
+    # draw (kW) for electricity costing. BOMs gain a routing of operations; each
+    # production order snapshots that routing so actual run time can be logged
+    # and the conversion cost computed precisely at completion.
+    if need("105_mfg_work_centers"):
+        c.execute("""
+            CREATE TABLE IF NOT EXISTS work_centers (
+                id            INTEGER PRIMARY KEY AUTOINCREMENT,
+                code          TEXT    UNIQUE,
+                name          TEXT    NOT NULL,
+                type          TEXT    NOT NULL DEFAULT 'Machine',
+                labor_rate    REAL    NOT NULL DEFAULT 0,   -- per hour
+                machine_rate  REAL    NOT NULL DEFAULT 0,   -- per hour (machine depreciation / maintenance)
+                overhead_rate REAL    NOT NULL DEFAULT 0,   -- per hour
+                power_kw      REAL    NOT NULL DEFAULT 0,   -- machine draw, for electricity costing
+                is_active     INTEGER NOT NULL DEFAULT 1,
+                notes         TEXT,
+                archived_at   TEXT,
+                created_at    TEXT    NOT NULL
+            )
+        """)
+        c.execute("""
+            CREATE TABLE IF NOT EXISTS bom_operations (
+                id                   INTEGER PRIMARY KEY AUTOINCREMENT,
+                bom_id               INTEGER NOT NULL REFERENCES boms(id) ON DELETE CASCADE,
+                sequence             INTEGER NOT NULL DEFAULT 1,
+                name                 TEXT    NOT NULL,
+                work_center_id       INTEGER REFERENCES work_centers(id) ON DELETE SET NULL,
+                setup_minutes        REAL    NOT NULL DEFAULT 0,   -- fixed per production run
+                run_minutes_per_unit REAL    NOT NULL DEFAULT 0,   -- × output quantity
+                notes                TEXT
+            )
+        """)
+        c.execute("CREATE INDEX IF NOT EXISTS idx_bom_operations_bom ON bom_operations(bom_id)")
+        c.execute("""
+            CREATE TABLE IF NOT EXISTS production_order_operations (
+                id                  INTEGER PRIMARY KEY AUTOINCREMENT,
+                production_order_id INTEGER NOT NULL REFERENCES production_orders(id) ON DELETE CASCADE,
+                sequence            INTEGER NOT NULL DEFAULT 1,
+                name                TEXT    NOT NULL,
+                work_center_id      INTEGER REFERENCES work_centers(id) ON DELETE SET NULL,
+                work_center_name    TEXT,
+                planned_minutes     REAL    NOT NULL DEFAULT 0,
+                actual_minutes      REAL,
+                status              TEXT    NOT NULL DEFAULT 'Pending',
+                -- rate snapshot frozen at completion
+                labor_rate          REAL    NOT NULL DEFAULT 0,
+                machine_rate        REAL    NOT NULL DEFAULT 0,
+                overhead_rate       REAL    NOT NULL DEFAULT 0,
+                power_kw            REAL    NOT NULL DEFAULT 0,
+                electricity_tariff  REAL    NOT NULL DEFAULT 0,
+                -- computed cost breakdown
+                labor_cost          REAL    NOT NULL DEFAULT 0,
+                machine_cost        REAL    NOT NULL DEFAULT 0,
+                electricity_cost    REAL    NOT NULL DEFAULT 0,
+                overhead_cost       REAL    NOT NULL DEFAULT 0,
+                operation_cost      REAL    NOT NULL DEFAULT 0,
+                created_at          TEXT    NOT NULL
+            )
+        """)
+        c.execute("CREATE INDEX IF NOT EXISTS idx_po_operations_order "
+                  "ON production_order_operations(production_order_id)")
+        # Conversion-cost breakdown columns on the order header.
+        if "production_orders" in all_tables():
+            _poc = cols("production_orders")
+            if "machine_cost" not in _poc:
+                c.execute("ALTER TABLE production_orders ADD COLUMN machine_cost REAL NOT NULL DEFAULT 0")
+            if "electricity_cost" not in _poc:
+                c.execute("ALTER TABLE production_orders ADD COLUMN electricity_cost REAL NOT NULL DEFAULT 0")
+        done("105_mfg_work_centers")
+
+    # ── 106: manufacturing quality control + quarantine ───────────────────
+    # qc_required BOMs route their finished goods into a non-sellable
+    # quarantine bucket at completion; an inspection record (with defect lines)
+    # then releases the passed quantity to sellable stock, scraps rejects, and
+    # can spawn a linked rework order.
+    if need("106_mfg_qc"):
+        if "boms" in all_tables() and "qc_required" not in cols("boms"):
+            c.execute("ALTER TABLE boms ADD COLUMN qc_required INTEGER NOT NULL DEFAULT 0")
+        if "production_orders" in all_tables():
+            _poc = cols("production_orders")
+            if "qc_required" not in _poc:
+                c.execute("ALTER TABLE production_orders ADD COLUMN qc_required INTEGER NOT NULL DEFAULT 0")
+            if "rework_of_order_id" not in _poc:
+                c.execute("ALTER TABLE production_orders ADD COLUMN rework_of_order_id INTEGER")
+        if "inventory" in all_tables() and "quarantine_quantity" not in cols("inventory"):
+            c.execute("ALTER TABLE inventory ADD COLUMN quarantine_quantity REAL NOT NULL DEFAULT 0")
+        c.execute("""
+            CREATE TABLE IF NOT EXISTS production_qc (
+                id                  INTEGER PRIMARY KEY AUTOINCREMENT,
+                production_order_id INTEGER NOT NULL REFERENCES production_orders(id) ON DELETE CASCADE,
+                output_inventory_id INTEGER NOT NULL REFERENCES inventory(id),
+                quantity            REAL    NOT NULL DEFAULT 0,   -- units under inspection (quarantined)
+                unit_cost           REAL    NOT NULL DEFAULT 0,
+                passed_qty          REAL    NOT NULL DEFAULT 0,
+                rejected_qty        REAL    NOT NULL DEFAULT 0,
+                rework_qty          REAL    NOT NULL DEFAULT 0,
+                scrap_cost          REAL    NOT NULL DEFAULT 0,
+                status              TEXT    NOT NULL DEFAULT 'Pending',  -- Pending/Passed/Failed/Partial
+                notes               TEXT,
+                inspector_id        INTEGER REFERENCES users(id) ON DELETE SET NULL,
+                inspected_at        TEXT,
+                created_at          TEXT    NOT NULL
+            )
+        """)
+        c.execute("CREATE INDEX IF NOT EXISTS idx_production_qc_order  ON production_qc(production_order_id)")
+        c.execute("CREATE INDEX IF NOT EXISTS idx_production_qc_status ON production_qc(status)")
+        c.execute("""
+            CREATE TABLE IF NOT EXISTS production_qc_defects (
+                id       INTEGER PRIMARY KEY AUTOINCREMENT,
+                qc_id    INTEGER NOT NULL REFERENCES production_qc(id) ON DELETE CASCADE,
+                reason   TEXT    NOT NULL,
+                quantity REAL    NOT NULL DEFAULT 0,
+                notes    TEXT
+            )
+        """)
+        c.execute("CREATE INDEX IF NOT EXISTS idx_production_qc_defects_qc ON production_qc_defects(qc_id)")
+        done("106_mfg_qc")
+
+    # ── 107: batch/lot tracking + traceability ─────────────────────────────
+    # Per-item opt-in (inventory.lot_tracked). Lot-tracked items carry physical
+    # lots with manufacture/expiry dates; stock-OUT consumes them First-Expired-
+    # First-Out and records consumption for full forward/backward traceability.
+    if need("107_inventory_lots"):
+        if "inventory" in all_tables():
+            _ic = cols("inventory")
+            if "lot_tracked" not in _ic:
+                c.execute("ALTER TABLE inventory ADD COLUMN lot_tracked INTEGER NOT NULL DEFAULT 0")
+            if "shelf_life_days" not in _ic:
+                c.execute("ALTER TABLE inventory ADD COLUMN shelf_life_days INTEGER")
+        c.execute("""
+            CREATE TABLE IF NOT EXISTS inventory_lots (
+                id                 INTEGER PRIMARY KEY AUTOINCREMENT,
+                inventory_id       INTEGER NOT NULL REFERENCES inventory(id) ON DELETE CASCADE,
+                lot_number         TEXT,
+                quantity_remaining REAL    NOT NULL DEFAULT 0,
+                original_quantity  REAL    NOT NULL DEFAULT 0,
+                unit_cost          REAL    NOT NULL DEFAULT 0,
+                manufacture_date   TEXT,
+                expiry_date        TEXT,
+                source_type        TEXT,                       -- purchase/production/opening/adjustment
+                source_ref         TEXT,
+                status             TEXT    NOT NULL DEFAULT 'active',  -- active/consumed
+                created_at         TEXT    NOT NULL
+            )
+        """)
+        c.execute("CREATE INDEX IF NOT EXISTS idx_lots_item   ON inventory_lots(inventory_id, status)")
+        c.execute("CREATE INDEX IF NOT EXISTS idx_lots_expiry ON inventory_lots(expiry_date)")
+        # Each draw from a lot — drives forward (where did this lot go) and, via
+        # production_order_id + output_lot_id, backward (what fed this lot) trace.
+        c.execute("""
+            CREATE TABLE IF NOT EXISTS lot_consumption (
+                id                  INTEGER PRIMARY KEY AUTOINCREMENT,
+                lot_id              INTEGER NOT NULL REFERENCES inventory_lots(id) ON DELETE CASCADE,
+                inventory_id        INTEGER NOT NULL REFERENCES inventory(id),
+                quantity            REAL    NOT NULL DEFAULT 0,
+                unit_cost           REAL    NOT NULL DEFAULT 0,
+                source_type         TEXT,                       -- sale/project/production/adjustment
+                source_ref          TEXT,
+                production_order_id INTEGER REFERENCES production_orders(id) ON DELETE SET NULL,
+                output_lot_id       INTEGER REFERENCES inventory_lots(id) ON DELETE SET NULL,
+                created_at          TEXT    NOT NULL
+            )
+        """)
+        c.execute("CREATE INDEX IF NOT EXISTS idx_lotcons_lot    ON lot_consumption(lot_id)")
+        c.execute("CREATE INDEX IF NOT EXISTS idx_lotcons_order  ON lot_consumption(production_order_id)")
+        c.execute("CREATE INDEX IF NOT EXISTS idx_lotcons_output ON lot_consumption(output_lot_id)")
+        done("107_inventory_lots")
+
+    # ── 108: production scheduling, priority & partial completion ──────────
+    if need("108_mfg_scheduling"):
+        if "production_orders" in all_tables():
+            _poc = cols("production_orders")
+            for _col, _sql in (
+                ("priority",           "ALTER TABLE production_orders ADD COLUMN priority TEXT NOT NULL DEFAULT 'Normal'"),
+                ("planned_start_date", "ALTER TABLE production_orders ADD COLUMN planned_start_date TEXT"),
+                ("due_date",           "ALTER TABLE production_orders ADD COLUMN due_date TEXT"),
+                # Cumulative quantity produced across partial completion runs.
+                ("quantity_completed", "ALTER TABLE production_orders ADD COLUMN quantity_completed REAL NOT NULL DEFAULT 0"),
+            ):
+                if _col not in _poc:
+                    c.execute(_sql)
+        c.execute("CREATE INDEX IF NOT EXISTS idx_production_orders_due "
+                  "ON production_orders(due_date)")
+        done("108_mfg_scheduling")
+
+    # ── 109: resource-based overhead costing (SME model) ──────────────────
+    # Replaces the work-center/routing approach: a reusable list of resources
+    # (Labor, Electricity, CNC, Oven, …) each with a per-hour rate. A BOM assigns
+    # resources (from the list or inline); production cost = Σ(rates) × actual
+    # production hours. No work centers, capacity planning, or scheduling.
+    if need("109_mfg_resources"):
+        c.execute("""
+            CREATE TABLE IF NOT EXISTS manufacturing_resources (
+                id          INTEGER PRIMARY KEY AUTOINCREMENT,
+                name        TEXT    NOT NULL,
+                cost_type   TEXT    NOT NULL DEFAULT 'per_hour',
+                hourly_rate REAL    NOT NULL DEFAULT 0,
+                is_active   INTEGER NOT NULL DEFAULT 1,
+                notes       TEXT,
+                archived_at TEXT,
+                created_at  TEXT    NOT NULL
+            )
+        """)
+        # Resources assigned to a BOM. resource_id links the master list (its
+        # name + rate are snapshotted); a NULL resource_id is an inline resource.
+        c.execute("""
+            CREATE TABLE IF NOT EXISTS bom_resources (
+                id          INTEGER PRIMARY KEY AUTOINCREMENT,
+                bom_id      INTEGER NOT NULL REFERENCES boms(id) ON DELETE CASCADE,
+                resource_id INTEGER REFERENCES manufacturing_resources(id) ON DELETE SET NULL,
+                name        TEXT    NOT NULL,
+                hourly_rate REAL    NOT NULL DEFAULT 0
+            )
+        """)
+        c.execute("CREATE INDEX IF NOT EXISTS idx_bom_resources_bom ON bom_resources(bom_id)")
+        # Per-order snapshot; hours + cost are filled in at completion.
+        c.execute("""
+            CREATE TABLE IF NOT EXISTS production_order_resources (
+                id                  INTEGER PRIMARY KEY AUTOINCREMENT,
+                production_order_id INTEGER NOT NULL REFERENCES production_orders(id) ON DELETE CASCADE,
+                resource_id         INTEGER REFERENCES manufacturing_resources(id) ON DELETE SET NULL,
+                name                TEXT    NOT NULL,
+                hourly_rate         REAL    NOT NULL DEFAULT 0,
+                hours               REAL    NOT NULL DEFAULT 0,
+                cost                REAL    NOT NULL DEFAULT 0,
+                created_at          TEXT    NOT NULL
+            )
+        """)
+        c.execute("CREATE INDEX IF NOT EXISTS idx_po_resources_order "
+                  "ON production_order_resources(production_order_id)")
+        # Standard production time (hours per batch) on the BOM — drives the
+        # estimated conversion cost + variance. Actual hours captured per order.
+        if "boms" in all_tables() and "standard_hours" not in cols("boms"):
+            c.execute("ALTER TABLE boms ADD COLUMN standard_hours REAL NOT NULL DEFAULT 0")
+        if "production_orders" in all_tables() and "production_hours" not in cols("production_orders"):
+            c.execute("ALTER TABLE production_orders ADD COLUMN production_hours REAL NOT NULL DEFAULT 0")
+        done("109_mfg_resources")
+
+    # ── 102: inventory cost layers (FIFO / LIFO costing) ───────────────────
+    # Each row is a surviving "lot" of stock at a known unit cost. Only
+    # populated/consumed when inventory_costing_method is fifo or lifo; under
+    # the default weighted_avg the table stays empty and costing is unchanged.
+    if need("102_inventory_cost_layers"):
+        c.execute("""
+            CREATE TABLE IF NOT EXISTS inventory_cost_layers (
+                id            INTEGER PRIMARY KEY AUTOINCREMENT,
+                inventory_id  INTEGER NOT NULL REFERENCES inventory(id) ON DELETE CASCADE,
+                qty_remaining REAL    NOT NULL,
+                unit_cost     REAL    NOT NULL DEFAULT 0,
+                source_type   TEXT,
+                source_ref    TEXT,
+                created_at    TEXT    NOT NULL
+            )
+        """)
+        # FIFO/LIFO ordering and per-item lookups both ride this index.
+        c.execute("CREATE INDEX IF NOT EXISTS idx_cost_layers_item "
+                  "ON inventory_cost_layers(inventory_id, created_at, id)")
+        done("102_inventory_cost_layers")
+
+    # ── 104: double-entry accounting (Chart of Accounts + Journal) ─────────
+    # A real general ledger sitting alongside the existing cash-basis finance
+    # views. Journal entries are auto-posted from business events (invoice
+    # payment, expense, payroll, depreciation, purchase) so the Income
+    # Statement reconciles with the Finance dashboard, plus manual entries.
+    if need("104_accounting"):
+        c.execute("""
+            CREATE TABLE IF NOT EXISTS chart_of_accounts (
+                id             INTEGER PRIMARY KEY AUTOINCREMENT,
+                code           TEXT    UNIQUE NOT NULL,
+                name           TEXT    NOT NULL,
+                type           TEXT    NOT NULL,   -- Asset/Liability/Equity/Income/Expense
+                subtype        TEXT,
+                normal_balance TEXT    NOT NULL,   -- 'debit' or 'credit'
+                parent_code    TEXT,
+                is_system      INTEGER NOT NULL DEFAULT 0,
+                is_active      INTEGER NOT NULL DEFAULT 1,
+                description    TEXT,
+                created_at     TEXT    NOT NULL
+            )
+        """)
+        c.execute("""
+            CREATE TABLE IF NOT EXISTS journal_entries (
+                id           INTEGER PRIMARY KEY AUTOINCREMENT,
+                entry_number TEXT,
+                entry_date   TEXT    NOT NULL,
+                memo         TEXT,
+                source_type  TEXT,    -- manual/invoice_payment/expense/payroll/depreciation/purchase/reversal
+                source_id    INTEGER,
+                status       TEXT    NOT NULL DEFAULT 'posted',  -- draft/posted/reversed
+                reverses_id  INTEGER REFERENCES journal_entries(id) ON DELETE SET NULL,
+                reversed_by  INTEGER REFERENCES journal_entries(id) ON DELETE SET NULL,
+                total_debit  REAL    NOT NULL DEFAULT 0,
+                total_credit REAL    NOT NULL DEFAULT 0,
+                created_by   INTEGER REFERENCES users(id) ON DELETE SET NULL,
+                created_at   TEXT    NOT NULL
+            )
+        """)
+        c.execute("""
+            CREATE TABLE IF NOT EXISTS journal_entry_lines (
+                id               INTEGER PRIMARY KEY AUTOINCREMENT,
+                journal_entry_id INTEGER NOT NULL REFERENCES journal_entries(id) ON DELETE CASCADE,
+                account_id       INTEGER NOT NULL REFERENCES chart_of_accounts(id),
+                debit            REAL NOT NULL DEFAULT 0,
+                credit           REAL NOT NULL DEFAULT 0,
+                memo             TEXT,
+                line_no          INTEGER
+            )
+        """)
+        c.execute("CREATE INDEX IF NOT EXISTS idx_je_date   ON journal_entries(entry_date)")
+        c.execute("CREATE INDEX IF NOT EXISTS idx_je_source ON journal_entries(source_type, source_id)")
+        c.execute("CREATE INDEX IF NOT EXISTS idx_jel_entry ON journal_entry_lines(journal_entry_id)")
+        c.execute("CREATE INDEX IF NOT EXISTS idx_jel_acct  ON journal_entry_lines(account_id)")
+
+        # Seed a sensible default Chart of Accounts. (code, name, type, normal, subtype)
+        _seed_accounts = [
+            ("1000", "Cash & Bank",              "Asset",     "debit",  "Current Asset"),
+            ("1100", "Accounts Receivable",      "Asset",     "debit",  "Current Asset"),
+            ("1200", "Inventory",                "Asset",     "debit",  "Current Asset"),
+            ("1500", "Fixed Assets",             "Asset",     "debit",  "Non-Current Asset"),
+            ("1510", "Accumulated Depreciation", "Asset",     "credit", "Contra Asset"),
+            ("2000", "Accounts Payable",         "Liability", "credit", "Current Liability"),
+            ("2100", "VAT Payable",              "Liability", "credit", "Current Liability"),
+            ("2200", "Payroll Liabilities",      "Liability", "credit", "Current Liability"),
+            ("3000", "Owner's Equity",           "Equity",    "credit", "Equity"),
+            ("3900", "Retained Earnings",        "Equity",    "credit", "Equity"),
+            ("4000", "Sales Revenue",            "Income",    "credit", "Operating Income"),
+            ("4900", "Other Income",             "Income",    "credit", "Other Income"),
+            ("5000", "Cost of Goods Sold",       "Expense",   "debit",  "Cost of Sales"),
+            ("6000", "Salaries & Wages",         "Expense",   "debit",  "Operating Expense"),
+            ("6100", "Rent",                     "Expense",   "debit",  "Operating Expense"),
+            ("6200", "Utilities",                "Expense",   "debit",  "Operating Expense"),
+            ("6300", "Depreciation Expense",     "Expense",   "debit",  "Operating Expense"),
+            ("6400", "Materials",                "Expense",   "debit",  "Operating Expense"),
+            ("6500", "Labour",                   "Expense",   "debit",  "Operating Expense"),
+            ("6600", "Equipment",                "Expense",   "debit",  "Operating Expense"),
+            ("6700", "Transport",                "Expense",   "debit",  "Operating Expense"),
+            ("6800", "Subcontractor",            "Expense",   "debit",  "Operating Expense"),
+            ("6850", "Insurance",                "Expense",   "debit",  "Operating Expense"),
+            ("6860", "Subscriptions",            "Expense",   "debit",  "Operating Expense"),
+            ("6870", "Permits & Fees",           "Expense",   "debit",  "Operating Expense"),
+            ("6900", "General & Other Expense",  "Expense",   "debit",  "Operating Expense"),
+        ]
+        _ts = datetime.utcnow().strftime("%Y-%m-%d %H:%M:%S")
+        for code, name, typ, normal, subtype in _seed_accounts:
+            c.execute(
+                "INSERT OR IGNORE INTO chart_of_accounts "
+                "(code, name, type, subtype, normal_balance, is_system, is_active, created_at) "
+                "VALUES (?,?,?,?,?,1,1,?)",
+                (code, name, typ, subtype, normal, _ts),
+            )
+        done("104_accounting")
+
+    # ── 103: generic attachments (files on any business entity) ────────────
+    # One table backs file attachments for every module (invoices, purchases,
+    # projects, expenses, assets, suppliers, clients, quotations, inventory).
+    # Files are stored as BLOBs — no filesystem path, hence no path-traversal
+    # surface — mirroring hr_employee_files / recruitment_applicant_files.
+    if need("103_attachments"):
+        c.execute("""
+            CREATE TABLE IF NOT EXISTS attachments (
+                id               INTEGER PRIMARY KEY AUTOINCREMENT,
+                entity_type      TEXT    NOT NULL,
+                entity_id        INTEGER NOT NULL,
+                filename         TEXT    NOT NULL,
+                content_type     TEXT    NOT NULL,
+                size_bytes       INTEGER NOT NULL,
+                data             BLOB    NOT NULL,
+                uploaded_by      INTEGER REFERENCES users(id) ON DELETE SET NULL,
+                uploaded_by_name TEXT,
+                created_at       TEXT    NOT NULL
+            )
+        """)
+        c.execute("CREATE INDEX IF NOT EXISTS idx_attachments_entity "
+                  "ON attachments(entity_type, entity_id, created_at)")
+        done("103_attachments")
+
+    # ── 091: backfill hire-row per existing employee ───────────────────────
+    # Every employee already in the system gets a synthetic 'hire' row so the
+    # timeline view isn't blank on existing data. Idempotent: only inserts when
+    # the employee has zero history rows yet.
+    if need("091_backfill_employment_changes"):
+        now = datetime.utcnow().strftime("%Y-%m-%d %H:%M:%S")
+        rows = c.execute(
+            "SELECT id, hire_date, salary, job_title, department_id, manager_id, created_at "
+            "FROM hr_employees"
+        ).fetchall()
+        # Cursor here uses tuple rows (no row_factory). Index by position.
+        for emp_id, hire_date, salary, job_title, dept_id, mgr_id, created_at in rows:
+            existing = c.execute(
+                "SELECT 1 FROM hr_employment_changes WHERE employee_id=? LIMIT 1",
+                (emp_id,),
+            ).fetchone()
+            if existing:
+                continue
+            eff = (hire_date or created_at or now)[:10]
+            c.execute(
+                """INSERT INTO hr_employment_changes
+                   (employee_id, effective_date, change_type,
+                    old_salary, new_salary, old_title, new_title,
+                    old_department_id, new_department_id,
+                    old_manager_id, new_manager_id,
+                    reason, created_at)
+                   VALUES (?, ?, 'hire', NULL, ?, NULL, ?, NULL, ?, NULL, ?, ?, ?)""",
+                (emp_id, eff,
+                 salary or 0, job_title, dept_id, mgr_id,
+                 "Backfilled hire record (existing employee)", now),
+            )
+        done("091_backfill_employment_changes")
+
     conn.commit()
 
 
@@ -1271,6 +2324,7 @@ def init_db():
             quote_number TEXT UNIQUE NOT NULL,
             project_id   INTEGER REFERENCES projects(id),
             client_id    INTEGER REFERENCES clients(id),
+            lead_id      INTEGER REFERENCES crm_leads(id),
             project_name TEXT DEFAULT NULL,
             status       TEXT DEFAULT 'Draft',
             notes        TEXT,
@@ -1361,6 +2415,7 @@ def init_db():
             supplier_id      INTEGER REFERENCES suppliers(id),
             inventory_id     INTEGER REFERENCES inventory(id),
             product_name     TEXT NOT NULL,
+            category         TEXT,
             quantity         REAL NOT NULL,
             unit_cost        REAL DEFAULT 0,
             additional_costs REAL DEFAULT 0,
@@ -1436,6 +2491,7 @@ def init_db():
             description TEXT,
             color       TEXT DEFAULT '#6B7280',
             is_system   INTEGER DEFAULT 0,
+            is_admin    INTEGER DEFAULT 0,
             created_at  TEXT NOT NULL
         );
 
@@ -1499,8 +2555,17 @@ def init_db():
     MODULES = [
         'dashboard', 'clients', 'projects', 'quotations', 'invoices',
         'inventory', 'purchases', 'suppliers', 'finance', 'expenses',
+        'accounting',
         'reports', 'crm', 'planning', 'pos', 'cash', 'manufacturing',
         'assets',
+        # Internal comms — view is broad (granted below to every role so
+        # everyone can read announcements addressed to them); create/edit/
+        # delete are restricted and granted explicitly per role.
+        'announcements',
+        # NB: 'hr', 'hr_contracts' and 'recruitment' are NOT in this list —
+        # they hold sensitive personnel data and are granted explicitly per
+        # role below (HR Manager / Recruiter / Manager / Auditor) rather than
+        # blanket-granted to Viewer & Auditor like the rest of MODULES.
     ]
 
     # Permission shorthands: (view, create, edit, delete, approve)
@@ -1513,6 +2578,7 @@ def init_db():
 
     default_roles = [
         ('Admin',               'Full access to every module and administration', '#DC2626', 1),
+        ('Business Owner',      'Full administration of this install — staff, roles, settings and reports; cannot change which modules are installed', '#0F766E', 1),
         ('Manager',             'Oversee all business operations with approvals',  '#7C3AED', 1),
         ('Finance Manager',     'Full finance, invoicing and expense authority',   '#059669', 1),
         ('Accountant',          'Day-to-day finance, invoices and expenses',       '#10B981', 1),
@@ -1521,7 +2587,8 @@ def init_db():
         ('Cashier',             'Operate the POS register and reconcile the cash drawer', '#0EA5E9', 1),
         ('Project Manager',     'Run projects and the planning board',             '#0891B2', 1),
         ('Operations Manager',  'Projects, planning, inventory and procurement',   '#EA580C', 1),
-        ('HR Manager',          'People management — employees, departments, leave','#0D9488', 1),
+        ('HR Manager',          'People management — employees, departments, leave, contracts, payroll, recruitment','#0D9488', 1),
+        ('Recruiter',           'Run the recruitment pipeline — positions, applicants and interviews', '#14B8A6', 1),
         ('Procurement Officer', 'Purchasing, suppliers and stock intake',          '#D97706', 1),
         ('Inventory',           'Stock control and purchase orders',               '#F59E0B', 1),
         ('Production Manager',  'Run manufacturing — BOMs, production orders and material consumption', '#9333EA', 1),
@@ -1536,6 +2603,14 @@ def init_db():
                 "INSERT INTO roles (name, description, color, is_system, created_at) VALUES (?,?,?,?,datetime('now'))",
                 (name, desc, color, is_sys)
             )
+
+    # The "Business Owner" role is admin-tier: it reaches every administrative
+    # surface (users/roles/settings/audit/backups) WITHOUT being a vendor
+    # superadmin. The is_admin flag is what elevates it above ordinary RBAC
+    # roles (see permissions.require_admin); the module marketplace stays
+    # superadmin-only. Set here (not via the roles API) so it can't be granted
+    # by a customer.
+    c.execute("UPDATE roles SET is_admin=1 WHERE name='Business Owner'")
 
     def _set_perm(role_name, module, v=0, cr=0, ed=0, dl=0, ap=0):
         row = c.execute("SELECT id FROM roles WHERE name=?", (role_name,)).fetchone()
@@ -1555,17 +2630,17 @@ def init_db():
             'dashboard': _V, 'clients': _VCEA, 'projects': _VCEA, 'quotations': _VCEA,
             'invoices': _VCEA, 'suppliers': _VCEA, 'crm': _VCEA, 'planning': _VCEA,
             'inventory': _V, 'purchases': _V, 'finance': _V, 'expenses': _V, 'reports': _V,
-            'pos': _VCED, 'cash': _VCED, 'manufacturing': _V, 'assets': _V,
+            'pos': _VCED, 'cash': _VCED, 'manufacturing': _V, 'assets': _V, 'accounting': _V,
         },
         'Finance Manager': {
             'dashboard': _V, 'finance': _FULL, 'expenses': _FULL, 'invoices': _VCEA,
             'reports': _V, 'clients': _V, 'projects': _V, 'quotations': _V, 'purchases': _V,
-            'cash': _FULL, 'pos': _V, 'assets': _FULL,
+            'cash': _FULL, 'pos': _V, 'assets': _FULL, 'accounting': _FULL,
         },
         'Accountant': {
             'dashboard': _V, 'clients': _V, 'projects': _V, 'quotations': _V,
             'invoices': _VCE, 'finance': _VCE, 'expenses': _VCE, 'purchases': _V, 'reports': _V,
-            'cash': _VCE, 'pos': _V, 'assets': _VCE,
+            'cash': _VCE, 'pos': _V, 'assets': _VCE, 'accounting': _VCE,
         },
         'Sales Manager': {
             'dashboard': _V, 'clients': _VCED, 'quotations': _VCEA, 'invoices': _VCE,
@@ -1589,7 +2664,15 @@ def init_db():
             'manufacturing': _VCED, 'cash': _VCE, 'assets': _VCE,
         },
         'HR Manager': {
-            'dashboard': _V, 'hr': _FULL, 'reports': _V,
+            'dashboard': _V, 'hr': _FULL, 'hr_contracts': _FULL, 'recruitment': _FULL,
+            'hr_activities': _FULL, 'reports': _V,
+        },
+        'Recruiter': {
+            # Read-only on existing employees (so the recruiter can see who
+            # they're hiring into), full control over the recruitment pipeline.
+            # No payroll / contract access.
+            'dashboard': _V, 'recruitment': _FULL, 'hr': _V,
+            'hr_activities': _FULL,
         },
         'Procurement Officer': {
             'dashboard': _V, 'purchases': _VCEA, 'suppliers': _VCED, 'inventory': _VCE,
@@ -1608,22 +2691,100 @@ def init_db():
         },
     }
 
-    # Admin & Viewer & Auditor span every module uniformly.
+    # Admin, Business Owner, Viewer & Auditor span every module uniformly.
     for mod in MODULES:
-        _set_perm('Admin',   mod, *_FULL)
-        _set_perm('Viewer',  mod, *_V)
-        _set_perm('Auditor', mod, *_V)
+        _set_perm('Admin',          mod, *_FULL)
+        _set_perm('Business Owner', mod, *_FULL)
+        _set_perm('Viewer',         mod, *_V)
+        _set_perm('Auditor',        mod, *_V)
     _set_perm('Auditor', 'audit', *_V)   # Auditor may also read the audit trail
+
+    # Business Owner is full-admin minus modules — give it the admin-area
+    # permissions too so the admin UIs (users/roles/settings/audit) light up.
+    # Backend access is governed by require_admin (admin-tier); these rows make
+    # the frontend `can()` checks agree.
+    for amod in ('settings', 'users', 'roles', 'audit'):
+        _set_perm('Business Owner', amod, *_FULL)
 
     for role_name, perms in ROLE_PERMS.items():
         for mod, tup in perms.items():
             _set_perm(role_name, mod, *tup)
 
-    # HR holds sensitive data (salaries) — granted explicitly rather than via
-    # the blanket Viewer loop, so general read-only roles do not see it.
-    _set_perm('Admin',   'hr', *_FULL)
-    _set_perm('Manager', 'hr', *_V)
-    _set_perm('Auditor', 'hr', *_V)
+    # HR holds sensitive data (salaries, contracts, applicant CVs, internal
+    # touchpoints) — granted explicitly rather than via the blanket Viewer
+    # loop, so general read-only roles do not see it.
+    for hr_mod in ('hr', 'hr_contracts', 'recruitment', 'hr_activities'):
+        _set_perm('Admin',          hr_mod, *_FULL)
+        _set_perm('Business Owner', hr_mod, *_FULL)
+        _set_perm('Manager',        hr_mod, *_V)
+        _set_perm('Auditor',        hr_mod, *_V)
+
+    # Announcements — view broad (every role can see their inbox); publish
+    # restricted by default to Admin + Manager. Superadmin can grant create
+    # to additional roles via Role Management. `_set_perm` uses ON CONFLICT
+    # DO NOTHING, so we insert the elevated permissions FIRST and then fall
+    # back to view-only for every other role.
+    _set_perm('Manager', 'announcements', *_VCED)
+    _set_perm('Business Owner', 'announcements', *_FULL)
+    for role_name, _, _, _ in default_roles:
+        if role_name in ('Admin', 'Viewer', 'Auditor', 'Manager'):
+            continue  # blanket loop above + explicit row already handle these
+        _set_perm(role_name, 'announcements', *_V)
+
+    # ── Wire cross-module data dependencies (one-time backfill) ───────────
+    # Several screens read data from a *sibling* module. Two failure classes:
+    #   • LOAD  — ProjectDetail fetches the inventory list on mount inside a
+    #             Promise.all, so a role with projects:view but no
+    #             inventory:view gets a hard error opening any project.
+    #   • FORM  — the quotation / invoice / purchase / asset / expense editors
+    #             populate their selectors from clients, projects, inventory
+    #             and suppliers; without view on those the dropdowns are empty
+    #             and the record can't be filled in.
+    # A role that can reach the owning module must therefore be able to VIEW
+    # what that module depends on. We only ADD view; higher permissions are
+    # never touched. Guarded by a one-shot flag so it retrofits existing
+    # installs exactly once and never overrides an admin's later edits.
+    #   trigger 'view'  → dependency fetched on page load (hard error if 403)
+    #   trigger 'write' → create/edit form selector (empty if 403)
+    if not c.execute(
+        "SELECT 1 FROM schema_migrations WHERE name='081_role_dep_view'"
+    ).fetchone():
+        _dep_rules = [
+            ('projects',   'view',  ('inventory',)),
+            ('projects',   'write', ('clients',)),
+            ('quotations', 'write', ('clients', 'projects', 'inventory')),
+            ('invoices',   'write', ('clients', 'projects', 'inventory')),
+            ('purchases',  'write', ('suppliers', 'inventory')),
+            ('assets',     'write', ('suppliers',)),
+            ('expenses',   'write', ('projects',)),
+        ]
+        for (rid,) in c.execute("SELECT id FROM roles").fetchall():
+            # row = (module, can_view, can_create, can_edit)
+            perms = {
+                row[0]: row
+                for row in c.execute(
+                    "SELECT module, can_view, can_create, can_edit "
+                    "FROM role_permissions WHERE role_id=?", (rid,)
+                ).fetchall()
+            }
+            for module, trigger, deps in _dep_rules:
+                p = perms.get(module)
+                if not p:
+                    continue
+                triggered = bool(p[1]) if trigger == 'view' else bool(p[2] or p[3])
+                if not triggered:
+                    continue
+                for dep in deps:
+                    c.execute("""
+                        INSERT INTO role_permissions
+                            (role_id, module, can_view, can_create, can_edit, can_delete, can_approve)
+                        VALUES (?,?,1,0,0,0,0)
+                        ON CONFLICT(role_id, module) DO UPDATE SET can_view=1
+                    """, (rid, dep))
+        c.execute(
+            "INSERT OR IGNORE INTO schema_migrations (name, applied_at) "
+            "VALUES ('081_role_dep_view', datetime('now'))"
+        )
 
     # ── Seed admin user ───────────────────────────────────────────────────
     existing_admin = c.execute(

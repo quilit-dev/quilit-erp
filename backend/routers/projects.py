@@ -11,6 +11,42 @@ router = APIRouter()
 
 VALID_STATUSES = ["Inquiry", "Quotation Sent", "Approved", "In Progress", "Completed", "Invoiced", "Cancelled"]
 
+# Forward-only progression so a project's status auto-advances as commercial
+# milestones happen (quotation sent → invoiced) without ever regressing —
+# editing an old quotation on an already-Invoiced project must NOT drag it
+# back to "Quotation Sent". Cancelled projects are terminal and never
+# auto-advance. Anything off the ladder (custom status, blank) is treated as
+# rank 0 so the bump still takes effect.
+_PROJECT_STATUS_RANK = {
+    "Inquiry":         0,
+    "Quotation Sent":  1,
+    "Approved":        2,
+    "In Progress":     3,
+    "Completed":       4,
+    "Invoiced":        5,
+}
+
+
+def bump_project_status(db: sqlite3.Connection, project_id, new_status: str) -> None:
+    """Advance a project to `new_status` iff it's strictly forward of the
+    current status. Idempotent, silently no-ops on None / missing project /
+    archived / cancelled. Caller commits."""
+    if project_id is None:
+        return
+    if new_status not in _PROJECT_STATUS_RANK:
+        return
+    row = db.execute(
+        "SELECT status FROM projects WHERE id=? AND archived_at IS NULL",
+        (project_id,),
+    ).fetchone()
+    if not row:
+        return
+    current = row["status"] or "Inquiry"
+    if current == "Cancelled":
+        return
+    if _PROJECT_STATUS_RANK.get(new_status, 0) > _PROJECT_STATUS_RANK.get(current, 0):
+        db.execute("UPDATE projects SET status=? WHERE id=?", (new_status, project_id))
+
 class ProjectCreate(BaseModel):
     name: str
     client_id: Optional[int] = None

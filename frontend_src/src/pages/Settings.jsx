@@ -248,10 +248,28 @@ export default function Settings() {
   function bool(key) { return val => setForm(f => ({ ...f, [key]: val ? '1' : '0' })); }
   function isOn(key) { return form[key] === '1' || form[key] === 1 || form[key] === true; }
 
+  // Fields the PUT /api/settings/ endpoint will accept. Anything else in
+  // `form` (e.g. `enabled_modules` — sourced from vendor_config and
+  // read-only, or `setup_complete` — controlled by the setup wizard) is
+  // dropped so the whole save isn't rejected for an extra field.
+  const WRITABLE_SETTINGS = new Set([
+    'company_name', 'company_tagline', 'company_address', 'company_city',
+    'company_country', 'company_phone', 'company_email', 'company_website',
+    'company_tax_number', 'company_reg_number',
+    'default_currency', 'secondary_currency',
+    'bank_name', 'bank_account', 'bank_iban', 'bank_swift',
+    'default_tax_rate', 'tax_enabled', 'payment_terms_days',
+    'invoice_prefix', 'quotation_prefix', 'inventory_costing_method',
+    'footer_text', 'show_discount_col', 'show_tax_col',
+  ]);
+
   async function save() {
     setSaving(true); setMsg(null);
     try {
-      await API.put('/api/settings/', form);
+      const payload = Object.fromEntries(
+        Object.entries(form).filter(([k]) => WRITABLE_SETTINGS.has(k))
+      );
+      await API.put('/api/settings/', payload);
       if (logoFile) {
         const fd = new FormData();
         fd.append('file', logoFile);
@@ -265,8 +283,11 @@ export default function Settings() {
       setLogoFile(null);
       setLogoPreview(`/logo.png?_=${Date.now()}`);
       reloadSettings();
-    } catch {
-      setMsg({ type: 'err', text: t('settings.failedSave') });
+    } catch (err) {
+      // Surface the real error so 422s / validation failures don't look
+      // like generic save failures.
+      const detail = err?.message || '';
+      setMsg({ type: 'err', text: t('settings.failedSave') + (detail ? ': ' + detail : '') });
     } finally { setSaving(false); }
   }
 
@@ -465,6 +486,36 @@ export default function Settings() {
             </Field>
           </div>
           <Toggle disabled={!isAdmin} label={t('settings.enableTax')} checked={isOn('tax_enabled')} onChange={bool('tax_enabled')} />
+        </Section>
+
+        {/* 3c. Inventory & Costing */}
+        <Section title={t('settings.inventorySettings')} icon="📦">
+          <p style={{ fontSize: 12, color: 'var(--text-3)', margin: '0 0 14px' }}>
+            {t('settings.inventoryCostingDesc')}
+          </p>
+          <Field label={t('settings.inventoryCostingMethod')} hint={t('settings.inventoryCostingMethodHint')}>
+            <select
+              className="form-control"
+              style={{ maxWidth: 360, opacity: isAdmin ? 1 : 0.6, cursor: isAdmin ? 'pointer' : 'not-allowed' }}
+              value={form.inventory_costing_method || 'weighted_avg'}
+              onChange={e => isAdmin && set('inventory_costing_method')(e.target.value)}
+              disabled={!isAdmin}
+            >
+              <option value="weighted_avg">{t('settings.costingWeightedAvg')}</option>
+              <option value="fifo">{t('settings.costingFifo')}</option>
+              <option value="lifo">{t('settings.costingLifo')}</option>
+            </select>
+          </Field>
+          <div style={{ marginTop: 4, padding: '10px 12px', background: 'var(--bg)', borderRadius: 6, fontSize: 12.5, color: 'var(--text-2)', lineHeight: 1.6 }}>
+            {{
+              weighted_avg: t('settings.costingWeightedAvgDesc'),
+              fifo:         t('settings.costingFifoDesc'),
+              lifo:         t('settings.costingLifoDesc'),
+            }[form.inventory_costing_method || 'weighted_avg']}
+            <div style={{ marginTop: 6, color: 'var(--text-3)', fontSize: 11.5 }}>
+              {t('settings.costingSwitchNote')}
+            </div>
+          </div>
         </Section>
 
         {/* 3a. Tax Rates — used for per-line tax on documents */}

@@ -8,6 +8,7 @@ import { LoadingSpinner, ErrorAlert, Badge, fmt, fmtDate } from '../components/s
 import { useLocale } from '../hooks/useLocale.jsx';
 import { usePersistedState } from '../hooks/usePersistedState';
 import * as XLSX from 'xlsx';
+import { exportReportPDF } from '../utils/exportUtils.js';
 
 // ── Date helpers ──────────────────────────────────────────────────────────
 function toISO(d) { return d.toISOString().slice(0, 10); }
@@ -44,6 +45,17 @@ function fmtAbbr(v) {
   if (abs >= 1_000_000) return `${sign}$${(abs / 1_000_000).toFixed(1)}M`;
   if (abs >= 1_000)     return `${sign}$${(abs / 1_000).toFixed(abs >= 10_000 ? 0 : 1)}k`;
   return `${sign}$${abs.toFixed(0)}`;
+}
+
+// Count formatter — plain integer, no currency. Used by charts whose
+// valueKey is a count (e.g. "By status" in the Sales Pipeline panel).
+// Without this, fmtAbbr would render "1 quote" as "$1" — misleading.
+function fmtCountAbbr(v) {
+  const abs = Math.abs(v || 0);
+  const sign = v < 0 ? '-' : '';
+  if (abs >= 1_000_000) return `${sign}${(abs / 1_000_000).toFixed(1)}M`;
+  if (abs >= 1_000)     return `${sign}${(abs / 1_000).toFixed(abs >= 10_000 ? 0 : 1)}k`;
+  return `${sign}${abs.toFixed(0)}`;
 }
 
 function niceMax(rawMax) {
@@ -227,7 +239,7 @@ function LineChart({ data, label1, label2, color1 = '#1B4F72', color2 = '#DC2626
 }
 
 // ── Bar Chart (horizontal) ─────────────────────────────────────────────────
-function HBarChart({ data, colorFn, labelKey = 'group_name', valueKey = 'total' }) {
+function HBarChart({ data, colorFn, labelKey = 'group_name', valueKey = 'total', formatValue = fmtAbbr }) {
   const [hovered, setHovered] = useState(null);
   const [containerRef, W] = useContainerWidth(500);
 
@@ -247,7 +259,7 @@ function HBarChart({ data, colorFn, labelKey = 'group_name', valueKey = 'total' 
           const color = typeof colorFn === 'function' ? colorFn(i, d) : CHART_COLORS[i % CHART_COLORS.length];
           const isH = hovered === i;
           const label = String(d[labelKey] || '').slice(0, 22);
-          const valLabel = `${fmtAbbr(d[valueKey] || 0)}${d.pct !== undefined ? ` (${d.pct}%)` : ''}`;
+          const valLabel = `${formatValue(d[valueKey] || 0)}${d.pct !== undefined ? ` (${d.pct}%)` : ''}`;
           const isWide = barW > barAreaW * 0.55;
           const textX = isWide ? labelW + barW - 6 : labelW + barW + 5;
           const textAnchor = isWide ? 'end' : 'start';
@@ -434,7 +446,10 @@ function AgingBucketBar({ summary }) {
   );
 }
 
-// ── Excel export helper ────────────────────────────────────────────────────
+// ── Export helpers ─────────────────────────────────────────────────────────
+// `columns` shape is shared by both: [{label, value(row), align?}, ...]
+// — keep them aligned so each sub-report can hand one array to both exporters.
+
 function exportXLSX(rows, columns, filename) {
   const headers = columns.map(c => c.label);
   const data = rows.map(r => columns.map(c => c.value(r)));
@@ -442,6 +457,41 @@ function exportXLSX(rows, columns, filename) {
   const wb = XLSX.utils.book_new();
   XLSX.utils.book_append_sheet(wb, ws, 'Report');
   XLSX.writeFile(wb, filename);
+}
+
+// Drop-in dual-format export buttons used by every sub-report panel.
+// `pdfTitle` becomes the document title in the printable header; `subtitle`
+// is the optional second line (e.g. the active date range).
+function ExportButtons({ rows, columns, baseName, pdfTitle, subtitle, meta, totals, t }) {
+  const empty = !rows || rows.length === 0;
+  function doExcel() {
+    if (empty) return;
+    exportXLSX(rows, columns, `${baseName}.xlsx`);
+  }
+  function doPdf() {
+    if (empty) return;
+    exportReportPDF({
+      title:    pdfTitle,
+      subtitle: subtitle || '',
+      filename: `${baseName}.pdf`,
+      columns,
+      rows,
+      meta,
+      totals,
+    });
+  }
+  return (
+    <div style={{ display: 'inline-flex', gap: 6 }}>
+      <button className="btn btn-sm btn-secondary" onClick={doExcel} disabled={empty}
+              title={t('reports.exportExcel')}>
+        {t('reports.exportExcel')}
+      </button>
+      <button className="btn btn-sm btn-secondary" onClick={doPdf} disabled={empty}
+              title={t('reports.exportPDF')}>
+        {t('reports.exportPDF')}
+      </button>
+    </div>
+  );
 }
 
 // ── Date range bar ─────────────────────────────────────────────────────────
@@ -498,15 +548,12 @@ function FinancialReport({ params, t }) {
 
   const noData = data.monthly.length === 0;
 
-  function doExport() {
-    if (!data.monthly.length) return;
-    exportXLSX(data.monthly, [
-      { label: 'Month',    value: r => r.month },
-      { label: 'Income',   value: r => r.income },
-      { label: 'Expenses', value: r => r.expenses },
-      { label: 'Profit',   value: r => r.profit },
-    ], 'financial_report.xlsx');
-  }
+  const financialCols = [
+    { label: 'Month',    value: r => r.month,    align: 'left'  },
+    { label: 'Income',   value: r => r.income,   align: 'right' },
+    { label: 'Expenses', value: r => r.expenses, align: 'right' },
+    { label: 'Profit',   value: r => r.profit,   align: 'right' },
+  ];
 
   return (
     <div>
@@ -523,7 +570,10 @@ function FinancialReport({ params, t }) {
         <div className="card">
           <div className="card-header">
             <span className="card-title">{t('reports.incomeVsExpenses')}</span>
-            <button className="btn btn-sm btn-secondary" onClick={doExport}>{t('reports.exportExcel')}</button>
+            <ExportButtons
+              rows={data.monthly} columns={financialCols}
+              baseName="financial_report" pdfTitle={t('reports.financial')} t={t} />
+
           </div>
           <div className="card-body">
             {noData
@@ -621,15 +671,12 @@ function VatReport({ params, t }) {
 
   const payable = data.net_vat >= 0;
 
-  function doExport() {
-    if (!data.monthly.length) return;
-    exportXLSX(data.monthly, [
-      { label: 'Month',      value: r => r.month },
-      { label: 'Output VAT', value: r => r.output_vat },
-      { label: 'Input VAT',  value: r => r.input_vat },
-      { label: 'Net VAT',    value: r => r.net_vat },
-    ], 'vat_report.xlsx');
-  }
+  const vatCols = [
+    { label: 'Month',      value: r => r.month,      align: 'left'  },
+    { label: 'Output VAT', value: r => r.output_vat, align: 'right' },
+    { label: 'Input VAT',  value: r => r.input_vat,  align: 'right' },
+    { label: 'Net VAT',    value: r => r.net_vat,    align: 'right' },
+  ];
 
   return (
     <div>
@@ -651,7 +698,9 @@ function VatReport({ params, t }) {
         <div className="card-header">
           <span className="card-title">{t('reports.vatMonthly')}</span>
           {data.monthly.length > 0 && (
-            <button className="btn btn-sm btn-secondary" onClick={doExport}>{t('reports.exportExcel')}</button>
+            <ExportButtons
+              rows={data.monthly} columns={vatCols}
+              baseName="vat_report" pdfTitle={t('reports.vat') || 'VAT Report'} t={t} />
           )}
         </div>
         {data.monthly.length === 0
@@ -723,19 +772,17 @@ function ProjectsReport({ params, t }) {
 
   const STATUSES = ['', 'Inquiry', 'Quotation Sent', 'Approved', 'In Progress', 'Completed', 'Invoiced'];
 
-  function doExport() {
-    exportXLSX(data, [
-      { label: 'Project',          value: r => r.name },
-      { label: 'Client',           value: r => r.client_name || '' },
-      { label: 'Status',           value: r => r.status },
-      { label: 'Expected Revenue', value: r => r.expected_revenue || 0 },
-      { label: 'Estimated Cost',   value: r => r.estimated_cost || 0 },
-      { label: 'Actual Expenses',  value: r => r.actual_expenses || 0 },
-      { label: 'Collected',        value: r => r.collected || 0 },
-      { label: 'Profit',           value: r => r.profit || 0 },
-      { label: 'Margin %',         value: r => r.margin_pct || 0 },
-    ], 'project_profitability.xlsx');
-  }
+  const projectCols = [
+    { label: 'Project',          value: r => r.name,                  align: 'left'  },
+    { label: 'Client',           value: r => r.client_name || '',     align: 'left'  },
+    { label: 'Status',           value: r => r.status,                align: 'left'  },
+    { label: 'Expected Revenue', value: r => r.expected_revenue || 0, align: 'right' },
+    { label: 'Estimated Cost',   value: r => r.estimated_cost || 0,   align: 'right' },
+    { label: 'Actual Expenses',  value: r => r.actual_expenses || 0,  align: 'right' },
+    { label: 'Collected',        value: r => r.collected || 0,        align: 'right' },
+    { label: 'Profit',           value: r => r.profit || 0,           align: 'right' },
+    { label: 'Margin %',         value: r => r.margin_pct || 0,       align: 'right' },
+  ];
 
   return (
     <div>
@@ -758,7 +805,9 @@ function ProjectsReport({ params, t }) {
                 <option key={s} value={s}>{s || t('reports.allStatuses')}</option>
               ))}
             </select>
-            <button className="btn btn-sm btn-secondary" onClick={doExport}>{t('reports.exportExcel')}</button>
+            <ExportButtons
+              rows={data} columns={projectCols}
+              baseName="project_profitability" pdfTitle={t('reports.projectProfit') || 'Project Profitability'} t={t} />
           </div>
         </div>
         {data.length === 0
@@ -833,19 +882,17 @@ function ClientsReport({ params, t }) {
   const totalOutstanding = data.reduce((s, c) => s + (c.outstanding || 0), 0);
   const top10 = data.slice(0, 10);
 
-  function doExport() {
-    exportXLSX(data, [
-      { label: 'Client',       value: r => r.name },
-      { label: 'Company',      value: r => r.company || '' },
-      { label: 'Type',         value: r => r.type || '' },
-      { label: 'Projects',     value: r => r.project_count },
-      { label: 'Invoices',     value: r => r.invoice_count },
-      { label: 'Quotes',       value: r => r.quote_count },
-      { label: 'Total Invoiced', value: r => r.total_invoiced },
-      { label: 'Total Paid',   value: r => r.total_paid },
-      { label: 'Outstanding',  value: r => r.outstanding },
-    ], 'client_revenue.xlsx');
-  }
+  const clientCols = [
+    { label: 'Client',         value: r => r.name,             align: 'left'  },
+    { label: 'Company',        value: r => r.company || '',    align: 'left'  },
+    { label: 'Type',           value: r => r.type || '',       align: 'left'  },
+    { label: 'Projects',       value: r => r.project_count,    align: 'right' },
+    { label: 'Invoices',       value: r => r.invoice_count,    align: 'right' },
+    { label: 'Quotes',         value: r => r.quote_count,      align: 'right' },
+    { label: 'Total Invoiced', value: r => r.total_invoiced,   align: 'right' },
+    { label: 'Total Paid',     value: r => r.total_paid,       align: 'right' },
+    { label: 'Outstanding',    value: r => r.outstanding,      align: 'right' },
+  ];
 
   return (
     <div>
@@ -868,7 +915,9 @@ function ClientsReport({ params, t }) {
       <div className="card">
         <div className="card-header">
           <span className="card-title">{t('reports.clients')}</span>
-          <button className="btn btn-sm btn-secondary" onClick={doExport}>{t('reports.exportExcel')}</button>
+          <ExportButtons
+            rows={data} columns={clientCols}
+            baseName="client_revenue" pdfTitle={t('reports.clientRevenue') || 'Client Revenue'} t={t} />
         </div>
         {data.length === 0
           ? <div style={{ padding: '28px', textAlign: 'center', color: 'var(--text-3)', fontSize: 13 }}>{t('reports.noClients')}</div>
@@ -941,18 +990,16 @@ function AgingReport({ t }) {
     over_90: { label: t('reports.over90'),    color: 'red' },
   };
 
-  function doExport() {
-    exportXLSX(invoices, [
-      { label: 'Invoice #',    value: r => r.invoice_number },
-      { label: 'Client',       value: r => r.client_name || '' },
-      { label: 'Project',      value: r => r.project_name || '' },
-      { label: 'Amount',       value: r => r.amount },
-      { label: 'Paid',         value: r => r.paid_amount },
-      { label: 'Remaining',    value: r => r.remaining },
-      { label: 'Due Date',     value: r => r.due_date || '' },
-      { label: 'Days Overdue', value: r => r.days_overdue },
-    ], 'invoice_aging.xlsx');
-  }
+  const agingCols = [
+    { label: 'Invoice #',    value: r => r.invoice_number,    align: 'left'  },
+    { label: 'Client',       value: r => r.client_name || '', align: 'left'  },
+    { label: 'Project',      value: r => r.project_name || '',align: 'left'  },
+    { label: 'Amount',       value: r => r.amount,            align: 'right' },
+    { label: 'Paid',         value: r => r.paid_amount,       align: 'right' },
+    { label: 'Remaining',    value: r => r.remaining,         align: 'right' },
+    { label: 'Due Date',     value: r => r.due_date || '',    align: 'left'  },
+    { label: 'Days Overdue', value: r => r.days_overdue,      align: 'right' },
+  ];
 
   return (
     <div>
@@ -977,7 +1024,9 @@ function AgingReport({ t }) {
       <div className="card">
         <div className="card-header">
           <span className="card-title">{t('reports.aging')}</span>
-          <button className="btn btn-sm btn-secondary" onClick={doExport}>{t('reports.exportExcel')}</button>
+          <ExportButtons
+            rows={invoices} columns={agingCols}
+            baseName="invoice_aging" pdfTitle={t('reports.aging') || 'Invoice Aging'} t={t} />
         </div>
         {invoices.length === 0
           ? <div style={{ padding: '28px', textAlign: 'center', color: 'var(--green)', fontSize: 13 }}>{t('reports.noOverdue')}</div>
@@ -1048,14 +1097,12 @@ function ExpensesReport({ params, t }) {
   if (error)   return <ErrorAlert message={error} />;
   if (!data)   return null;
 
-  function doExport() {
-    exportXLSX(data.breakdown, [
-      { label: 'Group',  value: r => r.group_name },
-      { label: 'Amount', value: r => r.total },
-      { label: 'Count',  value: r => r.count },
-      { label: 'Share %', value: r => r.pct },
-    ], 'expense_analysis.xlsx');
-  }
+  const expenseCols = [
+    { label: 'Group',   value: r => r.group_name, align: 'left'  },
+    { label: 'Amount',  value: r => r.total,      align: 'right' },
+    { label: 'Count',   value: r => r.count,      align: 'right' },
+    { label: 'Share %', value: r => r.pct,        align: 'right' },
+  ];
 
   return (
     <div>
@@ -1076,7 +1123,9 @@ function ExpensesReport({ params, t }) {
                 <option value="project">{t('reports.byProject')}</option>
                 <option value="month">{t('reports.byMonth')}</option>
               </select>
-              <button className="btn btn-sm btn-secondary" onClick={doExport}>{t('reports.exportExcel')}</button>
+              <ExportButtons
+                rows={data.breakdown} columns={expenseCols}
+                baseName="expense_analysis" pdfTitle={t('reports.expenseAnalysis') || 'Expense Analysis'} t={t} />
             </div>
           </div>
           <div className="card-body">
@@ -1167,13 +1216,11 @@ function PipelineReport({ params, t }) {
     Rejected: '#C0392B', Invoiced: '#8E44AD',
   };
 
-  function doExport() {
-    exportXLSX(data.by_status, [
-      { label: 'Status', value: r => r.status },
-      { label: 'Count',  value: r => r.count },
-      { label: 'Value',  value: r => r.value },
-    ], 'sales_pipeline.xlsx');
-  }
+  const pipelineCols = [
+    { label: 'Status', value: r => r.status, align: 'left'  },
+    { label: 'Count',  value: r => r.count,  align: 'right' },
+    { label: 'Value',  value: r => r.value,  align: 'right' },
+  ];
 
   return (
     <div>
@@ -1188,13 +1235,16 @@ function PipelineReport({ params, t }) {
       <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 16, marginBottom: 16 }}>
         <div className="card">
           <div className="card-header">
-            <span className="card-title">{t('reports.byStatus')}</span>
-            <button className="btn btn-sm btn-secondary" onClick={doExport}>{t('reports.exportExcel')}</button>
+            <span className="card-title">{t('reports.byStatusCount')}</span>
+            <ExportButtons
+              rows={data.by_status} columns={pipelineCols}
+              baseName="sales_pipeline" pdfTitle={t('reports.pipeline') || 'Sales Pipeline'} t={t} />
           </div>
           <div className="card-body">
             {data.by_status.length === 0
               ? <div style={{ color: 'var(--text-3)', fontSize: 13 }}>{t('reports.noPipeline')}</div>
               : <HBarChart data={data.by_status} labelKey="status" valueKey="count"
+                  formatValue={fmtCountAbbr}
                   colorFn={(i, d) => STATUS_COLORS[d.status] || CHART_COLORS[i % CHART_COLORS.length]} />
             }
           </div>

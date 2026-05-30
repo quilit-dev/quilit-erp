@@ -18,8 +18,11 @@ from database import get_db
 from permissions import require_perm
 from routers.audit import log_action
 from routers.finance import _check_period_locked
+from routers.projects import bump_project_status
 from utils import _now, _today, get_tax_context, resolve_line_tax, money, notify
+import accounting
 import sqlite3
+import uuid
 from datetime import datetime, timedelta
 
 router = APIRouter()
@@ -75,18 +78,35 @@ class VoidRequest(BaseModel):
     reason: Optional[str] = "Voided"
 
 # ── Helpers ───────────────────────────────────────────────────────────────
-def _next_invoice_number(db):
-    prefix_row = db.execute("SELECT value FROM settings WHERE key='invoice_prefix'").fetchone()
-    prefix = prefix_row["value"] if prefix_row else "INV-"
-    row    = db.execute("SELECT COALESCE(MAX(id), 0) as m FROM invoices").fetchone()
-    year   = datetime.utcnow().year
-    return f"{prefix}{year}-{row['m'] + 1:04d}"
+# Invoice numbers are derived from the row's own AUTOINCREMENT id, NOT from
+# MAX(id)+1. The old MAX(id)+1 scheme read the current max and wrote a number
+# in two non-atomic steps, so two concurrent creates could compute the SAME
+# number and collide on the UNIQUE invoice_number constraint (one create then
+# failed). Reserving the row first hands us an id that is unique by construction
+# and never reused under AUTOINCREMENT, so the derived number is collision-free
+# without any locking.
+def _placeholder_invoice_number() -> str:
+    """A guaranteed-unique temporary value to satisfy UNIQUE/NOT NULL for the
+    instant between INSERT and the UPDATE that sets the real number."""
+    return f"__pending__{uuid.uuid4().hex}"
+
+def _invoice_prefix(db) -> str:
+    row = db.execute("SELECT value FROM settings WHERE key='invoice_prefix'").fetchone()
+    return row["value"] if row and row["value"] else "INV-"
+
+def _finalize_invoice_number(db, invoice_id: int, prefix: str) -> str:
+    """Set the real, collision-free number on a freshly-inserted invoice row.
+    Call right after the INSERT (before commit). Returns the number assigned."""
+    inv_no = f"{prefix}{datetime.utcnow().year}-{invoice_id:04d}"
+    db.execute("UPDATE invoices SET invoice_number=? WHERE id=?", (inv_no, invoice_id))
+    return inv_no
 
 def _enrich(row: dict, db) -> dict:
     total_paid = _payment_total(db, row["id"])
-    row["total_paid"]     = round(total_paid, 4)
-    row["remaining"]      = round(float(row["amount"]) - total_paid, 4)
-    row["payment_status"] = _derive_status(float(row["amount"]), total_paid, row.get("voided_at"))
+    amount     = float(row["amount"])
+    row["total_paid"]     = money(total_paid)
+    row["remaining"]      = money(amount - total_paid)
+    row["payment_status"] = _derive_status(amount, total_paid, row.get("voided_at"))
     row["is_overdue"]     = _is_overdue(row.get("due_date"), row["payment_status"])
     return row
 
@@ -242,22 +262,25 @@ def create_invoice(
     subtotal, tax_total, computed_amount, line_tax = _price_items(db, items, data.amount)
     if computed_amount <= 0:
         raise HTTPException(400, "Invoice amount must be positive")
-    inv_no   = _next_invoice_number(db)
     now      = _now()
     due_date = data.due_date
     if not due_date:
         terms_row = db.execute("SELECT value FROM settings WHERE key='payment_terms_days'").fetchone()
         days = int(terms_row["value"]) if terms_row else 15
         due_date = (datetime.utcnow() + timedelta(days=days)).strftime("%Y-%m-%d")
+    # Reserve the row first (placeholder number), then derive the real number
+    # from its id — see the helper notes; this is what makes concurrent creates
+    # collision-free.
     cur = db.execute(
         "INSERT INTO invoices "
         "(invoice_number, quotation_id, project_id, client_id, amount, subtotal, tax_total, "
         " due_date, notes, created_at, version) "
         "VALUES (?,?,?,?,?,?,?,?,?,?,1)",
-        (inv_no, data.quotation_id, data.project_id, data.client_id,
+        (_placeholder_invoice_number(), data.quotation_id, data.project_id, data.client_id,
          computed_amount, subtotal, tax_total, due_date, data.notes, now),
     )
     invoice_id = cur.lastrowid
+    inv_no     = _finalize_invoice_number(db, invoice_id, _invoice_prefix(db))
     for idx, item in enumerate(items):
         rid, rate, tax_amt = line_tax[idx]
         db.execute(
@@ -266,6 +289,8 @@ def create_invoice(
             "VALUES (?,?,?,?,?,?,?)",
             (invoice_id, item.name, item.quantity, item.unit_price, rid, rate, tax_amt),
         )
+    # Auto-advance the linked project's status to Invoiced (forward-only).
+    bump_project_status(db, data.project_id, "Invoiced")
     log_action(db, user, "create", "invoice", invoice_id, inv_no,
                {"amount": computed_amount})
     db.commit()
@@ -368,10 +393,19 @@ def void_invoice(
             "UPDATE projects SET actual_cost = MAX(0, actual_cost - ?) WHERE id=?",
             (float(inv["total"] or 0), inv["project_id"]),
         )
+    # Reverse the ledger entry for every payment on the voided invoice so the
+    # books no longer recognise the revenue.
+    for pay in db.execute(
+        "SELECT id FROM invoice_payments WHERE invoice_id=?", (invoice_id,)
+    ).fetchall():
+        accounting.reverse_source(db, "invoice_payment", pay["id"],
+                                  memo=f"Reversal — voided invoice {inv['invoice_number']}",
+                                  created_by=user["id"])
     log_action(db, user, "void", "invoice", invoice_id,
                inv["invoice_number"], {"reason": data.reason or "Voided"})
     db.commit()
     return {"message": "Invoice voided", "voided_at": now}
+
 
 # ── Add payment ───────────────────────────────────────────────────────────
 @router.post("/{invoice_id}/payments")
@@ -395,11 +429,11 @@ def add_payment(
         if not data.exchange_rate or data.exchange_rate <= 0:
             raise HTTPException(400, "An exchange rate is required for LBP payments.")
         rate        = float(data.exchange_rate)
-        usd_amount  = round(data.amount / rate, 4)
+        usd_amount  = money(data.amount / rate)
         paid_amount = data.amount
     else:
         rate        = None
-        usd_amount  = round(data.amount, 4)
+        usd_amount  = money(data.amount)
         paid_amount = data.amount
     if usd_amount <= 0:
         raise HTTPException(400, "Payment amount must be positive")
@@ -424,7 +458,7 @@ def add_payment(
             raise HTTPException(409, "This payment was already recorded (duplicate submission).")
 
     total_paid = _payment_total(db, invoice_id)
-    remaining  = round(float(inv["amount"]) - total_paid, 4)
+    remaining  = money(float(inv["amount"]) - total_paid)
 
     if usd_amount > remaining + 0.001:
         raise HTTPException(
@@ -438,7 +472,7 @@ def add_payment(
         "SELECT 1 FROM cash_drawers WHERE id=?", (drawer_id,)).fetchone():
         raise HTTPException(400, "Cash drawer not found")
 
-    db.execute(
+    pay_cur = db.execute(
         "INSERT INTO invoice_payments "
         "(invoice_id, amount, method, note, paid_at, idempotency_key, "
         " paid_currency, paid_amount, exchange_rate, cash_drawer_id) "
@@ -446,12 +480,25 @@ def add_payment(
         (invoice_id, usd_amount, data.method, data.note, _now(), data.idempotency_key,
          currency, paid_amount, rate, drawer_id),
     )
+    payment_id = pay_cur.lastrowid
+
+    # Auto-post to the general ledger: DR Cash & Bank, CR Sales Revenue (cash-basis).
+    accounting.post_entry(
+        db,
+        entry_date=_now()[:10],
+        memo=f"Payment received — {inv['invoice_number']}",
+        lines=[
+            {"code": accounting.CASH,    "debit":  usd_amount, "memo": data.method},
+            {"code": accounting.REVENUE, "credit": usd_amount},
+        ],
+        source_type="invoice_payment", source_id=payment_id, created_by=user["id"],
+    )
     log_action(db, user, "payment", "invoice", invoice_id, inv["invoice_number"],
                {"amount": usd_amount, "method": data.method,
                 "currency": currency, "paid_amount": paid_amount})
 
-    new_paid   = round(total_paid + usd_amount, 4)
-    new_remain = round(float(inv["amount"]) - new_paid, 4)
+    new_paid   = money(total_paid + usd_amount)
+    new_remain = money(float(inv["amount"]) - new_paid)
     new_status = _derive_status(float(inv["amount"]), new_paid)
 
     client_row = db.execute("SELECT name FROM clients WHERE id=?", (inv["client_id"],)).fetchone() if inv["client_id"] else None
@@ -513,6 +560,10 @@ def delete_payment(
         raise HTTPException(404, "Payment not found")
     _check_period_locked(db, str(row["paid_at"])[:7] + "-01")
 
+    # Reverse the ledger entry posted when this payment was recorded.
+    accounting.reverse_source(db, "invoice_payment", payment_id,
+                              memo=f"Reversal — deleted payment on {inv['invoice_number']}",
+                              created_by=user["id"])
     db.execute("DELETE FROM invoice_payments WHERE id = ?", (payment_id,))
     log_action(db, user, "delete_payment", "invoice", invoice_id,
                inv["invoice_number"], {"amount": float(row["amount"])})

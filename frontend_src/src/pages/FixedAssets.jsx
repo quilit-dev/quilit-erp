@@ -4,6 +4,7 @@ import { usePersistedState } from '../hooks/usePersistedState';
 import { useSortPaginate } from '../hooks/useSortPaginate';
 import { useLocale } from '../hooks/useLocale.jsx';
 import { usePermissions } from '../hooks/usePermissions.js';
+import Attachments from '../components/Attachments.jsx';
 import {
   LoadingSpinner, ErrorAlert, EmptyState, Modal, ConfirmModal,
   ExportButton, fmt, fmtDate, toast, SortableTh, Pagination,
@@ -451,6 +452,10 @@ export default function FixedAssets() {
                 </table>
               </div>
             )}
+
+            <div style={{ marginTop: 20, paddingTop: 16, borderTop: '1px solid var(--border)' }}>
+              <Attachments entityType="assets" entityId={detail.id} canEdit={can('assets', 'edit')} />
+            </div>
           </div>
           <div className="modal-footer" style={{ justifyContent: 'space-between' }}>
             <div style={{ display: 'flex', gap: 8 }}>

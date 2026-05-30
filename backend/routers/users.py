@@ -83,6 +83,44 @@ def list_sessions(
     return [dict(r) for r in rows]
 
 
+# ── Online users ────────────────────────────────────────────────────────────
+# A user counts as "online" when they hold a live (non-revoked, non-expired)
+# session whose `last_active` heartbeat — refreshed on every authenticated
+# request by permissions._resolve_user — falls within ONLINE_WINDOW_MINUTES.
+# That window is deliberately tighter than the 30-minute idle session timeout,
+# so the indicator reflects who is *actively* using the ERP right now. Results
+# are deduplicated per user (two devices = one online user, session_count = 2).
+ONLINE_WINDOW_MINUTES = 5
+
+@router.get("/online")
+def list_online_users(
+    caller=Depends(require_admin),
+    db: sqlite3.Connection = Depends(get_db),
+):
+    rows = db.execute(
+        """
+        SELECT u.id, u.username, u.full_name, u.role,
+               MAX(s.last_active) AS last_active,
+               COUNT(*)           AS session_count,
+               MAX(s.ip_address)  AS ip_address
+        FROM user_sessions s
+        JOIN users u ON s.user_id = u.id
+        WHERE s.revoked = 0
+          AND s.expires_at > datetime('now')
+          AND s.last_active >= datetime('now', ?)
+          AND u.deleted_at IS NULL
+        GROUP BY u.id
+        ORDER BY last_active DESC
+        """,
+        (f"-{ONLINE_WINDOW_MINUTES} minutes",),
+    ).fetchall()
+    return {
+        "window_minutes": ONLINE_WINDOW_MINUTES,
+        "count":          len(rows),
+        "users":          [dict(r) for r in rows],
+    }
+
+
 # ── Revoke a single session ───────────────────────────────────────────────────
 @router.delete("/sessions/{session_id}")
 def revoke_session(
@@ -135,11 +173,15 @@ def create_user(
             raise HTTPException(400, "Role not found.")
         role_name = rrow["name"]
 
+    # Only a true superadmin may mint another superadmin. An admin-tier caller
+    # (e.g. Business Owner) can manage staff but can never escalate anyone to
+    # superadmin — that would unlock the module marketplace.
+    make_super = 1 if (data.is_superadmin and caller.get("is_superadmin")) else 0
     cur = db.execute(
         "INSERT INTO users (username, password_hash, full_name, email, role, role_id, "
         "is_active, is_superadmin, created_at) VALUES (?,?,?,?,?,?,1,?,datetime('now'))",
         (data.username, hash_password(data.password), data.full_name, data.email,
-         role_name, data.role_id, 1 if data.is_superadmin else 0)
+         role_name, data.role_id, make_super)
     )
     log_action(db, caller, "create", "user", cur.lastrowid, data.username)
     db.commit()
@@ -157,8 +199,15 @@ def update_user(
     row = db.execute("SELECT * FROM users WHERE id=? AND deleted_at IS NULL", (user_id,)).fetchone()
     if not row:
         raise HTTPException(404, "User not found")
+    # Escalation guard: an admin-tier caller (non-superadmin) may not touch a
+    # superadmin account, nor grant/revoke superadmin on anyone.
+    caller_is_super = bool(caller.get("is_superadmin"))
+    if not caller_is_super and row["is_superadmin"]:
+        raise HTTPException(403, "Only a superadmin can modify a superadmin account.")
+    # Only a superadmin may change the superadmin flag; ignore it otherwise.
+    effective_super = data.is_superadmin if caller_is_super else None
     # Prevent removing superadmin from the last superadmin
-    if data.is_superadmin is False and row["is_superadmin"]:
+    if effective_super is False and row["is_superadmin"]:
         count = db.execute(
             "SELECT COUNT(*) FROM users WHERE is_superadmin=1 AND deleted_at IS NULL AND id!=?", (user_id,)
         ).fetchone()[0]
@@ -195,7 +244,7 @@ def update_user(
         data.role_id,
         role_name,
         (1 if data.is_active else 0)     if data.is_active     is not None else None,
-        (1 if data.is_superadmin else 0) if data.is_superadmin is not None else None,
+        (1 if effective_super else 0)    if effective_super    is not None else None,
     ]
     if any(v is not None for v in values):
         db.execute(
@@ -219,9 +268,13 @@ def reset_password(
     caller=Depends(require_admin),
     db: sqlite3.Connection = Depends(get_db),
 ):
-    row = db.execute("SELECT username FROM users WHERE id=? AND deleted_at IS NULL", (user_id,)).fetchone()
+    row = db.execute("SELECT username, is_superadmin FROM users WHERE id=? AND deleted_at IS NULL", (user_id,)).fetchone()
     if not row:
         raise HTTPException(404, "User not found")
+    # Block an admin-tier caller from resetting a superadmin's password (which
+    # would let them log in as the vendor and reach the module marketplace).
+    if not caller.get("is_superadmin") and row["is_superadmin"]:
+        raise HTTPException(403, "Only a superadmin can reset a superadmin's password.")
     if len(data.new_password) < 8:
         raise HTTPException(400, "Password must be at least 8 characters.")
     db.execute("UPDATE users SET password_hash=? WHERE id=?", (hash_password(data.new_password), user_id))
@@ -242,6 +295,8 @@ def toggle_active(
     row = db.execute("SELECT username, is_active, is_superadmin FROM users WHERE id=? AND deleted_at IS NULL", (user_id,)).fetchone()
     if not row:
         raise HTTPException(404, "User not found")
+    if not caller.get("is_superadmin") and row["is_superadmin"]:
+        raise HTTPException(403, "Only a superadmin can enable or disable a superadmin account.")
     if row["is_superadmin"] and row["is_active"]:
         count = db.execute("SELECT COUNT(*) FROM users WHERE is_superadmin=1 AND is_active=1 AND deleted_at IS NULL AND id!=?", (user_id,)).fetchone()[0]
         if count == 0:
@@ -265,6 +320,8 @@ def delete_user(
     row = db.execute("SELECT username, is_superadmin FROM users WHERE id=? AND deleted_at IS NULL", (user_id,)).fetchone()
     if not row:
         raise HTTPException(404, "User not found")
+    if not caller.get("is_superadmin") and row["is_superadmin"]:
+        raise HTTPException(403, "Only a superadmin can delete a superadmin account.")
     if row["is_superadmin"]:
         count = db.execute("SELECT COUNT(*) FROM users WHERE is_superadmin=1 AND deleted_at IS NULL AND id!=?", (user_id,)).fetchone()[0]
         if count == 0:

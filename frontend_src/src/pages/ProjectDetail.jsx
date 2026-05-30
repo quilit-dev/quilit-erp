@@ -5,6 +5,9 @@ import {
   LoadingSpinner, ErrorAlert, Badge, fmt, fmtDate, toast, Modal, CategoryBadge,
 } from '../components/shared';
 import { useLocale } from '../hooks/useLocale.jsx';
+import { usePermissions } from '../hooks/usePermissions';
+import Attachments from '../components/Attachments.jsx';
+import { openSafeHtmlDocument } from '../utils/exportUtils';
 
 const CATEGORIES = ['Labour', 'Materials', 'Equipment', 'Transport', 'Subcontractor', 'Permits', 'Other'];
 
@@ -51,6 +54,7 @@ function SectionTable({ columns, rows, emptyMsg }) {
 
 export default function ProjectDetail() {
   const { t } = useLocale();
+  const { can } = usePermissions();
   const { id }    = useParams();
   const navigate  = useNavigate();
   const [project,   setProject]   = useState(null);
@@ -109,9 +113,7 @@ export default function ProjectDetail() {
   async function openDocument(docId) {
     try {
       const doc = await getDocumentContent(docId);
-      const w = window.open('', '_blank');
-      w.document.write(doc.html_content);
-      w.document.close();
+      openSafeHtmlDocument(doc.html_content);
     } catch (e) { toast(e.message, 'red'); }
   }
 
@@ -345,6 +347,7 @@ export default function ProjectDetail() {
 
       {/* Overview */}
       {tab === 'overview' && (
+        <>
         <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 16 }}>
           <div className="card">
             <div className="card-header"><span className="card-title">{t('projects.projectDetailsTitle')}</span></div>
@@ -446,6 +449,12 @@ export default function ProjectDetail() {
             </div>
           </div>
         </div>
+        <div className="card" style={{ marginTop: 16 }}>
+          <div className="card-body">
+            <Attachments entityType="projects" entityId={project.id} canEdit={can('projects', 'edit')} />
+          </div>
+        </div>
+        </>
       )}
 
       {/* Materials — deduct inventory to project */}
@@ -555,8 +564,8 @@ export default function ProjectDetail() {
                         type="number"
                         className="form-control"
                         required
-                        min="0.001"
-                        step="any"
+                        min="1"
+                        step="1"
                         max={sel?.quantity}
                         value={deductQty}
                         onChange={e => setDeductQty(e.target.value)}

@@ -1,0 +1,849 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>Cedaris — Enterprise Resource Platform</title>
+  <meta name="description" content="Self-hosted ERP for sales, inventory, finance and HR. Dual-currency USD+LBP, full Arabic RTL, runs on your own server." />
+  <meta name="theme-color" content="#0A6E55" />
+  <meta property="og:type" content="website" />
+  <meta property="og:title" content="Cedaris — Enterprise Resource Platform" />
+  <meta property="og:description" content="One self-hosted platform for every department. You own the data." />
+  <link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 32 32'%3E%3Crect width='32' height='32' rx='6' fill='%230A6E55'/%3E%3Cpath d='M16 5l5 8h-3l4 7h-4l3 6H9l3-6H8l4-7h-3z' fill='%23FFFFFF'/%3E%3C/svg%3E" />
+  <link rel="preconnect" href="https://fonts.googleapis.com" />
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+  <link href="https://fonts.googleapis.com/css2?family=Instrument+Serif:ital@0;1&family=Geist:wght@300;400;500;600;700&display=swap" rel="stylesheet" />
+  <link rel="stylesheet" href="styles.css" />
+</head>
+<body>
+
+<!-- ══════════════════════════════════════════════════
+     HEADER
+══════════════════════════════════════════════════ -->
+<header class="site-header" id="top">
+  <div class="container nav">
+    <a href="#top" class="brand" aria-label="Cedaris home">
+      <svg viewBox="0 0 32 32" width="26" height="26"><rect width="32" height="32" rx="6" fill="#0A6E55"/><path d="M16 5l5 8h-3l4 7h-4l3 6H9l3-6H8l4-7h-3z" fill="#fff"/></svg>
+      <span class="brand-name">Cedaris</span>
+    </a>
+    <nav class="nav-links" id="navLinks" aria-label="Primary">
+      <a href="#platform">Platform</a>
+      <a href="#modules">Modules</a>
+      <a href="#impact">Impact</a>
+      <a href="#gallery">Product</a>
+      <a href="#services">Services</a>
+      <a href="#why">Compare</a>
+    </nav>
+    <div class="nav-actions">
+      <span class="lang-pill">EN · ع</span>
+      <a href="#demo" class="btn btn-primary btn-sm">Request Demo</a>
+      <button class="nav-toggle" id="navToggle" aria-label="Open menu" aria-expanded="false">
+        <span></span><span></span><span></span>
+      </button>
+    </div>
+  </div>
+</header>
+
+<main>
+
+<!-- ══════════════════════════════════════════════════
+     HERO
+══════════════════════════════════════════════════ -->
+<section class="hero" id="hero">
+  <div class="hero-bg" aria-hidden="true">
+    <div class="hb-grid"></div>
+    <div class="hb-orb hb-orb-1"></div>
+    <div class="hb-orb hb-orb-2"></div>
+  </div>
+
+  <div class="container hero-inner">
+    <div class="hero-copy reveal">
+      <div class="eyebrow">
+        <span class="pulse-dot"></span>
+        Self-hosted · Dual-currency · Bilingual
+      </div>
+      <h1>One platform.<br><span class="grad-text">Every department.</span></h1>
+      <p class="lead">
+        Cedaris runs on <strong>your own server</strong> — no cloud dependency, no per-seat fees, no vendor lock-in. Finance, sales, inventory, HR and more in a single connected system.
+      </p>
+      <div class="hero-cta">
+        <a href="#demo" class="btn btn-primary btn-lg">
+          Request a Demo
+          <svg class="i" viewBox="0 0 24 24"><path d="M5 12h14M13 6l6 6-6 6"/></svg>
+        </a>
+        <a href="#modules" class="btn btn-outline btn-lg">Explore Modules</a>
+      </div>
+    </div>
+
+    <div class="hero-visual reveal">
+      <div class="hv-frame">
+        <div class="hv-chrome">
+          <div class="hv-dots"><span></span><span></span><span></span></div>
+          <span class="hv-url">cedaris.app · Dashboard</span>
+          <span class="hv-live"><span class="pulse-dot sm"></span>Live</span>
+        </div>
+        <img src="assets/screenshots/dashboard.png" alt="Cedaris real-time dashboard" loading="eager" />
+        <div class="hv-overlay">
+          <div class="hv-chip hv-chip-tl">
+            <img src="assets/screenshots/crm.png" alt="CRM module" loading="lazy" />
+          </div>
+          <div class="hv-chip hv-chip-br">
+            <img src="assets/screenshots/pos.png" alt="POS module" loading="lazy" />
+          </div>
+        </div>
+      </div>
+      <div class="hv-badge">
+        <svg class="i" viewBox="0 0 24 24"><path d="M12 2l8 4v6c0 5-3.5 8-8 10-4.5-2-8-5-8-10V6z"/><path d="M9 12l2 2 4-4"/></svg>
+        Deployed on your server
+      </div>
+    </div>
+  </div>
+
+  <div class="container hero-stats reveal">
+    <div class="stat-item"><span class="stat-val">13</span><span class="stat-label">Integrated Modules</span></div>
+    <div class="stat-div"></div>
+    <div class="stat-item"><span class="stat-val">USD + LBP</span><span class="stat-label">Dual Currency</span></div>
+    <div class="stat-div"></div>
+    <div class="stat-item"><span class="stat-val">EN · ع</span><span class="stat-label">Full Bilingual RTL</span></div>
+    <div class="stat-div"></div>
+    <div class="stat-item"><span class="stat-val">Self-hosted</span><span class="stat-label">You own the data</span></div>
+  </div>
+
+  <div class="industries-strip">
+    <div class="industries-track">
+      <span>Retail &amp; POS</span><span class="sep">·</span>
+      <span>Wholesale</span><span class="sep">·</span>
+      <span>Manufacturing</span><span class="sep">·</span>
+      <span>Professional Services</span><span class="sep">·</span>
+      <span>Construction</span><span class="sep">·</span>
+      <span>Restaurants &amp; F&amp;B</span><span class="sep">·</span>
+      <span>Retail &amp; POS</span><span class="sep">·</span>
+      <span>Wholesale</span><span class="sep">·</span>
+      <span>Manufacturing</span><span class="sep">·</span>
+      <span>Professional Services</span><span class="sep">·</span>
+      <span>Construction</span><span class="sep">·</span>
+      <span>Restaurants &amp; F&amp;B</span>
+    </div>
+  </div>
+</section>
+
+<!-- ══════════════════════════════════════════════════
+     §1  PILLARS  (white, icon-led horizontal cards)
+══════════════════════════════════════════════════ -->
+<section class="section" id="platform">
+  <div class="container">
+    <div class="section-head reveal">
+      <span class="kicker">Why teams switch</span>
+      <h2>Built for how Lebanese businesses actually operate.</h2>
+      <p>Replace the patchwork of spreadsheets and disconnected apps with one system — designed for dual-currency realities and bilingual teams.</p>
+    </div>
+
+    <div class="pillars">
+      <article class="pillar reveal">
+        <div class="pillar-icon">
+          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"><path d="M12 2l8 4v6c0 5-3.5 8-8 10-4.5-2-8-5-8-10V6z"/><path d="M9 12l2 2 4-4"/></svg>
+        </div>
+        <div class="pillar-body">
+          <h3>Your server, your rules</h3>
+          <p>Runs on your PC, office server or private cloud. No vendor can revoke access, hike prices, or read your data.</p>
+        </div>
+      </article>
+      <article class="pillar reveal">
+        <div class="pillar-icon">
+          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"><rect x="3" y="3" width="7" height="7" rx="1.5"/><rect x="14" y="3" width="7" height="7" rx="1.5"/><rect x="3" y="14" width="7" height="7" rx="1.5"/><rect x="14" y="14" width="7" height="7" rx="1.5"/></svg>
+        </div>
+        <div class="pillar-body">
+          <h3>One database, every department</h3>
+          <p>A sale updates inventory, posts revenue, and hits dashboards — automatically. No manual re-entry between systems.</p>
+        </div>
+      </article>
+      <article class="pillar reveal">
+        <div class="pillar-icon">
+          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"><circle cx="9" cy="9" r="6"/><path d="M15 15a6 6 0 1 0 0-12"/></svg>
+        </div>
+        <div class="pillar-body">
+          <h3>USD + LBP, side by side</h3>
+          <p>Set your own exchange rate, keep full rate history, quote and reconcile in both currencies simultaneously.</p>
+        </div>
+      </article>
+      <article class="pillar reveal">
+        <div class="pillar-icon">
+          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="9"/><path d="M3 12h18M12 3c2.5 2.7 2.5 15.3 0 18M12 3c-2.5 2.7-2.5 15.3 0 18"/></svg>
+        </div>
+        <div class="pillar-body">
+          <h3>Arabic &amp; English, fully RTL</h3>
+          <p>Every screen, document and report — proper right-to-left layout included. Switch languages in one click.</p>
+        </div>
+      </article>
+    </div>
+  </div>
+</section>
+
+<!-- ══════════════════════════════════════════════════
+     §2  IMPACT  (dark, typographic numbers)
+══════════════════════════════════════════════════ -->
+<section class="section section-dark" id="impact">
+  <div class="container">
+    <div class="section-head reveal">
+      <span class="kicker kicker-light">Business case</span>
+      <h2 class="light">Numbers that matter to leadership.</h2>
+      <p class="light-p">Industry research on what integrated ERP delivers — versus disconnected tools.</p>
+    </div>
+
+    <div class="impact-grid">
+      <article class="impact-card reveal">
+        <span class="impact-num">+34%</span>
+        <span class="impact-label">Sales productivity</span>
+        <span class="impact-src">CRM &amp; pipeline automation</span>
+      </article>
+      <article class="impact-card reveal">
+        <span class="impact-num">−23%</span>
+        <span class="impact-label">Operating costs</span>
+        <span class="impact-src">One connected system</span>
+      </article>
+      <article class="impact-card reveal">
+        <span class="impact-num">99%</span>
+        <span class="impact-label">Inventory accuracy</span>
+        <span class="impact-src">vs ~63% on spreadsheets</span>
+      </article>
+      <article class="impact-card reveal">
+        <span class="impact-num">10+ hrs</span>
+        <span class="impact-label">Saved per week</span>
+        <span class="impact-src">Less manual re-entry</span>
+      </article>
+      <article class="impact-card reveal">
+        <span class="impact-num">Live</span>
+        <span class="impact-label">P&amp;L &amp; cash flow</span>
+        <span class="impact-src">No month-end wait</span>
+      </article>
+      <article class="impact-card reveal">
+        <span class="impact-num">$8.71</span>
+        <span class="impact-label">Returned per $1 on CRM</span>
+        <span class="impact-src">Nucleus Research</span>
+      </article>
+    </div>
+    <p class="impact-note reveal">Industry averages from Aberdeen Group, Nucleus Research &amp; APQC — illustrative; results vary.</p>
+  </div>
+</section>
+
+<!-- ══════════════════════════════════════════════════
+     §3  MODULES  (white, interactive tab switcher)
+══════════════════════════════════════════════════ -->
+<section class="section section-alt" id="modules">
+  <div class="container">
+    <div class="section-head reveal">
+      <span class="kicker">The platform</span>
+      <h2>13 modules. One connected system.</h2>
+      <p>Start with what you need. Activate more as you grow — no migrations, no extra databases.</p>
+    </div>
+
+    <!-- Tab bar -->
+    <div class="module-tabs reveal" role="tablist" aria-label="Module categories">
+      <button class="mtab active" role="tab" aria-selected="true"  data-panel="sales">
+        <svg class="i" viewBox="0 0 24 24"><path d="M3 17v3h18v-3"/><path d="M7 17V9M12 17V5M17 17v-7"/></svg>
+        Sales &amp; Customers
+      </button>
+      <button class="mtab" role="tab" aria-selected="false" data-panel="ops">
+        <svg class="i" viewBox="0 0 24 24"><path d="M21 16V8l-9-5-9 5v8l9 5z"/></svg>
+        Operations
+      </button>
+      <button class="mtab" role="tab" aria-selected="false" data-panel="finance">
+        <svg class="i" viewBox="0 0 24 24"><path d="M3 17l6-6 4 4 8-8"/></svg>
+        Finance
+      </button>
+      <button class="mtab" role="tab" aria-selected="false" data-panel="team">
+        <svg class="i" viewBox="0 0 24 24"><path d="M17 21v-2a4 4 0 0 0-4-4H6a4 4 0 0 0-4 4v2"/><circle cx="9" cy="7" r="4"/><path d="M22 21v-2a4 4 0 0 0-3-3.87"/></svg>
+        Team &amp; Projects
+      </button>
+      <button class="mtab" role="tab" aria-selected="false" data-panel="intel">
+        <svg class="i" viewBox="0 0 24 24"><path d="M9 11l3 3L22 4"/><path d="M21 12v7a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h11"/></svg>
+        Intelligence
+      </button>
+    </div>
+
+    <!-- Panel: Sales -->
+    <div class="module-panel active" id="panel-sales" role="tabpanel">
+      <article class="mcard">
+        <div class="mic"><svg class="i" viewBox="0 0 24 24"><path d="M3 17v3h18v-3"/><path d="M7 17V9M12 17V5M17 17v-7"/></svg></div>
+        <h5>CRM &amp; Pipeline</h5>
+        <p>Drag-and-drop pipeline from lead to won deal. Activity log and follow-up reminders built in.</p>
+      </article>
+      <article class="mcard">
+        <div class="mic"><svg class="i" viewBox="0 0 24 24"><path d="M6 2h9l5 5v15H6z"/><path d="M9 12h7M9 16h5"/></svg></div>
+        <h5>Quotations &amp; Invoices</h5>
+        <p>Quote → Invoice in one click. Track payments to the cent, flag overdue balances automatically.</p>
+      </article>
+      <article class="mcard">
+        <div class="mic"><svg class="i" viewBox="0 0 24 24"><rect x="4" y="3" width="13" height="18" rx="1.5"/><path d="M8 8h5M8 12h5"/><rect x="14" y="14" width="7" height="5" rx="1"/></svg></div>
+        <h5>Point of Sale</h5>
+        <p>Fast counter checkout in USD or LBP. Refunds auto-restock inventory with no manual entry.</p>
+      </article>
+    </div>
+
+    <!-- Panel: Operations -->
+    <div class="module-panel" id="panel-ops" role="tabpanel">
+      <article class="mcard">
+        <div class="mic"><svg class="i" viewBox="0 0 24 24"><path d="M21 16V8l-9-5-9 5v8l9 5z"/><path d="M3.3 7L12 12l8.7-5M12 12v10"/></svg></div>
+        <h5>Inventory</h5>
+        <p>Real-time stock with weighted-average costing, multi-location support and low-stock alerts.</p>
+      </article>
+      <article class="mcard">
+        <div class="mic"><svg class="i" viewBox="0 0 24 24"><rect x="1" y="6" width="13" height="11" rx="1"/><path d="M14 9h4l3 4v4h-7z"/><circle cx="6" cy="18" r="2"/><circle cx="17" cy="18" r="2"/></svg></div>
+        <h5>Procurement</h5>
+        <p>Purchase orders that post expenses and roll cost into stock automatically upon receipt.</p>
+      </article>
+      <article class="mcard">
+        <div class="mic"><svg class="i" viewBox="0 0 24 24"><circle cx="12" cy="12" r="3"/><path d="M12 2v3M12 19v3M2 12h3M19 12h3M5 5l2 2M17 17l2 2M19 5l-2 2M7 17l-2 2"/></svg></div>
+        <h5>Manufacturing</h5>
+        <p>Versioned bills of materials, production orders and automatic costing — no double-entry.</p>
+      </article>
+    </div>
+
+    <!-- Panel: Finance -->
+    <div class="module-panel" id="panel-finance" role="tabpanel">
+      <article class="mcard">
+        <div class="mic"><svg class="i" viewBox="0 0 24 24"><path d="M3 17l6-6 4 4 8-8"/><path d="M14 7h7v7"/></svg></div>
+        <h5>Finance &amp; Accounting</h5>
+        <p>Live P&amp;L, recurring expense schedules and audit-safe period locking across both currencies.</p>
+      </article>
+      <article class="mcard">
+        <div class="mic"><svg class="i" viewBox="0 0 24 24"><rect x="2" y="6" width="20" height="12" rx="2"/><circle cx="12" cy="12" r="2.6"/></svg></div>
+        <h5>Cash Management</h5>
+        <p>Daily till reconciliation with automatic capture of all sales and expenses at close of business.</p>
+      </article>
+      <article class="mcard">
+        <div class="mic"><svg class="i" viewBox="0 0 24 24"><path d="M3 21h18M5 21V9l7-4 7 4v12M9 21v-7h6v7"/></svg></div>
+        <h5>Fixed Assets</h5>
+        <p>Capital register with automatically posted depreciation and disposal gain/loss entries.</p>
+      </article>
+    </div>
+
+    <!-- Panel: Team -->
+    <div class="module-panel" id="panel-team" role="tabpanel">
+      <article class="mcard">
+        <div class="mic"><svg class="i" viewBox="0 0 24 24"><path d="M22 19a2 2 0 0 1-2 2H4a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h5l2 3h9a2 2 0 0 1 2 2z"/><path d="M8 14l3 3 5-5"/></svg></div>
+        <h5>Projects &amp; Planning</h5>
+        <p>Budget-vs-actual tracking, planning boards and one-click billing to clients for billable work.</p>
+      </article>
+      <article class="mcard">
+        <div class="mic"><svg class="i" viewBox="0 0 24 24"><path d="M17 21v-2a4 4 0 0 0-4-4H6a4 4 0 0 0-4 4v2"/><circle cx="9.5" cy="7" r="4"/><path d="M22 21v-2a4 4 0 0 0-3-3.9"/></svg></div>
+        <h5>HR &amp; People</h5>
+        <p>Departments, employee profiles and leave requests — with automatic status updates across modules.</p>
+      </article>
+    </div>
+
+    <!-- Panel: Intelligence -->
+    <div class="module-panel" id="panel-intel" role="tabpanel">
+      <article class="mcard">
+        <div class="mic"><svg class="i" viewBox="0 0 24 24"><rect x="3" y="12" width="4" height="9" rx="1"/><rect x="10" y="7" width="4" height="14" rx="1"/><rect x="17" y="3" width="4" height="18" rx="1"/></svg></div>
+        <h5>Reports &amp; Analytics</h5>
+        <p>Financial, VAT and aging reports — exportable to Excel or PDF in a single click.</p>
+      </article>
+      <article class="mcard">
+        <div class="mic"><svg class="i" viewBox="0 0 24 24"><path d="M9 11l3 3L22 4"/><path d="M21 12v7a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h11"/></svg></div>
+        <h5>Approvals</h5>
+        <p>Rule-based, multi-step sign-off on spend with a full, tamper-proof decision log.</p>
+      </article>
+      <article class="mcard">
+        <div class="mic"><svg class="i" viewBox="0 0 24 24"><path d="M12 2l8 4v6c0 5-3.5 8-8 10-4.5-2-8-5-8-10V6z"/><path d="M9 12l2 2 4-4"/></svg></div>
+        <h5>Users, Roles &amp; Security</h5>
+        <p>Granular role-based access control and an immutable audit trail under every transaction.</p>
+      </article>
+    </div>
+  </div>
+</section>
+
+<!-- ══════════════════════════════════════════════════
+     §4  FEATURE ROWS  (white, alternating)
+══════════════════════════════════════════════════ -->
+<section class="section" id="benefits">
+  <div class="container">
+
+    <div class="feature-row reveal">
+      <div class="feature-copy">
+        <span class="kicker">Real-time visibility</span>
+        <h2>Your whole business on one screen.</h2>
+        <p>Live KPIs from every module — cash, pipeline, stock, P&amp;L — updating the moment anything changes.</p>
+        <ul class="ticks">
+          <li>Live KPIs across sales, finance and operations</li>
+          <li>Drill from any headline number to the source record</li>
+          <li>Smart flags surface anomalies before they cost you</li>
+        </ul>
+      </div>
+      <div class="feature-visual">
+        <div class="fv-frame">
+          <div class="fv-chrome">
+            <div class="fv-dots"><span></span><span></span><span></span></div>
+            <span class="fv-url">Dashboard · live</span>
+            <span class="fv-indicator"><span class="pulse-dot sm"></span>Updated in real time</span>
+          </div>
+          <img src="assets/screenshots/dashboard.png" alt="Real-time dashboard" loading="lazy" />
+        </div>
+      </div>
+    </div>
+
+    <div class="feature-row reverse reveal">
+      <div class="feature-copy">
+        <span class="kicker">Sell &amp; get paid</span>
+        <h2>Lead to cash. One connected flow.</h2>
+        <p>Pipeline → quote → invoice → payment in one path. POS handles walk-in sales in USD or LBP instantly.</p>
+        <ul class="ticks">
+          <li>CRM → Quotation → Invoice → Payment, no re-entry</li>
+          <li>POS that deducts stock and books revenue instantly</li>
+          <li>Always know who owes you what and how overdue</li>
+        </ul>
+      </div>
+      <div class="feature-visual">
+        <div class="fv-frame">
+          <div class="fv-chrome">
+            <div class="fv-dots"><span></span><span></span><span></span></div>
+            <span class="fv-url">CRM · pipeline</span>
+            <span class="fv-indicator"><span class="pulse-dot sm"></span>5 deals · $16,700 active</span>
+          </div>
+          <img src="assets/screenshots/crm.png" alt="CRM pipeline" loading="lazy" />
+        </div>
+      </div>
+    </div>
+
+    <div class="feature-row reveal">
+      <div class="feature-copy">
+        <span class="kicker">Lean operations</span>
+        <h2>Stock and costs that stay honest.</h2>
+        <p>Inventory, purchasing and manufacturing share one source of truth — weighted-average costing updates automatically.</p>
+        <ul class="ticks">
+          <li>Weighted-average costing updated on every receipt</li>
+          <li>Low-stock alerts before you run short</li>
+          <li>Multi-level BOMs with scrap and sub-assemblies</li>
+        </ul>
+      </div>
+      <div class="feature-visual">
+        <div class="fv-frame">
+          <div class="fv-chrome">
+            <div class="fv-dots"><span></span><span></span><span></span></div>
+            <span class="fv-url">Inventory · live</span>
+            <span class="fv-indicator warn"><span class="pulse-dot sm warn"></span>3 low-stock alerts</span>
+          </div>
+          <img src="assets/screenshots/inventory.png" alt="Inventory management" loading="lazy" />
+        </div>
+      </div>
+    </div>
+
+  </div>
+</section>
+
+<!-- ══════════════════════════════════════════════════
+     §5  PRODUCT GALLERY  (soft bg, 2×2 cards)
+══════════════════════════════════════════════════ -->
+<section class="section section-alt" id="gallery">
+  <div class="container">
+    <div class="section-head reveal">
+      <span class="kicker">Product</span>
+      <h2>Real screens. Every department covered.</h2>
+      <p>No mockups. Cedaris running live across finance, invoicing, analytics and point of sale.</p>
+    </div>
+    <div class="gallery-grid reveal">
+      <figure class="gal-item">
+        <div class="gal-meta">
+          <span class="gal-num">01</span>
+          <span class="gal-title">Finance &amp; Accounting</span>
+          <span class="gal-desc">Live P&amp;L, dual-currency ledger and period locking</span>
+        </div>
+        <div class="gal-frame"><img src="assets/screenshots/finance.png" alt="Finance module" loading="lazy" /></div>
+      </figure>
+      <figure class="gal-item">
+        <div class="gal-meta">
+          <span class="gal-num">02</span>
+          <span class="gal-title">Invoices</span>
+          <span class="gal-desc">Quote-to-invoice pipeline with payment tracking</span>
+        </div>
+        <div class="gal-frame"><img src="assets/screenshots/invoices.png" alt="Invoices module" loading="lazy" /></div>
+      </figure>
+      <figure class="gal-item">
+        <div class="gal-meta">
+          <span class="gal-num">03</span>
+          <span class="gal-title">Reports &amp; Analytics</span>
+          <span class="gal-desc">Financial, VAT and aging reports — one click to export</span>
+        </div>
+        <div class="gal-frame"><img src="assets/screenshots/reports.png" alt="Reports module" loading="lazy" /></div>
+      </figure>
+      <figure class="gal-item">
+        <div class="gal-meta">
+          <span class="gal-num">04</span>
+          <span class="gal-title">Point of Sale</span>
+          <span class="gal-desc">Fast counter checkout in USD or LBP with live stock sync</span>
+        </div>
+        <div class="gal-frame"><img src="assets/screenshots/pos.png" alt="POS module" loading="lazy" /></div>
+      </figure>
+    </div>
+  </div>
+</section>
+
+<!-- ══════════════════════════════════════════════════
+     §6  HOW IT WORKS  (dark, timeline)
+══════════════════════════════════════════════════ -->
+<section class="section section-dark" id="how">
+  <div class="container">
+    <div class="section-head reveal">
+      <span class="kicker kicker-light">Getting started</span>
+      <h2 class="light">From demo to live in days.</h2>
+      <p class="light-p">Our team deploys on your infrastructure. You manage the business — not the server.</p>
+    </div>
+    <div class="steps reveal">
+      <div class="step">
+        <span class="step-n">01</span>
+        <h4>Request a demo</h4>
+        <p>Tell us about your business. We tailor the walkthrough to your exact modules and industry.</p>
+      </div>
+      <div class="step">
+        <span class="step-n">02</span>
+        <h4>We deploy to your server</h4>
+        <p>Our engineers install Cedaris on your hardware or private cloud — no IT skills required from you.</p>
+      </div>
+      <div class="step">
+        <span class="step-n">03</span>
+        <h4>Migrate &amp; configure</h4>
+        <p>We import your data, set up roles, chart of accounts, language and currency preferences.</p>
+      </div>
+      <div class="step">
+        <span class="step-n">04</span>
+        <h4>Go live with support</h4>
+        <p>Team trained, system live. Ongoing support and updates included with your license.</p>
+      </div>
+    </div>
+  </div>
+</section>
+
+<!-- ══════════════════════════════════════════════════
+     §7  INDUSTRIES  (white, icon cards, floating)
+══════════════════════════════════════════════════ -->
+<section class="section" id="industries">
+  <div class="container">
+    <div class="section-head reveal">
+      <span class="kicker">Who we serve</span>
+      <h2>Built for businesses that run on details.</h2>
+      <p>Cedaris is configurable for any sector. These are where we see the fastest time-to-value.</p>
+    </div>
+    <div class="industry-grid reveal">
+      <article class="ind-card">
+        <div class="ind-ic"><svg class="i" viewBox="0 0 24 24"><path d="M3 9l9-7 9 7v11a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2z"/><path d="M9 22V12h6v10"/></svg></div>
+        <div class="ind-body"><h4>Retail &amp; POS</h4><p>Multi-branch inventory, fast checkout, end-of-day reconciliation in USD or LBP.</p></div>
+      </article>
+      <article class="ind-card">
+        <div class="ind-ic"><svg class="i" viewBox="0 0 24 24"><path d="M21 16V8l-9-5-9 5v8l9 5z"/><path d="M3.3 7L12 12l8.7-5M12 12v10"/></svg></div>
+        <div class="ind-body"><h4>Wholesale &amp; Distribution</h4><p>Purchase orders, supplier management and landed cost tracking at scale.</p></div>
+      </article>
+      <article class="ind-card">
+        <div class="ind-ic"><svg class="i" viewBox="0 0 24 24"><circle cx="12" cy="12" r="3"/><path d="M12 2v3M12 19v3M2 12h3M19 12h3M5 5l2 2M17 17l2 2M19 5l-2 2M7 17l-2 2"/></svg></div>
+        <div class="ind-body"><h4>Manufacturing</h4><p>BOMs, production orders and work-in-progress costing integrated with inventory.</p></div>
+      </article>
+      <article class="ind-card">
+        <div class="ind-ic"><svg class="i" viewBox="0 0 24 24"><path d="M22 19a2 2 0 0 1-2 2H4a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h5l2 3h9a2 2 0 0 1 2 2z"/></svg></div>
+        <div class="ind-body"><h4>Professional Services</h4><p>Time tracking, project budgets, client invoicing and retainer management.</p></div>
+      </article>
+      <article class="ind-card">
+        <div class="ind-ic"><svg class="i" viewBox="0 0 24 24"><rect x="3" y="3" width="18" height="18" rx="2"/><path d="M3 9h18M9 21V9"/></svg></div>
+        <div class="ind-body"><h4>Construction</h4><p>Project-based costing, subcontractor POs and progress invoicing tied to milestones.</p></div>
+      </article>
+      <article class="ind-card">
+        <div class="ind-ic"><svg class="i" viewBox="0 0 24 24"><path d="M3 11l19-9-9 19-2-8-8-2z"/></svg></div>
+        <div class="ind-body"><h4>Restaurants &amp; F&amp;B</h4><p>Recipe costing, table POS, supplier ordering and daily cash reconciliation.</p></div>
+      </article>
+    </div>
+  </div>
+</section>
+
+<!-- ══════════════════════════════════════════════════
+     §8  SERVICES  (soft bg, horizontal list rows)
+══════════════════════════════════════════════════ -->
+<section class="section section-alt" id="services">
+  <div class="container">
+    <div class="section-head reveal">
+      <span class="kicker">What's included</span>
+      <h2>Software as a partnership, not a portal.</h2>
+      <p>Every license includes full deployment, migration and ongoing support — not just a login link.</p>
+    </div>
+    <div class="services-list reveal">
+      <div class="svc-row">
+        <div class="svc-ic"><svg class="i" viewBox="0 0 24 24"><path d="M21 16V8l-9-5-9 5v8l9 5z"/></svg></div>
+        <div class="svc-body">
+          <h4>Deployment</h4>
+          <p>Our engineers install and configure on your hardware or private cloud — typically within 2–3 business days.</p>
+        </div>
+        <span class="svc-tag">Included</span>
+      </div>
+      <div class="svc-row">
+        <div class="svc-ic"><svg class="i" viewBox="0 0 24 24"><path d="M4 12v8a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2v-8"/><path d="M16 6l-4-4-4 4"/><path d="M12 2v13"/></svg></div>
+        <div class="svc-body">
+          <h4>Data Migration</h4>
+          <p>We import your contacts, inventory and chart of accounts — so day one starts with a complete record.</p>
+        </div>
+        <span class="svc-tag">Included</span>
+      </div>
+      <div class="svc-row">
+        <div class="svc-ic"><svg class="i" viewBox="0 0 24 24"><path d="M17 21v-2a4 4 0 0 0-4-4H6a4 4 0 0 0-4 4v2"/><circle cx="9.5" cy="7" r="4"/></svg></div>
+        <div class="svc-body">
+          <h4>Team Training</h4>
+          <p>Role-specific sessions in English or Arabic with recordings your team can revisit any time.</p>
+        </div>
+        <span class="svc-tag">Included</span>
+      </div>
+      <div class="svc-row">
+        <div class="svc-ic"><svg class="i" viewBox="0 0 24 24"><path d="M21 15a2 2 0 0 1-2 2H7l-4 4V5a2 2 0 0 1 2-2h14a2 2 0 0 1 2 2z"/></svg></div>
+        <div class="svc-body">
+          <h4>Ongoing Support</h4>
+          <p>A dedicated contact for questions, plus platform updates and new features — no additional fees.</p>
+        </div>
+        <span class="svc-tag">Included</span>
+      </div>
+      <div class="svc-row">
+        <div class="svc-ic"><svg class="i" viewBox="0 0 24 24"><path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"/><path d="M14 2v6h6"/></svg></div>
+        <div class="svc-body">
+          <h4>Custom Development</h4>
+          <p>Need a workflow tailored to your operation? We scope and build it as a module extension.</p>
+        </div>
+        <span class="svc-tag">On request</span>
+      </div>
+      <div class="svc-row">
+        <div class="svc-ic"><svg class="i" viewBox="0 0 24 24"><path d="M2 3h6a4 4 0 0 1 4 4v14a3 3 0 0 0-3-3H2z"/><path d="M22 3h-6a4 4 0 0 0-4 4v14a3 3 0 0 1 3-3h7z"/></svg></div>
+        <div class="svc-body">
+          <h4>Bilingual Documentation</h4>
+          <p>Full EN &amp; AR guides with step-by-step instructions for every module and role.</p>
+        </div>
+        <span class="svc-tag">Included</span>
+      </div>
+    </div>
+  </div>
+</section>
+
+<!-- ══════════════════════════════════════════════════
+     §9  COMPARISON  (white, table)
+══════════════════════════════════════════════════ -->
+<section class="section" id="why">
+  <div class="container">
+    <div class="section-head reveal">
+      <span class="kicker">The comparison</span>
+      <h2>Why not just use a cloud ERP?</h2>
+      <p>Cloud ERPs are built for a different risk profile. Here's the honest side-by-side.</p>
+    </div>
+    <div class="compare-table reveal">
+      <div class="compare-head">
+        <div class="c-feat"></div>
+        <div class="c-us">Cedaris</div>
+        <div class="c-them">Cloud ERP</div>
+      </div>
+      <div class="compare-row">
+        <span class="c-feat">Data sovereignty</span>
+        <span class="c-us"><svg class="i check" viewBox="0 0 24 24"><path d="M5 13l4 4L19 7"/></svg> On your hardware</span>
+        <span class="c-them"><svg class="i cross" viewBox="0 0 24 24"><path d="M18 6L6 18M6 6l12 12"/></svg> Vendor's cloud</span>
+      </div>
+      <div class="compare-row">
+        <span class="c-feat">Pricing model</span>
+        <span class="c-us"><svg class="i check" viewBox="0 0 24 24"><path d="M5 13l4 4L19 7"/></svg> One-time license</span>
+        <span class="c-them"><svg class="i cross" viewBox="0 0 24 24"><path d="M18 6L6 18M6 6l12 12"/></svg> Per-seat monthly</span>
+      </div>
+      <div class="compare-row">
+        <span class="c-feat">Works offline</span>
+        <span class="c-us"><svg class="i check" viewBox="0 0 24 24"><path d="M5 13l4 4L19 7"/></svg> Full local network</span>
+        <span class="c-them"><svg class="i cross" viewBox="0 0 24 24"><path d="M18 6L6 18M6 6l12 12"/></svg> Internet required</span>
+      </div>
+      <div class="compare-row">
+        <span class="c-feat">Dual-currency (USD + LBP)</span>
+        <span class="c-us"><svg class="i check" viewBox="0 0 24 24"><path d="M5 13l4 4L19 7"/></svg> Built-in core</span>
+        <span class="c-them"><svg class="i cross" viewBox="0 0 24 24"><path d="M18 6L6 18M6 6l12 12"/></svg> Rarely supported</span>
+      </div>
+      <div class="compare-row">
+        <span class="c-feat">Arabic RTL support</span>
+        <span class="c-us"><svg class="i check" viewBox="0 0 24 24"><path d="M5 13l4 4L19 7"/></svg> Full, end-to-end</span>
+        <span class="c-them"><svg class="i cross" viewBox="0 0 24 24"><path d="M18 6L6 18M6 6l12 12"/></svg> Partial or none</span>
+      </div>
+      <div class="compare-row">
+        <span class="c-feat">Vendor lock-in risk</span>
+        <span class="c-us"><svg class="i check" viewBox="0 0 24 24"><path d="M5 13l4 4L19 7"/></svg> None — you own the DB</span>
+        <span class="c-them"><svg class="i cross" viewBox="0 0 24 24"><path d="M18 6L6 18M6 6l12 12"/></svg> High</span>
+      </div>
+    </div>
+  </div>
+</section>
+
+<!-- ══════════════════════════════════════════════════
+     §10  TESTIMONIALS  (dark)
+══════════════════════════════════════════════════ -->
+<section class="section section-dark" id="testimonials">
+  <div class="container">
+    <div class="section-head reveal">
+      <span class="kicker kicker-light">What clients say</span>
+      <h2 class="light">Trusted by businesses that can't afford downtime.</h2>
+    </div>
+    <div class="quotes reveal">
+      <figure class="quote-card">
+        <div class="quote-mark">"</div>
+        <blockquote>We replaced four separate tools with Cedaris. Inventory accuracy alone paid for the license in the first month.</blockquote>
+        <figcaption>
+          <span class="avatar">MK</span>
+          <span><b>Operations Director</b><small>Wholesale distribution</small></span>
+        </figcaption>
+      </figure>
+      <figure class="quote-card">
+        <div class="quote-mark">"</div>
+        <blockquote>Dual-currency reconciliation is exceptional. Running USD and LBP side by side used to be a nightmare. Now it's automatic.</blockquote>
+        <figcaption>
+          <span class="avatar">RL</span>
+          <span><b>CFO</b><small>Retail chain, 4 branches</small></span>
+        </figcaption>
+      </figure>
+      <figure class="quote-card">
+        <div class="quote-mark">"</div>
+        <blockquote>The audit trail gave us control we never had. We can see exactly who approved what, and when — that's real peace of mind.</blockquote>
+        <figcaption>
+          <span class="avatar">SA</span>
+          <span><b>General Manager</b><small>Manufacturing</small></span>
+        </figcaption>
+      </figure>
+    </div>
+  </div>
+</section>
+
+<!-- ══════════════════════════════════════════════════
+     §11  FAQ  (soft bg)
+══════════════════════════════════════════════════ -->
+<section class="section section-alt" id="faq">
+  <div class="container narrow">
+    <div class="section-head reveal">
+      <span class="kicker">Questions</span>
+      <h2>Frequently asked</h2>
+    </div>
+    <div class="faq reveal">
+      <details>
+        <summary>Is Cedaris really self-hosted?<span class="chev" aria-hidden="true"></span></summary>
+        <p>Yes. Cedaris runs on your own Windows PC, office server, or private cloud. No mandatory vendor cloud — your database stays with you permanently.</p>
+      </details>
+      <details>
+        <summary>Who owns my data?<span class="chev" aria-hidden="true"></span></summary>
+        <p>You do — completely. The data lives in a database on your machine. Back it up, move it, or export it any time. No vendor can lock you out.</p>
+      </details>
+      <details>
+        <summary>Does it support USD and LBP simultaneously?<span class="chev" aria-hidden="true"></span></summary>
+        <p>Dual currency is built into the core. Set your own exchange rate (with full history) and quote, sell, reconcile and report in both currencies side by side.</p>
+      </details>
+      <details>
+        <summary>Is Arabic fully supported with RTL layout?<span class="chev" aria-hidden="true"></span></summary>
+        <p>Every screen, document and report is available in English and Arabic with proper right-to-left layout. Switch languages in one click with no context loss.</p>
+      </details>
+      <details>
+        <summary>Do I need a constant internet connection?<span class="chev" aria-hidden="true"></span></summary>
+        <p>No. Cedaris runs on your local network — ideal for shops, warehouses and restaurant counters where internet reliability can't be guaranteed.</p>
+      </details>
+      <details>
+        <summary>Can I start with a few modules and add more later?<span class="chev" aria-hidden="true"></span></summary>
+        <p>Absolutely. All modules share the same database — activate more as you grow with no painful migrations between them.</p>
+      </details>
+      <details>
+        <summary>How is it priced?<span class="chev" aria-hidden="true"></span></summary>
+        <p>A license you own, sized to the modules you use — not a per-seat monthly rental. Request a demo and we'll put together a transparent quote.</p>
+      </details>
+    </div>
+  </div>
+</section>
+
+<!-- ══════════════════════════════════════════════════
+     §12  DEMO FORM  (white)
+══════════════════════════════════════════════════ -->
+<section class="section cta-section" id="demo">
+  <div class="container cta-inner">
+    <div class="cta-copy reveal">
+      <span class="kicker">Get started</span>
+      <h2>Ready to run your business on Cedaris?</h2>
+      <p>We'll arrange a personalised demo — in English or Arabic — within one business day.</p>
+      <ul class="cta-points">
+        <li><svg class="i" viewBox="0 0 24 24"><path d="M5 13l4 4L19 7"/></svg>Tailored walkthrough for your exact modules</li>
+        <li><svg class="i" viewBox="0 0 24 24"><path d="M5 13l4 4L19 7"/></svg>Transparent answers on deployment and pricing</li>
+        <li><svg class="i" viewBox="0 0 24 24"><path d="M5 13l4 4L19 7"/></svg>No obligation, no sales pressure</li>
+      </ul>
+    </div>
+    <form class="demo-form reveal" id="demoForm" novalidate>
+      <div class="form-title">Request a Demo</div>
+      <div class="field-grid">
+        <div class="field">
+          <label for="f-name">Your name <span class="req">*</span></label>
+          <input id="f-name" name="name" type="text" required autocomplete="name" placeholder="Rami Haddad" />
+        </div>
+        <div class="field">
+          <label for="f-company">Company <span class="req">*</span></label>
+          <input id="f-company" name="company" type="text" required autocomplete="organization" placeholder="Haddad Group" />
+        </div>
+        <div class="field">
+          <label for="f-email">Work email <span class="req">*</span></label>
+          <input id="f-email" name="email" type="email" required autocomplete="email" placeholder="rami@example.com" />
+        </div>
+        <div class="field">
+          <label for="f-phone">Phone / WhatsApp</label>
+          <input id="f-phone" name="phone" type="tel" autocomplete="tel" placeholder="+961 00 000 000" />
+        </div>
+        <div class="field">
+          <label for="f-size">Team size</label>
+          <select id="f-size" name="team_size">
+            <option value="">Select…</option>
+            <option>1–5</option><option>6–20</option><option>21–50</option><option>51–200</option><option>200+</option>
+          </select>
+        </div>
+        <div class="field">
+          <label for="f-industry">Industry</label>
+          <input id="f-industry" name="industry" type="text" placeholder="Retail, manufacturing…" />
+        </div>
+        <div class="field field-full">
+          <label for="f-msg">What would you like to see?</label>
+          <textarea id="f-msg" name="message" rows="3" placeholder="e.g. POS + inventory + finance, with Arabic invoices."></textarea>
+        </div>
+      </div>
+      <button type="submit" class="btn btn-primary btn-lg btn-block" id="demoSubmit">Request my demo</button>
+      <p class="form-note" id="formNote" role="status" aria-live="polite">We'll reply within one business day. Your details are never shared.</p>
+    </form>
+  </div>
+</section>
+
+</main>
+
+<!-- ══════════════════════════════════════════════════
+     FOOTER
+══════════════════════════════════════════════════ -->
+<footer class="site-footer">
+  <div class="container footer-inner">
+    <div class="footer-brand">
+      <a href="#top" class="brand brand-light">
+        <svg viewBox="0 0 32 32" width="24" height="24"><rect width="32" height="32" rx="6" fill="#0A6E55"/><path d="M16 5l5 8h-3l4 7h-4l3 6H9l3-6H8l4-7h-3z" fill="#fff"/></svg>
+        <span class="brand-name">Cedaris</span>
+      </a>
+      <p>The self-hosted ERP your business actually owns. Dual-currency. Bilingual. Yours to keep.</p>
+      <span class="lang-pill footer-lang">EN · العربية</span>
+    </div>
+    <div class="footer-col">
+      <h5>Platform</h5>
+      <a href="#modules">Modules</a>
+      <a href="#gallery">Product gallery</a>
+      <a href="#industries">Industries</a>
+      <a href="#services">Services</a>
+      <a href="#why">vs. Cloud ERP</a>
+    </div>
+    <div class="footer-col">
+      <h5>Company</h5>
+      <a href="#impact">Business impact</a>
+      <a href="#how">How it works</a>
+      <a href="#faq">FAQ</a>
+      <a href="#demo">Request a demo</a>
+    </div>
+    <div class="footer-col">
+      <h5>Get in touch</h5>
+      <a href="mailto:hello@cedaris.example">hello@cedaris.example</a>
+      <a href="tel:+96100000000">+961 00 000 000</a>
+      <a href="#demo">Book a demo →</a>
+    </div>
+  </div>
+  <div class="container footer-bottom">
+    <span>© <span id="year">2026</span> Cedaris. All rights reserved.</span>
+    <span class="footer-legal"><a href="#">Privacy</a> · <a href="#">Terms</a></span>
+  </div>
+</footer>
+
+<script src="main.js"></script>
+</body>
+</html>

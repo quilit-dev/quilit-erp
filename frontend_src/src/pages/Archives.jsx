@@ -5,23 +5,35 @@ import {
 } from '../components/shared.jsx';
 
 const MODULE_COLORS = {
-  clients:    'badge-blue',
-  projects:   'badge-green',
-  quotations: 'badge-accent',
-  invoices:   'badge-blue',
-  inventory:  'badge-gray',
-  purchases:  'badge-gray',
-  suppliers:  'badge-gray',
+  clients:            'badge-blue',
+  projects:           'badge-green',
+  quotations:         'badge-accent',
+  invoices:           'badge-blue',
+  inventory:          'badge-gray',
+  purchases:          'badge-gray',
+  suppliers:          'badge-gray',
+  hr_employees:       'badge-gray',
+  hr_departments:     'badge-gray',
+  crm_leads:          'badge-accent',
+  crm_deals:          'badge-accent',
+  planning_projects:  'badge-green',
+  planning_tasks:     'badge-green',
 };
 
 const MODULE_LABELS = {
-  clients:    'Clients',
-  projects:   'Projects',
-  quotations: 'Quotations',
-  invoices:   'Invoices',
-  inventory:  'Inventory',
-  purchases:  'Purchases',
-  suppliers:  'Suppliers',
+  clients:            'Clients',
+  projects:           'Projects',
+  quotations:         'Quotations',
+  invoices:           'Invoices',
+  inventory:          'Inventory',
+  purchases:          'Purchases',
+  suppliers:          'Suppliers',
+  hr_employees:       'HR — Employees',
+  hr_departments:     'HR — Departments',
+  crm_leads:          'CRM — Leads',
+  crm_deals:          'CRM — Deals',
+  planning_projects:  'Planning — Projects',
+  planning_tasks:     'Planning — Tasks',
 };
 
 export default function Archives() {

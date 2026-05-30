@@ -5,6 +5,9 @@ import {
   LoadingSpinner, ErrorAlert, Badge, fmt, fmtDate, toast,
 } from '../components/shared';
 import { useLocale } from '../hooks/useLocale.jsx';
+import { usePermissions } from '../hooks/usePermissions';
+import Attachments from '../components/Attachments.jsx';
+import { openSafeHtmlDocument } from '../utils/exportUtils';
 
 function StatCard({ label, value, sub, color }) {
   return (
@@ -49,6 +52,7 @@ function SectionTable({ columns, rows, emptyMsg }) {
 
 export default function ClientDetail() {
   const { t } = useLocale();
+  const { can } = usePermissions();
   const { id }    = useParams();
   const navigate  = useNavigate();
   const [client,    setClient]    = useState(null);
@@ -80,9 +84,7 @@ export default function ClientDetail() {
   async function openDocument(docId) {
     try {
       const doc = await getDocumentContent(docId);
-      const w = window.open('', '_blank');
-      w.document.write(doc.html_content);
-      w.document.close();
+      openSafeHtmlDocument(doc.html_content);
     } catch (e) { toast(e.message, 'red'); }
   }
 
@@ -167,6 +169,9 @@ export default function ClientDetail() {
                   {client.notes}
                 </div>
               )}
+            </div>
+            <div className="card-body" style={{ borderTop: '1px solid var(--border)' }}>
+              <Attachments entityType="clients" entityId={client.id} canEdit={can('clients', 'edit')} />
             </div>
           </div>
 

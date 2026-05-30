@@ -14,6 +14,10 @@ export function usePermissions() {
   }, []);
 
   const isSuperadmin = Boolean(user.is_superadmin);
+  // Admin tier: vendor superadmin OR an admin-tier role (e.g. "Business Owner").
+  // Governs the admin area (users/roles/settings/audit). The module marketplace
+  // stays superadmin-only — gate that on isSuperadmin, never isAdmin.
+  const isAdmin      = Boolean(user.admin_access) || isSuperadmin;
   const permissions  = user.permissions || {};
 
   function can(module, action = 'view') {
@@ -21,5 +25,5 @@ export function usePermissions() {
     return Boolean(permissions[module]?.[action]);
   }
 
-  return { user, isSuperadmin, permissions, can };
+  return { user, isSuperadmin, isAdmin, permissions, can };
 }

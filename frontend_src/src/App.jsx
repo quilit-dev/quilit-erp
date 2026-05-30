@@ -25,6 +25,7 @@ const POS            = lazy(() => import('./pages/POS'));
 const Manufacturing  = lazy(() => import('./pages/Manufacturing'));
 const Purchases      = lazy(() => import('./pages/Purchases'));
 const Finance        = lazy(() => import('./pages/Finance'));
+const Accounting     = lazy(() => import('./pages/Accounting'));
 const Expenses       = lazy(() => import('./pages/Expenses'));
 const FixedAssets    = lazy(() => import('./pages/FixedAssets'));
 const Cash           = lazy(() => import('./pages/Cash'));
@@ -39,8 +40,11 @@ const Reports           = lazy(() => import('./pages/Reports'));
 const CRM               = lazy(() => import('./pages/CRM'));
 const Planning          = lazy(() => import('./pages/Planning'));
 const HR                = lazy(() => import('./pages/HR'));
+const Recruitment       = lazy(() => import('./pages/Recruitment'));
+const HRActivities      = lazy(() => import('./pages/HRActivities'));
 const ApprovalPolicies  = lazy(() => import('./pages/ApprovalPolicies'));
 const ApprovalRequests  = lazy(() => import('./pages/ApprovalRequests'));
+const Announcements     = lazy(() => import('./pages/Announcements'));
 
 const INACTIVITY_MS = 30 * 60 * 1000; // 30 minutes
 
@@ -77,10 +81,12 @@ function RequireAuth({ children }) {
   return <InactivityGuard>{children}</InactivityGuard>;
 }
 
+// Admin tier: vendor superadmin OR an admin-tier role (e.g. "Business Owner").
+// Governs the admin area — users, roles, the admin dashboard.
 function RequireAdmin({ children }) {
   let user = {};
   try { user = JSON.parse(localStorage.getItem('user') || '{}'); } catch {}
-  if (!user.is_superadmin) return <Navigate to="/" replace />;
+  if (!(user.is_superadmin || user.admin_access)) return <Navigate to="/" replace />;
   return children;
 }
 
@@ -154,7 +160,7 @@ function Layout({ children }) {
 
   const pageKeys = [
     '/', '/clients', '/projects', '/quotations', '/invoices', '/inventory', '/pos',
-    '/purchases', '/suppliers', '/manufacturing', '/expenses', '/fixed-assets', '/finance', '/cash', '/reports', '/crm', '/planning', '/hr', '/archives',
+    '/purchases', '/suppliers', '/manufacturing', '/expenses', '/fixed-assets', '/finance', '/cash', '/reports', '/crm', '/planning', '/hr', '/recruitment', '/hr-activities', '/archives',
     '/notifications', '/approvals', '/approval-policies', '/settings', '/users', '/roles', '/admin',
   ];
   const path = location.pathname;
@@ -244,21 +250,25 @@ export default function App() {
             <Route path="/purchases"    element={Auth(<Purchases />)} />
             <Route path="/suppliers"    element={Auth(<Suppliers />)} />
             <Route path="/finance"      element={Auth(<Finance />)} />
+            <Route path="/accounting"   element={Auth(<Accounting />)} />
             <Route path="/cash"         element={Auth(<Cash />)} />
             <Route path="/reports"      element={Auth(<Reports />)} />
             <Route path="/crm"          element={Auth(<CRM />)} />
             <Route path="/planning"     element={Auth(<Planning />)} />
             <Route path="/hr"           element={Auth(<HR />)} />
+            <Route path="/recruitment"  element={Auth(<Recruitment />)} />
+            <Route path="/hr-activities" element={Auth(<HRActivities />)} />
             <Route path="/expenses"     element={Auth(<Expenses />)} />
             <Route path="/fixed-assets" element={Auth(<FixedAssets />)} />
             <Route path="/archives"     element={Auth(<Archives />)} />
             <Route path="/notifications"  element={Auth(<Notifications />)} />
             <Route path="/approvals"          element={Auth(<ApprovalRequests />)} />
             <Route path="/approval-policies" element={Auth(<ApprovalPolicies />)} />
+            <Route path="/announcements"     element={Auth(<Announcements />)} />
             <Route path="/settings"          element={Auth(<Settings />)} />
             <Route path="/users"        element={Admin(<UserManagement />)} />
             <Route path="/roles"        element={Admin(<RoleManagement />)} />
-            <Route path="/admin"        element={Admin(<AdminDashboard />)} />
+            <Route path="/admin"                  element={Admin(<AdminDashboard />)} />
             <Route path="*"             element={<Navigate to="/" replace />} />
           </Routes>
         </SetupGate>

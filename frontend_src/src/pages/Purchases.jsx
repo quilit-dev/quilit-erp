@@ -12,6 +12,8 @@ import {
 import { useSortPaginate } from '../hooks/useSortPaginate';
 import { useLocale } from '../hooks/useLocale.jsx';
 import { useSettings } from '../hooks/useSettings.jsx';
+import { usePermissions } from '../hooks/usePermissions';
+import Attachments from '../components/Attachments.jsx';
 
 const PURCHASE_CATEGORIES = [
   'Equipment', 'Materials', 'Safety', 'Tools', 'Consumables', 'Other'
@@ -200,7 +202,7 @@ function PurchaseForm({ initial = {}, inventoryItems = [], inventoryCategories =
 
           <div className="form-group">
             <label className="form-label">{t('purchases.quantityLabel')}</label>
-            <input className="form-control" type="number" step="any" min="0.001" required
+            <input className="form-control" type="number" step="1" min="1" required
               value={form.quantity} onChange={e => set('quantity', e.target.value)} />
           </div>
 
@@ -278,6 +280,7 @@ function StatusBadge({ status }) {
 
 export default function Purchases() {
   const { t, tStatus } = useLocale();
+  const { can } = usePermissions();
   const [purchases,           setPurchases]           = useState([]);
   const [stats,               setStats]               = useState({});
   const [inventoryItems,      setInventoryItems]      = useState([]);
@@ -298,13 +301,12 @@ export default function Purchases() {
     setLoading(true);
     setFetchError(null);
     try {
+      const qs = new URLSearchParams({
+        ...(statusFilter   ? { status:   statusFilter   } : {}),
+        ...(supplierSearch ? { supplier: supplierSearch } : {}),
+      }).toString();
       const [purch, st, cats] = await Promise.all([
-        getPurchases(statusFilter || supplierSearch
-          ? new URLSearchParams({
-              ...(statusFilter   ? { status:   statusFilter   } : {}),
-              ...(supplierSearch ? { supplier: supplierSearch } : {}),
-            })
-          : undefined),
+        getPurchases(qs ? `?${qs}` : ''),
         getPurchaseStats(),
         getCategories(),
       ]);
@@ -545,6 +547,9 @@ export default function Purchases() {
             onCancel={() => setModal(null)}
             saving={saving}
           />
+          <div style={{ padding: '16px 20px', borderTop: '1px solid var(--border)' }}>
+            <Attachments entityType="purchases" entityId={activePurchase.id} canEdit={can('purchases', 'edit')} />
+          </div>
         </Modal>
       )}
       {modal === 'delete' && activePurchase && (

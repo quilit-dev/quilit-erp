@@ -92,7 +92,8 @@ export const getClient       = (id) => api.get(`/api/clients/${id}`);
 export const createClient    = (d) => api.post('/api/clients/', d);
 export const updateClient    = (id, d) => api.put(`/api/clients/${id}`, d);
 export const archiveClient   = (id, reason) => api.patch(`/api/clients/${id}/archive`, { reason });
-export const unarchiveClient = (id) => api.patch(`/api/clients/${id}/unarchive`);
+// Per-module unarchive helpers are intentionally absent — the Archives page
+// uses the generic `unarchiveItem(module, id)` so we only maintain that.
 
 // Projects
 export const getProjects       = (s) => api.get('/api/projects/', s);
@@ -101,7 +102,6 @@ export const createProject     = (d) => api.post('/api/projects/', d);
 export const updateProject     = (id, d) => api.put(`/api/projects/${id}`, d);
 export const cancelProject     = (id, reason) => api.patch(`/api/projects/${id}/cancel`, { reason });
 export const archiveProject    = (id, reason) => api.patch(`/api/projects/${id}/archive`, { reason });
-export const unarchiveProject  = (id) => api.patch(`/api/projects/${id}/unarchive`);
 
 // Quotations (proposals only — no payments)
 export const getQuotations       = (s) => api.get('/api/quotations/', s);
@@ -110,7 +110,6 @@ export const createQuotation     = (d)  => api.post('/api/quotations/', d);
 export const updateQuotation     = (id, d) => api.put(`/api/quotations/${id}`, d);
 export const cancelQuotation     = (id, reason) => api.patch(`/api/quotations/${id}/cancel`, { reason });
 export const archiveQuotation    = (id, reason) => api.patch(`/api/quotations/${id}/archive`, { reason });
-export const unarchiveQuotation  = (id) => api.patch(`/api/quotations/${id}/unarchive`);
 export const convertToInvoice    = (id) => api.post(`/api/quotations/${id}/convert-to-invoice`);
 export const convertToProject    = (id) => api.post(`/api/quotations/${id}/convert-to-project`);
 
@@ -120,10 +119,8 @@ export const getInvoice        = (id)   => api.get(`/api/invoices/${id}`);
 export const createInvoice     = (d)    => api.post('/api/invoices/', d);
 export const updateInvoice     = (id, d) => api.put(`/api/invoices/${id}`, d);
 export const archiveInvoice    = (id, reason) => api.patch(`/api/invoices/${id}/archive`, { reason });
-export const unarchiveInvoice  = (id)         => api.patch(`/api/invoices/${id}/unarchive`);
 export const voidInvoice       = (id, reason) => api.patch(`/api/invoices/${id}/void`, { reason });
 export const addInvoicePayment    = (id, d)       => api.post(`/api/invoices/${id}/payments`, d);
-export const getInvoicePayments   = (id)           => api.get(`/api/invoices/${id}/payments`);
 export const deleteInvoicePayment = (invId, payId) => api.delete(`/api/invoices/${invId}/payments/${payId}`);
 
 // Inventory
@@ -131,28 +128,26 @@ export const getInventory           = (s)    => api.get('/api/inventory/', s);
 export const createInventoryItem    = (d)    => api.post('/api/inventory/', d);
 export const updateInventoryItem    = (id, d) => api.put(`/api/inventory/${id}`, d);
 export const archiveInventoryItem   = (id)   => api.patch(`/api/inventory/${id}/archive`);
-export const unarchiveInventoryItem = (id)   => api.patch(`/api/inventory/${id}/unarchive`);
 export const updateStock            = (id, d) => api.patch(`/api/inventory/${id}/stock`, d);
 export const getStockMovements      = (id)   => api.get(`/api/inventory/${id}/movements`);
 export const deductToProject        = (id, d) => api.post(`/api/inventory/${id}/deduct-to-project`, d);
+// Batch / lot tracking
+export const getLots                = (params = {}) => api.get(`/api/inventory/lots${_qs(params)}`);
+export const getLot                 = (id)   => api.get(`/api/inventory/lots/${id}`);
 
 // Purchases
-export const getPurchases         = (s)    => api.get('/api/purchases/', s);
+export const getPurchases         = (qs)   => api.get(`/api/purchases/${qs || ''}`);
 export const getPurchaseStats     = ()     => api.get('/api/purchases/stats');
 export const createPurchase       = (d)    => api.post('/api/purchases/', d);
 export const updatePurchase       = (id, d) => api.put(`/api/purchases/${id}`, d);
 export const updatePurchaseStatus = (id, status) => api.patch(`/api/purchases/${id}/status`, { status });
 export const archivePurchase      = (id)   => api.patch(`/api/purchases/${id}/archive`);
-export const unarchivePurchase    = (id)   => api.patch(`/api/purchases/${id}/unarchive`);
 
 // Finance
-export const getFinanceSummary = (params = {}, s) => api.get(`/api/finance/summary${_qs(params)}`, s);
 export const getMonthlyReport = (s) => api.get('/api/finance/monthly', s);
 export const getExpenses        = (s) => api.get('/api/finance/expenses', s);
 export const createExpense      = (d) => api.post('/api/finance/expenses', d);
 export const updateExpense      = (id, d) => api.put(`/api/finance/expenses/${id}`, d);
-export const archiveExpense     = (id) => api.patch(`/api/finance/expenses/${id}/archive`);
-export const unarchiveExpense   = (id) => api.patch(`/api/finance/expenses/${id}/unarchive`);
 export const voidExpense        = (id, reason) => api.patch(`/api/finance/expenses/${id}/void`, { reason });
 
 // Finance — range-based endpoints
@@ -175,6 +170,7 @@ export const deleteUser          = (id)    => api.delete(`/api/users/${id}`);
 export const resetUserPassword   = (id, d) => api.post(`/api/users/${id}/reset-password`, d);
 export const toggleUserActive    = (id)    => api.patch(`/api/users/${id}/toggle-active`);
 export const getUserSessions     = ()      => api.get('/api/users/sessions');
+export const getOnlineUsers      = ()      => api.get('/api/users/online');
 export const revokeSession       = (id)    => api.delete(`/api/users/sessions/${id}`);
 
 // Roles (admin only)
@@ -184,7 +180,6 @@ export const createRole          = (d)     => api.post('/api/roles/', d);
 export const updateRole          = (id, d) => api.put(`/api/roles/${id}`, d);
 export const deleteRole          = (id)    => api.delete(`/api/roles/${id}`);
 export const setRolePermissions  = (id, d) => api.put(`/api/roles/${id}/permissions`, d);
-export const getRoleModules      = ()      => api.get('/api/roles/modules');
 
 // Suppliers
 export const getSuppliers      = (params = {}) => api.get(`/api/suppliers/${_qs(params)}`);
@@ -192,7 +187,6 @@ export const getSupplier       = (id)    => api.get(`/api/suppliers/${id}`);
 export const createSupplier    = (d)     => api.post('/api/suppliers/', d);
 export const updateSupplier    = (id, d) => api.put(`/api/suppliers/${id}`, d);
 export const archiveSupplier   = (id)    => api.patch(`/api/suppliers/${id}/archive`);
-export const unarchiveSupplier = (id)    => api.patch(`/api/suppliers/${id}/unarchive`);
 
 // Audit log
 export const getAuditLog = (params = {}) => api.get(`/api/audit/${_qs(params)}`);
@@ -203,11 +197,10 @@ export const purgeAuditLog = (olderThanDays) =>
 export const getArchives    = (params = {}) => api.get(`/api/archives/${_qs(params)}`);
 export const unarchiveItem = (module, id) => api.patch(`/api/archives/${module}/${id}/unarchive`);
 
-// Documents
+// Documents — only the writers are used at the moment; list/read/delete
+// helpers exist server-side but are wired up per-feature elsewhere.
 export const saveDocument       = (d)         => api.post('/api/documents/', d);
-export const getDocuments       = (params = {}) => api.get(`/api/documents/${_qs(params)}`);
 export const getDocumentContent = (id)        => api.get(`/api/documents/${id}/content`);
-export const deleteDocument     = (id)        => api.delete(`/api/documents/${id}`);
 
 // Global search
 export const searchAll = (q, signal) => api.get(`/api/search/?q=${encodeURIComponent(q)}`, signal);
@@ -228,11 +221,28 @@ export const createTaxRate  = (d)     => api.post('/api/tax-rates/', d);
 export const updateTaxRate  = (id, d) => api.put(`/api/tax-rates/${id}`, d);
 export const deleteTaxRate  = (id)    => api.delete(`/api/tax-rates/${id}`);
 
-// Setup wizard (no auth)
-export const getSetupStatus  = ()  => fetch('/api/settings/setup-status').then(r => r.json());
+// Setup wizard (no auth). These bypass the shared `request()` interceptor, so
+// they must parse defensively: a 500 returns plain text ("Internal Server
+// Error"), which a naive r.json() turns into a confusing
+// "Unexpected token 'I'…" instead of a real message.
+async function _readSetupJson(res) {
+  const text = await res.text();
+  let body = null;
+  if (text) { try { body = JSON.parse(text); } catch { /* non-JSON error page */ } }
+  if (!res.ok) {
+    throw new Error(
+      (body && (body.detail || body.message)) ||
+      (res.status >= 500
+        ? 'Server error during setup. If you just reset the database, restart the app and try again.'
+        : `Setup failed (HTTP ${res.status}).`)
+    );
+  }
+  return body ?? {};
+}
+export const getSetupStatus  = ()  => fetch('/api/settings/setup-status').then(_readSetupJson);
 export const completeSetup   = (d) => fetch('/api/settings/complete-setup', {
   method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(d),
-}).then(async r => { const b = await r.json(); if (!r.ok) throw new Error(b.detail || 'Setup failed'); return b; });
+}).then(_readSetupJson);
 
 // Auth — force password change
 export const forceChangePassword = (new_password) => api.post('/api/auth/force-change-password', { new_password });
@@ -300,12 +310,15 @@ export const updateTaskStatus       = (id, d)          => api.patch(`/api/planni
 export const updateTaskProgress     = (id, d)          => api.patch(`/api/planning/tasks/${id}/progress`, d);
 export const archivePlanningTask    = (id)             => api.patch(`/api/planning/tasks/${id}/archive`);
 export const getPlanningMilestones  = (params = {}, s) => api.get(`/api/planning/milestones${_qs(params)}`, s);
-export const createPlanningMilestone = (d)             => api.post('/api/planning/milestones', d);
-export const updatePlanningMilestone = (id, d)         => api.put(`/api/planning/milestones/${id}`, d);
-export const deletePlanningMilestone = (id)            => api.delete(`/api/planning/milestones/${id}`);
 export const getPlanningSummary     = (s)              => api.get('/api/planning/summary', s);
 export const getPlanningDropdownClients = ()           => api.get('/api/planning/dropdown/clients');
 export const getPlanningDropdownUsers   = ()           => api.get('/api/planning/dropdown/users');
+
+// Standalone calendar events (independent of projects/tasks)
+export const getPlanningEvents      = (params = {}, s) => api.get(`/api/planning/events${_qs(params)}`, s);
+export const createPlanningEvent    = (d)              => api.post('/api/planning/events', d);
+export const updatePlanningEvent    = (id, d)          => api.put(`/api/planning/events/${id}`, d);
+export const deletePlanningEvent    = (id)             => api.delete(`/api/planning/events/${id}`);
 
 // Finance — accounting periods + reconciliation
 export const getFinancePeriods   = ()              => api.get('/api/finance/periods');
@@ -332,12 +345,10 @@ export const deleteApprovalPolicy   = (id)      => api.delete(`/api/approval-pol
 // Approval Requests
 export const getApprovalRequests    = (params = {}) => api.get(`/api/approval-requests/${_qs(params)}`);
 export const getApprovalRequest     = (id)          => api.get(`/api/approval-requests/${id}`);
-export const getApprovalCount       = ()             => api.get('/api/approval-requests/count');
 export const approveRequest         = (id, d = {})  => api.post(`/api/approval-requests/${id}/approve`, d);
 export const rejectRequest          = (id, d = {})  => api.post(`/api/approval-requests/${id}/reject`, d);
 export const forceApproveRequest    = (id, d = {})  => api.post(`/api/approval-requests/${id}/force-approve`, d);
 export const cancelApprovalRequest  = (id, d = {})  => api.post(`/api/approval-requests/${id}/cancel`, d);
-export const addApprovalComment     = (id, comment) => api.post(`/api/approval-requests/${id}/comments`, { comment });
 
 // Human Resources
 export const getHRSummary        = ()            => api.get('/api/hr/summary');
@@ -352,17 +363,118 @@ export const updateEmployee      = (id, d)       => api.put(`/api/hr/employees/$
 export const archiveEmployee     = (id)          => api.patch(`/api/hr/employees/${id}/archive`);
 export const getLeaveRequests    = (params = {}) => api.get(`/api/hr/leave${_qs(params)}`);
 export const createLeaveRequest  = (d)           => api.post('/api/hr/leave', d);
-export const updateLeaveRequest  = (id, d)       => api.put(`/api/hr/leave/${id}`, d);
 export const approveLeave        = (id, d = {})  => api.post(`/api/hr/leave/${id}/approve`, d);
 export const rejectLeave         = (id, d = {})  => api.post(`/api/hr/leave/${id}/reject`, d);
 export const deleteLeaveRequest  = (id)          => api.delete(`/api/hr/leave/${id}`);
+
+// ── HR: employee file attachments (CV / contract / other) ─────────────────
+// Uploads go through a raw fetch because they're multipart, not JSON. We
+// keep the cookie-credentialed pattern so HttpOnly auth stays consistent
+// with the rest of the API.
+export async function uploadEmployeeFile(empId, kind, file) {
+  const fd = new FormData();
+  fd.append('kind', kind);
+  fd.append('file', file);
+  const res = await fetch(`/api/hr/employees/${empId}/files`, {
+    method: 'POST', body: fd, credentials: 'include',
+  });
+  if (res.status === 401) {
+    localStorage.removeItem('user');
+    window.location.href = '/login';
+    throw new Error('Session expired.');
+  }
+  if (!res.ok) { throw new Error(await extractError(res)); }
+  return res.json();
+}
+export const getEmployeeFiles    = (empId)     => api.get(`/api/hr/employees/${empId}/files`);
+export const deleteEmployeeFile  = (fileId)    => api.delete(`/api/hr/files/${fileId}`);
+export const employeeFileURL     = (fileId)    => `/api/hr/files/${fileId}/download`;
+
+// ── HR: payroll runs ───────────────────────────────────────────────────────
+export const getPayrollRuns      = (params = {}) => api.get(`/api/hr/payroll/runs${_qs(params)}`);
+export const getPayrollRun       = (id)          => api.get(`/api/hr/payroll/runs/${id}`);
+export const createPayrollRun    = (d)           => api.post('/api/hr/payroll/runs', d);
+export const updatePayrollLine   = (lineId, d)   => api.put(`/api/hr/payroll/lines/${lineId}`, d);
+export const approvePayrollRun   = (id)          => api.post(`/api/hr/payroll/runs/${id}/approve`);
+export const markPayrollRunPaid  = (id)          => api.post(`/api/hr/payroll/runs/${id}/mark-paid`);
+export const cancelPayrollRun    = (id)          => api.post(`/api/hr/payroll/runs/${id}/cancel`);
+
+// ── HR: contracts ──────────────────────────────────────────────────────────
+export const getContracts          = (params = {}) => api.get(`/api/hr/contracts/${_qs(params)}`);
+export const getContract           = (id)          => api.get(`/api/hr/contracts/${id}`);
+export const createContract        = (d)           => api.post('/api/hr/contracts/', d);
+export const updateContract        = (id, d)       => api.put(`/api/hr/contracts/${id}`, d);
+export const setContractStatus     = (id, d)       => api.post(`/api/hr/contracts/${id}/status`, d);
+export const archiveContract       = (id)          => api.patch(`/api/hr/contracts/${id}/archive`);
+export const getContractPrintData  = (id)          => api.get(`/api/hr/contracts/${id}/print-data`);
+
+// ── Recruitment ────────────────────────────────────────────────────────────
+export const getRecruitmentSummary = ()          => api.get('/api/recruitment/summary');
+export const getPositions          = (params = {}) => api.get(`/api/recruitment/positions${_qs(params)}`);
+export const getPosition           = (id)          => api.get(`/api/recruitment/positions/${id}`);
+export const createPosition        = (d)           => api.post('/api/recruitment/positions', d);
+export const updatePosition        = (id, d)       => api.put(`/api/recruitment/positions/${id}`, d);
+export const archivePosition       = (id)          => api.patch(`/api/recruitment/positions/${id}/archive`);
+
+export const getApplicants         = (params = {}) => api.get(`/api/recruitment/applicants${_qs(params)}`);
+export const getApplicant          = (id)          => api.get(`/api/recruitment/applicants/${id}`);
+export const createApplicant       = (d)           => api.post('/api/recruitment/applicants', d);
+export const updateApplicant       = (id, d)       => api.put(`/api/recruitment/applicants/${id}`, d);
+export const changeApplicantStatus = (id, d)       => api.post(`/api/recruitment/applicants/${id}/status`, d);
+export const archiveApplicant      = (id)          => api.patch(`/api/recruitment/applicants/${id}/archive`);
+export const convertApplicant      = (id, d = {})  => api.post(`/api/recruitment/applicants/${id}/convert`, d);
+
+export const scheduleInterview     = (appId, d)    => api.post(`/api/recruitment/applicants/${appId}/interviews`, d);
+export const updateInterview       = (id, d)       => api.put(`/api/recruitment/interviews/${id}`, d);
+export const deleteInterview       = (id)          => api.delete(`/api/recruitment/interviews/${id}`);
+
+// Applicant file upload — multipart, parallel to uploadEmployeeFile.
+export async function uploadApplicantFile(appId, kind, file) {
+  const fd = new FormData();
+  fd.append('kind', kind);
+  fd.append('file', file);
+  const res = await fetch(`/api/recruitment/applicants/${appId}/files`, {
+    method: 'POST', body: fd, credentials: 'include',
+  });
+  if (res.status === 401) {
+    localStorage.removeItem('user');
+    window.location.href = '/login';
+    throw new Error('Session expired.');
+  }
+  if (!res.ok) { throw new Error(await extractError(res)); }
+  return res.json();
+}
+export const getApplicantFiles    = (appId)   => api.get(`/api/recruitment/applicants/${appId}/files`);
+export const deleteApplicantFile  = (fileId)  => api.delete(`/api/recruitment/files/${fileId}`);
+export const applicantFileURL     = (fileId)  => `/api/recruitment/files/${fileId}/download`;
+
+// Pre-employment offer letters / draft contracts attached to an applicant.
+// Distinct from hr/contracts (which require an employee record).
+export const getApplicantOffers   = (appId)        => api.get(`/api/recruitment/applicants/${appId}/offers`);
+export const createApplicantOffer = (appId, d)     => api.post(`/api/recruitment/applicants/${appId}/offers`, d);
+export const updateOffer          = (offerId, d)   => api.put(`/api/recruitment/offers/${offerId}`, d);
+export const changeOfferStatus    = (offerId, d)   => api.post(`/api/recruitment/offers/${offerId}/status`, d);
+export const archiveOffer         = (offerId)      => api.patch(`/api/recruitment/offers/${offerId}/archive`);
+export const getOfferPrintData    = (offerId)      => api.get(`/api/recruitment/offers/${offerId}/print-data`);
+
+// ── HR Activities ───────────────────────────────────────────────────────────
+// Personal HR queue — calls, meetings, interviews, emails, notes — with
+// time-deferred reminder notifications. Scoped per user on the backend.
+export const getHRActivities          = (params = {}, s) => api.get(`/api/hr-activities${_qs(params)}`, s);
+export const getHRActivity            = (id)             => api.get(`/api/hr-activities/${id}`);
+export const getHRActivitiesSummary   = ()               => api.get('/api/hr-activities/summary');
+export const createHRActivity         = (d)              => api.post('/api/hr-activities', d);
+export const updateHRActivity         = (id, d)          => api.put(`/api/hr-activities/${id}`, d);
+export const completeHRActivity       = (id, d = {})     => api.patch(`/api/hr-activities/${id}/complete`, d);
+export const archiveHRActivity        = (id)             => api.patch(`/api/hr-activities/${id}/archive`);
+export const getHRActivityApplicants  = ()               => api.get('/api/hr-activities/dropdown/applicants');
+export const getHRActivityEmployees   = ()               => api.get('/api/hr-activities/dropdown/employees');
 
 // Point of Sale
 export const getPosSession     = (s)          => api.get('/api/pos/session/current', s);
 export const openPosSession    = (d)          => api.post('/api/pos/session/open', d);
 export const closePosSession   = (d)          => api.post('/api/pos/session/close', d);
 export const getPosSessions    = (params = {}) => api.get(`/api/pos/sessions${_qs(params)}`);
-export const getPosSessionById = (id)         => api.get(`/api/pos/sessions/${id}`);
 export const posCheckout       = (d)          => api.post('/api/pos/checkout', d);
 export const getPosSales       = (params = {}) => api.get(`/api/pos/sales${_qs(params)}`);
 export const getPosSale        = (id)         => api.get(`/api/pos/sales/${id}`);
@@ -391,7 +503,6 @@ export const createBom                = (d)         => api.post('/api/manufactur
 export const updateBom                = (id, d)     => api.put(`/api/manufacturing/boms/${id}`, d);
 export const createBomVersion          = (id, d)     => api.post(`/api/manufacturing/boms/${id}/new-version`, d);
 export const archiveBom                = (id)       => api.patch(`/api/manufacturing/boms/${id}/archive`);
-export const unarchiveBom              = (id)       => api.patch(`/api/manufacturing/boms/${id}/unarchive`);
 export const getProductionOrders       = (params = {}) => api.get(`/api/manufacturing/orders${_qs(params)}`);
 export const getProductionOrder        = (id)       => api.get(`/api/manufacturing/orders/${id}`);
 export const createProductionOrder     = (d)        => api.post('/api/manufacturing/orders', d);
@@ -403,6 +514,16 @@ export const cancelProductionOrder     = (id, reason) => api.post(`/api/manufact
 export const archiveProductionOrder    = (id)       => api.patch(`/api/manufacturing/orders/${id}/archive`);
 export const getManufacturingProducts  = (params = {}) => api.get(`/api/manufacturing/products${_qs(params)}`);
 export const getManufacturingSummary   = ()         => api.get('/api/manufacturing/summary');
+export const getManufacturingAnalytics = (params = {}) => api.get(`/api/manufacturing/analytics${_qs(params)}`);
+// Manufacturing resources — reusable per-hour cost rates (Labor, Electricity, CNC, …)
+export const getResources    = (params = {}) => api.get(`/api/manufacturing/resources${_qs(params)}`);
+export const createResource  = (d)     => api.post('/api/manufacturing/resources', d);
+export const updateResource  = (id, d) => api.put(`/api/manufacturing/resources/${id}`, d);
+export const archiveResource = (id)    => api.patch(`/api/manufacturing/resources/${id}/archive`);
+// Quality control — quarantine inspections (release / reject / rework)
+export const getQCInspections  = (params = {}) => api.get(`/api/manufacturing/qc${_qs(params)}`);
+export const getQCInspection   = (id)    => api.get(`/api/manufacturing/qc/${id}`);
+export const resolveQC         = (id, d) => api.post(`/api/manufacturing/qc/${id}/resolve`, d);
 
 // Fixed Assets
 export const getAssets          = (params = {}, s) => api.get(`/api/assets${_qs(params)}`, s);
@@ -414,7 +535,6 @@ export const depreciateAsset    = (id, d = {}) => api.post(`/api/assets/${id}/de
 export const runDepreciation    = (d = {})   => api.post('/api/assets/depreciation/run', d);
 export const disposeAsset       = (id, d)    => api.post(`/api/assets/${id}/dispose`, d);
 export const archiveAsset       = (id)       => api.patch(`/api/assets/${id}/archive`);
-export const unarchiveAsset     = (id)       => api.patch(`/api/assets/${id}/unarchive`);
 
 // Recurring Expenses
 export const getRecurringExpenses   = (s)     => api.get('/api/recurring-expenses', s);
@@ -425,12 +545,59 @@ export const toggleRecurringExpense = (id)    => api.patch(`/api/recurring-expen
 export const runRecurringExpense    = (id)    => api.post(`/api/recurring-expenses/${id}/run`);
 export const runDueRecurringExpenses = ()     => api.post('/api/recurring-expenses/run-due');
 export const archiveRecurringExpense = (id)   => api.patch(`/api/recurring-expenses/${id}/archive`);
-export const unarchiveRecurringExpense = (id) => api.patch(`/api/recurring-expenses/${id}/unarchive`);
 
-// Recycle Bin
-export const getRecycleBin      = (params = {}) => api.get(`/api/recycle_bin/${_qs(params)}`);
-export const restoreItem        = (module, id)  => api.post(`/api/recycle_bin/restore/${module}/${id}`);
-export const purgeItem          = (module, id)  => api.delete(`/api/recycle_bin/${module}/${id}`);
-export const bulkRestoreItems   = (items)       => api.post('/api/recycle_bin/bulk-restore', { items });
-export const bulkPurgeItems     = (items)       => api.post('/api/recycle_bin/bulk-purge', { items });
-export const purgeExpired       = ()            => api.post('/api/recycle_bin/purge-expired');
+// ── Attachments (generic — files on any business entity) ─────────────────────
+// One set of helpers backs every module. `entityType` is one of the keys in the
+// backend ENTITY_REGISTRY (invoices, purchases, projects, expenses, assets,
+// suppliers, clients, quotations, inventory).
+export const getAttachments   = (entityType, entityId) =>
+  api.get(`/api/attachments/${entityType}/${entityId}`);
+export const deleteAttachment = (attachmentId) =>
+  api.delete(`/api/attachments/file/${attachmentId}`);
+export const attachmentURL    = (attachmentId, download = false) =>
+  `/api/attachments/file/${attachmentId}${download ? '?download=true' : ''}`;
+// Multipart upload — mirrors uploadEmployeeFile (cookie-credentialed, not JSON).
+export async function uploadAttachment(entityType, entityId, file) {
+  const fd = new FormData();
+  fd.append('file', file);
+  const res = await fetch(`/api/attachments/${entityType}/${entityId}`, {
+    method: 'POST', body: fd, credentials: 'include',
+  });
+  if (res.status === 401) {
+    localStorage.removeItem('user');
+    window.location.href = '/login';
+    throw new Error('Session expired.');
+  }
+  if (!res.ok) { throw new Error(await extractError(res)); }
+  return res.json();
+}
+
+// ── Accounting (double-entry: Chart of Accounts, Journal, Ledger, statements) ─
+export const getAccounts          = (params = {}) => api.get(`/api/accounting/accounts${_qs(params)}`);
+export const createAccount        = (d)      => api.post('/api/accounting/accounts', d);
+export const updateAccount        = (id, d)  => api.put(`/api/accounting/accounts/${id}`, d);
+export const deleteAccount        = (id)     => api.delete(`/api/accounting/accounts/${id}`);
+export const getJournalEntries    = (params = {}) => api.get(`/api/accounting/journal-entries${_qs(params)}`);
+export const getJournalEntry      = (id)     => api.get(`/api/accounting/journal-entries/${id}`);
+export const createJournalEntry   = (d)      => api.post('/api/accounting/journal-entries', d);
+export const reverseJournalEntry  = (id)     => api.post(`/api/accounting/journal-entries/${id}/reverse`);
+export const getGeneralLedger     = (params = {}) => api.get(`/api/accounting/general-ledger${_qs(params)}`);
+export const getTrialBalance      = (params = {}) => api.get(`/api/accounting/trial-balance${_qs(params)}`);
+export const getBalanceSheet      = (params = {}) => api.get(`/api/accounting/balance-sheet${_qs(params)}`);
+export const getIncomeStatement   = (params = {}) => api.get(`/api/accounting/income-statement${_qs(params)}`);
+export const getAccountingSummary = ()       => api.get('/api/accounting/summary');
+
+// Announcements — internal top-down communication
+export const getAnnouncements           = (s)            => api.get('/api/announcements/', s);
+export const getAnnouncementsSent       = ()             => api.get('/api/announcements/sent');
+export const getAnnouncementsUnread     = (s)            => api.get('/api/announcements/unread-count', s);
+export const getAnnouncement            = (id)           => api.get(`/api/announcements/${id}`);
+export const createAnnouncement         = (d)            => api.post('/api/announcements/', d);
+export const archiveAnnouncement        = (id)           => api.delete(`/api/announcements/${id}`);
+export const acknowledgeAnnouncement    = (id)           => api.post(`/api/announcements/${id}/acknowledge`);
+export const getAnnouncementComments    = (id)           => api.get(`/api/announcements/${id}/comments`);
+export const postAnnouncementComment    = (id, body)     => api.post(`/api/announcements/${id}/comments`, { body });
+export const deleteAnnouncementComment  = (id, cid)      => api.delete(`/api/announcements/${id}/comments/${cid}`);
+export const getAnnouncementAudience    = (id)           => api.get(`/api/announcements/${id}/audience`);
+export const getAnnouncementRolesMeta   = ()             => api.get('/api/announcements/meta/roles');
+export const getAnnouncementUsersMeta   = ()             => api.get('/api/announcements/meta/users');

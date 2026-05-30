@@ -95,11 +95,14 @@ def login(data: LoginRequest, request: Request, response: Response, db: sqlite3.
     db.execute("UPDATE users SET last_login=? WHERE id=?", (now, row["id"]))
     db.commit()
 
-    # Fetch role name
+    # Fetch role name + admin-tier flag
     role_name = None
+    role_is_admin = False
     if row["role_id"]:
-        r = db.execute("SELECT name FROM roles WHERE id=?", (row["role_id"],)).fetchone()
-        role_name = r["name"] if r else None
+        r = db.execute("SELECT name, is_admin FROM roles WHERE id=?", (row["role_id"],)).fetchone()
+        if r:
+            role_name = r["name"]
+            role_is_admin = bool(r["is_admin"])
 
     response.set_cookie(
         key=COOKIE_NAME,
@@ -118,6 +121,7 @@ def login(data: LoginRequest, request: Request, response: Response, db: sqlite3.
         "role_name":            role_name,
         "role_id":              row["role_id"],
         "is_superadmin":        bool(row["is_superadmin"]),
+        "admin_access":         bool(row["is_superadmin"]) or role_is_admin,
         "must_change_password": bool(row["must_change_password"]),
     }
 
@@ -142,10 +146,13 @@ def me(user=Depends(require_auth), db: sqlite3.Connection = Depends(get_db)):
         raise HTTPException(404, "User not found")
 
     role_name = None
+    role_is_admin = False
     permissions = {}
     if row["role_id"]:
-        r = db.execute("SELECT name FROM roles WHERE id=?", (row["role_id"],)).fetchone()
-        role_name = r["name"] if r else None
+        r = db.execute("SELECT name, is_admin FROM roles WHERE id=?", (row["role_id"],)).fetchone()
+        if r:
+            role_name = r["name"]
+            role_is_admin = bool(r["is_admin"])
         perms = db.execute(
             "SELECT module, can_view, can_create, can_edit, can_delete, can_approve "
             "FROM role_permissions WHERE role_id=?",
@@ -171,6 +178,7 @@ def me(user=Depends(require_auth), db: sqlite3.Connection = Depends(get_db)):
         "role_id":      row["role_id"],
         "role_name":    role_name,
         "is_superadmin": bool(row["is_superadmin"]),
+        "admin_access":  bool(row["is_superadmin"]) or role_is_admin,
         "last_login":   row["last_login"],
         "permissions":  permissions,
     }

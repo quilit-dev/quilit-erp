@@ -23,11 +23,75 @@ import sqlite3
 router = APIRouter()
 
 
+# ── Role-based visibility ────────────────────────────────────────────────────
+#
+# Global notifications (user_id IS NULL) fan out to every authenticated user,
+# but a sales rep has no business seeing a "purchase received" alert — clicking
+# it would land them on /purchases which their role cannot reach. Each module-
+# specific notification type is mapped to the RBAC module that owns it; a user
+# whose role lacks `can_view` on that module never sees those rows. Types not
+# present in this map (approvals, announcements, system, etc.) are user-
+# targeted at notify() time and need no additional gating here.
+NOTIFICATION_TYPE_MODULE = {
+    "invoice_paid":         "invoices",
+    "payment_received":     "invoices",
+    "invoice_overdue":      "invoices",
+    "low_stock":            "inventory",
+    "purchase_received":    "purchases",
+    "quotation_accepted":   "quotations",
+    "task_due_soon":        "planning",
+    "planning_event":       "planning",
+    "deal_won":             "crm",
+    "deal_lost":            "crm",
+    "lead_converted":       "crm",
+    "production_completed": "manufacturing",
+    "asset_depreciated":    "assets",
+    "cash_variance":        "cash",
+    "recruitment_status":   "recruitment",
+    "recruitment_hired":    "recruitment",
+    "hr_activity_reminder": "hr_activities",
+}
+
+
 # ── Helpers ───────────────────────────────────────────────────────────────────
 
-def _user_filter(user_id: int) -> tuple:
-    """WHERE clause that selects global (NULL) and user-specific notifications."""
-    return "(user_id IS NULL OR user_id = ?)", (user_id,)
+def _gated_types(user: dict, db: sqlite3.Connection) -> list:
+    """
+    Return the list of notification types the caller must NOT see as global
+    fan-outs. Superadmin and admin-tier roles see everything; everyone else
+    is gated by their role's `can_view` permissions.
+
+    A user-specific notification (user_id = caller) is always delivered even
+    if its type is gated — the targeting at notify() time is the source of
+    truth for those.
+    """
+    if user.get("is_superadmin") or user.get("is_admin"):
+        return []
+    role_id = user.get("role_id")
+    if not role_id:
+        # No role assigned → no module access → every module-gated type is hidden.
+        return list(NOTIFICATION_TYPE_MODULE.keys())
+    allowed = {
+        r["module"] for r in db.execute(
+            "SELECT module FROM role_permissions WHERE role_id=? AND can_view=1",
+            (role_id,),
+        ).fetchall()
+    }
+    return [t for t, mod in NOTIFICATION_TYPE_MODULE.items() if mod not in allowed]
+
+
+def _gating_sql(gated: list) -> str:
+    """
+    Build the WHERE fragment that hides gated global notifications. Returns
+    an empty string (a no-op) when nothing is gated so the fast path stays
+    untouched. Caller appends `gated` to the parameter list.
+    """
+    if not gated:
+        return ""
+    placeholders = ",".join("?" * len(gated))
+    # Keep user-targeted rows even if their type happens to be gated; only
+    # global (user_id IS NULL) rows are filtered by module access.
+    return f" AND NOT (user_id IS NULL AND type IN ({placeholders}))"
 
 
 def _generate_system_notifications(db: sqlite3.Connection) -> None:
@@ -104,33 +168,48 @@ def _generate_system_notifications(db: sqlite3.Connection) -> None:
 
 # ── Endpoints ─────────────────────────────────────────────────────────────────
 
+# A notification with `deliver_at` in the future is held back from every
+# read endpoint — only when wall-clock catches up does it surface in the
+# bell or the list. NULL means "deliver immediately" (the default).
+_DUE_CLAUSE = "(deliver_at IS NULL OR deliver_at <= datetime('now'))"
+
+
 @router.get("/count")
 def get_unread_count(
     user=Depends(require_auth),
     db: sqlite3.Connection = Depends(get_db),
 ):
     """Fast poll endpoint — returns only the unread count."""
-    count = db.execute(
-        "SELECT COUNT(*) FROM notifications WHERE (user_id IS NULL OR user_id=?) AND is_read=0",
-        (user["id"],),
-    ).fetchone()[0]
+    gated = _gated_types(user, db)
+    sql = (
+        f"SELECT COUNT(*) FROM notifications "
+        f"WHERE (user_id IS NULL OR user_id=?) AND is_read=0 AND {_DUE_CLAUSE}"
+        f"{_gating_sql(gated)}"
+    )
+    params = [user["id"], *gated]
+    count = db.execute(sql, params).fetchone()[0]
     return {"unread_count": count}
 
 
-# Fixed literal queries. Each optional filter is a no-op when its bound value is
-# NULL, so no user input is ever concatenated into the SQL text.
-_NOTIF_COUNT_SQL = """
+# Templated query bodies. The role-gating fragment is appended at query time
+# because its placeholder count depends on the caller's role.
+_NOTIF_COUNT_SQL_BASE = f"""
     SELECT COUNT(*) FROM notifications
      WHERE (user_id IS NULL OR user_id = ?)
        AND (? IS NULL OR is_read = 0)
        AND (? IS NULL OR type = ?)
+       AND {_DUE_CLAUSE}
 """
 
-_NOTIF_LIST_SQL = """
+_NOTIF_LIST_SQL_BASE = f"""
     SELECT * FROM notifications
      WHERE (user_id IS NULL OR user_id = ?)
        AND (? IS NULL OR is_read = 0)
        AND (? IS NULL OR type = ?)
+       AND {_DUE_CLAUSE}
+"""
+
+_NOTIF_LIST_SUFFIX = """
      ORDER BY is_read ASC, created_at DESC
      LIMIT ? OFFSET ?
 """
@@ -152,21 +231,32 @@ def list_notifications(
     except Exception:
         pass
 
+    gated = _gated_types(user, db)
+    gating_sql = _gating_sql(gated)
+
     # Positional binds shared by the count and list queries, in clause order.
-    notif_params = [
+    base_params = [
         user["id"],
         1 if unread_only else None,
         type_filter, type_filter,
     ]
 
-    total = db.execute(_NOTIF_COUNT_SQL, notif_params).fetchone()[0]
-
-    unread_count = db.execute(
-        "SELECT COUNT(*) FROM notifications WHERE (user_id IS NULL OR user_id=?) AND is_read=0",
-        (user["id"],),
+    total = db.execute(
+        _NOTIF_COUNT_SQL_BASE + gating_sql,
+        base_params + gated,
     ).fetchone()[0]
 
-    rows = db.execute(_NOTIF_LIST_SQL, notif_params + [limit, offset]).fetchall()
+    unread_count = db.execute(
+        f"SELECT COUNT(*) FROM notifications "
+        f"WHERE (user_id IS NULL OR user_id=?) AND is_read=0 AND {_DUE_CLAUSE}"
+        f"{gating_sql}",
+        [user["id"], *gated],
+    ).fetchone()[0]
+
+    rows = db.execute(
+        _NOTIF_LIST_SQL_BASE + gating_sql + _NOTIF_LIST_SUFFIX,
+        base_params + gated + [limit, offset],
+    ).fetchall()
 
     return {
         "notifications": [dict(r) for r in rows],

@@ -1,6 +1,7 @@
 import { useState, useCallback, useEffect, useRef, useMemo } from 'react';
 import { useLocale } from '../hooks/useLocale.jsx';
 import { useData } from '../hooks/useData.js';
+import { usePermissions } from '../hooks/usePermissions.js';
 import { Modal, ConfirmModal, LoadingSpinner, ErrorAlert, EmptyState, toast } from '../components/shared';
 import {
   getPlanningProjects, createPlanningProject, updatePlanningProject, archivePlanningProject,
@@ -8,6 +9,7 @@ import {
   updateTaskDates, updateTaskStatus, updateTaskProgress,
   getPlanningMilestones,
   getPlanningSummary, getPlanningDropdownClients, getPlanningDropdownUsers,
+  getPlanningEvents, createPlanningEvent, updatePlanningEvent, deletePlanningEvent,
 } from '../api/client';
 
 // ─── Constants ───────────────────────────────────────────────────────────────
@@ -228,6 +230,11 @@ function ProjectForm({ initial, clients, onSave, onClose }) {
 
 function TaskForm({ initial, projects, users, milestones, tasks, onSave, onClose }) {
   const { t } = useLocale();
+  // Sentinel value for "type a new project name inline". When the picker is
+  // set to this, the new-project name input shows up and the task save flow
+  // first creates the project, then references its id.
+  const NEW_PROJECT = '__new__';
+
   const [form, setForm] = useState({
     name: '', description: '',
     status: 'To Do', priority: 'Medium', start_date: '', end_date: '',
@@ -242,17 +249,37 @@ function TaskForm({ initial, projects, users, milestones, tasks, onSave, onClose
         }
       : { project_id: '', assigned_to: '', milestone_id: '', depends_on: '' }),
   });
+  const [newProjectName, setNewProjectName] = useState('');
   const [saving, setSaving] = useState(false);
 
   async function handleSubmit(e) {
     e.preventDefault();
     if (!form.name.trim()) { toast(t('planning.taskNameRequired'), 'error'); return; }
-    if (!form.project_id)  { toast(t('planning.projectRequired'), 'error'); return; }
+
+    // Project handling — three legitimate cases:
+    //   1. existing project picked → numeric id
+    //   2. "(No project)" picked   → null (server buckets into "(General)")
+    //   3. "+ New project..."      → create on the fly, use returned id
+    let resolvedProjectId = null;
+    if (form.project_id === NEW_PROJECT) {
+      const name = newProjectName.trim();
+      if (!name) { toast(t('planning.newProjectNameRequired'), 'error'); return; }
+      try {
+        const created = await createPlanningProject({ name, status: 'Active' });
+        resolvedProjectId = created.id || created.project_id || created;
+      } catch (err) {
+        toast(err.message || t('common.error'), 'error');
+        return;
+      }
+    } else if (form.project_id) {
+      resolvedProjectId = Number(form.project_id);
+    }
+
     setSaving(true);
     try {
       const payload = {
         ...form,
-        project_id:   Number(form.project_id),
+        project_id:   resolvedProjectId,
         assigned_to:  form.assigned_to  ? Number(form.assigned_to)  : null,
         milestone_id: form.milestone_id ? Number(form.milestone_id) : null,
         depends_on:   form.depends_on   ? Number(form.depends_on)   : null,
@@ -286,11 +313,24 @@ function TaskForm({ initial, projects, users, milestones, tasks, onSave, onClose
             <input className="form-control" value={form.name} onChange={e => set('name', e.target.value)} required />
           </div>
           <div className="form-group">
-            <label className="form-label">{t('planning.project')} *</label>
-            <select className="form-control" value={form.project_id} onChange={e => set('project_id', e.target.value)} required>
-              <option value="">{t('planning.selectProject')}</option>
+            <label className="form-label">{t('planning.project')}</label>
+            <select className="form-control" value={form.project_id}
+                    onChange={e => set('project_id', e.target.value)}>
+              <option value="">{t('planning.noProjectOption')}</option>
+              <option value={NEW_PROJECT}>+ {t('planning.newProjectOption')}</option>
+              {projects.length > 0 && <option disabled>──────────────</option>}
               {projects.map(p => <option key={p.id} value={p.id}>{p.name}</option>)}
             </select>
+            {form.project_id === NEW_PROJECT && (
+              <input
+                className="form-control"
+                style={{ marginTop: 6 }}
+                placeholder={t('planning.newProjectNamePlaceholder')}
+                value={newProjectName}
+                onChange={e => setNewProjectName(e.target.value)}
+                autoFocus
+              />
+            )}
           </div>
           <div className="form-group">
             <label className="form-label">{t('planning.assignedTo')}</label>
@@ -902,113 +942,507 @@ function ListView({ tasks, projects, onEdit, onArchive, onRefresh }) {
   );
 }
 
+// ─── EVENT FORM ───────────────────────────────────────────────────────────────
+// Used inside the calendar modal to create or edit a standalone event.
+// `initial` is either `null` (create, pre-filled with the date the user clicked)
+// or an existing event row (edit). Submits via the parent's onSave callback so
+// the calendar can refetch and close the modal in one place.
+
+const EVENT_COLORS = [
+  '#4f8ef7', '#10b981', '#f59e0b', '#ef4444', '#8b5cf6',
+  '#06b6d4', '#f97316', '#ec4899', '#14b8a6', '#6366f1',
+];
+
+function EventForm({ initial, defaultDate, currentUserId, onSave, onClose, onDelete }) {
+  const { t } = useLocale();
+  // Editing an existing event you don't own — you were invited, so you can
+  // see the details but can't modify them. Mirrors Google/Outlook semantics
+  // and matches the backend ownership check on PUT/DELETE.
+  const isEdit     = !!initial?.id;
+  const isOwner    = !isEdit || (currentUserId != null && initial.owner_id === currentUserId);
+  const readOnly   = isEdit && !isOwner;
+  // Single source of truth — initial wins; otherwise defaultDate seeds start_date.
+  const seedDate = initial?.start_date || defaultDate || toIso(new Date());
+  const [form, setForm] = useState({
+    title:       initial?.title       || '',
+    description: initial?.description || '',
+    start_date:  seedDate,
+    end_date:    initial?.end_date    || '',
+    start_time:  initial?.start_time  || '',
+    end_time:    initial?.end_time    || '',
+    all_day:     initial ? !!initial.all_day : true,
+    color:       initial?.color       || EVENT_COLORS[0],
+    attendees:   Array.isArray(initial?.attendees) ? initial.attendees : [],
+  });
+  const [saving, setSaving] = useState(false);
+  // Lazy-load the user dropdown so the form opens fast even on slow connections.
+  const [userOptions, setUserOptions] = useState([]);
+  useEffect(() => {
+    getPlanningDropdownUsers().then(setUserOptions).catch(() => setUserOptions([]));
+  }, []);
+
+  async function handleSubmit(e) {
+    e.preventDefault();
+    if (readOnly) return;       // belt-and-braces — buttons are hidden too
+    if (!form.title.trim()) { toast(t('planning.eventTitleRequired'), 'error'); return; }
+    if (!form.start_date)   { toast(t('planning.startDateRequired'), 'error'); return; }
+    if (form.end_date && form.end_date < form.start_date) {
+      toast(t('planning.endBeforeStart'), 'error'); return;
+    }
+    setSaving(true);
+    try {
+      const payload = {
+        title:       form.title.trim(),
+        description: form.description || null,
+        start_date:  form.start_date,
+        end_date:    form.end_date || null,
+        start_time:  form.all_day ? null : (form.start_time || null),
+        end_time:    form.all_day ? null : (form.end_time || null),
+        all_day:     form.all_day ? 1 : 0,
+        color:       form.color,
+        attendees:   form.attendees,           // [] means "no attendees / clear"
+      };
+      if (isEdit) {
+        const res = await updatePlanningEvent(initial.id, payload);
+        const newly = res?.attendees_notified || 0;
+        toast(newly > 0
+          ? t('planning.eventUpdatedNotified', { n: newly })
+          : t('planning.eventUpdated'));
+      } else {
+        const res = await createPlanningEvent(payload);
+        const newly = res?.attendees_notified || 0;
+        toast(newly > 0
+          ? t('planning.eventCreatedNotified', { n: newly })
+          : t('planning.eventCreated'));
+      }
+      onSave();
+    } catch (err) {
+      toast(err.message || t('common.error'), 'error');
+    } finally {
+      setSaving(false);
+    }
+  }
+
+  const set = (k, v) => setForm(f => ({ ...f, [k]: v }));
+
+  function toggleAttendee(uid) {
+    setForm(f => ({
+      ...f,
+      attendees: f.attendees.includes(uid)
+        ? f.attendees.filter(x => x !== uid)
+        : [...f.attendees, uid],
+    }));
+  }
+
+  return (
+    <form onSubmit={handleSubmit}>
+      <div className="modal-body">
+        {readOnly && (
+          <div style={{
+            padding: '8px 12px', marginBottom: 12, borderRadius: 6,
+            background: 'color-mix(in srgb, var(--accent) 8%, var(--surface-2))',
+            border: '1px solid color-mix(in srgb, var(--accent) 25%, var(--border))',
+            fontSize: 12, color: 'var(--text-2)',
+            display: 'flex', alignItems: 'center', gap: 8,
+          }}>
+            <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
+              <rect x="3" y="11" width="18" height="11" rx="2"/>
+              <path d="M7 11V7a5 5 0 0110 0v4"/>
+            </svg>
+            <span>
+              {t('planning.eventReadOnly', { owner: initial?.owner_name || '' })}
+            </span>
+          </div>
+        )}
+
+        <div className="form-group form-full">
+          <label className="form-label">{t('planning.eventTitle')} *</label>
+          <input className="form-control" value={form.title}
+                 onChange={e => set('title', e.target.value)} autoFocus={!readOnly} required
+                 disabled={readOnly}
+                 placeholder={t('planning.eventTitlePlaceholder')} />
+        </div>
+
+        <div className="form-grid">
+          <div className="form-group">
+            <label className="form-label">{t('planning.startDate')} *</label>
+            <input type="date" className="form-control" value={form.start_date}
+                   onChange={e => set('start_date', e.target.value)} required
+                   disabled={readOnly} />
+          </div>
+          <div className="form-group">
+            <label className="form-label">{t('planning.endDate')}</label>
+            <input type="date" className="form-control" value={form.end_date}
+                   onChange={e => set('end_date', e.target.value)}
+                   min={form.start_date || undefined}
+                   disabled={readOnly} />
+          </div>
+        </div>
+
+        <div className="form-group form-full" style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
+          <input id="evt-all-day" type="checkbox" checked={form.all_day}
+                 onChange={e => set('all_day', e.target.checked)}
+                 disabled={readOnly}
+                 style={{ width: 16, height: 16, cursor: readOnly ? 'not-allowed' : 'pointer' }} />
+          <label htmlFor="evt-all-day" style={{ fontSize: 13, color: 'var(--text-2)', cursor: readOnly ? 'not-allowed' : 'pointer', margin: 0 }}>
+            {t('planning.allDay')}
+          </label>
+        </div>
+
+        {!form.all_day && (
+          <div className="form-grid">
+            <div className="form-group">
+              <label className="form-label">{t('planning.startTime')}</label>
+              <input type="time" className="form-control" value={form.start_time}
+                     onChange={e => set('start_time', e.target.value)}
+                     disabled={readOnly} />
+            </div>
+            <div className="form-group">
+              <label className="form-label">{t('planning.endTime')}</label>
+              <input type="time" className="form-control" value={form.end_time}
+                     onChange={e => set('end_time', e.target.value)}
+                     disabled={readOnly} />
+            </div>
+          </div>
+        )}
+
+        {/* Attendees — picking anyone here fires them a notification */}
+        <div className="form-group form-full">
+          <label className="form-label" style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
+            {t('planning.attendees')}
+            {form.attendees.length > 0 && (
+              <span style={{
+                fontSize: 10, fontWeight: 700, letterSpacing: '.3px',
+                background: 'var(--accent)', color: '#fff',
+                padding: '1px 7px', borderRadius: 999,
+              }}>{form.attendees.length}</span>
+            )}
+          </label>
+          <div style={{
+            display: 'flex', flexWrap: 'wrap', gap: 6, padding: 8,
+            background: 'var(--surface-2)', borderRadius: 8,
+            border: '1px solid var(--border)',
+            maxHeight: 140, overflowY: 'auto',
+          }}>
+            {userOptions.length === 0 && (
+              <span style={{ fontSize: 12, color: 'var(--text-3)', fontStyle: 'italic' }}>
+                {t('planning.noTeammates')}
+              </span>
+            )}
+            {userOptions.map(u => {
+              const active = form.attendees.includes(u.id);
+              // In read-only mode, only render the chips that ARE attendees —
+              // showing the full roster as inert grey chips would look broken.
+              if (readOnly && !active) return null;
+              return (
+                <button key={u.id} type="button"
+                  onClick={readOnly ? undefined : () => toggleAttendee(u.id)}
+                  disabled={readOnly}
+                  style={{
+                    padding: '4px 11px', borderRadius: 999,
+                    border: '1px solid', borderColor: active ? 'var(--accent)' : 'var(--border)',
+                    background: active ? 'var(--accent)' : 'var(--surface)',
+                    color: active ? '#fff' : 'var(--text-2)',
+                    fontSize: 12, fontWeight: 600,
+                    cursor: readOnly ? 'default' : 'pointer',
+                    transition: 'all .12s',
+                  }}>
+                  {u.name || u.username}
+                </button>
+              );
+            })}
+          </div>
+          {!readOnly && (
+            <div style={{ fontSize: 11, color: 'var(--text-3)', marginTop: 4 }}>
+              {t('planning.attendeesHint')}
+            </div>
+          )}
+        </div>
+
+        <div className="form-group form-full">
+          <label className="form-label">{t('planning.eventColor')}</label>
+          <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap', marginTop: 4 }}>
+            {EVENT_COLORS.map(c => (
+              <button key={c} type="button"
+                onClick={readOnly ? undefined : () => set('color', c)}
+                disabled={readOnly}
+                aria-label={c}
+                style={{
+                  width: 26, height: 26, borderRadius: '50%', background: c, border: 'none',
+                  cursor: readOnly ? 'default' : 'pointer',
+                  opacity: readOnly && form.color !== c ? 0.35 : 1,
+                  outline: form.color === c ? `3px solid ${c}` : '2px solid transparent',
+                  outlineOffset: 2, boxShadow: form.color === c ? '0 0 0 2px var(--bg)' : 'none',
+                  transition: 'all .15s',
+                }}
+              />
+            ))}
+          </div>
+        </div>
+
+        <div className="form-group form-full">
+          <label className="form-label">{t('planning.eventDescription')}</label>
+          <textarea className="form-control" rows={3} value={form.description}
+                    onChange={e => set('description', e.target.value)}
+                    disabled={readOnly}
+                    placeholder={t('planning.eventDescriptionPlaceholder')} />
+        </div>
+
+        {isEdit && initial?.owner_name && (
+          <div className="form-group form-full" style={{ fontSize: 11, color: 'var(--text-3)' }}>
+            {t('planning.createdBy')}: <strong style={{ color: 'var(--text-2)' }}>{initial.owner_name}</strong>
+          </div>
+        )}
+      </div>
+      <div className="modal-footer" style={{ display: 'flex', justifyContent: 'space-between' }}>
+        <div>
+          {isEdit && isOwner && (
+            <button type="button" className="btn btn-outline btn-sm"
+                    style={{ color: 'var(--red)', borderColor: 'var(--red)' }}
+                    onClick={() => onDelete(initial)}
+                    disabled={saving}>
+              {t('common.delete')}
+            </button>
+          )}
+        </div>
+        <div style={{ display: 'flex', gap: 6 }}>
+          <button type="button" className="btn btn-outline btn-sm" onClick={onClose} disabled={saving}>
+            {readOnly ? t('common.close') : t('common.cancel')}
+          </button>
+          {!readOnly && (
+            <button type="submit" className="btn btn-primary btn-sm" disabled={saving}>
+              {saving ? t('common.saving') : (isEdit ? t('common.save') : t('common.create'))}
+            </button>
+          )}
+        </div>
+      </div>
+    </form>
+  );
+}
+
+
 // ─── CALENDAR VIEW ────────────────────────────────────────────────────────────
+// Standalone events only — projects/tasks live in the Gantt + Board + List
+// views. Click an empty day to add an event; click an event to edit/delete.
 
-function CalendarView({ tasks, projects }) {
+function CalendarView() {
   const { t, lang } = useLocale();
+  const { user: currentUser } = usePermissions();
+  const currentUserId = currentUser?.id ?? null;
   const dateLocale = lang === 'ar' ? 'ar-SA-u-nu-latn' : 'en';
-  const today = new Date();
-  const [year, setYear]   = useState(today.getFullYear());
+  const today = useMemo(() => { const d = new Date(); d.setHours(0,0,0,0); return d; }, []);
+  const [year,  setYear]  = useState(today.getFullYear());
   const [month, setMonth] = useState(today.getMonth());
-  const [selProject, setSelProject] = useState('');
 
-  function prevMonth() {
-    if (month === 0) { setYear(y => y - 1); setMonth(11); } else setMonth(m => m - 1);
-  }
-  function nextMonth() {
-    if (month === 11) { setYear(y => y + 1); setMonth(0); } else setMonth(m => m + 1);
-  }
+  // Modal state — null = closed; { date } = create; { event } = edit
+  const [modal, setModal] = useState(null);
+  const [confirmDel, setConfirmDel] = useState(null);
 
-  const firstDay  = new Date(year, month, 1);
-  const lastDay   = new Date(year, month + 1, 0);
-  const startPad  = firstDay.getDay(); // 0=Sun
+  // Events fetched for the visible window — refetched when month changes
+  // or after any create/update/delete.
+  const [events, setEvents] = useState([]);
+  const [loading, setLoading] = useState(false);
+
+  const firstDay   = new Date(year, month, 1);
+  const lastDay    = new Date(year, month + 1, 0);
+  const startPad   = firstDay.getDay();                                  // 0=Sun
   const totalCells = Math.ceil((startPad + lastDay.getDate()) / 7) * 7;
+  // Pull a slightly wider window so events that overlap into the visible
+  // padding rows still render (e.g. a multi-day event that starts in the
+  // previous month and ends in this one).
+  const winStart   = toIso(addDays(firstDay, -startPad));
+  const winEnd     = toIso(addDays(lastDay,  totalCells - startPad - lastDay.getDate()));
 
-  const filtered = selProject ? tasks.filter(t => String(t.project_id) === selProject) : tasks;
+  const reload = useCallback(async () => {
+    setLoading(true);
+    try {
+      const rows = await getPlanningEvents({ start: winStart, end: winEnd });
+      setEvents(Array.isArray(rows) ? rows : []);
+    } catch (e) {
+      toast(e.message || t('common.error'), 'error');
+    } finally {
+      setLoading(false);
+    }
+  }, [winStart, winEnd, t]);
 
-  function tasksForDay(d) {
+  useEffect(() => { reload(); }, [reload]);
+
+  function prevMonth() { if (month === 0) { setYear(y => y - 1); setMonth(11); } else setMonth(m => m - 1); }
+  function nextMonth() { if (month === 11) { setYear(y => y + 1); setMonth(0); }  else setMonth(m => m + 1); }
+  function goToday()   { setYear(today.getFullYear()); setMonth(today.getMonth()); }
+
+  // Events whose date range includes `d` (inclusive on both ends).
+  function eventsForDay(d) {
     const iso = toIso(d);
-    return filtered.filter(task => {
-      if (!task.start_date || !task.end_date) return task.start_date === iso || task.end_date === iso;
-      return iso >= task.start_date && iso <= task.end_date;
+    return events.filter(ev => {
+      const s = ev.start_date;
+      const e = ev.end_date || ev.start_date;
+      return iso >= s && iso <= e;
     });
   }
 
+  async function handleDelete(ev) {
+    setConfirmDel(null);
+    try {
+      await deletePlanningEvent(ev.id);
+      toast(t('planning.eventDeleted'));
+      setModal(null);
+      reload();
+    } catch (e) { toast(e.message || t('common.error'), 'error'); }
+  }
+
   const monthLabel = firstDay.toLocaleDateString(dateLocale, { month: 'long', year: 'numeric' });
-  // 2023-01-01 was a Sunday — build localized short weekday names Sun…Sat
-  const dayNames = Array.from({ length: 7 }, (_, i) =>
+  const dayNames   = Array.from({ length: 7 }, (_, i) =>
     new Date(2023, 0, 1 + i).toLocaleDateString(dateLocale, { weekday: 'short' }));
 
   return (
     <div style={{ display: 'flex', flexDirection: 'column', gap: 12 }}>
-      <div style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
-        <select className="form-control" style={{ width: 200 }} value={selProject} onChange={e => setSelProject(e.target.value)}>
-          <option value="">{t('planning.allProjects')}</option>
-          {projects.map(p => <option key={p.id} value={p.id}>{p.name}</option>)}
-        </select>
+      {/* Toolbar */}
+      <div style={{ display: 'flex', alignItems: 'center', gap: 10, flexWrap: 'wrap' }}>
+        <div style={{ fontSize: 12, color: 'var(--text-3)' }}>
+          {t('planning.calendarHint')}
+        </div>
         <div style={{ marginLeft: 'auto', display: 'flex', alignItems: 'center', gap: 10 }}>
-          <button className="btn btn-outline btn-sm" onClick={prevMonth}>‹</button>
-          <span style={{ fontWeight: 700, fontSize: 14, color: 'var(--text)', minWidth: 160, textAlign: 'center' }}>{monthLabel}</span>
-          <button className="btn btn-outline btn-sm" onClick={nextMonth}>›</button>
-          <button className="btn btn-outline btn-sm" onClick={() => { setYear(today.getFullYear()); setMonth(today.getMonth()); }}>
-            {t('planning.today')}
+          <button className="btn btn-outline btn-sm" onClick={prevMonth} aria-label={t('common.previous')}>‹</button>
+          <span style={{ fontWeight: 700, fontSize: 14, color: 'var(--text)', minWidth: 160, textAlign: 'center' }}>
+            {monthLabel}
+          </span>
+          <button className="btn btn-outline btn-sm" onClick={nextMonth} aria-label={t('common.next')}>›</button>
+          <button className="btn btn-outline btn-sm" onClick={goToday}>{t('planning.today')}</button>
+          <button className="btn btn-primary btn-sm" onClick={() => setModal({ date: toIso(today) })}>
+            + {t('planning.newEvent')}
           </button>
         </div>
       </div>
 
-      <div className="card" style={{ padding: 0, overflow: 'hidden', display: 'flex', flexDirection: 'column', height: 'calc(100vh - 300px)', minHeight: 380 }}>
-        {/* Day name header */}
-        <div style={{ display: 'grid', gridTemplateColumns: 'repeat(7, 1fr)', borderBottom: '1px solid var(--border)', background: 'var(--bg)', flexShrink: 0 }}>
+      {/* Calendar grid */}
+      <div className="card" style={{
+        padding: 0, overflow: 'hidden', display: 'flex', flexDirection: 'column',
+        height: 'calc(100vh - 300px)', minHeight: 420, opacity: loading ? 0.65 : 1,
+        transition: 'opacity .15s',
+      }}>
+        {/* Day-name header */}
+        <div style={{
+          display: 'grid', gridTemplateColumns: 'repeat(7, 1fr)',
+          borderBottom: '1px solid var(--border)', background: 'var(--bg)', flexShrink: 0,
+        }}>
           {dayNames.map((d, i) => (
-            <div key={i} style={{ padding: '8px 0', textAlign: 'center', fontSize: 11, fontWeight: 700, color: 'var(--text-3)' }}>{d}</div>
+            <div key={i} style={{
+              padding: '8px 0', textAlign: 'center',
+              fontSize: 11, fontWeight: 700, letterSpacing: '.5px',
+              color: 'var(--text-3)', textTransform: 'uppercase',
+            }}>{d}</div>
           ))}
         </div>
 
-        {/* Calendar grid — fills remaining card height */}
-        <div style={{ display: 'grid', gridTemplateColumns: 'repeat(7, 1fr)', gridTemplateRows: `repeat(${Math.ceil(totalCells / 7)}, 1fr)`, flex: 1, overflow: 'hidden' }}>
+        {/* Day grid */}
+        <div style={{
+          display: 'grid', gridTemplateColumns: 'repeat(7, 1fr)',
+          gridTemplateRows: `repeat(${Math.ceil(totalCells / 7)}, 1fr)`,
+          flex: 1, overflow: 'hidden',
+        }}>
           {Array.from({ length: totalCells }, (_, i) => {
-            const dayNum = i - startPad + 1;
-            const valid  = dayNum >= 1 && dayNum <= lastDay.getDate();
-            const d      = valid ? new Date(year, month, dayNum) : null;
+            const dayNum  = i - startPad + 1;
+            const valid   = dayNum >= 1 && dayNum <= lastDay.getDate();
+            const d       = valid ? new Date(year, month, dayNum) : null;
             const isToday = d && d.toDateString() === today.toDateString();
-            const dayTasks = d ? tasksForDay(d) : [];
             const isWknd  = d && isWeekend(d);
+            const dayEvts = d ? eventsForDay(d) : [];
 
             return (
-              <div key={i} style={{
-                padding: '4px 6px', overflow: 'hidden',
-                borderRight: '1px solid var(--border)',
-                borderBottom: '1px solid var(--border)',
-                background: !valid ? 'var(--bg)' : isWknd ? 'color-mix(in srgb, var(--border) 20%, var(--card))' : 'var(--card)',
-              }}>
+              <div
+                key={i}
+                onClick={valid ? () => setModal({ date: toIso(d) }) : undefined}
+                style={{
+                  padding: '6px 6px 4px', overflow: 'hidden', position: 'relative',
+                  borderRight: '1px solid var(--border)',
+                  borderBottom: '1px solid var(--border)',
+                  background: !valid
+                    ? 'var(--bg)'
+                    : isWknd
+                      ? 'color-mix(in srgb, var(--border) 18%, var(--card))'
+                      : 'var(--card)',
+                  cursor: valid ? 'pointer' : 'default',
+                  transition: 'background .15s',
+                }}
+                onMouseEnter={e => { if (valid) e.currentTarget.style.background = 'color-mix(in srgb, var(--accent) 6%, var(--card))'; }}
+                onMouseLeave={e => {
+                  if (!valid) return;
+                  e.currentTarget.style.background = isWknd
+                    ? 'color-mix(in srgb, var(--border) 18%, var(--card))'
+                    : 'var(--card)';
+                }}
+              >
                 {valid && (
                   <>
+                    {/* Date number */}
                     <div style={{
-                      fontWeight: isToday ? 800 : 500, fontSize: 12,
-                      color: isToday ? '#fff' : 'var(--text-2)',
-                      background: isToday ? 'var(--accent)' : 'transparent',
-                      borderRadius: isToday ? '50%' : 0,
-                      width: isToday ? 22 : 'auto', height: isToday ? 22 : 'auto',
-                      display: 'flex', alignItems: 'center', justifyContent: 'center',
+                      display: 'flex', alignItems: 'center',
+                      justifyContent: 'space-between',
                       marginBottom: 4,
                     }}>
-                      {dayNum}
+                      <div style={{
+                        fontWeight: isToday ? 800 : 600, fontSize: 12,
+                        color: isToday ? '#fff' : 'var(--text-2)',
+                        background: isToday ? 'var(--accent)' : 'transparent',
+                        borderRadius: isToday ? '50%' : 0,
+                        width: isToday ? 22 : 'auto', height: isToday ? 22 : 'auto',
+                        display: 'flex', alignItems: 'center', justifyContent: 'center',
+                      }}>
+                        {dayNum}
+                      </div>
+                      {/* Quick-add button — only visible when there's space */}
+                      {dayEvts.length === 0 && (
+                        <span style={{
+                          fontSize: 11, color: 'var(--text-3)', opacity: 0.6,
+                          fontWeight: 600, transition: 'opacity .15s',
+                        }}>+</span>
+                      )}
                     </div>
-                    <div style={{ display: 'flex', flexDirection: 'column', gap: 2 }}>
-                      {dayTasks.slice(0, 3).map(task => (
-                        <div key={task.id} title={task.name} style={{
-                          fontSize: 9, fontWeight: 600,
-                          background: (task.project_color || '#4f8ef7') + '33',
-                          color: task.project_color || '#4f8ef7',
-                          borderLeft: `2px solid ${task.project_color || '#4f8ef7'}`,
-                          borderRadius: '0 3px 3px 0', padding: '1px 4px',
-                          whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis',
-                        }}>
-                          {task.name}
+
+                    {/* Event chips */}
+                    <div style={{ display: 'flex', flexDirection: 'column', gap: 3 }}>
+                      {dayEvts.slice(0, 3).map(ev => {
+                        const color = ev.color || '#4f8ef7';
+                        const tm = !ev.all_day && ev.start_time ? ev.start_time + ' ' : '';
+                        const attCount = Array.isArray(ev.attendees) ? ev.attendees.length : 0;
+                        return (
+                          <button key={ev.id}
+                            type="button"
+                            onClick={e2 => { e2.stopPropagation(); setModal({ event: ev }); }}
+                            title={`${ev.title}${tm ? '  •  ' + tm : ''}${attCount ? '  •  ' + attCount + ' attendees' : ''}`}
+                            style={{
+                              all: 'unset',
+                              fontSize: 10, fontWeight: 600, cursor: 'pointer',
+                              background: color + '26',
+                              color, borderLeft: `3px solid ${color}`,
+                              borderRadius: '0 4px 4px 0',
+                              padding: '2px 6px', whiteSpace: 'nowrap',
+                              overflow: 'hidden', textOverflow: 'ellipsis',
+                              display: 'flex', alignItems: 'center', gap: 4,
+                              maxWidth: '100%',
+                            }}
+                          >
+                            {tm && <span style={{ opacity: 0.7, fontWeight: 500 }}>{tm}</span>}
+                            <span style={{ overflow: 'hidden', textOverflow: 'ellipsis', flex: 1 }}>
+                              {ev.title}
+                            </span>
+                            {attCount > 0 && (
+                              <span style={{
+                                fontSize: 9, fontWeight: 700, opacity: 0.85,
+                                background: color + '55', padding: '0 5px',
+                                borderRadius: 999, color,
+                              }}>
+                                👥{attCount}
+                              </span>
+                            )}
+                          </button>
+                        );
+                      })}
+                      {dayEvts.length > 3 && (
+                        <div style={{ fontSize: 9, color: 'var(--text-3)', paddingLeft: 4, fontWeight: 600 }}>
+                          {t('planning.moreCount', { n: dayEvts.length - 3 })}
                         </div>
-                      ))}
-                      {dayTasks.length > 3 && (
-                        <div style={{ fontSize: 9, color: 'var(--text-3)', paddingLeft: 4 }}>{t('planning.moreCount', { n: dayTasks.length - 3 })}</div>
                       )}
                     </div>
                   </>
@@ -1018,6 +1452,36 @@ function CalendarView({ tasks, projects }) {
           })}
         </div>
       </div>
+
+      {/* Event modal — create or edit */}
+      {modal && (
+        <Modal
+          title={modal.event ? t('planning.editEvent') : t('planning.newEvent')}
+          onClose={() => setModal(null)}
+          size="md"
+        >
+          <EventForm
+            initial={modal.event || null}
+            defaultDate={modal.date}
+            currentUserId={currentUserId}
+            onSave={() => { setModal(null); reload(); }}
+            onClose={() => setModal(null)}
+            onDelete={ev => setConfirmDel(ev)}
+          />
+        </Modal>
+      )}
+
+      {/* Delete confirmation */}
+      {confirmDel && (
+        <ConfirmModal
+          title={t('planning.deleteEvent')}
+          message={`${t('planning.deleteEventConfirm')} "${confirmDel.title}"?`}
+          confirmLabel={t('common.delete')}
+          confirmClass="btn-danger"
+          onConfirm={() => handleDelete(confirmDel)}
+          onCancel={() => setConfirmDel(null)}
+        />
+      )}
     </div>
   );
 }
@@ -1217,9 +1681,7 @@ export default function Planning() {
               onRefresh={reloadAll}
             />
           )}
-          {view === 'calendar' && (
-            <CalendarView tasks={safeTasks} projects={safeProjects} />
-          )}
+          {view === 'calendar' && <CalendarView />}
         </>
       )}
 

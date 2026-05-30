@@ -80,6 +80,51 @@ def test_idempotent_payment_is_recorded_once(db, make_client):
 
 
 @pytest.mark.concurrency
+def test_concurrent_invoice_creation_all_succeed(db, make_client):
+    """
+    Six DISTINCT users (each with invoices.create) create invoices for the same
+    client simultaneously. All six are valid requests, so all six must succeed
+    with unique invoice numbers — none may be rejected on a duplicate number.
+
+    Regression guard for the invoice-number race: invoice numbers are now
+    derived from each row's own AUTOINCREMENT id (insert-then-derive), so
+    concurrent creates can no longer compute the same number and collide on the
+    UNIQUE invoice_number constraint.
+
+    Distinct users matter: logging six clients in as the same account would trip
+    the single-active-session rule and 401 five of them, hiding the race.
+    """
+    # Roles that all carry invoices.create in the seeded permission matrix.
+    roles = ["superadmin", "Admin", "Manager", "Finance Manager",
+             "Accountant", "Sales Manager"]
+    clients = [make_client(r) for r in roles]
+
+    cr = clients[0].post("/api/clients/", json={"name": "Race Co"})
+    assert cr.status_code in (200, 201), cr.text
+    client_id = cr.json()["id"]
+
+    def _create(cl):
+        return cl.post("/api/invoices/", json={
+            "client_id": client_id, "project_id": None,
+            "items": [{"name": "Service", "quantity": 1, "unit_price": 100}],
+        })
+
+    results = _parallel([(lambda cl=cl: _create(cl)) for cl in clients])
+    codes = [r.status_code for r in results]
+
+    # Never a hard crash …
+    assert all(c < 500 for c in codes), f"concurrent creates 500'd (codes={codes})"
+    # … and every valid create must actually land (this is what the race breaks).
+    assert all(c in (200, 201) for c in codes), (
+        f"INVOICE-NUMBER RACE: only {sum(c in (200,201) for c in codes)}/"
+        f"{len(codes)} concurrent creates succeeded; the rest were rejected on a "
+        f"duplicate invoice_number (codes={codes})")
+
+    nums = [r.json().get("invoice_number") for r in results]
+    assert len(nums) == len(set(nums)), f"duplicate invoice_numbers issued: {nums}"
+
+
+@pytest.mark.concurrency
 def test_parallel_distinct_payments_are_all_recorded(db, make_client):
     """Five distinct concurrent payments must all land — no lost writes under contention."""
     c = make_client("superadmin")

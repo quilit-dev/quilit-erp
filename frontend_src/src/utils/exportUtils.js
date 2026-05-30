@@ -9,6 +9,21 @@
  *                        (uses item.discount_pct if present, else document-level discount_pct)
  */
 import * as XLSX from 'xlsx';
+import DOMPurify from 'dompurify';
+
+// Open a stored document snapshot in a new window for viewing / printing.
+// The HTML is sanitised first: snapshots are persisted server-side and any
+// authenticated user can save one, so the stored markup is untrusted. Legit
+// snapshots are pure markup + inline CSS (no scripts), so stripping scripts,
+// event handlers and javascript: URLs preserves print fidelity while
+// neutralising stored XSS.
+export function openSafeHtmlDocument(html) {
+  const clean = DOMPurify.sanitize(html || '', { WHOLE_DOCUMENT: true });
+  const w = window.open('', '_blank');
+  if (!w) return;
+  w.document.write(clean);
+  w.document.close();
+}
 
 // ─── Formatters ────────────────────────────────────────────────────────────────
 const fmtCurrency = (v, currency = 'USD', decimals = 2) =>
@@ -717,4 +732,162 @@ export async function exportInvoiceExcel(invoice, opts = {}) {
   XLSX.utils.book_append_sheet(wb, XLSX.utils.aoa_to_sheet(excelItemsSheet(items, C, docDiscountPct, CC)), 'Items');
   if (payRows.length) XLSX.utils.book_append_sheet(wb, XLSX.utils.aoa_to_sheet(payRows), 'Payments');
   XLSX.writeFile(wb, `${invoice.invoice_number || 'Invoice'}_export.xlsx`);
+}
+
+
+// ════════════════════════════════════════════════════════════════════════════
+// GENERIC REPORT PDF
+// ════════════════════════════════════════════════════════════════════════════
+// Used by the Reports module to print any tabular dataset as a clean,
+// branded PDF. Mirrors the Excel export contract — same `columns` array shape
+// — so the call sites stay symmetric.
+//
+//   exportReportPDF({
+//     title:    'Financial Report',
+//     subtitle: 'Q1 2026 · all departments',  // optional
+//     filename: 'financial_report.pdf',
+//     columns:  [{ label, value(row), align?, width? }, ...],
+//     rows:     [...],
+//     totals:   { label, columns: { colIndex: value } },  // optional footer row
+//     meta:     { ... }   // optional key/value pairs rendered above the table
+//   })
+
+export async function exportReportPDF({
+  title,
+  subtitle = '',
+  filename,
+  columns,
+  rows,
+  totals = null,
+  meta = null,
+}) {
+  // Resolve company branding from settings — same lookup the document
+  // exports use, so report headers match invoices/quotations visually.
+  const [settings, logoSrc] = await Promise.all([getSettings(), getLogoDataURL()]);
+  const companyName = (settings.company_name || 'Company').toString();
+  const companySub = [settings.company_city, settings.company_country]
+    .filter(Boolean).join(', ');
+  const dateLabel = new Date().toLocaleDateString(undefined, {
+    year: 'numeric', month: 'short', day: 'numeric',
+  });
+
+  const headerHTML = `
+    <header class="rpt-hdr">
+      ${logoSrc ? `<img class="rpt-logo" src="${logoSrc}" alt="logo" />` : ''}
+      <div class="rpt-co">
+        <div class="rpt-co-name">${escape(companyName)}</div>
+        ${companySub ? `<div class="rpt-co-sub">${escape(companySub)}</div>` : ''}
+      </div>
+      <div class="rpt-doc">
+        <div class="rpt-doc-title">${escape(title)}</div>
+        ${subtitle ? `<div class="rpt-doc-sub">${escape(subtitle)}</div>` : ''}
+        <div class="rpt-doc-date">${escape(dateLabel)}</div>
+      </div>
+    </header>
+  `;
+
+  const metaHTML = meta && Object.keys(meta).length
+    ? `<div class="rpt-meta">
+         ${Object.entries(meta).map(([k, v]) =>
+           `<div class="rpt-meta-cell"><span class="rpt-meta-k">${escape(k)}</span><span class="rpt-meta-v">${escape(String(v ?? '—'))}</span></div>`
+         ).join('')}
+       </div>`
+    : '';
+
+  const colHTML = columns.map(c =>
+    `<col style="${c.width ? `width:${c.width};` : ''}" />`).join('');
+  const theadHTML = `<tr>${columns.map(c =>
+    `<th class="rpt-th rpt-${c.align || 'left'}">${escape(c.label)}</th>`
+  ).join('')}</tr>`;
+  const tbodyHTML = (rows || []).map(r => `<tr>${columns.map(c => {
+    const v = c.value(r);
+    return `<td class="rpt-td rpt-${c.align || 'left'}">${formatCell(v)}</td>`;
+  }).join('')}</tr>`).join('');
+
+  const tfootHTML = totals
+    ? `<tr class="rpt-totals">${columns.map((c, i) => {
+        if (i === 0 && totals.label) {
+          return `<td class="rpt-td rpt-left rpt-bold">${escape(totals.label)}</td>`;
+        }
+        const v = totals.columns?.[i];
+        return `<td class="rpt-td rpt-${c.align || 'left'} rpt-bold">${
+          v == null ? '' : formatCell(v)
+        }</td>`;
+      }).join('')}</tr>`
+    : '';
+
+  const emptyHTML = (rows || []).length === 0
+    ? `<div class="rpt-empty">No data available for this report.</div>`
+    : '';
+
+  const html = `<!doctype html><html><head><meta charset="utf-8">
+<title>${escape(filename || title)}</title>
+<style>
+  ${SHARED_CSS}
+  body { padding: 18px 22px; }
+  .rpt-hdr {
+    display: flex; align-items: center; gap: 14px;
+    padding-bottom: 12px; margin-bottom: 14px;
+    border-bottom: 2px solid var(--brand);
+  }
+  .rpt-logo { width: 44px; height: 44px; object-fit: contain; }
+  .rpt-co { flex: 1; }
+  .rpt-co-name { font-size: 14px; font-weight: 700; color: var(--text); letter-spacing: -.2px; }
+  .rpt-co-sub  { font-size: 9.5px; color: var(--text-muted); margin-top: 1px; }
+  .rpt-doc { text-align: right; }
+  .rpt-doc-title { font-size: 16px; font-weight: 700; color: var(--brand); letter-spacing: -.3px; }
+  .rpt-doc-sub   { font-size: 9.5px; color: var(--text-mid); margin-top: 2px; }
+  .rpt-doc-date  { font-size: 9px; color: var(--text-muted); margin-top: 2px; }
+  .rpt-meta { display: flex; flex-wrap: wrap; gap: 14px; margin: 0 0 12px; padding: 8px 10px;
+              background: var(--bg-alt); border: 1px solid var(--border); border-radius: 4px; }
+  .rpt-meta-cell { display: flex; flex-direction: column; gap: 1px; min-width: 100px; }
+  .rpt-meta-k { font-size: 8px; text-transform: uppercase; letter-spacing: .5px; color: var(--text-muted); font-weight: 600; }
+  .rpt-meta-v { font-size: 10.5px; color: var(--text); font-weight: 600; }
+  table.rpt-tbl { width: 100%; border-collapse: collapse; font-size: 9.5px; }
+  .rpt-th { background: var(--brand); color: #fff; font-weight: 600;
+            padding: 6px 8px; text-transform: uppercase; letter-spacing: .3px; font-size: 8.5px; }
+  .rpt-td { padding: 5px 8px; border-bottom: 1px solid var(--border); }
+  tbody tr:nth-child(even) .rpt-td { background: var(--bg-alt); }
+  .rpt-left   { text-align: left; }
+  .rpt-right  { text-align: right; font-variant-numeric: tabular-nums; }
+  .rpt-center { text-align: center; }
+  .rpt-bold   { font-weight: 700; color: var(--text); }
+  .rpt-totals .rpt-td {
+    border-top: 2px solid var(--brand); border-bottom: none;
+    background: var(--brand-subtle); padding: 7px 8px;
+  }
+  .rpt-empty { padding: 24px; text-align: center; color: var(--text-muted); font-style: italic;
+               border: 1px dashed var(--border); border-radius: 4px; }
+  @media print { @page { margin: 14mm 12mm; size: A4 portrait; } body { padding: 0; } }
+</style>
+</head><body>
+  ${headerHTML}
+  ${metaHTML}
+  ${rows && rows.length ? `
+    <table class="rpt-tbl">
+      <colgroup>${colHTML}</colgroup>
+      <thead>${theadHTML}</thead>
+      <tbody>${tbodyHTML}</tbody>
+      ${tfootHTML ? `<tfoot>${tfootHTML}</tfoot>` : ''}
+    </table>` : emptyHTML}
+</body></html>`;
+
+  printHTML(html, filename || `${title}.pdf`);
+}
+
+// Small helpers used by the report PDF.
+function escape(s) {
+  return String(s ?? '')
+    .replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;')
+    .replace(/"/g, '&quot;').replace(/'/g, '&#39;');
+}
+function formatCell(v) {
+  if (v == null) return '—';
+  if (typeof v === 'number' && Number.isFinite(v)) {
+    return escape(v.toLocaleString(undefined, {
+      minimumFractionDigits: Number.isInteger(v) ? 0 : 2,
+      maximumFractionDigits: 2,
+    }));
+  }
+  return escape(String(v));
 }

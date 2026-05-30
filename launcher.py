@@ -5,6 +5,19 @@ import sys, os, time, socket, threading, webbrowser, traceback
 
 NO_BROWSER = '--no-browser' in sys.argv
 
+# Honour `backend/.env` exactly like `backend/main.py` does — without this,
+# COOKIE_SECURE / SECRET_KEY / etc. silently fall back to defaults, and
+# `Secure`-flagged cookies get dropped by browsers on plain-HTTP LAN access
+# (the localhost-only exception means same-machine login still works,
+# masking the bug until a second PC tries to connect).
+try:
+    from dotenv import load_dotenv
+    _env_path = os.path.join(os.path.dirname(os.path.abspath(__file__)), 'backend', '.env')
+    if os.path.exists(_env_path):
+        load_dotenv(_env_path)
+except ImportError:
+    pass  # python-dotenv missing in a frozen build — env vars still work via OS
+
 # ── Paths ──────────────────────────────────────────────────────────────────
 # When frozen by PyInstaller (onedir):
 #   - Read-only bundled files (backend .py, static) live in sys._MEIPASS
@@ -94,8 +107,9 @@ try:
                          inventory, invoices, finance, purchases, settings,
                          archives, documents, suppliers, audit, users, roles, search, reports, crm, planning,
                          notifications, approval_policies, approval_requests, hr,
-                         recycle_bin, tax_rates, pos, cash, manufacturing,
-                         assets, recurring)
+                         hr_contracts, recruitment, hr_activities,
+                         tax_rates, pos, cash, manufacturing,
+                         assets, recurring, announcements, attachments, accounting)
     import database
     import backup_manager
     backup_manager.init(DB_PATH)
@@ -108,6 +122,10 @@ try:
                                       f'http://127.0.0.1:{PORT}',
                                       f'http://{LAN_IP}:{PORT}'],
                        allow_credentials=False, allow_methods=['*'], allow_headers=['*'])
+
+    # Bad-input safety net: known failures -> clean 4xx instead of 500.
+    from error_handlers import register_error_handlers
+    register_error_handlers(app)
 
     app.include_router(auth.router,               prefix='/api/auth')
     app.include_router(dashboard.router,          prefix='/api/dashboard')
@@ -133,13 +151,18 @@ try:
     app.include_router(approval_policies.router,  prefix='/api/approval-policies')
     app.include_router(approval_requests.router,  prefix='/api/approval-requests')
     app.include_router(hr.router,                 prefix='/api/hr')
-    app.include_router(recycle_bin.router,        prefix='/api/recycle_bin')
+    app.include_router(hr_contracts.router,       prefix='/api/hr/contracts')
+    app.include_router(recruitment.router,        prefix='/api/recruitment')
+    app.include_router(hr_activities.router,      prefix='/api/hr-activities')
     app.include_router(tax_rates.router,          prefix='/api/tax-rates')
     app.include_router(pos.router,                prefix='/api/pos')
     app.include_router(cash.router,               prefix='/api/cash')
     app.include_router(manufacturing.router,      prefix='/api/manufacturing')
     app.include_router(assets.router,             prefix='/api/assets')
     app.include_router(recurring.router,          prefix='/api/recurring-expenses')
+    app.include_router(announcements.router,      prefix='/api/announcements')
+    app.include_router(attachments.router,        prefix='/api/attachments')
+    app.include_router(accounting.router,         prefix='/api/accounting')
 
     @app.get('/api/health')
     def health():

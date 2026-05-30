@@ -6,7 +6,7 @@ import { useSettings } from '../hooks/useSettings';
 import {
   getQuotations, getQuotation, getClients, getProjects, getInventory,
   createQuotation, updateQuotation, cancelQuotation, archiveQuotation,
-  convertToInvoice, convertToProject,
+  convertToInvoice, convertToProject, getCRMLeads,
 } from '../api/client';
 import {
   LoadingSpinner, ErrorAlert, EmptyState, Modal, ConfirmModal,
@@ -15,13 +15,15 @@ import {
 } from '../components/shared';
 import { exportQuotationPDF, exportQuotationExcel } from '../utils/exportUtils';
 import { useLocale } from '../hooks/useLocale.jsx';
+import { usePermissions } from '../hooks/usePermissions';
+import Attachments from '../components/Attachments.jsx';
 import InventoryCombobox from '../components/InventoryCombobox';
 import { useSortPaginate } from '../hooks/useSortPaginate';
 import { useRecordExport } from '../hooks/useRecordExport';
 
 const STATUSES   = ['Draft', 'Sent', 'Accepted', 'Rejected'];
 const EMPTY_ITEM = { name: '', quantity: 1, unit_price: 0, tax_rate_id: null };
-const makeEmpty  = () => ({ client_id: '', project_id: '', project_name: '', status: 'Draft', notes: '', items: [{ ...EMPTY_ITEM }] });
+const makeEmpty  = () => ({ client_id: '', lead_id: '', project_id: '', project_name: '', status: 'Draft', notes: '', items: [{ ...EMPTY_ITEM }] });
 
 const menuItemStyle = {
   display: 'flex', alignItems: 'center', gap: 8, width: '100%', padding: '8px 14px',
@@ -122,9 +124,13 @@ function QuoteActionMenu({ exporting, onEdit, onExport, onCancel, onArchive }) {
 
 export default function Quotations() {
   const { t, tStatus } = useLocale();
+  const { can } = usePermissions();
   const navigate = useNavigate();
   const { data: quotations, loading, error, reload } = useData(getQuotations);
   const { data: clients,  loading: cLoading,  reload: reloadClients }  = useData(getClients);
+  // Quotations can also be addressed to CRM leads — load active (non-archived)
+  // leads alongside the client list so the picker covers both.
+  const { data: leads,    loading: lLoading,  reload: reloadLeads }    = useData((s) => getCRMLeads({}, s));
   const { data: projects, loading: pLoading, reload: reloadProjects } = useData(getProjects);
   const { data: inventory } = useData(getInventory);
   const { settings, exchangeRate, displayCurrency, taxRates } = useSettings();
@@ -150,17 +156,18 @@ export default function Quotations() {
   });
 
   function openCreate() {
-    reloadClients(); reloadProjects();
+    reloadClients(); reloadLeads(); reloadProjects();
     setForm(makeEmpty()); setEditId(null); setModalOpen(true);
   }
 
   async function openEdit(q) {
-    reloadClients(); reloadProjects();
+    reloadClients(); reloadLeads(); reloadProjects();
     setEditId(q.id); setFormLoading(true); setModalOpen(true);
     try {
       const full = await getQuotation(q.id);
       setForm({
         client_id:  full.client_id  ?? '',
+        lead_id:    full.lead_id    ?? '',
         project_id:   full.project_id   ?? '',
         project_name: full.project_name  || '',
         status:     full.status || 'Draft',
@@ -207,6 +214,7 @@ export default function Quotations() {
     try {
       const payload = {
         client_id:    form.client_id    ? Number(form.client_id)  : null,
+        lead_id:      form.lead_id      ? Number(form.lead_id)    : null,
         project_id:   form.project_id   ? Number(form.project_id) : null,
         project_name: (!form.project_id && form.project_name.trim()) ? form.project_name.trim() : null,
         status: form.status, notes: form.notes || null,
@@ -263,18 +271,19 @@ export default function Quotations() {
     if (statusFilter  && q.status !== statusFilter) return false;
     if (clientFilter  && String(q.client_id) !== clientFilter) return false;
     if (projectFilter && String(q.project_id) !== projectFilter) return false;
-    if (q2 && ![q.quote_number, q.client_name, q.project_name, q.notes]
+    if (q2 && ![q.quote_number, q.client_name, q.lead_name, q.lead_company,
+                q.project_name, q.notes]
                 .join(' ').toLowerCase().includes(q2)) return false;
     return true;
   });
-  const dropdownsReady = !cLoading && !pLoading;
+  const dropdownsReady = !cLoading && !lLoading && !pLoading;
 
   const { sorted: pagedQuotations, page, pageSize, totalPages, setPage, setPageSize, sortKey, sortDir, requestSort, PAGE_SIZES } = useSortPaginate(filtered);
 
   const exportData = (filtered || []).map(q => ({
     'Quote #':               q.quote_number,
     'Status':                q.status,
-    'Client':                q.client_name  || '—',
+    'Client':                q.client_name  || (q.lead_name ? `${q.lead_name} (lead)` : '—'),
     'Project':               q.project_name || '—',
     'Total excl. VAT (USD)': q.total        || 0,
     ...(taxEnabled ? { 'Total incl. VAT (USD)': q.total_with_tax ?? q.total ?? 0 } : {}),
@@ -368,7 +377,18 @@ export default function Quotations() {
                   return (
                     <tr key={q.id}>
                       <td className="td-primary text-mono">{q.quote_number}</td>
-                      <td>{q.client_name  || '—'}</td>
+                      <td>
+                        {q.client_name
+                          ? q.client_name
+                          : q.lead_name
+                            ? <span>{q.lead_name}
+                                <span className="badge badge-yellow" style={{ marginInlineStart: 6, fontSize: 10 }}>Lead</span>
+                                {q.lead_company && (
+                                  <span style={{ display: 'block', fontSize: 11, color: 'var(--text-3)' }}>{q.lead_company}</span>
+                                )}
+                              </span>
+                            : '—'}
+                      </td>
                       <td>
                         {q.project_name
                           ? <span>{q.project_name}{!q.project_id && <span style={{ marginLeft:5, fontSize:10, color:'var(--text-3)', fontStyle:'italic' }}>{t('quotations.pending')}</span>}</span>
@@ -386,8 +406,8 @@ export default function Quotations() {
                       <td>
                         <div style={{ display:'flex', gap:6, alignItems:'center', justifyContent:'flex-end' }}>
                           <WhatsAppShareButton
-                            phone={q.client_phone}
-                            message={`Hello${q.client_name ? `, ${q.client_name}` : ''}, please find our quotation ${q.quote_number} for ${fmt(q.total_with_tax ?? q.total)}. Looking forward to your feedback.`}
+                            phone={q.client_phone || q.lead_phone}
+                            message={`Hello${(q.client_name || q.lead_name) ? `, ${q.client_name || q.lead_name}` : ''}, please find our quotation ${q.quote_number} for ${fmt(q.total_with_tax ?? q.total)}. Looking forward to your feedback.`}
                           />
                           {q.invoice_count === 0 && (
                             <button
@@ -444,9 +464,26 @@ export default function Quotations() {
                       {!(clients||[]).length && <span style={{ color:'var(--yellow)', marginLeft:6, fontSize:12 }}>{t('quotations.noneYet')}</span>}
                     </label>
                     <select className="form-control" value={form.client_id}
-                      onChange={e => setForm(f => ({ ...f, client_id: e.target.value }))}>
+                      onChange={e => setForm(f => ({ ...f, client_id: e.target.value, lead_id: e.target.value ? '' : f.lead_id }))}>
                       <option value="">{t('quotations.selectClientOption')}</option>
                       {(clients||[]).map(c => <option key={c.id} value={c.id}>{c.name}</option>)}
+                    </select>
+                  </div>
+                  <div className="form-group">
+                    <label className="form-label">
+                      Lead
+                      <span style={{ color:'var(--text-3)', marginLeft:6, fontSize:11, fontStyle:'italic' }}>
+                        (instead of a client)
+                      </span>
+                    </label>
+                    <select className="form-control" value={form.lead_id}
+                      onChange={e => setForm(f => ({ ...f, lead_id: e.target.value, client_id: e.target.value ? '' : f.client_id }))}>
+                      <option value="">— None —</option>
+                      {(leads||[]).map(l => (
+                        <option key={l.id} value={l.id}>
+                          {l.name}{l.company ? ` — ${l.company}` : ''}
+                        </option>
+                      ))}
                     </select>
                   </div>
                   <div className="form-group">
@@ -527,6 +564,12 @@ export default function Quotations() {
                   </div>
                 </div>
               </div>
+
+              {editId && (
+                <div style={{ marginTop: 16, paddingTop: 16, borderTop: '1px solid var(--border)' }}>
+                  <Attachments entityType="quotations" entityId={editId} canEdit={can('quotations', 'edit')} />
+                </div>
+              )}
 
               <div className="modal-footer">
                 <button type="button" className="btn btn-secondary" onClick={closeModal}>{t('common.cancel')}</button>

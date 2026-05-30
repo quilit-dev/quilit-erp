@@ -10,6 +10,8 @@ import {
 import { useSortPaginate } from '../hooks/useSortPaginate';
 import { useLocale } from '../hooks/useLocale.jsx';
 import { useSettings } from '../hooks/useSettings.jsx';
+import { usePermissions } from '../hooks/usePermissions';
+import Attachments from '../components/Attachments.jsx';
 import RecurringExpensesPanel from '../components/RecurringExpensesPanel';
 
 const CATEGORIES = EXPENSE_CATEGORIES;
@@ -20,6 +22,7 @@ function TransactionsPanel() {
   const { data: cashDrawersData } = useData(getCashDrawers);
   const cashDrawers = (cashDrawersData || []).filter(d => d.is_active);
   const { t } = useLocale();
+  const { can } = usePermissions();
   const { settings, taxRates } = useSettings();
   const taxEnabled     = settings?.tax_enabled === '1';
   const activeTaxRates = (taxRates || []).filter(r => r.is_active);
@@ -381,6 +384,11 @@ function TransactionsPanel() {
                     onChange={e => setForm(f => ({ ...f, description: e.target.value }))} />
                 </div>
               </div>
+              {editId && (
+                <div style={{ marginTop: 8, paddingTop: 14, borderTop: '1px solid var(--border)' }}>
+                  <Attachments entityType="expenses" entityId={editId} canEdit={can('expenses', 'edit')} />
+                </div>
+              )}
             </div>
             <div className="modal-footer">
               <button type="button" className="btn btn-secondary" onClick={() => { setModal(false); setEditId(null); }}>{t('common.cancel')}</button>

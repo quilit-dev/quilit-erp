@@ -16,11 +16,16 @@ import os
 
 from routers import clients, projects, quotations, inventory, invoices, finance, dashboard, auth
 from routers import purchases, settings, archives, documents, suppliers, audit, users, roles, search
-from routers import reports, crm, planning, recycle_bin, notifications
-from routers import approval_policies, approval_requests, hr, tax_rates, pos, cash, manufacturing
-from routers import assets, recurring
+from routers import reports, crm, planning, notifications
+from routers import approval_policies, approval_requests, hr, hr_contracts, recruitment, hr_activities, tax_rates, pos, cash, manufacturing
+from routers import assets, recurring, announcements, attachments, accounting
 
 app = FastAPI(title="ERP System", version="2.0.0")
+
+# Turn known bad-input failures (bad FKs, absurd amounts) into clean 4xx
+# instead of 500s — see error_handlers.py.
+from error_handlers import register_error_handlers
+register_error_handlers(app)
 
 # Allow origins from env var (comma-separated) or fall back to localhost for dev
 _raw_origins = os.environ.get("ALLOWED_ORIGINS", "http://localhost:5173,http://localhost:3000")
@@ -54,17 +59,22 @@ app.include_router(search.router,        prefix="/api/search",         tags=["se
 app.include_router(reports.router,       prefix="/api/reports",        tags=["reports"])
 app.include_router(crm.router,           prefix="/api/crm",            tags=["crm"])
 app.include_router(planning.router,      prefix="/api/planning",       tags=["planning"])
-app.include_router(recycle_bin.router,    prefix="/api/recycle_bin",     tags=["recycle_bin"])
 app.include_router(notifications.router,     prefix="/api/notifications",      tags=["notifications"])
 app.include_router(approval_policies.router, prefix="/api/approval-policies",  tags=["approvals"])
 app.include_router(approval_requests.router, prefix="/api/approval-requests",  tags=["approvals"])
 app.include_router(hr.router,                prefix="/api/hr",                 tags=["hr"])
+app.include_router(hr_contracts.router,      prefix="/api/hr/contracts",       tags=["hr"])
+app.include_router(recruitment.router,       prefix="/api/recruitment",        tags=["recruitment"])
+app.include_router(hr_activities.router,     prefix="/api/hr-activities",      tags=["hr"])
 app.include_router(tax_rates.router,         prefix="/api/tax-rates",          tags=["tax"])
 app.include_router(pos.router,               prefix="/api/pos",                tags=["pos"])
 app.include_router(cash.router,              prefix="/api/cash",               tags=["cash"])
 app.include_router(manufacturing.router,     prefix="/api/manufacturing",      tags=["manufacturing"])
 app.include_router(assets.router,            prefix="/api/assets",             tags=["assets"])
 app.include_router(recurring.router,         prefix="/api/recurring-expenses", tags=["expenses"])
+app.include_router(announcements.router,      prefix="/api/announcements",      tags=["announcements"])
+app.include_router(attachments.router,        prefix="/api/attachments",        tags=["attachments"])
+app.include_router(accounting.router,         prefix="/api/accounting",         tags=["accounting"])
 
 @app.get("/")
 def root():

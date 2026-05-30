@@ -3,6 +3,7 @@ import { useState, useEffect, useCallback } from 'react';
 import {
   createInventoryItem, updateInventoryItem,
   archiveInventoryItem, updateStock, getStockMovements,
+  getLots, getLot,
 } from '../api/client';
 import {
   LoadingSpinner, ErrorAlert, EmptyState, Modal, ConfirmModal,
@@ -58,6 +59,8 @@ function ItemForm({ initial = {}, knownCategories = [], onSave, onCancel, saving
     supplier:       initial.supplier   || '',
     unit:           initial.unit       || 'pcs',
     barcode:        initial.barcode    || '',
+    lot_tracked:    !!initial.lot_tracked,
+    shelf_life_days: initial.shelf_life_days ?? '',
   });
 
   const useCustom = form.category === '__custom__';
@@ -66,7 +69,12 @@ function ItemForm({ initial = {}, knownCategories = [], onSave, onCancel, saving
   function submit(e) {
     e.preventDefault();
     const category = useCustom ? form.customCategory.trim() : form.category.trim();
-    onSave({ ...form, category: category || null, product_type: form.product_type || null });
+    onSave({
+      ...form, category: category || null, product_type: form.product_type || null,
+      lot_tracked: !!form.lot_tracked,
+      shelf_life_days: form.shelf_life_days === '' || form.shelf_life_days == null
+        ? null : Number(form.shelf_life_days),
+    });
   }
 
   return (
@@ -107,14 +115,14 @@ function ItemForm({ initial = {}, knownCategories = [], onSave, onCancel, saving
           {!isEdit && (
             <div className="form-group">
               <label className="form-label">{t('inventory.initialQuantity')}</label>
-              <input className="form-control" type="number" step="any" min="0"
+              <input className="form-control" type="number" step="1" min="0"
                 value={form.quantity} onChange={e => set('quantity', e.target.value)} />
             </div>
           )}
 
           <div className="form-group">
             <label className="form-label">{t('inventory.minStockAlert')}</label>
-            <input className="form-control" type="number" step="any" min="0"
+            <input className="form-control" type="number" step="1" min="0"
               value={form.min_stock} onChange={e => set('min_stock', e.target.value)} />
           </div>
 
@@ -149,6 +157,23 @@ function ItemForm({ initial = {}, knownCategories = [], onSave, onCancel, saving
             <input className="form-control" value={form.barcode}
               placeholder={t('inventory.barcodePlaceholder')}
               onChange={e => set('barcode', e.target.value)} />
+          </div>
+
+          <div className="form-group form-full" style={{ borderTop: '1px solid var(--border)', paddingTop: 12 }}>
+            <label style={{ display: 'flex', alignItems: 'center', gap: 8, fontSize: 13 }}>
+              <input type="checkbox" checked={form.lot_tracked} onChange={e => set('lot_tracked', e.target.checked)} />
+              {t('inventory.lotTracked')}
+              <span style={{ fontSize: 11.5, color: 'var(--text-3)' }}>{t('inventory.lotTrackedHint')}</span>
+            </label>
+            {form.lot_tracked && (
+              <div style={{ marginTop: 8, maxWidth: 240 }}>
+                <label className="form-label">{t('inventory.shelfLifeDays')}</label>
+                <input className="form-control" type="number" min="0" step="1"
+                  value={form.shelf_life_days}
+                  onChange={e => set('shelf_life_days', e.target.value)}
+                  placeholder={t('inventory.shelfLifeHint')} />
+              </div>
+            )}
           </div>
         </div>
       </div>
@@ -191,7 +216,7 @@ function StockForm({ item, onDone, onCancel }) {
         <div className="form-grid">
           <div className="form-group form-full">
             <label className="form-label">{t('inventory.qtyChange')}</label>
-            <input className="form-control" type="number" step="any" required
+            <input className="form-control" type="number" step="1" required
               placeholder="e.g. 10 or -5"
               value={delta} onChange={e => setDelta(e.target.value)} />
           </div>
@@ -272,8 +297,138 @@ function MovementsModal({ item, onClose }) {
   );
 }
 
+// ── Lots & Expiry browser ────────────────────────────────────────────────────
+const LOT_STATUS_BADGE = {
+  expired:  { cls: 'badge-red',    key: 'inventory.expExpired' },
+  expiring: { cls: 'badge-yellow', key: 'inventory.expExpiring' },
+  ok:       { cls: 'badge-green',  key: 'inventory.expOk' },
+  none:     { cls: 'badge-muted',  key: null },
+};
+
+function LotTraceModal({ lotId, onClose }) {
+  const { t } = useLocale();
+  const [lot, setLot] = useState(null);
+  useEffect(() => { getLot(lotId).then(setLot).catch(e => toast(e.message, 'red')); }, [lotId]);
+  return (
+    <Modal title={lot ? `${t('inventory.lotNumber')} · ${lot.lot_number}` : t('inventory.trace')}
+           onClose={onClose} size="modal-lg">
+      <div className="modal-body">
+        {!lot ? <LoadingSpinner /> : (
+          <>
+            <div style={{ fontSize: 13, marginBottom: 12 }}>
+              <strong>{lot.item_name}</strong> · {t('inventory.lotRemaining')}: {lot.quantity_remaining} {lot.item_unit} · ${fmtNum(lot.unit_cost)}/u
+              <div style={{ color: 'var(--text-3)', marginTop: 4 }}>
+                {t('inventory.mfgDate')}: {lot.manufacture_date || '—'} · {t('inventory.lotExpiry')}: {lot.expiry_date || '—'}
+                {lot.source_ref ? ` · ${lot.source_type}: ${lot.source_ref}` : ''}
+              </div>
+            </div>
+
+            <h4 style={{ fontSize: 14, margin: '12px 0 4px' }}>{t('inventory.madeFrom')}</h4>
+            {(!lot.made_from || lot.made_from.length === 0)
+              ? <p style={{ color: 'var(--text-3)', fontSize: 13, margin: 0 }}>—</p>
+              : (<table className="table" style={{ fontSize: 12 }}><tbody>
+                  {lot.made_from.map((m, i) => (
+                    <tr key={i}>
+                      <td>{m.input_item_name}</td>
+                      <td className="text-mono">{m.input_lot_number}</td>
+                      <td style={{ textAlign: 'end' }}>{m.quantity}</td>
+                    </tr>
+                  ))}
+                </tbody></table>)}
+
+            <h4 style={{ fontSize: 14, margin: '14px 0 4px' }}>{t('inventory.usedIn')}</h4>
+            {(!lot.used_in || lot.used_in.length === 0)
+              ? <p style={{ color: 'var(--text-3)', fontSize: 13, margin: 0 }}>—</p>
+              : (<table className="table" style={{ fontSize: 12 }}>
+                  <thead><tr>
+                    <th>{t('inventory.lotDate')}</th><th>{t('inventory.lotUse')}</th>
+                    <th>{t('inventory.lotDest')}</th><th style={{ textAlign: 'end' }}>{t('inventory.qty')}</th>
+                  </tr></thead>
+                  <tbody>
+                    {lot.used_in.map((u, i) => (
+                      <tr key={i}>
+                        <td>{(u.created_at || '').slice(0, 10)}</td>
+                        <td style={{ textTransform: 'capitalize' }}>{u.source_type}</td>
+                        <td style={{ color: 'var(--text-3)' }}>
+                          {u.output_item_name
+                            ? `→ ${u.output_item_name} (${u.output_lot_number || ''})`
+                            : (u.order_number || u.source_ref || '—')}
+                        </td>
+                        <td style={{ textAlign: 'end' }}>{u.quantity}</td>
+                      </tr>
+                    ))}
+                  </tbody>
+                </table>)}
+          </>
+        )}
+      </div>
+      <div className="modal-footer">
+        <button className="btn btn-secondary" onClick={onClose}>{t('common.close')}</button>
+      </div>
+    </Modal>
+  );
+}
+
+function LotsBrowser() {
+  const { t } = useLocale();
+  const [rows, setRows] = useState(null);
+  const [expiringOnly, setExpiringOnly] = useState(false);
+  const [detailId, setDetailId] = useState(null);
+
+  const load = useCallback(() => {
+    getLots(expiringOnly ? { expiring: true } : {})
+      .then(setRows).catch(e => { toast(e.message, 'red'); setRows([]); });
+  }, [expiringOnly]);
+  useEffect(() => { load(); }, [load]);
+
+  return (
+    <div className="card">
+      <div className="card-header" style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+        <span className="card-title">{t('inventory.tabLots')}</span>
+        <label style={{ display: 'flex', alignItems: 'center', gap: 6, fontSize: 13, cursor: 'pointer' }}>
+          <input type="checkbox" checked={expiringOnly} onChange={e => setExpiringOnly(e.target.checked)} />
+          {t('inventory.expiringOnly')}
+        </label>
+      </div>
+      {!rows ? <LoadingSpinner /> : rows.length === 0 ? (
+        <EmptyState message={t('inventory.noLots')} />
+      ) : (
+        <div className="table-wrap">
+          <table>
+            <thead><tr>
+              <th>{t('inventory.lotNumber')}</th><th>{t('inventory.itemName')}</th>
+              <th>{t('inventory.lotRemaining')}</th><th>{t('inventory.unitCost')}</th>
+              <th>{t('inventory.lotExpiry')}</th><th>{t('inventory.expStatus')}</th><th></th>
+            </tr></thead>
+            <tbody>
+              {rows.map(l => {
+                const b = LOT_STATUS_BADGE[l.expiry_status] || LOT_STATUS_BADGE.none;
+                return (
+                  <tr key={l.id}>
+                    <td className="text-mono">{l.lot_number}</td>
+                    <td className="td-primary">{l.item_name}</td>
+                    <td>{l.quantity_remaining} {l.item_unit}</td>
+                    <td>${fmtNum(l.unit_cost)}</td>
+                    <td>{l.expiry_date || '—'}</td>
+                    <td>{b.key ? <span className={`badge ${b.cls}`}>{t(b.key)}</span> : <span style={{ color: 'var(--text-3)' }}>—</span>}</td>
+                    <td style={{ textAlign: 'end' }}>
+                      <button className="btn btn-sm btn-secondary" onClick={() => setDetailId(l.id)}>{t('inventory.trace')}</button>
+                    </td>
+                  </tr>
+                );
+              })}
+            </tbody>
+          </table>
+        </div>
+      )}
+      {detailId && <LotTraceModal lotId={detailId} onClose={() => setDetailId(null)} />}
+    </div>
+  );
+}
+
 export default function Inventory() {
   const { t } = useLocale();
+  const [view, setView] = useState('items');   // 'items' | 'lots'
   const [search, setSearch] = usePersistedState('inventory.search', '');
   const [categoryFilter, setCategoryFilter] = usePersistedState('inventory.categoryFilter', '');
   const [lowStockOnly,   setLowStockOnly]   = useState(false);
@@ -370,14 +525,22 @@ export default function Inventory() {
             {lowCount > 0 && <span style={{ color: 'var(--red)', marginLeft: 8 }}>· ⚠ {lowCount} {t('inventory.lowStock')}</span>}
           </p>
         </div>
-        <div style={{ display: 'flex', gap: 8 }}>
-          <ExportButton data={exportData} filename="Inventory" sheetName="Inventory" />
-          <button className="btn btn-primary" onClick={() => setModal('add')}>{t('inventory.addItem')}</button>
+        <div style={{ display: 'flex', gap: 8, alignItems: 'center' }}>
+          <div style={{ display: 'flex', gap: 4 }}>
+            <button className={`btn btn-sm ${view === 'items' ? 'btn-primary' : 'btn-secondary'}`}
+              onClick={() => setView('items')}>{t('inventory.tabItems')}</button>
+            <button className={`btn btn-sm ${view === 'lots' ? 'btn-primary' : 'btn-secondary'}`}
+              onClick={() => setView('lots')}>{t('inventory.tabLots')}</button>
+          </div>
+          {view === 'items' && <ExportButton data={exportData} filename="Inventory" sheetName="Inventory" />}
+          {view === 'items' && <button className="btn btn-primary" onClick={() => setModal('add')}>{t('inventory.addItem')}</button>}
         </div>
       </div>
 
+      {view === 'lots' && <LotsBrowser />}
+
       {/* Filters */}
-      <div className="card" style={{ marginBottom: 16 }}>
+      {view === 'items' && <div className="card" style={{ marginBottom: 16 }}>
         <div style={{ padding: '12px 16px', display: 'flex', gap: 10, flexWrap: 'wrap', alignItems: 'center' }}>
           <div style={{ position: 'relative', flex: '1 1 180px', minWidth: 160 }}>
             <svg style={{ position: 'absolute', left: 10, top: '50%', transform: 'translateY(-50%)', color: 'var(--text-3)' }}
@@ -408,10 +571,10 @@ export default function Inventory() {
             </button>
           )}
         </div>
-      </div>
+      </div>}
 
       {/* Table */}
-      <div className="card">
+      {view === 'items' && <div className="card">
         {loading    ? <LoadingSpinner /> :
          fetchError ? <ErrorAlert message={fetchError} onRetry={load} /> :
          items.length === 0 ? (
@@ -478,7 +641,7 @@ export default function Inventory() {
               totalRows={items.length} setPage={setPage} setPageSize={setPageSize} />
           </div>
         )}
-      </div>
+      </div>}
 
       {modal === 'add' && (
         <Modal title={t('inventory.addInventoryItem')} onClose={() => setModal(null)}>

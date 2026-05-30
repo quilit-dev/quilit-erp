@@ -15,6 +15,7 @@ from database import get_db
 from permissions import require_perm
 from routers.audit import log_action
 from utils import _now, get_tax_context, resolve_line_tax, money, notify
+from routers.projects import bump_project_status
 import sqlite3
 from datetime import datetime, timedelta
 
@@ -52,6 +53,10 @@ class QuotationCreate(BaseModel):
     project_id:   Optional[int] = None
     project_name: Optional[str] = None   # free-text name when no project exists yet
     client_id:    Optional[int] = None
+    # Quotations may be addressed to a CRM lead instead of (or alongside) an
+    # existing client. Conversion to invoice/project still requires a real
+    # client_id — the lead must be converted first.
+    lead_id:      Optional[int] = None
     status:       Optional[str] = "Draft"
     notes:        Optional[str] = None
     items:        List[QuoteItem] = []
@@ -74,11 +79,14 @@ def list_quotations(
         SELECT q.*,
                p.name  AS project_name,
                c.name  AS client_name, c.phone AS client_phone,
+               l.name  AS lead_name,   l.phone AS lead_phone,
+               l.company AS lead_company,
                -- show whether an invoice has already been raised
                (SELECT COUNT(*) FROM invoices i WHERE i.quotation_id = q.id) AS invoice_count
         FROM quotations q
-        LEFT JOIN projects p ON q.project_id = p.id
-        LEFT JOIN clients  c ON q.client_id  = c.id
+        LEFT JOIN projects  p ON q.project_id = p.id
+        LEFT JOIN clients   c ON q.client_id  = c.id
+        LEFT JOIN crm_leads l ON q.lead_id    = l.id
         WHERE q.archived_at IS NULL
     """
     params = []
@@ -103,10 +111,13 @@ def get_quotation(
 ):
     row = db.execute(
         """SELECT q.*, p.name AS project_name,
-                  c.name AS client_name, c.phone AS client_phone, c.email AS client_email
+                  c.name AS client_name, c.phone AS client_phone, c.email AS client_email,
+                  l.name AS lead_name,   l.phone AS lead_phone,   l.email AS lead_email,
+                  l.company AS lead_company, l.client_id AS lead_client_id
            FROM quotations q
-           LEFT JOIN projects p ON q.project_id = p.id
-           LEFT JOIN clients  c ON q.client_id  = c.id
+           LEFT JOIN projects  p ON q.project_id = p.id
+           LEFT JOIN clients   c ON q.client_id  = c.id
+           LEFT JOIN crm_leads l ON q.lead_id    = l.id
            WHERE q.id = ?""",
         (quote_id,),
     ).fetchone()
@@ -134,12 +145,20 @@ def create_quotation(
     qn    = _next_quote_number(db)
     now   = _now()
 
+    # Validate the lead exists if supplied (silently dropping invalid IDs hides
+    # data-entry bugs from the UI).
+    if data.lead_id is not None and not db.execute(
+        "SELECT 1 FROM crm_leads WHERE id = ? AND archived_at IS NULL", (data.lead_id,)
+    ).fetchone():
+        raise HTTPException(400, "Lead not found.")
+
     cur = db.execute(
         "INSERT INTO quotations "
-        "(quote_number, project_id, client_id, project_name, status, notes, total, tax_total, created_at) "
-        "VALUES (?,?,?,?,?,?,?,?,?)",
-        (qn, data.project_id, data.client_id, data.project_name, data.status,
-         data.notes, total, tax_total, now),
+        "(quote_number, project_id, client_id, lead_id, project_name, status, notes, "
+        " total, tax_total, created_at) "
+        "VALUES (?,?,?,?,?,?,?,?,?,?)",
+        (qn, data.project_id, data.client_id, data.lead_id, data.project_name,
+         data.status, data.notes, total, tax_total, now),
     )
     qid = cur.lastrowid
     for idx, item in enumerate(data.items):
@@ -151,6 +170,9 @@ def create_quotation(
             (qid, item.name, item.quantity, item.unit_price,
              round(item.quantity * item.unit_price, 4), rid, rate, tax_amt),
         )
+    # Auto-advance the linked project's status — a quotation existing means
+    # we're at least past "Inquiry" / "Quotation Sent".
+    bump_project_status(db, data.project_id, "Quotation Sent")
     log_action(db, user, "create", "quotation", qid, qn)
     db.commit()
     return {"id": qid, "quote_number": qn, "message": "Quotation created"}
@@ -209,11 +231,16 @@ def update_quotation(
                     (inv["id"], item.name, item.quantity, item.unit_price, rid, rate, tax_amt),
                 )
 
+    if data.lead_id is not None and not db.execute(
+        "SELECT 1 FROM crm_leads WHERE id = ? AND archived_at IS NULL", (data.lead_id,)
+    ).fetchone():
+        raise HTTPException(400, "Lead not found.")
     db.execute(
         "UPDATE quotations "
-        "SET project_id=?, client_id=?, project_name=?, status=?, notes=?, total=?, tax_total=? "
+        "SET project_id=?, client_id=?, lead_id=?, project_name=?, status=?, notes=?, "
+        "    total=?, tax_total=? "
         "WHERE id=?",
-        (data.project_id, data.client_id, data.project_name, data.status,
+        (data.project_id, data.client_id, data.lead_id, data.project_name, data.status,
          data.notes, total, tax_total, quote_id),
     )
     db.execute(
@@ -266,6 +293,29 @@ def convert_to_invoice(
             400, f"Cannot create an invoice from a {q['status'].lower()} quotation."
         )
 
+    # Invoices require a real client_id. If the quotation is addressed to a
+    # lead only, try the lead's already-converted client; otherwise tell the
+    # user to convert the lead first (CRM has a one-click action for this).
+    client_id = q["client_id"]
+    if not client_id and q["lead_id"]:
+        lead = db.execute(
+            "SELECT client_id, name FROM crm_leads WHERE id = ?", (q["lead_id"],)
+        ).fetchone()
+        if lead and lead["client_id"]:
+            client_id = lead["client_id"]
+            # Backfill the quotation so future reads don't have to re-resolve.
+            db.execute("UPDATE quotations SET client_id = ? WHERE id = ?",
+                       (client_id, quote_id))
+        else:
+            raise HTTPException(
+                400,
+                "This quotation is addressed to a lead. Convert the lead to a "
+                "client first (CRM → open the lead → Convert to client), then "
+                "try again."
+            )
+    if not client_id:
+        raise HTTPException(400, "Quotation has no client or lead — cannot invoice.")
+
     # Check if an invoice already exists for this quotation
     existing_inv = db.execute(
         "SELECT id, invoice_number FROM invoices WHERE quotation_id = ?",
@@ -278,12 +328,12 @@ def convert_to_invoice(
             "invoice_number": existing_inv["invoice_number"],
         }
 
-    # Generate invoice number (respects prefix setting)
-    prefix_row = db.execute("SELECT value FROM settings WHERE key='invoice_prefix'").fetchone()
-    prefix = prefix_row["value"] if prefix_row else "INV-"
-    row    = db.execute("SELECT COALESCE(MAX(id), 0) as m FROM invoices").fetchone()
-    year   = datetime.utcnow().year
-    inv_no = f"{prefix}{year}-{row['m'] + 1:04d}"
+    # Invoice number is derived from the new row's id (collision-free under
+    # concurrency) — see routers/invoices.py helpers. We insert with a
+    # placeholder first, then finalize once we have the id.
+    from routers.invoices import (_placeholder_invoice_number, _invoice_prefix,
+                                  _finalize_invoice_number)
+    prefix = _invoice_prefix(db)
     now    = _now()
 
     # Auto-calculate due_date from payment_terms_days setting
@@ -310,11 +360,12 @@ def convert_to_invoice(
         "(invoice_number, quotation_id, project_id, client_id, amount, subtotal, tax_total, "
         " due_date, notes, created_at) "
         "VALUES (?,?,?,?,?,?,?,?,?,?)",
-        (inv_no, quote_id, q["project_id"], q["client_id"],
+        (_placeholder_invoice_number(), quote_id, q["project_id"], client_id,
          invoice_amount, quote_subtotal, quote_tax, due_date,
          f"From {q['quote_number']}", now),
     )
     inv_id = cur.lastrowid
+    inv_no = _finalize_invoice_number(db, inv_id, prefix)
 
     # Copy all line items (with their tax snapshot) from quotation -> invoice
     quote_items = db.execute(
@@ -336,6 +387,8 @@ def convert_to_invoice(
         "UPDATE quotations SET status = 'Accepted' WHERE id = ? AND status != 'Accepted'",
         (quote_id,),
     )
+    # An invoice has been raised — the project (if any) moves to Invoiced.
+    bump_project_status(db, q["project_id"], "Invoiced")
     log_action(db, user, "convert_to_invoice", "quotation", quote_id,
                q["quote_number"], {"invoice_number": inv_no})
     db.commit()
@@ -366,13 +419,33 @@ def convert_to_project(
     if q["project_id"]:
         return {"message": "Already linked to project", "project_id": q["project_id"]}
 
+    # Projects, like invoices, need a real client. Resolve through the lead if
+    # the quotation isn't addressed to a client yet.
+    client_id = q["client_id"]
+    if not client_id and q["lead_id"]:
+        lead = db.execute(
+            "SELECT client_id FROM crm_leads WHERE id = ?", (q["lead_id"],)
+        ).fetchone()
+        if lead and lead["client_id"]:
+            client_id = lead["client_id"]
+            db.execute("UPDATE quotations SET client_id = ? WHERE id = ?",
+                       (client_id, quote_id))
+        else:
+            raise HTTPException(
+                400,
+                "This quotation is addressed to a lead. Convert the lead to a "
+                "client first, then try again."
+            )
+    if not client_id:
+        raise HTTPException(400, "Quotation has no client or lead — cannot start a project.")
+
     cur = db.execute(
         "INSERT INTO projects "
         "(name, client_id, status, estimated_cost, expected_revenue, source_quotation_id, created_at) "
         "VALUES (?,?,?,?,?,?,?)",
         (
             q["project_name"] or f"Project from {q['quote_number']}",
-            q["client_id"],
+            client_id,
             "Approved",
             0,            # estimated_cost starts at 0; updated as costs are tracked
             q["total"],   # expected_revenue = quotation total (client's commitment)

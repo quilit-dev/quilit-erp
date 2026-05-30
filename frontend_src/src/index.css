@@ -244,7 +244,10 @@ a:hover{color:var(--accent-hover)}
   display:flex; flex-direction:column;
   position:fixed; top:0; left:0; bottom:0;
   z-index:100;
-  overflow-y:auto; overflow-x:hidden;
+  /* The sidebar shell never scrolls — only the nav list does (.sidebar-nav).
+     This keeps the footer (user + Sign out) pinned and always visible, even
+     when there are more nav links than fit the viewport height. */
+  overflow:hidden;
   transition:background var(--motion-slow) var(--ease), border-color var(--motion-slow) var(--ease);
 }
 .sidebar-logo{
@@ -272,7 +275,7 @@ a:hover{color:var(--accent-hover)}
   letter-spacing:0.2px;margin-top:2px;
 }
 
-.sidebar-nav{padding:var(--space-2) var(--space-2);flex:1}
+.sidebar-nav{padding:var(--space-2) var(--space-2);flex:1;min-height:0;overflow-y:auto;overflow-x:hidden}
 .nav-section-label{
   color:var(--text-3);
   font-size:10px;font-weight:700;
@@ -311,7 +314,7 @@ a:hover{color:var(--accent-hover)}
   flex-shrink:0;
 }
 
-.sidebar-footer{padding:var(--space-2);border-top:1px solid var(--border)}
+.sidebar-footer{padding:var(--space-2);border-top:1px solid var(--border);flex-shrink:0}
 .sidebar-user{
   display:flex;align-items:center;gap:10px;
   padding:var(--space-2) var(--space-3);
@@ -738,15 +741,23 @@ tbody tr:hover td{background:var(--surface-2)}
 .form-control::placeholder{color:var(--text-3)}
 select.form-control{
   cursor:pointer;
-  /* Native selects ignore vertical padding for the selected option but DO
-     respect it for the line-box height. With the form-control's default
-     9px vertical padding + 1.5 line-height + a small inline height (e.g.
-     30px on POS / table-row selects), the chosen option's baseline gets
-     clipped at the bottom. Zeroing the vertical padding here lets the
-     browser vertically centre the option at any consumer-set height. */
+  /* Native selects ignore vertical padding for the chosen option's baseline
+     but DO use the padding to calculate the line-box height. With the
+     default form-control 9px vertical padding + 1.5 line-height + a forced
+     small inline height (e.g. 30px on POS / table-row selects), the chosen
+     option's baseline gets clipped. Zeroing padding-block + a fixed height
+     lets the browser vertically centre the option at any consumer-set
+     height. */
   padding-block:0;
   line-height:1.2;
-  /* Reserve space for the native chevron so long option names truncate
+  /* Stable default — matches the rendered height of a sibling text
+     <input class="form-control"> (which lands at ~38px once 9+9 padding,
+     1.5 line-height, 13px font and the 1+1 border are added up). Inline
+     style="height:N" wins over this thanks to specificity, so POS cart
+     rows can still ask for a 30px row without breaking the rest of the
+     forms in the app. */
+  height:38px;
+  /* Reserve space for the custom chevron so long option names truncate
      before they collide with it. */
   padding-inline-end:30px;
   background-image:linear-gradient(45deg,transparent 50%,var(--text-3) 50%),
@@ -759,10 +770,11 @@ select.form-control{
   -moz-appearance:none;
   appearance:none;
 }
+/* The chevron is anchored to the right edge in LTR; mirror it for Arabic. */
 html[dir="rtl"] select.form-control{
+  background-position:14px 50%, 9px 50%;
   padding-inline-end:12px;
   padding-inline-start:30px;
-  background-position:14px 50%, 9px 50%;
 }
 textarea.form-control{resize:vertical;min-height:80px;line-height:1.5}
 .form-grid  {display:grid;grid-template-columns:1fr 1fr;gap:var(--space-3)}
