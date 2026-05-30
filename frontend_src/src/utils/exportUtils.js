@@ -9,6 +9,21 @@
  *                        (uses item.discount_pct if present, else document-level discount_pct)
  */
 import * as XLSX from 'xlsx';
+import DOMPurify from 'dompurify';
+
+// Open a stored document snapshot in a new window for viewing / printing.
+// The HTML is sanitised first: snapshots are persisted server-side and any
+// authenticated user can save one, so the stored markup is untrusted. Legit
+// snapshots are pure markup + inline CSS (no scripts), so stripping scripts,
+// event handlers and javascript: URLs preserves print fidelity while
+// neutralising stored XSS.
+export function openSafeHtmlDocument(html) {
+  const clean = DOMPurify.sanitize(html || '', { WHOLE_DOCUMENT: true });
+  const w = window.open('', '_blank');
+  if (!w) return;
+  w.document.write(clean);
+  w.document.close();
+}
 
 // ─── Formatters ────────────────────────────────────────────────────────────────
 const fmtCurrency = (v, currency = 'USD', decimals = 2) =>

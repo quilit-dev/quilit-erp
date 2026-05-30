@@ -8,6 +8,8 @@ import {
 } from '../components/shared';
 import { useSortPaginate } from '../hooks/useSortPaginate';
 import { useLocale } from '../hooks/useLocale.jsx';
+import { usePermissions } from '../hooks/usePermissions';
+import Attachments from '../components/Attachments.jsx';
 
 const EMPTY = {
   name: '', contact_name: '', phone: '', email: '',
@@ -16,6 +18,7 @@ const EMPTY = {
 
 export default function Suppliers() {
   const { t, tStatus } = useLocale();
+  const { can } = usePermissions();
   const { data: suppliers, loading, error, reload } = useData(getSuppliers);
   const [modal,      setModal]      = useState(null);
   const [form,       setForm]       = useState(EMPTY);
@@ -283,6 +286,10 @@ export default function Suppliers() {
                     </table>
                   </div>
                 )}
+
+                <div style={{ marginTop: 20, paddingTop: 16, borderTop: '1px solid var(--border)' }}>
+                  <Attachments entityType="suppliers" entityId={detail.id} canEdit={can('suppliers', 'edit')} />
+                </div>
               </>
             )}
           </div>

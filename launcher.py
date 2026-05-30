@@ -109,7 +109,7 @@ try:
                          notifications, approval_policies, approval_requests, hr,
                          hr_contracts, recruitment, hr_activities,
                          tax_rates, pos, cash, manufacturing,
-                         assets, recurring, announcements)
+                         assets, recurring, announcements, attachments, accounting)
     import database
     import backup_manager
     backup_manager.init(DB_PATH)
@@ -161,6 +161,8 @@ try:
     app.include_router(assets.router,             prefix='/api/assets')
     app.include_router(recurring.router,          prefix='/api/recurring-expenses')
     app.include_router(announcements.router,      prefix='/api/announcements')
+    app.include_router(attachments.router,        prefix='/api/attachments')
+    app.include_router(accounting.router,         prefix='/api/accounting')
 
     @app.get('/api/health')
     def health():

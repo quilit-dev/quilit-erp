@@ -25,6 +25,7 @@ const POS            = lazy(() => import('./pages/POS'));
 const Manufacturing  = lazy(() => import('./pages/Manufacturing'));
 const Purchases      = lazy(() => import('./pages/Purchases'));
 const Finance        = lazy(() => import('./pages/Finance'));
+const Accounting     = lazy(() => import('./pages/Accounting'));
 const Expenses       = lazy(() => import('./pages/Expenses'));
 const FixedAssets    = lazy(() => import('./pages/FixedAssets'));
 const Cash           = lazy(() => import('./pages/Cash'));
@@ -249,6 +250,7 @@ export default function App() {
             <Route path="/purchases"    element={Auth(<Purchases />)} />
             <Route path="/suppliers"    element={Auth(<Suppliers />)} />
             <Route path="/finance"      element={Auth(<Finance />)} />
+            <Route path="/accounting"   element={Auth(<Accounting />)} />
             <Route path="/cash"         element={Auth(<Cash />)} />
             <Route path="/reports"      element={Auth(<Reports />)} />
             <Route path="/crm"          element={Auth(<CRM />)} />

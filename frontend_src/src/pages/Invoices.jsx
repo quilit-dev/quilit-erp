@@ -14,6 +14,8 @@ import {
 import { exportInvoicePDF, exportInvoiceExcel } from '../utils/exportUtils';
 import InventoryCombobox from '../components/InventoryCombobox';
 import { useLocale } from '../hooks/useLocale.jsx';
+import { usePermissions } from '../hooks/usePermissions';
+import Attachments from '../components/Attachments.jsx';
 import { useSortPaginate } from '../hooks/useSortPaginate';
 import { useRecordExport } from '../hooks/useRecordExport';
 
@@ -174,6 +176,7 @@ const menuItemStyle = {
 
 export default function Invoices() {
   const { t, tStatus } = useLocale();
+  const { can } = usePermissions();
   const { data: invoices, loading, error, reload } = useData(getInvoices);
   const { data: clients  } = useData(getClients);
   const { data: projects } = useData(getProjects);
@@ -854,6 +857,10 @@ export default function Invoices() {
                 )}
               </>
             )}
+
+            <div style={{ marginTop: 20, paddingTop: 16, borderTop: '1px solid var(--border)' }}>
+              <Attachments entityType="invoices" entityId={payModal.id} canEdit={can('invoices', 'edit')} />
+            </div>
           </div>
           <div className="modal-footer">
             <button className="btn btn-secondary" onClick={() => setPayModal(null)}>{t('invoices.closeBtn')}</button>

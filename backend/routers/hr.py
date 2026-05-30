@@ -26,6 +26,7 @@ from database import get_db
 from permissions import require_perm
 from routers.audit import log_action
 from utils import _now
+import accounting
 import io
 import sqlite3
 
@@ -1313,6 +1314,17 @@ def mark_payroll_run_paid(
         "UPDATE hr_payroll_runs SET status='Paid', paid_at=?, paid_by=?, "
         "posted_expense_id=? WHERE id=?",
         (now, user["id"], expense_id, run_id),
+    )
+    # Auto-post to the general ledger: DR Salaries & Wages, CR Cash & Bank.
+    accounting.post_entry(
+        db,
+        entry_date=run["period_end"][:10],
+        memo=desc,
+        lines=[
+            {"code": accounting.SALARIES, "debit":  float(run["total_net"])},
+            {"code": accounting.CASH,     "credit": float(run["total_net"])},
+        ],
+        source_type="payroll", source_id=run_id, created_by=user["id"],
     )
     log_action(db, user, "mark_paid", "hr_payroll_run", run_id, desc,
                {"expense_id": expense_id, "amount": float(run["total_net"])})

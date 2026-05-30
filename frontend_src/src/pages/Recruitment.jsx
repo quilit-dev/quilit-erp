@@ -687,7 +687,15 @@ function ApplicantDetail({ appId, canEdit, canDelete, positions, onClose, onChan
 
   async function handleUpload(kind, file) {
     if (!file) return;
-    if (file.type !== 'application/pdf') {
+    // Accept PDF + Word. Office files sometimes report an empty/octet-stream
+    // MIME type, so fall back to the extension (matches the backend check).
+    const okType = [
+      'application/pdf',
+      'application/msword',
+      'application/vnd.openxmlformats-officedocument.wordprocessingml.document',
+    ].includes(file.type);
+    const okExt = /\.(pdf|docx?)$/i.test(file.name || '');
+    if (!okType && !okExt) {
       toast(t('recruitment.pdfOnly'), 'error'); return;
     }
     setBusy(true);
@@ -844,7 +852,9 @@ function ApplicantDetail({ appId, canEdit, canDelete, positions, onClose, onChan
               ))}
             </div>
           )}
-          <input ref={fileInputRef} type="file" accept="application/pdf" style={{ display: 'none' }}
+          <input ref={fileInputRef} type="file"
+                 accept=".pdf,.doc,.docx,application/pdf,application/msword,application/vnd.openxmlformats-officedocument.wordprocessingml.document"
+                 style={{ display: 'none' }}
                  onChange={e => { handleUpload(fileKindRef.current, e.target.files?.[0]); e.target.value = ''; }} />
         </Section>
 

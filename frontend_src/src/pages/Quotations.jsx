@@ -15,6 +15,8 @@ import {
 } from '../components/shared';
 import { exportQuotationPDF, exportQuotationExcel } from '../utils/exportUtils';
 import { useLocale } from '../hooks/useLocale.jsx';
+import { usePermissions } from '../hooks/usePermissions';
+import Attachments from '../components/Attachments.jsx';
 import InventoryCombobox from '../components/InventoryCombobox';
 import { useSortPaginate } from '../hooks/useSortPaginate';
 import { useRecordExport } from '../hooks/useRecordExport';
@@ -122,6 +124,7 @@ function QuoteActionMenu({ exporting, onEdit, onExport, onCancel, onArchive }) {
 
 export default function Quotations() {
   const { t, tStatus } = useLocale();
+  const { can } = usePermissions();
   const navigate = useNavigate();
   const { data: quotations, loading, error, reload } = useData(getQuotations);
   const { data: clients,  loading: cLoading,  reload: reloadClients }  = useData(getClients);
@@ -561,6 +564,12 @@ export default function Quotations() {
                   </div>
                 </div>
               </div>
+
+              {editId && (
+                <div style={{ marginTop: 16, paddingTop: 16, borderTop: '1px solid var(--border)' }}>
+                  <Attachments entityType="quotations" entityId={editId} canEdit={can('quotations', 'edit')} />
+                </div>
+              )}
 
               <div className="modal-footer">
                 <button type="button" className="btn btn-secondary" onClick={closeModal}>{t('common.cancel')}</button>

@@ -46,6 +46,35 @@ INTERVIEW_DECISIONS = {"", "Hire", "No hire", "Maybe", "Strong hire", "Strong no
 FILE_KINDS       = {"cv", "cover_letter", "portfolio", "certificate", "other"}
 MAX_FILE_BYTES   = 8 * 1024 * 1024
 
+# Accepted document types for applicant files: PDF + Word (.doc/.docx).
+# Office files frequently arrive with an empty or 'application/octet-stream'
+# content-type, so the type is resolved from the extension as a fallback. The
+# canonical value from this allowlist is what gets stored — never the raw
+# client-supplied content-type, which the download endpoint serves back inline
+# (storing an arbitrary type would let a caller smuggle e.g. text/html).
+_DOC_CONTENT_TYPES = {
+    "application/pdf",
+    "application/msword",
+    "application/vnd.openxmlformats-officedocument.wordprocessingml.document",
+}
+_DOC_EXT_TYPES = {
+    ".pdf":  "application/pdf",
+    ".doc":  "application/msword",
+    ".docx": "application/vnd.openxmlformats-officedocument.wordprocessingml.document",
+}
+
+
+def _resolve_doc_type(file) -> str:
+    """Return the canonical content-type for an accepted upload, else raise 400."""
+    ct = (file.content_type or "").split(";")[0].strip().lower()
+    if ct in _DOC_CONTENT_TYPES:
+        return ct
+    name = (file.filename or "").lower()
+    for ext, canonical in _DOC_EXT_TYPES.items():
+        if name.endswith(ext):
+            return canonical
+    raise HTTPException(400, "Only PDF and Word (.doc, .docx) files are accepted.")
+
 
 # ══════════════════════════════════════════════════════════════════════════════
 # Pydantic models
@@ -898,9 +927,7 @@ async def upload_applicant_file(
         "SELECT 1 FROM recruitment_applicants WHERE id=? AND archived_at IS NULL", (app_id,)
     ).fetchone():
         raise HTTPException(404, "Applicant not found")
-    content_type = (file.content_type or "").lower()
-    if content_type != "application/pdf":
-        raise HTTPException(400, "Only PDF files are accepted.")
+    content_type = _resolve_doc_type(file)
     data = await file.read()
     if not data:
         raise HTTPException(400, "Uploaded file is empty.")

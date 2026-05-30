@@ -12,6 +12,8 @@ import {
 import { useSortPaginate } from '../hooks/useSortPaginate';
 import { useLocale } from '../hooks/useLocale.jsx';
 import { useSettings } from '../hooks/useSettings.jsx';
+import { usePermissions } from '../hooks/usePermissions';
+import Attachments from '../components/Attachments.jsx';
 
 const PURCHASE_CATEGORIES = [
   'Equipment', 'Materials', 'Safety', 'Tools', 'Consumables', 'Other'
@@ -278,6 +280,7 @@ function StatusBadge({ status }) {
 
 export default function Purchases() {
   const { t, tStatus } = useLocale();
+  const { can } = usePermissions();
   const [purchases,           setPurchases]           = useState([]);
   const [stats,               setStats]               = useState({});
   const [inventoryItems,      setInventoryItems]      = useState([]);
@@ -544,6 +547,9 @@ export default function Purchases() {
             onCancel={() => setModal(null)}
             saving={saving}
           />
+          <div style={{ padding: '16px 20px', borderTop: '1px solid var(--border)' }}>
+            <Attachments entityType="purchases" entityId={activePurchase.id} canEdit={can('purchases', 'edit')} />
+          </div>
         </Modal>
       )}
       {modal === 'delete' && activePurchase && (

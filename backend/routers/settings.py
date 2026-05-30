@@ -48,6 +48,12 @@ DEFAULTS = {
     "invoice_prefix":      "INV-",
     "quotation_prefix":    "QTN-",
     "contract_prefix":     "CTR-",
+    # Inventory cost-flow assumption: weighted_avg (default) / fifo / lifo.
+    # Drives how cost-of-goods-sold is valued on every stock-OUT.
+    "inventory_costing_method": "weighted_avg",
+    # Manufacturing: electricity price per kWh, multiplied by a work center's
+    # power draw (kW) × actual run hours to cost the electricity of a job.
+    "electricity_tariff_per_kwh": "0",
     # Payroll defaults — all 0 = no tax / no NSSF (opt-in per install).
     "payroll_tax_pct":              "0",
     "payroll_nssf_employee_pct":    "0",
@@ -84,6 +90,8 @@ class SettingsUpdate(BaseModel):
     invoice_prefix:     Optional[str] = None
     quotation_prefix:   Optional[str] = None
     contract_prefix:    Optional[str] = None
+    inventory_costing_method: Optional[str] = None
+    electricity_tariff_per_kwh: Optional[str] = None
     payroll_tax_pct:             Optional[str] = None
     payroll_nssf_employee_pct:   Optional[str] = None
     payroll_nssf_employer_pct:   Optional[str] = None
@@ -153,6 +161,25 @@ def update_settings(
     # SettingsUpdate, and the model rejects unknown fields outright. The
     # immutable source of truth is vendor_config.ENABLED_MODULES.
     updates = {k: v for k, v in body.dict().items() if v is not None}
+
+    # Inventory costing method: validate and, when switched to a lot-based
+    # method, rebase the cost layers so they match on-hand stock immediately.
+    new_method = updates.get("inventory_costing_method")
+    if new_method is not None:
+        import costing
+        if new_method not in costing.VALID_METHODS:
+            raise HTTPException(
+                400,
+                "inventory_costing_method must be one of: "
+                + ", ".join(sorted(costing.VALID_METHODS)),
+            )
+        prev_method = _get_all(db).get("inventory_costing_method", "weighted_avg")
+        _set_keys(db, updates)
+        if new_method in ("fifo", "lifo") and new_method != prev_method:
+            costing.rebase_layers(db, _now())
+            db.commit()
+        return _get_all(db)
+
     _set_keys(db, updates)
     return _get_all(db)
 

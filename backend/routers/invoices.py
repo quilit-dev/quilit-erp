@@ -20,6 +20,7 @@ from routers.audit import log_action
 from routers.finance import _check_period_locked
 from routers.projects import bump_project_status
 from utils import _now, _today, get_tax_context, resolve_line_tax, money, notify
+import accounting
 import sqlite3
 import uuid
 from datetime import datetime, timedelta
@@ -392,6 +393,14 @@ def void_invoice(
             "UPDATE projects SET actual_cost = MAX(0, actual_cost - ?) WHERE id=?",
             (float(inv["total"] or 0), inv["project_id"]),
         )
+    # Reverse the ledger entry for every payment on the voided invoice so the
+    # books no longer recognise the revenue.
+    for pay in db.execute(
+        "SELECT id FROM invoice_payments WHERE invoice_id=?", (invoice_id,)
+    ).fetchall():
+        accounting.reverse_source(db, "invoice_payment", pay["id"],
+                                  memo=f"Reversal — voided invoice {inv['invoice_number']}",
+                                  created_by=user["id"])
     log_action(db, user, "void", "invoice", invoice_id,
                inv["invoice_number"], {"reason": data.reason or "Voided"})
     db.commit()
@@ -463,13 +472,26 @@ def add_payment(
         "SELECT 1 FROM cash_drawers WHERE id=?", (drawer_id,)).fetchone():
         raise HTTPException(400, "Cash drawer not found")
 
-    db.execute(
+    pay_cur = db.execute(
         "INSERT INTO invoice_payments "
         "(invoice_id, amount, method, note, paid_at, idempotency_key, "
         " paid_currency, paid_amount, exchange_rate, cash_drawer_id) "
         "VALUES (?,?,?,?,?,?,?,?,?,?)",
         (invoice_id, usd_amount, data.method, data.note, _now(), data.idempotency_key,
          currency, paid_amount, rate, drawer_id),
+    )
+    payment_id = pay_cur.lastrowid
+
+    # Auto-post to the general ledger: DR Cash & Bank, CR Sales Revenue (cash-basis).
+    accounting.post_entry(
+        db,
+        entry_date=_now()[:10],
+        memo=f"Payment received — {inv['invoice_number']}",
+        lines=[
+            {"code": accounting.CASH,    "debit":  usd_amount, "memo": data.method},
+            {"code": accounting.REVENUE, "credit": usd_amount},
+        ],
+        source_type="invoice_payment", source_id=payment_id, created_by=user["id"],
     )
     log_action(db, user, "payment", "invoice", invoice_id, inv["invoice_number"],
                {"amount": usd_amount, "method": data.method,
@@ -538,6 +560,10 @@ def delete_payment(
         raise HTTPException(404, "Payment not found")
     _check_period_locked(db, str(row["paid_at"])[:7] + "-01")
 
+    # Reverse the ledger entry posted when this payment was recorded.
+    accounting.reverse_source(db, "invoice_payment", payment_id,
+                              memo=f"Reversal — deleted payment on {inv['invoice_number']}",
+                              created_by=user["id"])
     db.execute("DELETE FROM invoice_payments WHERE id = ?", (payment_id,))
     log_action(db, user, "delete_payment", "invoice", invoice_id,
                inv["invoice_number"], {"amount": float(row["amount"])})

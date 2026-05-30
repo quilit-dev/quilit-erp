@@ -26,6 +26,8 @@ from permissions import require_perm
 from routers.audit import log_action
 from routers.finance import _check_period_locked
 from utils import _now, _today, notify, get_tax_context, resolve_inclusive_tax, money, validate_int_qty
+import costing
+import lots
 import sqlite3
 
 router = APIRouter()
@@ -385,13 +387,16 @@ def checkout(
         subtotal       += net
         tax_total      += tax_amt
         grand_total    += final_gross
-        cogs_total     += unit_cost * qty
         discount_total += line_disc_total
     subtotal       = money(subtotal)
     tax_total      = money(tax_total)
     grand_total    = money(grand_total)
-    cogs_total     = money(cogs_total)
     discount_total = money(discount_total)
+    # COGS is computed during the actual stock deduction (step 12) so it can
+    # follow the configured costing method (FIFO/LIFO draw from cost layers).
+    cogs_total     = 0.0
+    cost_method    = costing.get_method(db)
+    item_eff_cost  = {}   # inventory_id → effective unit cost for this sale
     if grand_total <= 0:
         raise HTTPException(400, "Sale total must be positive.")
     total_in_currency = grand_total if currency == "USD" else round(grand_total * rate, 2)
@@ -454,13 +459,19 @@ def checkout(
          currency, total_in_currency, rate, pos_drawer_id),
     )
 
-    # 12. Real-time stock deduction.
+    # 12. Real-time stock deduction. COGS for each item is drawn here so it
+    #     honours the costing method (FIFO/LIFO from cost layers; weighted
+    #     average values at the item's moving unit cost).
     for inv_id, qty_needed in needed.items():
         row        = stock_rows[inv_id]
         qty_before = float(row["quantity"])
         qty_after  = round(qty_before - qty_needed, 6)
         if qty_after < 0:                       # defensive — pre-flight already checked
             raise HTTPException(400, f"Insufficient stock for '{row['name']}'.")
+        line_cogs = lots.value_stock_out(db, inv_id, qty_needed,
+                                         source_type="sale", source_ref=inv_no, now=now)
+        cogs_total += line_cogs
+        item_eff_cost[inv_id] = round(line_cogs / qty_needed, 6) if qty_needed else 0.0
         db.execute("UPDATE inventory SET quantity=? WHERE id=?", (qty_after, inv_id))
         db.execute(
             "INSERT INTO stock_movements "
@@ -475,6 +486,8 @@ def checkout(
                    body=f"Only {qty_after} {row['unit'] or 'units'} remaining (minimum: {min_stock})",
                    link="/inventory", entity_type="inventory", entity_id=inv_id,
                    dedup_hours=24)
+
+    cogs_total = money(cogs_total)
 
     # 13. POS sale record (carries the sale's discount + cost-of-goods-sold).
     ps = db.execute(
@@ -492,13 +505,18 @@ def checkout(
     for idx, it in enumerate(data.items):
         ln = lines[idx]
         line_type = "product" if it.inventory_id is not None else "service"
+        # Store the effective unit cost actually used for COGS (FIFO/LIFO layers
+        # may value it differently from the moving average). Falls back to the
+        # average snapshot for service lines and any item not deducted.
+        line_unit_cost = (item_eff_cost.get(it.inventory_id, ln["unit_cost"])
+                          if it.inventory_id is not None else ln["unit_cost"])
         db.execute(
             "INSERT INTO pos_sale_items "
             "(pos_sale_id, invoice_item_id, inventory_id, name, quantity, unit_price, "
             " line_type, discount, unit_cost) "
             "VALUES (?,?,?,?,?,?,?,?,?)",
             (pos_sale_id, invoice_item_ids[idx], it.inventory_id, it.name,
-             it.quantity, it.unit_price, line_type, ln["discount"], ln["unit_cost"]),
+             it.quantity, it.unit_price, line_type, ln["discount"], line_unit_cost),
         )
 
     # 15. Audit + single commit.
@@ -623,6 +641,11 @@ def return_sale(
         qty_before = float(row["quantity"])
         qty_after  = round(qty_before + float(it["quantity"]), 6)
         db.execute("UPDATE inventory SET quantity=? WHERE id=?", (qty_after, it["inventory_id"]))
+        # Put the returned stock back as a new lot / cost layer at the price it
+        # left at (the COGS snapshot on the sale line).
+        lots.record_stock_in(db, it["inventory_id"], float(it["quantity"]),
+                             it["unit_cost"] or 0, source_type="return",
+                             source_ref=inv["invoice_number"], now=now)
         db.execute(
             "INSERT INTO stock_movements "
             "(inventory_id, type, delta, qty_before, qty_after, reference, note, created_at) "

@@ -10,6 +10,7 @@ from permissions import require_perm, require_admin
 from routers.audit import log_action
 from utils import _now, get_tax_context, resolve_expense_tax, money
 from approval_engine import evaluate_and_apply
+import accounting
 import sqlite3
 from datetime import datetime
 
@@ -391,6 +392,10 @@ def void_expense(
         "UPDATE expenses SET voided_at = datetime('now'), void_reason = ? WHERE id = ?",
         (data.reason or None, expense_id),
     )
+    # Reverse the ledger entry posted when the expense was recorded.
+    accounting.reverse_source(db, "expense", expense_id,
+                              memo=f"Reversal — voided expense ({exp['category']})",
+                              created_by=user["id"])
     log_action(db, user, "void", "expense", expense_id,
                exp["category"], {"amount": float(exp["amount"]), "reason": data.reason})
     db.commit()
@@ -460,6 +465,21 @@ def create_expense(
             "UPDATE projects SET actual_cost = actual_cost + ? WHERE id = ?",
             (data.amount, data.project_id),
         )
+
+    # Auto-post to the general ledger once the expense is actually recorded
+    # (a pending-approval expense isn't recognised until it clears approval).
+    if not needs_approval:
+        accounting.post_entry(
+            db,
+            entry_date=(data.date or datetime.utcnow().strftime("%Y-%m-%d"))[:10],
+            memo=f"{data.category}" + (f" — {data.description}" if data.description else ""),
+            lines=[
+                {"code": accounting.expense_account_code(data.category), "debit": gross},
+                {"code": accounting.CASH, "credit": gross},
+            ],
+            source_type="expense", source_id=expense_id, created_by=user["id"],
+        )
+
     log_action(db, user, "create", "expense", expense_id,
                data.category, {"amount": data.amount})
     db.commit()

@@ -26,6 +26,9 @@
    - 7.11 [CRM](#711-crm)
    - 7.12 [Planning](#712-planning)
    - 7.13 [HR (Human Resources)](#713-hr-human-resources)
+     - 7.13.1 [HR Contracts](#7131-hr-contracts)
+     - 7.13.2 [HR Activities](#7132-hr-activities)
+     - 7.13.3 [Recruitment](#7133-recruitment)
    - 7.14 [Reports](#714-reports)
    - 7.15 [Archives](#715-archives)
    - 7.16 [Recycle Bin](#716-recycle-bin)
@@ -39,6 +42,8 @@
    - 7.24 [Manufacturing](#724-manufacturing)
    - 7.25 [Fixed Assets](#725-fixed-assets)
    - 7.26 [Recurring Expenses](#726-recurring-expenses)
+   - 7.27 [Attachments (cross-cutting)](#727-attachments-cross-cutting)
+   - 7.28 [Accounting (General Ledger)](#728-accounting-general-ledger)
 8. [Taxation & Multi-Currency](#8-taxation--multi-currency)
 9. [API Reference](#9-api-reference)
 10. [Database Schema](#10-database-schema)
@@ -60,21 +65,23 @@ This ERP (Enterprise Resource Planning) system is a full-stack business manageme
 |------|-------------|
 | **Sales** | Quotations → invoices → payments, partial / multi-currency payment tracking, aging reports, WhatsApp share |
 | **POS** | Cash-drawer sessions, USD/LBP checkout, refunds that void invoices + restock, inventory autocomplete on custom lines |
-| **Manufacturing** | Versioned BOMs with scrap %, multi-level sub-assemblies, production-order lifecycle, weighted-average production costing |
-| **Inventory** | Raw / semi-finished / finished / consumable items, weighted-average landed cost, low-stock alerts, stock movements |
+| **Manufacturing** | Versioned BOMs with scrap %, multi-level sub-assemblies, resource-based overhead costing (per-hour resources × actual production hours), quality control with quarantine + defects + rework, scheduling/priority/partial completion, analytics & cost-variance reports, production-order lifecycle |
+| **Inventory** | Raw / semi-finished / finished / consumable items, weighted-average / FIFO / LIFO costing, batch/lot tracking with expiry + FEFO + full traceability, low-stock alerts, stock movements |
 | **Procurement** | Suppliers, PO lifecycle (Ordered → Received → Paid) that auto-posts expense + adjusts landed cost |
 | **Finance** | Revenue / expense tracking, accrual + cash views, period locking, smart insights, recurring expense templates |
+| **Accounting** | Double-entry general ledger: Chart of Accounts, journal entries (auto-posted from invoices/expenses/payroll/depreciation/purchases + manual), Trial Balance, Income Statement, Balance Sheet |
 | **Fixed Assets** | Capital register, straight-line depreciation auto-posted as expenses, disposal, capex approval workflow |
 | **Cash** | Daily till reconciliation with auto-captured sales + expenses, USD/LBP variance reporting |
 | **Taxation** | Admin-managed named tax rates (multiple standard / reduced / zero / exempt), per-line tax snapshot, VAT report with per-rate breakdown |
 | **Multi-Currency** | Dual-currency (USD base + LBP secondary by default) with manual exchange-rate history |
 | **Projects** | Project lifecycle, budget-vs-actual, milestone planning, Gantt-style planning board |
 | **CRM** | Leads → deals → conversion to clients, contact directory, activity log |
-| **HR** | Employee directory, departments, leave requests (auto-status flip while on leave) |
+| **HR** | Employee directory, departments, salary/role history, leave requests (auto-status flip while on leave), monthly payroll runs (with NSSF/tax breakdown, auto-posted to Finance), employee file attachments, formal contracts, recruitment pipeline, personal activity log with reminders |
 | **Approvals** | Rule-based multi-step approval chains; expenses, invoices, purchases, projects, fixed-asset purchases |
 | **Access Control** | RBAC across 19+ modules, JWT sessions with revocation, audit trail, recycle bin |
 | **Localization** | Full English and Arabic (RTL) |
 | **Resilience** | Automatic + manual backups, one-click backup to USB / network folder |
+| **Attachments** | File attachments on any record — invoices, purchases, projects, expenses, fixed assets, suppliers, clients, quotations, inventory — stored as DB BLOBs |
 | **Per-customer builds** | Module visibility baked in via `backend/vendor_config.py` (immutable at runtime). The vendor edits the constant before building each customer's installer |
 
 ### Technology Stack
@@ -296,6 +303,7 @@ Stored in the `settings` table and editable from **Settings → Company / Financ
 | `payment_terms_days` | Default number of days until invoice is due |
 | `invoice_prefix` | Invoice number prefix (e.g., `INV-`) |
 | `quotation_prefix` | Quotation number prefix (e.g., `QTN-`) |
+| `inventory_costing_method` | Stock cost-flow assumption: `weighted_avg` (default) / `fifo` / `lifo` (see §7.6). Switching to FIFO/LIFO rebases cost layers from current stock |
 | `footer_text` | Footer text printed on invoices and quotations |
 | `show_discount_col` | `1` to display the discount column on documents |
 | `show_tax_col` | `1` to display the tax column on documents |
@@ -393,10 +401,14 @@ Each role can be granted permissions per module and per action.
 | **Fixed Assets** | `assets` | Asset register + depreciation |
 | Finance | `finance` | |
 | Expenses | `expenses` | Includes recurring-expense templates |
+| **Accounting** | `accounting` | Double-entry GL, chart of accounts, journal, financial statements |
 | Reports | `reports` | |
 | CRM | `crm` | |
 | Planning | `planning` | |
-| HR | `hr` | |
+| HR | `hr` | Employees, departments, leave, payroll, employee files |
+| **HR Contracts** | `hr_contracts` | Formal employment contracts |
+| **Recruitment** | `recruitment` | Positions, applicants, interviews, offers, onboarding |
+| **HR Activities** | `hr_activities` | Personal HR activity log + reminders |
 | Approvals | `approvals` | Workflow rules + decisions |
 | Settings | `settings` | Admin-only |
 | Users | `users` | Admin-only |
@@ -565,6 +577,64 @@ Manages stock items and tracks all movements.
 | `adjustment` | Manual stock correction |
 | `deduction` | Stock used on a project |
 | `return` | Returned stock |
+
+#### Inventory Costing Method
+
+A single, system-wide cost-flow assumption governs how the **cost of every
+stock-OUT** (POS cost-of-goods-sold, project material consumption, manufacturing
+material cost, and stock write-offs) is valued. It is chosen in
+**Settings → Financial** via `inventory_costing_method`:
+
+| Method | Value | Behaviour |
+|--------|-------|-----------|
+| **Weighted Average** *(default)* | `weighted_avg` | A moving average held on `inventory.unit_cost`, re-blended on every receipt/production. A stock-OUT is valued at the current average. This is the classic, original behaviour. |
+| **FIFO** | `fifo` | First-In, First-Out. A stock-OUT draws down the **oldest** cost layers first. |
+| **LIFO** | `lifo` | Last-In, First-Out. A stock-OUT draws down the **newest** cost layers first. |
+
+**How it works.**
+- Under FIFO/LIFO every stock-IN (purchase receipt, production output, positive
+  adjustment, opening stock, return) appends a **cost layer** — a surviving lot
+  recording its quantity and landed unit cost — to `inventory_cost_layers`.
+- A stock-OUT consumes layers in the method's order; the COGS is the sum of the
+  consumed layers' costs. If layers can't cover the quantity (e.g. legacy stock),
+  the shortfall is valued at the moving average so COGS is never understated.
+- After each movement, `inventory.unit_cost` is kept as the weighted average of
+  the **remaining** layers, so the inventory list, reports and valuation always
+  show a sensible per-unit cost.
+- Under Weighted Average the layers table is unused and behaviour is identical to
+  prior versions (zero overhead, no layers maintained).
+
+**Switching method.** Selecting FIFO or LIFO **rebases** the cost layers: every
+item's on-hand quantity becomes a single opening layer valued at its current
+`unit_cost`. This keeps layers consistent with stock regardless of prior
+activity (no attempt is made to reconstruct historical lots). Switching back to
+Weighted Average simply resumes moving-average costing from the current
+`unit_cost`. Frozen costs on already-completed sales, production orders, and
+posted expenses are **never** retroactively changed.
+
+#### Batch / Lot Tracking & Traceability
+
+Items can be flagged **lot-tracked** (`inventory.lot_tracked`, with an optional
+`shelf_life_days`). For a lot-tracked item:
+
+- **Every stock-IN creates a lot** (`inventory_lots`) — purchase receipt,
+  production output, opening stock, positive adjustment, POS return — with a lot
+  number, manufacture date and an **expiry date** (auto-derived from
+  `shelf_life_days` when not given).
+- **Every stock-OUT draws lots First-Expired-First-Out (FEFO)** — sales, project
+  use, production consumption, negative adjustments — recording each draw in
+  `lot_consumption`. COGS comes from the **consumed lots' own cost** (specific
+  identification), which supersedes the FIFO/LIFO/WA layers *for lot-tracked
+  items only*; everything else keeps the global costing method. `unit_cost`
+  stays the weighted average of the remaining lots.
+- **Traceability.** `GET /inventory/lots/{id}` returns full genealogy:
+  **forward** (every place the lot was used, and the output lot it became when
+  consumed by production) and **backward** (the input lots consumed to make a
+  produced lot — linked via `production_order_id` → `output_lot_id`).
+- **Expiry.** `GET /inventory/lots?expiring=true` lists expired / soon-to-expire
+  lots; each lot carries an `expiry_status` of `ok` / `expiring` / `expired`.
+
+Items **without** `lot_tracked` never create lots and behave exactly as before.
 
 ---
 
@@ -747,11 +817,18 @@ Named checkpoints with a due date. Tasks can be linked to milestones. Milestones
 
 ### 7.13 HR (Human Resources)
 
-**URL:** `/hr`
+**URL:** `/hr` &nbsp;|&nbsp; **Permission key:** `hr`
 
-Employee directory, organizational structure, and leave management.
+A full HR workflow for a medium-size company: organizational structure, the
+employee lifecycle, an immutable salary/role history, time-off, payroll, and
+employee file attachments. Three tightly-coupled People-domain modules extend
+it — **HR Contracts** (`hr_contracts`), **HR Activities** (`hr_activities`),
+and **Recruitment** (`recruitment`, documented in §7.13.3) — each with its own
+permission key so access can be granted independently of core HR.
 
-> **Scope note:** Payroll is intentionally out of scope. The HR module focuses on the employee lifecycle and time-off tracking.
+> All business records are **soft-deleted** via `archived_at`. The salary /
+> role history (`hr_employment_changes`) is **append-only** — an audit log that
+> is never edited or deleted.
 
 #### Departments
 
@@ -760,12 +837,13 @@ Organizational units that employees belong to.
 **Fields:** Name, description.
 
 **Features:**
-- List and manage all departments
-- Archive/unarchive departments
+- List departments with a live employee count per department
+- Create / edit / archive / unarchive (archive is blocked while staff are still assigned)
+- Department names are unique among non-archived rows
 
 #### Employees
 
-The core staff directory with full lifecycle tracking.
+The core staff directory with full lifecycle tracking. Each employee is auto-assigned an `employee_code` (`EMP-0001`, …) on creation.
 
 **Fields:** Full name, job title, department, employment type, status, hire date, end date, email, phone, salary, manager (self-referential FK), linked user account, address, notes.
 
@@ -774,10 +852,21 @@ The core staff directory with full lifecycle tracking.
 **Statuses:** Active, On Leave, Terminated.
 
 **Features:**
-- Filter by department, status, and employment type
+- Search (name / title / code / email) and filter by department and status
 - Link an employee record to a user account
-- Hierarchical manager relationships
+- Hierarchical manager relationships (an employee cannot be their own manager; archiving a manager detaches their reports)
+- The employee detail returns leave history, direct reports, salary/role timeline, attached files, and payroll history in one call
 - Archive / unarchive employees (soft-delete)
+
+**Auto leave-status reconciliation.** There is no background scheduler, so every HR read (list / detail / summary) lazily reconciles each Active/On-Leave employee against today's approved-leave window — flipping `Active → On Leave` when an approved leave covers today and back to `Active` once it ends. Terminated employees are never auto-changed.
+
+#### Employment History (salary / role timeline)
+
+An **immutable, append-only** audit trail of every salary, title, department, and manager change. Captured automatically:
+- A `hire` row is seeded when an employee is created (or onboarded from Recruitment).
+- On every employee edit, if any tracked field (salary / job title / department / manager) changed, one row is appended. The change is auto-classified — `raise`, `promotion`, `demotion`, `role_change`, `transfer`, or `adjustment` — unless the caller passes an explicit `change_type` and `change_reason`.
+- A status transition to `Terminated` is logged as a `termination` event even when no other field moved.
+- Activating a contract (see HR Contracts) appends an `adjustment` row so the timeline stays complete without a separate employee edit.
 
 #### Leave Requests
 
@@ -790,13 +879,79 @@ Time-off tracking with a simple approval flow.
 **Statuses:** Pending → Approved | Rejected.
 
 **Features:**
-- Managers or admins approve or reject leave requests
-- Calculated leave duration (working days)
+- Managers or admins (the `approve` action) approve or reject; an approval whose window covers today immediately flips the employee to On Leave
+- Inclusive day count is calculated and stored on submit (end-before-start is rejected)
+- Only **Pending** requests can be edited or deleted; reviewed ones are retained for the record
 - Full leave history per employee
+
+#### Employee Files
+
+PDF attachments stored as BLOBs directly in the database (no filesystem path, so no path-traversal surface).
+
+- **Kinds:** `cv`, `contract`, `other`. CV and contract are single-slot — uploading a new one replaces the previous file of that kind; `other` files accumulate.
+- **Limit:** 8 MB per file; only `application/pdf` is accepted.
+- Files are streamed back inline (`Content-Disposition: inline`) for in-tab preview. When a recruitment applicant is converted to an employee, their uploaded documents are copied into the employee's files.
+
+#### Payroll
+
+Monthly payroll runs with a **Draft → Approved → Paid** lifecycle (plus `Cancelled`).
+
+- **Create a run** for a period: one line is seeded per active (non-terminated) employee, pre-filled from their current salary.
+- **Per-line breakdown** (`hr_payroll_lines`): base salary, bonuses, deductions, overtime (entered as a dollar amount, or computed from hours × hourly rate × multiplier). The engine derives gross, employee + employer NSSF, taxable base (NSSF is pre-tax), tax, and net. Net cannot go negative.
+- **Settings-driven rates** (all default to 0, i.e. opt-in): `payroll_tax_pct`, `payroll_nssf_employee_pct`, `payroll_nssf_employer_pct`, `payroll_overtime_multiplier` (defaults to 1.5×).
+- **Approve** locks the run for review; **Mark Paid** posts a *single* `Payroll` expense to Finance for the net total, links it back via `posted_expense_id`, and is **idempotent** (re-running returns the same expense). Lines cannot be edited once Paid.
+- **Cancel** is allowed for Draft/Approved runs only. Paid runs cannot be cancelled — their posted expense is real money out; reverse it in Finance instead.
 
 #### HR Summary
 
-Dashboard-style KPIs: total headcount, breakdown by employment type and status, and pending leave requests.
+Dashboard-style KPIs: total headcount, active / on-leave / terminated counts, department count, headcount by department and by employment type, pending leave requests, **open payroll runs** (Draft + Approved), and **year-to-date paid payroll**.
+
+---
+
+#### 7.13.1 HR Contracts
+
+**URL:** `/hr/contracts` &nbsp;|&nbsp; **Permission key:** `hr_contracts`
+
+Formal, structured employment contracts — distinct from the contract PDF that can be attached to an employee record. Storage is structured (salary, type, dates, benefits, schedule, terms) so a branded, printable document can be rendered client-side through the same print pipeline used by quotations and invoices.
+
+**Fields:** Employee, contract number (auto-generated `CTR-YYYY-NNNN` from the `contract_prefix` setting when blank), contract type, status, start / end / probation-end dates, job title, work schedule, weekly hours, salary, salary currency, benefits, terms.
+
+**Contract Types:** Permanent, Fixed-term, Probation, Internship, Consultant.
+
+**Lifecycle:** Draft → Active → Expired / Terminated.
+
+- **Activating** a contract syncs the employee's current salary and job title to the contract values and appends a row to the salary timeline (`hr_employment_changes`) — no manual double-entry. A non-draft contract cannot be reassigned to a different employee.
+- **Terminating** records a timestamp and reason; reverting a non-draft contract back to Draft is disallowed to protect history.
+- A `print-data` endpoint returns the contract plus company-branding settings for client-side rendering.
+- When a Recruitment offer is accepted and the applicant converted, a matching **Active** contract is auto-minted from the offer's clauses.
+
+#### 7.13.2 HR Activities
+
+**URL:** `/hr-activities` &nbsp;|&nbsp; **Permission key:** `hr_activities`
+
+A unified, **personal** log of HR touchpoints with built-in reminders. Each activity has an `owner_id` and is visible only to its owner (superadmins see all) — you see your own queue, like any CRM/ATS activity log.
+
+**Types:** Call, Meeting, Interview, Email, Note, Task. &nbsp; **Statuses:** Planned, Done, Cancelled.
+
+**Fields:** Type, subject, description, scheduled date/time, duration, location, optional linked applicant or employee, reminder offset.
+
+- **Reminders without a scheduler.** Creating/updating an activity inserts one notification row with `deliver_at = scheduled_at − reminder_minutes`; the notifications list surfaces it when its time passes. Allowed offsets: 0 (none), 5, 15, 30, 60, 120, 1440 minutes. Editing reschedules the pending reminder; already-delivered reminders are left as history.
+- **List scopes:** `upcoming` (next 14 days, the landing view), `today`, `overdue`, `done`, `all`. A summary endpoint returns today / upcoming-14 / overdue / done-7d counters.
+- **Distinct from recruitment interviews.** Recruitment interviews are applicant-centric (one applicant, scored, decision); HR Activities are owner-centric. The two coexist — scheduling a recruitment interview **auto-mirrors** one HR Activity into the interviewer's (or scheduler's) queue with a reminder, and keeps it in sync on edit/delete.
+
+#### 7.13.3 Recruitment
+
+**URL:** `/recruitment` &nbsp;|&nbsp; **Permission key:** `recruitment`
+
+The applicant pipeline that feeds HR — positions, applicants, interviews, offer letters, and onboarding.
+
+**Pipeline:** Applied → Screening → Interview → Technical Test → Accepted / Rejected / Withdrawn. Transitions are forward-only; the three terminal states (`Accepted`, `Rejected`, `Withdrawn`) flow only into archived history, and re-opening requires a new application. Each transition is recorded in an append-only status history.
+
+- **Positions:** title, department, employment type, location, salary range, headcount, status (Open / On Hold / Filled / Cancelled), description, requirements.
+- **Applicants:** name, position, contact, source, expected / offered salary, rating (1–5), assigned recruiter, notes. File attachments (CV / cover letter / portfolio / certificate / other) accept **PDF and Word (.doc/.docx)** up to 8 MB; the CV is single-slot.
+- **Interviews:** type (Phone / Video / On-site / Technical / Final), schedule, duration, interviewer, status, score (1–10), decision. Each interview auto-mirrors an HR Activity (see §7.13.2).
+- **Offer letters:** Lebanon-aware pre-employment contracts (Draft → Sent → Accepted / Declined / Expired) with NSSF, end-of-service, confidentiality, and non-compete toggles; probation capped at 3 months and the working week at 48 hours per the Lebanese Labor Code. *Template-generation only — not legal advice.*
+- **Convert to employee:** an Accepted applicant is onboarded into HR via `POST /recruitment/applicants/{id}/convert` — creating the `hr_employees` row (seeding the salary timeline), copying their uploaded documents into employee files, marking a single-headcount position Filled, and optionally minting an Active contract from an accepted offer.
 
 ---
 
@@ -1084,6 +1239,74 @@ allowance folded into the required quantity at order time. Sub-assemblies
 (a BOM output used as a component of another BOM) are supported with a
 depth limit of 8.
 
+**Resources (lightweight overhead model for SMEs).** A **resource**
+(`manufacturing_resources`) is a reusable per-hour cost rate — e.g. *Labor*,
+*Electricity*, *Water*, *CNC Machine*, *Oven* (`name`, `cost_type = per_hour`,
+`hourly_rate`). There are intentionally **no work centers, no capacity planning,
+and no scheduling system** — just rates. A BOM assigns resources two ways
+(`bom_resources`):
+
+- **From the master list** — pick a resource; its name + rate are snapshotted.
+- **Inline** — type a name + hourly rate directly on the BOM (the simplified option).
+
+The BOM also carries a **`standard_hours`** (estimated production time per
+batch). Its standard conversion cost = **Σ(resource hourly rates) ×
+standard_hours**, scaled to the order quantity.
+
+**Automatic production costing (actual hours).** Each order snapshots the BOM's
+resources (`production_order_resources`). At completion the operator enters the
+**actual production duration**; the overhead is computed and frozen per resource:
+
+```
+cost_per_resource = resource.hourly_rate × production_hours      (defaults to standard hours)
+total_overhead    = Σ cost_per_resource
+total_cost        = materials + total_overhead
+```
+
+Each resource's hours + cost are frozen on its order row. A BOM with **no
+resources** falls back to the legacy flat `labor_cost + overhead_cost`, so the
+simplest recipes still cost exactly as before. *(This replaced the earlier
+work-center/routing model — flexible per machine/utility while staying simple
+enough for small and medium businesses.)*
+
+**Quality control & quarantine.** A BOM can be flagged **`qc_required`**. When
+such an order completes, its finished batch goes into a **non-sellable
+quarantine** bucket (`inventory.quarantine_quantity`) — not normal stock — and a
+**Pending inspection** (`production_qc`) is opened holding the quantity and unit
+cost. Resolving the inspection splits the batch into **passed** (released to
+sellable stock, with a FIFO/LIFO cost layer + `qc_release` movement),
+**rejected** (scrapped — quarantine cleared, `scrap_cost` recorded), and
+optional **rework** (a subset of the rejects that spawns a new linked Draft
+production order, `rework_of_order_id`, to remake them). Defects are logged by
+reason/quantity (`production_qc_defects`). `passed + rejected` must equal the
+batch. BOMs **without** `qc_required` complete straight to stock exactly as
+before.
+
+**Scheduling, priority & partial completion.** Orders carry a **priority**
+(Low / Normal / High / Urgent), a **planned start** and a **due date**; the
+orders list has a **Schedule** view that sorts by due date then priority and
+flags overdue open orders. An order can be completed in **multiple partial
+runs** (`POST /orders/{id}/complete-partial`): each run consumes its
+proportional materials, takes a proportional share of the standard conversion
+cost, raises that quantity to stock (through QC if required), and accumulates
+onto `quantity_completed` — the order auto-closes once the planned quantity is
+reached (or `complete` finishes the remainder). The classic single-shot
+completion is unchanged.
+
+**Analytics & variance** (`GET /manufacturing/analytics?start=&end=`). Over
+completed orders in a range: output (orders, units), cost breakdown
+(materials / overhead / scrap), **standard-vs-actual cost variance** (standard
+from the BOM roll-up), **time efficiency** (standard vs actual production
+hours), **on-time delivery %**, **QC pass rate**, and a **cost-by-resource**
+breakdown (hours + cost per resource) plus per-product output. Surfaced on an
+**Analytics** tab.
+
+> **Roadmap — complete.** All phases delivered: resource-based overhead costing
+> (per-hour resources × actual production hours); quality control with
+> quarantine + rework; batch/lot tracking with expiry & traceability (§7.6);
+> scheduling, priority & partial completion; and analytics / efficiency &
+> cost-variance reports.
+
 **Production-order lifecycle.**
 `Draft → Confirmed → In Progress → Completed` (or `Cancelled`).
 
@@ -1091,15 +1314,17 @@ depth limit of 8.
 |------------|--------------|
 | **Confirm** | Snapshots the BOM components (scaled by quantity + scrap) onto the order. Reserves raw materials on `inventory.reserved_quantity`. |
 | **Start** | No accounting impact — pure status change so the floor knows the order is in flight. |
-| **Complete** | Releases the reservation, consumes the **actual** quantities recorded by the operator (variance vs plan is captured per line), raises finished-goods stock at the frozen unit cost, posts `stock_movements`. All in one transaction — atomicity is preserved on shortage. |
+| **Complete** | Releases the reservation, consumes the **actual** quantities recorded by the operator (variance vs plan is captured per line), prices overhead from the assigned resources × the actual production hours, and raises finished-goods stock at the frozen unit cost (or routes it to **QC quarantine** when `qc_required`). Supports **partial runs** (accumulate output + cost, auto-close at the planned qty). Posts `stock_movements`, all in one transaction — atomicity is preserved on shortage. |
 | **Cancel** | Releases any reservation; no stock or cost impact. |
 
-**Costing.** Weighted-average. Material is valued at the moving-average
-`inventory.unit_cost` at the moment of consumption — net of recoverable
-VAT — so manufacturing cost stays consistent with POS COGS and inventory
-valuation. The finished good's `unit_cost` is updated weighted-average on
-each completion. Producing goods posts **no expense** — it transforms
-raw-material inventory value into finished-goods value.
+**Costing.** **Material** is valued at the moment of consumption by the
+configured inventory costing method (weighted-average / FIFO / LIFO — see §7.6)
+net of recoverable VAT, so manufacturing cost stays consistent with POS COGS and
+inventory valuation. **Overhead** cost comes from the assigned resources ×
+actual production hours as above. The finished good's
+`unit_cost` is updated weighted-average on each completion. Producing goods posts
+**no expense** — it transforms raw-material inventory value (plus conversion
+cost) into finished-goods value.
 
 ---
 
@@ -1148,6 +1373,80 @@ cleanly at that month and reports it in `locked_stop`.
 **Tax snapshot.** Re-resolved on every iteration so a rate change between
 runs is respected for occurrences posted after the change — but never
 rewrites historical ones.
+
+---
+
+### 7.27 Attachments (cross-cutting)
+
+**Router:** `routers/attachments.py` &nbsp;|&nbsp; **Base URL:** `/api/attachments`
+
+File attachments on any business record. One generic table and one router back
+every entity, mirroring how HR/recruitment store files — as **DB BLOBs** (no
+filesystem path, so no path-traversal surface).
+
+**Supported entities** (`entity_type`): `invoices`, `purchases`, `projects`,
+`expenses`, `assets`, `suppliers`, `clients`, `quotations`, `inventory`.
+
+**Allowed file types.** PDF, images (PNG/JPG/GIF/WEBP), Word (`.doc`/`.docx`),
+Excel (`.xls`/`.xlsx`), CSV, and plain text — **15 MB** max per file. The
+content-type is resolved to a **canonical value from a fixed allowlist** (with
+an extension fallback for files that arrive as `application/octet-stream`); the
+raw client-supplied type is never stored.
+
+**Permissions.** Attachments have **no module of their own** — access is gated
+by the host record's existing RBAC module: the module's `view` to list/download,
+`edit` to upload/delete. The check is imperative (`permissions.check_perm`)
+because the module is resolved at runtime from the entity type.
+
+**Security.** Downloads send `X-Content-Type-Options: nosniff` and are served
+**inline only** for a safe set (PDF + images); every other type is forced as a
+download (`?download=true` forces it for any file). This prevents a stored file
+from executing as HTML/script in the app origin.
+
+**Frontend.** A single reusable `<Attachments entityType entityId canEdit />`
+component (in `components/Attachments.jsx`) is embedded on the client and
+project detail pages and in the invoice, purchase, expense, asset, supplier and
+quotation detail/edit dialogs. It lists files with type icons, supports inline
+preview + forced download, and gates upload/delete on `canEdit`.
+
+---
+
+### 7.28 Accounting (General Ledger)
+
+**URL:** `/accounting` &nbsp;|&nbsp; **Router:** `routers/accounting.py` &nbsp;|&nbsp; **Engine:** `accounting.py` &nbsp;|&nbsp; **Permission:** `accounting`
+
+A real **double-entry** general ledger sitting alongside the cash-basis Finance views. Every entry balances by construction, so the Trial Balance always ties out and the Balance Sheet always balances (Assets = Liabilities + Equity + Net Income).
+
+#### Chart of Accounts
+
+A seeded, professional default chart (codes `1000`–`6900`) spanning the five types — **Asset, Liability, Equity, Income, Expense** — each with a normal balance side. Seeded accounts are flagged `is_system` (used by the auto-posting engine; cannot be deleted or deactivated). Accountants can add custom accounts, rename/group existing ones, deactivate unused custom accounts, and delete custom accounts that have no postings.
+
+#### Journal Entries
+
+Balanced debit/credit entries (`entry_number` `JE-YYYY-NNNNN`). Most are **auto-posted** from business events; accountants can also post **manual** entries (opening balances, accruals, adjustments). Corrections are made by **reversing** an entry (a mirror entry is posted and both are linked) — entries are never deleted, preserving the audit trail. Manual entries and reversals respect locked accounting periods.
+
+#### Automatic posting
+
+Recognition is **cash-basis**, matching the Finance dashboard exactly — so the GL Income Statement reconciles to the cent with Finance's income/expense. Posting is **idempotent** per source event.
+
+| Business event | Debit | Credit |
+|---|---|---|
+| Invoice **payment** received | Cash & Bank (`1000`) | Sales Revenue (`4000`) |
+| **Expense** recorded | Expense account (by category) | Cash & Bank (`1000`) |
+| **Payroll** marked paid | Salaries & Wages (`6000`) | Cash & Bank (`1000`) |
+| **Depreciation** posted | Depreciation Expense (`6300`) | Accumulated Depreciation (`1510`) |
+| **Purchase** marked paid | Cost of Goods Sold (`5000`) | Cash & Bank (`1000`) |
+
+Reversing events unwind automatically: **voiding an invoice** or **deleting a payment** reverses the revenue entry; **voiding an expense** reverses its entry. Expense categories map to ledger accounts (e.g. Rent → `6100`, Utilities → `6200`, Labour → `6500`); unmapped categories fall back to *General & Other Expense* (`6900`).
+
+#### Statements
+
+- **Trial Balance** — debit/credit balance per account as of a date; totals always equal.
+- **Income Statement** — revenue − expenses over a period (its net income equals the Finance dashboard profit for the same range).
+- **Balance Sheet** — assets vs. liabilities + equity as of a date, with current-period net income surfaced as a live equity line (no year-end closing entry required).
+- **General Ledger** — every posting for one account over a range, with opening/running/closing balances.
+
+> **Scope (simplified).** Posting is **forward-only** — entries accrue from the moment the module ships; there is no automatic backfill of historical transactions (post an opening-balance manual entry to seed balances). Inventory valuation and VAT liability are not split into the GL in this version (purchases are expensed on payment and invoice payments are recognised gross), keeping the ledger perfectly aligned with the existing cash-basis reports.
 
 ---
 
@@ -1382,6 +1681,26 @@ Interactive API documentation is available at:
 
 ---
 
+### Accounting
+
+| Method | Endpoint | Description |
+|--------|----------|-------------|
+| GET | `/accounting/accounts` | List chart of accounts (filter by type / active) |
+| POST | `/accounting/accounts` | Create a custom account |
+| PUT | `/accounting/accounts/{id}` | Rename / regroup / (de)activate an account |
+| DELETE | `/accounting/accounts/{id}` | Delete a custom account with no postings |
+| GET | `/accounting/journal-entries` | List entries (filter by date range / source) |
+| GET | `/accounting/journal-entries/{id}` | Entry with its debit/credit lines |
+| POST | `/accounting/journal-entries` | Post a manual balanced entry |
+| POST | `/accounting/journal-entries/{id}/reverse` | Post a reversing entry |
+| GET | `/accounting/general-ledger` | Account ledger with running balance (`account_id`, range) |
+| GET | `/accounting/trial-balance` | Trial balance as of a date |
+| GET | `/accounting/income-statement` | P&L over a date range |
+| GET | `/accounting/balance-sheet` | Balance sheet as of a date |
+| GET | `/accounting/summary` | Dashboard KPIs (month P&L, totals, balanced check) |
+
+---
+
 ### CRM
 
 | Method | Endpoint | Description |
@@ -1449,13 +1768,87 @@ Interactive API documentation is available at:
 | PUT | `/hr/employees/{emp_id}` | Update an employee |
 | PATCH | `/hr/employees/{emp_id}/archive` | Archive an employee |
 | PATCH | `/hr/employees/{emp_id}/unarchive` | Restore an employee |
-| GET | `/hr/leave` | List leave requests |
+| GET | `/hr/leave` | List leave requests (filter by status / employee) |
 | POST | `/hr/leave` | Submit a leave request |
-| PUT | `/hr/leave/{leave_id}` | Update a leave request |
+| PUT | `/hr/leave/{leave_id}` | Update a pending leave request |
 | POST | `/hr/leave/{leave_id}/approve` | Approve a leave request |
 | POST | `/hr/leave/{leave_id}/reject` | Reject a leave request |
-| DELETE | `/hr/leave/{leave_id}` | Delete a leave request |
-| GET | `/hr/summary` | HR headcount and leave KPIs |
+| DELETE | `/hr/leave/{leave_id}` | Delete a pending leave request |
+| POST | `/hr/employees/{emp_id}/files` | Upload an employee PDF (cv / contract / other) |
+| GET | `/hr/employees/{emp_id}/files` | List an employee's file metadata |
+| GET | `/hr/files/{file_id}/download` | Stream a file inline |
+| DELETE | `/hr/files/{file_id}` | Delete a file |
+| GET | `/hr/payroll/runs` | List payroll runs (status filter) |
+| POST | `/hr/payroll/runs` | Open a draft run (seeds one line per active employee) |
+| GET | `/hr/payroll/runs/{run_id}` | Run detail with per-employee lines |
+| PUT | `/hr/payroll/lines/{line_id}` | Edit a line (recomputes the breakdown) |
+| POST | `/hr/payroll/runs/{run_id}/approve` | Approve a draft run |
+| POST | `/hr/payroll/runs/{run_id}/mark-paid` | Finalise + post a single expense to Finance (idempotent) |
+| POST | `/hr/payroll/runs/{run_id}/cancel` | Cancel a Draft/Approved run |
+| GET | `/hr/summary` | Headcount, leave, and payroll KPIs |
+
+---
+
+### HR Contracts
+
+| Method | Endpoint | Description |
+|--------|----------|-------------|
+| GET | `/hr/contracts/` | List contracts (filter by employee / status) |
+| POST | `/hr/contracts/` | Create a contract |
+| GET | `/hr/contracts/{id}` | Contract detail (with employee + company fields) |
+| PUT | `/hr/contracts/{id}` | Update a contract |
+| POST | `/hr/contracts/{id}/status` | Transition status (Activate syncs salary + timeline) |
+| PATCH | `/hr/contracts/{id}/archive` | Archive a contract |
+| GET | `/hr/contracts/{id}/print-data` | Contract + company branding for client-side PDF |
+
+---
+
+### HR Activities
+
+| Method | Endpoint | Description |
+|--------|----------|-------------|
+| GET | `/hr-activities` | List the caller's activities (scope: upcoming / today / overdue / done / all) |
+| GET | `/hr-activities/summary` | Today / upcoming-14 / overdue / done-7d counters |
+| GET | `/hr-activities/{id}` | Activity detail |
+| POST | `/hr-activities` | Create an activity (schedules a reminder) |
+| PUT | `/hr-activities/{id}` | Update an activity (rebuilds the reminder) |
+| PATCH | `/hr-activities/{id}/complete` | Mark an activity done |
+| PATCH | `/hr-activities/{id}/archive` | Archive an activity |
+| GET | `/hr-activities/dropdown/applicants` | Applicant options for the form |
+| GET | `/hr-activities/dropdown/employees` | Employee options for the form |
+
+---
+
+### Recruitment
+
+| Method | Endpoint | Description |
+|--------|----------|-------------|
+| GET | `/recruitment/positions` | List positions (status filter) |
+| POST | `/recruitment/positions` | Create a position |
+| GET | `/recruitment/positions/{id}` | Position detail with applicants |
+| PUT | `/recruitment/positions/{id}` | Update a position |
+| PATCH | `/recruitment/positions/{id}/archive` | Archive a position |
+| GET | `/recruitment/applicants` | List applicants (status / position / search) |
+| POST | `/recruitment/applicants` | Register an applicant |
+| GET | `/recruitment/applicants/{id}` | Applicant detail (interviews, history, files) |
+| PUT | `/recruitment/applicants/{id}` | Update an applicant |
+| POST | `/recruitment/applicants/{id}/status` | Move the applicant through the pipeline |
+| PATCH | `/recruitment/applicants/{id}/archive` | Archive an applicant |
+| POST | `/recruitment/applicants/{id}/interviews` | Schedule an interview (mirrors an HR Activity) |
+| PUT | `/recruitment/interviews/{id}` | Update an interview |
+| DELETE | `/recruitment/interviews/{id}` | Remove an interview |
+| POST | `/recruitment/applicants/{id}/files` | Upload a PDF/Word document |
+| GET | `/recruitment/applicants/{id}/files` | List applicant file metadata |
+| GET | `/recruitment/files/{id}/download` | Stream a file inline |
+| DELETE | `/recruitment/files/{id}` | Delete a file |
+| GET | `/recruitment/applicants/{id}/offers` | List an applicant's offer letters |
+| POST | `/recruitment/applicants/{id}/offers` | Draft an offer letter |
+| PUT | `/recruitment/offers/{id}` | Update an offer |
+| POST | `/recruitment/offers/{id}/status` | Transition an offer (Sent / Accepted / …) |
+| PATCH | `/recruitment/offers/{id}/archive` | Archive an offer |
+| GET | `/recruitment/offers/{id}/print-data` | Offer + company branding for client-side PDF |
+| POST | `/recruitment/applicants/{id}/convert` | Onboard an Accepted applicant as an employee |
+| GET | `/recruitment/summary` | Recruitment pipeline KPIs |
 
 ---
 
@@ -1586,6 +1979,19 @@ Interactive API documentation is available at:
 | GET | `/notifications/count` | Unread notification count |
 | PATCH | `/notifications/{id}/read` | Mark a notification as read |
 | POST | `/notifications/read-all` | Mark all notifications as read |
+
+---
+
+### Attachments
+
+Generic file attachments on any supported entity (`entity_type` ∈ invoices, purchases, projects, expenses, assets, suppliers, clients, quotations, inventory). Gated by the host module's `view` (list/download) and `edit` (upload/delete).
+
+| Method | Endpoint | Description |
+|--------|----------|-------------|
+| GET | `/attachments/{entity_type}/{entity_id}` | List a record's attachments (metadata only) |
+| POST | `/attachments/{entity_type}/{entity_id}` | Upload a file (multipart) |
+| GET | `/attachments/file/{id}` | Stream a file (`?download=true` forces download) |
+| DELETE | `/attachments/file/{id}` | Delete an attachment |
 
 ---
 
@@ -1742,6 +2148,18 @@ The schema evolves through **numbered, idempotent migrations** recorded in the `
 | `note` | TEXT | |
 | `created_at` | TEXT | |
 
+#### `inventory_cost_layers`
+Surviving cost lots for FIFO/LIFO costing (see §7.6 → Inventory Costing Method). Only populated/consumed when `inventory_costing_method` is `fifo` or `lifo`; empty and unused under `weighted_avg`.
+| Column | Type | Description |
+|--------|------|-------------|
+| `id` | INTEGER PK | |
+| `inventory_id` | INTEGER FK | → inventory (CASCADE delete) |
+| `qty_remaining` | REAL | Units left in this lot (drawn down on stock-OUT) |
+| `unit_cost` | REAL | Landed cost per unit for this lot |
+| `source_type` | TEXT | purchase / production / adjustment / opening / return |
+| `source_ref` | TEXT | PO number, order number, etc. |
+| `created_at` | TEXT | Lot timestamp — FIFO consumes oldest, LIFO newest |
+
 #### `purchases`
 | Column | Type | Description |
 |--------|------|-------------|
@@ -1845,6 +2263,49 @@ The schema evolves through **numbered, idempotent migrations** recorded in the `
 | `set_by_name` | TEXT | Username snapshot at the time of the change |
 | `note` | TEXT | Optional note describing the change |
 | `created_at` | TEXT | The latest row is the active rate; older rows form the history |
+
+#### `chart_of_accounts`
+The general-ledger account list (see §7.28). Seeded `is_system` accounts are used by the auto-posting engine.
+| Column | Type | Description |
+|--------|------|-------------|
+| `id` | INTEGER PK | |
+| `code` | TEXT UNIQUE | e.g. `1000`, `4000` |
+| `name` | TEXT | Account name |
+| `type` | TEXT | Asset / Liability / Equity / Income / Expense |
+| `subtype` | TEXT | Reporting group (e.g. Current Asset) |
+| `normal_balance` | TEXT | `debit` or `credit` |
+| `parent_code` | TEXT | Optional hierarchy |
+| `is_system` | INTEGER | `1` = seeded, protected from delete/deactivate |
+| `is_active` | INTEGER | |
+| `description` | TEXT | |
+| `created_at` | TEXT | |
+
+#### `journal_entries`
+| Column | Type | Description |
+|--------|------|-------------|
+| `id` | INTEGER PK | |
+| `entry_number` | TEXT | `JE-YYYY-NNNNN` |
+| `entry_date` | TEXT | |
+| `memo` | TEXT | |
+| `source_type` | TEXT | manual / invoice_payment / expense / payroll / depreciation / purchase / reversal |
+| `source_id` | INTEGER | The originating record (idempotency key with source_type) |
+| `status` | TEXT | posted / reversed |
+| `reverses_id` | INTEGER FK | → journal_entries (entry this one reverses) |
+| `reversed_by` | INTEGER FK | → journal_entries (the reversal of this entry) |
+| `total_debit`, `total_credit` | REAL | Always equal |
+| `created_by` | INTEGER FK | → users |
+| `created_at` | TEXT | |
+
+#### `journal_entry_lines`
+| Column | Type | Description |
+|--------|------|-------------|
+| `id` | INTEGER PK | |
+| `journal_entry_id` | INTEGER FK | → journal_entries (CASCADE) |
+| `account_id` | INTEGER FK | → chart_of_accounts |
+| `debit` | REAL | |
+| `credit` | REAL | One of debit/credit is zero per line |
+| `memo` | TEXT | |
+| `line_no` | INTEGER | Ordering within the entry |
 
 ---
 
@@ -2038,22 +2499,25 @@ The schema evolves through **numbered, idempotent migrations** recorded in the `
 
 ### HR Tables
 
-#### `departments`
+> All HR tables are namespaced with an `hr_` prefix.
+
+#### `hr_departments`
 | Column | Type | Description |
 |--------|------|-------------|
 | `id` | INTEGER PK | |
-| `name` | TEXT UNIQUE | |
+| `name` | TEXT | Unique among non-archived rows |
 | `description` | TEXT | |
 | `archived_at` | TEXT | |
 | `created_at` | TEXT | |
 
-#### `employees`
+#### `hr_employees`
 | Column | Type | Description |
 |--------|------|-------------|
 | `id` | INTEGER PK | |
+| `employee_code` | TEXT | Auto-assigned `EMP-0001`, … |
 | `full_name` | TEXT | |
 | `job_title` | TEXT | |
-| `department_id` | INTEGER FK | → departments |
+| `department_id` | INTEGER FK | → hr_departments |
 | `employment_type` | TEXT | Full-time / Part-time / Contract / Intern |
 | `status` | TEXT | Active / On Leave / Terminated |
 | `hire_date` | TEXT | |
@@ -2061,27 +2525,243 @@ The schema evolves through **numbered, idempotent migrations** recorded in the `
 | `email` | TEXT | |
 | `phone` | TEXT | |
 | `salary` | REAL | |
-| `manager_id` | INTEGER FK | → employees (self-referential) |
+| `manager_id` | INTEGER FK | → hr_employees (self-referential) |
 | `user_id` | INTEGER FK | → users (optional link to a user account) |
 | `address` | TEXT | |
 | `notes` | TEXT | |
 | `archived_at` | TEXT | |
 | `created_at` | TEXT | |
 
-#### `leave_requests`
+#### `hr_employment_changes`
+Append-only salary / role / department / manager audit trail. Never edited.
 | Column | Type | Description |
 |--------|------|-------------|
 | `id` | INTEGER PK | |
-| `employee_id` | INTEGER FK | → employees |
+| `employee_id` | INTEGER FK | → hr_employees |
+| `effective_date` | TEXT | |
+| `change_type` | TEXT | hire / raise / promotion / demotion / role_change / transfer / termination / adjustment |
+| `old_salary`, `new_salary` | REAL | |
+| `old_title`, `new_title` | TEXT | |
+| `old_department_id`, `new_department_id` | INTEGER FK | → hr_departments |
+| `old_manager_id`, `new_manager_id` | INTEGER FK | → hr_employees |
+| `reason` | TEXT | |
+| `created_by` | INTEGER FK | → users |
+| `created_at` | TEXT | |
+
+#### `hr_leave_requests`
+| Column | Type | Description |
+|--------|------|-------------|
+| `id` | INTEGER PK | |
+| `employee_id` | INTEGER FK | → hr_employees |
 | `leave_type` | TEXT | Annual / Sick / Unpaid / Maternity / Paternity / Bereavement / Other |
 | `start_date` | TEXT | |
 | `end_date` | TEXT | |
-| `days` | INTEGER | Calculated leave duration |
+| `days` | INTEGER | Inclusive day count, calculated on submit |
 | `reason` | TEXT | |
 | `status` | TEXT | Pending / Approved / Rejected |
 | `reviewed_by` | INTEGER FK | → users |
+| `reviewed_at` | TEXT | |
 | `review_note` | TEXT | |
 | `created_at` | TEXT | |
+
+#### `hr_employee_files`
+PDFs stored as BLOBs. CV / contract are single-slot per employee.
+| Column | Type | Description |
+|--------|------|-------------|
+| `id` | INTEGER PK | |
+| `employee_id` | INTEGER FK | → hr_employees |
+| `kind` | TEXT | cv / contract / other |
+| `filename` | TEXT | |
+| `content_type` | TEXT | `application/pdf` |
+| `size_bytes` | INTEGER | |
+| `data` | BLOB | File bytes |
+| `uploaded_by` | INTEGER FK | → users |
+| `created_at` | TEXT | |
+
+#### `hr_payroll_runs`
+| Column | Type | Description |
+|--------|------|-------------|
+| `id` | INTEGER PK | |
+| `period_start`, `period_end` | TEXT | |
+| `status` | TEXT | Draft / Approved / Paid / Cancelled |
+| `notes` | TEXT | |
+| `total_gross`, `total_bonuses`, `total_deductions`, `total_net` | REAL | Header roll-ups |
+| `total_tax`, `total_nssf_employee`, `total_nssf_employer`, `total_overtime` | REAL | |
+| `approved_by` | INTEGER FK | → users |
+| `approved_at` | TEXT | |
+| `paid_by` | INTEGER FK | → users |
+| `paid_at` | TEXT | |
+| `posted_expense_id` | INTEGER FK | → expenses (the single auto-posted Payroll expense) |
+| `created_by` | INTEGER FK | → users |
+| `created_at` | TEXT | |
+| `archived_at` | TEXT | |
+
+#### `hr_payroll_lines`
+| Column | Type | Description |
+|--------|------|-------------|
+| `id` | INTEGER PK | |
+| `payroll_run_id` | INTEGER FK | → hr_payroll_runs |
+| `employee_id` | INTEGER FK | → hr_employees |
+| `base_salary`, `bonuses`, `deductions` | REAL | |
+| `overtime_hours`, `overtime_amount` | REAL | |
+| `gross_total`, `tax_amount`, `nssf_employee`, `nssf_employer`, `net_amount` | REAL | Computed breakdown |
+| `notes` | TEXT | |
+| `created_at` | TEXT | |
+
+#### `hr_contracts`
+| Column | Type | Description |
+|--------|------|-------------|
+| `id` | INTEGER PK | |
+| `employee_id` | INTEGER FK | → hr_employees |
+| `contract_number` | TEXT | Auto `CTR-YYYY-NNNN` |
+| `contract_type` | TEXT | Permanent / Fixed-term / Probation / Internship / Consultant |
+| `status` | TEXT | Draft / Active / Expired / Terminated |
+| `start_date`, `end_date`, `probation_end_date` | TEXT | |
+| `job_title` | TEXT | |
+| `work_schedule` | TEXT | |
+| `weekly_hours` | REAL | |
+| `salary` | REAL | |
+| `salary_currency` | TEXT | Default `USD` |
+| `benefits`, `terms` | TEXT | |
+| `signed_at`, `terminated_at` | TEXT | |
+| `terminated_reason` | TEXT | |
+| `created_by` | INTEGER FK | → users |
+| `created_at` | TEXT | |
+| `archived_at` | TEXT | |
+
+#### `hr_activities`
+Personal HR touchpoints + reminders (owner-scoped).
+| Column | Type | Description |
+|--------|------|-------------|
+| `id` | INTEGER PK | |
+| `owner_id` | INTEGER FK | → users (visible only to owner + superadmins) |
+| `activity_type` | TEXT | Call / Meeting / Interview / Email / Note / Task |
+| `subject` | TEXT | |
+| `description` | TEXT | |
+| `scheduled_at` | TEXT | |
+| `duration_min` | INTEGER | |
+| `location` | TEXT | |
+| `status` | TEXT | Planned / Done / Cancelled |
+| `applicant_id` | INTEGER FK | → recruitment_applicants (optional) |
+| `employee_id` | INTEGER FK | → hr_employees (optional) |
+| `reminder_minutes_before` | INTEGER | 0 / 5 / 15 / 30 / 60 / 120 / 1440 |
+| `reminder_notif_id` | INTEGER FK | → notifications (the pending reminder) |
+| `completed_at` | TEXT | |
+| `completed_notes` | TEXT | |
+| `updated_at` | TEXT | |
+| `created_at` | TEXT | |
+| `archived_at` | TEXT | |
+
+---
+
+### Recruitment Tables
+
+#### `recruitment_positions`
+| Column | Type | Description |
+|--------|------|-------------|
+| `id` | INTEGER PK | |
+| `title` | TEXT | |
+| `department_id` | INTEGER FK | → hr_departments |
+| `employment_type` | TEXT | Full-time / Part-time / Contract / Intern |
+| `location` | TEXT | |
+| `salary_min`, `salary_max` | REAL | |
+| `headcount` | INTEGER | ≥ 1 |
+| `status` | TEXT | Open / On Hold / Filled / Cancelled |
+| `description`, `requirements` | TEXT | |
+| `posted_at`, `closed_at` | TEXT | |
+| `created_by` | INTEGER FK | → users |
+| `created_at` | TEXT | |
+| `archived_at` | TEXT | |
+
+#### `recruitment_applicants`
+| Column | Type | Description |
+|--------|------|-------------|
+| `id` | INTEGER PK | |
+| `position_id` | INTEGER FK | → recruitment_positions |
+| `full_name` | TEXT | |
+| `email`, `phone` | TEXT | |
+| `source` | TEXT | |
+| `expected_salary`, `offered_salary` | REAL | |
+| `rating` | INTEGER | 1–5 |
+| `assigned_to` | INTEGER FK | → users (recruiter) |
+| `notes` | TEXT | |
+| `status` | TEXT | Applied / Screening / Interview / Technical Test / Accepted / Rejected / Withdrawn |
+| `accepted_reason`, `rejected_reason` | TEXT | |
+| `applied_at`, `last_status_change` | TEXT | |
+| `converted_employee_id` | INTEGER FK | → hr_employees (set on onboarding) |
+| `created_by` | INTEGER FK | → users |
+| `created_at` | TEXT | |
+| `archived_at` | TEXT | |
+
+#### `recruitment_status_history`
+Append-only pipeline audit trail (one row per transition).
+| Column | Type | Description |
+|--------|------|-------------|
+| `id` | INTEGER PK | |
+| `applicant_id` | INTEGER FK | → recruitment_applicants |
+| `old_status`, `new_status` | TEXT | |
+| `note` | TEXT | |
+| `changed_by` | INTEGER FK | → users |
+| `created_at` | TEXT | |
+
+#### `recruitment_interviews`
+| Column | Type | Description |
+|--------|------|-------------|
+| `id` | INTEGER PK | |
+| `applicant_id` | INTEGER FK | → recruitment_applicants |
+| `interview_type` | TEXT | Phone / Video / On-site / Technical / Final |
+| `scheduled_at` | TEXT | |
+| `duration_min` | INTEGER | |
+| `location` | TEXT | |
+| `interviewer_id` | INTEGER FK | → users (optional) |
+| `interviewer_name` | TEXT | External interviewer label |
+| `status` | TEXT | Scheduled / Completed / Cancelled / No-show |
+| `score` | INTEGER | 1–10 |
+| `decision` | TEXT | Hire / No hire / Maybe / Strong hire / Strong no hire |
+| `notes` | TEXT | |
+| `hr_activity_id` | INTEGER FK | → hr_activities (the mirrored activity) |
+| `completed_at` | TEXT | |
+| `created_by` | INTEGER FK | → users |
+| `created_at` | TEXT | |
+
+#### `recruitment_applicant_files`
+PDF / Word documents stored as BLOBs. CV is single-slot per applicant.
+| Column | Type | Description |
+|--------|------|-------------|
+| `id` | INTEGER PK | |
+| `applicant_id` | INTEGER FK | → recruitment_applicants |
+| `kind` | TEXT | cv / cover_letter / portfolio / certificate / other |
+| `filename` | TEXT | |
+| `content_type` | TEXT | PDF or Word (.doc / .docx) |
+| `size_bytes` | INTEGER | |
+| `data` | BLOB | File bytes |
+| `uploaded_by` | INTEGER FK | → users |
+| `created_at` | TEXT | |
+
+#### `recruitment_offers`
+Lebanon-aware pre-employment offer letters. On acceptance + conversion a matching Active row is minted in `hr_contracts`.
+| Column | Type | Description |
+|--------|------|-------------|
+| `id` | INTEGER PK | |
+| `applicant_id` | INTEGER FK | → recruitment_applicants |
+| `offer_number` | TEXT | |
+| `status` | TEXT | Draft / Sent / Accepted / Declined / Expired |
+| `contract_type` | TEXT | Permanent / Fixed-term / Probation / Internship / Consultant |
+| `job_title` | TEXT | |
+| `start_date`, `end_date`, `probation_end_date` | TEXT | |
+| `work_schedule` | TEXT | |
+| `weekly_hours` | REAL | Lebanese Labor Code caps the week at 48h |
+| `salary` | REAL | |
+| `salary_currency` | TEXT | USD / EUR / LBP / AED / SAR |
+| `payment_schedule` | TEXT | Monthly / Bi-weekly / Weekly |
+| `benefits`, `additional_terms` | TEXT | |
+| `place_of_work` | TEXT | |
+| `include_nssf`, `include_eos`, `include_confidentiality`, `include_non_compete` | INTEGER | Clause toggles (0/1) |
+| `non_compete_months`, `notice_period_days`, `annual_leave_days`, `probation_months` | INTEGER | |
+| `expires_at` | TEXT | Offer expiry (Sent → Expired) |
+| `created_by` | INTEGER FK | → users |
+| `created_at` | TEXT | |
+| `archived_at` | TEXT | |
 
 ---
 
@@ -2140,6 +2820,21 @@ A compound index on `(request_id, step_number)` supports fast step lookups.
 |--------|------|-------------|
 | `key` | TEXT PK | Setting name |
 | `value` | TEXT | Setting value |
+
+#### `attachments`
+Generic file attachments on any business entity (see §7.27). Files are stored as BLOBs; access is gated by the host entity's RBAC module.
+| Column | Type | Description |
+|--------|------|-------------|
+| `id` | INTEGER PK | |
+| `entity_type` | TEXT | invoices / purchases / projects / expenses / assets / suppliers / clients / quotations / inventory |
+| `entity_id` | INTEGER | ID of the host record |
+| `filename` | TEXT | Original file name |
+| `content_type` | TEXT | Canonical, allow-listed MIME type |
+| `size_bytes` | INTEGER | |
+| `data` | BLOB | File bytes |
+| `uploaded_by` | INTEGER FK | → users |
+| `uploaded_by_name` | TEXT | Snapshot of uploader name |
+| `created_at` | TEXT | |
 
 #### `documents`
 | Column | Type | Description |

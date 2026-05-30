@@ -29,6 +29,8 @@ startup_log.txt
 *.bak
 backend/_dbdump.txt
 backend/_tables.txt
+_server_out.log
+_server_err.log
 
 # Front-end dependencies
 frontend_src/node_modules/

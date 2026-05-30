@@ -1858,6 +1858,384 @@ def _run_migrations(conn, c):
                   "ON recruitment_offers(status, archived_at)")
         done("101_recruitment_offers")
 
+    # ── 105: manufacturing work centers + routing + actual-time costing ────
+    # Work centers carry hourly rates (labor / machine / overhead) and a power
+    # draw (kW) for electricity costing. BOMs gain a routing of operations; each
+    # production order snapshots that routing so actual run time can be logged
+    # and the conversion cost computed precisely at completion.
+    if need("105_mfg_work_centers"):
+        c.execute("""
+            CREATE TABLE IF NOT EXISTS work_centers (
+                id            INTEGER PRIMARY KEY AUTOINCREMENT,
+                code          TEXT    UNIQUE,
+                name          TEXT    NOT NULL,
+                type          TEXT    NOT NULL DEFAULT 'Machine',
+                labor_rate    REAL    NOT NULL DEFAULT 0,   -- per hour
+                machine_rate  REAL    NOT NULL DEFAULT 0,   -- per hour (machine depreciation / maintenance)
+                overhead_rate REAL    NOT NULL DEFAULT 0,   -- per hour
+                power_kw      REAL    NOT NULL DEFAULT 0,   -- machine draw, for electricity costing
+                is_active     INTEGER NOT NULL DEFAULT 1,
+                notes         TEXT,
+                archived_at   TEXT,
+                created_at    TEXT    NOT NULL
+            )
+        """)
+        c.execute("""
+            CREATE TABLE IF NOT EXISTS bom_operations (
+                id                   INTEGER PRIMARY KEY AUTOINCREMENT,
+                bom_id               INTEGER NOT NULL REFERENCES boms(id) ON DELETE CASCADE,
+                sequence             INTEGER NOT NULL DEFAULT 1,
+                name                 TEXT    NOT NULL,
+                work_center_id       INTEGER REFERENCES work_centers(id) ON DELETE SET NULL,
+                setup_minutes        REAL    NOT NULL DEFAULT 0,   -- fixed per production run
+                run_minutes_per_unit REAL    NOT NULL DEFAULT 0,   -- × output quantity
+                notes                TEXT
+            )
+        """)
+        c.execute("CREATE INDEX IF NOT EXISTS idx_bom_operations_bom ON bom_operations(bom_id)")
+        c.execute("""
+            CREATE TABLE IF NOT EXISTS production_order_operations (
+                id                  INTEGER PRIMARY KEY AUTOINCREMENT,
+                production_order_id INTEGER NOT NULL REFERENCES production_orders(id) ON DELETE CASCADE,
+                sequence            INTEGER NOT NULL DEFAULT 1,
+                name                TEXT    NOT NULL,
+                work_center_id      INTEGER REFERENCES work_centers(id) ON DELETE SET NULL,
+                work_center_name    TEXT,
+                planned_minutes     REAL    NOT NULL DEFAULT 0,
+                actual_minutes      REAL,
+                status              TEXT    NOT NULL DEFAULT 'Pending',
+                -- rate snapshot frozen at completion
+                labor_rate          REAL    NOT NULL DEFAULT 0,
+                machine_rate        REAL    NOT NULL DEFAULT 0,
+                overhead_rate       REAL    NOT NULL DEFAULT 0,
+                power_kw            REAL    NOT NULL DEFAULT 0,
+                electricity_tariff  REAL    NOT NULL DEFAULT 0,
+                -- computed cost breakdown
+                labor_cost          REAL    NOT NULL DEFAULT 0,
+                machine_cost        REAL    NOT NULL DEFAULT 0,
+                electricity_cost    REAL    NOT NULL DEFAULT 0,
+                overhead_cost       REAL    NOT NULL DEFAULT 0,
+                operation_cost      REAL    NOT NULL DEFAULT 0,
+                created_at          TEXT    NOT NULL
+            )
+        """)
+        c.execute("CREATE INDEX IF NOT EXISTS idx_po_operations_order "
+                  "ON production_order_operations(production_order_id)")
+        # Conversion-cost breakdown columns on the order header.
+        if "production_orders" in all_tables():
+            _poc = cols("production_orders")
+            if "machine_cost" not in _poc:
+                c.execute("ALTER TABLE production_orders ADD COLUMN machine_cost REAL NOT NULL DEFAULT 0")
+            if "electricity_cost" not in _poc:
+                c.execute("ALTER TABLE production_orders ADD COLUMN electricity_cost REAL NOT NULL DEFAULT 0")
+        done("105_mfg_work_centers")
+
+    # ── 106: manufacturing quality control + quarantine ───────────────────
+    # qc_required BOMs route their finished goods into a non-sellable
+    # quarantine bucket at completion; an inspection record (with defect lines)
+    # then releases the passed quantity to sellable stock, scraps rejects, and
+    # can spawn a linked rework order.
+    if need("106_mfg_qc"):
+        if "boms" in all_tables() and "qc_required" not in cols("boms"):
+            c.execute("ALTER TABLE boms ADD COLUMN qc_required INTEGER NOT NULL DEFAULT 0")
+        if "production_orders" in all_tables():
+            _poc = cols("production_orders")
+            if "qc_required" not in _poc:
+                c.execute("ALTER TABLE production_orders ADD COLUMN qc_required INTEGER NOT NULL DEFAULT 0")
+            if "rework_of_order_id" not in _poc:
+                c.execute("ALTER TABLE production_orders ADD COLUMN rework_of_order_id INTEGER")
+        if "inventory" in all_tables() and "quarantine_quantity" not in cols("inventory"):
+            c.execute("ALTER TABLE inventory ADD COLUMN quarantine_quantity REAL NOT NULL DEFAULT 0")
+        c.execute("""
+            CREATE TABLE IF NOT EXISTS production_qc (
+                id                  INTEGER PRIMARY KEY AUTOINCREMENT,
+                production_order_id INTEGER NOT NULL REFERENCES production_orders(id) ON DELETE CASCADE,
+                output_inventory_id INTEGER NOT NULL REFERENCES inventory(id),
+                quantity            REAL    NOT NULL DEFAULT 0,   -- units under inspection (quarantined)
+                unit_cost           REAL    NOT NULL DEFAULT 0,
+                passed_qty          REAL    NOT NULL DEFAULT 0,
+                rejected_qty        REAL    NOT NULL DEFAULT 0,
+                rework_qty          REAL    NOT NULL DEFAULT 0,
+                scrap_cost          REAL    NOT NULL DEFAULT 0,
+                status              TEXT    NOT NULL DEFAULT 'Pending',  -- Pending/Passed/Failed/Partial
+                notes               TEXT,
+                inspector_id        INTEGER REFERENCES users(id) ON DELETE SET NULL,
+                inspected_at        TEXT,
+                created_at          TEXT    NOT NULL
+            )
+        """)
+        c.execute("CREATE INDEX IF NOT EXISTS idx_production_qc_order  ON production_qc(production_order_id)")
+        c.execute("CREATE INDEX IF NOT EXISTS idx_production_qc_status ON production_qc(status)")
+        c.execute("""
+            CREATE TABLE IF NOT EXISTS production_qc_defects (
+                id       INTEGER PRIMARY KEY AUTOINCREMENT,
+                qc_id    INTEGER NOT NULL REFERENCES production_qc(id) ON DELETE CASCADE,
+                reason   TEXT    NOT NULL,
+                quantity REAL    NOT NULL DEFAULT 0,
+                notes    TEXT
+            )
+        """)
+        c.execute("CREATE INDEX IF NOT EXISTS idx_production_qc_defects_qc ON production_qc_defects(qc_id)")
+        done("106_mfg_qc")
+
+    # ── 107: batch/lot tracking + traceability ─────────────────────────────
+    # Per-item opt-in (inventory.lot_tracked). Lot-tracked items carry physical
+    # lots with manufacture/expiry dates; stock-OUT consumes them First-Expired-
+    # First-Out and records consumption for full forward/backward traceability.
+    if need("107_inventory_lots"):
+        if "inventory" in all_tables():
+            _ic = cols("inventory")
+            if "lot_tracked" not in _ic:
+                c.execute("ALTER TABLE inventory ADD COLUMN lot_tracked INTEGER NOT NULL DEFAULT 0")
+            if "shelf_life_days" not in _ic:
+                c.execute("ALTER TABLE inventory ADD COLUMN shelf_life_days INTEGER")
+        c.execute("""
+            CREATE TABLE IF NOT EXISTS inventory_lots (
+                id                 INTEGER PRIMARY KEY AUTOINCREMENT,
+                inventory_id       INTEGER NOT NULL REFERENCES inventory(id) ON DELETE CASCADE,
+                lot_number         TEXT,
+                quantity_remaining REAL    NOT NULL DEFAULT 0,
+                original_quantity  REAL    NOT NULL DEFAULT 0,
+                unit_cost          REAL    NOT NULL DEFAULT 0,
+                manufacture_date   TEXT,
+                expiry_date        TEXT,
+                source_type        TEXT,                       -- purchase/production/opening/adjustment
+                source_ref         TEXT,
+                status             TEXT    NOT NULL DEFAULT 'active',  -- active/consumed
+                created_at         TEXT    NOT NULL
+            )
+        """)
+        c.execute("CREATE INDEX IF NOT EXISTS idx_lots_item   ON inventory_lots(inventory_id, status)")
+        c.execute("CREATE INDEX IF NOT EXISTS idx_lots_expiry ON inventory_lots(expiry_date)")
+        # Each draw from a lot — drives forward (where did this lot go) and, via
+        # production_order_id + output_lot_id, backward (what fed this lot) trace.
+        c.execute("""
+            CREATE TABLE IF NOT EXISTS lot_consumption (
+                id                  INTEGER PRIMARY KEY AUTOINCREMENT,
+                lot_id              INTEGER NOT NULL REFERENCES inventory_lots(id) ON DELETE CASCADE,
+                inventory_id        INTEGER NOT NULL REFERENCES inventory(id),
+                quantity            REAL    NOT NULL DEFAULT 0,
+                unit_cost           REAL    NOT NULL DEFAULT 0,
+                source_type         TEXT,                       -- sale/project/production/adjustment
+                source_ref          TEXT,
+                production_order_id INTEGER REFERENCES production_orders(id) ON DELETE SET NULL,
+                output_lot_id       INTEGER REFERENCES inventory_lots(id) ON DELETE SET NULL,
+                created_at          TEXT    NOT NULL
+            )
+        """)
+        c.execute("CREATE INDEX IF NOT EXISTS idx_lotcons_lot    ON lot_consumption(lot_id)")
+        c.execute("CREATE INDEX IF NOT EXISTS idx_lotcons_order  ON lot_consumption(production_order_id)")
+        c.execute("CREATE INDEX IF NOT EXISTS idx_lotcons_output ON lot_consumption(output_lot_id)")
+        done("107_inventory_lots")
+
+    # ── 108: production scheduling, priority & partial completion ──────────
+    if need("108_mfg_scheduling"):
+        if "production_orders" in all_tables():
+            _poc = cols("production_orders")
+            for _col, _sql in (
+                ("priority",           "ALTER TABLE production_orders ADD COLUMN priority TEXT NOT NULL DEFAULT 'Normal'"),
+                ("planned_start_date", "ALTER TABLE production_orders ADD COLUMN planned_start_date TEXT"),
+                ("due_date",           "ALTER TABLE production_orders ADD COLUMN due_date TEXT"),
+                # Cumulative quantity produced across partial completion runs.
+                ("quantity_completed", "ALTER TABLE production_orders ADD COLUMN quantity_completed REAL NOT NULL DEFAULT 0"),
+            ):
+                if _col not in _poc:
+                    c.execute(_sql)
+        c.execute("CREATE INDEX IF NOT EXISTS idx_production_orders_due "
+                  "ON production_orders(due_date)")
+        done("108_mfg_scheduling")
+
+    # ── 109: resource-based overhead costing (SME model) ──────────────────
+    # Replaces the work-center/routing approach: a reusable list of resources
+    # (Labor, Electricity, CNC, Oven, …) each with a per-hour rate. A BOM assigns
+    # resources (from the list or inline); production cost = Σ(rates) × actual
+    # production hours. No work centers, capacity planning, or scheduling.
+    if need("109_mfg_resources"):
+        c.execute("""
+            CREATE TABLE IF NOT EXISTS manufacturing_resources (
+                id          INTEGER PRIMARY KEY AUTOINCREMENT,
+                name        TEXT    NOT NULL,
+                cost_type   TEXT    NOT NULL DEFAULT 'per_hour',
+                hourly_rate REAL    NOT NULL DEFAULT 0,
+                is_active   INTEGER NOT NULL DEFAULT 1,
+                notes       TEXT,
+                archived_at TEXT,
+                created_at  TEXT    NOT NULL
+            )
+        """)
+        # Resources assigned to a BOM. resource_id links the master list (its
+        # name + rate are snapshotted); a NULL resource_id is an inline resource.
+        c.execute("""
+            CREATE TABLE IF NOT EXISTS bom_resources (
+                id          INTEGER PRIMARY KEY AUTOINCREMENT,
+                bom_id      INTEGER NOT NULL REFERENCES boms(id) ON DELETE CASCADE,
+                resource_id INTEGER REFERENCES manufacturing_resources(id) ON DELETE SET NULL,
+                name        TEXT    NOT NULL,
+                hourly_rate REAL    NOT NULL DEFAULT 0
+            )
+        """)
+        c.execute("CREATE INDEX IF NOT EXISTS idx_bom_resources_bom ON bom_resources(bom_id)")
+        # Per-order snapshot; hours + cost are filled in at completion.
+        c.execute("""
+            CREATE TABLE IF NOT EXISTS production_order_resources (
+                id                  INTEGER PRIMARY KEY AUTOINCREMENT,
+                production_order_id INTEGER NOT NULL REFERENCES production_orders(id) ON DELETE CASCADE,
+                resource_id         INTEGER REFERENCES manufacturing_resources(id) ON DELETE SET NULL,
+                name                TEXT    NOT NULL,
+                hourly_rate         REAL    NOT NULL DEFAULT 0,
+                hours               REAL    NOT NULL DEFAULT 0,
+                cost                REAL    NOT NULL DEFAULT 0,
+                created_at          TEXT    NOT NULL
+            )
+        """)
+        c.execute("CREATE INDEX IF NOT EXISTS idx_po_resources_order "
+                  "ON production_order_resources(production_order_id)")
+        # Standard production time (hours per batch) on the BOM — drives the
+        # estimated conversion cost + variance. Actual hours captured per order.
+        if "boms" in all_tables() and "standard_hours" not in cols("boms"):
+            c.execute("ALTER TABLE boms ADD COLUMN standard_hours REAL NOT NULL DEFAULT 0")
+        if "production_orders" in all_tables() and "production_hours" not in cols("production_orders"):
+            c.execute("ALTER TABLE production_orders ADD COLUMN production_hours REAL NOT NULL DEFAULT 0")
+        done("109_mfg_resources")
+
+    # ── 102: inventory cost layers (FIFO / LIFO costing) ───────────────────
+    # Each row is a surviving "lot" of stock at a known unit cost. Only
+    # populated/consumed when inventory_costing_method is fifo or lifo; under
+    # the default weighted_avg the table stays empty and costing is unchanged.
+    if need("102_inventory_cost_layers"):
+        c.execute("""
+            CREATE TABLE IF NOT EXISTS inventory_cost_layers (
+                id            INTEGER PRIMARY KEY AUTOINCREMENT,
+                inventory_id  INTEGER NOT NULL REFERENCES inventory(id) ON DELETE CASCADE,
+                qty_remaining REAL    NOT NULL,
+                unit_cost     REAL    NOT NULL DEFAULT 0,
+                source_type   TEXT,
+                source_ref    TEXT,
+                created_at    TEXT    NOT NULL
+            )
+        """)
+        # FIFO/LIFO ordering and per-item lookups both ride this index.
+        c.execute("CREATE INDEX IF NOT EXISTS idx_cost_layers_item "
+                  "ON inventory_cost_layers(inventory_id, created_at, id)")
+        done("102_inventory_cost_layers")
+
+    # ── 104: double-entry accounting (Chart of Accounts + Journal) ─────────
+    # A real general ledger sitting alongside the existing cash-basis finance
+    # views. Journal entries are auto-posted from business events (invoice
+    # payment, expense, payroll, depreciation, purchase) so the Income
+    # Statement reconciles with the Finance dashboard, plus manual entries.
+    if need("104_accounting"):
+        c.execute("""
+            CREATE TABLE IF NOT EXISTS chart_of_accounts (
+                id             INTEGER PRIMARY KEY AUTOINCREMENT,
+                code           TEXT    UNIQUE NOT NULL,
+                name           TEXT    NOT NULL,
+                type           TEXT    NOT NULL,   -- Asset/Liability/Equity/Income/Expense
+                subtype        TEXT,
+                normal_balance TEXT    NOT NULL,   -- 'debit' or 'credit'
+                parent_code    TEXT,
+                is_system      INTEGER NOT NULL DEFAULT 0,
+                is_active      INTEGER NOT NULL DEFAULT 1,
+                description    TEXT,
+                created_at     TEXT    NOT NULL
+            )
+        """)
+        c.execute("""
+            CREATE TABLE IF NOT EXISTS journal_entries (
+                id           INTEGER PRIMARY KEY AUTOINCREMENT,
+                entry_number TEXT,
+                entry_date   TEXT    NOT NULL,
+                memo         TEXT,
+                source_type  TEXT,    -- manual/invoice_payment/expense/payroll/depreciation/purchase/reversal
+                source_id    INTEGER,
+                status       TEXT    NOT NULL DEFAULT 'posted',  -- draft/posted/reversed
+                reverses_id  INTEGER REFERENCES journal_entries(id) ON DELETE SET NULL,
+                reversed_by  INTEGER REFERENCES journal_entries(id) ON DELETE SET NULL,
+                total_debit  REAL    NOT NULL DEFAULT 0,
+                total_credit REAL    NOT NULL DEFAULT 0,
+                created_by   INTEGER REFERENCES users(id) ON DELETE SET NULL,
+                created_at   TEXT    NOT NULL
+            )
+        """)
+        c.execute("""
+            CREATE TABLE IF NOT EXISTS journal_entry_lines (
+                id               INTEGER PRIMARY KEY AUTOINCREMENT,
+                journal_entry_id INTEGER NOT NULL REFERENCES journal_entries(id) ON DELETE CASCADE,
+                account_id       INTEGER NOT NULL REFERENCES chart_of_accounts(id),
+                debit            REAL NOT NULL DEFAULT 0,
+                credit           REAL NOT NULL DEFAULT 0,
+                memo             TEXT,
+                line_no          INTEGER
+            )
+        """)
+        c.execute("CREATE INDEX IF NOT EXISTS idx_je_date   ON journal_entries(entry_date)")
+        c.execute("CREATE INDEX IF NOT EXISTS idx_je_source ON journal_entries(source_type, source_id)")
+        c.execute("CREATE INDEX IF NOT EXISTS idx_jel_entry ON journal_entry_lines(journal_entry_id)")
+        c.execute("CREATE INDEX IF NOT EXISTS idx_jel_acct  ON journal_entry_lines(account_id)")
+
+        # Seed a sensible default Chart of Accounts. (code, name, type, normal, subtype)
+        _seed_accounts = [
+            ("1000", "Cash & Bank",              "Asset",     "debit",  "Current Asset"),
+            ("1100", "Accounts Receivable",      "Asset",     "debit",  "Current Asset"),
+            ("1200", "Inventory",                "Asset",     "debit",  "Current Asset"),
+            ("1500", "Fixed Assets",             "Asset",     "debit",  "Non-Current Asset"),
+            ("1510", "Accumulated Depreciation", "Asset",     "credit", "Contra Asset"),
+            ("2000", "Accounts Payable",         "Liability", "credit", "Current Liability"),
+            ("2100", "VAT Payable",              "Liability", "credit", "Current Liability"),
+            ("2200", "Payroll Liabilities",      "Liability", "credit", "Current Liability"),
+            ("3000", "Owner's Equity",           "Equity",    "credit", "Equity"),
+            ("3900", "Retained Earnings",        "Equity",    "credit", "Equity"),
+            ("4000", "Sales Revenue",            "Income",    "credit", "Operating Income"),
+            ("4900", "Other Income",             "Income",    "credit", "Other Income"),
+            ("5000", "Cost of Goods Sold",       "Expense",   "debit",  "Cost of Sales"),
+            ("6000", "Salaries & Wages",         "Expense",   "debit",  "Operating Expense"),
+            ("6100", "Rent",                     "Expense",   "debit",  "Operating Expense"),
+            ("6200", "Utilities",                "Expense",   "debit",  "Operating Expense"),
+            ("6300", "Depreciation Expense",     "Expense",   "debit",  "Operating Expense"),
+            ("6400", "Materials",                "Expense",   "debit",  "Operating Expense"),
+            ("6500", "Labour",                   "Expense",   "debit",  "Operating Expense"),
+            ("6600", "Equipment",                "Expense",   "debit",  "Operating Expense"),
+            ("6700", "Transport",                "Expense",   "debit",  "Operating Expense"),
+            ("6800", "Subcontractor",            "Expense",   "debit",  "Operating Expense"),
+            ("6850", "Insurance",                "Expense",   "debit",  "Operating Expense"),
+            ("6860", "Subscriptions",            "Expense",   "debit",  "Operating Expense"),
+            ("6870", "Permits & Fees",           "Expense",   "debit",  "Operating Expense"),
+            ("6900", "General & Other Expense",  "Expense",   "debit",  "Operating Expense"),
+        ]
+        _ts = datetime.utcnow().strftime("%Y-%m-%d %H:%M:%S")
+        for code, name, typ, normal, subtype in _seed_accounts:
+            c.execute(
+                "INSERT OR IGNORE INTO chart_of_accounts "
+                "(code, name, type, subtype, normal_balance, is_system, is_active, created_at) "
+                "VALUES (?,?,?,?,?,1,1,?)",
+                (code, name, typ, subtype, normal, _ts),
+            )
+        done("104_accounting")
+
+    # ── 103: generic attachments (files on any business entity) ────────────
+    # One table backs file attachments for every module (invoices, purchases,
+    # projects, expenses, assets, suppliers, clients, quotations, inventory).
+    # Files are stored as BLOBs — no filesystem path, hence no path-traversal
+    # surface — mirroring hr_employee_files / recruitment_applicant_files.
+    if need("103_attachments"):
+        c.execute("""
+            CREATE TABLE IF NOT EXISTS attachments (
+                id               INTEGER PRIMARY KEY AUTOINCREMENT,
+                entity_type      TEXT    NOT NULL,
+                entity_id        INTEGER NOT NULL,
+                filename         TEXT    NOT NULL,
+                content_type     TEXT    NOT NULL,
+                size_bytes       INTEGER NOT NULL,
+                data             BLOB    NOT NULL,
+                uploaded_by      INTEGER REFERENCES users(id) ON DELETE SET NULL,
+                uploaded_by_name TEXT,
+                created_at       TEXT    NOT NULL
+            )
+        """)
+        c.execute("CREATE INDEX IF NOT EXISTS idx_attachments_entity "
+                  "ON attachments(entity_type, entity_id, created_at)")
+        done("103_attachments")
+
     # ── 091: backfill hire-row per existing employee ───────────────────────
     # Every employee already in the system gets a synthetic 'hire' row so the
     # timeline view isn't blank on existing data. Idempotent: only inserts when
@@ -2177,6 +2555,7 @@ def init_db():
     MODULES = [
         'dashboard', 'clients', 'projects', 'quotations', 'invoices',
         'inventory', 'purchases', 'suppliers', 'finance', 'expenses',
+        'accounting',
         'reports', 'crm', 'planning', 'pos', 'cash', 'manufacturing',
         'assets',
         # Internal comms — view is broad (granted below to every role so
@@ -2251,17 +2630,17 @@ def init_db():
             'dashboard': _V, 'clients': _VCEA, 'projects': _VCEA, 'quotations': _VCEA,
             'invoices': _VCEA, 'suppliers': _VCEA, 'crm': _VCEA, 'planning': _VCEA,
             'inventory': _V, 'purchases': _V, 'finance': _V, 'expenses': _V, 'reports': _V,
-            'pos': _VCED, 'cash': _VCED, 'manufacturing': _V, 'assets': _V,
+            'pos': _VCED, 'cash': _VCED, 'manufacturing': _V, 'assets': _V, 'accounting': _V,
         },
         'Finance Manager': {
             'dashboard': _V, 'finance': _FULL, 'expenses': _FULL, 'invoices': _VCEA,
             'reports': _V, 'clients': _V, 'projects': _V, 'quotations': _V, 'purchases': _V,
-            'cash': _FULL, 'pos': _V, 'assets': _FULL,
+            'cash': _FULL, 'pos': _V, 'assets': _FULL, 'accounting': _FULL,
         },
         'Accountant': {
             'dashboard': _V, 'clients': _V, 'projects': _V, 'quotations': _V,
             'invoices': _VCE, 'finance': _VCE, 'expenses': _VCE, 'purchases': _V, 'reports': _V,
-            'cash': _VCE, 'pos': _V, 'assets': _VCE,
+            'cash': _VCE, 'pos': _V, 'assets': _VCE, 'accounting': _VCE,
         },
         'Sales Manager': {
             'dashboard': _V, 'clients': _VCED, 'quotations': _VCEA, 'invoices': _VCE,

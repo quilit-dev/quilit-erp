@@ -6,6 +6,9 @@ from permissions import require_perm
 from routers.audit import log_action
 from utils import _now, notify, get_tax_context, resolve_purchase_tax, money, validate_int_qty
 from approval_engine import evaluate_and_apply
+import costing
+import lots
+import accounting
 import sqlite3
 from datetime import datetime
 
@@ -301,6 +304,8 @@ def _credit_stock(purchase_id: int, db: sqlite3.Connection):
     # price (which would mis-state inventory value and every downstream COGS).
     new_unit_cost = (round((qty_before * old_cost + lot_value) / qty_after, 6)
                      if qty_after > 0 else old_cost)
+    # Landed cost per unit for this receipt — the cost basis of the new lot.
+    lot_unit_cost = round(lot_value / qty, 6) if qty > 0 else new_unit_cost
 
     now = _now()
 
@@ -308,6 +313,10 @@ def _credit_stock(purchase_id: int, db: sqlite3.Connection):
         "UPDATE inventory SET quantity = ?, unit_cost = ? WHERE id = ?",
         (qty_after, new_unit_cost, row["inventory_id"])
     )
+    # Record the receipt as a tracked lot (lot-tracked items) or a FIFO/LIFO
+    # cost layer. The weighted-average unit_cost above already reflects this lot.
+    lots.record_stock_in(db, row["inventory_id"], qty, lot_unit_cost,
+                         source_type="purchase", source_ref=row["po_number"], now=now)
     db.execute(
         """INSERT INTO stock_movements
            (inventory_id, type, delta, qty_before, qty_after, reference, note, created_at)
@@ -325,13 +334,24 @@ def _record_expense(purchase_id: int, db: sqlite3.Connection):
     tax_amt = float(row["tax_amount"] or 0)
     gross   = money(base + tax_amt)   # expense amount is the tax-inclusive cost
     now = _now()
-    db.execute(
+    exp_cur = db.execute(
         "INSERT INTO expenses (category, description, amount, date, created_at, "
         " tax_rate_id, tax_rate, tax_amount) VALUES (?,?,?,date('now'),?,?,?,?)",
         ("Purchase", f"{row['po_number']} – {row['product_name']} from {row['supplier']}",
          gross, now, row["tax_rate_id"], row["tax_rate"] or 0, tax_amt)
     )
     db.execute("UPDATE purchases SET expense_recorded = 1 WHERE id = ?", (purchase_id,))
+    # Auto-post to the general ledger: DR Cost of Goods Sold, CR Cash & Bank.
+    accounting.post_entry(
+        db,
+        entry_date=now[:10],
+        memo=f"Purchase {row['po_number']} — {row['product_name']}",
+        lines=[
+            {"code": accounting.COGS, "debit":  gross},
+            {"code": accounting.CASH, "credit": gross},
+        ],
+        source_type="purchase", source_id=purchase_id, created_by=None,
+    )
 
 @router.patch("/{purchase_id}/archive")
 def archive_purchase(purchase_id: int, user=Depends(require_perm("purchases", "delete")),

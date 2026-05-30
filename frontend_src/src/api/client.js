@@ -131,6 +131,9 @@ export const archiveInventoryItem   = (id)   => api.patch(`/api/inventory/${id}/
 export const updateStock            = (id, d) => api.patch(`/api/inventory/${id}/stock`, d);
 export const getStockMovements      = (id)   => api.get(`/api/inventory/${id}/movements`);
 export const deductToProject        = (id, d) => api.post(`/api/inventory/${id}/deduct-to-project`, d);
+// Batch / lot tracking
+export const getLots                = (params = {}) => api.get(`/api/inventory/lots${_qs(params)}`);
+export const getLot                 = (id)   => api.get(`/api/inventory/lots/${id}`);
 
 // Purchases
 export const getPurchases         = (qs)   => api.get(`/api/purchases/${qs || ''}`);
@@ -511,6 +514,16 @@ export const cancelProductionOrder     = (id, reason) => api.post(`/api/manufact
 export const archiveProductionOrder    = (id)       => api.patch(`/api/manufacturing/orders/${id}/archive`);
 export const getManufacturingProducts  = (params = {}) => api.get(`/api/manufacturing/products${_qs(params)}`);
 export const getManufacturingSummary   = ()         => api.get('/api/manufacturing/summary');
+export const getManufacturingAnalytics = (params = {}) => api.get(`/api/manufacturing/analytics${_qs(params)}`);
+// Manufacturing resources — reusable per-hour cost rates (Labor, Electricity, CNC, …)
+export const getResources    = (params = {}) => api.get(`/api/manufacturing/resources${_qs(params)}`);
+export const createResource  = (d)     => api.post('/api/manufacturing/resources', d);
+export const updateResource  = (id, d) => api.put(`/api/manufacturing/resources/${id}`, d);
+export const archiveResource = (id)    => api.patch(`/api/manufacturing/resources/${id}/archive`);
+// Quality control — quarantine inspections (release / reject / rework)
+export const getQCInspections  = (params = {}) => api.get(`/api/manufacturing/qc${_qs(params)}`);
+export const getQCInspection   = (id)    => api.get(`/api/manufacturing/qc/${id}`);
+export const resolveQC         = (id, d) => api.post(`/api/manufacturing/qc/${id}/resolve`, d);
 
 // Fixed Assets
 export const getAssets          = (params = {}, s) => api.get(`/api/assets${_qs(params)}`, s);
@@ -532,6 +545,47 @@ export const toggleRecurringExpense = (id)    => api.patch(`/api/recurring-expen
 export const runRecurringExpense    = (id)    => api.post(`/api/recurring-expenses/${id}/run`);
 export const runDueRecurringExpenses = ()     => api.post('/api/recurring-expenses/run-due');
 export const archiveRecurringExpense = (id)   => api.patch(`/api/recurring-expenses/${id}/archive`);
+
+// ── Attachments (generic — files on any business entity) ─────────────────────
+// One set of helpers backs every module. `entityType` is one of the keys in the
+// backend ENTITY_REGISTRY (invoices, purchases, projects, expenses, assets,
+// suppliers, clients, quotations, inventory).
+export const getAttachments   = (entityType, entityId) =>
+  api.get(`/api/attachments/${entityType}/${entityId}`);
+export const deleteAttachment = (attachmentId) =>
+  api.delete(`/api/attachments/file/${attachmentId}`);
+export const attachmentURL    = (attachmentId, download = false) =>
+  `/api/attachments/file/${attachmentId}${download ? '?download=true' : ''}`;
+// Multipart upload — mirrors uploadEmployeeFile (cookie-credentialed, not JSON).
+export async function uploadAttachment(entityType, entityId, file) {
+  const fd = new FormData();
+  fd.append('file', file);
+  const res = await fetch(`/api/attachments/${entityType}/${entityId}`, {
+    method: 'POST', body: fd, credentials: 'include',
+  });
+  if (res.status === 401) {
+    localStorage.removeItem('user');
+    window.location.href = '/login';
+    throw new Error('Session expired.');
+  }
+  if (!res.ok) { throw new Error(await extractError(res)); }
+  return res.json();
+}
+
+// ── Accounting (double-entry: Chart of Accounts, Journal, Ledger, statements) ─
+export const getAccounts          = (params = {}) => api.get(`/api/accounting/accounts${_qs(params)}`);
+export const createAccount        = (d)      => api.post('/api/accounting/accounts', d);
+export const updateAccount        = (id, d)  => api.put(`/api/accounting/accounts/${id}`, d);
+export const deleteAccount        = (id)     => api.delete(`/api/accounting/accounts/${id}`);
+export const getJournalEntries    = (params = {}) => api.get(`/api/accounting/journal-entries${_qs(params)}`);
+export const getJournalEntry      = (id)     => api.get(`/api/accounting/journal-entries/${id}`);
+export const createJournalEntry   = (d)      => api.post('/api/accounting/journal-entries', d);
+export const reverseJournalEntry  = (id)     => api.post(`/api/accounting/journal-entries/${id}/reverse`);
+export const getGeneralLedger     = (params = {}) => api.get(`/api/accounting/general-ledger${_qs(params)}`);
+export const getTrialBalance      = (params = {}) => api.get(`/api/accounting/trial-balance${_qs(params)}`);
+export const getBalanceSheet      = (params = {}) => api.get(`/api/accounting/balance-sheet${_qs(params)}`);
+export const getIncomeStatement   = (params = {}) => api.get(`/api/accounting/income-statement${_qs(params)}`);
+export const getAccountingSummary = ()       => api.get('/api/accounting/summary');
 
 // Announcements — internal top-down communication
 export const getAnnouncements           = (s)            => api.get('/api/announcements/', s);

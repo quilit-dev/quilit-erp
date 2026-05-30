@@ -12,7 +12,7 @@ _SESSION_TIMEOUT = timedelta(minutes=30)
 
 MODULES = [
     'dashboard', 'clients', 'projects', 'quotations', 'invoices',
-    'inventory', 'purchases', 'suppliers', 'finance', 'expenses', 'reports', 'crm', 'planning',
+    'inventory', 'purchases', 'suppliers', 'finance', 'expenses', 'accounting', 'reports', 'crm', 'planning',
     'hr', 'hr_contracts', 'recruitment', 'hr_activities',
     'pos', 'cash',
     'manufacturing', 'assets',
@@ -82,6 +82,31 @@ def _resolve_user(user: dict, db: sqlite3.Connection) -> dict:
     }
 
 
+def check_perm(user: dict, db: sqlite3.Connection, module: str, action: str = "view") -> None:
+    """Imperative permission check for handlers whose target module is only
+    known at runtime (e.g. a generic endpoint keyed by a path parameter, like
+    the attachments router). `user` must already be resolved via `_resolve_user`
+    (i.e. obtained through require_auth / require_perm). Superadmin bypasses;
+    otherwise raises 403 exactly like the require_perm dependency."""
+    if user.get("is_superadmin"):
+        return
+    role_id = user.get("role_id")
+    if not role_id:
+        raise HTTPException(
+            status_code=403,
+            detail="Your account has no role assigned. Contact your administrator."
+        )
+    perm = db.execute(
+        "SELECT * FROM role_permissions WHERE role_id=? AND module=?",
+        (role_id, module)
+    ).fetchone()
+    if not perm or not perm[f"can_{action}"]:
+        raise HTTPException(
+            status_code=403,
+            detail=f"You don't have '{action}' access to '{module}'."
+        )
+
+
 def require_perm(module: str, action: str = "view"):
     """
     Dependency factory. Usage:
@@ -93,27 +118,7 @@ def require_perm(module: str, action: str = "view"):
         db:   sqlite3.Connection = Depends(get_db),
     ) -> dict:
         resolved = _resolve_user(user, db)
-
-        if resolved["is_superadmin"]:
-            return resolved
-
-        role_id = resolved["role_id"]
-        if not role_id:
-            raise HTTPException(
-                status_code=403,
-                detail="Your account has no role assigned. Contact your administrator."
-            )
-
-        perm = db.execute(
-            "SELECT * FROM role_permissions WHERE role_id=? AND module=?",
-            (role_id, module)
-        ).fetchone()
-
-        if not perm or not perm[f"can_{action}"]:
-            raise HTTPException(
-                status_code=403,
-                detail=f"You don't have '{action}' access to '{module}'."
-            )
+        check_perm(resolved, db, module, action)
         return resolved
 
     return dep
