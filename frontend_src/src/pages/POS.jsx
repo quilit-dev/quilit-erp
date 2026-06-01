@@ -2,6 +2,7 @@ import { useState, useEffect, useRef, useCallback } from 'react';
 import { useLocale } from '../hooks/useLocale.jsx';
 import { usePermissions } from '../hooks/usePermissions.js';
 import { useSettings } from '../hooks/useSettings.jsx';
+import { useWarehouses } from '../hooks/useWarehouses';
 import { LoadingSpinner, ErrorAlert, EmptyState, Modal, ConfirmModal, Badge, ExportButton, toast } from '../components/shared';
 import {
   getPosSession, openPosSession, closePosSession, getPosSessions,
@@ -58,7 +59,15 @@ function OpenRegisterPanel({ onOpened }) {
   const { t } = useLocale();
   const [floatUsd, setFloatUsd] = useState('0');
   const [floatLbp, setFloatLbp] = useState('0');
+  const [warehouseId, setWarehouseId] = useState('');
   const [busy, setBusy] = useState(false);
+  // Cashier picks which warehouse this register sells out of. Auto-selects
+  // their default once it loads. Hidden when only one warehouse exists (no
+  // choice to make), so the existing single-warehouse UX is unchanged.
+  const { warehouses, defaultId } = useWarehouses();
+  useEffect(() => {
+    if (defaultId && !warehouseId) setWarehouseId(defaultId);
+  }, [defaultId, warehouseId]);
 
   async function open() {
     setBusy(true);
@@ -66,6 +75,7 @@ function OpenRegisterPanel({ onOpened }) {
       await openPosSession({
         opening_float:     parseFloat(floatUsd) || 0,
         opening_float_lbp: parseFloat(floatLbp) || 0,
+        warehouse_id:      warehouseId ? parseInt(warehouseId) : null,
       });
       toast(t('pos.sessionOpened'), 'green');
       onOpened();
@@ -81,6 +91,19 @@ function OpenRegisterPanel({ onOpened }) {
       <div style={{ fontSize: 32, marginBottom: 8 }}>🧾</div>
       <h3 style={{ margin: '0 0 6px' }}>{t('pos.openRegister')}</h3>
       <p style={{ color: 'var(--text-3)', fontSize: 13, marginBottom: 16 }}>{t('pos.openRegisterPrompt')}</p>
+      {warehouses.length > 1 && (
+        <div className="form-group" style={{ textAlign: 'start' }}>
+          <label className="form-label">{t('warehouses.sellingFrom')}</label>
+          <select className="form-control" value={warehouseId}
+            onChange={e => setWarehouseId(e.target.value)}>
+            {warehouses.map(w => (
+              <option key={w.id} value={w.id}>
+                {w.code} · {w.name}{w.is_default ? ` (${t('warehouses.defaultBadge').toLowerCase()})` : ''}
+              </option>
+            ))}
+          </select>
+        </div>
+      )}
       <div className="form-group" style={{ textAlign: 'start' }}>
         <label className="form-label">{t('pos.openingFloat')} (USD)</label>
         <input className="form-control" type="number" step="any" min="0" value={floatUsd}

@@ -3,7 +3,7 @@ import { useState, useEffect, useCallback } from 'react';
 import {
   createInventoryItem, updateInventoryItem,
   archiveInventoryItem, updateStock, getStockMovements,
-  getLots, getLot,
+  getLots, getLot, getInventoryByWarehouse,
 } from '../api/client';
 import {
   LoadingSpinner, ErrorAlert, EmptyState, Modal, ConfirmModal,
@@ -11,6 +11,7 @@ import {
 } from '../components/shared';
 import { useSortPaginate } from '../hooks/useSortPaginate';
 import { useLocale } from '../hooks/useLocale.jsx';
+import { useWarehouses } from '../hooks/useWarehouses';
 
 const UNITS = ['pcs', 'kg', 'g', 'l', 'ml', 'm', 'm²', 'm³', 'box', 'roll', 'set', 'pair'];
 const DEFAULT_CATEGORIES = ['Equipment', 'Materials', 'Safety', 'Tools', 'Consumables', 'Other'];
@@ -193,6 +194,21 @@ function StockForm({ item, onDone, onCancel }) {
   const [type,   setType]   = useState('adjustment');
   const [note,   setNote]   = useState('');
   const [saving, setSaving] = useState(false);
+  const [warehouseId, setWarehouseId] = useState('');
+  const [perWarehouse, setPerWarehouse] = useState([]);
+  // Adjustments are warehouse-specific — show the per-warehouse breakdown
+  // alongside the form so the operator can see what's where before adjusting.
+  const { warehouses, defaultId } = useWarehouses();
+  useEffect(() => {
+    if (defaultId && !warehouseId) setWarehouseId(defaultId);
+  }, [defaultId, warehouseId]);
+  useEffect(() => {
+    getInventoryByWarehouse(item.id)
+      .then(setPerWarehouse)
+      .catch(() => setPerWarehouse([]));
+  }, [item.id]);
+
+  const selectedWh = perWarehouse.find(p => p.warehouse_id === Number(warehouseId));
 
   async function submit(e) {
     e.preventDefault();
@@ -200,7 +216,10 @@ function StockForm({ item, onDone, onCancel }) {
     if (isNaN(d) || d === 0) { toast(t('inventory.nonZeroQty'), 'red'); return; }
     setSaving(true);
     try {
-      await updateStock(item.id, { delta: d, type, note });
+      await updateStock(item.id, {
+        delta: d, type, note,
+        warehouse_id: warehouseId ? Number(warehouseId) : null,
+      });
       toast(t('inventory.stockUpdated'));
       onDone();
     } catch (err) { toast(err.message, 'red'); }
@@ -211,9 +230,35 @@ function StockForm({ item, onDone, onCancel }) {
     <form onSubmit={submit}>
       <div className="modal-body">
         <div className="alert alert-yellow" style={{ marginBottom: 16 }}>
-          {t('inventory.currentStock')} <strong>{item.quantity} {item.unit}</strong>
+          {t('inventory.currentStock')} <strong>{item.quantity} {item.unit}</strong> {t('warehouses.breakdownTotal')}
+          {perWarehouse.length > 0 && (
+            <span style={{ color: 'var(--text-3)', fontSize: 12, marginInlineStart: 8 }}>
+              · {perWarehouse.filter(p => p.quantity > 0).map(p => `${p.code} ${p.quantity}`).join(' · ') || t('warehouses.breakdownNone')}
+            </span>
+          )}
         </div>
         <div className="form-grid">
+          {warehouses.length > 0 && (
+            <div className="form-group form-full">
+              <label className="form-label">{t('warehouses.field')}</label>
+              <select className="form-control" value={warehouseId}
+                onChange={e => setWarehouseId(e.target.value)}>
+                {warehouses.map(w => {
+                  const onHand = perWarehouse.find(p => p.warehouse_id === w.id)?.quantity ?? 0;
+                  return (
+                    <option key={w.id} value={w.id}>
+                      {w.code} · {w.name} ({onHand}{t('warehouses.onHandSuffix')})
+                    </option>
+                  );
+                })}
+              </select>
+              {selectedWh && (
+                <small style={{ color: 'var(--text-3)' }}>
+                  {t('warehouses.adjustHint', { code: selectedWh.code })}
+                </small>
+              )}
+            </div>
+          )}
           <div className="form-group form-full">
             <label className="form-label">{t('inventory.qtyChange')}</label>
             <input className="form-control" type="number" step="1" required

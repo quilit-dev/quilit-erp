@@ -1,0 +1,16 @@
+# Foundation
+
+Before any business module makes sense, you need to know how the system
+identifies users, decides who can do what, records what was done, and protects
+itself from data loss.
+
+| Page | Topic |
+|---|---|
+| [Authentication](authentication.md) | How users log in, JWT sessions, password rules, force-change-on-first-login |
+| [RBAC](rbac.md) | Role-based access control: 28 modules × 5 actions × N roles |
+| [Multi-warehouse access](warehouse-access.md) | Row-level access on warehouses — independent of module RBAC |
+| [Audit trail](audit-trail.md) | What gets recorded and how to verify any historical change |
+| [Backups & recovery](backups.md) | Auto-backup cadence, manual backup destinations, restore procedure |
+
+These five are the system-wide controls. Every module page in later chapters
+assumes you know what's here.

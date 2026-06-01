@@ -36,6 +36,9 @@ _server_err.log
 frontend_src/node_modules/
 node_modules/
 
+# Manual: built static site (source lives in docs/manual/)
+static-manual/
+
 # Tooling
 .claude/
 

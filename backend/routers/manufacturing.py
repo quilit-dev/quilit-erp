@@ -115,6 +115,11 @@ class OrderIn(BaseModel):
     planned_start_date: Optional[str] = None
     due_date:      Optional[str] = None
     notes:         Optional[str] = None
+    # Per Phase 1 design (and your decision to "consume and produce within
+    # the same warehouse"): one warehouse per order — components draw from
+    # here and the finished output lands here. Defaults to the user's
+    # default warehouse so existing API callers keep working.
+    warehouse_id:  Optional[int] = None
 
 
 class OrderUpdate(BaseModel):
@@ -125,6 +130,7 @@ class OrderUpdate(BaseModel):
     planned_start_date: Optional[str] = None
     due_date:      Optional[str] = None
     notes:         Optional[str] = None
+    warehouse_id:  Optional[int] = None       # re-route a draft order
 
 
 class CompleteItemIn(BaseModel):
@@ -855,15 +861,18 @@ def create_order(
     order_no = _next_order_number(db)
     qc_required = 1 if ("qc_required" in bom.keys() and bom["qc_required"]) else 0
     priority = data.priority if data.priority in PRIORITIES else "Normal"
+    # Resolve the warehouse — components consume from here, output lands here.
+    import warehouse_access as wha
+    warehouse_id = wha.resolve_warehouse_id(user, db, data.warehouse_id)
     cur = db.execute(
         "INSERT INTO production_orders "
         "(order_number, bom_id, bom_version, output_inventory_id, quantity, status, "
         " labor_cost, overhead_cost, qc_required, priority, planned_start_date, due_date, "
-        " notes, created_by, created_at) "
-        "VALUES (?,?,?,?,?, 'Draft', ?,?,?,?,?,?,?,?,?)",
+        " notes, warehouse_id, created_by, created_at) "
+        "VALUES (?,?,?,?,?, 'Draft', ?,?,?,?,?,?,?,?,?,?)",
         (order_no, bom["id"], bom["version"], bom["output_inventory_id"], data.quantity,
          labor, overhead, qc_required, priority, data.planned_start_date, data.due_date,
-         data.notes, user["id"], now),
+         data.notes, warehouse_id, user["id"], now),
     )
     order_id = cur.lastrowid
     _snapshot_components(db, order_id, bom, data.quantity)
@@ -1040,6 +1049,10 @@ def complete_order(
 
     # 1. Consume raw materials and release their reservation. Material cost
     #    follows the costing method (FIFO/LIFO draw from cost layers).
+    # Components are drawn from — and the output lands in — the order's
+    # warehouse (Phase 1 design: one warehouse per order).
+    import warehouse_access as wha
+    order_wid = wha.default_warehouse_id_for_row(db, order["warehouse_id"])
     materials_cost = 0.0
     for cid, qty in consume.items():
         inv        = invs[cid]
@@ -1056,12 +1069,14 @@ def complete_order(
         db.execute("UPDATE inventory SET quantity=?, reserved_quantity=? WHERE id=?",
                    (qty_after, new_res, cid))
         if qty:
+            wha.credit_warehouse_stock(db, inventory_id=cid,
+                                        warehouse_id=order_wid, delta=-qty)
             db.execute(
                 "INSERT INTO stock_movements "
-                "(inventory_id, type, delta, qty_before, qty_after, reference, note, created_at) "
-                "VALUES (?,?,?,?,?,?,?,?)",
+                "(inventory_id, type, delta, qty_before, qty_after, reference, note, warehouse_id, created_at) "
+                "VALUES (?,?,?,?,?,?,?,?,?)",
                 (cid, "production", -qty, qty_before, qty_after,
-                 order["order_number"], "Production consumption", now))
+                 order["order_number"], "Production consumption", order_wid, now))
         materials_cost += comp_cogs
         min_stock = float(inv["min_stock"] or 0)
         if min_stock > 0 and qty_after <= min_stock:
@@ -1147,11 +1162,11 @@ def complete_order(
                    (_q(quar_before + qty_produced), order["output_inventory_id"]))
         db.execute(
             "INSERT INTO stock_movements "
-            "(inventory_id, type, delta, qty_before, qty_after, reference, note, created_at) "
-            "VALUES (?,?,?,?,?,?,?,?)",
+            "(inventory_id, type, delta, qty_before, qty_after, reference, note, warehouse_id, created_at) "
+            "VALUES (?,?,?,?,?,?,?,?,?)",
             (order["output_inventory_id"], "qc_quarantine", qty_produced,
              out_before, out_before, order["order_number"],
-             "Production output → quarantine (awaiting QC)", now))
+             "Production output → quarantine (awaiting QC)", order_wid, now))
         qc_cur = db.execute(
             "INSERT INTO production_qc "
             "(production_order_id, output_inventory_id, quantity, unit_cost, status, created_at) "
@@ -1165,6 +1180,8 @@ def complete_order(
                       if out_after else unit_cost)
         db.execute("UPDATE inventory SET quantity=?, unit_cost=? WHERE id=?",
                    (out_after, new_cost, order["output_inventory_id"]))
+        wha.credit_warehouse_stock(db, inventory_id=order["output_inventory_id"],
+                                    warehouse_id=order_wid, delta=qty_produced)
         # The produced batch enters stock as its own lot (lot-tracked) or cost
         # layer; for a lot, link the input lots consumed above to it (genealogy).
         out_lot_id = lots.record_stock_in(
@@ -1174,10 +1191,10 @@ def complete_order(
         lots.link_output_lot(db, order_id, out_lot_id)
         db.execute(
             "INSERT INTO stock_movements "
-            "(inventory_id, type, delta, qty_before, qty_after, reference, note, created_at) "
-            "VALUES (?,?,?,?,?,?,?,?)",
+            "(inventory_id, type, delta, qty_before, qty_after, reference, note, warehouse_id, created_at) "
+            "VALUES (?,?,?,?,?,?,?,?,?)",
             (order["output_inventory_id"], "production", qty_produced,
-             out_before, out_after, order["order_number"], "Production output", now))
+             out_before, out_after, order["order_number"], "Production output", order_wid, now))
 
     # 4. Persist costs + status. Single-shot overwrites and closes; a partial run
     #    accumulates ACTUAL costs onto prior runs and closes only when the planned
@@ -1418,8 +1435,14 @@ def resolve_qc(
     now       = _now()
     unit_cost = float(qc["unit_cost"] or 0)
     out_id    = qc["output_inventory_id"]
-    order_no  = db.execute("SELECT order_number FROM production_orders WHERE id=?",
-                           (qc["production_order_id"],)).fetchone()["order_number"]
+    # Resolve the order's warehouse so QC release lands in the same place the
+    # batch was produced (it's been in quarantine at that warehouse).
+    import warehouse_access as wha
+    order_row = db.execute(
+        "SELECT order_number, warehouse_id FROM production_orders WHERE id=?",
+        (qc["production_order_id"],)).fetchone()
+    order_no  = order_row["order_number"]
+    order_wid = wha.default_warehouse_id_for_row(db, order_row["warehouse_id"])
     inv = db.execute("SELECT * FROM inventory WHERE id=?", (out_id,)).fetchone()
 
     # The whole batch leaves quarantine.
@@ -1436,6 +1459,8 @@ def resolve_qc(
                      if on_after else unit_cost)
         db.execute("UPDATE inventory SET quantity=?, unit_cost=? WHERE id=?",
                    (on_after, new_cost, out_id))
+        wha.credit_warehouse_stock(db, inventory_id=out_id,
+                                    warehouse_id=order_wid, delta=passed)
         # Released batch becomes a lot (lot-tracked) or cost layer; link the
         # production order's consumed input lots to it for genealogy.
         out_lot_id = lots.record_stock_in(
@@ -1444,19 +1469,19 @@ def resolve_qc(
         lots.link_output_lot(db, qc["production_order_id"], out_lot_id)
         db.execute(
             "INSERT INTO stock_movements "
-            "(inventory_id, type, delta, qty_before, qty_after, reference, note, created_at) "
-            "VALUES (?,?,?,?,?,?,?,?)",
+            "(inventory_id, type, delta, qty_before, qty_after, reference, note, warehouse_id, created_at) "
+            "VALUES (?,?,?,?,?,?,?,?,?)",
             (out_id, "qc_release", passed, on_before, on_after, order_no,
-             "QC passed — released to stock", now))
+             "QC passed — released to stock", order_wid, now))
 
     scrap_cost = _c(rejected * unit_cost)
     if rejected > 0:
         db.execute(
             "INSERT INTO stock_movements "
-            "(inventory_id, type, delta, qty_before, qty_after, reference, note, created_at) "
-            "VALUES (?,?,?,?,?,?,?,?)",
+            "(inventory_id, type, delta, qty_before, qty_after, reference, note, warehouse_id, created_at) "
+            "VALUES (?,?,?,?,?,?,?,?,?)",
             (out_id, "qc_reject", -rejected, rejected, 0.0, order_no,
-             f"QC rejected — scrapped (${scrap_cost:.2f})", now))
+             f"QC rejected — scrapped (${scrap_cost:.2f})", order_wid, now))
 
     for df in (data.defects or []):
         if (df.reason or "").strip():

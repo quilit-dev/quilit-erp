@@ -45,6 +45,7 @@ const HRActivities      = lazy(() => import('./pages/HRActivities'));
 const ApprovalPolicies  = lazy(() => import('./pages/ApprovalPolicies'));
 const ApprovalRequests  = lazy(() => import('./pages/ApprovalRequests'));
 const Announcements     = lazy(() => import('./pages/Announcements'));
+const Warehouses        = lazy(() => import('./pages/Warehouses'));
 
 const INACTIVITY_MS = 30 * 60 * 1000; // 30 minutes
 
@@ -245,6 +246,7 @@ export default function App() {
             <Route path="/quotations"   element={Auth(<Quotations />)} />
             <Route path="/invoices"     element={Auth(<Invoices />)} />
             <Route path="/inventory"    element={Auth(<Inventory />)} />
+            <Route path="/warehouses"   element={Auth(<Warehouses />)} />
             <Route path="/pos"          element={Auth(<POS />)} />
             <Route path="/manufacturing" element={Auth(<Manufacturing />)} />
             <Route path="/purchases"    element={Auth(<Purchases />)} />

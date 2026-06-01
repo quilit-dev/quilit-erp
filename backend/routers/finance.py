@@ -38,6 +38,19 @@ def _check_period_locked(db, date_str: str):
             f"The accounting period {ym} is locked. "
             "Unlock it in Finance → Periods before making changes.",
         )
+    # Financial-year closing: a closed year blocks every dated-in-year change.
+    try:
+        closed = db.execute(
+            "SELECT 1 FROM fiscal_years WHERE year=? AND status='closed'", (year,)
+        ).fetchone()
+    except sqlite3.OperationalError:
+        closed = None      # table absent on a not-yet-migrated DB
+    if closed:
+        raise HTTPException(
+            400,
+            f"The financial year {year} is closed. "
+            "Reopen it in Accounting → Year-End before making changes.",
+        )
 
 
 _VALID_EXPENSE_CATEGORIES = {

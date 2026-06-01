@@ -685,14 +685,7 @@ Financial overview and accounting controls.
 - **Date Range** — custom date range with monthly breakdown and detailed line items
 - **Reconciliation** — side-by-side view of paid invoices vs. recorded expenses
 
-**Period Locking:**
-
-Accounting periods (year + month) can be **locked** to prevent editing historical financial data. Once a period is locked:
-- Payments dated in that period cannot be added or deleted
-- Expenses dated in that period cannot be edited or voided
-- A lock badge is displayed on the period in the monthly table
-
-Periods can be unlocked by an admin when a correction is required. All lock and unlock actions are recorded in the audit trail.
+**Period Locking & Year-End Closing** now live together under **Accounting → Closing** (see §7.28) — both monthly soft-close and annual hard-close, with one shared enforcement guard. A locked month or closed year blocks **every** dated-in-period financial change across the integrated modules: invoice payments, invoice edit/void, expenses, manual journal entries, POS sales/returns, **payroll mark-paid**, and **fixed-asset depreciation**.
 
 ---
 
@@ -1446,6 +1439,15 @@ Reversing events unwind automatically: **voiding an invoice** or **deleting a pa
 - **Balance Sheet** — assets vs. liabilities + equity as of a date, with current-period net income surfaced as a live equity line (no year-end closing entry required).
 - **General Ledger** — every posting for one account over a range, with opening/running/closing balances.
 
+#### Financial-Year Closing
+
+A whole financial year can be **closed** (e.g. `2025 → closed`) from **Accounting → Year-End**. Closing a year:
+
+1. **Posts a year-end closing entry** (`source_type='closing'`, dated Dec 31) that zeroes the year's income and expense accounts into **Retained Earnings** (`3900`) — the classic close-to-equity move. Net result is snapshotted on the `fiscal_years` row.
+2. **Locks every transaction dated in that year.** The shared period-lock guard (`_check_period_locked`) also consults `fiscal_years`, so any create/edit/void/delete dated in a closed year — invoices, payments, expenses, journal entries, etc. — is rejected with *"The financial year YYYY is closed."*
+
+The **Income Statement excludes** closing entries (and their reversals), so a closed year still shows its real operating result; the **Balance Sheet / Trial Balance include** them, so the profit shows up in Retained Earnings. **Reopening** a year (admin / `accounting:delete`) reverses the closing entry and unlocks the year. Closing requires `accounting:edit`.
+
 > **Scope (simplified).** Posting is **forward-only** — entries accrue from the moment the module ships; there is no automatic backfill of historical transactions (post an opening-balance manual entry to seed balances). Inventory valuation and VAT liability are not split into the GL in this version (purchases are expensed on payment and invoice payments are recognised gross), keeping the ledger perfectly aligned with the existing cash-basis reports.
 
 ---
@@ -1697,6 +1699,9 @@ Interactive API documentation is available at:
 | GET | `/accounting/trial-balance` | Trial balance as of a date |
 | GET | `/accounting/income-statement` | P&L over a date range |
 | GET | `/accounting/balance-sheet` | Balance sheet as of a date |
+| GET | `/accounting/fiscal-years` | List years with status + P&L (open = live, closed = snapshot) |
+| POST | `/accounting/fiscal-years/{year}/close` | Close a year (posts the closing entry, locks the year) |
+| POST | `/accounting/fiscal-years/{year}/reopen` | Reopen a closed year (reverses the closing entry) |
 | GET | `/accounting/summary` | Dashboard KPIs (month P&L, totals, balanced check) |
 
 ---
@@ -2306,6 +2311,18 @@ The general-ledger account list (see §7.28). Seeded `is_system` accounts are us
 | `credit` | REAL | One of debit/credit is zero per line |
 | `memo` | TEXT | |
 | `line_no` | INTEGER | Ordering within the entry |
+
+#### `fiscal_years`
+A closed year locks all dated-in-year modifications (see §7.28).
+| Column | Type | Description |
+|--------|------|-------------|
+| `year` | INTEGER PK | e.g. `2025` |
+| `status` | TEXT | open / closed |
+| `total_income`, `total_expense`, `net_income` | REAL | Snapshot at close |
+| `closing_entry_id` | INTEGER FK | → journal_entries (the year-end closing entry) |
+| `closed_at` | TEXT | |
+| `closed_by` | INTEGER FK | → users |
+| `notes` | TEXT | |
 
 ---
 

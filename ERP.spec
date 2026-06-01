@@ -1,9 +1,17 @@
 # -*- mode: python ; coding: utf-8 -*-
+import os
 from PyInstaller.utils.hooks import collect_all, collect_submodules
 
 uvicorn_datas, uvicorn_binaries, uvicorn_hiddenimports = collect_all('uvicorn')
 fastapi_datas, fastapi_binaries, fastapi_hiddenimports = collect_all('fastapi')
 anyio_datas,   anyio_binaries,   anyio_hiddenimports   = collect_all('anyio')
+
+# Ship the current/populated database as a read-only template (`default.db`).
+# build.ps1 produces it from the live erp.db via `VACUUM INTO` just before this
+# spec runs; the launcher copies it into APPDATA on first run. Included only if
+# present, so a clean checkout without a database still builds (the app then
+# starts with an empty, freshly-seeded schema).
+seed_db_datas = [('default.db', '.')] if os.path.exists('default.db') else []
 
 a = Analysis(
     ['launcher.py'],
@@ -15,7 +23,7 @@ a = Analysis(
         # the .py files don't actually exist on disk — so sys.path tricks fail.
         ('backend', 'backend'),
         ('static',  'static'),
-    ] + uvicorn_datas + fastapi_datas + anyio_datas,
+    ] + seed_db_datas + uvicorn_datas + fastapi_datas + anyio_datas,
     hiddenimports=[
         # FastAPI / Starlette
         'fastapi', 'fastapi.middleware', 'fastapi.middleware.cors',
@@ -51,6 +59,9 @@ a = Analysis(
         # Backend core modules
         'database', 'auth_utils', 'backup_manager', 'permissions', 'utils',
         'approval_engine',
+        # Shared helpers that routers import dynamically (function-level
+        # imports that PyInstaller's static analyser can miss):
+        'warehouse_access', 'accounting', 'costing', 'lots',
 
         # All routers (keep in sync with launcher.py imports)
         'routers',
@@ -79,6 +90,7 @@ a = Analysis(
         'routers.approval_policies',
         'routers.approval_requests',
         'routers.hr',
+        'routers.warehouses',
     ] + uvicorn_hiddenimports + fastapi_hiddenimports + anyio_hiddenimports
       + collect_submodules('starlette')
       + collect_submodules('pydantic'),

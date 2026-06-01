@@ -11,7 +11,7 @@
 ; ════════════════════════════════════════════════════════════════════════════
 
 #define MyAppName      "ERP System"
-#define MyAppVersion   "2.0.0"
+#define MyAppVersion   "2.1.0"
 #define MyAppPublisher "Ali Koteich"
 #define MyAppExeName   "ERP System.exe"
 ; PyInstaller one-folder output, relative to this .iss file (installer\ -> repo root)
@@ -75,3 +75,9 @@ Filename: "{sys}\netsh.exe"; Parameters: "advfirewall firewall delete rule name=
 ;     %APPDATA%\ERP System\
 ; That folder is intentionally NOT removed on uninstall, so business data
 ; survives upgrades and re-installs. Delete it by hand for a full wipe.
+;
+; ── Note on the seeded database ─────────────────────────────────────────────
+; The installer ships the current database as a read-only template bundled
+; inside the PyInstaller payload (_internal\default.db). On the FIRST run only,
+; launcher.py copies it to %APPDATA%\ERP System\erp.db so a fresh install opens
+; with real data instead of an empty schema. Later runs keep the live DB.

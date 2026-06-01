@@ -25,9 +25,36 @@ from datetime import date, datetime
 from database import get_db
 from permissions import require_perm
 from routers.audit import log_action
-from utils import _now
+from utils import _now, notify
 import accounting
 import io
+
+
+# ── Notification helpers ─────────────────────────────────────────────────────
+# Resolve who should be told when an HR event fires. Two recipients matter:
+#   1. the **employee** — via their linked system user account (may be None).
+#   2. the **HR managers** — every active user whose role can approve HR.
+# Both helpers tolerate missing data so a notification failure never blocks the
+# transactional path (notify() also swallows its own errors as a final safety).
+
+def _employee_user_id(db, employee_id: int) -> "Optional[int]":
+    row = db.execute(
+        "SELECT user_id FROM hr_employees WHERE id=? AND archived_at IS NULL",
+        (employee_id,),
+    ).fetchone()
+    return (row["user_id"] if row and row["user_id"] else None)
+
+
+def _hr_approver_user_ids(db) -> list:
+    """Every active user whose role grants `hr.approve` — i.e. the people who
+    can review a leave request. Used to fan out "leave requested" alerts."""
+    rows = db.execute(
+        """SELECT DISTINCT u.id FROM users u
+           JOIN role_permissions rp ON rp.role_id = u.role_id
+           WHERE u.is_active = 1 AND u.deleted_at IS NULL
+             AND rp.module='hr' AND rp.can_approve=1""",
+    ).fetchall()
+    return [r["id"] for r in rows]
 import sqlite3
 
 router = APIRouter()
@@ -767,10 +794,27 @@ def create_leave(
         (data.employee_id, data.leave_type, data.start_date[:10], data.end_date[:10],
          days, data.reason, _now()),
     )
-    log_action(db, user, "create", "hr_leave", cur.lastrowid,
+    leave_id = cur.lastrowid
+    log_action(db, user, "create", "hr_leave", leave_id,
                f"{emp['full_name']} — {data.leave_type}")
+
+    # Tell the HR approvers — they need to act. Dedup-safe (1 alert per leave
+    # row) so a manager isn't pinged twice if the requester edits a typo. The
+    # notification is suppressed for the approver who created the row themselves
+    # (e.g. an HR admin logging a leave on someone's behalf).
+    title = f"Leave request: {emp['full_name']}"
+    body  = f"{data.leave_type} — {days} day{'s' if days != 1 else ''} · {data.start_date[:10]} → {data.end_date[:10]}"
+    for uid in _hr_approver_user_ids(db):
+        if uid == user.get("id"):
+            continue
+        notify(
+            db, user_id=uid, type="leave_requested",
+            title=title, body=body, link="/hr",
+            entity_type="hr_leave", entity_id=leave_id, dedup_hours=24,
+        )
+
     db.commit()
-    return {"id": cur.lastrowid, "days": days, "message": "Leave request submitted"}
+    return {"id": leave_id, "days": days, "message": "Leave request submitted"}
 
 
 @router.put("/leave/{leave_id}")
@@ -823,6 +867,25 @@ def _review_leave(db, leave_id, user, decision: str, note):
         if row["start_date"] <= today <= row["end_date"] and row["emp_status"] == "Active":
             db.execute("UPDATE hr_employees SET status='On Leave' WHERE id=?", (row["employee_id"],))
     log_action(db, user, decision.lower(), "hr_leave", leave_id, row["employee_name"])
+
+    # Tell the employee — the person who cares most about the outcome. No-op
+    # when the employee record isn't linked to a system user (very common
+    # for back-office staff who never log in).
+    emp_uid = _employee_user_id(db, row["employee_id"])
+    if emp_uid:
+        kind = "leave_approved" if decision == "Approved" else "leave_rejected"
+        verb = "approved" if decision == "Approved" else "declined"
+        body = (
+            f"{row['leave_type']} · {row['start_date']} → {row['end_date']}"
+            + (f" — {note}" if note else "")
+        )
+        notify(
+            db, user_id=emp_uid, type=kind,
+            title=f"Your leave request was {verb}",
+            body=body, link="/hr",
+            entity_type="hr_leave", entity_id=leave_id,
+        )
+
     db.commit()
     return {"message": f"Leave request {decision.lower()}"}
 
@@ -1166,17 +1229,29 @@ def create_payroll_run(
     for e in employees:
         base   = float(e["salary"] or 0)
         breakd = _compute_payroll_line(base, 0, 0, 0, settings)
+        # Snapshot the salary currency from the employee's most recent ACTIVE
+        # contract (F-6 audit fix). Falls back to USD if no contract row
+        # exists — matches the historical default and won't surprise existing
+        # all-USD installs. The currency is frozen on the line so a contract
+        # change after the run was opened doesn't retroactively reinterpret it.
+        contract_row = db.execute(
+            "SELECT salary_currency FROM hr_contracts "
+            "WHERE employee_id=? AND archived_at IS NULL AND status='Active' "
+            "ORDER BY signed_at DESC, id DESC LIMIT 1",
+            (e["id"],),
+        ).fetchone()
+        line_currency = (contract_row["salary_currency"] if contract_row else "USD") or "USD"
         db.execute(
             """INSERT INTO hr_payroll_lines
                (payroll_run_id, employee_id, base_salary, bonuses, deductions,
                 overtime_hours, overtime_amount,
                 gross_total, tax_amount, nssf_employee, nssf_employer,
-                net_amount, created_at)
-               VALUES (?,?,?,0,0,0,0,?,?,?,?,?,?)""",
+                net_amount, salary_currency, created_at)
+               VALUES (?,?,?,0,0,0,0,?,?,?,?,?,?,?)""",
             (run_id, e["id"], base,
              breakd["gross_total"], breakd["tax_amount"],
              breakd["nssf_employee"], breakd["nssf_employer"],
-             breakd["net_amount"], now),
+             breakd["net_amount"], line_currency, now),
         )
     _recompute_run_totals(db, run_id)
     log_action(db, user, "create", "hr_payroll_run", run_id,
@@ -1270,6 +1345,16 @@ def approve_payroll_run(
     )
     log_action(db, user, "approve", "hr_payroll_run", run_id,
                f"{run['period_start']} → {run['period_end']}")
+
+    # Global, module-gated alert — HR users see it, sales reps don't (NOTIFICATION_
+    # TYPE_MODULE maps `payroll_approved` to `hr`). Cues the next step (mark-paid).
+    notify(
+        db, type="payroll_approved",
+        title=f"Payroll run approved — {run['period_start']} → {run['period_end']}",
+        body=f"{line_count} employee{'s' if line_count != 1 else ''} · ready to mark paid.",
+        link="/hr", entity_type="hr_payroll_run", entity_id=run_id,
+    )
+
     db.commit()
     return {"message": "Payroll run approved"}
 
@@ -1297,6 +1382,10 @@ def mark_payroll_run_paid(
         )
     if float(run["total_net"] or 0) <= 0:
         raise HTTPException(400, "Cannot post a zero-net payroll run as an expense.")
+    # The payroll expense is dated to the run's period end — block posting it
+    # into a locked month or a closed financial year.
+    from routers.finance import _check_period_locked
+    _check_period_locked(db, run["period_end"])
 
     now = _now()
     line_count = db.execute(
@@ -1304,10 +1393,63 @@ def mark_payroll_run_paid(
     ).fetchone()[0]
     desc = (f"Payroll {run['period_start']} → {run['period_end']} "
             f"({line_count} employee{'s' if line_count != 1 else ''})")
+
+    # ── Currency-aware payroll posting (F-6 audit fix) ─────────────────────
+    # Group the run's net amounts by the line's `salary_currency`. Non-USD
+    # totals are translated to USD at the latest spot rate so the expense and
+    # GL entry post in the functional currency. If an LBP line exists but no
+    # exchange rate has been entered yet, refuse to post — we must NOT silently
+    # treat LBP face value as USD (that would inflate Salaries 89,000×).
+    by_ccy = db.execute(
+        "SELECT COALESCE(NULLIF(salary_currency,''),'USD') AS ccy, "
+        "       COALESCE(SUM(net_amount),0) AS net "
+        "FROM hr_payroll_lines WHERE payroll_run_id=? "
+        "GROUP BY ccy",
+        (run_id,),
+    ).fetchall()
+    rate_row = db.execute(
+        "SELECT rate FROM exchange_rates ORDER BY id DESC LIMIT 1"
+    ).fetchone()
+    spot = float(rate_row["rate"]) if rate_row and rate_row["rate"] else None
+    total_usd = 0.0
+    gl_lines  = []        # one DR Salaries line per currency segment
+    cash_lines = []       # the matching CR Cash / Cash—LBP lines
+    for row in by_ccy:
+        ccy = (row["ccy"] or "USD").upper()
+        amt = float(row["net"] or 0)
+        if amt <= 0:
+            continue
+        if ccy == "USD":
+            amt_usd = round(amt, 2)
+        elif ccy == "LBP":
+            if not spot or spot <= 0:
+                raise HTTPException(
+                    400,
+                    "Cannot post payroll: this run contains LBP-denominated "
+                    "lines but no exchange rate is configured. Set the LBP→USD "
+                    "rate in Settings → Exchange Rate, then retry.",
+                )
+            amt_usd = round(amt / spot, 2)
+        else:
+            raise HTTPException(
+                400, f"Unsupported salary currency {ccy!r} on this payroll run."
+            )
+        total_usd += amt_usd
+        gl_lines.append({
+            "code": accounting.SALARIES, "debit": amt_usd,
+            "memo": f"{ccy} {amt:,.2f}" + (f" @ {spot:,.0f}" if ccy != "USD" else ""),
+        })
+        cash_lines.append({
+            "code": accounting.cash_account_for(ccy), "credit": amt_usd,
+        })
+    total_usd = round(total_usd, 2)
+    if total_usd <= 0:
+        raise HTTPException(400, "Cannot post a zero-net payroll run as an expense.")
+
     exp_cur = db.execute(
         "INSERT INTO expenses (category, description, amount, date, created_at) "
         "VALUES ('Payroll', ?, ?, ?, ?)",
-        (desc, float(run["total_net"]), run["period_end"], now),
+        (desc, total_usd, run["period_end"], now),
     )
     expense_id = exp_cur.lastrowid
     db.execute(
@@ -1315,24 +1457,55 @@ def mark_payroll_run_paid(
         "posted_expense_id=? WHERE id=?",
         (now, user["id"], expense_id, run_id),
     )
-    # Auto-post to the general ledger: DR Salaries & Wages, CR Cash & Bank.
+    # Auto-post to the general ledger. Debits and credits stay split by
+    # currency so the cash account (1000 vs 1010) reflects where the money
+    # physically left from.
     accounting.post_entry(
         db,
         entry_date=run["period_end"][:10],
         memo=desc,
-        lines=[
-            {"code": accounting.SALARIES, "debit":  float(run["total_net"])},
-            {"code": accounting.CASH,     "credit": float(run["total_net"])},
-        ],
+        lines=gl_lines + cash_lines,
         source_type="payroll", source_id=run_id, created_by=user["id"],
     )
     log_action(db, user, "mark_paid", "hr_payroll_run", run_id, desc,
-               {"expense_id": expense_id, "amount": float(run["total_net"])})
+               {"expense_id": expense_id, "amount": total_usd,
+                "currencies": [{"ccy": r["ccy"], "net": float(r["net"])} for r in by_ccy]})
+
+    # Notify each paid employee personally (if their employee row is linked to a
+    # user account) so they see their payslip moved to "Paid". HR managers get
+    # the global cue too, via the unlinked-recipient row below.
+    paid_lines = db.execute(
+        """SELECT pl.net_amount, pl.salary_currency, e.user_id, e.full_name
+           FROM hr_payroll_lines pl
+           JOIN hr_employees e ON e.id = pl.employee_id
+           WHERE pl.payroll_run_id=?""",
+        (run_id,),
+    ).fetchall()
+    for line in paid_lines:
+        if not line["user_id"]:
+            continue
+        notify(
+            db, user_id=line["user_id"], type="payroll_paid",
+            title="You have been paid",
+            body=f"{run['period_start']} → {run['period_end']} · "
+                 f"{float(line['net_amount']):,.2f} {line['salary_currency'] or 'USD'}",
+            link="/hr",
+            entity_type="hr_payroll_run", entity_id=run_id,
+        )
+    # Global HR-gated alert (manager view).
+    notify(
+        db, type="payroll_paid",
+        title=f"Payroll paid — {run['period_start']} → {run['period_end']}",
+        body=f"${total_usd:,.2f} disbursed across {len(paid_lines)} "
+             f"employee{'s' if len(paid_lines) != 1 else ''}.",
+        link="/hr", entity_type="hr_payroll_run", entity_id=run_id,
+    )
+
     db.commit()
     return {
         "message":    "Payroll run paid and posted to Finance",
         "expense_id": expense_id,
-        "amount":     float(run["total_net"]),
+        "amount":     total_usd,
     }
 
 

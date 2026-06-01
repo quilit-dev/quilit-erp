@@ -24,10 +24,11 @@ const COLORS = [
 
 const ACTIONS_ORDER = ['view','create','edit','delete','approve'];
 
-// Must mirror backend permissions.py ALL_MODULES order. Modules added since
-// the original RBAC seed: hr, pos, cash, manufacturing, assets. They appear
-// here in the same operational order the sidebar groups them by, so the
-// permission matrix stays scannable and matches the rest of the navigation.
+// Must mirror backend permissions.py ALL_MODULES. Modules are listed here in
+// the operational order the sidebar groups them by, so the permission matrix
+// stays scannable and matches the rest of the navigation. Whenever a module is
+// added to backend permissions.MODULES it MUST be added here too — otherwise
+// admins can't grant access to it and the matrix is silently incomplete.
 const CORE_MODULES  = [
   'dashboard',
   // Sales
@@ -35,11 +36,11 @@ const CORE_MODULES  = [
   // Delivery
   'projects', 'planning',
   // Procurement / stock
-  'suppliers', 'purchases', 'inventory', 'manufacturing',
+  'suppliers', 'purchases', 'inventory', 'warehouses', 'manufacturing',
   // Finance
-  'expenses', 'assets', 'finance', 'cash', 'reports',
+  'expenses', 'assets', 'finance', 'cash', 'accounting', 'reports',
   // People
-  'hr',
+  'hr', 'hr_contracts', 'hr_activities', 'recruitment',
   // Internal comms
   'announcements',
 ];
@@ -130,10 +131,12 @@ export default function RoleManagement() {
     quotations:    t('nav.quotations'),
     invoices:      t('nav.invoices'),
     inventory:     t('nav.inventory'),
+    warehouses:    t('nav.warehouses'),
     purchases:     t('nav.purchases'),
     suppliers:     t('nav.suppliers'),
     finance:       t('nav.finance'),
     expenses:      t('nav.expenses'),
+    accounting:    t('nav.accounting'),
     reports:       t('nav.reports'),
     crm:           t('nav.crm'),
     planning:      t('nav.planning'),
@@ -142,6 +145,9 @@ export default function RoleManagement() {
     manufacturing: t('nav.manufacturing'),
     assets:        t('nav.fixedAssets'),
     hr:            t('nav.hr'),
+    hr_contracts:  t('nav.hrContracts'),
+    hr_activities: t('nav.hrActivities'),
+    recruitment:   t('nav.recruitment'),
     announcements: t('nav.announcements'),
     settings:      t('nav.settings'),
     users:         t('nav.users'),

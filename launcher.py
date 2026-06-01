@@ -1,7 +1,7 @@
 """
 ERP System Launcher
 """
-import sys, os, time, socket, threading, webbrowser, traceback
+import sys, os, time, socket, threading, webbrowser, traceback, shutil
 
 NO_BROWSER = '--no-browser' in sys.argv
 
@@ -45,6 +45,10 @@ LOG_FILE = os.path.join(DATA_DIR, 'startup_log.txt')
 # Create the writable data dir on first run
 os.makedirs(DATA_DIR, exist_ok=True)
 
+# Ship the current/populated database with the installer as a read-only
+# template (`default.db`, bundled next to the backend via ERP.spec).
+SEED_DB = os.path.join(BUNDLE_DIR, 'default.db')
+
 os.environ['DB_PATH'] = DB_PATH
 sys.path.insert(0, BACKEND_DIR)
 
@@ -64,18 +68,49 @@ log(f'Static dir : {STATIC_DIR}  exists={os.path.isdir(STATIC_DIR)}')
 log(f'Backend dir: {BACKEND_DIR}  exists={os.path.isdir(BACKEND_DIR)}')
 log(f'DB path    : {DB_PATH}')
 
+# ── First-run database seeding ───────────────────────────────────────────────
+# On the very first run — when no DB exists yet in DATA_DIR — copy the bundled
+# template into place so a fresh install already contains the real data instead
+# of an empty schema. On every later run the existing DB is left untouched, so
+# upgrades and re-installs never clobber the customer's live data.
+# `database.init_db()` (auto-run on import below) then applies any pending
+# schema migrations to the copy idempotently.
+if not os.path.exists(DB_PATH) and os.path.isfile(SEED_DB):
+    try:
+        shutil.copy2(SEED_DB, DB_PATH)
+        # A freshly checkpointed template has no WAL sidecars; drop any stale
+        # ones just in case so SQLite re-creates them cleanly against the copy.
+        for _sfx in ('-wal', '-shm'):
+            _stale = DB_PATH + _sfx
+            if os.path.exists(_stale):
+                os.remove(_stale)
+        log(f'First run  : seeded DB from bundled template {SEED_DB}')
+    except Exception:  # never let seeding block startup
+        # If the copy fails, init_db() falls back to an empty seeded schema.
+        log('First run  : seeding from template FAILED:\n' + traceback.format_exc())
+else:
+    log(f'Seed template: {SEED_DB}  exists={os.path.isfile(SEED_DB)}  '
+        f'(skipped — DB already present={os.path.exists(DB_PATH)})')
+
 # ── Port ───────────────────────────────────────────────────────────────────
+PORT      = int(os.environ.get('PORT', 8765))
+BIND_HOST = os.environ.get('BIND_HOST', '0.0.0.0')   # 0.0.0.0 = LAN accessible
+
 def port_free(p):
+    # Probe the SAME interface uvicorn will actually bind (BIND_HOST), not
+    # 127.0.0.1. On Windows, binding 127.0.0.1:p succeeds even while another
+    # process holds 0.0.0.0:p, so a loopback-only probe reports the port "free"
+    # and uvicorn then dies with WinError 10048 ("only one usage of each socket
+    # address"). Probing BIND_HOST matches uvicorn's real bind, so a busy port
+    # is detected and we fall through to the next one.
     try:
         with socket.socket(socket.AF_INET, socket.SOCK_STREAM) as s:
-            s.bind(('127.0.0.1', p))
+            s.bind((BIND_HOST, p))
             return True
     except OSError:
         return False
 
-PORT      = int(os.environ.get('PORT', 8765))
-BIND_HOST = os.environ.get('BIND_HOST', '0.0.0.0')   # 0.0.0.0 = LAN accessible
-for _ in range(5):
+for _ in range(20):
     if port_free(PORT):
         break
     PORT += 1
@@ -109,9 +144,25 @@ try:
                          notifications, approval_policies, approval_requests, hr,
                          hr_contracts, recruitment, hr_activities,
                          tax_rates, pos, cash, manufacturing,
-                         assets, recurring, announcements, attachments, accounting)
+                         assets, recurring, announcements, attachments, accounting,
+                         warehouses)
     import database
     import backup_manager
+    # Defensive imports of shared, top-level backend modules that routers
+    # pull in DYNAMICALLY (e.g. `import warehouse_access as wha` inside a
+    # function body). PyInstaller's static analyser only reliably catches
+    # module-level imports, so naming them here guarantees the frozen build
+    # bundles them and the routers don't ImportError at runtime.
+    #
+    # IMPORTANT: aliased with `as _xxx` so they don't shadow router names from
+    # the `from routers import (...)` block above. `routers.accounting` and
+    # the top-level `accounting.py` (double-entry engine) are different
+    # modules sharing the same short name — a plain `import accounting` here
+    # rebinds the name and would break `accounting.router` below.
+    import warehouse_access as _wha    # noqa: F401 — row-level RBAC helper
+    import accounting       as _acct   # noqa: F401 — double-entry posting engine
+    import costing          as _cost   # noqa: F401 — FIFO/LIFO/weighted-average
+    import lots             as _lots   # noqa: F401 — lot-tracked stock IO
     backup_manager.init(DB_PATH)
 
     app = FastAPI(title='ERP System')
@@ -163,6 +214,7 @@ try:
     app.include_router(announcements.router,      prefix='/api/announcements')
     app.include_router(attachments.router,        prefix='/api/attachments')
     app.include_router(accounting.router,         prefix='/api/accounting')
+    app.include_router(warehouses.router,         prefix='/api/warehouses')
 
     @app.get('/api/health')
     def health():
@@ -218,7 +270,18 @@ try:
             'uvicorn.access': {'handlers': ['h'], 'level': 'WARNING'},
         },
     }
-    uvicorn.run(app, host=BIND_HOST, port=PORT, log_config=log_config)
+    try:
+        uvicorn.run(app, host=BIND_HOST, port=PORT, log_config=log_config)
+    except SystemExit as exc:
+        # uvicorn raises SystemExit (not a normal Exception) when it cannot bind
+        # the socket — e.g. the port is held by another program. Without this,
+        # the process would exit silently and the console window would vanish
+        # instantly. Re-raise as a clear error the outer handler will surface.
+        raise RuntimeError(
+            f'The web server could not start on {BIND_HOST}:{PORT} — that port '
+            f'is already in use by another program. Close the other program, or '
+            f'set the PORT environment variable to a free port, then try again.'
+        ) from exc
 
 except Exception:
     err = traceback.format_exc()

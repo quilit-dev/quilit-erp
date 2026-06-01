@@ -2098,6 +2098,25 @@ def _run_migrations(conn, c):
             c.execute("ALTER TABLE production_orders ADD COLUMN production_hours REAL NOT NULL DEFAULT 0")
         done("109_mfg_resources")
 
+    # ── 110: financial-year closing ────────────────────────────────────────
+    # A closed year locks all dated-in-year modifications (via the shared
+    # period-lock guard) and snapshots its P&L + the year-end closing entry.
+    if need("110_fiscal_years"):
+        c.execute("""
+            CREATE TABLE IF NOT EXISTS fiscal_years (
+                year             INTEGER PRIMARY KEY,
+                status           TEXT    NOT NULL DEFAULT 'open',
+                total_income     REAL    NOT NULL DEFAULT 0,
+                total_expense    REAL    NOT NULL DEFAULT 0,
+                net_income       REAL    NOT NULL DEFAULT 0,
+                closing_entry_id INTEGER REFERENCES journal_entries(id) ON DELETE SET NULL,
+                closed_at        TEXT,
+                closed_by        INTEGER REFERENCES users(id) ON DELETE SET NULL,
+                notes            TEXT
+            )
+        """)
+        done("110_fiscal_years")
+
     # ── 102: inventory cost layers (FIFO / LIFO costing) ───────────────────
     # Each row is a surviving "lot" of stock at a known unit cost. Only
     # populated/consumed when inventory_costing_method is fifo or lifo; under
@@ -2211,6 +2230,203 @@ def _run_migrations(conn, c):
                 (code, name, typ, subtype, normal, _ts),
             )
         done("104_accounting")
+
+    # ── 120: multi-currency chart-of-accounts additions ────────────────────
+    # Four accounts the original CoA was missing, required by IAS 21 (foreign
+    # currency monetary items) and standard cash controls:
+    #   1010  Cash — LBP             LBP cash holdings, distinct from USD bank
+    #   4910  Foreign Exchange Gain
+    #   6910  Cash Short & Over      over/short on till close
+    #   6920  Foreign Exchange Loss
+    # MUST run AFTER 104_accounting because that's where chart_of_accounts is
+    # created. INSERT OR IGNORE makes it idempotent for already-installed DBs.
+    if need("120_multi_currency_accounts"):
+        _ts = datetime.utcnow().strftime("%Y-%m-%d %H:%M:%S")
+        for code, name, typ, normal, subtype in [
+            ("1010", "Cash — LBP",             "Asset",     "debit",  "Current Asset"),
+            ("4910", "Foreign Exchange Gain",  "Income",    "credit", "Other Income"),
+            ("6910", "Cash Short & Over",      "Expense",   "debit",  "Operating Expense"),
+            ("6920", "Foreign Exchange Loss",  "Expense",   "debit",  "Other Expense"),
+        ]:
+            c.execute(
+                "INSERT OR IGNORE INTO chart_of_accounts "
+                "(code, name, type, subtype, normal_balance, is_system, is_active, created_at) "
+                "VALUES (?,?,?,?,?,1,1,?)",
+                (code, name, typ, subtype, normal, _ts),
+            )
+        done("120_multi_currency_accounts")
+
+    # ── 121: payroll line currency (F-6 audit fix) ──────────────────────────
+    # `hr_contracts` carries `salary_currency` but `hr_payroll_lines` did not,
+    # so the mark-paid handler posted every line as USD regardless of the
+    # underlying contract — an 89,000× mis-statement for any LBP salary.
+    # Adding the column lets us snapshot the per-line currency at run-creation
+    # time and convert correctly to USD when posting to the GL. Existing
+    # payroll lines default to 'USD' (matches current 100%-USD data).
+    if need("121_payroll_line_currency"):
+        try:
+            c.execute(
+                "ALTER TABLE hr_payroll_lines ADD COLUMN salary_currency TEXT NOT NULL DEFAULT 'USD'"
+            )
+        except Exception:
+            pass    # column already exists on a partial earlier run
+        done("121_payroll_line_currency")
+
+    # ── 122: multi-warehouse foundation ─────────────────────────────────────
+    # Adds warehouses as an inventory dimension (NOT an accounting entity).
+    # Design decisions (per design proposal):
+    #   * One company-wide Inventory GL account (1200) — transfers never post.
+    #   * `inventory.quantity` stays the maintained company-wide total so every
+    #     existing query keeps working. `inventory_stock` carries the per-
+    #     warehouse breakdown.
+    #   * Lots and cost layers stay company-wide for v1 — per the explicit
+    #     "postpone warehouse-specific valuation" decision.
+    #   * Row-level RBAC: zero rows in `user_warehouse_access` for a user
+    #     means access to all warehouses (admin-friendly default). Any rows
+    #     restrict access to that explicit allow-list.
+    #   * Backfill seeds one default 'MAIN' warehouse, places all existing
+    #     stock there, and stamps historical movements and module records with
+    #     it — every existing install behaves identically after this migration.
+    if need("122_warehouses"):
+        c.execute("""
+            CREATE TABLE IF NOT EXISTS warehouses (
+                id             INTEGER PRIMARY KEY AUTOINCREMENT,
+                code           TEXT    UNIQUE NOT NULL,
+                name           TEXT    NOT NULL,
+                type           TEXT    NOT NULL DEFAULT 'Main',
+                                       -- 'Main' | 'Branch' | 'Production'
+                                       -- | 'Damaged' | 'Transit' | 'Returns'
+                address        TEXT,
+                manager_id     INTEGER REFERENCES users(id) ON DELETE SET NULL,
+                is_active      INTEGER NOT NULL DEFAULT 1,
+                is_default     INTEGER NOT NULL DEFAULT 0,
+                notes          TEXT,
+                archived_at    TEXT,
+                archive_reason TEXT,
+                created_at     TEXT    NOT NULL
+            )
+        """)
+        c.execute("CREATE UNIQUE INDEX IF NOT EXISTS idx_warehouses_one_default "
+                  "ON warehouses(is_default) WHERE is_default=1")
+
+        # Per-warehouse stock balances. `inventory.quantity` stays the SUM of
+        # `inventory_stock.quantity` rows for that item (maintained on every
+        # write so legacy SELECTs keep working).
+        c.execute("""
+            CREATE TABLE IF NOT EXISTS inventory_stock (
+                inventory_id        INTEGER NOT NULL REFERENCES inventory(id) ON DELETE CASCADE,
+                warehouse_id        INTEGER NOT NULL REFERENCES warehouses(id),
+                quantity            REAL    NOT NULL DEFAULT 0,
+                reserved_quantity   REAL    NOT NULL DEFAULT 0,
+                quarantine_quantity REAL    NOT NULL DEFAULT 0,
+                PRIMARY KEY (inventory_id, warehouse_id)
+            )
+        """)
+        c.execute("CREATE INDEX IF NOT EXISTS idx_inv_stock_warehouse "
+                  "ON inventory_stock(warehouse_id)")
+
+        # Row-level access list. Zero rows for a user = access to all
+        # warehouses (the safe default for existing installs).
+        c.execute("""
+            CREATE TABLE IF NOT EXISTS user_warehouse_access (
+                user_id      INTEGER NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+                warehouse_id INTEGER NOT NULL REFERENCES warehouses(id) ON DELETE CASCADE,
+                granted_at   TEXT    NOT NULL,
+                granted_by   INTEGER REFERENCES users(id) ON DELETE SET NULL,
+                PRIMARY KEY (user_id, warehouse_id)
+            )
+        """)
+
+        # Stock transfers — explicit workflow with audit trail.
+        c.execute("""
+            CREATE TABLE IF NOT EXISTS stock_transfers (
+                id                INTEGER PRIMARY KEY AUTOINCREMENT,
+                transfer_number   TEXT    UNIQUE NOT NULL,
+                from_warehouse_id INTEGER NOT NULL REFERENCES warehouses(id),
+                to_warehouse_id   INTEGER NOT NULL REFERENCES warehouses(id),
+                status            TEXT    NOT NULL DEFAULT 'Draft',
+                                          -- Draft | In Transit | Completed | Cancelled
+                notes             TEXT,
+                created_by        INTEGER REFERENCES users(id) ON DELETE SET NULL,
+                created_at        TEXT    NOT NULL,
+                dispatched_by     INTEGER REFERENCES users(id) ON DELETE SET NULL,
+                dispatched_at     TEXT,
+                received_by       INTEGER REFERENCES users(id) ON DELETE SET NULL,
+                received_at       TEXT,
+                cancelled_by      INTEGER REFERENCES users(id) ON DELETE SET NULL,
+                cancelled_at      TEXT,
+                cancel_reason     TEXT,
+                CHECK (from_warehouse_id <> to_warehouse_id)
+            )
+        """)
+        c.execute("CREATE INDEX IF NOT EXISTS idx_transfers_status "
+                  "ON stock_transfers(status, created_at)")
+        c.execute("""
+            CREATE TABLE IF NOT EXISTS stock_transfer_items (
+                id                INTEGER PRIMARY KEY AUTOINCREMENT,
+                transfer_id       INTEGER NOT NULL REFERENCES stock_transfers(id) ON DELETE CASCADE,
+                inventory_id      INTEGER NOT NULL REFERENCES inventory(id),
+                quantity          REAL    NOT NULL,
+                received_quantity REAL,
+                note              TEXT
+            )
+        """)
+        c.execute("CREATE INDEX IF NOT EXISTS idx_transfer_items_transfer "
+                  "ON stock_transfer_items(transfer_id)")
+
+        # Adding the per-module location dimension. SQLite ALTER TABLE
+        # rejects adding a column twice — wrap each in try/except so re-runs
+        # don't fail.
+        for ddl in (
+            "ALTER TABLE users             ADD COLUMN default_warehouse_id INTEGER REFERENCES warehouses(id)",
+            "ALTER TABLE stock_movements   ADD COLUMN warehouse_id INTEGER REFERENCES warehouses(id)",
+            "ALTER TABLE purchases         ADD COLUMN warehouse_id INTEGER REFERENCES warehouses(id)",
+            "ALTER TABLE pos_sessions      ADD COLUMN warehouse_id INTEGER REFERENCES warehouses(id)",
+            "ALTER TABLE production_orders ADD COLUMN warehouse_id INTEGER REFERENCES warehouses(id)",
+        ):
+            try:
+                c.execute(ddl)
+            except Exception:
+                pass
+
+        # ── Seed the default warehouse + backfill ─────────────────────────
+        # Exactly one warehouse is required for the system to function (every
+        # stock-touching operation defaults to it). Seed it before any
+        # backfill so the FK relationships are satisfiable.
+        _ts = datetime.utcnow().strftime("%Y-%m-%d %H:%M:%S")
+        c.execute(
+            "INSERT OR IGNORE INTO warehouses "
+            "(code, name, type, is_active, is_default, notes, created_at) "
+            "VALUES ('MAIN', 'Main Warehouse', 'Main', 1, 1, "
+            " 'Default warehouse, auto-created during multi-warehouse migration.', ?)",
+            (_ts,),
+        )
+        main_id = c.execute(
+            "SELECT id FROM warehouses WHERE code='MAIN'"
+        ).fetchone()[0]
+
+        # Backfill: every existing item's stock lives in MAIN
+        c.execute("""
+            INSERT OR IGNORE INTO inventory_stock
+                (inventory_id, warehouse_id, quantity, reserved_quantity, quarantine_quantity)
+            SELECT id, ?,
+                   COALESCE(quantity, 0),
+                   COALESCE(reserved_quantity, 0),
+                   COALESCE(quarantine_quantity, 0)
+            FROM inventory
+        """, (main_id,))
+
+        # Stamp historical movements + module records with MAIN so every
+        # row has a warehouse and we can drop NULLs from analytics.
+        for sql in (
+            "UPDATE stock_movements   SET warehouse_id = ? WHERE warehouse_id IS NULL",
+            "UPDATE purchases         SET warehouse_id = ? WHERE warehouse_id IS NULL",
+            "UPDATE pos_sessions      SET warehouse_id = ? WHERE warehouse_id IS NULL",
+            "UPDATE production_orders SET warehouse_id = ? WHERE warehouse_id IS NULL",
+        ):
+            c.execute(sql, (main_id,))
+
+        done("122_warehouses")
 
     # ── 103: generic attachments (files on any business entity) ────────────
     # One table backs file attachments for every module (invoices, purchases,

@@ -33,23 +33,43 @@ router = APIRouter()
 # present in this map (approvals, announcements, system, etc.) are user-
 # targeted at notify() time and need no additional gating here.
 NOTIFICATION_TYPE_MODULE = {
-    "invoice_paid":         "invoices",
-    "payment_received":     "invoices",
-    "invoice_overdue":      "invoices",
-    "low_stock":            "inventory",
-    "purchase_received":    "purchases",
-    "quotation_accepted":   "quotations",
-    "task_due_soon":        "planning",
-    "planning_event":       "planning",
-    "deal_won":             "crm",
-    "deal_lost":            "crm",
-    "lead_converted":       "crm",
-    "production_completed": "manufacturing",
-    "asset_depreciated":    "assets",
-    "cash_variance":        "cash",
-    "recruitment_status":   "recruitment",
-    "recruitment_hired":    "recruitment",
-    "hr_activity_reminder": "hr_activities",
+    # Sales / billing
+    "invoice_paid":          "invoices",
+    "payment_received":      "invoices",
+    "invoice_overdue":       "invoices",
+    "quotation_accepted":    "quotations",
+    # Operations / stock
+    "low_stock":             "inventory",
+    "low_stock_warehouse":   "inventory",
+    "purchase_received":     "purchases",
+    "transfer_dispatched":   "warehouses",
+    "transfer_received":     "warehouses",
+    "transfer_cancelled":    "warehouses",
+    # Planning + CRM
+    "task_due_soon":         "planning",
+    "planning_event":        "planning",
+    "deal_won":              "crm",
+    "deal_lost":             "crm",
+    "lead_converted":        "crm",
+    # Manufacturing + Assets
+    "production_completed":  "manufacturing",
+    "asset_depreciated":     "assets",
+    # Cash + Finance + Accounting
+    "cash_variance":         "cash",
+    "recurring_generated":   "expenses",
+    "period_unlocked":       "accounting",
+    "fx_rate_stale":         "accounting",
+    # HR — leave + payroll + activities + contracts
+    "leave_requested":       "hr",
+    "leave_approved":        "hr",
+    "leave_rejected":        "hr",
+    "payroll_approved":      "hr",
+    "payroll_paid":          "hr",
+    "contract_expiring":     "hr_contracts",
+    "hr_activity_reminder":  "hr_activities",
+    # Recruitment
+    "recruitment_status":    "recruitment",
+    "recruitment_hired":     "recruitment",
 }
 
 
@@ -162,6 +182,88 @@ def _generate_system_notifications(db: sqlite3.Connection) -> None:
             link="/planning",
             entity_type="task",
             entity_id=task["id"],
+            dedup_hours=24,
+        )
+
+    # ── Employment contracts expiring within 30 days ─────────────────────────
+    # Generates one alert per active contract whose end_date enters the
+    # 30-day horizon — gives HR a runway to renew / terminate without the
+    # surprise of a contract lapsing overnight. Dedup-safe across the day.
+    horizon = (date.today() + timedelta(days=30)).isoformat()
+    expiring = db.execute(
+        """SELECT c.id, c.contract_number, c.end_date, e.full_name AS emp
+           FROM hr_contracts c
+           JOIN hr_employees e ON e.id = c.employee_id
+           WHERE c.archived_at IS NULL AND c.status = 'Active'
+             AND c.end_date IS NOT NULL
+             AND c.end_date >= ? AND c.end_date <= ?""",
+        (today, horizon),
+    ).fetchall()
+    for c in expiring:
+        try:
+            end = date.fromisoformat(c["end_date"][:10])
+            days_left = (end - date.today()).days
+        except Exception:
+            continue
+        notify(
+            db,
+            type="contract_expiring",
+            title=f"Contract expiring: {c['emp']}",
+            body=f"{c['contract_number'] or 'No #'} — ends in {days_left}d ({c['end_date'][:10]})",
+            link="/hr",
+            entity_type="hr_contract",
+            entity_id=c["id"],
+            dedup_hours=24,
+        )
+
+    # ── Stale exchange rate (LBP) ────────────────────────────────────────────
+    # No new rate in 7+ days means every LBP cash posting still books at an
+    # old spot. We surface this once a day so accounting can refresh before
+    # FX exposure compounds.
+    rate_row = db.execute(
+        "SELECT id, rate, created_at FROM exchange_rates "
+        "ORDER BY id DESC LIMIT 1"
+    ).fetchone()
+    stale_days = 7
+    if rate_row:
+        try:
+            rate_d = date.fromisoformat((rate_row["created_at"] or "")[:10])
+            age = (date.today() - rate_d).days
+            if age >= stale_days:
+                notify(
+                    db,
+                    type="fx_rate_stale",
+                    title="USD ↔ LBP rate is stale",
+                    body=f"Latest spot is {age} days old "
+                         f"(1 USD = {rate_row['rate']:,.0f} LBP). Set a new rate in Settings.",
+                    link="/settings",
+                    entity_type="exchange_rate",
+                    entity_id=rate_row["id"],
+                    dedup_hours=24,
+                )
+        except Exception:
+            pass
+
+    # ── Period not locked T+10 ───────────────────────────────────────────────
+    # A month that ended more than 10 days ago without a period lock is a
+    # bright red flag for an auditor — somebody could still backdate entries
+    # into it. We post ONE alert per (year, month) pair, dedup-safe.
+    grace = (date.today() - timedelta(days=10))
+    unlocked = db.execute(
+        """SELECT id, year, month FROM accounting_periods
+           WHERE locked_at IS NULL
+             AND (year < ? OR (year = ? AND month <= ?))""",
+        (grace.year, grace.year, grace.month - 1 if grace.month > 1 else 12),
+    ).fetchall()
+    for p in unlocked:
+        notify(
+            db,
+            type="period_unlocked",
+            title=f"Period {p['year']:04d}-{p['month']:02d} is not locked",
+            body="Lock the month from Accounting → Period Locks to prevent backdated entries.",
+            link="/accounting",
+            entity_type="accounting_period",
+            entity_id=p["id"],
             dedup_hours=24,
         )
 

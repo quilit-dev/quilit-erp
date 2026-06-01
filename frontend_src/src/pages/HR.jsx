@@ -41,12 +41,53 @@ const EMPTY_EMPLOYEE = {
   change_type: '', change_reason: '',
 };
 
-// Friendly label for the change-row type
-const changeLabel = (k) => ({
-  hire: 'Hired', raise: 'Salary raise', promotion: 'Promotion',
-  demotion: 'Demotion', role_change: 'Role change', transfer: 'Transfer',
-  termination: 'Terminated', adjustment: 'Adjustment',
-}[k] || k);
+// Friendly label for the change-row type. Locale-aware: maps the DB-stored
+// English keys onto a translation lookup so AR/EN both render correctly.
+// Falls back to the raw key when an unknown change type appears (forward
+// compatibility with new types added on the server).
+const changeLabel = (k, t) => {
+  if (!k) return '';
+  const map = {
+    hire:        t('hr.changeHired'),
+    raise:       t('hr.changeRaise'),
+    promotion:   t('hr.changePromotion'),
+    demotion:    t('hr.changeDemotion'),
+    role_change: t('hr.changeRoleChange'),
+    transfer:    t('hr.changeTransfer'),
+    termination: t('hr.changeTermination'),
+    adjustment:  t('hr.changeAdjustment'),
+  };
+  return map[k] || k;
+};
+
+// Localized labels for the DB-stored English status values. The DB keeps the
+// canonical English code; the UI renders whichever language the operator
+// chose. Falls back to the raw code when an unknown value appears.
+const empStatusLabel = (s, t) => ({
+  Active:     t('hr.statusActiveEmp'),
+  'On Leave': t('hr.statusOnLeave'),
+  Terminated: t('hr.statusTerminated'),
+}[s] || s);
+
+const leaveStatusLabel = (s, t) => ({
+  Pending:  t('hr.statusPending'),
+  Approved: t('hr.statusApproved'),
+  Rejected: t('hr.statusRejected'),
+}[s] || s);
+
+const payrollStatusLabel = (s, t) => ({
+  Draft:     t('hr.statusDraft'),
+  Approved:  t('hr.statusApproved'),
+  Paid:      t('hr.statusPaid'),
+  Cancelled: t('hr.statusCancelled'),
+}[s] || s);
+
+const contractStatusLabel = (s, t) => ({
+  Draft:      t('hr.contractStatusDraft'),
+  Active:     t('hr.contractStatusActive'),
+  Expired:    t('hr.contractStatusExpired'),
+  Terminated: t('hr.contractStatusTerminated'),
+}[s] || s);
 const EMPTY_DEPT  = { name: '', description: '' };
 const EMPTY_LEAVE = { employee_id: '', leave_type: 'Annual', start_date: '', end_date: '', reason: '' };
 
@@ -201,7 +242,7 @@ export default function HR() {
   const s = summary || {};
   const TABS = [
     { key: 'employees',   label: t('hr.tabEmployees'),   count: emps.length },
-    { key: 'payroll',     label: 'Payroll',              count: runs.length },
+    { key: 'payroll',     label: t('hr.tabPayroll'),     count: runs.length },
     { key: 'departments', label: t('hr.tabDepartments'), count: depts.length },
     { key: 'leave',       label: t('hr.tabLeave'),       count: leaves.length },
   ];
@@ -223,7 +264,7 @@ export default function HR() {
         <Kpi label={t('hr.kpiDepts')}   value={s.departments ?? 0}     color="var(--accent)" />
         <Kpi label={t('hr.kpiPending')} value={s.pending_leave ?? 0}
              color={s.pending_leave > 0 ? 'var(--red)' : 'var(--text-3)'} />
-        <Kpi label="YTD Payroll"        value={fmt(s.ytd_payroll || 0)} color="var(--accent)" />
+        <Kpi label={t('hr.kpiYtdPayroll')} value={fmt(s.ytd_payroll || 0)} color="var(--accent)" />
       </div>
 
       {/* Tabs */}
@@ -270,7 +311,7 @@ export default function HR() {
             <button className="btn btn-primary" onClick={openLeaveCreate}>{t('hr.requestLeave')}</button>
           )}
           {tab === 'payroll' && canCreate && (
-            <button className="btn btn-primary" onClick={() => setRunId('new')}>New payroll run</button>
+            <button className="btn btn-primary" onClick={() => setRunId('new')}>{t('hr.newPayrollRun')}</button>
           )}
         </div>
       </div>
@@ -303,7 +344,7 @@ export default function HR() {
                       <td>{e.job_title || '—'}</td>
                       <td>{e.department_name || '—'}</td>
                       <td>{e.employment_type}</td>
-                      <td><span className={`badge badge-${EMP_STATUS_BADGE[e.status] || 'gray'}`}>{e.status}</span></td>
+                      <td><span className={`badge badge-${EMP_STATUS_BADGE[e.status] || 'gray'}`}>{empStatusLabel(e.status, t)}</span></td>
                       <td onClick={ev => ev.stopPropagation()}>
                         <div style={{ display: 'flex', gap: 5 }}>
                           {canEdit && <button className="btn btn-sm btn-secondary" onClick={() => openEmpEdit(e)}>{t('common.edit')}</button>}
@@ -358,20 +399,20 @@ export default function HR() {
       {tab === 'payroll' && (
         <div className="card" style={{ padding: 0 }}>
           {runs.length === 0 ? (
-            <EmptyState message="No payroll runs yet. Click 'New payroll run' to start." />
+            <EmptyState message={t('hr.noPayrollRuns')} />
           ) : (
             <div className="table-wrap">
               <table>
                 <thead>
                   <tr>
-                    <th>Period</th>
-                    <th>Status</th>
-                    <th>Employees</th>
-                    <th style={{ textAlign: 'right' }}>Gross</th>
-                    <th style={{ textAlign: 'right' }}>Bonuses</th>
-                    <th style={{ textAlign: 'right' }}>Deductions</th>
-                    <th style={{ textAlign: 'right' }}>Net</th>
-                    <th>Paid</th>
+                    <th>{t('hr.colPeriod')}</th>
+                    <th>{t('common.status')}</th>
+                    <th>{t('hr.colHeadcountShort')}</th>
+                    <th style={{ textAlign: 'right' }}>{t('hr.colGross')}</th>
+                    <th style={{ textAlign: 'right' }}>{t('hr.colBonuses')}</th>
+                    <th style={{ textAlign: 'right' }}>{t('hr.colDeductions')}</th>
+                    <th style={{ textAlign: 'right' }}>{t('hr.colNet')}</th>
+                    <th>{t('hr.colPaid')}</th>
                   </tr>
                 </thead>
                 <tbody>
@@ -382,7 +423,7 @@ export default function HR() {
                           {fmtDate(r.period_start)} → {fmtDate(r.period_end)}
                         </span>
                       </td>
-                      <td><span className={`badge badge-${PAYROLL_BADGE[r.status] || 'gray'}`}>{r.status}</span></td>
+                      <td><span className={`badge badge-${PAYROLL_BADGE[r.status] || 'gray'}`}>{payrollStatusLabel(r.status, t)}</span></td>
                       <td>{r.line_count ?? 0}</td>
                       <td style={{ textAlign: 'right' }}>{fmt(r.total_gross || 0)}</td>
                       <td style={{ textAlign: 'right' }}>{fmt(r.total_bonuses || 0)}</td>
@@ -425,7 +466,7 @@ export default function HR() {
                       <td>{l.leave_type}</td>
                       <td>{fmtDate(l.start_date)} → {fmtDate(l.end_date)}</td>
                       <td>{l.days}</td>
-                      <td><span className={`badge badge-${LEAVE_STATUS_BADGE[l.status] || 'gray'}`}>{l.status}</span></td>
+                      <td><span className={`badge badge-${LEAVE_STATUS_BADGE[l.status] || 'gray'}`}>{leaveStatusLabel(l.status, t)}</span></td>
                       <td>{l.reviewer_name || '—'}</td>
                       <td>
                         <div style={{ display: 'flex', gap: 5 }}>
@@ -539,21 +580,21 @@ export default function HR() {
                   <>
                     <div className="form-group" style={{ gridColumn: '1 / -1', borderTop: '1px solid var(--border)', paddingTop: 12, marginTop: 4 }}>
                       <label className="form-label" style={{ color: 'var(--text-3)' }}>
-                        Change type
-                        <span style={{ fontSize: 11, marginLeft: 6, fontStyle: 'italic' }}>
-                          (auto-detected if blank — recorded in the salary timeline)
+                        {t('hr.changeType')}
+                        <span style={{ fontSize: 11, marginInlineStart: 6, fontStyle: 'italic' }}>
+                          {t('hr.changeTypeHint')}
                         </span>
                       </label>
                       <select className="form-control" value={empForm.change_type || ''}
                         onChange={e => setEmpForm(f => ({ ...f, change_type: e.target.value }))}>
                         {CHANGE_TYPES.map(x =>
-                          <option key={x} value={x}>{x === '' ? '— Auto-detect —' : changeLabel(x)}</option>
+                          <option key={x} value={x}>{x === '' ? t('hr.changeAutoDetect') : changeLabel(x, t)}</option>
                         )}
                       </select>
                     </div>
                     <div className="form-group" style={{ gridColumn: '1 / -1' }}>
-                      <label className="form-label">Reason / note (for the timeline)</label>
-                      <input className="form-control" placeholder="e.g. Annual review, role expansion, transfer to Operations"
+                      <label className="form-label">{t('hr.changeReason')}</label>
+                      <input className="form-control" placeholder={t('hr.changeReasonPh')}
                         value={empForm.change_reason || ''}
                         onChange={e => setEmpForm(f => ({ ...f, change_reason: e.target.value }))} />
                     </div>
@@ -694,6 +735,7 @@ export default function HR() {
 // EmployeeDetail — profile + salary timeline + files + payroll + leave
 // ════════════════════════════════════════════════════════════════════════════
 function EmployeeDetail({ empId, canEdit, onClose, onEdit, onChanged }) {
+  const { t } = useLocale();
   const [emp,     setEmp]     = useState(null);
   const [loading, setLoading] = useState(true);
   const [error,   setError]   = useState(null);
@@ -713,30 +755,34 @@ function EmployeeDetail({ empId, canEdit, onClose, onEdit, onChanged }) {
   async function handleUpload(kind, file) {
     if (!file) return;
     if (file.type !== 'application/pdf') {
-      toast('Only PDF files are accepted.', 'error'); return;
+      toast(t('hr.onlyPdfAccepted'), 'error'); return;
     }
     setUploading(kind);
     try {
       await uploadEmployeeFile(empId, kind, file);
-      toast(`${kind === 'cv' ? 'CV' : kind === 'contract' ? 'Contract' : 'File'} uploaded`);
+      toast(
+        kind === 'cv'       ? t('hr.cvUploaded') :
+        kind === 'contract' ? t('hr.contractUploaded') :
+                              t('hr.fileUploaded'),
+      );
       await load();
     } catch (err) {
-      toast(err.message || 'Upload failed', 'error');
+      toast(err.message || t('hr.uploadFailed'), 'error');
     } finally {
       setUploading(null);
     }
   }
 
   async function handleDeleteFile(fileId) {
-    try { await deleteEmployeeFile(fileId); toast('File deleted'); await load(); }
-    catch (err) { toast(err.message || 'Could not delete', 'error'); }
+    try { await deleteEmployeeFile(fileId); toast(t('hr.fileDeleted')); await load(); }
+    catch (err) { toast(err.message || t('hr.couldNotDelete'), 'error'); }
   }
 
   if (loading) {
-    return <Modal title="Employee details" onClose={onClose} size="modal-lg"><div className="modal-body"><LoadingSpinner /></div></Modal>;
+    return <Modal title={t('hr.employeeDetails')} onClose={onClose} size="modal-lg"><div className="modal-body"><LoadingSpinner /></div></Modal>;
   }
   if (error || !emp) {
-    return <Modal title="Employee details" onClose={onClose} size="modal-lg"><div className="modal-body"><ErrorAlert message={error || 'Not found'} onRetry={load} /></div></Modal>;
+    return <Modal title={t('hr.employeeDetails')} onClose={onClose} size="modal-lg"><div className="modal-body"><ErrorAlert message={error || t('hr.notFound')} onRetry={load} /></div></Modal>;
   }
 
   const cv       = (emp.files || []).find(f => f.kind === 'cv');
@@ -749,26 +795,26 @@ function EmployeeDetail({ empId, canEdit, onClose, onEdit, onChanged }) {
 
         {/* ── Profile summary ───────────────────────────────────────────── */}
         <div style={{ display: 'grid', gridTemplateColumns: 'repeat(3, 1fr)', gap: 12, marginBottom: 18 }}>
-          <Field label="Job title"   value={emp.job_title || '—'} />
-          <Field label="Department"  value={emp.department_name || '—'} />
-          <Field label="Manager"     value={emp.manager_name || '—'} />
-          <Field label="Status"      value={<span className={`badge badge-${EMP_STATUS_BADGE[emp.status] || 'gray'}`}>{emp.status}</span>} />
-          <Field label="Type"        value={emp.employment_type} />
-          <Field label="Current salary" value={fmt(emp.salary || 0)} />
-          <Field label="Hire date"   value={emp.hire_date ? fmtDate(emp.hire_date) : '—'} />
-          <Field label="Email"       value={emp.email || '—'} />
-          <Field label="Phone"       value={emp.phone || '—'} />
+          <Field label={t('hr.fldJobTitleShort')}    value={emp.job_title || '—'} />
+          <Field label={t('hr.fldDepartment')}       value={emp.department_name || '—'} />
+          <Field label={t('hr.fldManager')}          value={emp.manager_name || '—'} />
+          <Field label={t('hr.fldStatus')}           value={<span className={`badge badge-${EMP_STATUS_BADGE[emp.status] || 'gray'}`}>{empStatusLabel(emp.status, t)}</span>} />
+          <Field label={t('hr.fldType')}             value={emp.employment_type} />
+          <Field label={t('hr.fldCurrentSalary')}    value={fmt(emp.salary || 0)} />
+          <Field label={t('hr.fldHireDateShort')}    value={emp.hire_date ? fmtDate(emp.hire_date) : '—'} />
+          <Field label={t('hr.fldEmail')}            value={emp.email || '—'} />
+          <Field label={t('hr.fldPhone')}            value={emp.phone || '—'} />
         </div>
 
         {/* ── Files (CV / Contract / Other) ─────────────────────────────── */}
-        <Section title="Documents">
+        <Section title={t('hr.documents')}>
           <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 12 }}>
             <FileSlot
-              label="CV / Résumé" file={cv} canEdit={canEdit} uploading={uploading === 'cv'}
+              label={t('hr.cvResume')} file={cv} canEdit={canEdit} uploading={uploading === 'cv'}
               onPick={() => cvInputRef.current?.click()}
               onDelete={() => handleDeleteFile(cv.id)} />
             <FileSlot
-              label="Employment contract" file={contract} canEdit={canEdit} uploading={uploading === 'contract'}
+              label={t('hr.employmentContract')} file={contract} canEdit={canEdit} uploading={uploading === 'contract'}
               onPick={() => contractInputRef.current?.click()}
               onDelete={() => handleDeleteFile(contract.id)} />
           </div>
@@ -777,7 +823,7 @@ function EmployeeDetail({ empId, canEdit, onClose, onEdit, onChanged }) {
               <button className="btn btn-sm btn-secondary"
                 onClick={() => otherInputRef.current?.click()}
                 disabled={uploading === 'other'}>
-                + Upload other document (PDF)
+                {t('hr.uploadOtherDoc')}
               </button>
             </div>
           )}
@@ -793,8 +839,8 @@ function EmployeeDetail({ empId, canEdit, onClose, onEdit, onChanged }) {
                   <span style={{ fontSize: 11, color: 'var(--text-3)' }}>
                     {(f.size_bytes / 1024).toFixed(0)} KB · {fmtDate(f.created_at)}
                   </span>
-                  <a className="btn btn-sm btn-secondary" href={employeeFileURL(f.id)} target="_blank" rel="noopener noreferrer">View</a>
-                  {canEdit && <button className="btn btn-sm btn-danger" onClick={() => handleDeleteFile(f.id)}>Delete</button>}
+                  <a className="btn btn-sm btn-secondary" href={employeeFileURL(f.id)} target="_blank" rel="noopener noreferrer">{t('hr.view')}</a>
+                  {canEdit && <button className="btn btn-sm btn-danger" onClick={() => handleDeleteFile(f.id)}>{t('hr.delete')}</button>}
                 </div>
               ))}
             </div>
@@ -809,42 +855,42 @@ function EmployeeDetail({ empId, canEdit, onClose, onEdit, onChanged }) {
         </Section>
 
         {/* ── Salary / role timeline ───────────────────────────────────── */}
-        <Section title="Employment history">
+        <Section title={t('hr.employmentHistory')}>
           {(emp.history || []).length === 0 ? (
-            <EmptyState message="No history yet." />
+            <EmptyState message={t('hr.noHistory')} />
           ) : (
             <div style={{ display: 'flex', flexDirection: 'column', gap: 8 }}>
               {emp.history.map(h => (
                 <div key={h.id} style={{
                   display: 'flex', gap: 12, padding: '10px 12px',
                   border: '1px solid var(--border)', borderRadius: 'var(--radius)',
-                  borderLeft: `3px solid var(--${CHANGE_BADGE[h.change_type] || 'border'})`,
+                  borderInlineStart: `3px solid var(--${CHANGE_BADGE[h.change_type] || 'border'})`,
                   background: 'var(--surface)',
                 }}>
                   <div style={{ minWidth: 96, fontSize: 12, color: 'var(--text-3)' }}>{fmtDate(h.effective_date)}</div>
                   <div style={{ flex: 1 }}>
                     <div style={{ marginBottom: 4 }}>
-                      <span className={`badge badge-${CHANGE_BADGE[h.change_type] || 'gray'}`}>{changeLabel(h.change_type)}</span>
+                      <span className={`badge badge-${CHANGE_BADGE[h.change_type] || 'gray'}`}>{changeLabel(h.change_type, t)}</span>
                       {h.reason && <span style={{ marginInlineStart: 8, fontSize: 12, color: 'var(--text-2)' }}>{h.reason}</span>}
                     </div>
                     <div style={{ fontSize: 12, color: 'var(--text-2)', display: 'flex', flexWrap: 'wrap', gap: 14 }}>
                       {(h.old_salary != null || h.new_salary != null) &&
                         (Number(h.old_salary || 0) !== Number(h.new_salary || 0)) && (
-                          <span>Salary: <strong>{fmt(h.old_salary || 0)} → {fmt(h.new_salary || 0)}</strong></span>
+                          <span>{t('hr.historySalary')}: <strong>{fmt(h.old_salary || 0)} → {fmt(h.new_salary || 0)}</strong></span>
                         )}
                       {h.new_title !== h.old_title && (
-                        <span>Title: <strong>{h.old_title || '—'} → {h.new_title || '—'}</strong></span>
+                        <span>{t('hr.historyTitle')}: <strong>{h.old_title || '—'} → {h.new_title || '—'}</strong></span>
                       )}
                       {h.new_department_id !== h.old_department_id && (
-                        <span>Department: <strong>{h.old_department_name || '—'} → {h.new_department_name || '—'}</strong></span>
+                        <span>{t('hr.historyDepartment')}: <strong>{h.old_department_name || '—'} → {h.new_department_name || '—'}</strong></span>
                       )}
                       {h.new_manager_id !== h.old_manager_id && (
-                        <span>Manager: <strong>{h.old_manager_name || '—'} → {h.new_manager_name || '—'}</strong></span>
+                        <span>{t('hr.historyManager')}: <strong>{h.old_manager_name || '—'} → {h.new_manager_name || '—'}</strong></span>
                       )}
                     </div>
                   </div>
                   {h.created_by_name && (
-                    <div style={{ fontSize: 11, color: 'var(--text-3)' }}>by {h.created_by_name}</div>
+                    <div style={{ fontSize: 11, color: 'var(--text-3)' }}>{t('hr.historyBy')} {h.created_by_name}</div>
                   )}
                 </div>
               ))}
@@ -856,27 +902,27 @@ function EmployeeDetail({ empId, canEdit, onClose, onEdit, onChanged }) {
         <ContractsSection empId={empId} canEdit={canEdit} />
 
         {/* ── Payroll history ──────────────────────────────────────────── */}
-        <Section title="Payroll history">
+        <Section title={t('hr.payrollHistory')}>
           {(emp.payroll_history || []).length === 0 ? (
-            <EmptyState message="No payroll lines yet." />
+            <EmptyState message={t('hr.noPayrollLines')} />
           ) : (
             <div className="table-wrap">
               <table>
                 <thead>
                   <tr>
-                    <th>Period</th>
-                    <th>Status</th>
-                    <th style={{ textAlign: 'right' }}>Base</th>
-                    <th style={{ textAlign: 'right' }}>Bonus</th>
-                    <th style={{ textAlign: 'right' }}>Deductions</th>
-                    <th style={{ textAlign: 'right' }}>Net</th>
+                    <th>{t('hr.colPeriod')}</th>
+                    <th>{t('common.status')}</th>
+                    <th style={{ textAlign: 'right' }}>{t('hr.colBase')}</th>
+                    <th style={{ textAlign: 'right' }}>{t('hr.colBonus')}</th>
+                    <th style={{ textAlign: 'right' }}>{t('hr.colDeductions')}</th>
+                    <th style={{ textAlign: 'right' }}>{t('hr.colNet')}</th>
                   </tr>
                 </thead>
                 <tbody>
                   {emp.payroll_history.map(p => (
                     <tr key={p.id}>
                       <td>{fmtDate(p.period_start)} → {fmtDate(p.period_end)}</td>
-                      <td><span className={`badge badge-${PAYROLL_BADGE[p.status] || 'gray'}`}>{p.status}</span></td>
+                      <td><span className={`badge badge-${PAYROLL_BADGE[p.status] || 'gray'}`}>{payrollStatusLabel(p.status, t)}</span></td>
                       <td style={{ textAlign: 'right' }}>{fmt(p.base_salary)}</td>
                       <td style={{ textAlign: 'right' }}>{fmt(p.bonuses)}</td>
                       <td style={{ textAlign: 'right' }}>{fmt(p.deductions)}</td>
@@ -890,20 +936,20 @@ function EmployeeDetail({ empId, canEdit, onClose, onEdit, onChanged }) {
         </Section>
 
         {/* ── Leave history ────────────────────────────────────────────── */}
-        <Section title="Leave history">
+        <Section title={t('hr.leaveHistory')}>
           {(emp.leave_history || []).length === 0 ? (
-            <EmptyState message="No leave on record." />
+            <EmptyState message={t('hr.noLeaveOnRecord')} />
           ) : (
             <div className="table-wrap">
               <table>
-                <thead><tr><th>Type</th><th>Period</th><th>Days</th><th>Status</th><th>Reason</th></tr></thead>
+                <thead><tr><th>{t('hr.colType')}</th><th>{t('hr.colPeriod')}</th><th>{t('hr.colDays')}</th><th>{t('common.status')}</th><th>{t('hr.fldReason')}</th></tr></thead>
                 <tbody>
                   {emp.leave_history.map(l => (
                     <tr key={l.id}>
                       <td>{l.leave_type}</td>
                       <td>{fmtDate(l.start_date)} → {fmtDate(l.end_date)}</td>
                       <td>{l.days}</td>
-                      <td><span className={`badge badge-${LEAVE_STATUS_BADGE[l.status] || 'gray'}`}>{l.status}</span></td>
+                      <td><span className={`badge badge-${LEAVE_STATUS_BADGE[l.status] || 'gray'}`}>{leaveStatusLabel(l.status, t)}</span></td>
                       <td style={{ color: 'var(--text-3)' }}>{l.reason || '—'}</td>
                     </tr>
                   ))}
@@ -915,9 +961,9 @@ function EmployeeDetail({ empId, canEdit, onClose, onEdit, onChanged }) {
       </div>
 
       <div className="modal-footer">
-        <button className="btn btn-secondary" onClick={onClose}>Close</button>
+        <button className="btn btn-secondary" onClick={onClose}>{t('common.close')}</button>
         {canEdit && (
-          <button className="btn btn-primary" onClick={() => onEdit(emp)}>Edit profile</button>
+          <button className="btn btn-primary" onClick={() => onEdit(emp)}>{t('hr.editProfile')}</button>
         )}
       </div>
     </Modal>
@@ -933,17 +979,21 @@ function Field({ label, value }) {
     </div>
   );
 }
-function Section({ title, children }) {
+function Section({ title, right, children }) {
   return (
     <div style={{ marginBottom: 22 }}>
-      <h4 style={{ fontSize: 13, textTransform: 'uppercase', letterSpacing: '0.5px',
-                   color: 'var(--text-3)', margin: '0 0 10px', borderBottom: '1px solid var(--border)',
-                   paddingBottom: 6 }}>{title}</h4>
+      <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between',
+                    borderBottom: '1px solid var(--border)', paddingBottom: 6, marginBottom: 10 }}>
+        <h4 style={{ fontSize: 13, textTransform: 'uppercase', letterSpacing: '0.5px',
+                     color: 'var(--text-3)', margin: 0 }}>{title}</h4>
+        {right}
+      </div>
       {children}
     </div>
   );
 }
 function FileSlot({ label, file, canEdit, uploading, onPick, onDelete }) {
+  const { t } = useLocale();
   return (
     <div style={{
       padding: '12px', border: '1px dashed var(--border)', borderRadius: 'var(--radius)',
@@ -954,24 +1004,24 @@ function FileSlot({ label, file, canEdit, uploading, onPick, onDelete }) {
         <>
           <div style={{ fontSize: 13, marginBottom: 4 }}>{file.filename}</div>
           <div style={{ fontSize: 11, color: 'var(--text-3)', marginBottom: 8 }}>
-            {(file.size_bytes / 1024).toFixed(0)} KB · uploaded {fmtDate(file.created_at)}
+            {(file.size_bytes / 1024).toFixed(0)} KB · {fmtDate(file.created_at)}
           </div>
           <div style={{ display: 'flex', gap: 6 }}>
-            <a className="btn btn-sm btn-primary" href={employeeFileURL(file.id)} target="_blank" rel="noopener noreferrer">View</a>
+            <a className="btn btn-sm btn-primary" href={employeeFileURL(file.id)} target="_blank" rel="noopener noreferrer">{t('hr.view')}</a>
             {canEdit && (
               <>
-                <button className="btn btn-sm btn-secondary" onClick={onPick} disabled={uploading}>Replace</button>
-                <button className="btn btn-sm btn-danger" onClick={onDelete}>Delete</button>
+                <button className="btn btn-sm btn-secondary" onClick={onPick} disabled={uploading}>{t('hr.replace')}</button>
+                <button className="btn btn-sm btn-danger" onClick={onDelete}>{t('hr.delete')}</button>
               </>
             )}
           </div>
         </>
       ) : (
         <>
-          <div style={{ fontSize: 12, color: 'var(--text-3)', marginBottom: 8 }}>No file uploaded yet.</div>
+          <div style={{ fontSize: 12, color: 'var(--text-3)', marginBottom: 8 }}>{t('hr.noFileUploaded')}</div>
           {canEdit && (
             <button className="btn btn-sm btn-primary" onClick={onPick} disabled={uploading}>
-              {uploading ? 'Uploading…' : 'Upload PDF'}
+              {uploading ? t('hr.uploading') : t('hr.uploadPdf')}
             </button>
           )}
         </>
@@ -985,6 +1035,7 @@ function FileSlot({ label, file, canEdit, uploading, onPick, onDelete }) {
 // PayrollRunPanel — create OR view+edit a payroll run
 // ════════════════════════════════════════════════════════════════════════════
 function PayrollRunPanel({ runId, canEdit, canApprove, canDelete, onClose, onChanged }) {
+  const { t } = useLocale();
   const isNew = runId === 'new';
   const [run,     setRun]     = useState(null);
   const [loading, setLoading] = useState(!isNew);
@@ -1005,11 +1056,11 @@ function PayrollRunPanel({ runId, canEdit, canApprove, canDelete, onClose, onCha
 
   async function handleCreate(e) {
     e.preventDefault();
-    if (!periodStart || !periodEnd) { toast('Both dates are required', 'error'); return; }
+    if (!periodStart || !periodEnd) { toast(t('hr.bothDatesRequired'), 'error'); return; }
     setBusy(true);
     try {
       const res = await createPayrollRun({ period_start: periodStart, period_end: periodEnd, notes: notes || null });
-      toast(`Payroll run created (${res.lines} employees)`);
+      toast(t('hr.payrollRunCreated', { count: res.lines }));
       onChanged();
       onClose();
     } catch (err) { toast(err.message, 'error'); }
@@ -1025,9 +1076,9 @@ function PayrollRunPanel({ runId, canEdit, canApprove, canDelete, onClose, onCha
   async function doAction(action) {
     setBusy(true);
     try {
-      if (action === 'approve') { await approvePayrollRun(run.id); toast('Run approved'); }
-      else if (action === 'pay') { const r = await markPayrollRunPaid(run.id); toast(`Paid and posted to Finance (expense #${r.expense_id})`); }
-      else if (action === 'cancel') { await cancelPayrollRun(run.id); toast('Run cancelled'); }
+      if (action === 'approve') { await approvePayrollRun(run.id); toast(t('hr.runApproved')); }
+      else if (action === 'pay') { const r = await markPayrollRunPaid(run.id); toast(t('hr.paidAndPosted', { id: r.expense_id })); }
+      else if (action === 'cancel') { await cancelPayrollRun(run.id); toast(t('hr.runCancelled')); }
       await load(); onChanged();
     } catch (err) { toast(err.message, 'error'); }
     finally { setBusy(false); }
@@ -1035,35 +1086,34 @@ function PayrollRunPanel({ runId, canEdit, canApprove, canDelete, onClose, onCha
 
   if (isNew) {
     return (
-      <Modal title="New payroll run" onClose={onClose}>
+      <Modal title={t('hr.newPayrollRun')} onClose={onClose}>
         <form onSubmit={handleCreate}>
           <div className="modal-body">
             <p style={{ fontSize: 13, color: 'var(--text-3)', marginBottom: 14 }}>
-              One line will be created per active employee, pre-filled from their current salary.
-              You can edit bonuses, deductions and notes per line before approving.
+              {t('hr.runInstructions')}
             </p>
             <div className="form-grid">
               <div className="form-group">
-                <label className="form-label">Period start *</label>
+                <label className="form-label">{t('hr.periodStart')} *</label>
                 <input type="date" required className="form-control"
                   value={periodStart} onChange={e => setPeriodStart(e.target.value)} />
               </div>
               <div className="form-group">
-                <label className="form-label">Period end *</label>
+                <label className="form-label">{t('hr.periodEnd')} *</label>
                 <input type="date" required className="form-control"
                   value={periodEnd} onChange={e => setPeriodEnd(e.target.value)} />
               </div>
               <div className="form-group" style={{ gridColumn: '1 / -1' }}>
-                <label className="form-label">Notes</label>
-                <input className="form-control" placeholder="e.g. June 2026 monthly payroll"
+                <label className="form-label">{t('hr.notesField')}</label>
+                <input className="form-control" placeholder={t('hr.notesPh')}
                   value={notes} onChange={e => setNotes(e.target.value)} />
               </div>
             </div>
           </div>
           <div className="modal-footer">
-            <button type="button" className="btn btn-secondary" onClick={onClose}>Cancel</button>
+            <button type="button" className="btn btn-secondary" onClick={onClose}>{t('common.cancel')}</button>
             <button type="submit" className="btn btn-primary" disabled={busy}>
-              {busy ? 'Creating…' : 'Create run'}
+              {busy ? t('hr.creating') : t('hr.createRun')}
             </button>
           </div>
         </form>
@@ -1071,37 +1121,37 @@ function PayrollRunPanel({ runId, canEdit, canApprove, canDelete, onClose, onCha
     );
   }
 
-  if (loading) return <Modal title="Payroll run" onClose={onClose}><div className="modal-body"><LoadingSpinner /></div></Modal>;
-  if (error || !run) return <Modal title="Payroll run" onClose={onClose}><div className="modal-body"><ErrorAlert message={error || 'Not found'} onRetry={load} /></div></Modal>;
+  if (loading) return <Modal title={t('hr.payrollRun')} onClose={onClose}><div className="modal-body"><LoadingSpinner /></div></Modal>;
+  if (error || !run) return <Modal title={t('hr.payrollRun')} onClose={onClose}><div className="modal-body"><ErrorAlert message={error || t('hr.notFound')} onRetry={load} /></div></Modal>;
 
   const editable = run.status === 'Draft' && canEdit;
   return (
     <Modal
-      title={`Payroll · ${fmtDate(run.period_start)} → ${fmtDate(run.period_end)}`}
+      title={`${t('hr.payrollHeader')} · ${fmtDate(run.period_start)} → ${fmtDate(run.period_end)}`}
       onClose={onClose} size="modal-lg">
       <div className="modal-body" style={{ maxHeight: '70vh', overflowY: 'auto' }}>
 
         {/* Header — status + totals */}
         <div style={{ display: 'flex', alignItems: 'center', gap: 14, marginBottom: 18 }}>
-          <span className={`badge badge-${PAYROLL_BADGE[run.status] || 'gray'}`} style={{ fontSize: 13, padding: '4px 10px' }}>{run.status}</span>
-          {run.approved_by_name && <span style={{ fontSize: 12, color: 'var(--text-3)' }}>Approved by {run.approved_by_name}</span>}
-          {run.paid_at && <span style={{ fontSize: 12, color: 'var(--text-3)' }}>Paid {fmtDate(run.paid_at)}</span>}
-          <div style={{ marginLeft: 'auto', fontSize: 18, fontWeight: 700 }}>{fmt(run.total_net || 0)}</div>
+          <span className={`badge badge-${PAYROLL_BADGE[run.status] || 'gray'}`} style={{ fontSize: 13, padding: '4px 10px' }}>{payrollStatusLabel(run.status, t)}</span>
+          {run.approved_by_name && <span style={{ fontSize: 12, color: 'var(--text-3)' }}>{t('hr.approvedBy')} {run.approved_by_name}</span>}
+          {run.paid_at && <span style={{ fontSize: 12, color: 'var(--text-3)' }}>{t('hr.paidLabel')} {fmtDate(run.paid_at)}</span>}
+          <div style={{ marginInlineStart: 'auto', fontSize: 18, fontWeight: 700 }}>{fmt(run.total_net || 0)}</div>
         </div>
 
         {/* Totals strip — full breakdown (gross / bonus / overtime / tax / NSSF / net) */}
         <div style={{ display: 'grid', gridTemplateColumns: 'repeat(6, 1fr)', gap: 10, marginBottom: 14 }}>
-          <Field label="Gross"        value={fmt(run.total_gross || 0)} />
-          <Field label="Bonuses"      value={fmt(run.total_bonuses || 0)} />
-          <Field label="Overtime"     value={fmt(run.total_overtime || 0)} />
-          <Field label="Tax withheld" value={fmt(run.total_tax || 0)} />
-          <Field label="NSSF (emp)"   value={fmt(run.total_nssf_employee || 0)} />
-          <Field label="Net (to pay)" value={<strong>{fmt(run.total_net || 0)}</strong>} />
+          <Field label={t('hr.colGross2')}      value={fmt(run.total_gross || 0)} />
+          <Field label={t('hr.colBonuses2')}    value={fmt(run.total_bonuses || 0)} />
+          <Field label={t('hr.colOvertime')}    value={fmt(run.total_overtime || 0)} />
+          <Field label={t('hr.colTaxWithheld')} value={fmt(run.total_tax || 0)} />
+          <Field label={t('hr.colNssfEmp')}     value={fmt(run.total_nssf_employee || 0)} />
+          <Field label={t('hr.colNetToPay')}    value={<strong>{fmt(run.total_net || 0)}</strong>} />
         </div>
         {/* Employer-side cost — what payroll actually costs the company. */}
         <div style={{ fontSize: 12, color: 'var(--text-3)', marginBottom: 14 }}>
-          Employer NSSF: {fmt(run.total_nssf_employer || 0)} ·
-          {' '}Total deductions: {fmt(run.total_deductions || 0)}
+          {t('hr.employerNssf')}: {fmt(run.total_nssf_employer || 0)} ·
+          {' '}{t('hr.totalDeductionsLabel')}: {fmt(run.total_deductions || 0)}
         </div>
 
         {/* Per-employee lines */}
@@ -1109,14 +1159,14 @@ function PayrollRunPanel({ runId, canEdit, canApprove, canDelete, onClose, onCha
           <table>
             <thead>
               <tr>
-                <th>Employee</th>
-                <th style={{ textAlign: 'right', width: 100 }}>Base</th>
-                <th style={{ textAlign: 'right', width: 90  }}>Bonus</th>
-                <th style={{ textAlign: 'right', width: 110 }}>OT&nbsp;($/hrs)</th>
-                <th style={{ textAlign: 'right', width: 90  }}>Deduct</th>
-                <th style={{ textAlign: 'right', width: 80, color: 'var(--text-3)'  }}>Tax</th>
-                <th style={{ textAlign: 'right', width: 80, color: 'var(--text-3)'  }}>NSSF</th>
-                <th style={{ textAlign: 'right', width: 110 }}>Net</th>
+                <th>{t('hr.colEmployee2')}</th>
+                <th style={{ textAlign: 'right', width: 100 }}>{t('hr.colBase')}</th>
+                <th style={{ textAlign: 'right', width: 90  }}>{t('hr.colBonus')}</th>
+                <th style={{ textAlign: 'right', width: 110 }}>{t('hr.colOtShort')}</th>
+                <th style={{ textAlign: 'right', width: 90  }}>{t('hr.colDeductShort')}</th>
+                <th style={{ textAlign: 'right', width: 80, color: 'var(--text-3)'  }}>{t('hr.colTaxShort')}</th>
+                <th style={{ textAlign: 'right', width: 80, color: 'var(--text-3)'  }}>{t('hr.colNssfShort')}</th>
+                <th style={{ textAlign: 'right', width: 110 }}>{t('hr.colNetShort')}</th>
               </tr>
             </thead>
             <tbody>
@@ -1130,15 +1180,15 @@ function PayrollRunPanel({ runId, canEdit, canApprove, canDelete, onClose, onCha
       </div>
 
       <div className="modal-footer" style={{ gap: 8 }}>
-        <button className="btn btn-secondary" onClick={onClose}>Close</button>
+        <button className="btn btn-secondary" onClick={onClose}>{t('common.close')}</button>
         {run.status === 'Draft' && canApprove && (
-          <button className="btn btn-primary" disabled={busy} onClick={() => doAction('approve')}>Approve</button>
+          <button className="btn btn-primary" disabled={busy} onClick={() => doAction('approve')}>{t('hr.approveBtn')}</button>
         )}
         {run.status === 'Approved' && canApprove && (
-          <button className="btn btn-primary" disabled={busy} onClick={() => doAction('pay')}>Mark paid &amp; post to Finance</button>
+          <button className="btn btn-primary" disabled={busy} onClick={() => doAction('pay')}>{t('hr.markPaidAndPost')}</button>
         )}
         {run.status !== 'Paid' && run.status !== 'Cancelled' && canDelete && (
-          <button className="btn btn-danger" disabled={busy} onClick={() => doAction('cancel')}>Cancel run</button>
+          <button className="btn btn-danger" disabled={busy} onClick={() => doAction('cancel')}>{t('hr.cancelRun')}</button>
         )}
       </div>
     </Modal>
@@ -1146,6 +1196,7 @@ function PayrollRunPanel({ runId, canEdit, canApprove, canDelete, onClose, onCha
 }
 
 function PayrollLineRow({ line, editable, onPatch }) {
+  const { t } = useLocale();
   const [base,    setBase]    = useState(String(line.base_salary || 0));
   const [bonus,   setBonus]   = useState(String(line.bonuses || 0));
   const [deduct,  setDeduct]  = useState(String(line.deductions || 0));
@@ -1187,11 +1238,11 @@ function PayrollLineRow({ line, editable, onPatch }) {
           <div style={{ display: 'flex', gap: 4 }}>
             <input type="number" step="0.01" min="0" className="form-control"
                    style={{ textAlign: 'right', padding: '4px 6px', width: 50 }}
-                   placeholder="hrs" value={otHours}
+                   placeholder={t('hr.hoursPh')} value={otHours}
                    onChange={e => setOtHours(e.target.value)} onBlur={() => commit({ overtime_amount: null })} />
             <input type="number" step="0.01" min="0" className="form-control"
                    style={{ textAlign: 'right', padding: '4px 6px', width: 60 }}
-                   placeholder="$" value={otAmt}
+                   placeholder={t('hr.amountPh')} value={otAmt}
                    onChange={e => setOtAmt(e.target.value)} onBlur={() => commit()} />
           </div>
         ) : (
@@ -1222,6 +1273,7 @@ const CONTRACT_BADGE = { Draft: 'gray', Active: 'green', Expired: 'yellow', Term
 const CONTRACT_TYPES = ['Permanent', 'Fixed-term', 'Probation', 'Internship', 'Consultant'];
 
 function ContractsSection({ empId, canEdit }) {
+  const { t } = useLocale();
   const [list,     setList]     = useState([]);
   const [loading,  setLoading]  = useState(true);
   const [formOpen, setFormOpen] = useState(false);
@@ -1236,7 +1288,11 @@ function ContractsSection({ empId, canEdit }) {
   useEffect(() => { load(); }, [load]);
 
   async function setStatus(id, status, reason = null) {
-    try { await setContractStatus(id, { status, reason }); toast(`Contract ${status.toLowerCase()}`); await load(); }
+    try {
+      await setContractStatus(id, { status, reason });
+      toast(t('hr.contractStatusChanged', { status: contractStatusLabel(status, t) }));
+      await load();
+    }
     catch (err) { toast(err.message, 'error'); }
   }
 
@@ -1248,19 +1304,19 @@ function ContractsSection({ empId, canEdit }) {
   }
 
   return (
-    <Section title="Employment contracts" right={canEdit && (
+    <Section title={t('hr.employmentContracts')} right={canEdit && (
       <button className="btn btn-sm btn-primary" onClick={() => { setEditing(null); setFormOpen(true); }}>
-        + New contract
+        {t('hr.newContract')}
       </button>
     )}>
       {loading ? <LoadingSpinner /> :
-       list.length === 0 ? <EmptyState message="No contracts on file." /> : (
+       list.length === 0 ? <EmptyState message={t('hr.noContractsOnFile')} /> : (
         <div className="table-wrap">
           <table>
             <thead>
               <tr>
-                <th>Number</th><th>Type</th><th>Status</th><th>Period</th>
-                <th style={{ textAlign: 'right' }}>Salary</th><th>Actions</th>
+                <th>{t('hr.colNumber')}</th><th>{t('hr.colType')}</th><th>{t('common.status')}</th><th>{t('hr.colPeriod')}</th>
+                <th style={{ textAlign: 'right' }}>{t('hr.colSalary')}</th><th>{t('common.actions')}</th>
               </tr>
             </thead>
             <tbody>
@@ -1268,25 +1324,25 @@ function ContractsSection({ empId, canEdit }) {
                 <tr key={c.id}>
                   <td className="text-mono">{c.contract_number || `#${c.id}`}</td>
                   <td>{c.contract_type}</td>
-                  <td><span className={`badge badge-${CONTRACT_BADGE[c.status] || 'gray'}`}>{c.status}</span></td>
+                  <td><span className={`badge badge-${CONTRACT_BADGE[c.status] || 'gray'}`}>{contractStatusLabel(c.status, t)}</span></td>
                   <td>
                     {fmtDate(c.start_date)}{c.end_date ? ` → ${fmtDate(c.end_date)}` : ''}
                   </td>
                   <td style={{ textAlign: 'right' }}>{fmt(c.salary || 0)}</td>
                   <td>
                     <div style={{ display: 'flex', gap: 5, flexWrap: 'wrap' }}>
-                      <button className="btn btn-sm btn-secondary" onClick={() => printContract(c.id)}>📄 Print</button>
+                      <button className="btn btn-sm btn-secondary" onClick={() => printContract(c.id)}>📄 {t('hr.print')}</button>
                       {canEdit && (
                         <>
-                          <button className="btn btn-sm btn-secondary" onClick={() => { setEditing(c); setFormOpen(true); }}>Edit</button>
+                          <button className="btn btn-sm btn-secondary" onClick={() => { setEditing(c); setFormOpen(true); }}>{t('common.edit')}</button>
                           {c.status === 'Draft' && (
-                            <button className="btn btn-sm btn-primary" onClick={() => setStatus(c.id, 'Active')}>Activate</button>
+                            <button className="btn btn-sm btn-primary" onClick={() => setStatus(c.id, 'Active')}>{t('hr.activate')}</button>
                           )}
                           {c.status === 'Active' && (
                             <button className="btn btn-sm btn-danger" onClick={() => {
-                              const reason = window.prompt('Reason for termination?', '');
+                              const reason = window.prompt(t('hr.terminationReasonPrompt'), '');
                               if (reason !== null) setStatus(c.id, 'Terminated', reason || 'Terminated');
-                            }}>Terminate</button>
+                            }}>{t('hr.terminate')}</button>
                           )}
                         </>
                       )}
@@ -1313,6 +1369,7 @@ function ContractsSection({ empId, canEdit }) {
 
 
 function ContractForm({ empId, existing, onClose, onSaved }) {
+  const { t } = useLocale();
   const [form, setForm] = useState(() => existing ? {
     contract_type:      existing.contract_type,
     start_date:         existing.start_date || '',
@@ -1342,7 +1399,7 @@ function ContractForm({ empId, existing, onClose, onSaved }) {
 
   async function submit(e) {
     e.preventDefault();
-    if (!form.start_date) { toast('Start date is required', 'error'); return; }
+    if (!form.start_date) { toast(t('hr.startDateRequired'), 'error'); return; }
     setSaving(true);
     try {
       const payload = {
@@ -1356,84 +1413,84 @@ function ContractForm({ empId, existing, onClose, onSaved }) {
       };
       if (existing) await updateContract(existing.id, payload);
       else          await createContract(payload);
-      toast(existing ? 'Contract updated' : 'Contract created');
+      toast(existing ? t('hr.contractUpdated') : t('hr.contractCreated'));
       onSaved();
     } catch (err) { toast(err.message, 'error'); }
     finally { setSaving(false); }
   }
 
   return (
-    <Modal title={existing ? 'Edit contract' : 'New employment contract'} onClose={onClose} size="modal-lg">
+    <Modal title={existing ? t('hr.editContract') : t('hr.newEmploymentContract')} onClose={onClose} size="modal-lg">
       <form onSubmit={submit}>
         <div className="modal-body">
           <div className="form-grid">
             <div className="form-group">
-              <label className="form-label">Contract type</label>
+              <label className="form-label">{t('hr.contractType')}</label>
               <select className="form-control" value={form.contract_type}
                 onChange={e => setForm(f => ({ ...f, contract_type: e.target.value }))}>
                 {CONTRACT_TYPES.map(x => <option key={x} value={x}>{x}</option>)}
               </select>
             </div>
             <div className="form-group">
-              <label className="form-label">Job title</label>
+              <label className="form-label">{t('hr.jobTitleField')}</label>
               <input className="form-control" value={form.job_title}
                 onChange={e => setForm(f => ({ ...f, job_title: e.target.value }))} />
             </div>
             <div className="form-group">
-              <label className="form-label">Start date *</label>
+              <label className="form-label">{t('hr.fldStartDate')} *</label>
               <input type="date" required className="form-control" value={form.start_date}
                 onChange={e => setForm(f => ({ ...f, start_date: e.target.value }))} />
             </div>
             <div className="form-group">
-              <label className="form-label">End date</label>
+              <label className="form-label">{t('hr.fldEndDate')}</label>
               <input type="date" className="form-control" value={form.end_date}
                 onChange={e => setForm(f => ({ ...f, end_date: e.target.value }))} />
             </div>
             <div className="form-group">
-              <label className="form-label">Probation ends</label>
+              <label className="form-label">{t('hr.probationEnds')}</label>
               <input type="date" className="form-control" value={form.probation_end_date}
                 onChange={e => setForm(f => ({ ...f, probation_end_date: e.target.value }))} />
             </div>
             <div className="form-group">
-              <label className="form-label">Weekly hours</label>
+              <label className="form-label">{t('hr.weeklyHours')}</label>
               <input type="number" min="0" step="0.5" className="form-control" value={form.weekly_hours}
                 onChange={e => setForm(f => ({ ...f, weekly_hours: e.target.value }))} />
             </div>
             <div className="form-group" style={{ gridColumn: '1 / -1' }}>
-              <label className="form-label">Work schedule</label>
+              <label className="form-label">{t('hr.workSchedule')}</label>
               <input className="form-control" value={form.work_schedule}
                 onChange={e => setForm(f => ({ ...f, work_schedule: e.target.value }))} />
             </div>
             <div className="form-group">
-              <label className="form-label">Salary</label>
+              <label className="form-label">{t('hr.salaryField')}</label>
               <input type="number" min="0" step="any" className="form-control" value={form.salary}
                 onChange={e => setForm(f => ({ ...f, salary: e.target.value }))} />
             </div>
             <div className="form-group">
-              <label className="form-label">Currency</label>
+              <label className="form-label">{t('hr.currencyField')}</label>
               <select className="form-control" value={form.salary_currency}
                 onChange={e => setForm(f => ({ ...f, salary_currency: e.target.value }))}>
                 {['USD', 'EUR', 'LBP', 'AED', 'SAR'].map(c => <option key={c} value={c}>{c}</option>)}
               </select>
             </div>
             <div className="form-group" style={{ gridColumn: '1 / -1' }}>
-              <label className="form-label">Benefits</label>
-              <textarea className="form-control" rows={3} placeholder="One per line — e.g. Health insurance, 22 days annual leave, …"
+              <label className="form-label">{t('hr.benefitsField')}</label>
+              <textarea className="form-control" rows={3} placeholder={t('hr.benefitsPh')}
                 value={form.benefits}
                 onChange={e => setForm(f => ({ ...f, benefits: e.target.value }))} />
             </div>
             <div className="form-group" style={{ gridColumn: '1 / -1' }}>
-              <label className="form-label">Additional terms</label>
-              <textarea className="form-control" rows={4} placeholder="Confidentiality, notice period, IP assignment, …"
+              <label className="form-label">{t('hr.additionalTerms')}</label>
+              <textarea className="form-control" rows={4} placeholder={t('hr.additionalTermsPh')}
                 value={form.terms}
                 onChange={e => setForm(f => ({ ...f, terms: e.target.value }))} />
             </div>
           </div>
         </div>
         <div className="modal-footer">
-          <button type="button" className="btn btn-secondary" onClick={onClose}>Cancel</button>
+          <button type="button" className="btn btn-secondary" onClick={onClose}>{t('common.cancel')}</button>
           <button type="submit" className="btn btn-primary" disabled={saving}>
-            {saving ? 'Saving…' : 'Save'}
+            {saving ? t('common.saving') : t('common.save')}
           </button>
         </div>
       </form>

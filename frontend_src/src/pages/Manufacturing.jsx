@@ -2,6 +2,7 @@ import { useState, useEffect, useCallback, useRef } from 'react';
 import { useLocale } from '../hooks/useLocale.jsx';
 import { usePermissions } from '../hooks/usePermissions.js';
 import { useSettings } from '../hooks/useSettings.jsx';
+import { useWarehouses } from '../hooks/useWarehouses';
 import {
   LoadingSpinner, ErrorAlert, EmptyState, Modal, ConfirmModal,
   DisplayCurrencyToggle, ExportButton, fmt, secondaryAmount, toast,
@@ -483,8 +484,15 @@ function OrderModal({ boms, initialBom, onClose, onCreated }) {
   const [dueDate, setDueDate]   = useState('');
   const [startDate, setStartDate] = useState('');
   const [notes, setNotes]   = useState('');
+  const [warehouseId, setWarehouseId] = useState('');
   const [busy, setBusy]     = useState(false);
   const bom = usable.find(b => String(b.id) === String(bomId));
+  // Components draw from — and the finished good lands at — one warehouse
+  // (Phase 1 design). Defaults to the user's default warehouse.
+  const { warehouses, defaultId } = useWarehouses();
+  useEffect(() => {
+    if (defaultId && !warehouseId) setWarehouseId(defaultId);
+  }, [defaultId, warehouseId]);
 
   async function create() {
     if (!bomId) { toast(t('manufacturing.selectBom'), 'red'); return; }
@@ -497,6 +505,7 @@ function OrderModal({ boms, initialBom, onClose, onCreated }) {
         overhead_cost: overhead === '' ? null : Number(overhead),
         priority, due_date: dueDate || null, planned_start_date: startDate || null,
         notes: notes.trim() || null,
+        warehouse_id: warehouseId ? Number(warehouseId) : null,
       });
       toast(t('manufacturing.orderCreated'), 'green');
       onCreated();
@@ -524,6 +533,20 @@ function OrderModal({ boms, initialBom, onClose, onCreated }) {
           <input className="form-control" type="number" step="1" min="1" value={qty}
             onChange={e => setQty(e.target.value)} autoFocus />
         </div>
+        {warehouses.length > 1 && (
+          <div className="form-group">
+            <label className="form-label">{t('warehouses.field')}</label>
+            <select className="form-control" value={warehouseId}
+              onChange={e => setWarehouseId(e.target.value)}>
+              {warehouses.map(w => (
+                <option key={w.id} value={w.id}>
+                  {w.code} · {w.name}{w.is_default ? ` (${t('warehouses.defaultBadge').toLowerCase()})` : ''}
+                </option>
+              ))}
+            </select>
+            <small style={{ color: 'var(--text-3)' }}>{t('warehouses.fieldHintMfg')}</small>
+          </div>
+        )}
         <div className="form-grid">
           <div className="form-group">
             <label className="form-label">{t('manufacturing.laborCostOverride')}</label>

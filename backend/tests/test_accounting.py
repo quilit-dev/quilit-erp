@@ -49,7 +49,10 @@ def test_invoice_payment_posts_balanced_entry(make_client):
     c = make_client("superadmin")
     _make_paid_invoice(c, 1000)
 
-    entries = c.get("/api/accounting/journal-entries?source_type=invoice_payment").json()
+    resp = c.get("/api/accounting/journal-entries?source_type=invoice_payment").json()
+    # New paginated contract: {"rows": [...], "total": N, "source_types": [...]}
+    entries = resp["rows"]
+    assert resp["total"] == 1
     assert len(entries) == 1
     je = entries[0]
     assert je["total_debit"] == pytest.approx(1000)
@@ -176,7 +179,7 @@ def test_depreciation_posts_to_accumulated_depreciation(make_client):
     dep = c.post(f"/api/assets/{aid}/depreciate", json={"period": "2026-01"})
     assert dep.status_code in (200, 201), dep.text
 
-    entries = c.get("/api/accounting/journal-entries?source_type=depreciation").json()
+    entries = c.get("/api/accounting/journal-entries?source_type=depreciation").json()["rows"]
     assert len(entries) >= 1
     full = c.get(f"/api/accounting/journal-entries/{entries[0]['id']}").json()
     by_code = {l["account_code"]: l for l in full["lines"]}

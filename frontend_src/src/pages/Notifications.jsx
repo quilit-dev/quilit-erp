@@ -8,23 +8,53 @@ import { LoadingSpinner, EmptyState } from '../components/shared.jsx';
 import { useLocale } from '../hooks/useLocale.jsx';
 
 // ── Type config (same palette as NotificationBell) ───────────────────────────
+//
+// One entry per notification type the backend can emit. Keep in sync with
+// `backend/routers/notifications.py::NOTIFICATION_TYPE_MODULE` — a missing
+// entry here renders as the generic "system" badge, which is technically
+// safe but loses the visual cue.
 const TYPE_CONFIG = {
+  // Sales / billing
   invoice_paid:         { bg: 'var(--green-light)',  color: 'var(--green)',  label: 'Invoice Paid',    icon: 'check-circle' },
   payment_received:     { bg: 'var(--green-light)',  color: 'var(--green)',  label: 'Payment',         icon: 'credit-card'  },
   invoice_overdue:      { bg: 'var(--red-light)',    color: 'var(--red)',    label: 'Overdue',         icon: 'alert-circle' },
-  low_stock:            { bg: 'var(--yellow-light)', color: 'var(--yellow)', label: 'Low Stock',       icon: 'package'      },
-  purchase_received:    { bg: 'var(--blue-light)',   color: 'var(--blue)',   label: 'Purchase',        icon: 'truck'        },
   quotation_accepted:   { bg: 'var(--green-light)',  color: 'var(--green)',  label: 'Quotation',       icon: 'file-check'   },
+  // Operations / stock
+  low_stock:            { bg: 'var(--yellow-light)', color: 'var(--yellow)', label: 'Low Stock',       icon: 'package'      },
+  low_stock_warehouse:  { bg: 'var(--yellow-light)', color: 'var(--yellow)', label: 'Low Stock (WH)',  icon: 'package'      },
+  purchase_received:    { bg: 'var(--blue-light)',   color: 'var(--blue)',   label: 'Purchase',        icon: 'truck'        },
+  transfer_dispatched:  { bg: 'var(--blue-light)',   color: 'var(--blue)',   label: 'Incoming',        icon: 'truck'        },
+  transfer_received:    { bg: 'var(--green-light)',  color: 'var(--green)',  label: 'Received',        icon: 'check-circle' },
+  transfer_cancelled:   { bg: 'var(--red-light)',    color: 'var(--red)',    label: 'Cancelled',       icon: 'x-circle'     },
+  // Planning + CRM
   task_due_soon:        { bg: 'var(--yellow-light)', color: 'var(--yellow)', label: 'Task Due',        icon: 'calendar'     },
+  planning_event:       { bg: 'var(--blue-light)',   color: 'var(--blue)',   label: 'Event',           icon: 'calendar'     },
   deal_won:             { bg: 'var(--purple-light)', color: 'var(--purple)', label: 'Deal Won',        icon: 'trophy'       },
   deal_lost:            { bg: 'var(--red-light)',    color: 'var(--red)',    label: 'Deal Lost',       icon: 'x-circle'     },
   lead_converted:       { bg: 'var(--blue-light)',   color: 'var(--blue)',   label: 'Lead Converted',  icon: 'user-check'   },
   // Manufacturing
   production_completed: { bg: 'var(--purple-light)', color: 'var(--purple)', label: 'Production',      icon: 'package'      },
-  // Fixed Assets
+  // Fixed Assets + Cash + Expenses
   asset_depreciated:    { bg: 'var(--blue-light)',   color: 'var(--blue)',   label: 'Depreciation',    icon: 'trending-down' },
-  // Cash
   cash_variance:        { bg: 'var(--red-light)',    color: 'var(--red)',    label: 'Cash Variance',   icon: 'dollar-sign'  },
+  recurring_generated:  { bg: 'var(--blue-light)',   color: 'var(--blue)',   label: 'Recurring',       icon: 'dollar-sign'  },
+  // Accounting (lazy system gen)
+  period_unlocked:      { bg: 'var(--red-light)',    color: 'var(--red)',    label: 'Period Open',     icon: 'alert-circle' },
+  fx_rate_stale:        { bg: 'var(--yellow-light)', color: 'var(--yellow)', label: 'FX Stale',        icon: 'alert-circle' },
+  // HR — leave + payroll + contracts + activities
+  leave_requested:      { bg: 'var(--yellow-light)', color: 'var(--yellow)', label: 'Leave',           icon: 'calendar'     },
+  leave_approved:       { bg: 'var(--green-light)',  color: 'var(--green)',  label: 'Leave Approved',  icon: 'check-circle' },
+  leave_rejected:       { bg: 'var(--red-light)',    color: 'var(--red)',    label: 'Leave Rejected',  icon: 'x-circle'     },
+  payroll_approved:     { bg: 'var(--blue-light)',   color: 'var(--blue)',   label: 'Payroll Ready',   icon: 'check-circle' },
+  payroll_paid:         { bg: 'var(--green-light)',  color: 'var(--green)',  label: 'Payroll Paid',    icon: 'credit-card'  },
+  contract_expiring:    { bg: 'var(--yellow-light)', color: 'var(--yellow)', label: 'Contract Ends',   icon: 'alert-circle' },
+  hr_activity_reminder: { bg: 'var(--blue-light)',   color: 'var(--blue)',   label: 'Reminder',        icon: 'calendar'     },
+  // Recruitment
+  recruitment_status:   { bg: 'var(--blue-light)',   color: 'var(--blue)',   label: 'Applicant',       icon: 'user-check'   },
+  recruitment_hired:    { bg: 'var(--green-light)',  color: 'var(--green)',  label: 'Hired',           icon: 'trophy'       },
+  // Internal comms
+  announcement:         { bg: 'var(--purple-light)', color: 'var(--purple)', label: 'Announcement',    icon: 'info'         },
+  announcement_comment: { bg: 'var(--purple-light)', color: 'var(--purple)', label: 'Comment',         icon: 'info'         },
   // Approval workflow (emitted by approval_engine on every module that uses it)
   approval_request:     { bg: 'var(--yellow-light)', color: 'var(--yellow)', label: 'Approval Needed', icon: 'clock'        },
   approval_approved:    { bg: 'var(--green-light)',  color: 'var(--green)',  label: 'Approved',        icon: 'check-circle' },
@@ -52,11 +82,22 @@ const ICONS = {
 const TABS = [
   { key: 'all',         label: 'All' },
   { key: 'unread',      label: 'Unread' },
-  { key: 'finance',     label: 'Finance',     types: ['invoice_paid','payment_received','invoice_overdue','cash_variance','asset_depreciated'] },
-  { key: 'stock',       label: 'Inventory',   types: ['low_stock','purchase_received','production_completed'] },
+  { key: 'finance',     label: 'Finance',     types: [
+      'invoice_paid','payment_received','invoice_overdue','cash_variance',
+      'asset_depreciated','recurring_generated','period_unlocked','fx_rate_stale',
+  ] },
+  { key: 'stock',       label: 'Inventory',   types: [
+      'low_stock','low_stock_warehouse','purchase_received','production_completed',
+      'transfer_dispatched','transfer_received','transfer_cancelled',
+  ] },
   { key: 'crm',         label: 'CRM',         types: ['deal_won','deal_lost','lead_converted','quotation_accepted'] },
+  { key: 'hr',          label: 'HR',          types: [
+      'leave_requested','leave_approved','leave_rejected',
+      'payroll_approved','payroll_paid','contract_expiring','hr_activity_reminder',
+      'recruitment_status','recruitment_hired',
+  ] },
   { key: 'approvals',   label: 'Approvals',   types: ['approval_request','approval_approved','approval_rejected'] },
-  { key: 'tasks',       label: 'Tasks',       types: ['task_due_soon'] },
+  { key: 'tasks',       label: 'Tasks',       types: ['task_due_soon','planning_event'] },
 ];
 
 function typeConf(type) {

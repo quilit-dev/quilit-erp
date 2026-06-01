@@ -312,6 +312,8 @@ def update_invoice(
         raise HTTPException(404, "Invoice not found")
     if inv["voided_at"]:
         raise HTTPException(400, "Voided invoices cannot be edited.")
+    # A finalised (locked-month / closed-year) invoice can't be edited.
+    _check_period_locked(db, inv["created_at"])
 
     # ── Optimistic locking ────────────────────────────────────────────────
     if data.version is not None and data.version != inv["version"]:
@@ -383,6 +385,9 @@ def void_invoice(
         raise HTTPException(404, "Invoice not found")
     if inv["voided_at"]:
         raise HTTPException(400, "Invoice is already voided.")
+    # Can't void an invoice that belongs to a locked month / closed year —
+    # reopen the period (or post a credit note in an open one) instead.
+    _check_period_locked(db, inv["created_at"])
     now = _now()
     db.execute(
         "UPDATE invoices SET voided_at=?, void_reason=?, version=version+1 WHERE id=?",
@@ -426,9 +431,24 @@ def add_payment(
     if currency not in ("USD", "LBP"):
         raise HTTPException(400, "Unsupported payment currency")
     if currency == "LBP":
+        # F-9 audit fix: if the caller omits exchange_rate, fall back to the
+        # latest rate stored in `exchange_rates` so manual data entry can't
+        # accidentally apply yesterday's rate or no rate at all. The supplied
+        # rate still takes precedence (and is stored on the payment) so an
+        # accountant can override when a contract dictates a different rate.
         if not data.exchange_rate or data.exchange_rate <= 0:
-            raise HTTPException(400, "An exchange rate is required for LBP payments.")
-        rate        = float(data.exchange_rate)
+            rate_row = db.execute(
+                "SELECT rate FROM exchange_rates ORDER BY id DESC LIMIT 1"
+            ).fetchone()
+            if not rate_row or not rate_row["rate"]:
+                raise HTTPException(
+                    400,
+                    "An exchange rate is required for LBP payments. No rate is "
+                    "configured — set one in Settings → Exchange Rate first."
+                )
+            rate = float(rate_row["rate"])
+        else:
+            rate = float(data.exchange_rate)
         usd_amount  = money(data.amount / rate)
         paid_amount = data.amount
     else:
@@ -482,13 +502,18 @@ def add_payment(
     )
     payment_id = pay_cur.lastrowid
 
-    # Auto-post to the general ledger: DR Cash & Bank, CR Sales Revenue (cash-basis).
+    # Auto-post to the general ledger: cash-basis revenue recognition.
+    # The cash account is selected by the tendered currency (F-5 audit fix):
+    # USD payments hit "1000 Cash & Bank", LBP payments hit "1010 Cash — LBP".
+    # Keeping them on distinct ledger lines is required by IAS 21 so each
+    # monetary holding can be revalued at the spot rate at period end.
     accounting.post_entry(
         db,
         entry_date=_now()[:10],
         memo=f"Payment received — {inv['invoice_number']}",
         lines=[
-            {"code": accounting.CASH,    "debit":  usd_amount, "memo": data.method},
+            {"code": accounting.cash_account_for(currency),
+             "debit":  usd_amount, "memo": f"{data.method} ({currency})"},
             {"code": accounting.REVENUE, "credit": usd_amount},
         ],
         source_type="invoice_payment", source_id=payment_id, created_by=user["id"],

@@ -18,7 +18,7 @@ from routers import clients, projects, quotations, inventory, invoices, finance,
 from routers import purchases, settings, archives, documents, suppliers, audit, users, roles, search
 from routers import reports, crm, planning, notifications
 from routers import approval_policies, approval_requests, hr, hr_contracts, recruitment, hr_activities, tax_rates, pos, cash, manufacturing
-from routers import assets, recurring, announcements, attachments, accounting
+from routers import assets, recurring, announcements, attachments, accounting, warehouses
 
 app = FastAPI(title="ERP System", version="2.0.0")
 
@@ -75,6 +75,7 @@ app.include_router(recurring.router,         prefix="/api/recurring-expenses", t
 app.include_router(announcements.router,      prefix="/api/announcements",      tags=["announcements"])
 app.include_router(attachments.router,        prefix="/api/attachments",        tags=["attachments"])
 app.include_router(accounting.router,         prefix="/api/accounting",         tags=["accounting"])
+app.include_router(warehouses.router,         prefix="/api/warehouses",         tags=["warehouses"])
 
 @app.get("/")
 def root():

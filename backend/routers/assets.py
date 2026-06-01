@@ -107,16 +107,25 @@ def _period_last_day(period: str) -> str:
 
 
 def _period_locked(db, period: str) -> bool:
-    """True if the accounting period (YYYY-MM) is locked."""
+    """True if the accounting period (YYYY-MM) is locked — either its month is
+    locked OR its financial year is closed. Depreciation stops at such periods
+    so it can never post a charge into a sealed period."""
     try:
         year, month = int(period[:4]), int(period[5:7])
     except (ValueError, TypeError):
         return False
-    return db.execute(
+    if db.execute(
         "SELECT 1 FROM accounting_periods "
         "WHERE year=? AND month=? AND locked_at IS NOT NULL",
         (year, month),
-    ).fetchone() is not None
+    ).fetchone() is not None:
+        return True
+    try:
+        return db.execute(
+            "SELECT 1 FROM fiscal_years WHERE year=? AND status='closed'", (year,)
+        ).fetchone() is not None
+    except sqlite3.OperationalError:
+        return False
 
 
 # ── Depreciation maths ──────────────────────────────────────────────────────
