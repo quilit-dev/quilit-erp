@@ -6,12 +6,15 @@ name: Build macOS app
 # Why a cloud Mac: PyInstaller cannot cross-compile — a macOS binary must be
 # built on macOS. This runner does that so no Mac hardware is needed locally.
 #
-# Runner choice: macos-13 is an INTEL runner. An Intel build runs natively on
-# Intel Macs AND on Apple Silicon (M1–M4) via Rosetta 2, so a single .dmg
-# covers every Mac. macOS auto-prompts to install Rosetta the first time an
-# Apple-Silicon user opens it (a one-click step). To build a NATIVE Apple-
-# Silicon binary instead (no Rosetta, but won't run on Intel), switch
-# `runs-on:` to `macos-14`.
+# Runner choice: macos-14 is an APPLE SILICON (arm64) runner. GitHub is winding
+# down Intel (macos-13) capacity, so Intel jobs now queue for a long time;
+# Apple Silicon runners are the current default and pick up jobs quickly. The
+# produced .dmg is a NATIVE arm64 build — runs on every Mac sold since late
+# 2020 (M1–M4), which is what virtually all modern MacBooks are.
+#
+# NOTE: a native arm64 build will NOT run on old Intel Macs. If you have an
+# Intel-Mac tester, switch `runs-on:` back to `macos-13` (Intel build runs on
+# both, via Rosetta on Apple Silicon) and accept the longer queue.
 
 on:
   workflow_dispatch: {}        # manual "Run workflow" button in the Actions tab
@@ -21,7 +24,7 @@ on:
 
 jobs:
   build-macos:
-    runs-on: macos-13          # Intel → widest Mac compatibility (Intel + Rosetta)
+    runs-on: macos-14          # Apple Silicon — fast queue + native arm64 build
     timeout-minutes: 30
 
     steps:
