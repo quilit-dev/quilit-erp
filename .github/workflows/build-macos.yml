@@ -46,6 +46,11 @@ jobs:
           python -m pip install --upgrade pip
           pip install -r backend/requirements.txt
           pip install pyinstaller
+          # seed.py seeds demo data through FastAPI's TestClient, which needs
+          # httpx. It's a BUILD-TIME-only dependency (the running app never
+          # uses TestClient), so it's installed here rather than added to
+          # requirements.txt — keeps httpx out of the shipped bundle.
+          pip install httpx
 
       - name: Build frontend (Vite)
         working-directory: frontend_src
