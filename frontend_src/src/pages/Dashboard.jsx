@@ -106,9 +106,31 @@ function HealthRing({ score = 0, t }) {
 
 // ── Building blocks ─────────────────────────────────────────────────────
 
+// KPI tile — Workspace direction.
+//
+// Layout (top to bottom):
+//   • Tiny mark icon (mono, restrained) at the top-left + trend or "open"
+//     arrow at the top-right
+//   • All-caps letter-spaced label, slate
+//   • Hero value in Inter 700 with tabular numerals
+//   • Optional caption underneath in plain Inter slate
+//   • Optional sparkline beneath
+//
+// The signature touches:
+//   1. Soft white surface with a subtle drop shadow — the card floats
+//      just enough to read as its own object on the cool light background.
+//   2. Hero value uses Inter 700 at 28px with tight tracking — formal,
+//      engineered, friendly. Same direction Odoo uses for KPIs.
+//   3. Trend indicator is monospace with proper arrow glyphs (▲ / ▼),
+//      tabular percentages, no rounded background pill.
+//   4. Clickable affordance is a soft arrow on hover + a gentle shadow
+//      lift, not the editorial-rail flourish the previous direction used.
 function KpiCard({ label, value, sub, icon, accentColor, accentBg, sparkData, trend, onClick, compact = false }) {
   const [hover, setHover] = useState(false);
   const clickable = !!onClick;
+  // The icon prop is kept (callers still pass emoji glyphs) but rendered
+  // tiny + monochrome as an editorial "section mark" rather than a chunky
+  // bubble. Tiles without an icon read as pure type — even better.
   return (
     <div
       className="stat-card"
@@ -116,29 +138,68 @@ function KpiCard({ label, value, sub, icon, accentColor, accentBg, sparkData, tr
       onMouseEnter={() => setHover(true)}
       onMouseLeave={() => setHover(false)}
       style={{
-        '--card-accent': accentColor,
         cursor: clickable ? 'pointer' : 'default',
-        transition: 'transform .15s ease, box-shadow .15s ease',
-        transform: clickable && hover ? 'translateY(-2px)' : 'none',
-        boxShadow: clickable && hover ? '0 8px 22px rgba(15,23,42,.12)' : undefined,
-        padding: compact ? '12px 14px' : undefined,
+        padding: compact ? '14px 16px 12px' : undefined,
       }}
     >
-      <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', marginBottom: compact ? 6 : 10 }}>
-        <div style={{ width: compact ? 30 : 34, height: compact ? 30 : 34, borderRadius: 9, background: accentBg || 'var(--surface-2)', display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: compact ? 14 : 16 }}>
-          {icon}
-        </div>
+      {/* Top row — small mono mark (left) + trend / "open" caret (right) */}
+      <div style={{
+        display: 'flex', justifyContent: 'space-between',
+        alignItems: 'center', marginBottom: 6,
+        minHeight: 18,
+      }}>
+        {icon ? (
+          <span style={{
+            fontSize: 13, lineHeight: 1,
+            color: accentColor || 'var(--text-3)',
+            opacity: 0.7,
+          }}>{icon}</span>
+        ) : <span />}
         {trend != null ? (
-          <span className={trend >= 0 ? 'trend-up' : 'trend-down'}>
-            {trend >= 0 ? '↑' : '↓'} {Math.abs(trend)}%
+          <span style={{
+            fontFamily: 'var(--font-mono)',
+            fontSize: 11,
+            fontWeight: 600,
+            letterSpacing: 0,
+            color: trend >= 0 ? 'var(--affirm)' : 'var(--negate)',
+            fontVariantNumeric: 'tabular-nums',
+          }}>
+            {trend >= 0 ? '▲' : '▼'} {Math.abs(trend)}%
           </span>
         ) : clickable && (
-          <span style={{ fontSize: 15, fontWeight: 700, color: accentColor || 'var(--accent)', opacity: hover ? 1 : 0, transition: 'opacity .15s' }}>→</span>
+          <span style={{
+            fontSize: 14, fontWeight: 500,
+            color: accentColor || 'var(--accent)',
+            opacity: hover ? 1 : 0,
+            transition: 'opacity .15s, transform .15s',
+            transform: hover ? 'translateX(2px)' : 'none',
+          }}>→</span>
         )}
       </div>
-      <div className="stat-label" style={compact ? { fontSize: 10.5 } : undefined}>{label}</div>
-      <div className="stat-value" style={{ color: accentColor || 'var(--text)', fontSize: compact ? 22 : undefined }}>{value}</div>
-      {sub && <div className="stat-sub">{sub}</div>}
+
+      {/* Label — all-caps mono-style eyebrow */}
+      <div className="stat-label" style={compact ? { fontSize: 10 } : undefined}>{label}</div>
+
+      {/* Hero value — Inter 700, tight tracking, tabular figures */}
+      <div className="stat-value" style={{
+        color: accentColor || 'var(--text)',
+        fontSize: compact ? 22 : undefined,
+        marginTop: 2,
+      }}>{value}</div>
+
+      {/* Caption — Inter regular slate. No serif, no italic decoration. */}
+      {sub && (
+        <div style={{
+          fontFamily: 'var(--font-sans)',
+          fontSize: 12.5,
+          fontWeight: 400,
+          color: 'var(--text-2)',
+          letterSpacing: -0.005,
+          marginTop: 4,
+        }}>{sub}</div>
+      )}
+
+      {/* Sparkline — same restrained line style as the rest of the system */}
       {sparkData && sparkData.length > 1 && (
         <div style={{ marginTop: 10 }}>
           <Sparkline data={sparkData} color={accentColor || 'var(--accent)'} />
@@ -151,14 +212,19 @@ function KpiCard({ label, value, sub, icon, accentColor, accentBg, sparkData, tr
 // Chip for the "needs attention" action bar — a compact pill with an icon, a
 // label and a click handler. Severity ('red'|'yellow'|'blue'|'purple') drives
 // the colour scheme; everything else is plain visual styling.
+// Editorial action chip — a sharp-cornered tag, not a rounded bubble.
+// Hairline border + soft semantic tint + monospace count badge. Reads as
+// the "stamp on a page" each chip stands for an action queued for
+// the operator's attention.
 function ActionChip({ icon, label, count, severity = 'yellow', onClick }) {
   const [hover, setHover] = useState(false);
+  // Editorial semantic tints — same palette the rest of the system uses.
   const palette = {
-    red:    { bg: 'var(--red-light)',    fg: 'var(--red)',    border: 'rgba(239,68,68,.22)' },
-    yellow: { bg: 'var(--yellow-light)', fg: 'var(--yellow)', border: 'rgba(245,158,11,.22)' },
-    blue:   { bg: 'var(--blue-light)',   fg: 'var(--blue)',   border: 'rgba(59,130,246,.22)' },
-    purple: { bg: 'var(--purple-light)', fg: 'var(--purple)', border: 'rgba(139,92,246,.22)' },
-  }[severity] || { bg: 'var(--surface-2)', fg: 'var(--text)', border: 'var(--border)' };
+    red:    { fg: 'var(--negate)',  bg: 'var(--negate-tint)',  border: 'rgba(142,36,36,0.22)'  },
+    yellow: { fg: 'var(--caution)', bg: 'var(--caution-tint)', border: 'rgba(163,122,44,0.24)' },
+    blue:   { fg: 'var(--accent)',  bg: 'var(--accent-tint)',  border: 'rgba(31,79,168,0.22)'  },
+    purple: { fg: 'var(--purple)',  bg: 'var(--purple-light)', border: 'rgba(94,58,142,0.22)'  },
+  }[severity] || { fg: 'var(--text-2)', bg: 'var(--surface-2)', border: 'var(--rule)' };
   return (
     <button
       onClick={onClick}
@@ -166,20 +232,34 @@ function ActionChip({ icon, label, count, severity = 'yellow', onClick }) {
       onMouseLeave={() => setHover(false)}
       style={{
         display: 'inline-flex', alignItems: 'center', gap: 8,
-        padding: '6px 12px 6px 8px', borderRadius: 999,
-        background: palette.bg, color: palette.fg,
+        padding: '5px 10px',
+        background: hover && onClick ? palette.fg : palette.bg,
+        color:      hover && onClick ? '#FFFFFF' : palette.fg,
         border: `1px solid ${palette.border}`,
+        borderRadius: 4,                /* sharp document corner */
+        fontFamily: 'var(--font-sans)',
         fontSize: 12, fontWeight: 600,
+        letterSpacing: -0.005,
         cursor: onClick ? 'pointer' : 'default',
-        transition: 'transform .12s ease, box-shadow .12s ease',
-        transform: hover && onClick ? 'translateY(-1px)' : 'none',
-        boxShadow: hover && onClick ? `0 4px 12px ${palette.fg}33` : 'none',
+        transition: 'background .12s ease, color .12s ease',
       }}
     >
-      <span style={{ width: 22, height: 22, borderRadius: '50%', background: 'rgba(255,255,255,.55)', display: 'inline-flex', alignItems: 'center', justifyContent: 'center', fontSize: 12 }}>{icon}</span>
+      {icon && (
+        <span style={{ fontSize: 13, opacity: 0.85, lineHeight: 1 }}>{icon}</span>
+      )}
       <span>{label}</span>
       {count != null && (
-        <span style={{ background: palette.fg, color: '#fff', borderRadius: 999, padding: '0 7px', minWidth: 18, height: 18, display: 'inline-flex', alignItems: 'center', justifyContent: 'center', fontSize: 10.5, fontWeight: 700 }}>{count}</span>
+        <span style={{
+          fontFamily: 'var(--font-mono)',
+          fontSize: 10, fontWeight: 600,
+          letterSpacing: 0.04,
+          padding: '1px 5px',
+          minWidth: 18, height: 16,
+          background: hover && onClick ? 'rgba(255,255,255,0.22)' : palette.fg,
+          color: hover && onClick ? '#FFFFFF' : '#FFFFFF',
+          borderRadius: 2,
+          display: 'inline-flex', alignItems: 'center', justifyContent: 'center',
+        }}>{count}</span>
       )}
     </button>
   );

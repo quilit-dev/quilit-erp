@@ -87,36 +87,76 @@ function OpenRegisterPanel({ onOpened }) {
   }
 
   return (
-    <div className="card" style={{ maxWidth: 420, margin: '40px auto', padding: 24, textAlign: 'center' }}>
-      <div style={{ fontSize: 32, marginBottom: 8 }}>🧾</div>
-      <h3 style={{ margin: '0 0 6px' }}>{t('pos.openRegister')}</h3>
-      <p style={{ color: 'var(--text-3)', fontSize: 13, marginBottom: 16 }}>{t('pos.openRegisterPrompt')}</p>
-      {warehouses.length > 1 && (
-        <div className="form-group" style={{ textAlign: 'start' }}>
-          <label className="form-label">{t('warehouses.sellingFrom')}</label>
-          <select className="form-control" value={warehouseId}
-            onChange={e => setWarehouseId(e.target.value)}>
-            {warehouses.map(w => (
-              <option key={w.id} value={w.id}>
-                {w.code} · {w.name}{w.is_default ? ` (${t('warehouses.defaultBadge').toLowerCase()})` : ''}
-              </option>
-            ))}
-          </select>
+    <div className="card" style={{ maxWidth: 440, margin: '48px auto', overflow: 'hidden' }}>
+      {/* Hero header — centred icon, title, prompt. Padded block, hairline
+          rule beneath so it reads as a header band rather than crowding
+          the form. */}
+      <div style={{
+        textAlign: 'center',
+        padding: '28px 28px 22px',
+        borderBottom: '1px solid var(--rule)',
+        background: 'var(--surface-2)',
+      }}>
+        <div style={{
+          width: 56, height: 56, margin: '0 auto 14px',
+          borderRadius: 999,
+          background: 'var(--accent-tint)', color: 'var(--accent)',
+          display: 'flex', alignItems: 'center', justifyContent: 'center',
+        }}>
+          <svg width="26" height="26" viewBox="0 0 24 24" fill="none"
+            stroke="currentColor" strokeWidth="1.8"
+            strokeLinecap="round" strokeLinejoin="round" aria-hidden>
+            <rect x="2" y="7" width="20" height="14" rx="2"/>
+            <path d="M6 7V4a2 2 0 0 1 2-2h8a2 2 0 0 1 2 2v3"/>
+            <line x1="6" y1="12" x2="10" y2="12"/>
+            <circle cx="17" cy="15" r="1.5"/>
+          </svg>
         </div>
-      )}
-      <div className="form-group" style={{ textAlign: 'start' }}>
-        <label className="form-label">{t('pos.openingFloat')} (USD)</label>
-        <input className="form-control" type="number" step="any" min="0" value={floatUsd}
-          onChange={e => setFloatUsd(e.target.value)} autoFocus />
+        <h3 style={{
+          margin: 0,
+          fontFamily: 'var(--font-display)', fontWeight: 700,
+          fontSize: 19, letterSpacing: '-0.02em', color: 'var(--text)',
+        }}>{t('pos.openRegister')}</h3>
+        <p style={{
+          margin: '6px auto 0', maxWidth: 300,
+          color: 'var(--text-2)', fontSize: 13.5, lineHeight: 1.5,
+        }}>{t('pos.openRegisterPrompt')}</p>
       </div>
-      <div className="form-group" style={{ textAlign: 'start' }}>
-        <label className="form-label">{t('pos.openingFloat')} (LBP)</label>
-        <input className="form-control" type="number" step="any" min="0" value={floatLbp}
-          onChange={e => setFloatLbp(e.target.value)} />
+
+      {/* Form body — a real flex column with consistent gaps, so nothing
+          stacks flush against its neighbour or the card edge. */}
+      <div style={{
+        padding: 24,
+        display: 'flex', flexDirection: 'column', gap: 16,
+      }}>
+        {warehouses.length > 1 && (
+          <div className="form-group">
+            <label className="form-label">{t('warehouses.sellingFrom')}</label>
+            <select className="form-control" value={warehouseId}
+              onChange={e => setWarehouseId(e.target.value)}>
+              {warehouses.map(w => (
+                <option key={w.id} value={w.id}>
+                  {w.code} · {w.name}{w.is_default ? ` (${t('warehouses.defaultBadge').toLowerCase()})` : ''}
+                </option>
+              ))}
+            </select>
+          </div>
+        )}
+        <div className="form-group">
+          <label className="form-label">{t('pos.openingFloat')} (USD)</label>
+          <input className="form-control" type="number" step="any" min="0" value={floatUsd}
+            onChange={e => setFloatUsd(e.target.value)} autoFocus />
+        </div>
+        <div className="form-group">
+          <label className="form-label">{t('pos.openingFloat')} (LBP)</label>
+          <input className="form-control" type="number" step="any" min="0" value={floatLbp}
+            onChange={e => setFloatLbp(e.target.value)} />
+        </div>
+        <button className="btn btn-primary" style={{ width: '100%', marginTop: 4 }}
+          disabled={busy} onClick={open}>
+          {busy ? t('common.saving') : t('pos.openRegister')}
+        </button>
       </div>
-      <button className="btn btn-primary" style={{ width: '100%', marginTop: 8 }} disabled={busy} onClick={open}>
-        {busy ? t('common.saving') : t('pos.openRegister')}
-      </button>
     </div>
   );
 }
@@ -633,7 +673,12 @@ function RegisterView({ session, onClose, onSold }) {
   const { t, fmt } = useLocale();
   const { settings, taxRates } = useSettings();
   const [search, setSearch] = useState('');
+  // Two product pools — browse (loaded once on mount, used when search
+  // is empty) and results (debounced search). Keeping them separate lets
+  // category filtering work over the browse pool without nuking search.
+  const [browsePool, setBrowsePool] = useState([]);
   const [results, setResults] = useState([]);
+  const [category, setCategory] = useState('');     // '' = All
   const [cart, setCart] = useState([]);
   const [orderDiscount, setOrderDiscount] = useState('');
   const [checkout, setCheckout] = useState(false);
@@ -643,6 +688,11 @@ function RegisterView({ session, onClose, onSold }) {
   const keyRef = useRef(0);
 
   const taxEnabled = settings?.tax_enabled === '1' && taxRates.length > 0;
+  // Settings → "Enable per-line discounts" — gates the small Disc input
+  // on each cart line. priceCart already respects line.discount, so the
+  // setting only controls UI visibility (and whether the cashier can
+  // actually edit the field).
+  const discountEnabled = settings?.show_discount_col === '1';
   const defaultRate = taxRates.find(r => r.is_default);
   const rateOf = (id) => taxRates.find(r => r.id === id);
   // POS lines default to the Zero-rated tax — the cashier picks VAT per line
@@ -650,14 +700,13 @@ function RegisterView({ session, onClose, onSold }) {
   // (the is_default, e.g. VAT 11%). Falls back to the standard default if no
   // zero-rated rate is configured.
   const posDefaultRate = taxRates.find(r => r.tax_type === 'zero') || defaultRate;
-  // Same options as everywhere else, but Zero-rated listed first in POS.
-  const posTaxRates = posDefaultRate
-    ? [posDefaultRate, ...taxRates.filter(r => r.id !== posDefaultRate.id)]
-    : taxRates;
 
   useEffect(() => {
     getClients().then(setClients).catch(() => {});
     getPosCashDrawers().then(setDrawers).catch(() => {});
+    // Prime the browse grid with the first page of products so the
+    // cashier sees something to tap without having to type anything.
+    getPosProducts('').then(setBrowsePool).catch(() => setBrowsePool([]));
   }, []);
 
   // Debounced product search.
@@ -669,6 +718,28 @@ function RegisterView({ session, onClose, onSold }) {
     }, 250);
     return () => clearTimeout(tm);
   }, [search]);
+
+  // The visible product list — search results when the cashier is
+  // searching, otherwise the browse pool filtered by the active category.
+  const visibleProducts = search.trim()
+    ? results
+    : (category
+        ? browsePool.filter(p => (p.category || '') === category)
+        : browsePool);
+
+  // Distinct categories derived from the browse pool, sorted by frequency
+  // so the most-used categories appear first.
+  const categories = (() => {
+    const counts = new Map();
+    for (const p of browsePool) {
+      const k = (p.category || '').trim();
+      if (!k) continue;
+      counts.set(k, (counts.get(k) || 0) + 1);
+    }
+    return Array.from(counts.entries())
+      .sort((a, b) => b[1] - a[1])
+      .map(([name, count]) => ({ name, count }));
+  })();
 
   function addProduct(p) {
     setCart(prev => {
@@ -696,10 +767,19 @@ function RegisterView({ session, onClose, onSold }) {
     setCart(prev => prev.map(l => l.key === key ? { ...l, ...patch } : l));
   const removeLine = (key) => setCart(prev => prev.filter(l => l.key !== key));
 
+  // Increase / decrease a line's quantity by `delta`. Removes the line
+  // entirely when the count would drop below 1 (faster than tapping the
+  // X icon for a tap-on-tap-off mistake).
+  const bumpQty = (key, delta) => {
+    setCart(prev => prev
+      .map(l => l.key === key ? { ...l, quantity: (Number(l.quantity) || 0) + delta } : l)
+      .filter(l => Number(l.quantity) > 0));
+  };
+
   function onSearchKeyDown(e) {
-    if (e.key === 'Enter' && results.length > 0) {
+    if (e.key === 'Enter' && visibleProducts.length > 0) {
       e.preventDefault();
-      addProduct(results[0]);
+      addProduct(visibleProducts[0]);
       setSearch('');
       setResults([]);
     }
@@ -721,8 +801,11 @@ function RegisterView({ session, onClose, onSold }) {
     cart.every(l => (l.name || l.inventory_id) && Number(l.quantity) > 0) &&
     pricing.total > 0;
 
+  // Initial for the cashier monogram (first letter of full name).
+  const cashierInitial = (session.cashier_name || '?').trim().charAt(0).toUpperCase();
+
   return (
-    <div style={{ display: 'flex', gap: 16, flexWrap: 'wrap', alignItems: 'flex-start' }}>
+    <div className="pos-workspace-shell">
       {closing && (
         <CloseRegisterModal session={session} onClose={() => setClosing(false)}
           onClosed={() => { setClosing(false); onClose(); }} />
@@ -737,173 +820,269 @@ function RegisterView({ session, onClose, onSold }) {
         />
       )}
 
-      {/* Product search */}
-      <div className="card" style={{ flex: '1 1 320px', minWidth: 300, padding: 14 }}>
-        <input
-          className="form-control" autoFocus value={search}
-          placeholder={t('pos.searchProducts')}
-          onChange={e => setSearch(e.target.value)}
-          onKeyDown={onSearchKeyDown}
-        />
-        <div style={{ marginTop: 10, maxHeight: 420, overflowY: 'auto' }}>
-          {search.trim() && results.length === 0 && (
-            <p style={{ color: 'var(--text-3)', fontSize: 13, padding: 8 }}>{t('pos.noProducts')}</p>
-          )}
-          {results.map(p => (
-            <button key={p.id} className="pos-product-row" onClick={() => addProduct(p)}
-              style={{
-                display: 'flex', justifyContent: 'space-between', alignItems: 'center',
-                width: '100%', padding: '8px 10px', border: '1px solid var(--border)',
-                borderRadius: 8, marginBottom: 6, background: 'var(--surface)', cursor: 'pointer',
-                textAlign: 'start',
-              }}>
-              <span>
-                <span style={{ fontWeight: 600, fontSize: 13 }}>{p.name}</span>
-                <span style={{ color: 'var(--text-3)', fontSize: 11, display: 'block' }}>
-                  {num(p.quantity)} {p.unit || ''} {t('pos.inStock')}
-                </span>
-              </span>
-              <span style={{ fontWeight: 600, fontSize: 13 }}>{fmt(p.sale_price)}</span>
-            </button>
-          ))}
-        </div>
-        <button className="btn btn-secondary btn-sm" style={{ marginTop: 6 }} onClick={addCustomLine}>
-          {t('pos.customLine')}
-        </button>
-      </div>
-
-      {/* Cart */}
-      <div className="card" style={{ flex: '2 1 420px', minWidth: 320, padding: 14 }}>
-        <h3 style={{ margin: '0 0 10px', fontSize: 15 }}>{t('pos.cart')}</h3>
-        {cart.length === 0 && (
-          <p style={{ color: 'var(--text-3)', fontSize: 13 }}>{t('pos.cartEmpty')}</p>
-        )}
-        {cart.length > 0 && (
-          <table className="table" style={{ fontSize: 13 }}>
-            <thead>
-              <tr>
-                <th>{t('pos.customLineName')}</th>
-                <th style={{ width: 64 }}>{t('pos.qty')}</th>
-                <th style={{ width: 84 }}>{t('pos.price')}</th>
-                <th style={{ width: 84 }}>{t('pos.discount')}</th>
-                {taxEnabled && <th style={{ width: 104 }}>{t('pos.lineTax')}</th>}
-                <th style={{ width: 84, textAlign: 'end' }}>{t('pos.total')}</th>
-                <th style={{ width: 32 }}></th>
-              </tr>
-            </thead>
-            <tbody>
-              {cart.map(l => {
-                const gross = Math.max(0, (Number(l.quantity) || 0) * (Number(l.unit_price) || 0)
-                                          - (Number(l.discount) || 0));
-                return (
-                  <tr key={l.key}>
-                    <td>
-                      {l.inventory_id
-                        ? <span style={{ fontWeight: 600 }}>{l.name}</span>
-                        : <CustomLineNameCombobox
-                            line={l}
-                            taxEnabled={taxEnabled}
-                            defaultRate={posDefaultRate}
-                            placeholder={t('pos.customLineName')}
-                            onPatch={(patch) => setLine(l.key, patch)}
-                          />}
-                    </td>
-                    <td>
-                      <input
-                        className="form-control pos-num-input"
-                        style={{ height: 30, minWidth: 64, textAlign: 'right' }}
-                        type="number" step="1" min="1"
-                        value={l.quantity}
-                        onChange={e => setLine(l.key, { quantity: e.target.value })}
-                        onFocus={e => e.target.select()}
-                      />
-                      {l.stock != null && Number(l.quantity) > l.stock && (
-                        <span style={{ color: 'var(--red)', fontSize: 10 }}>{t('pos.insufficientStock')}</span>
-                      )}
-                    </td>
-                    <td>
-                      <input
-                        className="form-control pos-num-input"
-                        style={{ height: 30, minWidth: 80, textAlign: 'right' }}
-                        type="number" step="any" min="0"
-                        value={l.unit_price}
-                        onChange={e => setLine(l.key, { unit_price: e.target.value })}
-                        onFocus={e => e.target.select()}
-                      />
-                    </td>
-                    <td>
-                      <input className="form-control" style={{ height: 30 }} type="number"
-                        step="any" min="0" value={l.discount}
-                        onChange={e => setLine(l.key, { discount: e.target.value })} />
-                    </td>
-                    {taxEnabled && (
-                      <td>
-                        <select className="form-control" style={{ height: 30 }}
-                          value={l.tax_rate_id ?? (posDefaultRate?.id ?? '')}
-                          onChange={e => setLine(l.key, { tax_rate_id: e.target.value ? Number(e.target.value) : null })}>
-                          {posTaxRates.map(r => (
-                            <option key={r.id} value={r.id}>{r.name}</option>
-                          ))}
-                        </select>
-                      </td>
-                    )}
-                    <td style={{ textAlign: 'end' }}>{fmt(gross)}</td>
-                    <td>
-                      <button className="icon-btn" onClick={() => removeLine(l.key)} title={t('common.delete')}>
-                        <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor"
-                          strokeWidth="2.5" strokeLinecap="round"><line x1="18" y1="6" x2="6" y2="18"/><line x1="6" y1="6" x2="18" y2="18"/></svg>
-                      </button>
-                    </td>
-                  </tr>
-                );
-              })}
-            </tbody>
-          </table>
-        )}
-
-        <div style={{ borderTop: '1px solid var(--border)', marginTop: 10, paddingTop: 10 }}>
-          <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center',
-                        fontSize: 13, marginBottom: 6 }}>
-            <span>{t('pos.orderDiscount')}</span>
-            <input className="form-control" type="number" step="any" min="0"
-              style={{ height: 30, width: 120, textAlign: 'end' }}
-              value={orderDiscount} placeholder="0"
-              onChange={e => setOrderDiscount(e.target.value)} />
-          </div>
-          <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: 13 }}>
-            <span>{t('pos.subtotal')}</span><span>{fmt(pricing.subtotal)}</span>
-          </div>
-          {taxEnabled && (
-            <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: 13, color: 'var(--text-3)' }}>
-              <span>{t('pos.taxTotal')}</span><span>{fmt(pricing.taxTotal)}</span>
+      {/* ── Session bar ──────────────────────────────────────────── */}
+      <div className="pos-session-bar">
+        <div className="pos-session-bar-info">
+          <div className="pos-session-cashier">
+            <div className="pos-session-cashier-avatar">{cashierInitial}</div>
+            <div>
+              <div className="pos-session-cashier-name">{session.cashier_name}</div>
+              <div className="pos-session-cashier-role">{t('pos.cashier')}</div>
             </div>
-          )}
-          {pricing.discountTotal > 0 && (
-            <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: 13, color: 'var(--green)' }}>
-              <span>{t('pos.savings')}</span><span>−{fmt(pricing.discountTotal)}</span>
-            </div>
-          )}
-          <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: 16, fontWeight: 700, marginTop: 4 }}>
-            <span>{t('pos.total')}</span><span>{fmt(pricing.total)}</span>
           </div>
-          <button className="btn btn-primary" style={{ width: '100%', marginTop: 10 }}
-            disabled={!cartValid} onClick={() => setCheckout(true)}>
-            {t('pos.checkout')}
-          </button>
+          <div className="pos-session-stat">
+            <span className="pos-session-stat-label">{t('pos.salesCount')}</span>
+            <span className="pos-session-stat-value">{session.sales_count ?? 0}</span>
+          </div>
+          <div className="pos-session-stat">
+            <span className="pos-session-stat-label">{t('pos.sessionTotal')}</span>
+            <span className="pos-session-stat-value">{fmt(session.sales_total ?? 0)}</span>
+          </div>
         </div>
-      </div>
-
-      {/* Session strip */}
-      <div className="card" style={{ flex: '1 1 100%', padding: '10px 14px', display: 'flex',
-                                      justifyContent: 'space-between', alignItems: 'center', flexWrap: 'wrap', gap: 8 }}>
-        <span style={{ fontSize: 13, color: 'var(--text-2)' }}>
-          {t('pos.cashier')}: <strong>{session.cashier_name}</strong>
-          {' · '}{t('pos.salesCount')}: <strong>{session.sales_count ?? 0}</strong>
-          {' · '}{t('pos.sessionTotal')}: <strong>{fmt(session.sales_total ?? 0)}</strong>
-        </span>
         <button className="btn btn-secondary btn-sm" onClick={() => setClosing(true)}>
           {t('pos.closeRegister')}
         </button>
+      </div>
+
+      {/* ── Workspace grid ───────────────────────────────────────── */}
+      <div className="pos-workspace">
+
+        {/* Products column */}
+        <div className="pos-products-section">
+          {/* Search */}
+          <div className="pos-search-row">
+            <span className="pos-search-icon" aria-hidden>
+              <svg width="16" height="16" viewBox="0 0 24 24" fill="none"
+                stroke="currentColor" strokeWidth="2"
+                strokeLinecap="round" strokeLinejoin="round">
+                <circle cx="11" cy="11" r="8"/>
+                <line x1="21" y1="21" x2="16.65" y2="16.65"/>
+              </svg>
+            </span>
+            <input
+              className="pos-search-input"
+              autoFocus
+              value={search}
+              placeholder={t('pos.searchProducts')}
+              onChange={e => setSearch(e.target.value)}
+              onKeyDown={onSearchKeyDown}
+            />
+          </div>
+
+          {/* Category pills — only shown when not searching, and only if
+              the browse pool has more than one distinct category. */}
+          {!search.trim() && categories.length > 1 && (
+            <div className="pos-categories">
+              <button
+                className={`pos-category-pill${category === '' ? ' active' : ''}`}
+                onClick={() => setCategory('')}>
+                {t('pos.allProducts')}
+                <span className="pos-category-pill-count">{browsePool.length}</span>
+              </button>
+              {categories.map(c => (
+                <button key={c.name}
+                  className={`pos-category-pill${category === c.name ? ' active' : ''}`}
+                  onClick={() => setCategory(c.name)}>
+                  {c.name}
+                  <span className="pos-category-pill-count">{c.count}</span>
+                </button>
+              ))}
+            </div>
+          )}
+
+          {/* Product grid */}
+          <div className="pos-products-grid">
+            {visibleProducts.length === 0 ? (
+              <div className="pos-products-empty">
+                <div className="pos-products-empty-icon" aria-hidden>
+                  <svg width="22" height="22" viewBox="0 0 24 24" fill="none"
+                    stroke="currentColor" strokeWidth="2"
+                    strokeLinecap="round" strokeLinejoin="round">
+                    <path d="M21 16V8a2 2 0 0 0-1-1.73l-7-4a2 2 0 0 0-2 0l-7 4A2 2 0 0 0 3 8v8a2 2 0 0 0 1 1.73l7 4a2 2 0 0 0 2 0l7-4A2 2 0 0 0 21 16z"/>
+                    <polyline points="3.27 6.96 12 12.01 20.73 6.96"/>
+                    <line x1="12" y1="22.08" x2="12" y2="12"/>
+                  </svg>
+                </div>
+                <div className="pos-products-empty-title">{t('pos.noProducts')}</div>
+                <p>{t('pos.searchProducts')}</p>
+              </div>
+            ) : (
+              visibleProducts.map(p => {
+                const stock = Number(p.quantity) || 0;
+                const stockClass = stock <= 0 ? 'out' : (stock < 5 ? 'low' : '');
+                const monogram = (p.name || '?').trim().charAt(0).toUpperCase();
+                return (
+                  <button key={p.id} className="pos-product-tile" onClick={() => addProduct(p)}>
+                    <span className="pos-product-tile-monogram" aria-hidden>{monogram}</span>
+                    <span className="pos-product-tile-name">{p.name}</span>
+                    <span className="pos-product-tile-foot">
+                      <span className="pos-product-tile-price">{fmt(p.sale_price)}</span>
+                      <span className={`pos-product-tile-stock ${stockClass}`}>
+                        <span className="pos-product-tile-stock-dot" />
+                        {num(stock)}
+                      </span>
+                    </span>
+                  </button>
+                );
+              })
+            )}
+          </div>
+
+          {/* Custom-line trigger sits as a quiet ghost action at the
+              bottom of the products column. */}
+          <div className="pos-products-foot">
+            <button className="btn btn-ghost btn-sm" onClick={addCustomLine}>
+              {t('pos.customLine')}
+            </button>
+          </div>
+        </div>
+
+        {/* Cart column */}
+        <div className="pos-cart-panel">
+          <div className="pos-cart-header">
+            <span className="pos-cart-header-title">{t('pos.cart')}</span>
+            <span className="pos-cart-line-count">
+              {cart.length} {t('pos.qty').toLowerCase()}
+            </span>
+          </div>
+
+          {cart.length === 0 ? (
+            <div className="pos-cart-empty">
+              <div className="pos-cart-empty-icon" aria-hidden>
+                <svg width="32" height="32" viewBox="0 0 24 24" fill="none"
+                  stroke="currentColor" strokeWidth="1.8"
+                  strokeLinecap="round" strokeLinejoin="round">
+                  <circle cx="9" cy="21" r="1"/>
+                  <circle cx="20" cy="21" r="1"/>
+                  <path d="M1 1h4l2.68 13.39a2 2 0 0 0 2 1.61h9.72a2 2 0 0 0 2-1.61L23 6H6"/>
+                </svg>
+              </div>
+              <div className="pos-cart-empty-title">{t('pos.cart')}</div>
+              <p>{t('pos.cartEmpty')}</p>
+            </div>
+          ) : (
+            <div className="pos-cart-list">
+              {cart.map(l => {
+                const qty   = Number(l.quantity) || 0;
+                const unit  = Number(l.unit_price) || 0;
+                const disc  = Number(l.discount) || 0;
+                const gross = Math.max(0, qty * unit - disc);
+                const overstock = l.stock != null && qty > l.stock;
+                return (
+                  <div key={l.key} className="pos-cart-line">
+                    <div className="pos-cart-line-body">
+                      {l.inventory_id ? (
+                        <div className="pos-cart-line-name">{l.name}</div>
+                      ) : (
+                        <CustomLineNameCombobox
+                          line={l}
+                          taxEnabled={taxEnabled}
+                          defaultRate={posDefaultRate}
+                          placeholder={t('pos.customLineName')}
+                          onPatch={(patch) => setLine(l.key, patch)}
+                        />
+                      )}
+                      <div className="pos-cart-line-meta">
+                        {num(qty)} × {fmt(unit)}
+                        {disc > 0 && (
+                          <span style={{ color: 'var(--affirm)', marginInlineStart: 8 }}>
+                            − {fmt(disc)}
+                          </span>
+                        )}
+                        {overstock && (
+                          <span className="alert">{t('pos.insufficientStock')}</span>
+                        )}
+                      </div>
+                    </div>
+
+                    <div className="pos-cart-line-right">
+                      <div className="pos-qty-control" role="group" aria-label={t('pos.qty')}>
+                        <button type="button" className="pos-qty-btn"
+                          onClick={() => bumpQty(l.key, -1)}
+                          aria-label="−">−</button>
+                        <input className="pos-qty-value"
+                          type="number" min="1" step="1"
+                          value={qty}
+                          onChange={e => setLine(l.key, { quantity: e.target.value })}
+                          onFocus={e => e.target.select()} />
+                        <button type="button" className="pos-qty-btn"
+                          onClick={() => bumpQty(l.key, +1)}
+                          aria-label="+">+</button>
+                      </div>
+                      {discountEnabled && (
+                        <input type="number"
+                          className="pos-cart-line-disc"
+                          min="0" step="0.01"
+                          placeholder={t('pos.discount')}
+                          title={t('pos.discount')}
+                          value={l.discount}
+                          onChange={e => setLine(l.key, { discount: e.target.value })}
+                          onFocus={e => e.target.select()} />
+                      )}
+                      <div className="pos-cart-line-total">{fmt(gross)}</div>
+                      <button type="button" className="pos-cart-line-remove"
+                        onClick={() => removeLine(l.key)}
+                        aria-label={t('common.delete')}>
+                        <svg width="14" height="14" viewBox="0 0 24 24" fill="none"
+                          stroke="currentColor" strokeWidth="2.4"
+                          strokeLinecap="round" strokeLinejoin="round">
+                          <line x1="18" y1="6" x2="6" y2="18"/>
+                          <line x1="6" y1="6" x2="18" y2="18"/>
+                        </svg>
+                      </button>
+                    </div>
+                  </div>
+                );
+              })}
+            </div>
+          )}
+
+          {/* Sticky summary + charge button */}
+          <div className="pos-cart-summary">
+            <div className="pos-cart-discount-row">
+              <label htmlFor="pos-order-discount">{t('pos.orderDiscount')}</label>
+              <input id="pos-order-discount"
+                className="pos-cart-discount-input"
+                type="number" step="any" min="0"
+                value={orderDiscount}
+                placeholder="0"
+                onChange={e => setOrderDiscount(e.target.value)} />
+            </div>
+            <div className="pos-cart-summary-row">
+              <span>{t('pos.subtotal')}</span>
+              <span>{fmt(pricing.subtotal)}</span>
+            </div>
+            {taxEnabled && (
+              <div className="pos-cart-summary-row tax">
+                <span>{t('pos.taxTotal')}</span>
+                <span>{fmt(pricing.taxTotal)}</span>
+              </div>
+            )}
+            {pricing.discountTotal > 0 && (
+              <div className="pos-cart-summary-row savings">
+                <span>{t('pos.savings')}</span>
+                <span>−{fmt(pricing.discountTotal)}</span>
+              </div>
+            )}
+            <div className="pos-cart-summary-total">
+              <span className="pos-cart-summary-total-label">{t('pos.total')}</span>
+              <span className="pos-cart-summary-total-value">{fmt(pricing.total)}</span>
+            </div>
+            <button className="pos-charge-btn"
+              disabled={!cartValid}
+              onClick={() => setCheckout(true)}>
+              <svg width="18" height="18" viewBox="0 0 24 24" fill="none"
+                stroke="currentColor" strokeWidth="2.2"
+                strokeLinecap="round" strokeLinejoin="round" aria-hidden>
+                <rect x="2" y="5" width="20" height="14" rx="2"/>
+                <line x1="2" y1="10" x2="22" y2="10"/>
+              </svg>
+              {t('pos.checkout')}
+              <span className="pos-charge-btn-amount">· {fmt(pricing.total)}</span>
+            </button>
+          </div>
+        </div>
+
       </div>
     </div>
   );

@@ -202,12 +202,18 @@ def _post_depreciation(db, asset: dict, target_period: str, user: dict, now: str
         acc       = round(acc + amount, 2)
         remaining = round(remaining - amount, 2)
         book      = round(cost - acc, 2)
+        # Date the charge to the period end, but never to a future date —
+        # running the current month's depreciation before month-end would
+        # otherwise post into a month-end that hasn't arrived yet, hiding it
+        # from the default "this month → today" Finance / GL / Trial Balance
+        # views. A back-period run keeps its own month-end (already ≤ today).
+        post_date = accounting.clamp_posting_date(_period_last_day(cursor))
         cur = db.execute(
             "INSERT INTO expenses (project_id, category, description, amount, date, "
             " created_at, status, fixed_asset_id) "
             "VALUES (NULL, 'Depreciation', ?, ?, ?, ?, 'Recorded', ?)",
             (f"Depreciation — {asset['name']} ({cursor})", amount,
-             _period_last_day(cursor), now, asset['id']),
+             post_date, now, asset['id']),
         )
         expense_id = cur.lastrowid
         db.execute(
@@ -221,7 +227,7 @@ def _post_depreciation(db, asset: dict, target_period: str, user: dict, now: str
         # CR Accumulated Depreciation (a non-cash contra-asset charge).
         accounting.post_entry(
             db,
-            entry_date=_period_last_day(cursor),
+            entry_date=post_date,
             memo=f"Depreciation — {asset['name']} ({cursor})",
             lines=[
                 {"code": accounting.DEPRECIATION, "debit":  amount},

@@ -150,6 +150,8 @@ const ar = {
     subtotal: 'المجموع الفرعي',
     tax: 'ضريبة ({{rate}}%)',
     taxCol: 'الضريبة',
+    discount: 'خصم',
+    filters: 'فلاتر',
     type: 'النوع',
     totalValue: 'إجمالي القيمة',
     voided: 'ملغي',
@@ -173,6 +175,13 @@ const ar = {
     main: 'الرئيسية',
     system: 'النظام',
     admin: 'الإدارة',
+
+    // أقسام دليل سير العمل في الشريط الجانبي بعد إعادة التصميم.
+    section_sales:      'المبيعات',
+    section_delivery:   'التسليم',
+    section_operations: 'العمليات',
+    section_finance:    'المالية',
+    section_people:     'الموارد البشرية',
     erpPlatform: 'منصة ERP',
     signOut: 'تسجيل الخروج',
     administrator: 'مدير',
@@ -497,6 +506,25 @@ const ar = {
     signIn: 'تسجيل الدخول',
     signingIn: 'جار تسجيل الدخول…',
     invalidCredentials: 'بيانات الاعتماد غير صحيحة. يرجى المحاولة مجدداً.',
+
+    // اللوحة الجانبية للهوية
+    brandHeadline: 'أدِر أعمالك بثقة.',
+    brandTagline:  'منصة متكاملة للمبيعات والمخزون والمالية والتصنيع والموارد البشرية والتقارير — مصمَّمة لطريقة عملك الفعلية.',
+    brandFooter:   'نشر محلي آمن',
+
+    // هيكل النموذج
+    usernamePlaceholder: 'admin',
+    showPassword:        'إظهار كلمة المرور',
+    hidePassword:        'إخفاء كلمة المرور',
+    forgotPassword:      'نسيت كلمة المرور؟',
+
+    // نقاط القيمة — ثلاث ميزات مختصرة تحت العنوان الرئيسي
+    valueGl:      'أستاذ عام بقيد مزدوج',
+    valueGlSub:   'دفاتر بمستوى تدقيقي، أقفال فترات، تعدد عملات.',
+    valueOps:     'عمليات متكاملة',
+    valueOpsSub:  'عروض → فواتير → مخزون → نقاط بيع، في مكان واحد.',
+    valuePeople:  'الموارد البشرية والرواتب',
+    valuePeopleSub:'العقود والإجازات والرواتب والتوظيف.',
   },
 
   dashboard: {
@@ -1021,6 +1049,19 @@ const ar = {
     drawerCreated: 'تم إنشاء الصندوق',
     drawerUpdated: 'تم تحديث الصندوق',
     noDrawers: 'لا توجد صناديق نقدية بعد.',
+    // ── مفاتيح ورشة الصندوق الجديدة ─────────────────────────────────────
+    noDrawersTitle: 'لم يتم إعداد أي صندوق نقدي بعد',
+    noDrawersHint:  'أضف صندوقاً نقدياً من تبويب الصناديق لبدء تسجيل عدّ الصندوق اليومي، والتقاط المبيعات والمصروفات تلقائياً، وتقارير الفروقات.',
+    openDrawers:    'صناديق مفتوحة اليوم',
+    allStarted:     'جميع الصناديق بدأت',
+    notStartedCount:'{{count}} لم تبدأ',
+    expectedOnHand: 'المتوقَّع في الصندوق',
+    acrossDrawers:  'عبر {{n}} صندوق',
+    todayAnomalies: 'فروقات اليوم',
+    varianceFound:  'راجع الصناديق المعنيّة',
+    noVariance:     'كل الصناديق المغلقة متوازنة',
+    notStartedHint: 'لم تُفتح أي تسوية لهذا الصندوق اليوم.',
+    reconciliations:'تسويات',
     openDay: 'فتح اليوم',
     openReconciliation: 'فتح التسوية',
     businessDate: 'تاريخ العمل',
@@ -1085,6 +1126,7 @@ const ar = {
     sessionTotal: 'إجمالي الجلسة',
     searchProducts: 'امسح الباركود أو ابحث عن صنف…',
     noProducts: 'لا توجد أصناف مطابقة.',
+    allProducts: 'الكل',
     cart: 'السلة',
     cartEmpty: 'السلة فارغة. امسح أو ابحث لإضافة أصناف.',
     customLine: '+ بند مخصص',
@@ -1758,7 +1800,7 @@ const ar = {
     taxType_exempt: 'مُعفى',
     documentSettings: 'إعدادات المستندات',
     footerText: 'نص التذييل الافتراضي',
-    showDiscountCol: 'إظهار عمود الخصم في ملفات PDF',
+    showDiscountCol: 'تفعيل الخصم لكل بند (عروض الأسعار، الفواتير، نقاط البيع)',
     showTaxCol: 'إظهار عمود الضريبة في ملفات PDF',
     backupIntegrity: 'النسخ الاحتياطي وسلامة البيانات',
     offlineTitle: 'يعمل دون إنترنت. يصمد أمام انقطاع الكهرباء.',

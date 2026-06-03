@@ -11,7 +11,7 @@
 ; ════════════════════════════════════════════════════════════════════════════
 
 #define MyAppName      "ERP System"
-#define MyAppVersion   "2.1.0"
+#define MyAppVersion   "2.2.0"
 #define MyAppPublisher "Ali Koteich"
 #define MyAppExeName   "ERP System.exe"
 ; PyInstaller one-folder output, relative to this .iss file (installer\ -> repo root)

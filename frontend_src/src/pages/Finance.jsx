@@ -17,6 +17,7 @@ import {
 } from '../api/client';
 import { LoadingSpinner, ErrorAlert, fmt, DualMoney, ExchangeRateBadge } from '../components/shared';
 import { useLocale } from '../hooks/useLocale.jsx';
+import { useScrollLock } from '../hooks/useScrollLock';
 import * as XLSX from 'xlsx';
 
 // ── Date helpers ──────────────────────────────────────────────────────────
@@ -509,39 +510,82 @@ function EmptyChartPlaceholder({ label }) {
 }
 
 // ── KPI Card ──────────────────────────────────────────────────────────────
+//
+// Workspace-aligned tile (matches the Dashboard pattern):
+//   • Soft white surface with subtle drop shadow (from .stat-card in
+//     index.css). Hover steps the shadow up; no transform lift.
+//   • Tiny restrained icon top-left, semantic trend pill top-right.
+//   • Uppercase letter-spaced label, then Inter 700 hero value, then a
+//     plain Inter slate caption underneath.
+//
+// `color` is kept as a prop for callers but only tints the hero value —
+// the surface, shadow, border and trend semantics all come from the
+// Workspace tokens. No more inline borderTop stripe, no more hardcoded
+// Material colours.
 function KpiCard({ label, value, change, color, icon, sub }) {
   const { t } = useLocale();
-  const [hover, setHover] = useState(false);
   const neutral = change === null || change === undefined;
   const isUp = change > 0;
 
   return (
-    <div className="stat-card"
-      onMouseEnter={() => setHover(true)}
-      onMouseLeave={() => setHover(false)}
-      style={{
-        position: 'relative', overflow: 'hidden',
-        borderTop: `3px solid ${color}`,
-        transform: hover ? 'translateY(-2px)' : 'translateY(0)',
-        boxShadow: hover ? '0 8px 24px rgba(0,0,0,0.1)' : 'var(--shadow)',
-        transition: 'transform .2s, box-shadow .2s',
-        cursor: 'default',
+    <div className="stat-card" style={{ cursor: 'default' }}>
+      {/* Top row — mark + trend */}
+      <div style={{
+        display: 'flex', justifyContent: 'space-between',
+        alignItems: 'center', marginBottom: 6, minHeight: 18,
       }}>
-      <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start' }}>
-        <div style={{ fontSize: 11, fontWeight: 600, color: 'var(--text-3)', textTransform: 'uppercase', letterSpacing: '.5px' }}>{label}</div>
-        <span style={{ fontSize: 20, opacity: hover ? 0.3 : 0.15, transition: 'opacity .2s' }}>{icon}</span>
+        {icon ? (
+          <span style={{
+            fontSize: 13, lineHeight: 1,
+            color: color || 'var(--text-3)',
+            opacity: 0.7,
+          }}>{icon}</span>
+        ) : <span />}
+
+        {!neutral && (
+          <span style={{
+            fontFamily: 'var(--font-mono)',
+            fontSize: 11,
+            fontWeight: 600,
+            letterSpacing: 0,
+            color: isUp ? 'var(--affirm)' : 'var(--negate)',
+            background: isUp ? 'var(--affirm-tint)' : 'var(--negate-tint)',
+            padding: '2px 7px',
+            borderRadius: 'var(--r-xs)',
+            border: `1px solid ${isUp ? 'rgba(31,163,98,0.22)' : 'rgba(209,69,69,0.22)'}`,
+            fontVariantNumeric: 'tabular-nums',
+            whiteSpace: 'nowrap',
+          }}>
+            {isUp ? '▲' : '▼'} {Math.abs(change)}%
+            <span style={{
+              marginInlineStart: 4, opacity: 0.7, fontWeight: 500,
+            }}>
+              {t('finance.vsPrev')}
+            </span>
+          </span>
+        )}
       </div>
-      <div style={{ fontSize: 26, fontWeight: 800, color, margin: '10px 0 4px', letterSpacing: '-0.5px' }}>{value}</div>
-      {sub && <div style={{ fontSize: 11, color: 'var(--text-3)', marginBottom: 6 }}>{sub}</div>}
-      {!neutral && (
+
+      {/* Label */}
+      <div className="stat-label">{label}</div>
+
+      {/* Hero value — uses .stat-value so it inherits Inter 700 + tabular
+          tracking from the Workspace token. The colour prop tints only
+          the value glyph; everything else is system-driven. */}
+      <div className="stat-value" style={{ color: color || 'var(--text)', marginTop: 2 }}>
+        {value}
+      </div>
+
+      {/* Caption */}
+      {sub && (
         <div style={{
-          display: 'inline-flex', alignItems: 'center', gap: 4, fontSize: 11, fontWeight: 600,
-          color: isUp ? '#059669' : '#DC2626',
-          background: isUp ? '#ECFDF5' : '#FEF2F2',
-          borderRadius: 20, padding: '2px 8px',
-        }}>
-          {isUp ? '▲' : '▼'} {Math.abs(change)}% {t('finance.vsPrev')}
-        </div>
+          fontFamily: 'var(--font-sans)',
+          fontSize: 12.5,
+          fontWeight: 400,
+          color: 'var(--text-2)',
+          letterSpacing: -0.005,
+          marginTop: 4,
+        }}>{sub}</div>
       )}
     </div>
   );
@@ -1261,36 +1305,32 @@ function MonthDrillModal({ month, label, data, loading, onClose }) {
     expByProject[key].total += r.amount;
   });
 
+  // Reuses the shared .modal-overlay / .modal / .modal-body shell so the
+  // scroll lock, sticky header, and responsive sizing all match every
+  // other modal in the app. Previously this was a hand-rolled overlay
+  // with maxHeight: '88vh' that fought the new modal CSS.
+  useScrollLock(true);
   return (
-    <div style={{
-      position: 'fixed', inset: 0, zIndex: 1000,
-      background: 'rgba(0,0,0,0.45)', backdropFilter: 'blur(3px)',
-      display: 'flex', alignItems: 'center', justifyContent: 'center',
-      padding: 16,
-    }} onClick={e => { if (e.target === e.currentTarget) onClose(); }}>
-      <div style={{
-        background: 'var(--surface)', borderRadius: 14, width: '100%', maxWidth: 780,
-        maxHeight: '88vh', display: 'flex', flexDirection: 'column',
-        boxShadow: '0 20px 60px rgba(0,0,0,0.25)',
-        border: '1px solid var(--border)',
-      }}>
-        {/* Header */}
-        <div style={{
-          padding: '16px 20px', borderBottom: '1px solid var(--border)',
-          display: 'flex', alignItems: 'center', justifyContent: 'space-between',
-        }}>
+    <div className="modal-overlay"
+      onClick={e => { if (e.target === e.currentTarget) onClose(); }}>
+      <div className="modal modal-lg" onClick={e => e.stopPropagation()}>
+        <div className="modal-header">
           <div>
-            <div style={{ fontWeight: 800, fontSize: 17, color: 'var(--text)' }}>{label}</div>
-            <div style={{ fontSize: 12, color: 'var(--text-3)', marginTop: 2 }}>{t('finance.detailsSubtitle')}</div>
+            <div className="modal-title">{label}</div>
+            <div style={{ fontSize: 12, color: 'var(--text-3)', marginTop: 2 }}>
+              {t('finance.detailsSubtitle')}
+            </div>
           </div>
-          <button onClick={onClose} style={{
-            background: 'none', border: 'none', fontSize: 20, cursor: 'pointer',
-            color: 'var(--text-3)', lineHeight: 1, padding: '2px 6px', borderRadius: 6,
-          }}>✕</button>
+          <button className="icon-btn" onClick={onClose} aria-label="Close">
+            <svg width="14" height="14" viewBox="0 0 24 24" fill="none"
+              stroke="currentColor" strokeWidth="2.5" strokeLinecap="round">
+              <line x1="18" y1="6" x2="6" y2="18"/>
+              <line x1="6" y1="6" x2="18" y2="18"/>
+            </svg>
+          </button>
         </div>
 
-        {/* Body */}
-        <div style={{ overflowY: 'auto', flex: 1, padding: '16px 20px' }}>
+        <div className="modal-body">
           {loading ? (
             <div style={{ textAlign: 'center', padding: 40, color: 'var(--text-3)' }}>{t('common.loading')}</div>
           ) : !data ? null : (
@@ -1421,19 +1461,30 @@ function ReconciliationModal({ onClose }) {
     future_expense:    { bg: '#EFF6FF', text: '#1D4ED8', icon: '📅', label: 'Future-Dated Expense' },
   };
 
+  // Migrated to the shared modal shell — same scroll-lock + sticky-header
+  // behaviour as every other dialog.
+  useScrollLock(true);
   return (
-    <div style={{ position: 'fixed', inset: 0, zIndex: 1100, background: 'rgba(0,0,0,.45)', backdropFilter: 'blur(3px)', display: 'flex', alignItems: 'center', justifyContent: 'center', padding: 16 }}
+    <div className="modal-overlay"
       onClick={e => { if (e.target === e.currentTarget) onClose(); }}>
-      <div style={{ background: 'var(--surface)', borderRadius: 14, width: '100%', maxWidth: 700, maxHeight: '86vh', display: 'flex', flexDirection: 'column', boxShadow: '0 20px 60px rgba(0,0,0,.25)', border: '1px solid var(--border)' }}>
-        <div style={{ padding: '16px 20px', borderBottom: '1px solid var(--border)', display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
+      <div className="modal modal-lg" onClick={e => e.stopPropagation()}>
+        <div className="modal-header">
           <div>
-            <div style={{ fontWeight: 800, fontSize: 17 }}>{t('finance.reconcileTitle')}</div>
-            <div style={{ fontSize: 12, color: 'var(--text-3)', marginTop: 2 }}>{t('finance.reconcileSubtitle')}</div>
+            <div className="modal-title">{t('finance.reconcileTitle')}</div>
+            <div style={{ fontSize: 12, color: 'var(--text-3)', marginTop: 2 }}>
+              {t('finance.reconcileSubtitle')}
+            </div>
           </div>
-          <button onClick={onClose} style={{ background: 'none', border: 'none', fontSize: 20, cursor: 'pointer', color: 'var(--text-3)' }}>✕</button>
+          <button className="icon-btn" onClick={onClose} aria-label="Close">
+            <svg width="14" height="14" viewBox="0 0 24 24" fill="none"
+              stroke="currentColor" strokeWidth="2.5" strokeLinecap="round">
+              <line x1="18" y1="6" x2="6" y2="18"/>
+              <line x1="6" y1="6" x2="18" y2="18"/>
+            </svg>
+          </button>
         </div>
 
-        <div style={{ overflowY: 'auto', flex: 1, padding: 20 }}>
+        <div className="modal-body">
           {loading && <div style={{ textAlign: 'center', padding: 40, color: 'var(--text-3)' }}>{t('finance.runningChecks')}</div>}
           {error && <div style={{ color: 'var(--red)', padding: 12, background: 'var(--red-light)', borderRadius: 8 }}>{error}</div>}
           {data && (
@@ -1656,15 +1707,45 @@ export default function Finance() {
 
       {loading ? <LoadingSpinner /> : (
         <>
-          {/* KPI Cards */}
-          <div className="stats-grid" style={{ gridTemplateColumns: 'repeat(auto-fit, minmax(200px, 1fr))', marginBottom: 24 }}>
+          {/* KPI tiles — Workspace pattern. Each tile is its own .stat-card
+              surface (the previous code double-wrapped it in .fin-card,
+              which produced a card-inside-a-card). Colour props point at
+              the system's semantic tokens so the tiles inherit the plum +
+              affirm + negate palette instead of hardcoded Material hexes. */}
+          <div className="stats-grid" style={{ gridTemplateColumns: 'repeat(auto-fit, minmax(220px, 1fr))', marginBottom: 24 }}>
             {[
-              { label: t('finance.totalIncome'),   value: <DualMoney value={summary?.income || 0} />,   color: '#059669', icon: '💰', change: prev.income_change,   sub: t('finance.incomePeriod') },
-              { label: t('finance.totalExpenses'), value: <DualMoney value={summary?.expenses || 0} />, color: '#DC2626', icon: '🧾', change: prev.expenses_change != null ? -prev.expenses_change : null, sub: t('finance.allCosts') },
-              { label: t('finance.netProfit'),     value: <DualMoney value={summary?.profit || 0} />,   color: (summary?.profit || 0) >= 0 ? '#1B4F72' : '#DC2626', icon: '📊', change: prev.profit_change, sub: t('finance.incomeMinus') },
-              { label: t('finance.profitMargin'),  value: margin !== null ? `${margin}%` : '—', color: '#7C3AED', icon: '🎯', change: prev.margin_change, sub: t('finance.netOverIncome') },
+              { label: t('finance.totalIncome'),
+                value: <DualMoney value={summary?.income || 0} />,
+                color: 'var(--affirm)',
+                icon: '💰',
+                change: prev.income_change,
+                sub: t('finance.incomePeriod') },
+              { label: t('finance.totalExpenses'),
+                value: <DualMoney value={summary?.expenses || 0} />,
+                color: 'var(--negate)',
+                icon: '🧾',
+                change: prev.expenses_change != null ? -prev.expenses_change : null,
+                sub: t('finance.allCosts') },
+              { label: t('finance.netProfit'),
+                value: <DualMoney value={summary?.profit || 0} />,
+                color: (summary?.profit || 0) >= 0 ? 'var(--accent)' : 'var(--negate)',
+                icon: '📊',
+                change: prev.profit_change,
+                sub: t('finance.incomeMinus') },
+              { label: t('finance.profitMargin'),
+                value: margin !== null ? `${margin}%` : '—',
+                color: 'var(--accent)',
+                icon: '🎯',
+                change: prev.margin_change,
+                sub: t('finance.netOverIncome') },
             ].map((kpi, i) => (
-              <div key={kpi.label} className="fin-card" style={{ animationDelay: `${i * 0.07}s` }}>
+              <div key={kpi.label}
+                style={{
+                  /* fadeSlideUp staggered entrance — keep the per-tile
+                     animation delay from the previous layout. */
+                  animation: 'fadeSlideUp .35s ease both',
+                  animationDelay: `${i * 0.07}s`,
+                }}>
                 <KpiCard {...kpi} />
               </div>
             ))}

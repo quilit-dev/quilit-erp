@@ -53,6 +53,10 @@ class InvoiceItemCreate(BaseModel):
     name:        str
     quantity:    float = 1
     unit_price:  float = 0
+    # Per-line discount in functional currency. Optional — defaults to 0
+    # for callers (and customers) that don't use line discounts. The pricing
+    # engine subtracts it from the net before computing tax.
+    discount:    float = 0
     tax_rate_id: Optional[int] = None
 
 class InvoiceCreate(BaseModel):
@@ -123,7 +127,8 @@ def _ensure_invoice_items_table(db):
             invoice_id INTEGER NOT NULL REFERENCES invoices(id) ON DELETE CASCADE,
             name       TEXT    NOT NULL,
             quantity   REAL    NOT NULL DEFAULT 1,
-            unit_price REAL    NOT NULL DEFAULT 0
+            unit_price REAL    NOT NULL DEFAULT 0,
+            discount   REAL    NOT NULL DEFAULT 0
         )
     """)
     db.commit()
@@ -135,19 +140,29 @@ def _has_payments(db, invoice_id: int) -> bool:
     return row[0] > 0
 
 def _price_items(db, items, fallback_amount):
-    """Roll up invoice line totals with per-line tax.
+    """Roll up invoice line totals with per-line tax AND per-line discount.
+
+    Per-line net is computed as `qty * unit_price - discount`, floored at 0.
+    Tax is then computed on the discounted net (which matches how the rest of
+    the world prices a discounted invoice — tax follows the customer's actual
+    consideration, not the pre-discount sticker price). An itemless invoice
+    treats `fallback_amount` as the net and applies the default rate.
 
     Returns (subtotal, tax_total, grand_total, line_tax) where line_tax is a
-    list parallel to `items` of (tax_rate_id, tax_rate, tax_amount). An itemless
-    invoice treats `fallback_amount` as the net and applies the default rate.
+    list parallel to `items` of (tax_rate_id, tax_rate, tax_amount).
     """
     ctx = get_tax_context(db)
     line_tax = []
     if items:
         subtotal = tax_total = 0.0
         for it in items:
-            # Per-line net at cents; tax is already cent-rounded by the helper.
-            net = money(float(it.quantity) * float(it.unit_price))
+            qty   = float(getattr(it, "quantity", 0) or 0)
+            price = float(getattr(it, "unit_price", 0) or 0)
+            disc  = float(getattr(it, "discount", 0) or 0)
+            # Per-line net at cents (after discount), tax is cent-rounded by
+            # the helper. max(0,...) keeps an over-large discount from
+            # producing a negative line that would distort the rollup.
+            net = money(max(0.0, qty * price - disc))
             rid, rate, tax_amt = resolve_line_tax(ctx, it.tax_rate_id, net)
             subtotal  += net
             tax_total += tax_amt
@@ -285,9 +300,11 @@ def create_invoice(
         rid, rate, tax_amt = line_tax[idx]
         db.execute(
             "INSERT INTO invoice_items "
-            "(invoice_id, name, quantity, unit_price, tax_rate_id, tax_rate, tax_amount) "
-            "VALUES (?,?,?,?,?,?,?)",
-            (invoice_id, item.name, item.quantity, item.unit_price, rid, rate, tax_amt),
+            "(invoice_id, name, quantity, unit_price, discount, tax_rate_id, tax_rate, tax_amount) "
+            "VALUES (?,?,?,?,?,?,?,?)",
+            (invoice_id, item.name, item.quantity, item.unit_price,
+             float(getattr(item, "discount", 0) or 0),
+             rid, rate, tax_amt),
         )
     # Auto-advance the linked project's status to Invoiced (forward-only).
     bump_project_status(db, data.project_id, "Invoiced")

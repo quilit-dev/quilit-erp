@@ -19,6 +19,7 @@ import { useNavigate } from 'react-router-dom';
 import { searchAll } from '../api/client';
 import { useLocale } from '../hooks/useLocale.jsx';
 import { usePermissions } from '../hooks/usePermissions.js';
+import { useScrollLock } from '../hooks/useScrollLock';
 
 // Emoji-only — same set across themes so the palette renders identically in
 // light/dark and in both Latin and Arabic numerals.
@@ -197,6 +198,11 @@ export default function CommandPalette({ open, onClose }) {
   const navigate  = useNavigate();
   const { t, isRTL } = useLocale();
   const { isSuperadmin, can } = usePermissions();
+
+  // Freeze the page scroll while the palette is open. Otherwise scrolling
+  // past the end of the results list bleeds through to the underlying
+  // page, which is disorienting.
+  useScrollLock(open);
 
   // Hydrate the navigation menu with localized labels. Permissions filter
   // out items the user can't open — a search hit on a locked module is a

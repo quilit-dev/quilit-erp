@@ -150,6 +150,8 @@ const en = {
     subtotal: 'Subtotal',
     tax: 'Tax ({{rate}}%)',
     taxCol: 'Tax',
+    discount: 'Discount',
+    filters: 'Filters',
     type: 'Type',
     totalValue: 'Total Value',
     voided: 'Voided',
@@ -173,6 +175,14 @@ const en = {
     main: 'Main',
     system: 'System',
     admin: 'Admin',
+
+    // Workflow directory labels — shown as bracketed monospace eyebrows
+    // above each section in the redesigned sidebar.
+    section_sales:      'Sales',
+    section_delivery:   'Delivery',
+    section_operations: 'Operations',
+    section_finance:    'Finance',
+    section_people:     'People',
     erpPlatform: 'ERP Platform',
     signOut: 'Sign out',
     administrator: 'Administrator',
@@ -497,6 +507,25 @@ const en = {
     signIn: 'Sign In',
     signingIn: 'Signing in…',
     invalidCredentials: 'Invalid credentials. Please try again.',
+
+    // Brand panel (left side on desktop)
+    brandHeadline: 'Run your business with confidence.',
+    brandTagline:  'One integrated platform for sales, inventory, finance, manufacturing, HR and reporting — built for the way you actually work.',
+    brandFooter:   'Secure local deployment',
+
+    // Form chrome
+    usernamePlaceholder: 'admin',
+    showPassword:        'Show password',
+    hidePassword:        'Hide password',
+    forgotPassword:      'Forgot password?',
+
+    // Value props — three short proof points shown beneath the headline
+    valueGl:      'Double-entry general ledger',
+    valueGlSub:   'Audit-grade books, period locks, multi-currency.',
+    valueOps:     'Operations end-to-end',
+    valueOpsSub:  'Quotes → invoices → inventory → POS, in one place.',
+    valuePeople:  'People & payroll',
+    valuePeopleSub:'Contracts, leave, payroll, recruitment.',
   },
 
   dashboard: {
@@ -1021,6 +1050,19 @@ const en = {
     drawerCreated: 'Cash drawer created',
     drawerUpdated: 'Cash drawer updated',
     noDrawers: 'No cash drawers yet.',
+    // ── New keys for the redesigned workspace (KPI strip + empty hero) ──
+    noDrawersTitle: 'No cash drawers configured yet',
+    noDrawersHint:  'Add a cash drawer in the Drawers tab to begin recording daily till counts, automated sales and expense capture, and variance reports.',
+    openDrawers:    'Drawers open today',
+    allStarted:     'All drawers started',
+    notStartedCount:'{{count}} not started',
+    expectedOnHand: 'Expected on hand',
+    acrossDrawers:  'across {{n}} drawer(s)',
+    todayAnomalies: 'Variance anomalies',
+    varianceFound:  'Review the affected drawers',
+    noVariance:     'All closed drawers balance',
+    notStartedHint: 'No reconciliation opened for this drawer today.',
+    reconciliations:'reconciliations',
     openDay: 'Open Day',
     openReconciliation: 'Open Reconciliation',
     businessDate: 'Business date',
@@ -1085,6 +1127,7 @@ const en = {
     sessionTotal: 'Session total',
     searchProducts: 'Scan barcode or search items…',
     noProducts: 'No matching items.',
+    allProducts: 'All',
     cart: 'Cart',
     cartEmpty: 'Cart is empty. Scan or search to add items.',
     customLine: '+ Custom line',
@@ -1758,7 +1801,7 @@ const en = {
     taxType_exempt: 'Exempt',
     documentSettings: 'Document Settings',
     footerText: 'Default Footer Text',
-    showDiscountCol: 'Show Discount Column in PDFs',
+    showDiscountCol: 'Enable per-line discounts (quotations, invoices, POS)',
     showTaxCol: 'Show Tax Column in PDFs',
     backupIntegrity: 'Backup & Data Integrity',
     offlineTitle: 'Works offline. Survives power cuts.',

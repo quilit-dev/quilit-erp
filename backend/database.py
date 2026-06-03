@@ -2428,6 +2428,18 @@ def _run_migrations(conn, c):
 
         done("122_warehouses")
 
+    # ── 123: per-line discount on quotation_items ──────────────────────────
+    # invoice_items and pos_sale_items already carry a `discount` column from
+    # earlier migrations; quotation_items did not. Adding it here closes the
+    # last gap so the Settings → "Enable per-line discounts" toggle has a
+    # column to drive in every customer-facing document type.
+    add_col(
+        "123_quotation_items_discount",
+        "quotation_items",
+        "discount",
+        "ALTER TABLE quotation_items ADD COLUMN discount REAL NOT NULL DEFAULT 0",
+    )
+
     # ── 103: generic attachments (files on any business entity) ────────────
     # One table backs file attachments for every module (invoices, purchases,
     # projects, expenses, assets, suppliers, clients, quotations, inventory).

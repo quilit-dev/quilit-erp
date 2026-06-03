@@ -721,7 +721,7 @@ function ApplicantDetail({ appId, canEdit, canDelete, positions, onClose, onChan
   return (
     <Modal title={`${app.full_name}${app.position_title ? ` — ${app.position_title}` : ''}`}
            onClose={onClose} size="modal-lg">
-      <div className="modal-body" style={{ maxHeight: '72vh', overflowY: 'auto' }}>
+      <div className="modal-body">
 
         {/* Status + quick actions */}
         <div style={{ display: 'flex', alignItems: 'center', gap: 14, marginBottom: 18, flexWrap: 'wrap' }}>

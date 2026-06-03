@@ -349,7 +349,11 @@ export default function RoleManagement() {
               </div>
             )}
 
-            <div style={{ overflowX: 'auto', overflowY: 'auto', maxHeight: '65vh' }}>
+            {/* Inner scroller — kept independent so the wide permission
+                matrix scrolls horizontally without hijacking the modal's
+                vertical scroll. The vertical cap is handled by the
+                shared .modal-body flex sizing now, so no maxHeight here. */}
+            <div style={{ overflowX: 'auto', overflowY: 'auto' }}>
               <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: 13 }}>
                 <thead style={{ position: 'sticky', top: 0, zIndex: 2 }}>
                   <tr style={{ background: 'var(--surface-2)', borderBottom: '2px solid var(--border)' }}>

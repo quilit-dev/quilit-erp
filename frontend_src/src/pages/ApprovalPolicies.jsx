@@ -206,7 +206,7 @@ function PolicyForm({ initial, meta, roles, onSave, onClose }) {
 
   return (
     <form onSubmit={handleSubmit}>
-      <div className="modal-body" style={{ maxHeight: '72vh', overflowY: 'auto' }}>
+      <div className="modal-body">
 
         {/* Basic info */}
         <div style={sectionStyle}>

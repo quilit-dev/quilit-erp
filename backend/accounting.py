@@ -29,7 +29,32 @@ Design notes
   owns the transaction.
 """
 import sqlite3
-from utils import _now, money
+from utils import _now, _today, money
+
+
+def clamp_posting_date(period_end: str) -> str:
+    """Pull a period-end posting date back to today if it is in the future.
+
+    Period-charge events (payroll, depreciation) are conceptually dated to the
+    END of the period they cover. But when an operator runs them mid-period —
+    e.g. pays this month's payroll on the 3rd, or runs the current month's
+    depreciation before month-end — dating the journal entry to the (future)
+    month-end pushes it outside the default "this month → today" GL / Trial
+    Balance views, so the operator thinks "it didn't post".
+
+    `min(period_end, today)` fixes that without distorting history:
+      • A back-period run (April paid in June) keeps its own month-end —
+        2026-04-30 is already < today, so it is returned unchanged.
+      • A current-period run dated to a future month-end is pulled back to
+        today, so it appears immediately in the default views.
+
+    Accepts and returns a 'YYYY-MM-DD' string (the first 10 chars are used).
+    """
+    pe = (period_end or "")[:10]
+    today = _today()
+    if not pe:
+        return today
+    return min(pe, today)
 
 # ── Stable system-account codes (seeded in migrations 104 + 120) ────────────
 CASH         = "1000"   # Cash & Bank (functional currency — USD)

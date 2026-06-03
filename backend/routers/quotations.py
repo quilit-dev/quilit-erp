@@ -31,18 +31,32 @@ class QuoteItem(BaseModel):
     name: str
     quantity: float
     unit_price: float
+    # Per-line discount in functional currency. Defaults to 0 so callers that
+    # never use discounts (and the existing API contract) keep working
+    # unchanged. The pricing roll-up subtracts it from the net before tax,
+    # matching how invoices and POS handle the same field.
+    discount: float = 0
     tax_rate_id: Optional[int] = None
 
 
 def _price_quote_items(db, items):
-    """Roll up quotation line totals with per-line tax.
+    """Roll up quotation line totals with per-line tax AND per-line discount.
+
+    Net per line is `qty * unit_price - discount`, floored at 0 so a typo
+    can't produce a negative net. Tax is computed on the discounted net so
+    the customer is taxed on what they actually pay. Lines are cent-rounded
+    so SUM(line.tax_amount) == header.tax_total.
+
     Returns (subtotal, tax_total, line_tax) — line_tax parallel to `items`.
-    Lines are cent-rounded so SUM(line.tax_amount) == header.tax_total."""
+    """
     ctx = get_tax_context(db)
     subtotal = tax_total = 0.0
     line_tax = []
     for it in items:
-        net = money(float(it.quantity) * float(it.unit_price))
+        qty   = float(it.quantity or 0)
+        price = float(it.unit_price or 0)
+        disc  = float(getattr(it, "discount", 0) or 0)
+        net = money(max(0.0, qty * price - disc))
         rid, rate, tax_amt = resolve_line_tax(ctx, it.tax_rate_id, net)
         subtotal  += net
         tax_total += tax_amt
@@ -165,10 +179,15 @@ def create_quotation(
         rid, rate, tax_amt = line_tax[idx]
         db.execute(
             "INSERT INTO quotation_items "
-            "(quotation_id, name, quantity, unit_price, total, tax_rate_id, tax_rate, tax_amount) "
-            "VALUES (?,?,?,?,?,?,?,?)",
+            "(quotation_id, name, quantity, unit_price, discount, total, tax_rate_id, tax_rate, tax_amount) "
+            "VALUES (?,?,?,?,?,?,?,?,?)",
             (qid, item.name, item.quantity, item.unit_price,
-             round(item.quantity * item.unit_price, 4), rid, rate, tax_amt),
+             float(getattr(item, "discount", 0) or 0),
+             # `total` mirrors the line net after discount so historical
+             # reports tie to the modern pricing math.
+             round(max(0.0, item.quantity * item.unit_price
+                            - float(getattr(item, "discount", 0) or 0)), 4),
+             rid, rate, tax_amt),
         )
     # Auto-advance the linked project's status — a quotation existing means
     # we're at least past "Inquiry" / "Quotation Sent".

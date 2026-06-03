@@ -1446,10 +1446,19 @@ def mark_payroll_run_paid(
     if total_usd <= 0:
         raise HTTPException(400, "Cannot post a zero-net payroll run as an expense.")
 
+    # The posting date is the period end, but never a future date: a payroll
+    # disbursed today must not land in a month-end that hasn't arrived yet,
+    # which would hide it from the default "this month → today" Finance,
+    # GL and Trial Balance views (the operator would think it "didn't post").
+    # clamp_posting_date pulls a future period-end back to today while leaving
+    # any back-period run on its own month-end. The SAME date is used for both
+    # the cash-basis expense row and the accrual GL entry so the two agree.
+    post_date = accounting.clamp_posting_date(run["period_end"])
+
     exp_cur = db.execute(
         "INSERT INTO expenses (category, description, amount, date, created_at) "
         "VALUES ('Payroll', ?, ?, ?, ?)",
-        (desc, total_usd, run["period_end"], now),
+        (desc, total_usd, post_date, now),
     )
     expense_id = exp_cur.lastrowid
     db.execute(
@@ -1462,7 +1471,7 @@ def mark_payroll_run_paid(
     # physically left from.
     accounting.post_entry(
         db,
-        entry_date=run["period_end"][:10],
+        entry_date=post_date,
         memo=desc,
         lines=gl_lines + cash_lines,
         source_type="payroll", source_id=run_id, created_by=user["id"],

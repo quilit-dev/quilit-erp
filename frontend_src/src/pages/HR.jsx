@@ -791,7 +791,7 @@ function EmployeeDetail({ empId, canEdit, onClose, onEdit, onChanged }) {
 
   return (
     <Modal title={`${emp.full_name} — ${emp.employee_code || ''}`} onClose={onClose} size="modal-lg">
-      <div className="modal-body" style={{ maxHeight: '70vh', overflowY: 'auto' }}>
+      <div className="modal-body">
 
         {/* ── Profile summary ───────────────────────────────────────────── */}
         <div style={{ display: 'grid', gridTemplateColumns: 'repeat(3, 1fr)', gap: 12, marginBottom: 18 }}>
@@ -1129,7 +1129,7 @@ function PayrollRunPanel({ runId, canEdit, canApprove, canDelete, onClose, onCha
     <Modal
       title={`${t('hr.payrollHeader')} · ${fmtDate(run.period_start)} → ${fmtDate(run.period_end)}`}
       onClose={onClose} size="modal-lg">
-      <div className="modal-body" style={{ maxHeight: '70vh', overflowY: 'auto' }}>
+      <div className="modal-body">
 
         {/* Header — status + totals */}
         <div style={{ display: 'flex', alignItems: 'center', gap: 14, marginBottom: 18 }}>

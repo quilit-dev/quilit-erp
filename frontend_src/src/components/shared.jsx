@@ -1,18 +1,32 @@
 import * as XLSX from 'xlsx';
 import { useLocale } from '../hooks/useLocale.jsx';
 import { useSettings } from '../hooks/useSettings.jsx';
+import { useScrollLock } from '../hooks/useScrollLock';
 
-// ── Loading / Error states ─────────────────────────────────────
+// ── Loading / Error / Empty states ─────────────────────────────
+//
+// Three primitives that share an editorial language: a thin rotating arc
+// with an italic serif caption (Loading), a hairline tinted alert with an
+// inline icon (Error), and an editorial empty page anchored by a large
+// serif glyph rather than an emoji (Empty). The signatures stay the same
+// so existing callers don't change.
+
 export function LoadingSpinner() {
   const { t } = useLocale();
   return (
     <div style={{ textAlign: 'center', padding: '56px 20px', color: 'var(--text-3)' }}>
-      <svg width="28" height="28" viewBox="0 0 24 24" fill="none" stroke="var(--accent)"
-        strokeWidth="2.5" style={{ animation: 'spin 0.8s linear infinite', display: 'block', margin: '0 auto 12px' }}>
+      <svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="var(--accent)"
+        strokeWidth="1.75" strokeLinecap="round"
+        style={{ animation: 'spin 0.9s linear infinite', display: 'block', margin: '0 auto 14px' }}>
         <path d="M21 12a9 9 0 11-6.219-8.56" />
       </svg>
-      <style>{`@keyframes spin { to { transform: rotate(360deg); } }`}</style>
-      <p style={{ fontSize: 13, color: 'var(--text-3)' }}>{t('common.loading')}</p>
+      <p style={{
+        fontFamily: 'var(--font-sans)',
+        fontSize: 13,
+        fontWeight: 500,
+        color: 'var(--text-3)',
+        letterSpacing: -0.005,
+      }}>{t('common.loading')}</p>
     </div>
   );
 }
@@ -21,7 +35,7 @@ export function ErrorAlert({ message, onRetry }) {
   const { t } = useLocale();
   return (
     <div className="alert alert-red">
-      <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" style={{ flexShrink: 0 }}>
+      <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" style={{ flexShrink: 0, marginTop: 2 }}>
         <circle cx="12" cy="12" r="10"/><line x1="12" y1="8" x2="12" y2="12"/><line x1="12" y1="16" x2="12.01" y2="16"/>
       </svg>
       <span style={{ flex: 1 }}>{message}</span>
@@ -30,11 +44,15 @@ export function ErrorAlert({ message, onRetry }) {
   );
 }
 
-export function EmptyState({ message, icon = '📭' }) {
+// Empty state. Default mark is a thin "+" inside the hairline-dashed
+// square the CSS draws — reads as an open slot waiting for data, no
+// editorial italic vocabulary. Callers can still pass any glyph via
+// `icon` for category-specific empties.
+export function EmptyState({ message, icon }) {
   const { t } = useLocale();
   return (
     <div className="empty-state">
-      <div className="empty-state-icon">{icon}</div>
+      <div className="empty-state-icon">{icon || '+'}</div>
       <div className="empty-state-title">{t('common.nothingHere')}</div>
       <p>{message || t('common.noDataFound')}</p>
     </div>
@@ -42,13 +60,21 @@ export function EmptyState({ message, icon = '📭' }) {
 }
 
 // ── Modal ──────────────────────────────────────────────────────
+//
+// Standard dialog frame. The CSS handles the geometry — sticky header +
+// scrollable body + sticky footer — so callers should always wrap their
+// content in <div className="modal-body"> (and an optional .modal-footer
+// for actions). The shared Modal locks the body scroll for as long as it
+// is mounted to prevent the page underneath from scrolling when the
+// wheel hits the end of the modal content.
 export function Modal({ title, onClose, children, size = '' }) {
+  useScrollLock(true);
   return (
     <div className="modal-overlay" onClick={(e) => e.target === e.currentTarget && onClose()}>
-      <div className={`modal ${size}`}>
+      <div className={`modal ${size}`} onClick={e => e.stopPropagation()}>
         <div className="modal-header">
           <span className="modal-title">{title}</span>
-          <button className="icon-btn" onClick={onClose} style={{ marginLeft: 8 }}>
+          <button className="icon-btn" onClick={onClose} style={{ marginInlineStart: 8 }} aria-label="Close">
             <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round">
               <line x1="18" y1="6" x2="6" y2="18"/><line x1="6" y1="6" x2="18" y2="18"/>
             </svg>

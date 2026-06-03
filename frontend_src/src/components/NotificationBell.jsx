@@ -5,6 +5,7 @@ import {
   deleteNotification, getNotificationCount,
 } from '../api/client';
 import { useLocale } from '../hooks/useLocale.jsx';
+import { useScrollLock } from '../hooks/useScrollLock';
 
 const POLL_MS = 30_000;
 
@@ -113,6 +114,10 @@ export default function NotificationBell() {
   const [unread, setUnread]       = useState(0);
   const [loading, setLoading]     = useState(false);
   const wrapRef                   = useRef(null);
+
+  // Lock body scroll while the dropdown is open so scrolling the list
+  // doesn't bleed through to the page underneath. Released on close.
+  useScrollLock(open);
 
   const fetchCount = useCallback(async () => {
     try {
