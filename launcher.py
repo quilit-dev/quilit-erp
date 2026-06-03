@@ -19,18 +19,40 @@ except ImportError:
     pass  # python-dotenv missing in a frozen build — env vars still work via OS
 
 # ── Paths ──────────────────────────────────────────────────────────────────
-# When frozen by PyInstaller (onedir):
+# When frozen by PyInstaller (onedir / .app):
 #   - Read-only bundled files (backend .py, static) live in sys._MEIPASS
-#     because they are declared in datas[] in ERP.spec.
-#   - Writable files (erp.db, logs, backups) go to APPDATA so they work
-#     even when installed to Program Files (read-protected for non-admins).
+#     because they are declared in datas[] in the spec.
+#   - Writable files (erp.db, logs, backups) go to a per-user data dir so
+#     they work even when the app is installed to a read-protected location
+#     (Program Files on Windows, /Applications on macOS).
 # When running from source (dev mode) everything stays next to this file.
 
 FROZEN = getattr(sys, 'frozen', False)
 
+
+def _user_data_dir(app_name='ERP System'):
+    """Per-user writable data directory, using the right convention per OS:
+
+      * Windows  → %APPDATA%\\ERP System
+      * macOS    → ~/Library/Application Support/ERP System
+      * Linux    → $XDG_DATA_HOME/ERP System  (or ~/.local/share/ERP System)
+
+    Falls back to ~/ERP System if nothing else resolves. This keeps the
+    customer's database out of the read-only app bundle on every platform.
+    """
+    if sys.platform == 'win32':
+        base = os.environ.get('APPDATA') or os.path.expanduser('~')
+    elif sys.platform == 'darwin':
+        base = os.path.join(os.path.expanduser('~'), 'Library', 'Application Support')
+    else:  # linux / other unix
+        base = os.environ.get('XDG_DATA_HOME') or os.path.join(
+            os.path.expanduser('~'), '.local', 'share')
+    return os.path.join(base, app_name)
+
+
 if FROZEN:
     BUNDLE_DIR = sys._MEIPASS
-    DATA_DIR   = os.path.join(os.environ.get('APPDATA', os.path.expanduser('~')), 'ERP System')
+    DATA_DIR   = _user_data_dir()
 else:
     BUNDLE_DIR = os.path.dirname(os.path.abspath(__file__))
     DATA_DIR   = BUNDLE_DIR

@@ -1,0 +1,103 @@
+name: Build macOS app
+
+# Builds "ERP System.app" on a cloud macOS runner and packages it as a .dmg.
+# Triggered manually from the Actions tab, or automatically on a version tag.
+#
+# Why a cloud Mac: PyInstaller cannot cross-compile — a macOS binary must be
+# built on macOS. This runner does that so no Mac hardware is needed locally.
+#
+# Runner choice: macos-13 is an INTEL runner. An Intel build runs natively on
+# Intel Macs AND on Apple Silicon (M1–M4) via Rosetta 2, so a single .dmg
+# covers every Mac. macOS auto-prompts to install Rosetta the first time an
+# Apple-Silicon user opens it (a one-click step). To build a NATIVE Apple-
+# Silicon binary instead (no Rosetta, but won't run on Intel), switch
+# `runs-on:` to `macos-14`.
+
+on:
+  workflow_dispatch: {}        # manual "Run workflow" button in the Actions tab
+  push:
+    tags:
+      - 'v*'                   # e.g. pushing tag v2.2.0 builds automatically
+
+jobs:
+  build-macos:
+    runs-on: macos-13          # Intel → widest Mac compatibility (Intel + Rosetta)
+    timeout-minutes: 30
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+
+      - name: Set up Node
+        uses: actions/setup-node@v4
+        with:
+          node-version: '20'
+
+      - name: Install Python dependencies
+        run: |
+          python -m pip install --upgrade pip
+          pip install -r backend/requirements.txt
+          pip install pyinstaller
+
+      - name: Build frontend (Vite)
+        working-directory: frontend_src
+        run: |
+          npm ci || npm install
+          npm run build
+
+      - name: Seed default database
+        env:
+          DB_PATH: erp.db           # repo-root erp.db (CWD is the checkout root)
+        run: |
+          python backend/seed.py --reset
+          # VACUUM the freshly-seeded DB into the read-only template the app
+          # ships with and copies into the user data dir on first launch.
+          python -c "import sqlite3; c=sqlite3.connect('erp.db'); c.execute('VACUUM INTO ?', ('default.db',)); c.close()"
+          test -f default.db && echo "default.db created ($(du -h default.db | cut -f1))"
+
+      - name: Build .app (PyInstaller)
+        run: |
+          python -m PyInstaller --noconfirm ERP-mac.spec
+          test -d "dist/ERP System.app" || (echo "::error::.app was not produced" && exit 1)
+          # Confirm the seeded DB landed inside the bundle.
+          test -f "dist/ERP System.app/Contents/Resources/default.db" \
+            || test -f "dist/ERP System.app/Contents/MacOS/default.db" \
+            || echo "::warning::default.db not found in expected bundle path (app will seed an empty schema on first run)"
+
+      - name: Package .dmg
+        run: |
+          brew install create-dmg
+          VERSION=$(python -c "import re,sys; s=open('installer/ERP-System.iss',encoding='utf-8').read(); m=re.search(r'MyAppVersion\s+\"([^\"]+)\"', s); print(m.group(1) if m else '0.0.0')")
+          echo "Version: $VERSION"
+          DMG="ERP-System-$VERSION.dmg"
+          echo "DMG_NAME=$DMG" >> "$GITHUB_ENV"
+          # create-dmg makes a styled drag-to-Applications image. It can return
+          # a non-zero code on purely cosmetic warnings, so we fall back to a
+          # plain hdiutil image if the styled one wasn't produced.
+          create-dmg \
+            --volname "ERP System" \
+            --window-size 540 380 \
+            --icon-size 100 \
+            --icon "ERP System.app" 140 190 \
+            --app-drop-link 400 190 \
+            "$DMG" \
+            "dist/ERP System.app" || true
+          if [ ! -f "$DMG" ]; then
+            echo "Styled DMG not produced — falling back to hdiutil."
+            hdiutil create -volname "ERP System" \
+              -srcfolder "dist/ERP System.app" -ov -format UDZO "$DMG"
+          fi
+          ls -lh "$DMG"
+
+      - name: Upload .dmg artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: ERP-System-macOS
+          path: ${{ env.DMG_NAME }}
+          if-no-files-found: error
+          retention-days: 30
