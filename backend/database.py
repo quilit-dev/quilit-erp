@@ -2509,6 +2509,21 @@ def _run_migrations(conn, c):
                   "ON attachments(entity_type, entity_id, created_at)")
         done("103_attachments")
 
+    # ── 124: attachment object-storage backend (Phase 3) ──────────────────
+    # `storage_backend` says where the bytes live: 'db' (the BLOB column, the
+    # default — unchanged behavior) or 's3' (an S3/R2 object keyed by
+    # `storage_key`). For 's3' rows the BLOB is left empty. Adding columns only
+    # (no table rebuild) keeps this migration cheap and reversible.
+    if need("124_attachment_storage"):
+        if "attachments" in all_tables():
+            ac = cols("attachments")
+            if "storage_backend" not in ac:
+                c.execute("ALTER TABLE attachments ADD COLUMN storage_backend "
+                          "TEXT NOT NULL DEFAULT 'db'")
+            if "storage_key" not in ac:
+                c.execute("ALTER TABLE attachments ADD COLUMN storage_key TEXT")
+        done("124_attachment_storage")
+
     # ── 091: backfill hire-row per existing employee ───────────────────────
     # Every employee already in the system gets a synthetic 'hire' row so the
     # timeline view isn't blank on existing data. Idempotent: only inserts when
