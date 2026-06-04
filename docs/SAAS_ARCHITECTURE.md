@@ -14,14 +14,14 @@ RBAC, approvals, audit, reports, API contracts, or UI behavior.
 | Phase | State | Evidence |
 |---|---|---|
 | **0 — DB-abstraction seam** | ✅ **Done** | `db_compat.py`, `dialect.py`; `get_db` routes through `CompatConn`; SQLite is the transparent default. 16 unit tests + full suite green (823 passed). |
-| **1 — PostgreSQL backend** | 🟡 **In progress (test parity)** | Squashed `migrations/pg_baseline.sql` (91 tables, 172 FKs, 231 indexes, seed data) generated + validated on PG 16; `get_db`/`init_db` Postgres paths wired; `conftest` runs the **same** suite on either backend via `DB_BACKEND=postgres`. Green on PG so far: accounting, attachments, pos, period-locking, setup-wizard, warehouses. SQLite unchanged (823 passed, 0 regressions). |
+| **1 — PostgreSQL backend** | ✅ **Done** | Squashed `migrations/pg_baseline.sql` (91 tables, 172 FKs, 231 indexes, seed data) generated + validated on PG 16; `get_db`/`init_db` Postgres paths wired. **The FULL suite passes on BOTH backends — 840 passed / 1 skipped on SQLite AND on PostgreSQL 16.** `conftest` runs the same suite on either backend via `DB_BACKEND=postgres`, using TEMPLATE-database cloning for fast per-test isolation (~1.4s/test). CI (`.github/workflows/tests.yml`) runs both backends on every push so parity can't regress. |
 | 2–6 | ⬜ Planned | — |
 
 **Dialect translations implemented** (`dialect.py`, SQLite→Postgres, all verified by the dual-backend suite): `?`→`%s` + `%` escaping; auto `RETURNING id` for `lastrowid`; `datetime('now',…)`/`date('now')`; `date(col)`/`datetime(col)`→`substr` (balanced-paren); `strftime('%Y-%m'|'%Y',…)`; `sqlite_master`→`information_schema`; `INSERT OR IGNORE`/`INSERT OR REPLACE`→`ON CONFLICT`; `IS NOT <val>`→`IS DISTINCT FROM`; `? IS NULL`→`CAST(? AS TEXT) IS NULL`; `AUTOINCREMENT`→`IDENTITY`; `char()`→`chr()`; `PRAGMA`→no-op/`'ok'`; `DROP TABLE`→`… CASCADE`.
 
-**Result-identical app-SQL portability fixes** (verified on both engines — no calculation change): inlined `HAVING`-clause aliases (Postgres disallows output aliases in `HAVING`) in `accounting.py` (trial balance), `finance.py` (data-integrity checks ×2), `reports.py` (warehouse valuation), and one test consistency query.
+**Result-identical app-SQL portability fixes** (verified on both engines — no calculation change): inlined `HAVING`-clause aliases (`accounting.py` trial balance, `finance.py` ×2, `reports.py`); `SUM(<boolean>)` → `SUM(CASE WHEN … THEN 1 ELSE 0 END)` (`hr.py`); added joined columns to `GROUP BY` (`manufacturing.py`, `clients.py`); replaced `datetime('now', <param>)` with a Python-computed UTC cutoff (`utils.py`, `audit.py`, `users.py`). Cross-cutting: `error_handlers.py` now catches psycopg's `IntegrityError` hierarchy too, so FK/UNIQUE/NOT-NULL violations return 400 (not 500) on Postgres — matching SQLite.
 
-**Remaining for Phase 1:** run the rest of the suite on PG and close the same gap classes as they surface (finance/reports/dashboard/hr/crm/recruitment/manufacturing/inventory test files); a faster per-test PG rebuild (TEMPLATE db) for the full run; and a CI lane running the suite against a `postgres:16` service container. See §6.
+**Phase 1 is complete.** Next is **Phase 2 — schema-per-tenant multi-tenancy** (§7): a `public.tenants` catalog, tenant resolution at login, and `SET LOCAL search_path` routing in `get_db`.
 
 ---
 
