@@ -3,6 +3,7 @@ from datetime import datetime
 
 from db_compat import CompatConn
 from dialect import get_dialect
+from tenant_context import IS_SCHEMA_TENANCY, current_schema, valid_schema_name
 
 DB_PATH = os.environ.get("DB_PATH", "erp.db")
 
@@ -39,7 +40,16 @@ def get_db():
     elif DB_BACKEND in ("postgres", "postgresql", "pg"):
         import psycopg
         from psycopg.rows import dict_row
-        raw = psycopg.connect(_pg_dsn(), row_factory=dict_row)
+        connect_kwargs = {"row_factory": dict_row}
+        # Schema-per-tenant routing (Phase 2): pin the session's search_path to the
+        # request's tenant schema at connection time (libpq -c option, applied
+        # before any transaction). The schema name is validated, so it is safe to
+        # interpolate. In single-tenant mode this is skipped → default `public`.
+        if IS_SCHEMA_TENANCY:
+            schema = current_schema()
+            if valid_schema_name(schema):
+                connect_kwargs["options"] = f"-c search_path={schema},public"
+        raw = psycopg.connect(_pg_dsn(), **connect_kwargs)
         conn = CompatConn(raw, get_dialect("postgres"))
         try:
             yield conn

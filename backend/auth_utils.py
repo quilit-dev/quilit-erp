@@ -81,8 +81,13 @@ def verify_password(password: str, stored: str) -> bool:
 
 
 def create_token(user_id: int, username: str, role: str,
-                 role_id: int = None, is_superadmin: bool = False) -> tuple[str, str]:
-    """Returns (token, jti). jti is a UUID stored in user_sessions for revocation."""
+                 role_id: int = None, is_superadmin: bool = False,
+                 schema: str = None) -> tuple[str, str]:
+    """Returns (token, jti). jti is a UUID stored in user_sessions for revocation.
+
+    In schema-per-tenant mode the caller passes the tenant's ``schema``; it is
+    embedded as a signed claim so every later request from this token is routed
+    to that tenant (and only that tenant). Omitted in single-tenant mode."""
     jti = str(uuid.uuid4())
     payload = {
         "sub":          str(user_id),
@@ -93,6 +98,8 @@ def create_token(user_id: int, username: str, role: str,
         "jti":          jti,
         "exp":          datetime.utcnow() + timedelta(hours=TOKEN_EXPIRE_HOURS),
     }
+    if schema:
+        payload["schema"] = schema
     return jwt.encode(payload, SECRET_KEY, algorithm=ALGORITHM), jti
 
 

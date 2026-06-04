@@ -78,7 +78,7 @@ a = Analysis(
         'socket', 'threading', 'webbrowser', 'traceback',
 
         # Backend core modules
-        'database', 'db_compat', 'dialect', 'auth_utils', 'backup_manager', 'permissions', 'utils',
+        'database', 'db_compat', 'dialect', 'tenancy', 'tenant_context', 'auth_utils', 'backup_manager', 'permissions', 'utils',
         'approval_engine',
         # Shared helpers routers import dynamically (function-level imports
         # PyInstaller's static analyser can miss):

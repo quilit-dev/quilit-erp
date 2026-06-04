@@ -75,9 +75,14 @@ def login(data: LoginRequest, request: Request, response: Response, db: sqlite3.
 
     _clear_attempts(db, ip)
 
+    # In schema-per-tenant mode, bind the token to the tenant the request resolved
+    # to (the same schema this very query ran against), so the session can only
+    # ever reach this tenant. No-op in single-tenant mode.
+    from tenant_context import IS_SCHEMA_TENANCY, current_schema
     token, jti = create_token(
         row["id"], row["username"], row["role"] or "user",
-        row["role_id"], bool(row["is_superadmin"])
+        row["role_id"], bool(row["is_superadmin"]),
+        schema=current_schema() if IS_SCHEMA_TENANCY else None,
     )
 
     # Revoke any existing sessions for this user so only one active session exists

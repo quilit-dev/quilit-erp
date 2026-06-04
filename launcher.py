@@ -196,6 +196,11 @@ try:
                                       f'http://{LAN_IP}:{PORT}'],
                        allow_credentials=False, allow_methods=['*'], allow_headers=['*'])
 
+    # Schema-per-tenant routing (Phase 2). Inert unless TENANCY=schema, so the
+    # desktop / single-tenant install is unaffected.
+    from tenancy import TenantMiddleware
+    app.add_middleware(TenantMiddleware)
+
     # Bad-input safety net: known failures -> clean 4xx instead of 500.
     from error_handlers import register_error_handlers
     register_error_handlers(app)

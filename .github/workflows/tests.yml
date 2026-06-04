@@ -61,3 +61,49 @@ jobs:
       - name: Run test suite (${{ matrix.backend }})
         working-directory: backend
         run: python -m pytest tests -q -p no:cacheprovider
+
+  # Phase 2: schema-per-tenant isolation. Runs only the multitenancy suite, in
+  # TENANCY=schema mode on Postgres (the matrix job above skips it via skipif).
+  multitenancy:
+    name: multitenancy (postgres, schema-per-tenant)
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+
+    services:
+      postgres:
+        image: postgres:16
+        env:
+          POSTGRES_PASSWORD: postgres
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd "pg_isready -U postgres"
+          --health-interval 5s
+          --health-timeout 5s
+          --health-retries 10
+
+    env:
+      DB_BACKEND: postgres
+      TENANCY: schema
+      DATABASE_URL: postgresql://postgres:postgres@localhost:5432/erp_test
+      SECRET_KEY: ci-test-secret-key-not-for-production-0123456789abcd
+      COOKIE_SECURE: 'false'
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+
+      - name: Install dependencies
+        run: |
+          python -m pip install --upgrade pip
+          pip install -r backend/requirements.txt -r backend/requirements-cloud.txt
+          pip install pytest httpx
+
+      - name: Run schema-per-tenant isolation tests
+        working-directory: backend
+        run: python -m pytest tests/test_multitenancy.py -q -p no:cacheprovider

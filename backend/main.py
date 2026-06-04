@@ -39,6 +39,11 @@ app.add_middleware(
     allow_headers=["*"],
 )
 
+# Schema-per-tenant routing (Phase 2). Self-disables unless TENANCY=schema, so
+# single-tenant / desktop installs are completely unaffected.
+from tenancy import TenantMiddleware
+app.add_middleware(TenantMiddleware)
+
 app.include_router(auth.router,        prefix="/api/auth",        tags=["auth"])
 app.include_router(dashboard.router,   prefix="/api/dashboard",   tags=["dashboard"])
 app.include_router(clients.router,     prefix="/api/clients",     tags=["clients"])
