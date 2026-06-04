@@ -1,0 +1,12 @@
+# Cloud / SaaS runtime dependencies — PostgreSQL backend (DB_BACKEND=postgres).
+#
+# The desktop / self-hosted build runs on SQLite and does NOT need these, so they
+# are kept OUT of requirements.txt to keep the bundled .exe/.dmg/.AppImage lean
+# (database.py imports psycopg lazily, only on the postgres branch).
+#
+# For a cloud deployment install both files:
+#     pip install -r requirements.txt -r requirements-cloud.txt
+#
+# See docs/SAAS_ARCHITECTURE.md §5–§6.
+
+psycopg[binary,pool]>=3.2

@@ -1,7 +1,17 @@
 import sqlite3, os
 from datetime import datetime
 
+from db_compat import CompatConn
+from dialect import get_dialect
+
 DB_PATH = os.environ.get("DB_PATH", "erp.db")
+
+# Database backend selector for the SaaS migration (docs/SAAS_ARCHITECTURE.md §5).
+#   'sqlite'   — default. Desktop / self-hosted / tests. The CompatConn wrapper is
+#                transparent here (identity dialect; native sqlite3.Row passes
+#                through), so behavior is byte-for-byte what it was before.
+#   'postgres' — cloud backend. Wired in Phase 1.
+DB_BACKEND = os.environ.get("DB_BACKEND", "sqlite").lower()
 
 def _configure(conn):
     conn.row_factory = sqlite3.Row
@@ -13,11 +23,36 @@ def _configure(conn):
     return conn
 
 def get_db():
-    conn = _configure(sqlite3.connect(DB_PATH, check_same_thread=False))
-    try:
-        yield conn
-    finally:
-        conn.close()
+    """Yield a request-scoped DB connection wrapped in CompatConn.
+
+    The wrapper lets the routers' raw SQL run unchanged on whichever backend
+    DB_BACKEND selects. In 'sqlite' mode the wrapping is transparent; the
+    PostgreSQL branch (pooling + per-tenant search_path) is added in Phase 1.
+    """
+    if DB_BACKEND in ("sqlite", "sqlite3"):
+        raw = _configure(sqlite3.connect(DB_PATH, check_same_thread=False))
+        conn = CompatConn(raw, get_dialect("sqlite"))
+        try:
+            yield conn
+        finally:
+            conn.close()
+    elif DB_BACKEND in ("postgres", "postgresql", "pg"):
+        import psycopg
+        from psycopg.rows import dict_row
+        raw = psycopg.connect(_pg_dsn(), row_factory=dict_row)
+        conn = CompatConn(raw, get_dialect("postgres"))
+        try:
+            yield conn
+        finally:
+            # Discard any uncommitted work (mirrors closing a sqlite connection);
+            # routers persist via explicit db.commit().
+            try:
+                raw.rollback()
+            except Exception:
+                pass
+            raw.close()
+    else:
+        raise RuntimeError(f"Unknown DB_BACKEND={DB_BACKEND!r}")
 
 
 # ── Migration helpers ─────────────────────────────────────────────────────────
@@ -2502,7 +2537,96 @@ def _run_migrations(conn, c):
 
 # ── Base schema ───────────────────────────────────────────────────────────────
 
+def _pg_dsn():
+    """PostgreSQL connection string. DATABASE_URL wins; otherwise assembled from
+    the standard libpq variables PGHOST/PGPORT/PGUSER/PGPASSWORD/PGDATABASE."""
+    dsn = os.environ.get("DATABASE_URL")
+    if dsn:
+        return dsn
+    host = os.environ.get("PGHOST", "localhost")
+    port = os.environ.get("PGPORT", "5432")
+    user = os.environ.get("PGUSER", "postgres")
+    pw   = os.environ.get("PGPASSWORD", "postgres")
+    name = os.environ.get("PGDATABASE", "erp")
+    return f"postgresql://{user}:{pw}@{host}:{port}/{name}"
+
+
+def _split_sql_statements(script):
+    """Split a SQL script into statements: drop full-line ``--`` comments, then
+    split on ``;`` outside single-quoted strings. Sufficient for the generated
+    pg_baseline.sql (which never embeds a semicolon inside a string literal)."""
+    lines = [ln for ln in script.splitlines() if not ln.lstrip().startswith("--")]
+    text = "\n".join(lines)
+    stmts, buf, in_str = [], [], False
+    i, n = 0, len(text)
+    while i < n:
+        ch = text[i]
+        buf.append(ch)
+        if ch == "'":
+            if in_str and i + 1 < n and text[i + 1] == "'":
+                buf.append("'"); i += 2; continue
+            in_str = not in_str
+        elif ch == ";" and not in_str:
+            s = "".join(buf).strip().rstrip(";").strip()
+            if s:
+                stmts.append(s)
+            buf = []
+        i += 1
+    tail = "".join(buf).strip().rstrip(";").strip()
+    if tail:
+        stmts.append(tail)
+    return stmts
+
+
+def _pg_initialized(raw):
+    """True once the baseline has been applied (schema_migrations exists + filled).
+    Uses named columns so it works regardless of the connection's row_factory."""
+    with raw.cursor() as cur:
+        cur.execute("SELECT to_regclass('public.schema_migrations') AS reg")
+        row = cur.fetchone()
+        reg = row["reg"] if hasattr(row, "keys") else row[0]
+        if reg is None:
+            return False
+        cur.execute("SELECT count(*) AS n FROM schema_migrations")
+        row = cur.fetchone()
+        return (row["n"] if hasattr(row, "keys") else row[0]) > 0
+
+
+def _apply_pg_baseline(raw):
+    """Apply the squashed Postgres schema (DDL + indexes + migration ledger)."""
+    path = os.path.join(os.path.dirname(os.path.abspath(__file__)),
+                        "migrations", "pg_baseline.sql")
+    with open(path, encoding="utf-8") as f:
+        script = f.read()
+    with raw.cursor() as cur:
+        for stmt in _split_sql_statements(script):
+            cur.execute(stmt)
+    raw.commit()
+
+
+def _init_db_postgres():
+    """PostgreSQL init: apply the baseline once, then run the SHARED seeding
+    through a CompatConn so the very same SQL the SQLite path uses is translated."""
+    import psycopg
+    from psycopg.rows import dict_row
+    raw = psycopg.connect(_pg_dsn(), row_factory=dict_row)
+    try:
+        if not _pg_initialized(raw):
+            _apply_pg_baseline(raw)
+        conn = CompatConn(raw, get_dialect("postgres"))
+        _seed_roles_and_admin(conn)
+        conn.commit()
+    finally:
+        raw.close()
+    print("Database initialized (postgres).")
+
+
 def init_db():
+    """Create the schema (if needed) and seed roles + admin for whichever backend
+    DB_BACKEND selects. SQLite replays its migration chain; PostgreSQL applies the
+    squashed baseline (docs/SAAS_ARCHITECTURE.md §6)."""
+    if DB_BACKEND not in ("sqlite", "sqlite3"):
+        return _init_db_postgres()
     conn = sqlite3.connect(DB_PATH)
     conn.execute("PRAGMA journal_mode = WAL")
     conn.execute("PRAGMA foreign_keys = ON")
@@ -2777,6 +2901,20 @@ def init_db():
     # Apply tracked ALTER TABLE migrations
     _run_migrations(conn, c)
 
+    _seed_roles_and_admin(c)
+
+    conn.commit()
+    conn.close()
+    print("Database initialized.")
+
+
+def _seed_roles_and_admin(c):
+    """Seed system roles, the permission matrix, the dependency-view backfill and
+    the superadmin. Shared verbatim by the SQLite and PostgreSQL init paths: `c`
+    is any object exposing sqlite3-style ``execute(...).fetchone()`` (a sqlite3
+    cursor or a CompatConn), and the SQL it runs is dialect-translated by the
+    wrapper. Idempotent — roles guard on existence, permissions use ON CONFLICT,
+    the admin is created only when absent."""
     # ── Seed default roles ────────────────────────────────────────────────
     # Every business module. Admin modules (settings/users/roles/audit) are
     # granted explicitly per-role below where relevant.
@@ -3047,8 +3185,5 @@ def init_db():
                 (admin_role[0],)
             )
 
-    conn.commit()
-    conn.close()
-    print("Database initialized.")
 
 init_db()

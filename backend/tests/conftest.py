@@ -28,6 +28,15 @@ os.environ["COOKIE_SECURE"] = "false"
 os.environ.setdefault("TOKEN_EXPIRE_HOURS", "24")
 os.environ.setdefault("ALLOWED_ORIGINS", "http://testserver")
 
+# Backend selection: the suite runs against SQLite by default. Set
+# DB_BACKEND=postgres (with a reachable DATABASE_URL) to run the SAME tests
+# against PostgreSQL — proving dialect parity (docs/SAAS_ARCHITECTURE.md §13).
+_BACKEND = os.environ.get("DB_BACKEND", "sqlite").lower()
+_IS_PG = _BACKEND in ("postgres", "postgresql", "pg")
+if _IS_PG:
+    os.environ.setdefault("DATABASE_URL",
+                          "postgresql://postgres:postgres@localhost:5433/erp_test")
+
 # `backend/` for `import main/database/...`, `tests/` for `import helpers.*`
 sys.path.insert(0, str(_BACKEND_DIR))
 sys.path.insert(0, str(_TESTS_DIR))
@@ -48,17 +57,47 @@ def _wipe_db_files():
                 pass
 
 
+def _pg_connect():
+    """Open a CompatConn-wrapped Postgres connection (returns (raw, conn))."""
+    import psycopg
+    from psycopg.rows import dict_row
+    from db_compat import CompatConn
+    from dialect import get_dialect
+    raw = psycopg.connect(database._pg_dsn(), row_factory=dict_row)
+    return raw, CompatConn(raw, get_dialect("postgres"))
+
+
+def _reset_pg_schema():
+    """Drop and recreate the public schema for a clean per-test database."""
+    import psycopg
+    raw = psycopg.connect(database._pg_dsn())
+    with raw.cursor() as cur:
+        cur.execute("DROP SCHEMA IF EXISTS public CASCADE; CREATE SCHEMA public")
+    raw.commit()
+    raw.close()
+
+
 def _rebuild_db():
-    """Drop the test DB and recreate schema + seed roles + canonical test users."""
-    _wipe_db_files()
-    database.init_db()                       # schema, migrations, 14 roles, 'admin'
-    conn = sqlite3.connect(str(_TEST_DB))
-    conn.row_factory = sqlite3.Row
-    try:
-        seed_test_users(conn)
-        conn.commit()
-    finally:
-        conn.close()
+    """Recreate schema + seed roles + canonical test users, on the active backend."""
+    if _IS_PG:
+        _reset_pg_schema()
+        database.init_db()                   # baseline + roles + 'admin'
+        raw, conn = _pg_connect()
+        try:
+            seed_test_users(conn)
+            conn.commit()
+        finally:
+            raw.close()
+    else:
+        _wipe_db_files()
+        database.init_db()                   # schema, migrations, 14 roles, 'admin'
+        conn = sqlite3.connect(str(_TEST_DB))
+        conn.row_factory = sqlite3.Row
+        try:
+            seed_test_users(conn)
+            conn.commit()
+        finally:
+            conn.close()
 
 
 # ── 3. Fixtures ──────────────────────────────────────────────────────────────
@@ -79,12 +118,21 @@ def fresh_db(app):
 
 @pytest.fixture
 def db():
-    """A direct read/write connection to the test DB for arrange/assert steps."""
-    conn = sqlite3.connect(str(_TEST_DB))
-    conn.row_factory = sqlite3.Row
-    conn.execute("PRAGMA foreign_keys = ON")
-    yield conn
-    conn.close()
+    """A direct read/write connection to the test DB for arrange/assert steps.
+    On Postgres it's a CompatConn, so test SQL (``?`` params, ``datetime('now')``)
+    is dialect-translated exactly like the app's."""
+    if _IS_PG:
+        raw, conn = _pg_connect()
+        try:
+            yield conn
+        finally:
+            raw.close()
+    else:
+        conn = sqlite3.connect(str(_TEST_DB))
+        conn.row_factory = sqlite3.Row
+        conn.execute("PRAGMA foreign_keys = ON")
+        yield conn
+        conn.close()
 
 
 @pytest.fixture
