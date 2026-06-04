@@ -654,7 +654,7 @@ def report_inventory_by_warehouse(
         "LEFT JOIN inventory_stock s ON s.inventory_id = i.id "
         "WHERE i.archived_at IS NULL AND i.deleted_at IS NULL "
         "GROUP BY i.id, i.name, i.unit, i.category, i.unit_cost "
-        "HAVING qty_total > 0 "
+        "HAVING COALESCE(SUM(s.quantity), 0) > 0 "
         "ORDER BY value DESC LIMIT 25"
     ).fetchall()
 

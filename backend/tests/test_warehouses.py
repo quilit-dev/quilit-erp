@@ -43,7 +43,7 @@ def test_default_warehouse_seeded(make_client, db):
     bad = db.execute(
         """SELECT i.id, i.quantity AS company, COALESCE(SUM(s.quantity),0) AS sum
            FROM inventory i LEFT JOIN inventory_stock s ON s.inventory_id = i.id
-           GROUP BY i.id HAVING ABS(company - sum) > 0.0001 LIMIT 1"""
+           GROUP BY i.id HAVING ABS(i.quantity - COALESCE(SUM(s.quantity),0)) > 0.0001 LIMIT 1"""
     ).fetchone()
     assert bad is None, f"Mismatched item: {dict(bad)}"
 

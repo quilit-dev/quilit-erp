@@ -261,7 +261,7 @@ def trial_balance(db: sqlite3.Connection, as_of: str = None):
                 WHERE {where}
             ) x ON x.account_id = a.id
             GROUP BY a.id
-            HAVING debit <> 0 OR credit <> 0
+            HAVING COALESCE(SUM(x.debit),0) <> 0 OR COALESCE(SUM(x.credit),0) <> 0
             ORDER BY a.code""",
         params,
     ).fetchall()

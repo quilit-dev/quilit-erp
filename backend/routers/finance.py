@@ -765,8 +765,9 @@ def reconciliation(
         LEFT JOIN invoice_items ii ON ii.invoice_id = i.id
         WHERE i.archived_at IS NULL
         GROUP BY i.id
-        HAVING item_count > 0
-           AND ABS(i.amount - (items_subtotal + items_tax)) > 0.02
+        HAVING COUNT(ii.id) > 0
+           AND ABS(i.amount - (COALESCE(SUM(ii.quantity * ii.unit_price), 0)
+                               + COALESCE(SUM(ii.tax_amount), 0))) > 0.02
     """).fetchall()
     for r in rows:
         expected = round(float(r["items_subtotal"]) + float(r["items_tax"]), 2)
@@ -787,7 +788,7 @@ def reconciliation(
         LEFT JOIN invoice_payments ip ON ip.invoice_id = i.id
         WHERE i.archived_at IS NULL
         GROUP BY i.id
-        HAVING total_paid > i.amount + 0.01
+        HAVING COALESCE(SUM(ip.amount), 0) > i.amount + 0.01
     """).fetchall()
     for r in rows:
         over = float(r["total_paid"]) - float(r["amount"])
