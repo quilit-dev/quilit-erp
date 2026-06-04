@@ -36,6 +36,17 @@ _IS_PG = _BACKEND in ("postgres", "postgresql", "pg")
 if _IS_PG:
     os.environ.setdefault("DATABASE_URL",
                           "postgresql://postgres:postgres@localhost:5433/erp_test")
+    # Per-test isolation on Postgres uses TEMPLATE-database cloning, not a full
+    # schema rebuild: the schema + base seed is built ONCE into <db>_tmpl, and
+    # each test recreates the test DB from it with `CREATE DATABASE … TEMPLATE`
+    # (a fast file copy). That turns a ~7s/test rebuild into well under a second.
+    from urllib.parse import urlparse, urlunparse
+    _pg_parts     = urlparse(os.environ["DATABASE_URL"])
+    _PG_DBNAME    = _pg_parts.path.lstrip("/") or "erp_test"
+    _PG_TEMPLATE  = _PG_DBNAME + "_tmpl"
+    _PG_ADMIN_URL = urlunparse(_pg_parts._replace(path="/postgres"))      # maintenance db
+    _PG_TMPL_URL  = urlunparse(_pg_parts._replace(path="/" + _PG_TEMPLATE))
+    _pg_template_built = False
 
 # `backend/` for `import main/database/...`, `tests/` for `import helpers.*`
 sys.path.insert(0, str(_BACKEND_DIR))
@@ -67,21 +78,53 @@ def _pg_connect():
     return raw, CompatConn(raw, get_dialect("postgres"))
 
 
-def _reset_pg_schema():
-    """Drop and recreate the public schema for a clean per-test database."""
+def _pg_admin_exec(*statements):
+    """Run maintenance statements (CREATE/DROP DATABASE) against the 'postgres'
+    db in autocommit mode — these cannot run inside a transaction."""
     import psycopg
-    raw = psycopg.connect(database._pg_dsn())
-    with raw.cursor() as cur:
-        cur.execute("DROP SCHEMA IF EXISTS public CASCADE; CREATE SCHEMA public")
-    raw.commit()
-    raw.close()
+    with psycopg.connect(_PG_ADMIN_URL, autocommit=True) as a:
+        with a.cursor() as cur:
+            for s in statements:
+                cur.execute(s)
+
+
+def _pg_terminate(dbname):
+    """Drop any lingering connections to `dbname` so it can be dropped/cloned."""
+    import psycopg
+    with psycopg.connect(_PG_ADMIN_URL, autocommit=True) as a:
+        a.execute(
+            "SELECT pg_terminate_backend(pid) FROM pg_stat_activity "
+            "WHERE datname = %s AND pid <> pg_backend_pid()", (dbname,))
+
+
+def _build_pg_template():
+    """Build the template database ONCE: full schema + base seed via init_db."""
+    _pg_terminate(_PG_DBNAME)
+    _pg_terminate(_PG_TEMPLATE)
+    _pg_admin_exec(f'DROP DATABASE IF EXISTS "{_PG_TEMPLATE}"',
+                   f'CREATE DATABASE "{_PG_TEMPLATE}"')
+    # Point init_db at the template, build it, then restore DATABASE_URL.
+    _old = os.environ.get("DATABASE_URL")
+    os.environ["DATABASE_URL"] = _PG_TMPL_URL
+    try:
+        database.init_db()                   # baseline + roles + 'admin'
+    finally:
+        if _old is not None:
+            os.environ["DATABASE_URL"] = _old
 
 
 def _rebuild_db():
     """Recreate schema + seed roles + canonical test users, on the active backend."""
     if _IS_PG:
-        _reset_pg_schema()
-        database.init_db()                   # baseline + roles + 'admin'
+        global _pg_template_built
+        if not _pg_template_built:
+            _build_pg_template()
+            _pg_template_built = True
+        # Fast clone: recreate the test DB from the prebuilt template, then add
+        # the canonical test users on top.
+        _pg_terminate(_PG_DBNAME)
+        _pg_admin_exec(f'DROP DATABASE IF EXISTS "{_PG_DBNAME}"',
+                       f'CREATE DATABASE "{_PG_DBNAME}" TEMPLATE "{_PG_TEMPLATE}"')
         raw, conn = _pg_connect()
         try:
             seed_test_users(conn)
