@@ -111,10 +111,13 @@ def purge_old_logs(
     if older_than_days < 30:
         from fastapi import HTTPException
         raise HTTPException(400, "Minimum retention is 30 days.")
-    # SQLite date arithmetic
+    # Cutoff computed in Python (UTC, matching SQLite's datetime('now')) so the
+    # comparison is a portable plain-string compare — identical on SQLite/Postgres.
+    from datetime import datetime, timedelta
+    cutoff = (datetime.utcnow() - timedelta(days=older_than_days)).strftime("%Y-%m-%d %H:%M:%S")
     deleted = db.execute(
-        "DELETE FROM audit_log WHERE created_at < datetime('now', ?)",
-        (f"-{older_than_days} days",)
+        "DELETE FROM audit_log WHERE created_at < ?",
+        (cutoff,)
     ).rowcount
     db.commit()
     log_action(db, user, "purge", "audit", detail={"deleted_rows": deleted, "older_than_days": older_than_days})

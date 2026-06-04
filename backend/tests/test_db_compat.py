@@ -157,6 +157,27 @@ def test_select_has_no_capture(pg):
     assert "RETURNING" not in sql
 
 
+def test_datetime_now_with_param_modifier_not_substr(pg):
+    # datetime('now', ?) is now-minus-a-parameterized-modifier, NOT a column
+    # conversion — the date(col)/datetime(col)->substr rule must leave it alone
+    # (the app computes such cutoffs in Python; the guard prevents mis-rewriting).
+    sql, _, capture = pg.translate(
+        "SELECT id FROM n WHERE created_at >= datetime('now', ?)", ("-5 hours",))
+    assert "substr" not in sql.lower()
+    assert capture is False
+
+
+def test_datetime_col_still_becomes_substr(pg):
+    sql, _, _ = pg.translate("SELECT datetime(created_at) FROM t", ())
+    assert sql == "SELECT substr(created_at, 1, 19) FROM t"
+
+
+def test_nested_comma_arg_still_becomes_substr(pg):
+    # The comma is inside COALESCE(...) (depth 1), so it's a single-arg call.
+    sql, _, _ = pg.translate("SELECT date(COALESCE(end_date, start_date)) FROM t", ())
+    assert sql == "SELECT substr(COALESCE(end_date, start_date), 1, 10) FROM t"
+
+
 def test_sqlite_dialect_is_identity():
     sd = SqliteDialect()
     sql, params, capture = sd.translate("INSERT INTO t (a) VALUES (?)", (1,))

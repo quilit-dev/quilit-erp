@@ -1,5 +1,5 @@
 """Shared utilities imported by all routers."""
-from datetime import datetime
+from datetime import datetime, timedelta
 from decimal import Decimal, ROUND_HALF_UP
 from fastapi import HTTPException
 import math
@@ -176,11 +176,14 @@ def notify(
     Returns the newly inserted notification id, or None on dedup-skip / error.
     """
     if dedup_hours > 0 and entity_id is not None:
+        # Cutoff computed in Python (UTC, matching SQLite's datetime('now')) so the
+        # query is a portable plain-string comparison — byte-identical on SQLite
+        # and Postgres (avoids SQLite-only datetime('now', <modifier>) date math).
+        cutoff = (datetime.utcnow() - timedelta(hours=dedup_hours)).strftime("%Y-%m-%d %H:%M:%S")
         recent = db.execute(
             """SELECT id FROM notifications
-               WHERE type=? AND entity_id=?
-                 AND created_at >= datetime('now', ?)""",
-            (type, entity_id, f"-{dedup_hours} hours"),
+               WHERE type=? AND entity_id=? AND created_at >= ?""",
+            (type, entity_id, cutoff),
         ).fetchone()
         if recent:
             return None

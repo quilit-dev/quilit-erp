@@ -1670,7 +1670,7 @@ def analytics(
         f"SELECT i.name AS product, COALESCE(SUM(po.quantity_produced),0) AS units, "
         f"       COALESCE(SUM(po.total_cost),0) AS cost "
         f"FROM production_orders po LEFT JOIN inventory i ON po.output_inventory_id = i.id "
-        f"WHERE {where} GROUP BY po.output_inventory_id ORDER BY cost DESC LIMIT 20", params).fetchall()]
+        f"WHERE {where} GROUP BY po.output_inventory_id, i.name ORDER BY cost DESC LIMIT 20", params).fetchall()]
 
     return {
         "start": start, "end": end,

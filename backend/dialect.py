@@ -232,13 +232,43 @@ def _replace_func_call(sql: str, fname: str, repl) -> str:
     return "".join(out)
 
 
+def _has_top_level_comma(s: str) -> bool:
+    """True if `s` has a comma outside any parens/quotes — i.e. it's a multi-arg
+    call like ``'now', ?`` rather than a single column/expression argument."""
+    depth, in_str, i = 0, False, 0
+    while i < len(s):
+        ch = s[i]
+        if ch == "'":
+            if in_str and i + 1 < len(s) and s[i + 1] == "'":
+                i += 2
+                continue
+            in_str = not in_str
+        elif not in_str:
+            if ch == "(":
+                depth += 1
+            elif ch == ")":
+                depth -= 1
+            elif ch == "," and depth == 0:
+                return True
+        i += 1
+    return False
+
+
 # date(col) / datetime(col) on a TEXT timestamp → the date / datetime substring.
-# The 'now' forms are handled by _translate_datetime above; this catches the
-# column/expression forms (Postgres would otherwise read `date(x)` as a cast to
-# the date type). MUST run AFTER _translate_datetime.
+# The 'now' forms are handled by _translate_datetime above (or the app computes
+# the cutoff in Python); this catches only the single column/expression forms
+# (Postgres would otherwise read `date(x)` as a cast to the date type). A 'now'
+# literal or a multi-arg form (datetime('now', ?)) is left untouched so it is
+# never mis-rewritten into substr(...). MUST run AFTER _translate_datetime.
 def _translate_date_funcs(sql: str) -> str:
-    sql = _replace_func_call(sql, "datetime", lambda a: f"substr({a}, 1, 19)")
-    sql = _replace_func_call(sql, "date", lambda a: f"substr({a}, 1, 10)")
+    def _mk(fname, width):
+        def repl(a):
+            if a.strip().lower().startswith("'now'") or _has_top_level_comma(a):
+                return f"{fname}({a})"
+            return f"substr({a}, 1, {width})"
+        return repl
+    sql = _replace_func_call(sql, "datetime", _mk("datetime", 19))
+    sql = _replace_func_call(sql, "date", _mk("date", 10))
     return sql
 
 

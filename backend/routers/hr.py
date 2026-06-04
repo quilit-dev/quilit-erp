@@ -939,10 +939,10 @@ def hr_summary(
     _refresh_leave_statuses(db)
     totals = db.execute(
         """SELECT
-               COUNT(*)                                          AS total_employees,
-               COALESCE(SUM(status='Active'), 0)                 AS active,
-               COALESCE(SUM(status='On Leave'), 0)               AS on_leave,
-               COALESCE(SUM(status='Terminated'), 0)             AS terminated
+               COUNT(*)                                                            AS total_employees,
+               COALESCE(SUM(CASE WHEN status='Active'     THEN 1 ELSE 0 END), 0)    AS active,
+               COALESCE(SUM(CASE WHEN status='On Leave'   THEN 1 ELSE 0 END), 0)    AS on_leave,
+               COALESCE(SUM(CASE WHEN status='Terminated' THEN 1 ELSE 0 END), 0)    AS terminated
            FROM hr_employees WHERE archived_at IS NULL"""
     ).fetchone()
 
