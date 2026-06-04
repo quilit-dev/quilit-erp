@@ -1,0 +1,129 @@
+"""
+Platform-operator API (Phase 2 lifecycle) — the SaaS vendor's control surface.
+
+This is a SEPARATE auth tier from tenant users (docs/SAAS_ARCHITECTURE.md §15):
+operators live in ``public.platform_admins``, log in on their own cookie
+(``platform_session``, scope=``platform``), and manage the tenant catalog. A
+tenant session can never reach these endpoints and vice-versa.
+
+Endpoints (all under /api/platform):
+    POST /login                       operator login
+    POST /logout
+    GET  /me
+    GET  /tenants                     list all tenants
+    POST /tenants                     provision a new tenant (returns first creds)
+    GET  /tenants/{slug}
+    POST /tenants/{slug}/suspend      block all access to a tenant (402)
+    POST /tenants/{slug}/activate     re-enable a suspended tenant
+"""
+from typing import Optional
+
+import jwt
+from fastapi import APIRouter, Cookie, Depends, HTTPException, Response
+from pydantic import BaseModel
+
+import tenancy
+from auth_utils import (
+    SECRET_KEY, ALGORITHM, COOKIE_SECURE, TOKEN_EXPIRE_HOURS,
+    PLATFORM_COOKIE_NAME, create_platform_token,
+)
+
+router = APIRouter()
+
+
+# ── auth dependency ──────────────────────────────────────────────────────────
+
+def require_platform_admin(
+    platform_session: Optional[str] = Cookie(None, alias=PLATFORM_COOKIE_NAME),
+) -> dict:
+    if not platform_session:
+        raise HTTPException(status_code=401, detail="Not authenticated (platform).")
+    try:
+        payload = jwt.decode(platform_session, SECRET_KEY, algorithms=[ALGORITHM])
+    except jwt.ExpiredSignatureError:
+        raise HTTPException(status_code=401, detail="Session expired — please log in again.")
+    except jwt.InvalidTokenError:
+        raise HTTPException(status_code=401, detail="Invalid token.")
+    if payload.get("scope") != "platform":
+        raise HTTPException(status_code=403, detail="Not a platform session.")
+    admin = tenancy.get_platform_admin(int(payload["sub"]))
+    if not admin or not admin.get("is_active"):
+        raise HTTPException(status_code=401, detail="Platform account disabled.")
+    return admin
+
+
+# ── models ───────────────────────────────────────────────────────────────────
+
+class PlatformLogin(BaseModel):
+    username: str
+    password: str
+
+
+class TenantCreate(BaseModel):
+    slug: str
+    name: Optional[str] = None
+    plan: str = "standard"
+
+
+# ── auth endpoints ───────────────────────────────────────────────────────────
+
+@router.post("/login")
+def platform_login(data: PlatformLogin, response: Response):
+    admin = tenancy.verify_platform_admin(data.username, data.password)
+    if not admin:
+        raise HTTPException(status_code=401, detail="Invalid credentials.")
+    token = create_platform_token(admin["id"], admin["username"])
+    response.set_cookie(
+        key=PLATFORM_COOKIE_NAME, value=token, httponly=True, secure=COOKIE_SECURE,
+        samesite="strict", max_age=TOKEN_EXPIRE_HOURS * 3600, path="/",
+    )
+    return {"username": admin["username"], "full_name": admin.get("full_name")}
+
+
+@router.post("/logout")
+def platform_logout(response: Response, admin=Depends(require_platform_admin)):
+    response.delete_cookie(key=PLATFORM_COOKIE_NAME, path="/")
+    return {"message": "Logged out."}
+
+
+@router.get("/me")
+def platform_me(admin=Depends(require_platform_admin)):
+    return {"username": admin["username"], "full_name": admin.get("full_name")}
+
+
+# ── tenant lifecycle ─────────────────────────────────────────────────────────
+
+@router.get("/tenants")
+def list_all_tenants(admin=Depends(require_platform_admin)):
+    return tenancy.list_tenants()
+
+
+@router.post("/tenants")
+def create_tenant(data: TenantCreate, admin=Depends(require_platform_admin)):
+    if not tenancy.valid_slug(data.slug):
+        raise HTTPException(status_code=400,
+                            detail="Invalid slug — use lower-case letters, digits, underscore.")
+    try:
+        return tenancy.provision_tenant(data.slug, data.name, data.plan)
+    except ValueError as e:
+        raise HTTPException(status_code=400, detail=str(e))
+
+
+@router.get("/tenants/{slug}")
+def get_tenant(slug: str, admin=Depends(require_platform_admin)):
+    for t in tenancy.list_tenants():
+        if t["slug"] == slug:
+            return t
+    raise HTTPException(status_code=404, detail="Tenant not found.")
+
+
+@router.post("/tenants/{slug}/suspend")
+def suspend_tenant(slug: str, admin=Depends(require_platform_admin)):
+    tenancy.set_tenant_status(slug, "suspended")
+    return {"slug": slug, "status": "suspended"}
+
+
+@router.post("/tenants/{slug}/activate")
+def activate_tenant(slug: str, admin=Depends(require_platform_admin)):
+    tenancy.set_tenant_status(slug, "active")
+    return {"slug": slug, "status": "active"}

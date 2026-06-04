@@ -104,6 +104,6 @@ jobs:
           pip install -r backend/requirements.txt -r backend/requirements-cloud.txt
           pip install pytest httpx
 
-      - name: Run schema-per-tenant isolation tests
+      - name: Run schema-per-tenant isolation + lifecycle tests
         working-directory: backend
-        run: python -m pytest tests/test_multitenancy.py -q -p no:cacheprovider
+        run: python -m pytest tests/test_multitenancy.py tests/test_platform.py -q -p no:cacheprovider

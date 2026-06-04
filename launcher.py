@@ -167,7 +167,7 @@ try:
                          hr_contracts, recruitment, hr_activities,
                          tax_rates, pos, cash, manufacturing,
                          assets, recurring, announcements, attachments, accounting,
-                         warehouses)
+                         warehouses, platform)
     import database
     import backup_manager
     # Defensive imports of shared, top-level backend modules that routers
@@ -242,6 +242,7 @@ try:
     app.include_router(attachments.router,        prefix='/api/attachments')
     app.include_router(accounting.router,         prefix='/api/accounting')
     app.include_router(warehouses.router,         prefix='/api/warehouses')
+    app.include_router(platform.router,           prefix='/api/platform')
 
     @app.get('/api/health')
     def health():
