@@ -151,11 +151,13 @@ def test_payroll_future_period_posts_dated_today_not_future(make_client, db):
     A back-period run keeps its own month-end (already <= today), so only the
     future-dated case is pulled back. This locks in accounting.clamp_posting_date.
     """
-    from datetime import date, timedelta
+    from datetime import datetime, timedelta
     c = make_client("superadmin")
     _emp(c, full_name="Future", salary=2500)
 
-    today = date.today()
+    # Use UTC "today" to match the app (accounting._today / utils._now use UTC); a
+    # local date.today() makes this assertion flaky around midnight in non-UTC zones.
+    today = datetime.utcnow().date()
     # A period that ends well into the future relative to "now".
     future_end = (today + timedelta(days=60)).isoformat()
     start      = today.replace(day=1).isoformat()
