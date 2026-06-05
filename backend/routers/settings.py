@@ -130,6 +130,12 @@ def _get_all(db: sqlite3.Connection) -> dict:
     # install) is overwritten here so the API only ever reports the value
     # baked into this build.
     data["enabled_modules"] = vendor_config.ENABLED_MODULES
+    # Read-only capability flag (never persisted — not in WRITABLE_SETTINGS).
+    # Local file / USB backup and the "works offline" pitch only apply to the
+    # SQLite (desktop / self-hosted) edition; a cloud (Postgres) deployment is
+    # backed up server-side, so the UI hides that whole section when this is false.
+    from database import DB_BACKEND
+    data["local_backup"] = DB_BACKEND in ("sqlite", "sqlite3")
     return data
 
 def _set_keys(db: sqlite3.Connection, updates: dict):
@@ -299,8 +305,21 @@ async def upload_logo(
 
 # ── Backup / Restore ─────────────────────────────────────────────────────────
 
+def _assert_local_backup():
+    """Local file / USB backup + restore is a SQLite (self-hosted) feature. On a
+    cloud (Postgres) deployment, backups are handled server-side (pg_dump), so
+    reject these endpoints with a clear message rather than acting on a stale or
+    absent local file."""
+    from database import DB_BACKEND
+    if DB_BACKEND not in ("sqlite", "sqlite3"):
+        raise HTTPException(400, "Local backup is only available on the self-hosted "
+                                 "(SQLite) edition; this cloud deployment is backed up "
+                                 "server-side.")
+
+
 @router.get("/backup")
 def download_backup(user=Depends(require_admin)):
+    _assert_local_backup()
     if not os.path.exists(DB_PATH):
         raise HTTPException(404, "Database file not found")
     return FileResponse(
@@ -326,6 +345,7 @@ def backup_status(user=Depends(require_admin)):
 @router.post("/backup-now")
 def backup_now(user=Depends(require_admin)):
     """Trigger an immediate manual backup."""
+    _assert_local_backup()
     try:
         backend_dir = os.path.dirname(os.path.dirname(__file__))
         if backend_dir not in sys.path:
@@ -348,6 +368,7 @@ class BackupExportRequest(BaseModel):
 @router.post("/backup-export")
 def backup_export(body: BackupExportRequest, user=Depends(require_admin)):
     """One-click backup to an external folder (USB drive / network share)."""
+    _assert_local_backup()
     try:
         backend_dir = os.path.dirname(os.path.dirname(__file__))
         if backend_dir not in sys.path:
@@ -368,6 +389,7 @@ async def restore_backup(
     file: UploadFile = File(...),
     user=Depends(require_admin),
 ):
+    _assert_local_backup()
     if not file.filename.endswith(".db"):
         raise HTTPException(400, "Only .db files are accepted")
 
