@@ -180,7 +180,7 @@ def list_journal_entries(
     """
     # Column whitelist — any other value silently falls back to entry_date so
     # a malformed query never reaches the underlying SQL as raw column name.
-    _allowed = {"entry_date", "entry_number", "total_debit", "source_type", "status", "id"}
+    _allowed = {"entry_date", "entry_number", "total_debit", "total_credit", "source_type", "status", "id"}
     sort_col = sort if sort in _allowed else "entry_date"
     sort_dir = "ASC" if (direction or "desc").lower() == "asc" else "DESC"
 

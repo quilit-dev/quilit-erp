@@ -571,6 +571,7 @@ function Journal({ t, fmt, fmtDate, canCreate, canEdit }) {
               <th>{t('accounting.memo')}</th>
               <SortableTh label={t('accounting.source')}     sortKey="source_type"  sort={sort} dir={dir} onSort={onSort} />
               <SortableTh label={t('accounting.debit')}      sortKey="total_debit"  sort={sort} dir={dir} onSort={onSort} align="right" />
+              <SortableTh label={t('accounting.credit')}     sortKey="total_credit" sort={sort} dir={dir} onSort={onSort} align="right" />
               <SortableTh label={t('common.status')}         sortKey="status"       sort={sort} dir={dir} onSort={onSort} />
             </tr></thead>
             <tbody>
@@ -581,6 +582,7 @@ function Journal({ t, fmt, fmtDate, canCreate, canEdit }) {
                   <td className="td-primary">{e.memo}</td>
                   <td><span className="badge badge-gray">{e.source_type || 'manual'}</span></td>
                   <td style={{ textAlign: 'right', fontWeight: 600 }}>{fmt(e.total_debit)}</td>
+                  <td style={{ textAlign: 'right', fontWeight: 600 }}>{fmt(e.total_credit)}</td>
                   <td>
                     <span className={`badge badge-${e.status === 'posted' ? 'green' : e.status === 'reversed' ? 'red' : 'gray'}`}>
                       {e.status}
