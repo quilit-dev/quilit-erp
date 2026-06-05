@@ -477,7 +477,9 @@ CREATE TABLE IF NOT EXISTS hr_employee_files (
     size_bytes INTEGER NOT NULL DEFAULT 0,
     data BYTEA NOT NULL,
     uploaded_by INTEGER,
-    created_at TEXT NOT NULL
+    created_at TEXT NOT NULL,
+    storage_backend TEXT NOT NULL DEFAULT 'db',
+    storage_key TEXT
 );
 
 CREATE TABLE IF NOT EXISTS hr_employees (
@@ -1086,7 +1088,9 @@ CREATE TABLE IF NOT EXISTS recruitment_applicant_files (
     size_bytes INTEGER NOT NULL DEFAULT 0,
     data BYTEA NOT NULL,
     uploaded_by INTEGER,
-    created_at TEXT NOT NULL
+    created_at TEXT NOT NULL,
+    storage_backend TEXT NOT NULL DEFAULT 'db',
+    storage_key TEXT
 );
 
 CREATE TABLE IF NOT EXISTS recruitment_applicants (
@@ -1392,47 +1396,47 @@ CREATE TABLE IF NOT EXISTS work_centers (
 
 -- ── Seed / reference data (migration-inserted rows) ──────────────────────
 INSERT INTO cash_drawers (id, name, is_active, auto_capture, created_at) VALUES
-    (1, 'Main Till', 1, 1, '2026-06-04 21:13:23')
+    (1, 'Main Till', 1, 1, '2026-06-05 01:21:31')
 ON CONFLICT DO NOTHING;
 INSERT INTO chart_of_accounts (id, code, name, type, subtype, normal_balance, parent_code, is_system, is_active, description, created_at) VALUES
-    (1, '1000', 'Cash & Bank', 'Asset', 'Current Asset', 'debit', NULL, 1, 1, NULL, '2026-06-04 21:13:23'),
-    (2, '1100', 'Accounts Receivable', 'Asset', 'Current Asset', 'debit', NULL, 1, 1, NULL, '2026-06-04 21:13:23'),
-    (3, '1200', 'Inventory', 'Asset', 'Current Asset', 'debit', NULL, 1, 1, NULL, '2026-06-04 21:13:23'),
-    (4, '1500', 'Fixed Assets', 'Asset', 'Non-Current Asset', 'debit', NULL, 1, 1, NULL, '2026-06-04 21:13:23'),
-    (5, '1510', 'Accumulated Depreciation', 'Asset', 'Contra Asset', 'credit', NULL, 1, 1, NULL, '2026-06-04 21:13:23'),
-    (6, '2000', 'Accounts Payable', 'Liability', 'Current Liability', 'credit', NULL, 1, 1, NULL, '2026-06-04 21:13:23'),
-    (7, '2100', 'VAT Payable', 'Liability', 'Current Liability', 'credit', NULL, 1, 1, NULL, '2026-06-04 21:13:23'),
-    (8, '2200', 'Payroll Liabilities', 'Liability', 'Current Liability', 'credit', NULL, 1, 1, NULL, '2026-06-04 21:13:23'),
-    (9, '3000', 'Owner''s Equity', 'Equity', 'Equity', 'credit', NULL, 1, 1, NULL, '2026-06-04 21:13:23'),
-    (10, '3900', 'Retained Earnings', 'Equity', 'Equity', 'credit', NULL, 1, 1, NULL, '2026-06-04 21:13:23'),
-    (11, '4000', 'Sales Revenue', 'Income', 'Operating Income', 'credit', NULL, 1, 1, NULL, '2026-06-04 21:13:23'),
-    (12, '4900', 'Other Income', 'Income', 'Other Income', 'credit', NULL, 1, 1, NULL, '2026-06-04 21:13:23'),
-    (13, '5000', 'Cost of Goods Sold', 'Expense', 'Cost of Sales', 'debit', NULL, 1, 1, NULL, '2026-06-04 21:13:23'),
-    (14, '6000', 'Salaries & Wages', 'Expense', 'Operating Expense', 'debit', NULL, 1, 1, NULL, '2026-06-04 21:13:23'),
-    (15, '6100', 'Rent', 'Expense', 'Operating Expense', 'debit', NULL, 1, 1, NULL, '2026-06-04 21:13:23'),
-    (16, '6200', 'Utilities', 'Expense', 'Operating Expense', 'debit', NULL, 1, 1, NULL, '2026-06-04 21:13:23'),
-    (17, '6300', 'Depreciation Expense', 'Expense', 'Operating Expense', 'debit', NULL, 1, 1, NULL, '2026-06-04 21:13:23'),
-    (18, '6400', 'Materials', 'Expense', 'Operating Expense', 'debit', NULL, 1, 1, NULL, '2026-06-04 21:13:23'),
-    (19, '6500', 'Labour', 'Expense', 'Operating Expense', 'debit', NULL, 1, 1, NULL, '2026-06-04 21:13:23'),
-    (20, '6600', 'Equipment', 'Expense', 'Operating Expense', 'debit', NULL, 1, 1, NULL, '2026-06-04 21:13:23'),
-    (21, '6700', 'Transport', 'Expense', 'Operating Expense', 'debit', NULL, 1, 1, NULL, '2026-06-04 21:13:23'),
-    (22, '6800', 'Subcontractor', 'Expense', 'Operating Expense', 'debit', NULL, 1, 1, NULL, '2026-06-04 21:13:23'),
-    (23, '6850', 'Insurance', 'Expense', 'Operating Expense', 'debit', NULL, 1, 1, NULL, '2026-06-04 21:13:23'),
-    (24, '6860', 'Subscriptions', 'Expense', 'Operating Expense', 'debit', NULL, 1, 1, NULL, '2026-06-04 21:13:23'),
-    (25, '6870', 'Permits & Fees', 'Expense', 'Operating Expense', 'debit', NULL, 1, 1, NULL, '2026-06-04 21:13:23'),
-    (26, '6900', 'General & Other Expense', 'Expense', 'Operating Expense', 'debit', NULL, 1, 1, NULL, '2026-06-04 21:13:23'),
-    (27, '1010', 'Cash — LBP', 'Asset', 'Current Asset', 'debit', NULL, 1, 1, NULL, '2026-06-04 21:13:23'),
-    (28, '4910', 'Foreign Exchange Gain', 'Income', 'Other Income', 'credit', NULL, 1, 1, NULL, '2026-06-04 21:13:23'),
-    (29, '6910', 'Cash Short & Over', 'Expense', 'Operating Expense', 'debit', NULL, 1, 1, NULL, '2026-06-04 21:13:23'),
-    (30, '6920', 'Foreign Exchange Loss', 'Expense', 'Other Expense', 'debit', NULL, 1, 1, NULL, '2026-06-04 21:13:23')
+    (1, '1000', 'Cash & Bank', 'Asset', 'Current Asset', 'debit', NULL, 1, 1, NULL, '2026-06-05 01:21:31'),
+    (2, '1100', 'Accounts Receivable', 'Asset', 'Current Asset', 'debit', NULL, 1, 1, NULL, '2026-06-05 01:21:31'),
+    (3, '1200', 'Inventory', 'Asset', 'Current Asset', 'debit', NULL, 1, 1, NULL, '2026-06-05 01:21:31'),
+    (4, '1500', 'Fixed Assets', 'Asset', 'Non-Current Asset', 'debit', NULL, 1, 1, NULL, '2026-06-05 01:21:31'),
+    (5, '1510', 'Accumulated Depreciation', 'Asset', 'Contra Asset', 'credit', NULL, 1, 1, NULL, '2026-06-05 01:21:31'),
+    (6, '2000', 'Accounts Payable', 'Liability', 'Current Liability', 'credit', NULL, 1, 1, NULL, '2026-06-05 01:21:31'),
+    (7, '2100', 'VAT Payable', 'Liability', 'Current Liability', 'credit', NULL, 1, 1, NULL, '2026-06-05 01:21:31'),
+    (8, '2200', 'Payroll Liabilities', 'Liability', 'Current Liability', 'credit', NULL, 1, 1, NULL, '2026-06-05 01:21:31'),
+    (9, '3000', 'Owner''s Equity', 'Equity', 'Equity', 'credit', NULL, 1, 1, NULL, '2026-06-05 01:21:31'),
+    (10, '3900', 'Retained Earnings', 'Equity', 'Equity', 'credit', NULL, 1, 1, NULL, '2026-06-05 01:21:31'),
+    (11, '4000', 'Sales Revenue', 'Income', 'Operating Income', 'credit', NULL, 1, 1, NULL, '2026-06-05 01:21:31'),
+    (12, '4900', 'Other Income', 'Income', 'Other Income', 'credit', NULL, 1, 1, NULL, '2026-06-05 01:21:31'),
+    (13, '5000', 'Cost of Goods Sold', 'Expense', 'Cost of Sales', 'debit', NULL, 1, 1, NULL, '2026-06-05 01:21:31'),
+    (14, '6000', 'Salaries & Wages', 'Expense', 'Operating Expense', 'debit', NULL, 1, 1, NULL, '2026-06-05 01:21:31'),
+    (15, '6100', 'Rent', 'Expense', 'Operating Expense', 'debit', NULL, 1, 1, NULL, '2026-06-05 01:21:31'),
+    (16, '6200', 'Utilities', 'Expense', 'Operating Expense', 'debit', NULL, 1, 1, NULL, '2026-06-05 01:21:31'),
+    (17, '6300', 'Depreciation Expense', 'Expense', 'Operating Expense', 'debit', NULL, 1, 1, NULL, '2026-06-05 01:21:31'),
+    (18, '6400', 'Materials', 'Expense', 'Operating Expense', 'debit', NULL, 1, 1, NULL, '2026-06-05 01:21:31'),
+    (19, '6500', 'Labour', 'Expense', 'Operating Expense', 'debit', NULL, 1, 1, NULL, '2026-06-05 01:21:31'),
+    (20, '6600', 'Equipment', 'Expense', 'Operating Expense', 'debit', NULL, 1, 1, NULL, '2026-06-05 01:21:31'),
+    (21, '6700', 'Transport', 'Expense', 'Operating Expense', 'debit', NULL, 1, 1, NULL, '2026-06-05 01:21:31'),
+    (22, '6800', 'Subcontractor', 'Expense', 'Operating Expense', 'debit', NULL, 1, 1, NULL, '2026-06-05 01:21:31'),
+    (23, '6850', 'Insurance', 'Expense', 'Operating Expense', 'debit', NULL, 1, 1, NULL, '2026-06-05 01:21:31'),
+    (24, '6860', 'Subscriptions', 'Expense', 'Operating Expense', 'debit', NULL, 1, 1, NULL, '2026-06-05 01:21:31'),
+    (25, '6870', 'Permits & Fees', 'Expense', 'Operating Expense', 'debit', NULL, 1, 1, NULL, '2026-06-05 01:21:31'),
+    (26, '6900', 'General & Other Expense', 'Expense', 'Operating Expense', 'debit', NULL, 1, 1, NULL, '2026-06-05 01:21:31'),
+    (27, '1010', 'Cash — LBP', 'Asset', 'Current Asset', 'debit', NULL, 1, 1, NULL, '2026-06-05 01:21:31'),
+    (28, '4910', 'Foreign Exchange Gain', 'Income', 'Other Income', 'credit', NULL, 1, 1, NULL, '2026-06-05 01:21:31'),
+    (29, '6910', 'Cash Short & Over', 'Expense', 'Operating Expense', 'debit', NULL, 1, 1, NULL, '2026-06-05 01:21:31'),
+    (30, '6920', 'Foreign Exchange Loss', 'Expense', 'Other Expense', 'debit', NULL, 1, 1, NULL, '2026-06-05 01:21:31')
 ON CONFLICT DO NOTHING;
 INSERT INTO tax_rates (id, name, rate, tax_type, is_default, is_active, created_at) VALUES
-    (1, 'VAT 11%', 11.0, 'standard', 1, 1, '2026-06-04 21:13:23'),
-    (2, 'Zero-rated', 0.0, 'zero', 0, 1, '2026-06-04 21:13:23'),
-    (3, 'Exempt', 0.0, 'exempt', 0, 1, '2026-06-04 21:13:23')
+    (1, 'VAT 11%', 11.0, 'standard', 1, 1, '2026-06-05 01:21:31'),
+    (2, 'Zero-rated', 0.0, 'zero', 0, 1, '2026-06-05 01:21:31'),
+    (3, 'Exempt', 0.0, 'exempt', 0, 1, '2026-06-05 01:21:31')
 ON CONFLICT DO NOTHING;
 INSERT INTO warehouses (id, code, name, type, address, manager_id, is_active, is_default, notes, archived_at, archive_reason, created_at) VALUES
-    (1, 'MAIN', 'Main Warehouse', 'Main', NULL, NULL, 1, 1, 'Default warehouse, auto-created during multi-warehouse migration.', NULL, NULL, '2026-06-04 21:13:23')
+    (1, 'MAIN', 'Main Warehouse', 'Main', NULL, NULL, 1, 1, 'Default warehouse, auto-created during multi-warehouse migration.', NULL, NULL, '2026-06-05 01:21:31')
 ON CONFLICT DO NOTHING;
 
 -- Advance identity sequences past the seeded ids.
@@ -1869,5 +1873,6 @@ INSERT INTO schema_migrations (name, applied_at) VALUES
     ('123_quotation_items_discount', to_char(now(), 'YYYY-MM-DD HH24:MI:SS')),
     ('103_attachments', to_char(now(), 'YYYY-MM-DD HH24:MI:SS')),
     ('124_attachment_storage', to_char(now(), 'YYYY-MM-DD HH24:MI:SS')),
+    ('125_hr_recruitment_file_storage', to_char(now(), 'YYYY-MM-DD HH24:MI:SS')),
     ('091_backfill_employment_changes', to_char(now(), 'YYYY-MM-DD HH24:MI:SS'))
 ON CONFLICT (name) DO NOTHING;

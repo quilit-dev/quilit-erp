@@ -2524,6 +2524,19 @@ def _run_migrations(conn, c):
                 c.execute("ALTER TABLE attachments ADD COLUMN storage_key TEXT")
         done("124_attachment_storage")
 
+    # ── 125: object-storage backend for HR / recruitment files (Phase 3) ──
+    # Same additive treatment as attachments (124) for the two other BLOB tables.
+    if need("125_hr_recruitment_file_storage"):
+        for _tbl in ("hr_employee_files", "recruitment_applicant_files"):
+            if _tbl in all_tables():
+                _fc = cols(_tbl)
+                if "storage_backend" not in _fc:
+                    c.execute(f"ALTER TABLE {_tbl} ADD COLUMN storage_backend "
+                              "TEXT NOT NULL DEFAULT 'db'")
+                if "storage_key" not in _fc:
+                    c.execute(f"ALTER TABLE {_tbl} ADD COLUMN storage_key TEXT")
+        done("125_hr_recruitment_file_storage")
+
     # ── 091: backfill hire-row per existing employee ───────────────────────
     # Every employee already in the system gets a synthetic 'hire' row so the
     # timeline view isn't blank on existing data. Idempotent: only inserts when

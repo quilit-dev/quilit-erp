@@ -77,6 +77,39 @@ def test_s3_upload_download_delete_via_api(make_client, db, s3_mode):
         assert db.execute("SELECT 1 FROM attachments WHERE id=?", (att_id,)).fetchone() is None
 
 
+def test_s3_hr_employee_file_roundtrip(make_client, db, s3_mode):
+    # The HR employee-file endpoints share storage.py with attachments; prove the
+    # same upload→store→download→delete path end-to-end. (recruitment_applicant_files
+    # uses byte-identical wiring; its db path is covered by the recruitment tests.)
+    with mock_aws():
+        boto3.client("s3", region_name="us-east-1").create_bucket(Bucket=BUCKET)
+        c = make_client("superadmin")
+        emp_id = c.post("/api/hr/employees", json={
+            "full_name": "S3 Person", "job_title": "Eng",
+            "employment_type": "Full-time", "status": "Active", "salary": 1000,
+        }).json()["id"]
+
+        pdf = b"%PDF-1.4 fake cv bytes"
+        r = c.post(f"/api/hr/employees/{emp_id}/files",
+                   data={"kind": "cv"},
+                   files={"file": ("cv.pdf", pdf, "application/pdf")})
+        assert r.status_code == 200, r.text
+        fid = r.json()["id"]
+
+        row = db.execute("SELECT storage_backend, storage_key, data "
+                         "FROM hr_employee_files WHERE id=?", (fid,)).fetchone()
+        assert row["storage_backend"] == "s3"
+        assert row["storage_key"].startswith("public/hr_employee/")
+        assert bytes(row["data"] or b"") == b""
+
+        r = c.get(f"/api/hr/files/{fid}/download")
+        assert r.status_code == 200 and r.content == pdf
+
+        assert c.delete(f"/api/hr/files/{fid}").status_code == 200
+        assert db.execute("SELECT 1 FROM hr_employee_files WHERE id=?",
+                          (fid,)).fetchone() is None
+
+
 def test_backfill_migrates_db_rows_to_s3(make_client, db, s3_mode):
     with mock_aws():
         boto3.client("s3", region_name="us-east-1").create_bucket(Bucket=BUCKET)

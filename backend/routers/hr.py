@@ -56,6 +56,7 @@ def _hr_approver_user_ids(db) -> list:
     ).fetchall()
     return [r["id"] for r in rows]
 import sqlite3
+import storage
 
 router = APIRouter()
 
@@ -1034,17 +1035,29 @@ async def upload_employee_file(
             f"Maximum is {MAX_FILE_BYTES // (1024 * 1024)} MB.",
         )
 
-    # CV / Contract are single-slot: replace the previous one.
+    # CV / Contract are single-slot: replace the previous one (and its object).
     if kind in ("cv", "contract"):
+        for old in db.execute(
+            "SELECT storage_backend, storage_key FROM hr_employee_files "
+            "WHERE employee_id=? AND kind=?", (emp_id, kind)).fetchall():
+            if old["storage_backend"] == "s3" and old["storage_key"]:
+                storage.delete_object(old["storage_key"])
         db.execute("DELETE FROM hr_employee_files WHERE employee_id=? AND kind=?",
                    (emp_id, kind))
+    fname = file.filename or f"{kind}.pdf"
+    if storage.is_s3():
+        key = storage.make_key("hr_employee", emp_id, fname)
+        storage.put_object(key, data, content_type)
+        backend, blob = "s3", b""
+    else:
+        key, backend, blob = None, "db", data
     cur = db.execute(
         """INSERT INTO hr_employee_files
            (employee_id, kind, filename, content_type, size_bytes, data,
-            uploaded_by, created_at)
-           VALUES (?,?,?,?,?,?,?,?)""",
-        (emp_id, kind, file.filename or f"{kind}.pdf", content_type,
-         len(data), data, user["id"], _now()),
+            storage_backend, storage_key, uploaded_by, created_at)
+           VALUES (?,?,?,?,?,?,?,?,?,?)""",
+        (emp_id, kind, fname, content_type,
+         len(data), blob, backend, key, user["id"], _now()),
     )
     log_action(db, user, "upload", "hr_employee_file", cur.lastrowid,
                f"emp #{emp_id} — {kind}")
@@ -1082,15 +1095,18 @@ def download_employee_file(
 ):
     """Stream the PDF bytes inline so the browser previews it in a new tab."""
     row = db.execute(
-        "SELECT filename, content_type, data FROM hr_employee_files WHERE id=?",
+        "SELECT filename, content_type, data, storage_backend, storage_key "
+        "FROM hr_employee_files WHERE id=?",
         (file_id,),
     ).fetchone()
     if not row:
         raise HTTPException(404, "File not found")
+    content = (storage.get_object(row["storage_key"])
+               if row["storage_backend"] == "s3" else row["data"])
     # `inline` disposition so the browser shows the PDF in-tab; `download`
     # query toggle could be added later if a forced-download button is needed.
     return Response(
-        content=row["data"],
+        content=content,
         media_type=row["content_type"] or "application/pdf",
         headers={
             "Content-Disposition": f'inline; filename="{row["filename"]}"',
@@ -1106,11 +1122,14 @@ def delete_employee_file(
     db: sqlite3.Connection = Depends(get_db),
 ):
     row = db.execute(
-        "SELECT employee_id, kind, filename FROM hr_employee_files WHERE id=?",
+        "SELECT employee_id, kind, filename, storage_backend, storage_key "
+        "FROM hr_employee_files WHERE id=?",
         (file_id,),
     ).fetchone()
     if not row:
         raise HTTPException(404, "File not found")
+    if row["storage_backend"] == "s3" and row["storage_key"]:
+        storage.delete_object(row["storage_key"])
     db.execute("DELETE FROM hr_employee_files WHERE id=?", (file_id,))
     log_action(db, user, "delete", "hr_employee_file", file_id,
                f"emp #{row['employee_id']} — {row['kind']}")
