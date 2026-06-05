@@ -38,6 +38,20 @@ def test_db_is_the_default_backend():
     assert storage.is_s3() is False
 
 
+def test_database_session_roundtrip(db):
+    # The Phase 6 seam: a tenant-scoped connection for workers/jobs/scripts,
+    # mirroring Depends(get_db). A write through it is visible to a separate
+    # connection after commit.
+    import database
+    with database.session() as s:
+        s.execute("INSERT INTO settings (key, value) VALUES (?, ?) "
+                  "ON CONFLICT(key) DO UPDATE SET value=excluded.value",
+                  ("session_probe", "ok"))
+        s.commit()
+    row = db.execute("SELECT value FROM settings WHERE key=?", ("session_probe",)).fetchone()
+    assert row["value"] == "ok"
+
+
 def test_make_key_is_tenant_scoped():
     # In single-tenant mode the schema prefix is 'public'.
     key = storage.make_key("clients", 7, "report.pdf")

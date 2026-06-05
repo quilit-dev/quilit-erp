@@ -1,5 +1,6 @@
 import sqlite3, os
 from datetime import datetime
+from contextlib import contextmanager
 
 from db_compat import CompatConn
 from dialect import get_dialect
@@ -63,6 +64,25 @@ def get_db():
             raw.close()
     else:
         raise RuntimeError(f"Unknown DB_BACKEND={DB_BACKEND!r}")
+
+
+@contextmanager
+def session():
+    """A tenant-scoped DB connection for use OUTSIDE a request — background jobs,
+    the worker, CLI scripts. Mirrors request-time ``Depends(get_db)`` exactly (same
+    backend, same per-tenant search_path, same discard-on-exit cleanup), so the
+    same raw SQL works. Persist with an explicit ``db.commit()``. Usage:
+
+        with database.session() as db:
+            db.execute(...)
+            db.commit()
+    """
+    gen = get_db()
+    db = next(gen)
+    try:
+        yield db
+    finally:
+        gen.close()
 
 
 # ── Migration helpers ─────────────────────────────────────────────────────────

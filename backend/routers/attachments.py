@@ -203,15 +203,11 @@ def _backfill_attachments(db) -> int:
 
 @jobs.job("attachments.backfill_to_s3")
 def _backfill_job():
-    """RQ-runnable form: the worker has already set this job's tenant schema, so
-    open a tenant-scoped connection and run the backfill."""
+    """RQ-runnable form: the worker has already set this job's tenant schema, so a
+    tenant-scoped session connects to the right tenant."""
     import database
-    gen = database.get_db()
-    db = next(gen)
-    try:
+    with database.session() as db:
         return {"migrated": _backfill_attachments(db)}
-    finally:
-        gen.close()
 
 
 @router.post("/migrate-to-s3")
