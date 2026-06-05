@@ -42,5 +42,6 @@ ACTIONS = ["view", "create", "edit", "delete", "approve"]
 # Endpoints that are intentionally public (no auth) — excluded from auth checks.
 PUBLIC_PATHS = {
     "/",
+    "/api/health",                 # liveness probe — intentionally unauthenticated
     "/api/settings/setup-status",
 }

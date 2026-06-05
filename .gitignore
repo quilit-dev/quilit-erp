@@ -2,6 +2,9 @@
 .secret_key
 backend/.secret_key
 backend/.env
+# Root .env used by docker-compose (the production secrets file). The committed
+# template is .env.production.example.
+/.env
 
 # Databases
 *.db

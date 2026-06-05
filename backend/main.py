@@ -83,6 +83,11 @@ app.include_router(accounting.router,         prefix="/api/accounting",         
 app.include_router(warehouses.router,         prefix="/api/warehouses",         tags=["warehouses"])
 app.include_router(platform.router,           prefix="/api/platform",           tags=["platform"])
 
+@app.get("/api/health")
+def health():
+    """Liveness probe for containers / load balancers (no DB hit)."""
+    return {"status": "ok"}
+
 @app.get("/")
 def root():
     return {"message": "ERP System API v2.0"}

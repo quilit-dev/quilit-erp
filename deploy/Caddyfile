@@ -1,0 +1,30 @@
+# Caddy: serve the SPA, reverse-proxy the API, terminate TLS (Phase 5).
+#
+# DOMAIN is supplied by the environment (docker-compose passes it):
+#   * a real hostname (erp.example.com) → Caddy auto-provisions a Let's Encrypt
+#     cert and redirects HTTP→HTTPS automatically.
+#   * ":80" → plain HTTP, for local bring-up / smoke tests.
+{$DOMAIN} {
+	encode gzip zstd
+
+	# API → the app service.
+	handle /api/* {
+		reverse_proxy app:8000
+	}
+
+	# SPA: serve built assets, fall back to index.html for client-side routes.
+	handle {
+		root * /srv/www
+		try_files {path} /index.html
+		file_server
+	}
+
+	# Security headers (HSTS only meaningfully applies over HTTPS).
+	header {
+		Strict-Transport-Security "max-age=31536000; includeSubDomains; preload"
+		X-Content-Type-Options "nosniff"
+		X-Frame-Options "DENY"
+		Referrer-Policy "strict-origin-when-cross-origin"
+		-Server
+	}
+}

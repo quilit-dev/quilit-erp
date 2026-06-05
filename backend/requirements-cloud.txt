@@ -19,3 +19,7 @@ boto3>=1.34
 # cache.py / jobs.py / worker.py; the defaults (none / inline) need none of it.
 redis>=5.0
 rq>=1.16
+
+# Production WSGI/ASGI server for the container image (Phase 5). Not used by the
+# desktop build (which runs uvicorn directly from the launcher).
+gunicorn>=22.0

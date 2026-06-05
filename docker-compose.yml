@@ -1,0 +1,104 @@
+name: erp
+
+# Production stack (Phase 5 — docs/SAAS_ARCHITECTURE.md §10 + docs/DEPLOYMENT.md).
+# Copy .env.production.example → .env and fill it in first.
+
+services:
+  postgres:
+    image: postgres:16
+    restart: unless-stopped
+    environment:
+      POSTGRES_USER: ${POSTGRES_USER:-erp}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:?set POSTGRES_PASSWORD in .env}
+      POSTGRES_DB: ${POSTGRES_DB:-erp}
+    volumes:
+      - pgdata:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U ${POSTGRES_USER:-erp} -d ${POSTGRES_DB:-erp}"]
+      interval: 10s
+      timeout: 5s
+      retries: 12
+
+  redis:
+    image: redis:7-alpine
+    restart: unless-stopped
+    command: ["redis-server", "--appendonly", "yes"]
+    volumes:
+      - redisdata:/data
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 10s
+      timeout: 5s
+      retries: 12
+
+  app:
+    build:
+      context: .
+      target: app
+    image: erp-app
+    restart: unless-stopped
+    env_file: [.env]
+    environment:
+      RUN_BOOTSTRAP: "1"
+      DB_BACKEND: postgres
+      DATABASE_URL: postgresql://${POSTGRES_USER:-erp}:${POSTGRES_PASSWORD}@postgres:5432/${POSTGRES_DB:-erp}
+      REDIS_URL: redis://redis:6379/0
+    depends_on:
+      postgres: { condition: service_healthy }
+      redis: { condition: service_healthy }
+
+  worker:
+    build:
+      context: .
+      target: app
+    image: erp-app
+    restart: unless-stopped
+    command: ["python", "worker.py"]
+    env_file: [.env]
+    environment:
+      DB_BACKEND: postgres
+      DATABASE_URL: postgresql://${POSTGRES_USER:-erp}:${POSTGRES_PASSWORD}@postgres:5432/${POSTGRES_DB:-erp}
+      REDIS_URL: redis://redis:6379/0
+      JOBS: rq
+    depends_on:
+      app: { condition: service_healthy }
+      redis: { condition: service_healthy }
+
+  web:
+    build:
+      context: .
+      target: web
+    image: erp-web
+    restart: unless-stopped
+    environment:
+      DOMAIN: ${DOMAIN:-:80}
+    ports:
+      - "80:80"
+      - "443:443"
+    depends_on:
+      app: { condition: service_healthy }
+    volumes:
+      - caddydata:/data
+      - caddyconfig:/config
+
+  # Nightly pg_dump → the `backups` volume (14-day retention); optional offsite to
+  # S3/R2 if BACKUP_S3_BUCKET is set. See ops/backup.sh.
+  backup:
+    image: postgres:16
+    restart: unless-stopped
+    env_file: [.env]
+    environment:
+      DATABASE_URL: postgresql://${POSTGRES_USER:-erp}:${POSTGRES_PASSWORD}@postgres:5432/${POSTGRES_DB:-erp}
+    volumes:
+      - ./ops:/ops:ro
+      - backups:/backups
+    entrypoint: ["/bin/sh", "-c", "while true; do sh /ops/backup.sh || true; sleep 86400; done"]
+    depends_on:
+      postgres: { condition: service_healthy }
+
+volumes:
+  pgdata:
+  redisdata:
+  caddydata:
+  caddyconfig:
+  backups:
