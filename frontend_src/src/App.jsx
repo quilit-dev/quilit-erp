@@ -146,6 +146,7 @@ function Layout({ children }) {
   const { t } = useLocale();
   const location = useLocation();
   const [paletteOpen, setPaletteOpen] = useState(false);
+  const [sidebarOpen, setSidebarOpen] = useState(false);
   const closePalette = useCallback(() => setPaletteOpen(false), []);
 
   useEffect(() => {
@@ -159,6 +160,9 @@ function Layout({ children }) {
     return () => document.removeEventListener('keydown', handleKey);
   }, []);
 
+  // Close the mobile sidebar drawer whenever the route changes (e.g. a nav tap).
+  useEffect(() => { setSidebarOpen(false); }, [location.pathname]);
+
   const pageKeys = [
     '/', '/clients', '/projects', '/quotations', '/invoices', '/inventory', '/pos',
     '/purchases', '/suppliers', '/manufacturing', '/expenses', '/fixed-assets', '/finance', '/cash', '/reports', '/crm', '/planning', '/hr', '/recruitment', '/hr-activities', '/archives',
@@ -169,11 +173,24 @@ function Layout({ children }) {
   const label = matchedKey ? t(`pages.${matchedKey}`) : 'ERP';
 
   return (
-    <div className="layout">
+    <div className={`layout${sidebarOpen ? ' sidebar-open' : ''}`}>
       <Sidebar />
+      {sidebarOpen && (
+        <div className="sidebar-backdrop" onClick={() => setSidebarOpen(false)} aria-hidden="true" />
+      )}
       <div className="main-content">
         <div className="topbar">
           <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
+            <button
+              className="sidebar-toggle icon-btn"
+              onClick={() => setSidebarOpen(true)}
+              aria-label="Menu"
+              title="Menu"
+            >
+              <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+                <line x1="3" y1="6" x2="21" y2="6"/><line x1="3" y1="12" x2="21" y2="12"/><line x1="3" y1="18" x2="21" y2="18"/>
+              </svg>
+            </button>
             <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="var(--text-3)" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
               <polyline points="9 18 15 12 9 6"/>
             </svg>
@@ -182,7 +199,7 @@ function Layout({ children }) {
           <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
             <button
               onClick={() => setPaletteOpen(true)}
-              className="btn btn-outline"
+              className="btn btn-outline search-btn"
               style={{ display: 'flex', alignItems: 'center', gap: 6, fontSize: 12, padding: '4px 10px' }}
               title={t('common.searchCtrlK') + ' (Ctrl+K)'}
             >
@@ -192,7 +209,7 @@ function Layout({ children }) {
               {t('common.searchCtrlK')}
               <kbd style={{ fontSize: 10, opacity: 0.6, fontFamily: 'monospace', border: '1px solid var(--border)', borderRadius: 3, padding: '0 3px' }}>Ctrl K</kbd>
             </button>
-            <div style={{
+            <div className="live-badge" style={{
               display: 'flex', alignItems: 'center', gap: 6,
               background: 'var(--green-light)', color: 'var(--green)',
               padding: '3px 9px', borderRadius: 20, fontSize: 11, fontWeight: 600

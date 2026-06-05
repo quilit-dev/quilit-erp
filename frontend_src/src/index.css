@@ -3615,10 +3615,45 @@ textarea.form-control {
  * 7. RESPONSIVE — tablet + mobile collapses
  * ────────────────────────────────────────────────────────────────────────── */
 
+/* Mobile sidebar drawer affordances — hidden on desktop, shown ≤900px. */
+.sidebar-toggle { display: none; }
+.sidebar-backdrop {
+  display: none;
+  position: fixed;
+  inset: 0;
+  z-index: 999;
+  background: rgba(0, 0, 0, 0.45);
+  border: none;
+  cursor: pointer;
+}
+
 @media (max-width: 900px) {
   .layout { grid-template-columns: 1fr; }
-  .sidebar { display: none; }
-  .page-content { padding: 18px 16px 40px; }
-  .stats-grid { grid-template-columns: repeat(auto-fit, minmax(160px, 1fr)); gap: 10px; }
+
+  /* The sidebar becomes an off-canvas drawer slid in by the topbar hamburger.
+     Anchored to the inline-start edge (left in LTR, right in RTL). */
+  .sidebar {
+    display: flex;
+    position: fixed;
+    inset-block: 0;
+    inset-inline-start: 0;
+    width: min(84vw, 300px);
+    z-index: 1000;
+    transform: translateX(-100%);
+    transition: transform 0.25s var(--ease);
+    box-shadow: 0 12px 40px rgba(0, 0, 0, 0.28);
+  }
+  [dir="rtl"] .sidebar { transform: translateX(100%); }
+  .layout.sidebar-open .sidebar { transform: translateX(0); }   /* open (both dirs) */
+
+  .sidebar-backdrop { display: block; }
+  .sidebar-toggle   { display: inline-flex; }
+
+  /* Compact the topbar so it fits a phone: drop the search button + live pill. */
+  .topbar { padding: 0 12px; gap: 8px; }
+  .search-btn, .live-badge { display: none; }
+
+  .page-content { padding: 16px 14px 40px; }
+  .stats-grid { grid-template-columns: repeat(auto-fit, minmax(150px, 1fr)); gap: 10px; }
   .form-grid, .form-grid-3 { grid-template-columns: 1fr; }
 }
