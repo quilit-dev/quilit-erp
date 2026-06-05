@@ -14,6 +14,21 @@ def _today() -> str:
     return datetime.utcnow().strftime("%Y-%m-%d")
 
 
+def _read_setting(db, key: str):
+    row = db.execute("SELECT value FROM settings WHERE key=?", (key,)).fetchone()
+    return row["value"] if row else None
+
+
+def get_setting(db, key: str, default=None):
+    """Read a settings value, cached for 60s when CACHE=redis (tenant-scoped).
+    With CACHE=none (the default) this is exactly a direct SELECT — result-identical.
+    Returns the stored value (which may be an empty string) or `default` when the
+    key is absent. Callers that treat an empty string as "unset" must check for it."""
+    import cache
+    val = cache.get_or_set(f"setting:{key}", 60, lambda: _read_setting(db, key))
+    return val if val is not None else default
+
+
 # ════════════════════════════════════════════════════════════════════════════
 # Money & tax — single source of truth
 # ════════════════════════════════════════════════════════════════════════════

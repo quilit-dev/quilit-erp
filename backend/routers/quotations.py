@@ -76,8 +76,11 @@ class QuotationCreate(BaseModel):
     items:        List[QuoteItem] = []
 
 def _next_quote_number(db):
-    prefix_row = db.execute("SELECT value FROM settings WHERE key='quotation_prefix'").fetchone()
-    prefix = prefix_row["value"] if prefix_row else "QTN-"
+    from utils import get_setting
+    # Preserve prior behavior: a row with an empty value yields "", only an absent
+    # key falls back to "QTN-".
+    val = get_setting(db, "quotation_prefix")
+    prefix = val if val is not None else "QTN-"
     row  = db.execute("SELECT COALESCE(MAX(id), 0) as m FROM quotations").fetchone()
     year = datetime.utcnow().year
     return f"{prefix}{year}-{row['m'] + 1:04d}"

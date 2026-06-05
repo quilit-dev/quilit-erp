@@ -142,6 +142,10 @@ def _set_keys(db: sqlite3.Connection, updates: dict):
                 (k, v)
             )
     db.commit()
+    # Drop any cached settings for this tenant so changes take effect immediately
+    # (no-op when CACHE=none, i.e. for desktop / single-tenant installs).
+    import cache
+    cache.delete_prefix("setting:")
 
 
 # ── Routes ────────────────────────────────────────────────────────────────────

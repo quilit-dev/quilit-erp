@@ -28,6 +28,7 @@ from routers.audit import log_action
 from utils import _now
 import sqlite3
 import storage
+import jobs
 
 router = APIRouter()
 
@@ -184,15 +185,9 @@ def delete_attachment(
 
 # ── Backfill: move DB-stored files into object storage ───────────────────────
 # Literal one-segment path → no clash with the two-segment /{entity_type}/{id}.
-@router.post("/migrate-to-s3")
-def migrate_to_s3(user=Depends(require_auth), db: sqlite3.Connection = Depends(get_db)):
-    """Move every DB-stored attachment for the current tenant into object storage.
-    Superadmin-only; requires STORAGE=s3. Idempotent — already-migrated rows are
-    skipped, so it is safe to re-run."""
-    if not user.get("is_superadmin"):
-        raise HTTPException(403, "Superadmin only.")
-    if not storage.is_s3():
-        raise HTTPException(400, "Object storage is not configured (set STORAGE=s3).")
+def _backfill_attachments(db) -> int:
+    """Move this tenant's DB-stored attachments into object storage; return the
+    count moved. Idempotent (only touches storage_backend='db' rows)."""
     rows = db.execute(
         "SELECT id, entity_type, entity_id, filename, content_type, data "
         "FROM attachments WHERE storage_backend='db'"
@@ -203,7 +198,35 @@ def migrate_to_s3(user=Depends(require_auth), db: sqlite3.Connection = Depends(g
         db.execute("UPDATE attachments SET storage_backend='s3', storage_key=?, data=? "
                    "WHERE id=?", (key, b"", r["id"]))
     db.commit()
-    return {"migrated": len(rows)}
+    return len(rows)
+
+
+@jobs.job("attachments.backfill_to_s3")
+def _backfill_job():
+    """RQ-runnable form: the worker has already set this job's tenant schema, so
+    open a tenant-scoped connection and run the backfill."""
+    import database
+    gen = database.get_db()
+    db = next(gen)
+    try:
+        return {"migrated": _backfill_attachments(db)}
+    finally:
+        gen.close()
+
+
+@router.post("/migrate-to-s3")
+def migrate_to_s3(user=Depends(require_auth), db: sqlite3.Connection = Depends(get_db)):
+    """Move every DB-stored attachment for the current tenant into object storage.
+    Superadmin-only; requires STORAGE=s3. With JOBS=rq the work is enqueued to a
+    background worker (returns a job id); otherwise it runs inline (returns the
+    count). Idempotent — safe to re-run."""
+    if not user.get("is_superadmin"):
+        raise HTTPException(403, "Superadmin only.")
+    if not storage.is_s3():
+        raise HTTPException(400, "Object storage is not configured (set STORAGE=s3).")
+    if jobs.async_enabled():
+        return {"status": "queued", "job_id": jobs.enqueue("attachments.backfill_to_s3")}
+    return {"migrated": _backfill_attachments(db)}
 
 
 # ── List ───────────────────────────────────────────────────────────────────

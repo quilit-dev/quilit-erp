@@ -95,8 +95,9 @@ def _placeholder_invoice_number() -> str:
     return f"__pending__{uuid.uuid4().hex}"
 
 def _invoice_prefix(db) -> str:
-    row = db.execute("SELECT value FROM settings WHERE key='invoice_prefix'").fetchone()
-    return row["value"] if row and row["value"] else "INV-"
+    from utils import get_setting
+    # Empty or unset → default "INV-" (preserves prior behavior exactly).
+    return get_setting(db, "invoice_prefix") or "INV-"
 
 def _finalize_invoice_number(db, invoice_id: int, prefix: str) -> str:
     """Set the real, collision-free number on a freshly-inserted invoice row.

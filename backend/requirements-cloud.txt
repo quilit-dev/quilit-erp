@@ -14,3 +14,8 @@ psycopg[binary,pool]>=3.2
 # Object storage for attachments (STORAGE=s3 — AWS S3 / Cloudflare R2 / MinIO).
 # Imported lazily by storage.py; the default STORAGE=db backend needs none of it.
 boto3>=1.34
+
+# Caching + background jobs (CACHE=redis / JOBS=rq). Imported lazily by
+# cache.py / jobs.py / worker.py; the defaults (none / inline) need none of it.
+redis>=5.0
+rq>=1.16
