@@ -1,0 +1,55 @@
+# Render Blueprint — free-tier test deployment (https://render.com).
+#
+# One self-contained web service (the Docker `app` stage serves SPA + API on
+# $PORT; Render terminates TLS and gives an https://<name>.onrender.com URL) plus
+# a free managed PostgreSQL. No Redis/worker on the free tier → CACHE=none /
+# JOBS=inline (jobs run synchronously, unchanged behavior).
+#
+# Deploy: push to GitHub → Render dashboard → New → Blueprint → pick this repo.
+# Render builds the Dockerfile's final stage (`app`) automatically.
+#
+# Free web services SLEEP after 15 min idle. Keep one awake with a cron ping (see
+# below) to https://<name>.onrender.com/api/health every ~10 minutes. One always
+# -on free service fits within the 750 free instance-hours/month.
+#
+# Notes:
+#  * TENANCY=single (subdomain multi-tenancy needs wildcard DNS, which the
+#    onrender.com hostname can't provide; use the X-Tenant header to test schema
+#    mode, or a real domain later).
+#  * Render free Postgres is size/time-limited — fine for testing, not customers.
+
+databases:
+  - name: erp-db
+    plan: free
+
+services:
+  - type: web
+    name: erp
+    runtime: docker
+    plan: free
+    dockerfilePath: ./Dockerfile
+    healthCheckPath: /api/health
+    autoDeploy: true
+    envVars:
+      - key: RUN_BOOTSTRAP            # entrypoint runs bootstrap.py (schema + admin)
+        value: "1"
+      - key: DB_BACKEND
+        value: postgres
+      - key: DATABASE_URL
+        fromDatabase:
+          name: erp-db
+          property: connectionString
+      - key: SECRET_KEY              # generated once by Render, then persisted
+        generateValue: true
+      - key: TENANCY
+        value: single
+      - key: STORAGE
+        value: db
+      - key: CACHE
+        value: none
+      - key: JOBS
+        value: inline
+      - key: COOKIE_SECURE
+        value: "true"               # Render serves HTTPS
+      - key: WEB_CONCURRENCY
+        value: "2"                  # fit the 512 MB free instance
