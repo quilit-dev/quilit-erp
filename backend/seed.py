@@ -119,6 +119,12 @@ with sqlite3.connect(DB_PATH) as _con:
         "UPDATE users SET password_hash=?, must_change_password=0 WHERE username='admin'",
         (hash_password(ADMIN_PASSWORD),),
     )
+    # Mark first-run setup as complete so a freshly --reset DB opens straight to
+    # the login screen instead of the setup wizard.
+    _con.execute("CREATE TABLE IF NOT EXISTS settings (key TEXT PRIMARY KEY, value TEXT)")
+    _con.execute(
+        "INSERT INTO settings (key, value) VALUES ('setup_complete', '1') "
+        "ON CONFLICT(key) DO UPDATE SET value='1'")
     _con.commit()
 
 
@@ -1255,6 +1261,118 @@ for eb in [
 ]:
     POST("/api/planning/events", eb)
 print("  +5 milestones + 3 calendar events")
+
+
+# ════════════════════════════════════════════════════════════════════════════
+# 29. Manufacturing resources + advanced production (resources / QC / lots /
+#     partial completion) — the SME resource-based costing model
+# ════════════════════════════════════════════════════════════════════════════
+header("Manufacturing resources & advanced production")
+# Reusable per-hour cost resources (drive overhead = Σ rates × actual hours).
+res_labor = POST("/api/manufacturing/resources", {"name": "Labor",        "hourly_rate": 12})["id"]
+res_elec  = POST("/api/manufacturing/resources", {"name": "Electricity",  "hourly_rate": 3})["id"]
+res_cnc   = POST("/api/manufacturing/resources", {"name": "CNC Machine",  "hourly_rate": 20})["id"]
+res_oven  = POST("/api/manufacturing/resources", {"name": "Oven",         "hourly_rate": 8})["id"]
+
+# A lot-tracked raw input + a lot-tracked, QC-required finished product so the
+# completion drives lots, expiry, traceability AND quality control.
+raw_resin = POST("/api/inventory/", {
+    "name": "Resin Compound", "category": "Chemicals", "product_type": "raw_material",
+    "quantity": 500, "unit_cost": 2.0, "unit": "kg",
+    "lot_tracked": True, "shelf_life_days": 365})["id"]
+fg_widget = POST("/api/inventory/", {
+    "name": "Molded Widget", "category": "Finished", "product_type": "finished",
+    "quantity": 0, "sale_price": 40, "min_stock": 10, "unit": "pcs",
+    "lot_tracked": True, "shelf_life_days": 730})["id"]
+
+bom_widget = POST("/api/manufacturing/boms", {
+    "name": "Molded Widget BOM", "output_inventory_id": fg_widget,
+    "output_quantity": 10, "standard_hours": 2, "qc_required": True,
+    "components": [{"component_inventory_id": raw_resin, "quantity": 5}],
+    "resources": [{"resource_id": res_labor}, {"resource_id": res_elec},
+                  {"resource_id": res_cnc}, {"name": "Quality check", "hourly_rate": 5}],
+})
+
+# MO A — full run → finished batch goes to QC quarantine → inspector resolves
+# (7 pass to stock as a lot, 3 rejected, 2 of them spun into a rework order).
+mo_qc = POST("/api/manufacturing/orders", {
+    "bom_id": bom_widget["id"], "quantity": 10, "priority": "High",
+    "due_date": days_ahead(7), "notes": "QC + lot-tracked batch"})
+POST(f"/api/manufacturing/orders/{mo_qc['id']}/confirm")
+POST(f"/api/manufacturing/orders/{mo_qc['id']}/start")
+done = POST(f"/api/manufacturing/orders/{mo_qc['id']}/complete", {"production_hours": 2.5})
+if done.get("qc_id"):
+    POST(f"/api/manufacturing/qc/{done['qc_id']}/resolve", {
+        "passed_qty": 7, "rejected_qty": 3, "rework_qty": 2,
+        "defects": [{"reason": "Surface blemish", "quantity": 2},
+                    {"reason": "Short fill", "quantity": 1}],
+        "notes": "Two reworkable, one scrap."})
+
+# MO B — resource-based BOM completed across TWO PARTIAL runs (auto-closes when
+# the planned quantity is reached). No QC on this one.
+fg_panel = POST("/api/inventory/", {
+    "name": "Wood Panel", "category": "Furniture", "product_type": "finished",
+    "quantity": 0, "sale_price": 25, "min_stock": 4, "unit": "pcs"})["id"]
+bom_panel = POST("/api/manufacturing/boms", {
+    "name": "Wood Panel BOM", "output_inventory_id": fg_panel,
+    "output_quantity": 1, "standard_hours": 0.5,
+    "components": [{"component_inventory_id": inv["wood"]["id"], "quantity": 1}],
+    "resources": [{"resource_id": res_labor}, {"resource_id": res_oven}],
+})
+mo_partial = POST("/api/manufacturing/orders", {
+    "bom_id": bom_panel["id"], "quantity": 10, "priority": "Normal",
+    "planned_start_date": days_ago(2), "due_date": days_ahead(5)})
+POST(f"/api/manufacturing/orders/{mo_partial['id']}/confirm")
+POST(f"/api/manufacturing/orders/{mo_partial['id']}/complete",
+     {"quantity_produced": 6, "production_hours": 3, "close": False})   # first run
+POST(f"/api/manufacturing/orders/{mo_partial['id']}/complete",
+     {"quantity_produced": 4, "production_hours": 2})                    # finishes + closes
+print("  +4 resources, 2 resource BOMs; QC batch (pass/reject/rework + lots) "
+      "+ partial completion across 2 runs")
+
+
+# ════════════════════════════════════════════════════════════════════════════
+# 30. Accounting — one manual journal entry (the rest of the ledger is already
+#     auto-posted from invoice payments / expenses / payroll / depreciation /
+#     purchases seeded above)
+# ════════════════════════════════════════════════════════════════════════════
+header("Accounting")
+_acct = {a["code"]: a["id"] for a in GET("/api/accounting/accounts")}
+POST("/api/accounting/journal-entries", {
+    "entry_date": days_ago(90),
+    "memo": "Opening owner capital injection",
+    "lines": [
+        {"account_id": _acct["1000"], "debit": 20000},   # Cash & Bank
+        {"account_id": _acct["3000"], "credit": 20000},  # Owner's Equity
+    ],
+})
+_je = GET("/api/accounting/journal-entries")
+print(f"  +1 manual journal entry; ledger holds {len(_je)} posted entries "
+      "(payments/expenses/payroll/depreciation/purchases auto-posted)")
+
+
+# ════════════════════════════════════════════════════════════════════════════
+# 31. Attachments — files on clients / projects / invoices / suppliers
+# ════════════════════════════════════════════════════════════════════════════
+header("Attachments")
+def _attach(entity_type, entity_id, fname, content, ctype):
+    r = client.post(f"/api/attachments/{entity_type}/{entity_id}",
+                    files={"file": (fname, content, ctype)})
+    return r.status_code in (200, 201)
+
+_PDF = (b"%PDF-1.4\n1 0 obj<</Type/Catalog/Pages 2 0 R>>endobj\n"
+        b"2 0 obj<</Type/Pages/Kids[3 0 R]/Count 1>>endobj\n"
+        b"3 0 obj<</Type/Page/Parent 2 0 R/MediaBox[0 0 200 200]>>endobj\n"
+        b"trailer<</Root 1 0 R>>\n%%EOF")
+_att = 0
+_att += _attach("clients",   CL_BEIRUT_CAFE, "onboarding-brief.txt",
+                b"Beirut Cafe onboarding brief.\nPreferred contact: WhatsApp.\n", "text/plain")
+_att += _attach("projects",  PRJ_CAFE, "site-measurements.csv",
+                b"area,width,length\nbar,3.2,1.1\nseating,6.0,4.5\n", "text/csv")
+_att += _attach("invoices",  inv_paid["id"], "signed-invoice.pdf", _PDF, "application/pdf")
+_att += _attach("suppliers", SUP_CEDAR, "price-list.txt",
+                b"Pine plank 4.00/pcs\nNails 0.05/pcs\nVarnish 12.00/L\n", "text/plain")
+print(f"  +{_att} attachments across clients / projects / invoices / suppliers")
 
 
 # ════════════════════════════════════════════════════════════════════════════

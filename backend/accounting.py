@@ -29,17 +29,57 @@ Design notes
   owns the transaction.
 """
 import sqlite3
-from utils import _now, money
+from utils import _now, _today, money
 
-# ── Stable system-account codes (seeded in migration 104) ───────────────────
-CASH        = "1000"   # Cash & Bank
-AR          = "1100"   # Accounts Receivable
-ACC_DEP     = "1510"   # Accumulated Depreciation (contra-asset)
-REVENUE     = "4000"   # Sales Revenue
-COGS        = "5000"   # Cost of Goods Sold
-SALARIES    = "6000"   # Salaries & Wages
-DEPRECIATION = "6300"  # Depreciation Expense
-OTHER_EXPENSE = "6900" # General & Other Expense
+
+def clamp_posting_date(period_end: str) -> str:
+    """Pull a period-end posting date back to today if it is in the future.
+
+    Period-charge events (payroll, depreciation) are conceptually dated to the
+    END of the period they cover. But when an operator runs them mid-period —
+    e.g. pays this month's payroll on the 3rd, or runs the current month's
+    depreciation before month-end — dating the journal entry to the (future)
+    month-end pushes it outside the default "this month → today" GL / Trial
+    Balance views, so the operator thinks "it didn't post".
+
+    `min(period_end, today)` fixes that without distorting history:
+      • A back-period run (April paid in June) keeps its own month-end —
+        2026-04-30 is already < today, so it is returned unchanged.
+      • A current-period run dated to a future month-end is pulled back to
+        today, so it appears immediately in the default views.
+
+    Accepts and returns a 'YYYY-MM-DD' string (the first 10 chars are used).
+    """
+    pe = (period_end or "")[:10]
+    today = _today()
+    if not pe:
+        return today
+    return min(pe, today)
+
+# ── Stable system-account codes (seeded in migrations 104 + 120) ────────────
+CASH         = "1000"   # Cash & Bank (functional currency — USD)
+CASH_LBP     = "1010"   # Cash — LBP (foreign currency monetary item)
+AR           = "1100"   # Accounts Receivable
+INVENTORY    = "1200"   # Inventory (perpetual)
+ACC_DEP      = "1510"   # Accumulated Depreciation (contra-asset)
+AP           = "2000"   # Accounts Payable
+REVENUE      = "4000"   # Sales Revenue
+FX_GAIN      = "4910"   # Foreign Exchange Gain (other income)
+COGS         = "5000"   # Cost of Goods Sold
+SALARIES     = "6000"   # Salaries & Wages
+DEPRECIATION = "6300"   # Depreciation Expense
+CASH_SHORT_OVER = "6910"  # Cash Short & Over (operating expense)
+FX_LOSS      = "6920"   # Foreign Exchange Loss (other expense)
+OTHER_EXPENSE = "6900"  # General & Other Expense
+
+
+def cash_account_for(currency: str) -> str:
+    """Return the Chart-of-Accounts code that should hold cash tendered in
+    `currency`. Centralised so every module routes LBP to 1010 and USD to 1000
+    consistently — otherwise mixing them silently in '1000 Cash & Bank' breaks
+    IAS 21 (monetary items in a non-functional currency must be tracked and
+    revalued at the spot rate). Unknown currencies fall back to USD."""
+    return CASH_LBP if (currency or "").upper() == "LBP" else CASH
 
 # Expense-category → ledger account code. Mirrors finance._VALID_EXPENSE_CATEGORIES.
 CATEGORY_ACCOUNTS = {
@@ -202,20 +242,26 @@ def _signed_balance(acct_type: str, debit: float, credit: float) -> float:
 def trial_balance(db: sqlite3.Connection, as_of: str = None):
     """Debit/credit totals per account up to `as_of` (inclusive). Only posted
     entries count. Returns rows + grand totals (which always tie out)."""
-    where = "je.status='posted'"
+    cond = ["je.status != 'draft'"]
     params = []
     if as_of:
-        where += " AND je.entry_date <= ?"
-        params.append(as_of[:10])
+        cond.append("je.entry_date <= ?"); params.append(as_of[:10])
+    where = " AND ".join(cond)
+    # Filter lines INSIDE the join so excluded entries don't contribute to the
+    # sums; the outer LEFT JOIN still keeps zero-activity accounts out via HAVING.
     rows = db.execute(
         f"""SELECT a.id, a.code, a.name, a.type, a.normal_balance,
-                   COALESCE(SUM(l.debit),0)  AS debit,
-                   COALESCE(SUM(l.credit),0) AS credit
+                   COALESCE(SUM(x.debit),0)  AS debit,
+                   COALESCE(SUM(x.credit),0) AS credit
             FROM chart_of_accounts a
-            LEFT JOIN journal_entry_lines l ON l.account_id = a.id
-            LEFT JOIN journal_entries je    ON je.id = l.journal_entry_id AND {where}
+            LEFT JOIN (
+                SELECT l.account_id, l.debit, l.credit
+                FROM journal_entry_lines l
+                JOIN journal_entries je ON je.id = l.journal_entry_id
+                WHERE {where}
+            ) x ON x.account_id = a.id
             GROUP BY a.id
-            HAVING debit <> 0 OR credit <> 0
+            HAVING COALESCE(SUM(x.debit),0) <> 0 OR COALESCE(SUM(x.credit),0) <> 0
             ORDER BY a.code""",
         params,
     ).fetchall()
@@ -236,21 +282,41 @@ def trial_balance(db: sqlite3.Connection, as_of: str = None):
             "balanced": abs(td - tc) < 0.01, "as_of": as_of}
 
 
-def _type_totals(db: sqlite3.Connection, start: str = None, end: str = None):
-    """Per-account signed balances grouped for the financial statements."""
-    where = "je.status='posted'"
+def _type_totals(db: sqlite3.Connection, start: str = None, end: str = None,
+                 exclude_closing: bool = False):
+    """Per-account signed balances grouped for the financial statements.
+
+    `exclude_closing` drops year-end closing entries — used by the Income
+    Statement so a closed year still shows its real revenue/expenses (the
+    closing entry only reclassifies them into Retained Earnings)."""
+    # Include posted AND reversed entries (a reversed entry + its reversal net to
+    # zero, so both must count); only drafts are dropped.
+    cond = ["je.status != 'draft'"]
     params = []
+    if exclude_closing:
+        # Drop the year-end closing entry AND any entry that reverses one, so a
+        # closed (or reopened) year's P&L still shows its real operating result.
+        cond.append("je.source_type IS NOT 'closing'")
+        cond.append("(je.reverses_id IS NULL OR je.reverses_id NOT IN "
+                    "(SELECT id FROM journal_entries WHERE source_type='closing'))")
     if start:
-        where += " AND je.entry_date >= ?"; params.append(start[:10])
+        cond.append("je.entry_date >= ?"); params.append(start[:10])
     if end:
-        where += " AND je.entry_date <= ?"; params.append(end[:10])
+        cond.append("je.entry_date <= ?"); params.append(end[:10])
+    where = " AND ".join(cond)
+    # Filter lines INSIDE the join so excluded entries (out of range / closing)
+    # don't contribute to the sums; the outer LEFT JOIN keeps zero accounts.
     rows = db.execute(
         f"""SELECT a.code, a.name, a.type, a.subtype, a.normal_balance,
-                   COALESCE(SUM(l.debit),0)  AS debit,
-                   COALESCE(SUM(l.credit),0) AS credit
+                   COALESCE(SUM(x.debit),0)  AS debit,
+                   COALESCE(SUM(x.credit),0) AS credit
             FROM chart_of_accounts a
-            LEFT JOIN journal_entry_lines l ON l.account_id = a.id
-            LEFT JOIN journal_entries je    ON je.id = l.journal_entry_id AND {where}
+            LEFT JOIN (
+                SELECT l.account_id, l.debit, l.credit
+                FROM journal_entry_lines l
+                JOIN journal_entries je ON je.id = l.journal_entry_id
+                WHERE {where}
+            ) x ON x.account_id = a.id
             GROUP BY a.id
             ORDER BY a.code""",
         params,
@@ -264,8 +330,9 @@ def _type_totals(db: sqlite3.Connection, start: str = None, end: str = None):
 
 
 def income_statement(db: sqlite3.Connection, start: str, end: str):
-    """Revenue − expenses over a period (P&L)."""
-    rows = _type_totals(db, start, end)
+    """Revenue − expenses over a period (P&L). Excludes year-end closing
+    entries so the operating result is shown even after the year is closed."""
+    rows = _type_totals(db, start, end, exclude_closing=True)
     income   = [r for r in rows if r["type"] == "Income"  and r["balance"] != 0]
     expense  = [r for r in rows if r["type"] == "Expense" and r["balance"] != 0]
     total_income  = round(sum(r["balance"] for r in income), 2)
@@ -320,12 +387,12 @@ def general_ledger(db: sqlite3.Connection, account_id: int, start: str = None, e
         o = db.execute(
             "SELECT COALESCE(SUM(l.debit),0) d, COALESCE(SUM(l.credit),0) c "
             "FROM journal_entry_lines l JOIN journal_entries je ON je.id=l.journal_entry_id "
-            "WHERE l.account_id=? AND je.status='posted' AND je.entry_date < ?",
+            "WHERE l.account_id=? AND je.status != 'draft' AND je.entry_date < ?",
             (account_id, start[:10]),
         ).fetchone()
         opening = round((float(o["d"]) - float(o["c"])) * sign, 2)
 
-    where = "l.account_id=? AND je.status='posted'"
+    where = "l.account_id=? AND je.status != 'draft'"
     params = [account_id]
     if start:
         where += " AND je.entry_date >= ?"; params.append(start[:10])
@@ -359,3 +426,85 @@ def general_ledger(db: sqlite3.Connection, account_id: int, start: str = None, e
         "transactions": txns,
         "closing_balance": running,
     }
+
+
+# ── Financial-year closing ───────────────────────────────────────────────────
+RETAINED_EARNINGS = "3900"
+
+
+def is_year_closed(db: sqlite3.Connection, year) -> bool:
+    try:
+        return bool(db.execute(
+            "SELECT 1 FROM fiscal_years WHERE year=? AND status='closed'",
+            (int(year),)).fetchone())
+    except (sqlite3.OperationalError, TypeError, ValueError):
+        return False
+
+
+def closed_year_for_date(db: sqlite3.Connection, date_str):
+    """Return the year if `date_str` falls in a closed financial year, else None."""
+    try:
+        year = int(str(date_str)[:4])
+    except (TypeError, ValueError):
+        return None
+    return year if is_year_closed(db, year) else None
+
+
+def close_fiscal_year(db: sqlite3.Connection, year, created_by=None):
+    """Close a financial year: post a year-end closing entry that moves the
+    year's net result into Retained Earnings, then mark the year closed (which
+    locks all dated-in-year modifications). Returns the P&L summary."""
+    year = int(year)
+    if is_year_closed(db, year):
+        raise ValueError(f"Financial year {year} is already closed.")
+    start, end = f"{year:04d}-01-01", f"{year:04d}-12-31"
+    rows = [r for r in _type_totals(db, start, end, exclude_closing=True)
+            if r["type"] in ("Income", "Expense") and abs(r["balance"]) > 0.005]
+    total_income  = round(sum(r["balance"] for r in rows if r["type"] == "Income"), 2)
+    total_expense = round(sum(r["balance"] for r in rows if r["type"] == "Expense"), 2)
+    net_income    = round(total_income - total_expense, 2)
+
+    closing_id = None
+    if rows:
+        # Zero each income (credit-balance) and expense (debit-balance) account,
+        # balancing the difference into Retained Earnings.
+        lines = []
+        for r in rows:
+            if r["type"] == "Income":
+                lines.append({"code": r["code"], "debit": r["balance"], "memo": "Year-end close"})
+            else:
+                lines.append({"code": r["code"], "credit": r["balance"], "memo": "Year-end close"})
+        if net_income > 0:
+            lines.append({"code": RETAINED_EARNINGS, "credit": net_income, "memo": f"Net income {year}"})
+        elif net_income < 0:
+            lines.append({"code": RETAINED_EARNINGS, "debit": -net_income, "memo": f"Net loss {year}"})
+        closing_id = post_entry(
+            db, entry_date=end, memo=f"Year-end closing — {year}", lines=lines,
+            source_type="closing", source_id=year, created_by=created_by)
+
+    db.execute(
+        "INSERT INTO fiscal_years "
+        "(year, status, total_income, total_expense, net_income, closing_entry_id, closed_at, closed_by) "
+        "VALUES (?, 'closed', ?,?,?,?,?,?) "
+        "ON CONFLICT(year) DO UPDATE SET status='closed', total_income=excluded.total_income, "
+        " total_expense=excluded.total_expense, net_income=excluded.net_income, "
+        " closing_entry_id=excluded.closing_entry_id, closed_at=excluded.closed_at, closed_by=excluded.closed_by",
+        (year, total_income, total_expense, net_income, closing_id, _now(), created_by))
+    return {"year": year, "total_income": total_income, "total_expense": total_expense,
+            "net_income": net_income, "closing_entry_id": closing_id}
+
+
+def reopen_fiscal_year(db: sqlite3.Connection, year, created_by=None):
+    """Reopen a closed year — reverses its closing entry and unlocks the year."""
+    year = int(year)
+    row = db.execute("SELECT * FROM fiscal_years WHERE year=? AND status='closed'",
+                     (year,)).fetchone()
+    if not row:
+        raise ValueError(f"Financial year {year} is not closed.")
+    if row["closing_entry_id"]:
+        reverse_entry(db, row["closing_entry_id"],
+                      memo=f"Reopen {year} — reverse year-end closing", created_by=created_by)
+    db.execute(
+        "UPDATE fiscal_years SET status='open', closed_at=NULL, closed_by=NULL, "
+        " closing_entry_id=NULL WHERE year=?", (year,))
+    return {"year": year, "status": "open"}

@@ -25,6 +25,7 @@ from routers.hr_activities import (
 )
 from utils import _now, notify
 import sqlite3
+import storage
 
 router = APIRouter()
 
@@ -934,17 +935,29 @@ async def upload_applicant_file(
     if len(data) > MAX_FILE_BYTES:
         raise HTTPException(400,
             f"File too large ({len(data)//1024} KB). Max {MAX_FILE_BYTES//(1024*1024)} MB.")
-    # CV is single-slot per applicant.
+    # CV is single-slot per applicant — replace the previous one (and its object).
     if kind == "cv":
+        for old in db.execute(
+            "SELECT storage_backend, storage_key FROM recruitment_applicant_files "
+            "WHERE applicant_id=? AND kind='cv'", (app_id,)).fetchall():
+            if old["storage_backend"] == "s3" and old["storage_key"]:
+                storage.delete_object(old["storage_key"])
         db.execute("DELETE FROM recruitment_applicant_files WHERE applicant_id=? AND kind='cv'",
                    (app_id,))
+    fname = file.filename or f"{kind}.pdf"
+    if storage.is_s3():
+        key = storage.make_key("recruitment_applicant", app_id, fname)
+        storage.put_object(key, data, content_type)
+        backend, blob = "s3", b""
+    else:
+        key, backend, blob = None, "db", data
     cur = db.execute(
         """INSERT INTO recruitment_applicant_files
            (applicant_id, kind, filename, content_type, size_bytes, data,
-            uploaded_by, created_at)
-           VALUES (?,?,?,?,?,?,?,?)""",
-        (app_id, kind, file.filename or f"{kind}.pdf", content_type,
-         len(data), data, user["id"], _now()),
+            storage_backend, storage_key, uploaded_by, created_at)
+           VALUES (?,?,?,?,?,?,?,?,?,?)""",
+        (app_id, kind, fname, content_type,
+         len(data), blob, backend, key, user["id"], _now()),
     )
     log_action(db, user, "upload", "recruitment_applicant_file", cur.lastrowid,
                f"applicant #{app_id} — {kind}")
@@ -974,13 +987,16 @@ def download_applicant_file(
     db: sqlite3.Connection = Depends(get_db),
 ):
     row = db.execute(
-        "SELECT filename, content_type, data FROM recruitment_applicant_files WHERE id=?",
+        "SELECT filename, content_type, data, storage_backend, storage_key "
+        "FROM recruitment_applicant_files WHERE id=?",
         (file_id,),
     ).fetchone()
     if not row:
         raise HTTPException(404, "File not found")
+    content = (storage.get_object(row["storage_key"])
+               if row["storage_backend"] == "s3" else row["data"])
     return Response(
-        content=row["data"],
+        content=content,
         media_type=row["content_type"] or "application/pdf",
         headers={
             "Content-Disposition": f'inline; filename="{row["filename"]}"',
@@ -996,10 +1012,13 @@ def delete_applicant_file(
     db: sqlite3.Connection = Depends(get_db),
 ):
     row = db.execute(
-        "SELECT applicant_id, kind FROM recruitment_applicant_files WHERE id=?", (file_id,),
+        "SELECT applicant_id, kind, storage_backend, storage_key "
+        "FROM recruitment_applicant_files WHERE id=?", (file_id,),
     ).fetchone()
     if not row:
         raise HTTPException(404, "File not found")
+    if row["storage_backend"] == "s3" and row["storage_key"]:
+        storage.delete_object(row["storage_key"])
     db.execute("DELETE FROM recruitment_applicant_files WHERE id=?", (file_id,))
     log_action(db, user, "delete", "recruitment_applicant_file", file_id,
                f"applicant #{row['applicant_id']} — {row['kind']}")

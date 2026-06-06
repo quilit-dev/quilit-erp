@@ -71,7 +71,7 @@ def get_client(client_id: int, user=Depends(require_perm("clients", "view")), db
            LEFT JOIN projects p ON p.id = i.project_id
            LEFT JOIN invoice_payments ip ON ip.invoice_id = i.id
            WHERE i.client_id = ? AND i.archived_at IS NULL
-           GROUP BY i.id ORDER BY i.created_at DESC""",
+           GROUP BY i.id, p.name ORDER BY i.created_at DESC""",
         (client_id,)
     ).fetchall()
 

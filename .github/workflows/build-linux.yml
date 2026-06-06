@@ -1,0 +1,153 @@
+name: Build Linux app
+
+# Builds the ERP server on a cloud Ubuntu runner and packages it two ways:
+#   * ERP-System-<ver>-x86_64.AppImage  — a single portable file. Make it
+#     executable and double-click / run it; nothing to install. (Some newer
+#     distros need `libfuse2` for AppImages — see the .tar.gz fallback.)
+#   * ERP-System-<ver>-linux-x86_64.tar.gz — extract anywhere and run
+#     `./erp-system/erp-system`. Zero dependencies, works on any glibc distro.
+#
+# Why a cloud Linux runner: PyInstaller cannot cross-compile — a Linux binary
+# must be built on Linux. This runner does that so no Linux machine is needed
+# locally. The build is x86_64 (the overwhelmingly common desktop arch); it
+# will not run on ARM Linux.
+
+on:
+  workflow_dispatch: {}        # manual "Run workflow" button in the Actions tab
+  push:
+    tags:
+      - 'v*'                   # e.g. pushing tag v2.2.0 builds automatically
+
+jobs:
+  build-linux:
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+
+      - name: Set up Node
+        uses: actions/setup-node@v4
+        with:
+          node-version: '20'
+
+      - name: Install Python dependencies
+        run: |
+          python -m pip install --upgrade pip
+          pip install -r backend/requirements.txt
+          pip install pyinstaller
+          # seed.py seeds demo data through FastAPI's TestClient, which needs
+          # httpx. It's a BUILD-TIME-only dependency (the running app never
+          # uses TestClient), so it's installed here rather than added to
+          # requirements.txt — keeps httpx out of the shipped bundle.
+          pip install httpx
+
+      - name: Build frontend (Vite)
+        working-directory: frontend_src
+        run: |
+          npm ci || npm install
+          npm run build
+
+      - name: Seed default database
+        env:
+          DB_PATH: erp.db           # repo-root erp.db (CWD is the checkout root)
+        run: |
+          python backend/seed.py --reset
+          # VACUUM the freshly-seeded DB into the read-only template the app
+          # ships with and copies into the user data dir on first launch.
+          python -c "import sqlite3; c=sqlite3.connect('erp.db'); c.execute('VACUUM INTO ?', ('default.db',)); c.close()"
+          test -f default.db && echo "default.db created ($(du -h default.db | cut -f1))"
+
+      - name: Build binary (PyInstaller)
+        run: |
+          python -m PyInstaller --noconfirm ERP-linux.spec
+          test -d "dist/erp-system" || (echo "::error::onedir was not produced" && exit 1)
+          test -x "dist/erp-system/erp-system" || (echo "::error::launcher binary missing" && exit 1)
+          # Confirm the seeded DB landed inside the bundle.
+          test -f "dist/erp-system/_internal/default.db" \
+            || echo "::warning::default.db not found in bundle (app will seed an empty schema on first run)"
+
+      - name: Resolve version
+        id: ver
+        run: |
+          VERSION=$(python -c "import re; s=open('installer/ERP-System.iss',encoding='utf-8').read(); m=re.search(r'MyAppVersion\s+\"([^\"]+)\"', s); print(m.group(1) if m else '0.0.0')")
+          echo "Version: $VERSION"
+          echo "version=$VERSION" >> "$GITHUB_OUTPUT"
+
+      - name: Package .tar.gz (portable, zero-dependency)
+        run: |
+          VERSION="${{ steps.ver.outputs.version }}"
+          TARBALL="ERP-System-$VERSION-linux-x86_64.tar.gz"
+          tar -C dist -czf "$TARBALL" erp-system
+          ls -lh "$TARBALL"
+          echo "TARBALL_NAME=$TARBALL" >> "$GITHUB_ENV"
+
+      - name: Package .AppImage
+        run: |
+          VERSION="${{ steps.ver.outputs.version }}"
+          sudo apt-get update
+          sudo apt-get install -y imagemagick
+
+          # ── Assemble the AppDir ────────────────────────────────────────────
+          APPDIR=ERP.AppDir
+          rm -rf "$APPDIR"
+          mkdir -p "$APPDIR/usr/bin"
+          cp -r dist/erp-system/. "$APPDIR/usr/bin/"
+
+          # Generate a simple plum app icon (no .icns/.png asset is shipped yet).
+          convert -size 256x256 xc:'#714B67' \
+                  -gravity center -fill white -pointsize 84 -annotate +0+0 'ERP' \
+                  "$APPDIR/erp-system.png"
+
+          # Desktop entry (Exec must match the space-free binary name).
+          cat > "$APPDIR/erp-system.desktop" <<'EOF'
+          [Desktop Entry]
+          Type=Application
+          Name=ERP System
+          Comment=Self-hosted ERP
+          Exec=erp-system
+          Icon=erp-system
+          Categories=Office;
+          Terminal=false
+          EOF
+
+          # AppRun launches the PyInstaller binary from inside the mounted image.
+          cat > "$APPDIR/AppRun" <<'EOF'
+          #!/bin/sh
+          HERE="$(dirname "$(readlink -f "$0")")"
+          exec "$HERE/usr/bin/erp-system" "$@"
+          EOF
+          chmod +x "$APPDIR/AppRun"
+
+          # ── Build the AppImage ─────────────────────────────────────────────
+          # GitHub runners have no FUSE, so run appimagetool in extract-and-run
+          # mode. The produced AppImage itself may need libfuse2 on older end-
+          # user systems; the .tar.gz is the no-FUSE fallback for those.
+          wget -q https://github.com/AppImage/AppImageKit/releases/download/continuous/appimagetool-x86_64.AppImage -O appimagetool
+          chmod +x appimagetool
+          OUT="ERP-System-$VERSION-x86_64.AppImage"
+          ARCH=x86_64 APPIMAGE_EXTRACT_AND_RUN=1 ./appimagetool "$APPDIR" "$OUT"
+          ls -lh "$OUT"
+          echo "APPIMAGE_NAME=$OUT" >> "$GITHUB_ENV"
+
+      - name: Upload AppImage artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: ERP-System-Linux-AppImage
+          path: ${{ env.APPIMAGE_NAME }}
+          if-no-files-found: error
+          retention-days: 30
+
+      - name: Upload tar.gz artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: ERP-System-Linux-tarball
+          path: ${{ env.TARBALL_NAME }}
+          if-no-files-found: error
+          retention-days: 30

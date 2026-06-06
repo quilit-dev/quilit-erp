@@ -97,6 +97,10 @@ def list_online_users(
     caller=Depends(require_admin),
     db: sqlite3.Connection = Depends(get_db),
 ):
+    # Active-window cutoff computed in Python (UTC, matching SQLite's
+    # datetime('now')) so it's a portable plain-string comparison on both engines.
+    from datetime import datetime, timedelta
+    cutoff = (datetime.utcnow() - timedelta(minutes=ONLINE_WINDOW_MINUTES)).strftime("%Y-%m-%d %H:%M:%S")
     rows = db.execute(
         """
         SELECT u.id, u.username, u.full_name, u.role,
@@ -107,12 +111,12 @@ def list_online_users(
         JOIN users u ON s.user_id = u.id
         WHERE s.revoked = 0
           AND s.expires_at > datetime('now')
-          AND s.last_active >= datetime('now', ?)
+          AND s.last_active >= ?
           AND u.deleted_at IS NULL
         GROUP BY u.id
         ORDER BY last_active DESC
         """,
-        (f"-{ONLINE_WINDOW_MINUTES} minutes",),
+        (cutoff,),
     ).fetchall()
     return {
         "window_minutes": ONLINE_WINDOW_MINUTES,

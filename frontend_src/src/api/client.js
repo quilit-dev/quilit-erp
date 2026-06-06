@@ -125,6 +125,8 @@ export const deleteInvoicePayment = (invId, payId) => api.delete(`/api/invoices/
 
 // Inventory
 export const getInventory           = (s)    => api.get('/api/inventory/', s);
+export const getInventoryByWarehouse = (itemId) => api.get(`/api/inventory/${itemId}/by-warehouse`);
+export const getInventoryByWarehouseReport = () => api.get('/api/reports/inventory-by-warehouse');
 export const createInventoryItem    = (d)    => api.post('/api/inventory/', d);
 export const updateInventoryItem    = (id, d) => api.put(`/api/inventory/${id}`, d);
 export const archiveInventoryItem   = (id)   => api.patch(`/api/inventory/${id}/archive`);
@@ -585,7 +587,11 @@ export const getGeneralLedger     = (params = {}) => api.get(`/api/accounting/ge
 export const getTrialBalance      = (params = {}) => api.get(`/api/accounting/trial-balance${_qs(params)}`);
 export const getBalanceSheet      = (params = {}) => api.get(`/api/accounting/balance-sheet${_qs(params)}`);
 export const getIncomeStatement   = (params = {}) => api.get(`/api/accounting/income-statement${_qs(params)}`);
-export const getAccountingSummary = ()       => api.get('/api/accounting/summary');
+export const getAccountingSummary = (params = {}) => api.get(`/api/accounting/summary${_qs(params)}`);
+// Financial-year closing
+export const getFiscalYears   = ()     => api.get('/api/accounting/fiscal-years');
+export const closeFiscalYear  = (year) => api.post(`/api/accounting/fiscal-years/${year}/close`);
+export const reopenFiscalYear = (year) => api.post(`/api/accounting/fiscal-years/${year}/reopen`);
 
 // Announcements — internal top-down communication
 export const getAnnouncements           = (s)            => api.get('/api/announcements/', s);
@@ -601,3 +607,23 @@ export const deleteAnnouncementComment  = (id, cid)      => api.delete(`/api/ann
 export const getAnnouncementAudience    = (id)           => api.get(`/api/announcements/${id}/audience`);
 export const getAnnouncementRolesMeta   = ()             => api.get('/api/announcements/meta/roles');
 export const getAnnouncementUsersMeta   = ()             => api.get('/api/announcements/meta/users');
+
+// Warehouses — multi-location stock
+export const getWarehouses            = (params = {})  => api.get(`/api/warehouses/${_qs(params)}`);
+export const getMyWarehouses          = ()             => api.get('/api/warehouses/me/accessible');
+export const getWarehouse             = (id)           => api.get(`/api/warehouses/${id}`);
+export const createWarehouse          = (d)            => api.post('/api/warehouses/', d);
+export const updateWarehouse          = (id, d)        => api.put(`/api/warehouses/${id}`, d);
+export const setDefaultWarehouse      = (id)           => api.post(`/api/warehouses/${id}/set-default`);
+export const archiveWarehouse         = (id)           => api.patch(`/api/warehouses/${id}/archive`);
+export const getWarehouseAccess       = (id)           => api.get(`/api/warehouses/${id}/access`);
+export const grantWarehouseAccess     = (id, userId)   => api.post(`/api/warehouses/${id}/access`, { user_id: userId });
+export const revokeWarehouseAccess    = (id, userId)   => api.delete(`/api/warehouses/${id}/access/${userId}`);
+export const getWarehouseStock        = (id)           => api.get(`/api/warehouses/${id}/stock`);
+// Stock transfers
+export const getStockTransfers        = (params = {})  => api.get(`/api/warehouses/transfers/${_qs(params)}`);
+export const getStockTransfer         = (id)           => api.get(`/api/warehouses/transfers/${id}`);
+export const createStockTransfer      = (d)            => api.post('/api/warehouses/transfers/', d);
+export const dispatchStockTransfer    = (id)           => api.post(`/api/warehouses/transfers/${id}/dispatch`);
+export const receiveStockTransfer     = (id, d = {})   => api.post(`/api/warehouses/transfers/${id}/receive`, d);
+export const cancelStockTransfer      = (id, reason)   => api.post(`/api/warehouses/transfers/${id}/cancel`, { reason });

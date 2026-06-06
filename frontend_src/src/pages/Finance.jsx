@@ -1,8 +1,23 @@
 import { useState, useEffect, useRef, useCallback } from 'react';
 import { usePersistedState } from '../hooks/usePersistedState';
-import { getFinanceRangeSummary, getFinanceRangeMonthly, getFinanceRangeDetail, getReconciliation, getFinancePeriods, lockPeriod, unlockPeriod } from '../api/client';
+import {
+  getFinanceRangeSummary, getFinanceRangeMonthly, getFinanceRangeDetail,
+  getReconciliation,
+  // Extra context for the smart-insights engine — modules added since the
+  // original insight set was authored (period locks, FX, cash, recurring,
+  // receivables, fiscal years). Each request is optional: a 403 from a
+  // module the operator can't view is swallowed and that branch's insights
+  // simply don't fire.
+  getFinancePeriods,
+  getRecurringExpenses,
+  getCashReconciliations,
+  getExchangeRate,
+  getInvoices,
+  getFiscalYears,
+} from '../api/client';
 import { LoadingSpinner, ErrorAlert, fmt, DualMoney, ExchangeRateBadge } from '../components/shared';
 import { useLocale } from '../hooks/useLocale.jsx';
+import { useScrollLock } from '../hooks/useScrollLock';
 import * as XLSX from 'xlsx';
 
 // ── Date helpers ──────────────────────────────────────────────────────────
@@ -495,48 +510,108 @@ function EmptyChartPlaceholder({ label }) {
 }
 
 // ── KPI Card ──────────────────────────────────────────────────────────────
+//
+// Workspace-aligned tile (matches the Dashboard pattern):
+//   • Soft white surface with subtle drop shadow (from .stat-card in
+//     index.css). Hover steps the shadow up; no transform lift.
+//   • Tiny restrained icon top-left, semantic trend pill top-right.
+//   • Uppercase letter-spaced label, then Inter 700 hero value, then a
+//     plain Inter slate caption underneath.
+//
+// `color` is kept as a prop for callers but only tints the hero value —
+// the surface, shadow, border and trend semantics all come from the
+// Workspace tokens. No more inline borderTop stripe, no more hardcoded
+// Material colours.
 function KpiCard({ label, value, change, color, icon, sub }) {
   const { t } = useLocale();
-  const [hover, setHover] = useState(false);
   const neutral = change === null || change === undefined;
   const isUp = change > 0;
 
   return (
-    <div className="stat-card"
-      onMouseEnter={() => setHover(true)}
-      onMouseLeave={() => setHover(false)}
-      style={{
-        position: 'relative', overflow: 'hidden',
-        borderTop: `3px solid ${color}`,
-        transform: hover ? 'translateY(-2px)' : 'translateY(0)',
-        boxShadow: hover ? '0 8px 24px rgba(0,0,0,0.1)' : 'var(--shadow)',
-        transition: 'transform .2s, box-shadow .2s',
-        cursor: 'default',
+    <div className="stat-card" style={{ cursor: 'default' }}>
+      {/* Top row — mark + trend */}
+      <div style={{
+        display: 'flex', justifyContent: 'space-between',
+        alignItems: 'center', marginBottom: 6, minHeight: 18,
       }}>
-      <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start' }}>
-        <div style={{ fontSize: 11, fontWeight: 600, color: 'var(--text-3)', textTransform: 'uppercase', letterSpacing: '.5px' }}>{label}</div>
-        <span style={{ fontSize: 20, opacity: hover ? 0.3 : 0.15, transition: 'opacity .2s' }}>{icon}</span>
+        {icon ? (
+          <span style={{
+            fontSize: 13, lineHeight: 1,
+            color: color || 'var(--text-3)',
+            opacity: 0.7,
+          }}>{icon}</span>
+        ) : <span />}
+
+        {!neutral && (
+          <span style={{
+            fontFamily: 'var(--font-mono)',
+            fontSize: 11,
+            fontWeight: 600,
+            letterSpacing: 0,
+            color: isUp ? 'var(--affirm)' : 'var(--negate)',
+            background: isUp ? 'var(--affirm-tint)' : 'var(--negate-tint)',
+            padding: '2px 7px',
+            borderRadius: 'var(--r-xs)',
+            border: `1px solid ${isUp ? 'rgba(31,163,98,0.22)' : 'rgba(209,69,69,0.22)'}`,
+            fontVariantNumeric: 'tabular-nums',
+            whiteSpace: 'nowrap',
+          }}>
+            {isUp ? '▲' : '▼'} {Math.abs(change)}%
+            <span style={{
+              marginInlineStart: 4, opacity: 0.7, fontWeight: 500,
+            }}>
+              {t('finance.vsPrev')}
+            </span>
+          </span>
+        )}
       </div>
-      <div style={{ fontSize: 26, fontWeight: 800, color, margin: '10px 0 4px', letterSpacing: '-0.5px' }}>{value}</div>
-      {sub && <div style={{ fontSize: 11, color: 'var(--text-3)', marginBottom: 6 }}>{sub}</div>}
-      {!neutral && (
+
+      {/* Label */}
+      <div className="stat-label">{label}</div>
+
+      {/* Hero value — uses .stat-value so it inherits Inter 700 + tabular
+          tracking from the Workspace token. The colour prop tints only
+          the value glyph; everything else is system-driven. */}
+      <div className="stat-value" style={{ color: color || 'var(--text)', marginTop: 2 }}>
+        {value}
+      </div>
+
+      {/* Caption */}
+      {sub && (
         <div style={{
-          display: 'inline-flex', alignItems: 'center', gap: 4, fontSize: 11, fontWeight: 600,
-          color: isUp ? '#059669' : '#DC2626',
-          background: isUp ? '#ECFDF5' : '#FEF2F2',
-          borderRadius: 20, padding: '2px 8px',
-        }}>
-          {isUp ? '▲' : '▼'} {Math.abs(change)}% {t('finance.vsPrev')}
-        </div>
+          fontFamily: 'var(--font-sans)',
+          fontSize: 12.5,
+          fontWeight: 400,
+          color: 'var(--text-2)',
+          letterSpacing: -0.005,
+          marginTop: 4,
+        }}>{sub}</div>
       )}
     </div>
   );
 }
 
 // ── Smart Insights Engine ─────────────────────────────────────────────────
-// Generates rich, prioritized, actionable insights from financial data.
-// 100% offline — pure arithmetic on the data you already have.
-function generateInsights(summary, monthly) {
+//
+// Generates rich, prioritized, actionable insights from the financial data
+// the operator is currently looking at, PLUS the cross-module state that
+// affects financial health (period locks, recurring run-rate, cash variance,
+// FX exposure, A/R aging, fiscal-year closing). Every branch is defensive —
+// missing inputs simply skip that branch instead of crashing the panel.
+// 100 % offline arithmetic; no LLM, no third-party call.
+//
+// `extras` is opaque: each top-level key is optional and matches what the
+// Finance page can fetch in parallel after the main P&L loads. The current
+// keys are:
+//
+//   • periods       — /api/finance/periods         (24-month lock window)
+//   • recurring     — /api/recurring-expenses      (templates with due_count)
+//   • cashRecs      — /api/cash/reconciliations    (recent shift closes)
+//   • fxRate        — /api/settings/exchange-rate  (latest rate + age)
+//   • overdueAr     — /api/invoices?overdue=true   (open + overdue receivables)
+//   • fiscalYears   — /api/accounting/fiscal-years (open / closed status)
+//
+function generateInsights(summary, monthly, extras = {}) {
   const insights = [];
   if (!summary) return insights;
 
@@ -802,11 +877,182 @@ function generateInsights(summary, monthly) {
     }
   }
 
+  // ── 8. Period locking discipline ──────────────────────────────────────
+  // A finished month that hasn't been locked is a backdating risk — anyone
+  // with edit perms could still post an invoice or expense into it.
+  // Closing each completed month within ~10 days is the industry norm.
+  if (Array.isArray(extras.periods)) {
+    const today = new Date();
+    const thisYM = `${today.getFullYear()}-${String(today.getMonth() + 1).padStart(2, '0')}`;
+    const stale = extras.periods.filter(p => {
+      if (p.locked) return false;
+      if (p.label === thisYM) return false;         // skip current month
+      // Lock target: end-of-month + 10 days
+      const endOfMonth = new Date(p.year, p.month, 0);
+      const daysSince = Math.floor((today - endOfMonth) / 86400000);
+      return daysSince > 10;
+    });
+    if (stale.length >= 1) {
+      const last = stale[0];
+      insights.push({
+        id: 'period-not-locked', priority: 2, type: 'warning',
+        icon: '🔒', category: 'Controls',
+        title: `${stale.length} closed month${stale.length === 1 ? '' : 's'} not locked`,
+        detail: `${last.label} ended more than 10 days ago and is still open — entries can still be backdated into it.`,
+        action: 'Lock these months in Accounting → Period Locks to harden the audit trail.',
+      });
+    }
+  }
+
+  // ── 9. Recurring-expense run-rate vs current spend ────────────────────
+  // The recurring book tells us what costs we have committed to going
+  // forward — if it's > 60 % of the current period's expense we surface the
+  // dependency, and if any template is overdue we nudge to run it.
+  if (Array.isArray(extras.recurring) && extras.recurring.length > 0) {
+    const active = extras.recurring.filter(r => r.is_active && !r.archived_at);
+    // Monthly equivalent of each frequency, so weekly + quarterly + annual
+    // all collapse to a single comparable "per month" figure.
+    const stepMonths = { weekly: 1 / 4.33, monthly: 1, quarterly: 3, annual: 12 };
+    const monthlyRecurring = active.reduce((s, r) => {
+      const step = stepMonths[r.frequency] || 1;
+      return s + (Number(r.amount) || 0) / step;
+    }, 0);
+    if (expenses > 0 && monthlyRecurring > 0) {
+      const share = (monthlyRecurring / (expenses / Math.max(monthly?.length || 1, 1))) * 100;
+      if (share > 60) {
+        insights.push({
+          id: 'recurring-heavy', priority: 3, type: 'warning',
+          icon: '🔁', category: 'Fixed costs',
+          title: `Fixed costs are ${Math.min(share, 999).toFixed(0)}% of monthly burn`,
+          detail: `${fmtK(monthlyRecurring)}/mo is committed via ${active.length} recurring template${active.length === 1 ? '' : 's'}. A revenue dip hits margin immediately.`,
+          action: 'Audit recurring expenses — pause any low-value subscriptions.',
+        });
+      }
+    }
+    const overdue = active.filter(r => r.is_overdue);
+    if (overdue.length > 0) {
+      insights.push({
+        id: 'recurring-overdue', priority: 2, type: 'warning',
+        icon: '⏰', category: 'Fixed costs',
+        title: `${overdue.length} recurring expense${overdue.length === 1 ? '' : 's'} overdue`,
+        detail: `Templates "${overdue.slice(0, 2).map(r => r.name).join('", "')}" haven't been generated to date.`,
+        action: 'Open Expenses → Recurring and click "Run all due" to catch up.',
+      });
+    }
+  }
+
+  // ── 10. Cash drawer variance ──────────────────────────────────────────
+  // A recurring shortage points to till-management problems (skimming,
+  // missed receipts, sloppy returns) — surface the pattern, not a single
+  // bad close. Three or more variant shifts in the last ten closes is the
+  // line we draw.
+  if (Array.isArray(extras.cashRecs) && extras.cashRecs.length >= 3) {
+    const recent = extras.cashRecs.slice(0, 10);
+    const offShifts = recent.filter(r => {
+      const v = Number(r.variance_usd || r.variance || 0);
+      return Math.abs(v) > 0.01;
+    });
+    const totalShort = offShifts.reduce(
+      (s, r) => s + Math.min(0, Number(r.variance_usd || r.variance || 0)), 0,
+    );
+    if (offShifts.length >= 3 && totalShort < -5) {
+      insights.push({
+        id: 'cash-variance', priority: 2, type: 'warning',
+        icon: '💵', category: 'Cash',
+        title: `${offShifts.length} of last ${recent.length} cash closes were off`,
+        detail: `Net shortage of ${fmtK(Math.abs(totalShort))} across recent reconciliations.`,
+        action: 'Check cashier handover routine — recurring drift usually points to a process gap.',
+      });
+    }
+  }
+
+  // ── 11. FX rate freshness (LBP exposure) ─────────────────────────────
+  // Every LBP cash posting books at the latest spot. A rate stale for a
+  // week means the books drift from reality on every dual-currency txn,
+  // and the trial balance silently absorbs the gap as fictitious profit.
+  if (extras.fxRate?.created_at) {
+    const age = Math.floor(
+      (Date.now() - new Date(extras.fxRate.created_at).getTime()) / 86400000,
+    );
+    if (age >= 7) {
+      insights.push({
+        id: 'fx-stale', priority: 2, type: 'warning',
+        icon: '💱', category: 'FX',
+        title: `USD ↔ LBP rate is ${age} days old`,
+        detail: `Latest rate (1 USD = ${Number(extras.fxRate.rate || 0).toLocaleString()} LBP) was set ${age} days ago. LBP postings still use it.`,
+        action: 'Set a fresh spot rate in Settings → Exchange Rate.',
+      });
+    }
+  }
+
+  // ── 12. Open receivables vs revenue ──────────────────────────────────
+  // A ballooning A/R book against modest revenue is a collection problem
+  // even before any single invoice goes overdue. We compute both: the
+  // ratio against current-period income (collection efficiency) AND the
+  // count past due date (collection urgency).
+  if (Array.isArray(extras.overdueAr)) {
+    const open = extras.overdueAr.filter(i =>
+      ['Unpaid', 'Partial'].includes(i.status) && !i.voided_at,
+    );
+    const today = new Date();
+    const past = open.filter(i => i.due_date && new Date(i.due_date) < today);
+    const outstanding = open.reduce(
+      (s, i) => s + (Number(i.amount) - Number(i.paid || 0)), 0,
+    );
+    if (past.length >= 3) {
+      const overdue$ = past.reduce(
+        (s, i) => s + (Number(i.amount) - Number(i.paid || 0)), 0,
+      );
+      insights.push({
+        id: 'ar-overdue', priority: 1, type: 'critical',
+        icon: '⏳', category: 'Receivables',
+        title: `${past.length} invoices overdue — ${fmtK(overdue$)} unpaid`,
+        detail: `Past-due invoices are tying up working capital. The oldest is from ${past
+          .sort((a, b) => new Date(a.due_date) - new Date(b.due_date))[0]
+          .due_date?.slice(0, 10)}.`,
+        action: 'Open Invoices → filter "Overdue" and follow up via the client phone numbers.',
+      });
+    } else if (income > 0 && outstanding > income * 0.5) {
+      insights.push({
+        id: 'ar-bloated', priority: 3, type: 'warning',
+        icon: '💼', category: 'Receivables',
+        title: `Open A/R = ${Math.round(outstanding / income * 100)}% of period revenue`,
+        detail: `${fmtK(outstanding)} sitting in unpaid invoices vs ${fmtK(income)} collected this period.`,
+        action: 'Tighten payment terms or send statements to slow payers.',
+      });
+    }
+  }
+
+  // ── 13. Fiscal year close ─────────────────────────────────────────────
+  // An open prior-year fiscal year past the first quarter of the next year
+  // is a red flag for an auditor — closing posts the year-end entry to
+  // Retained Earnings and locks the prior year completely.
+  if (Array.isArray(extras.fiscalYears)) {
+    const today = new Date();
+    const thisYear = today.getFullYear();
+    const stalePriorYear = extras.fiscalYears.find(fy =>
+      fy.status === 'open' && fy.year < thisYear
+      // The first 90 days of the new year are a normal close window —
+      // only nag once we're past Q1.
+      && today.getMonth() >= 3,
+    );
+    if (stalePriorYear) {
+      insights.push({
+        id: 'fy-not-closed', priority: 2, type: 'warning',
+        icon: '📚', category: 'Controls',
+        title: `Fiscal year ${stalePriorYear.year} is still open`,
+        detail: `Net income of ${fmtK(stalePriorYear.net_income || 0)} hasn't been transferred to Retained Earnings yet.`,
+        action: 'Close the year in Accounting → Closing — it posts the closing entry automatically.',
+      });
+    }
+  }
+
   // Sort by priority (lower = show first), then de-duplicate similar types
   insights.sort((a, b) => a.priority - b.priority);
 
-  // Cap at 6 most valuable insights to avoid overwhelming
-  return insights.slice(0, 6);
+  // Cap at 8 most valuable insights — the panel grew with the new module
+  // branches; 6 was sometimes hiding genuinely actionable controls items.
+  return insights.slice(0, 8);
 }
 
 // ── Smart Insights UI Component ───────────────────────────────────────────
@@ -1059,36 +1305,32 @@ function MonthDrillModal({ month, label, data, loading, onClose }) {
     expByProject[key].total += r.amount;
   });
 
+  // Reuses the shared .modal-overlay / .modal / .modal-body shell so the
+  // scroll lock, sticky header, and responsive sizing all match every
+  // other modal in the app. Previously this was a hand-rolled overlay
+  // with maxHeight: '88vh' that fought the new modal CSS.
+  useScrollLock(true);
   return (
-    <div style={{
-      position: 'fixed', inset: 0, zIndex: 1000,
-      background: 'rgba(0,0,0,0.45)', backdropFilter: 'blur(3px)',
-      display: 'flex', alignItems: 'center', justifyContent: 'center',
-      padding: 16,
-    }} onClick={e => { if (e.target === e.currentTarget) onClose(); }}>
-      <div style={{
-        background: 'var(--surface)', borderRadius: 14, width: '100%', maxWidth: 780,
-        maxHeight: '88vh', display: 'flex', flexDirection: 'column',
-        boxShadow: '0 20px 60px rgba(0,0,0,0.25)',
-        border: '1px solid var(--border)',
-      }}>
-        {/* Header */}
-        <div style={{
-          padding: '16px 20px', borderBottom: '1px solid var(--border)',
-          display: 'flex', alignItems: 'center', justifyContent: 'space-between',
-        }}>
+    <div className="modal-overlay"
+      onClick={e => { if (e.target === e.currentTarget) onClose(); }}>
+      <div className="modal modal-lg" onClick={e => e.stopPropagation()}>
+        <div className="modal-header">
           <div>
-            <div style={{ fontWeight: 800, fontSize: 17, color: 'var(--text)' }}>{label}</div>
-            <div style={{ fontSize: 12, color: 'var(--text-3)', marginTop: 2 }}>{t('finance.detailsSubtitle')}</div>
+            <div className="modal-title">{label}</div>
+            <div style={{ fontSize: 12, color: 'var(--text-3)', marginTop: 2 }}>
+              {t('finance.detailsSubtitle')}
+            </div>
           </div>
-          <button onClick={onClose} style={{
-            background: 'none', border: 'none', fontSize: 20, cursor: 'pointer',
-            color: 'var(--text-3)', lineHeight: 1, padding: '2px 6px', borderRadius: 6,
-          }}>✕</button>
+          <button className="icon-btn" onClick={onClose} aria-label="Close">
+            <svg width="14" height="14" viewBox="0 0 24 24" fill="none"
+              stroke="currentColor" strokeWidth="2.5" strokeLinecap="round">
+              <line x1="18" y1="6" x2="6" y2="18"/>
+              <line x1="6" y1="6" x2="18" y2="18"/>
+            </svg>
+          </button>
         </div>
 
-        {/* Body */}
-        <div style={{ overflowY: 'auto', flex: 1, padding: '16px 20px' }}>
+        <div className="modal-body">
           {loading ? (
             <div style={{ textAlign: 'center', padding: 40, color: 'var(--text-3)' }}>{t('common.loading')}</div>
           ) : !data ? null : (
@@ -1187,16 +1429,9 @@ function MonthDrillModal({ month, label, data, loading, onClose }) {
 }
 
 // ── Export helpers ────────────────────────────────────────────────────────
-function exportCSV(rows, filename) {
-  if (!rows.length) return;
-  const keys = Object.keys(rows[0]);
-  const csv = [keys.join(','), ...rows.map(r => keys.map(k => `"${r[k] ?? ''}"`).join(','))].join('\n');
-  const a = Object.assign(document.createElement('a'), {
-    href: URL.createObjectURL(new Blob([csv], { type: 'text/csv' })),
-    download: `${filename}.csv`,
-  });
-  a.click();
-}
+// CSV was retired — Excel covers the same downstream use cases (Sheets / Excel
+// open both), and a single export path keeps the toolbar tidy and the formats
+// consistent with the rest of the ERP (every other module exports XLSX).
 
 function exportExcel(sheets, filename) {
   const wb = XLSX.utils.book_new();
@@ -1226,19 +1461,30 @@ function ReconciliationModal({ onClose }) {
     future_expense:    { bg: '#EFF6FF', text: '#1D4ED8', icon: '📅', label: 'Future-Dated Expense' },
   };
 
+  // Migrated to the shared modal shell — same scroll-lock + sticky-header
+  // behaviour as every other dialog.
+  useScrollLock(true);
   return (
-    <div style={{ position: 'fixed', inset: 0, zIndex: 1100, background: 'rgba(0,0,0,.45)', backdropFilter: 'blur(3px)', display: 'flex', alignItems: 'center', justifyContent: 'center', padding: 16 }}
+    <div className="modal-overlay"
       onClick={e => { if (e.target === e.currentTarget) onClose(); }}>
-      <div style={{ background: 'var(--surface)', borderRadius: 14, width: '100%', maxWidth: 700, maxHeight: '86vh', display: 'flex', flexDirection: 'column', boxShadow: '0 20px 60px rgba(0,0,0,.25)', border: '1px solid var(--border)' }}>
-        <div style={{ padding: '16px 20px', borderBottom: '1px solid var(--border)', display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
+      <div className="modal modal-lg" onClick={e => e.stopPropagation()}>
+        <div className="modal-header">
           <div>
-            <div style={{ fontWeight: 800, fontSize: 17 }}>{t('finance.reconcileTitle')}</div>
-            <div style={{ fontSize: 12, color: 'var(--text-3)', marginTop: 2 }}>{t('finance.reconcileSubtitle')}</div>
+            <div className="modal-title">{t('finance.reconcileTitle')}</div>
+            <div style={{ fontSize: 12, color: 'var(--text-3)', marginTop: 2 }}>
+              {t('finance.reconcileSubtitle')}
+            </div>
           </div>
-          <button onClick={onClose} style={{ background: 'none', border: 'none', fontSize: 20, cursor: 'pointer', color: 'var(--text-3)' }}>✕</button>
+          <button className="icon-btn" onClick={onClose} aria-label="Close">
+            <svg width="14" height="14" viewBox="0 0 24 24" fill="none"
+              stroke="currentColor" strokeWidth="2.5" strokeLinecap="round">
+              <line x1="18" y1="6" x2="6" y2="18"/>
+              <line x1="6" y1="6" x2="18" y2="18"/>
+            </svg>
+          </button>
         </div>
 
-        <div style={{ overflowY: 'auto', flex: 1, padding: 20 }}>
+        <div className="modal-body">
           {loading && <div style={{ textAlign: 'center', padding: 40, color: 'var(--text-3)' }}>{t('finance.runningChecks')}</div>}
           {error && <div style={{ color: 'var(--red)', padding: 12, background: 'var(--red-light)', borderRadius: 8 }}>{error}</div>}
           {data && (
@@ -1292,122 +1538,6 @@ function ReconciliationModal({ onClose }) {
   );
 }
 
-// ── Accounting Periods Modal ───────────────────────────────────────────────
-function PeriodsModal({ onClose }) {
-  const { t } = useLocale();
-  const [periods, setPeriods] = useState([]);
-  const [loading, setLoading] = useState(true);
-  const [working, setWorking] = useState(null);
-  const [error, setError] = useState(null);
-  const [actionError, setActionError] = useState(null);
-
-  async function load() {
-    setLoading(true);
-    try { setPeriods(await getFinancePeriods()); }
-    catch (e) { setError(e.message); }
-    finally { setLoading(false); }
-  }
-
-  useEffect(() => { load(); }, []);
-
-  async function toggle(p) {
-    const key = `${p.year}-${p.month}`;
-    setWorking(key);
-    setActionError(null);
-    try {
-      if (p.locked) await unlockPeriod(p.year, p.month);
-      else          await lockPeriod(p.year, p.month);
-      await load();
-    } catch (e) { setActionError(e.message); }
-    finally { setWorking(null); }
-  }
-
-  const MONTH_NAMES = ['Jan','Feb','Mar','Apr','May','Jun','Jul','Aug','Sep','Oct','Nov','Dec'];
-
-  return (
-    <div style={{ position: 'fixed', inset: 0, zIndex: 1100, background: 'rgba(0,0,0,.45)', backdropFilter: 'blur(3px)', display: 'flex', alignItems: 'center', justifyContent: 'center', padding: 16 }}
-      onClick={e => { if (e.target === e.currentTarget) onClose(); }}>
-      <div style={{ background: 'var(--surface)', borderRadius: 14, width: '100%', maxWidth: 580, maxHeight: '86vh', display: 'flex', flexDirection: 'column', boxShadow: '0 20px 60px rgba(0,0,0,.25)', border: '1px solid var(--border)' }}>
-        <div style={{ padding: '16px 20px', borderBottom: '1px solid var(--border)', display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
-          <div>
-            <div style={{ fontWeight: 800, fontSize: 17 }}>{t('finance.periodsTitle')}</div>
-            <div style={{ fontSize: 12, color: 'var(--text-3)', marginTop: 2 }}>{t('finance.periodsSubtitle')}</div>
-          </div>
-          <button onClick={onClose} style={{ background: 'none', border: 'none', fontSize: 20, cursor: 'pointer', color: 'var(--text-3)' }}>✕</button>
-        </div>
-
-        <div style={{ overflowY: 'auto', flex: 1, padding: 20 }}>
-          {error && <div style={{ color: 'var(--red)', marginBottom: 12 }}>{error}</div>}
-          {actionError && (
-            <div style={{ display: 'flex', alignItems: 'center', gap: 10, padding: '10px 14px', background: 'var(--red-light)', border: '1px solid #FCA5A5', borderRadius: 8, marginBottom: 14 }}>
-              <span style={{ fontSize: 16 }}>⚠️</span>
-              <span style={{ fontSize: 13, color: 'var(--red)', flex: 1 }}>{actionError}</span>
-              <button onClick={() => setActionError(null)} style={{ background: 'none', border: 'none', cursor: 'pointer', fontSize: 16, color: 'var(--red)', lineHeight: 1 }}>✕</button>
-            </div>
-          )}
-          {loading ? (
-            <div style={{ textAlign: 'center', padding: 40, color: 'var(--text-3)' }}>{t('common.loading')}</div>
-          ) : (
-            <div style={{ display: 'flex', flexDirection: 'column', gap: 6 }}>
-              {periods.map(p => {
-                const key = `${p.year}-${p.month}`;
-                const isWorking = working === key;
-                const monthLabel = `${MONTH_NAMES[p.month - 1]} ${p.year}`;
-                const isCurrent = (() => { const n = new Date(); return n.getFullYear() === p.year && n.getMonth() + 1 === p.month; })();
-                const snap = p.snapshot;
-                const fmt2 = v => `$${Number(v || 0).toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`;
-                return (
-                  <div key={key} style={{ background: 'var(--surface-2)', borderRadius: 10, border: `1px solid ${p.locked ? '#FCA5A5' : 'var(--border)'}`, overflow: 'hidden' }}>
-                    <div style={{ display: 'flex', alignItems: 'center', gap: 12, padding: '11px 14px' }}>
-                      <span style={{ fontSize: 16 }}>{p.locked ? '🔒' : '🔓'}</span>
-                      <div style={{ flex: 1 }}>
-                        <div style={{ fontWeight: 600, fontSize: 13 }}>
-                          {monthLabel}
-                          {isCurrent && <span style={{ fontSize: 10, background: '#DBEAFE', color: '#1D4ED8', borderRadius: 4, padding: '1px 6px', marginLeft: 6 }}>{t('finance.currentLabel')}</span>}
-                          {p.locked && <span style={{ fontSize: 10, background: '#FEE2E2', color: '#991B1B', borderRadius: 4, padding: '1px 6px', marginLeft: 6 }}>{t('finance.lockedLabel')}</span>}
-                          {snap && <span style={{ fontSize: 10, background: '#D1FAE5', color: '#065F46', borderRadius: 4, padding: '1px 6px', marginLeft: 6 }}>{t('finance.snapshotSaved')}</span>}
-                        </div>
-                        {p.locked && p.locked_by && (
-                          <div style={{ fontSize: 11, color: 'var(--text-3)', marginTop: 1 }}>
-                            {t('finance.lockedBy', { user: p.locked_by, date: p.locked_at?.slice(0, 10) })}
-                          </div>
-                        )}
-                      </div>
-                      <button
-                        className={`btn btn-sm ${p.locked ? 'btn-secondary' : 'btn-outline'}`}
-                        disabled={isWorking}
-                        onClick={() => toggle(p)}
-                        style={{ minWidth: 76 }}
-                      >
-                        {isWorking ? '…' : p.locked ? t('finance.unlock') : t('finance.lock')}
-                      </button>
-                    </div>
-
-                    {/* Snapshot values — shown only when locked and snapshot exists */}
-                    {p.locked && snap && (
-                      <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr 1fr', borderTop: '1px solid #FCA5A5', background: '#FFF5F5' }}>
-                        {[
-                          { label: t('finance.income'),   value: snap.income,   color: '#065F46' },
-                          { label: t('finance.expenses'), value: snap.expenses, color: '#92400E' },
-                          { label: t('finance.profit'),   value: snap.profit,   color: snap.profit >= 0 ? '#065F46' : '#991B1B' },
-                        ].map(s => (
-                          <div key={s.label} style={{ padding: '8px 14px', textAlign: 'center', borderRight: '1px solid #FCA5A5' }}>
-                            <div style={{ fontSize: 10, color: 'var(--text-3)', marginBottom: 2, textTransform: 'uppercase', letterSpacing: '.5px' }}>{s.label}</div>
-                            <div style={{ fontSize: 13, fontWeight: 700, color: s.color, fontVariantNumeric: 'tabular-nums' }}>{fmt2(s.value)}</div>
-                          </div>
-                        ))}
-                      </div>
-                    )}
-                  </div>
-                );
-              })}
-            </div>
-          )}
-        </div>
-      </div>
-    </div>
-  );
-}
 
 // ── Main ──────────────────────────────────────────────────────────────────
 export default function Finance() {
@@ -1424,7 +1554,12 @@ export default function Finance() {
   const [drillData,  setDrillData]    = useState(null);
   const [drillLoading, setDrillLoading] = useState(false);
   const [showRecon, setShowRecon]     = useState(false);
-  const [showPeriods, setShowPeriods] = useState(false);
+
+  // Cross-module context that feeds the Smart Insights engine. Loaded once
+  // per session (the underlying data is permission-gated and largely
+  // static across a Finance review). Each request is wrapped to swallow a
+  // permission/404 error so a single missing module never blanks the rest.
+  const [extras, setExtras] = useState({});
 
   const range = getRange(preset, custom);
 
@@ -1444,6 +1579,39 @@ export default function Finance() {
 
   useEffect(() => { load(); }, [load]);
 
+  // Fetch the insight-context bundle once on mount. allSettled lets every
+  // request fail independently — an operator without `accounting:view` still
+  // gets the periods + cash + recurring branches even when fiscal years
+  // returns 403. The result is merged into a single object the engine reads.
+  useEffect(() => {
+    let cancelled = false;
+    Promise.allSettled([
+      getFinancePeriods(),
+      getRecurringExpenses(),
+      getCashReconciliations({ limit: 10 }),
+      getExchangeRate(),
+      getInvoices(),
+      getFiscalYears(),
+    ]).then(results => {
+      if (cancelled) return;
+      const [periods, recurring, cashRecs, fxRate, invoices, fiscalYears] = results;
+      setExtras({
+        periods:     periods.status     === 'fulfilled' ? periods.value     : null,
+        recurring:   recurring.status   === 'fulfilled' ? recurring.value   : null,
+        cashRecs:    cashRecs.status    === 'fulfilled'
+                       ? (cashRecs.value?.reconciliations || cashRecs.value || null)
+                       : null,
+        fxRate:      fxRate.status      === 'fulfilled' ? fxRate.value      : null,
+        overdueAr:   invoices.status    === 'fulfilled'
+                       ? (Array.isArray(invoices.value) ? invoices.value
+                          : (invoices.value?.invoices || invoices.value?.rows || []))
+                       : null,
+        fiscalYears: fiscalYears.status === 'fulfilled' ? fiscalYears.value : null,
+      });
+    });
+    return () => { cancelled = true; };
+  }, []);
+
   async function openDrill(ym) {
     const [y, mo] = ym.split('-').map(Number);
     const start = `${ym}-01`;
@@ -1459,7 +1627,7 @@ export default function Finance() {
     finally { setDrillLoading(false); }
   }
 
-  const insights = generateInsights(summary, monthly);
+  const insights = generateInsights(summary, monthly, extras);
   const margin = summary?.income > 0 ? (summary.profit / summary.income * 100).toFixed(1) : null;
   const prev = summary?.prev || {};
 
@@ -1506,12 +1674,6 @@ export default function Finance() {
           <button className="btn btn-outline btn-sm" onClick={() => setShowRecon(true)}>
             🔍 {t('finance.reconcile')}
           </button>
-          <button className="btn btn-outline btn-sm" onClick={() => setShowPeriods(true)}>
-            🔒 {t('finance.periods')}
-          </button>
-          <button className="btn btn-secondary btn-sm" onClick={() => monthly?.length && exportCSV(monthly.map(m => ({ Month: m.month, Income: m.income.toFixed(2), Expenses: m.expenses.toFixed(2), Profit: m.profit.toFixed(2) })), `Finance_${range.start}_${range.end}`)} disabled={!monthly?.length}>
-            ↓ CSV
-          </button>
           <button className="btn btn-secondary btn-sm" onClick={handleExportExcel} disabled={exportLoading}>
             ↓ {exportLoading ? t('finance.exportingLabel') : t('finance.exportExcel')}
           </button>
@@ -1545,15 +1707,45 @@ export default function Finance() {
 
       {loading ? <LoadingSpinner /> : (
         <>
-          {/* KPI Cards */}
-          <div className="stats-grid" style={{ gridTemplateColumns: 'repeat(auto-fit, minmax(200px, 1fr))', marginBottom: 24 }}>
+          {/* KPI tiles — Workspace pattern. Each tile is its own .stat-card
+              surface (the previous code double-wrapped it in .fin-card,
+              which produced a card-inside-a-card). Colour props point at
+              the system's semantic tokens so the tiles inherit the plum +
+              affirm + negate palette instead of hardcoded Material hexes. */}
+          <div className="stats-grid" style={{ gridTemplateColumns: 'repeat(auto-fit, minmax(220px, 1fr))', marginBottom: 24 }}>
             {[
-              { label: t('finance.totalIncome'),   value: <DualMoney value={summary?.income || 0} />,   color: '#059669', icon: '💰', change: prev.income_change,   sub: t('finance.incomePeriod') },
-              { label: t('finance.totalExpenses'), value: <DualMoney value={summary?.expenses || 0} />, color: '#DC2626', icon: '🧾', change: prev.expenses_change != null ? -prev.expenses_change : null, sub: t('finance.allCosts') },
-              { label: t('finance.netProfit'),     value: <DualMoney value={summary?.profit || 0} />,   color: (summary?.profit || 0) >= 0 ? '#1B4F72' : '#DC2626', icon: '📊', change: prev.profit_change, sub: t('finance.incomeMinus') },
-              { label: t('finance.profitMargin'),  value: margin !== null ? `${margin}%` : '—', color: '#7C3AED', icon: '🎯', change: prev.margin_change, sub: t('finance.netOverIncome') },
+              { label: t('finance.totalIncome'),
+                value: <DualMoney value={summary?.income || 0} />,
+                color: 'var(--affirm)',
+                icon: '💰',
+                change: prev.income_change,
+                sub: t('finance.incomePeriod') },
+              { label: t('finance.totalExpenses'),
+                value: <DualMoney value={summary?.expenses || 0} />,
+                color: 'var(--negate)',
+                icon: '🧾',
+                change: prev.expenses_change != null ? -prev.expenses_change : null,
+                sub: t('finance.allCosts') },
+              { label: t('finance.netProfit'),
+                value: <DualMoney value={summary?.profit || 0} />,
+                color: (summary?.profit || 0) >= 0 ? 'var(--accent)' : 'var(--negate)',
+                icon: '📊',
+                change: prev.profit_change,
+                sub: t('finance.incomeMinus') },
+              { label: t('finance.profitMargin'),
+                value: margin !== null ? `${margin}%` : '—',
+                color: 'var(--accent)',
+                icon: '🎯',
+                change: prev.margin_change,
+                sub: t('finance.netOverIncome') },
             ].map((kpi, i) => (
-              <div key={kpi.label} className="fin-card" style={{ animationDelay: `${i * 0.07}s` }}>
+              <div key={kpi.label}
+                style={{
+                  /* fadeSlideUp staggered entrance — keep the per-tile
+                     animation delay from the previous layout. */
+                  animation: 'fadeSlideUp .35s ease both',
+                  animationDelay: `${i * 0.07}s`,
+                }}>
                 <KpiCard {...kpi} />
               </div>
             ))}
@@ -1722,7 +1914,6 @@ export default function Finance() {
         />
       )}
       {showRecon   && <ReconciliationModal onClose={() => setShowRecon(false)} />}
-      {showPeriods && <PeriodsModal onClose={() => setShowPeriods(false)} />}
     </div>
   );
 }

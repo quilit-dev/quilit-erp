@@ -38,6 +38,19 @@ def _check_period_locked(db, date_str: str):
             f"The accounting period {ym} is locked. "
             "Unlock it in Finance → Periods before making changes.",
         )
+    # Financial-year closing: a closed year blocks every dated-in-year change.
+    try:
+        closed = db.execute(
+            "SELECT 1 FROM fiscal_years WHERE year=? AND status='closed'", (year,)
+        ).fetchone()
+    except sqlite3.OperationalError:
+        closed = None      # table absent on a not-yet-migrated DB
+    if closed:
+        raise HTTPException(
+            400,
+            f"The financial year {year} is closed. "
+            "Reopen it in Accounting → Year-End before making changes.",
+        )
 
 
 _VALID_EXPENSE_CATEGORIES = {
@@ -752,8 +765,9 @@ def reconciliation(
         LEFT JOIN invoice_items ii ON ii.invoice_id = i.id
         WHERE i.archived_at IS NULL
         GROUP BY i.id
-        HAVING item_count > 0
-           AND ABS(i.amount - (items_subtotal + items_tax)) > 0.02
+        HAVING COUNT(ii.id) > 0
+           AND ABS(i.amount - (COALESCE(SUM(ii.quantity * ii.unit_price), 0)
+                               + COALESCE(SUM(ii.tax_amount), 0))) > 0.02
     """).fetchall()
     for r in rows:
         expected = round(float(r["items_subtotal"]) + float(r["items_tax"]), 2)
@@ -774,7 +788,7 @@ def reconciliation(
         LEFT JOIN invoice_payments ip ON ip.invoice_id = i.id
         WHERE i.archived_at IS NULL
         GROUP BY i.id
-        HAVING total_paid > i.amount + 0.01
+        HAVING COALESCE(SUM(ip.amount), 0) > i.amount + 0.01
     """).fetchall()
     for r in rows:
         over = float(r["total_paid"]) - float(r["amount"])

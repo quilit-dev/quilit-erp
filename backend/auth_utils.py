@@ -81,8 +81,13 @@ def verify_password(password: str, stored: str) -> bool:
 
 
 def create_token(user_id: int, username: str, role: str,
-                 role_id: int = None, is_superadmin: bool = False) -> tuple[str, str]:
-    """Returns (token, jti). jti is a UUID stored in user_sessions for revocation."""
+                 role_id: int = None, is_superadmin: bool = False,
+                 schema: str = None) -> tuple[str, str]:
+    """Returns (token, jti). jti is a UUID stored in user_sessions for revocation.
+
+    In schema-per-tenant mode the caller passes the tenant's ``schema``; it is
+    embedded as a signed claim so every later request from this token is routed
+    to that tenant (and only that tenant). Omitted in single-tenant mode."""
     jti = str(uuid.uuid4())
     payload = {
         "sub":          str(user_id),
@@ -93,7 +98,27 @@ def create_token(user_id: int, username: str, role: str,
         "jti":          jti,
         "exp":          datetime.utcnow() + timedelta(hours=TOKEN_EXPIRE_HOURS),
     }
+    if schema:
+        payload["schema"] = schema
     return jwt.encode(payload, SECRET_KEY, algorithm=ALGORITHM), jti
+
+
+# ── Platform-operator (SaaS vendor) auth ─────────────────────────────────────
+# A SEPARATE identity from tenant users: platform admins live in
+# public.platform_admins and manage the tenant catalog. Their token carries
+# scope="platform" and rides a DIFFERENT cookie, so a tenant session can never be
+# mistaken for an operator session (and vice-versa).
+PLATFORM_COOKIE_NAME = "platform_session"
+
+
+def create_platform_token(admin_id: int, username: str) -> str:
+    payload = {
+        "sub":      str(admin_id),
+        "username": username,
+        "scope":    "platform",
+        "exp":      datetime.utcnow() + timedelta(hours=TOKEN_EXPIRE_HOURS),
+    }
+    return jwt.encode(payload, SECRET_KEY, algorithm=ALGORITHM)
 
 
 def decode_token(token: str) -> dict:

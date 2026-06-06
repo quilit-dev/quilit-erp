@@ -18,7 +18,7 @@ from routers import clients, projects, quotations, inventory, invoices, finance,
 from routers import purchases, settings, archives, documents, suppliers, audit, users, roles, search
 from routers import reports, crm, planning, notifications
 from routers import approval_policies, approval_requests, hr, hr_contracts, recruitment, hr_activities, tax_rates, pos, cash, manufacturing
-from routers import assets, recurring, announcements, attachments, accounting
+from routers import assets, recurring, announcements, attachments, accounting, warehouses, platform
 
 app = FastAPI(title="ERP System", version="2.0.0")
 
@@ -38,6 +38,11 @@ app.add_middleware(
     allow_methods=["*"],
     allow_headers=["*"],
 )
+
+# Schema-per-tenant routing (Phase 2). Self-disables unless TENANCY=schema, so
+# single-tenant / desktop installs are completely unaffected.
+from tenancy import TenantMiddleware
+app.add_middleware(TenantMiddleware)
 
 app.include_router(auth.router,        prefix="/api/auth",        tags=["auth"])
 app.include_router(dashboard.router,   prefix="/api/dashboard",   tags=["dashboard"])
@@ -75,11 +80,54 @@ app.include_router(recurring.router,         prefix="/api/recurring-expenses", t
 app.include_router(announcements.router,      prefix="/api/announcements",      tags=["announcements"])
 app.include_router(attachments.router,        prefix="/api/attachments",        tags=["attachments"])
 app.include_router(accounting.router,         prefix="/api/accounting",         tags=["accounting"])
+app.include_router(warehouses.router,         prefix="/api/warehouses",         tags=["warehouses"])
+app.include_router(platform.router,           prefix="/api/platform",           tags=["platform"])
 
-@app.get("/")
-def root():
-    return {"message": "ERP System API v2.0"}
+@app.get("/api/health")
+def health():
+    """Liveness probe for containers / load balancers (no DB hit)."""
+    return {"status": "ok"}
+
+# ── Serve the built SPA (single-service hosts: Render, Fly, a bare VM…) ───────
+# In the Docker Compose stack, Caddy serves the SPA and reverse-proxies /api here.
+# On a single-service host the app must serve BOTH, so when a built frontend is
+# present next to the app we serve it + a client-side-routing fallback. Declared
+# AFTER every /api router, so the API always wins; with no build present it falls
+# back to a JSON banner (API-only / test runs for non-SPA paths).
+from fastapi.responses import FileResponse, Response
+
+STATIC_DIR = os.environ.get("STATIC_DIR") or os.path.join(
+    os.path.dirname(os.path.dirname(os.path.abspath(__file__))), "static")
+_HAS_SPA = os.path.isfile(os.path.join(STATIC_DIR, "index.html"))
+
+if _HAS_SPA:
+    _NO_CACHE = {"Cache-Control": "no-store, no-cache, must-revalidate",
+                 "Pragma": "no-cache", "Expires": "0"}
+    _STATIC_EXTS = (".png", ".jpg", ".jpeg", ".gif", ".svg", ".ico", ".css",
+                    ".js", ".woff", ".woff2", ".ttf", ".map", ".webp", ".json", ".txt")
+
+    @app.get("/{full_path:path}")
+    def serve_spa(full_path: str = ""):
+        # Unknown /api/* paths return 404 JSON, never the SPA shell.
+        if full_path.startswith("api/"):
+            return Response('{"detail":"Not found"}', status_code=404,
+                            media_type="application/json")
+        if full_path:
+            # Resolve strictly within STATIC_DIR — block path traversal.
+            p = os.path.normpath(os.path.join(STATIC_DIR, full_path))
+            if (p == STATIC_DIR or p.startswith(STATIC_DIR + os.sep)) and os.path.isfile(p):
+                hdrs = {"Cache-Control": "public, max-age=31536000, immutable"} \
+                       if "/assets/" in full_path else {}
+                return FileResponse(p, headers=hdrs)
+            if any(full_path.endswith(e) for e in _STATIC_EXTS):
+                return Response(status_code=404)
+        return FileResponse(os.path.join(STATIC_DIR, "index.html"), headers=_NO_CACHE)
+else:
+    @app.get("/")
+    def root():
+        return {"message": "ERP System API v2.0"}
 
 if __name__ == "__main__":
     import uvicorn
-    uvicorn.run("main:app", host="0.0.0.0", port=8000, reload=True)
+    uvicorn.run("main:app", host="0.0.0.0",
+                port=int(os.environ.get("PORT", 8000)), reload=True)

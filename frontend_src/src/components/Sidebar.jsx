@@ -13,6 +13,7 @@ const Icons = {
   invoices:  <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><rect x="2" y="5" width="20" height="14" rx="2"/><line x1="2" y1="10" x2="22" y2="10"/></svg>,
   pos:       <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><rect x="2" y="7" width="20" height="14" rx="2"/><path d="M6 7V4a2 2 0 012-2h8a2 2 0 012 2v3"/><line x1="6" y1="12" x2="10" y2="12"/><circle cx="17" cy="15" r="1.5"/></svg>,
   inventory: <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M21 16V8a2 2 0 00-1-1.73l-7-4a2 2 0 00-2 0l-7 4A2 2 0 003 8v8a2 2 0 001 1.73l7 4a2 2 0 002 0l7-4A2 2 0 0021 16z"/><polyline points="3.27 6.96 12 12.01 20.73 6.96"/><line x1="12" y1="22.08" x2="12" y2="12"/></svg>,
+  warehouses: <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M3 21V9l9-6 9 6v12"/><path d="M9 21V12h6v9"/><path d="M3 21h18"/></svg>,
   manufacturing: <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M2 20h20"/><path d="M4 20V9l5 3V9l5 3V9l5 3v8"/><path d="M9 20v-4h2v4"/></svg>,
   purchases: <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><circle cx="9" cy="21" r="1"/><circle cx="20" cy="21" r="1"/><path d="M1 1h4l2.68 13.39a2 2 0 002 1.61h9.72a2 2 0 002-1.61L23 6H6"/></svg>,
   suppliers: <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><rect x="1" y="3" width="15" height="13" rx="1"/><path d="M16 8h4l3 5v3h-7V8z"/><circle cx="5.5" cy="18.5" r="2.5"/><circle cx="18.5" cy="18.5" r="2.5"/></svg>,
@@ -39,37 +40,46 @@ const Icons = {
   logout:    <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M9 21H5a2 2 0 01-2-2V5a2 2 0 012-2h4"/><polyline points="16 17 21 12 16 7"/><line x1="21" y1="12" x2="9" y2="12"/></svg>,
 };
 
-// Each entry maps to a backend module key and a nav translation key.
-// Ordered to follow the business workflow:
-//   sales pipeline → delivery → procurement → finance → people.
+// Nav groups — the workflow lifecycle, broken into labelled directory
+// sections rather than one undifferentiated list. Reads like the index of a
+// printed manual: a quick scan from top to bottom traces the operator's
+// natural path through the business (lead → invoice → fulfilment → close
+// the books → manage the people who did the work).
+//
+// `group` is the locale key under `nav.section_<group>`. `null` means the
+// item floats above all sections (the dashboard / home).
 const mainLinkDefs = [
-  { to: '/',           navKey: 'dashboard',  icon: Icons.dashboard,  end: true, module: 'dashboard' },
-  // Sales: lead → client → quote → invoice
-  { to: '/crm',        navKey: 'crm',        icon: Icons.crm,        module: 'crm' },
-  { to: '/clients',    navKey: 'clients',    icon: Icons.clients,    module: 'clients' },
-  { to: '/quotations', navKey: 'quotations', icon: Icons.quotations, module: 'quotations' },
-  { to: '/invoices',   navKey: 'invoices',   icon: Icons.invoices,   module: 'invoices' },
-  { to: '/pos',        navKey: 'pos',        icon: Icons.pos,        module: 'pos' },
-  // Delivery
-  { to: '/projects',   navKey: 'projects',   icon: Icons.projects,   module: 'projects' },
-  { to: '/planning',   navKey: 'planning',   icon: Icons.planning,   module: 'planning' },
-  // Procurement: supplier → purchase → stock
-  { to: '/suppliers',  navKey: 'suppliers',  icon: Icons.suppliers,  module: 'suppliers' },
-  { to: '/purchases',  navKey: 'purchases',  icon: Icons.purchases,  module: 'purchases' },
-  { to: '/inventory',  navKey: 'inventory',  icon: Icons.inventory,  module: 'inventory' },
-  { to: '/manufacturing', navKey: 'manufacturing', icon: Icons.manufacturing, module: 'manufacturing' },
-  // Finance & analysis
-  { to: '/expenses',   navKey: 'expenses',   icon: Icons.expenses,   module: 'expenses' },
-  { to: '/fixed-assets', navKey: 'fixedAssets', icon: Icons.assets,  module: 'assets' },
-  { to: '/finance',    navKey: 'finance',    icon: Icons.finance,    module: 'finance' },
-  { to: '/accounting', navKey: 'accounting', icon: Icons.accounting, module: 'accounting' },
-  { to: '/cash',       navKey: 'cash',       icon: Icons.cash,       module: 'cash' },
-  { to: '/reports',    navKey: 'reports',    icon: Icons.reports,    module: 'reports' },
-  // People
-  { to: '/hr',           navKey: 'hr',          icon: Icons.hr,          module: 'hr' },
-  { to: '/recruitment',   navKey: 'recruitment',  icon: Icons.recruitment,  module: 'recruitment' },
-  { to: '/hr-activities', navKey: 'hrActivities', icon: Icons.hrActivities, module: 'hr_activities' },
+  { to: '/',           navKey: 'dashboard',  icon: Icons.dashboard,  end: true, module: 'dashboard', group: null         },
+
+  { to: '/crm',           navKey: 'crm',          icon: Icons.crm,          module: 'crm',          group: 'sales'      },
+  { to: '/clients',       navKey: 'clients',      icon: Icons.clients,      module: 'clients',      group: 'sales'      },
+  { to: '/quotations',    navKey: 'quotations',   icon: Icons.quotations,   module: 'quotations',   group: 'sales'      },
+  { to: '/invoices',      navKey: 'invoices',     icon: Icons.invoices,     module: 'invoices',     group: 'sales'      },
+  { to: '/pos',           navKey: 'pos',          icon: Icons.pos,          module: 'pos',          group: 'sales'      },
+
+  { to: '/projects',      navKey: 'projects',     icon: Icons.projects,     module: 'projects',     group: 'delivery'   },
+  { to: '/planning',      navKey: 'planning',     icon: Icons.planning,     module: 'planning',     group: 'delivery'   },
+
+  { to: '/suppliers',     navKey: 'suppliers',    icon: Icons.suppliers,    module: 'suppliers',    group: 'operations' },
+  { to: '/purchases',     navKey: 'purchases',    icon: Icons.purchases,    module: 'purchases',    group: 'operations' },
+  { to: '/inventory',     navKey: 'inventory',    icon: Icons.inventory,    module: 'inventory',    group: 'operations' },
+  { to: '/warehouses',    navKey: 'warehouses',   icon: Icons.warehouses,   module: 'warehouses',   group: 'operations' },
+  { to: '/manufacturing', navKey: 'manufacturing',icon: Icons.manufacturing,module: 'manufacturing',group: 'operations' },
+
+  { to: '/expenses',      navKey: 'expenses',     icon: Icons.expenses,     module: 'expenses',     group: 'finance'    },
+  { to: '/fixed-assets',  navKey: 'fixedAssets',  icon: Icons.assets,       module: 'assets',       group: 'finance'    },
+  { to: '/finance',       navKey: 'finance',      icon: Icons.finance,      module: 'finance',      group: 'finance'    },
+  { to: '/accounting',    navKey: 'accounting',   icon: Icons.accounting,   module: 'accounting',   group: 'finance'    },
+  { to: '/cash',          navKey: 'cash',         icon: Icons.cash,         module: 'cash',         group: 'finance'    },
+  { to: '/reports',       navKey: 'reports',      icon: Icons.reports,      module: 'reports',      group: 'finance'    },
+
+  { to: '/hr',            navKey: 'hr',           icon: Icons.hr,           module: 'hr',           group: 'people'     },
+  { to: '/recruitment',   navKey: 'recruitment',  icon: Icons.recruitment,  module: 'recruitment',  group: 'people'     },
+  { to: '/hr-activities', navKey: 'hrActivities', icon: Icons.hrActivities, module: 'hr_activities',group: 'people'     },
 ];
+
+// Render order for the labelled directory sections.
+const SECTION_ORDER = ['sales', 'delivery', 'operations', 'finance', 'people'];
 
 const systemLinkDefs = [
   { to: '/announcements',      navKey: 'announcements',      icon: Icons.announce,  badge: 'announcements' },
@@ -164,10 +174,12 @@ export default function Sidebar() {
         </div>
       </div>
 
-      {/* Main nav */}
+      {/* Main nav — split into workflow directories. The dashboard sits
+          alone above the first labelled section; everything else falls
+          under its workflow group. */}
       <nav className="sidebar-nav">
-        <div className="nav-section-label">{t('nav.main')}</div>
-        {visibleMain.map(l => (
+        {/* Unsectioned items (dashboard) — rendered first, no label. */}
+        {visibleMain.filter(l => l.group === null).map(l => (
           <NavLink
             key={l.to} to={l.to} end={l.end}
             className={({ isActive }) => `nav-link${isActive ? ' active' : ''}`}
@@ -176,6 +188,27 @@ export default function Sidebar() {
             {t(`nav.${l.navKey}`)}
           </NavLink>
         ))}
+
+        {/* Labelled workflow sections — only rendered if they have at
+            least one visible item. Keeps a slim sidebar slim. */}
+        {SECTION_ORDER.map(section => {
+          const sectionItems = visibleMain.filter(l => l.group === section);
+          if (sectionItems.length === 0) return null;
+          return (
+            <div key={section}>
+              <div className="nav-section-label">{t(`nav.section_${section}`)}</div>
+              {sectionItems.map(l => (
+                <NavLink
+                  key={l.to} to={l.to} end={l.end}
+                  className={({ isActive }) => `nav-link${isActive ? ' active' : ''}`}
+                >
+                  <span className="nav-link-icon">{l.icon}</span>
+                  {t(`nav.${l.navKey}`)}
+                </NavLink>
+              ))}
+            </div>
+          );
+        })}
 
         <div className="nav-section-label" style={{ marginTop: 8 }}>{t('nav.system')}</div>
         {systemLinkDefs.map(l => {

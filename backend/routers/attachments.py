@@ -27,6 +27,8 @@ from permissions import require_auth, check_perm
 from routers.audit import log_action
 from utils import _now
 import sqlite3
+import storage
+import jobs
 
 router = APIRouter()
 
@@ -128,7 +130,8 @@ def download_attachment(
     db: sqlite3.Connection = Depends(get_db),
 ):
     row = db.execute(
-        "SELECT entity_type, filename, content_type, data FROM attachments WHERE id=?",
+        "SELECT entity_type, filename, content_type, data, storage_backend, storage_key "
+        "FROM attachments WHERE id=?",
         (attachment_id,),
     ).fetchone()
     if not row:
@@ -137,12 +140,15 @@ def download_attachment(
     check_perm(user, db, module, "view")
 
     ctype = row["content_type"] or "application/octet-stream"
+    # Fetch the bytes from object storage when the row lives there; else the BLOB.
+    content = (storage.get_object(row["storage_key"])
+               if row["storage_backend"] == "s3" else row["data"])
     inline = (ctype in _INLINE_OK) and not download
     disposition = "inline" if inline else "attachment"
     # Quote the filename to survive spaces/special chars in the header.
     safe_name = (row["filename"] or "file").replace('"', "")
     return Response(
-        content=row["data"],
+        content=content,
         media_type=ctype,
         headers={
             "Content-Disposition": f'{disposition}; filename="{safe_name}"',
@@ -160,18 +166,63 @@ def delete_attachment(
     db: sqlite3.Connection = Depends(get_db),
 ):
     row = db.execute(
-        "SELECT entity_type, entity_id, filename FROM attachments WHERE id=?",
+        "SELECT entity_type, entity_id, filename, storage_backend, storage_key "
+        "FROM attachments WHERE id=?",
         (attachment_id,),
     ).fetchone()
     if not row:
         raise HTTPException(404, "Attachment not found")
     _, _, module = _entity_or_404(db, row["entity_type"])
     check_perm(user, db, module, "edit")
+    if row["storage_backend"] == "s3" and row["storage_key"]:
+        storage.delete_object(row["storage_key"])
     db.execute("DELETE FROM attachments WHERE id=?", (attachment_id,))
     log_action(db, user, "delete", "attachment", attachment_id,
                f"{row['entity_type']} #{row['entity_id']} — {row['filename']}")
     db.commit()
     return {"message": "Attachment deleted"}
+
+
+# ── Backfill: move DB-stored files into object storage ───────────────────────
+# Literal one-segment path → no clash with the two-segment /{entity_type}/{id}.
+def _backfill_attachments(db) -> int:
+    """Move this tenant's DB-stored attachments into object storage; return the
+    count moved. Idempotent (only touches storage_backend='db' rows)."""
+    rows = db.execute(
+        "SELECT id, entity_type, entity_id, filename, content_type, data "
+        "FROM attachments WHERE storage_backend='db'"
+    ).fetchall()
+    for r in rows:
+        key = storage.make_key(r["entity_type"], r["entity_id"], r["filename"])
+        storage.put_object(key, r["data"], r["content_type"])
+        db.execute("UPDATE attachments SET storage_backend='s3', storage_key=?, data=? "
+                   "WHERE id=?", (key, b"", r["id"]))
+    db.commit()
+    return len(rows)
+
+
+@jobs.job("attachments.backfill_to_s3")
+def _backfill_job():
+    """RQ-runnable form: the worker has already set this job's tenant schema, so a
+    tenant-scoped session connects to the right tenant."""
+    import database
+    with database.session() as db:
+        return {"migrated": _backfill_attachments(db)}
+
+
+@router.post("/migrate-to-s3")
+def migrate_to_s3(user=Depends(require_auth), db: sqlite3.Connection = Depends(get_db)):
+    """Move every DB-stored attachment for the current tenant into object storage.
+    Superadmin-only; requires STORAGE=s3. With JOBS=rq the work is enqueued to a
+    background worker (returns a job id); otherwise it runs inline (returns the
+    count). Idempotent — safe to re-run."""
+    if not user.get("is_superadmin"):
+        raise HTTPException(403, "Superadmin only.")
+    if not storage.is_s3():
+        raise HTTPException(400, "Object storage is not configured (set STORAGE=s3).")
+    if jobs.async_enabled():
+        return {"status": "queued", "job_id": jobs.enqueue("attachments.backfill_to_s3")}
+    return {"migrated": _backfill_attachments(db)}
 
 
 # ── List ───────────────────────────────────────────────────────────────────
@@ -222,13 +273,22 @@ async def upload_attachment(
         )
 
     now = _now()
+    fname = (file.filename or "file")[:255]
+    # Route the bytes to object storage when configured; otherwise keep the BLOB
+    # (the default — unchanged behavior). For s3 rows the BLOB is left empty.
+    if storage.is_s3():
+        key = storage.make_key(entity_type, entity_id, fname)
+        storage.put_object(key, data, content_type)
+        backend, blob = "s3", b""
+    else:
+        key, backend, blob = None, "db", data
     cur = db.execute(
         "INSERT INTO attachments "
         "(entity_type, entity_id, filename, content_type, size_bytes, data, "
-        " uploaded_by, uploaded_by_name, created_at) "
-        "VALUES (?,?,?,?,?,?,?,?,?)",
-        (entity_type, entity_id, (file.filename or "file")[:255], content_type,
-         len(data), data, user["id"],
+        " storage_backend, storage_key, uploaded_by, uploaded_by_name, created_at) "
+        "VALUES (?,?,?,?,?,?,?,?,?,?,?)",
+        (entity_type, entity_id, fname, content_type,
+         len(data), blob, backend, key, user["id"],
          user.get("full_name") or user.get("username"), now),
     )
     log_action(db, user, "upload", "attachment", cur.lastrowid,

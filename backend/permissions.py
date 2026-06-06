@@ -16,6 +16,14 @@ MODULES = [
     'hr', 'hr_contracts', 'recruitment', 'hr_activities',
     'pos', 'cash',
     'manufacturing', 'assets',
+    # Internal comms — uses require_perm("announcements") in its router and
+    # appears in the Roles UI; declaring it here keeps the RBAC catalog
+    # honest (and matches what role_permissions actually stores).
+    'announcements',
+    # Multi-warehouse — module-level RBAC (can the user reach the Warehouses
+    # admin page at all?). Per-warehouse row-level access is enforced
+    # separately via user_warehouse_access (see warehouse_access.py).
+    'warehouses',
 ]
 ADMIN_MODULES = ['settings', 'users', 'roles', 'audit']
 ALL_MODULES   = MODULES + ADMIN_MODULES

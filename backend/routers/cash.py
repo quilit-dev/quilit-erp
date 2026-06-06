@@ -27,6 +27,7 @@ from permissions import require_perm
 from routers.audit import log_action
 from utils import _now, _today, notify
 import sqlite3
+import accounting
 
 router = APIRouter()
 
@@ -412,6 +413,55 @@ def close_reconciliation(
                {"expected_usd": fig["usd"]["expected"], "counted_usd": counted_usd,
                 "variance_usd": variance_usd, "expected_lbp": fig["lbp"]["expected"],
                 "counted_lbp": counted_lbp, "variance_lbp": variance_lbp})
+
+    # ── Post the variance to the General Ledger (F-3 audit fix) ─────────────
+    # When a till is SHORT (variance < 0): cash on the books is too high, so
+    #   DR  Cash Short & Over (expense)   |variance|
+    #     CR  Cash & Bank / Cash — LBP                |variance|
+    # When OVER (variance > 0): the reverse — recognise the windfall as a
+    # credit to Cash Short & Over (a contra-expense that offsets prior shorts).
+    # Done line-by-line per currency so each cash account stays consistent
+    # with the physical drawer. LBP variance is translated to USD at the
+    # latest stored exchange rate so the journal balances; a 1:1 LBP-only
+    # entry would require an LBP-denominated Short & Over account which is
+    # over-engineering for an SME — translation at spot is acceptable per
+    # IAS 21 for in-period income statement items.
+    rate_row = db.execute(
+        "SELECT rate FROM exchange_rates ORDER BY id DESC LIMIT 1"
+    ).fetchone()
+    lbp_rate = float(rate_row["rate"]) if rate_row and rate_row["rate"] else None
+
+    def _post_variance(amount_usd: float, cash_code: str, currency_label: str):
+        """Post one balanced variance entry. `amount_usd` is signed: negative
+        for short, positive for over."""
+        if abs(amount_usd) < 0.005:
+            return
+        magnitude = round(abs(amount_usd), 2)
+        if amount_usd < 0:   # till short → loss
+            lines = [
+                {"code": accounting.CASH_SHORT_OVER, "debit":  magnitude,
+                 "memo": f"Till short ({currency_label})"},
+                {"code": cash_code,                  "credit": magnitude},
+            ]
+        else:                # till over → gain
+            lines = [
+                {"code": cash_code,                  "debit":  magnitude,
+                 "memo": f"Till over ({currency_label})"},
+                {"code": accounting.CASH_SHORT_OVER, "credit": magnitude},
+            ]
+        accounting.post_entry(
+            db, entry_date=rec["business_date"][:10],
+            memo=f"Cash variance — {currency_label} drawer #{rec['drawer_id']} on {rec['business_date']}",
+            lines=lines, source_type=f"cash_variance_{currency_label.lower()}",
+            source_id=rec_id, created_by=user["id"],
+        )
+
+    _post_variance(variance_usd, accounting.CASH, "USD")
+    if lbp_rate and lbp_rate > 0:
+        _post_variance(round(variance_lbp / lbp_rate, 2), accounting.CASH_LBP, "LBP")
+    # If no rate is set we skip the LBP GL post — better than picking a
+    # fake rate. The till-side variance is still recorded on the
+    # reconciliation row and surfaced in the notification below.
     # Material variance at close → notify finance team. Threshold is set
     # deliberately above the "two-coins-stuck-under-the-tray" range. A drawer
     # may have variance in USD, LBP, or both — surface either.

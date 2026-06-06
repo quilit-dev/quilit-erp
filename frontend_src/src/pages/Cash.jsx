@@ -434,6 +434,12 @@ function ReconDetailModal({ reconId, canCreate, canEdit, canDelete, onClose, onC
 }
 
 // ── Today view ──────────────────────────────────────────────────────────────
+// ── Today view ──────────────────────────────────────────────────────────────
+//
+// KPI strip at the top summarises today across all drawers. Below it, a
+// generously-sized card per drawer in a responsive grid — each card has a
+// status pill, the expected USD + LBP as side-by-side stat blocks, an
+// optional variance row when closed, and a primary action at the foot.
 function TodayView({ canCreate, onOpenDay, openDetail, refreshKey }) {
   const { t } = useLocale();
   const [data, setData] = useState(null);
@@ -447,55 +453,162 @@ function TodayView({ canCreate, onOpenDay, openDetail, refreshKey }) {
 
   if (error) return <ErrorAlert message={error} onRetry={load} />;
   if (!data) return <LoadingSpinner />;
-  if (data.drawers.length === 0) return <EmptyState message={t('cash.noDrawers')} icon="🗄️" />;
+  if (data.drawers.length === 0) {
+    return (
+      <div className="cash-empty-hero">
+        <div className="cash-empty-hero-icon" aria-hidden>
+          <svg width="26" height="26" viewBox="0 0 24 24" fill="none"
+            stroke="currentColor" strokeWidth="1.8"
+            strokeLinecap="round" strokeLinejoin="round">
+            <rect x="3" y="7" width="18" height="13" rx="2"/>
+            <path d="M16 7V5a2 2 0 0 0-2-2h-4a2 2 0 0 0-2 2v2"/>
+            <line x1="12" y1="12" x2="12" y2="16"/>
+            <line x1="9" y1="14" x2="15" y2="14"/>
+          </svg>
+        </div>
+        <div className="cash-empty-hero-title">{t('cash.noDrawersTitle')}</div>
+        <p className="cash-empty-hero-sub">{t('cash.noDrawersHint')}</p>
+      </div>
+    );
+  }
+
+  // KPI roll-ups across every drawer for today. Open drawers contribute to
+  // "expected on hand"; closed drawers with a non-zero variance contribute
+  // to "anomalies"; not-started drawers are flagged separately.
+  const drawers = data.drawers;
+  const openCount    = drawers.filter(d => d.reconciliation?.status === 'open').length;
+  const idleCount    = drawers.filter(d => !d.reconciliation).length;
+  const expectedUsd  = drawers.reduce((s, d) => s + (Number(d.reconciliation?.expected_cash)     || 0), 0);
+  const expectedLbp  = drawers.reduce((s, d) => s + (Number(d.reconciliation?.expected_cash_lbp) || 0), 0);
+  const anomalies    = drawers.filter(d =>
+    d.reconciliation?.status === 'closed' &&
+    ((Math.abs(Number(d.reconciliation.variance) || 0) > 0.005) ||
+     (Math.abs(Number(d.reconciliation.variance_lbp) || 0) > 0.5))
+  ).length;
 
   return (
-    <div style={{ display: 'flex', gap: 14, flexWrap: 'wrap' }}>
-      {data.drawers.map(({ drawer, reconciliation }) => (
-        <div key={drawer.id} className="card" style={{ flex: '1 1 260px', minWidth: 240, padding: 16 }}>
-          <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
-            <strong>{drawer.name}</strong>
-            {!!drawer.auto_capture && <span className="badge badge-blue">{t('cash.autoCapture')}</span>}
+    <>
+      {/* KPI strip — what's happening with cash right now */}
+      <div className="cash-kpi-strip">
+        <div className="stat-card">
+          <div className="stat-label">{t('cash.openDrawers')}</div>
+          <div className="stat-value">{openCount} / {drawers.length}</div>
+          <div className="stat-sub">{idleCount > 0
+            ? t('cash.notStartedCount', { count: idleCount })
+            : t('cash.allStarted')}</div>
+        </div>
+        <div className="stat-card">
+          <div className="stat-label">{t('cash.expectedOnHand')} USD</div>
+          <div className="stat-value">{money(expectedUsd, 'USD')}</div>
+          <div className="stat-sub">{t('cash.acrossDrawers', { n: drawers.length })}</div>
+        </div>
+        <div className="stat-card">
+          <div className="stat-label">{t('cash.expectedOnHand')} LBP</div>
+          <div className="stat-value">{money(expectedLbp, 'LBP')}</div>
+          <div className="stat-sub">{t('cash.acrossDrawers', { n: drawers.length })}</div>
+        </div>
+        <div className="stat-card">
+          <div className="stat-label">{t('cash.todayAnomalies')}</div>
+          <div className="stat-value" style={{
+            color: anomalies > 0 ? 'var(--negate)' : 'var(--affirm)',
+          }}>
+            {anomalies > 0 ? anomalies : '—'}
           </div>
-          {!reconciliation && (
-            <>
-              <p style={{ color: 'var(--text-3)', fontSize: 13, margin: '10px 0' }}>{t('cash.notStarted')}</p>
-              {canCreate && (
-                <button className="btn btn-primary btn-sm" style={{ width: '100%' }}
-                  onClick={() => onOpenDay(drawer.id)}>{t('cash.openDay')}</button>
-              )}
-            </>
-          )}
-          {reconciliation && (
-            <>
-              <div style={{ margin: '10px 0', fontSize: 13 }}>
-                <span className={`badge badge-${reconciliation.status === 'open' ? 'green' : 'gray'}`}>
-                  {reconciliation.status === 'open' ? t('cash.statusOpen') : t('cash.statusClosed')}
+          <div className="stat-sub">
+            {anomalies > 0 ? t('cash.varianceFound') : t('cash.noVariance')}
+          </div>
+        </div>
+      </div>
+
+      {/* Drawer cards */}
+      <div className="cash-drawers-grid">
+        {drawers.map(({ drawer, reconciliation }) => {
+          // Card state class drives the accent rail + status badge variant.
+          let state = 'idle';
+          if (reconciliation?.status === 'open')   state = 'open';
+          if (reconciliation?.status === 'closed') state = 'closed';
+          const varUsd = Number(reconciliation?.variance) || 0;
+          const varLbp = Number(reconciliation?.variance_lbp) || 0;
+          const hasVariance = Math.abs(varUsd) > 0.005 || Math.abs(varLbp) > 0.5;
+          return (
+            <div key={drawer.id} className={`cash-drawer-card is-${state}`}>
+              <div className="cash-drawer-head">
+                <div className="cash-drawer-name">
+                  <span className="cash-drawer-name-icon" aria-hidden>
+                    <svg width="14" height="14" viewBox="0 0 24 24" fill="none"
+                      stroke="currentColor" strokeWidth="2"
+                      strokeLinecap="round" strokeLinejoin="round">
+                      <rect x="2" y="6" width="20" height="12" rx="2"/>
+                      <circle cx="12" cy="12" r="3"/>
+                    </svg>
+                  </span>
+                  <span className="truncate">{drawer.name}</span>
+                </div>
+                <span className={`cash-drawer-status ${state}`}>
+                  <span className="dot" />
+                  {state === 'open'   ? t('cash.statusOpen')
+                  : state === 'closed' ? t('cash.statusClosed')
+                  : t('cash.notStarted')}
                 </span>
-                <div style={{ display: 'flex', justifyContent: 'space-between', marginTop: 8 }}>
-                  <span>{t('cash.expectedCash')} USD</span><strong>{money(reconciliation.expected_cash, 'USD')}</strong>
-                </div>
-                <div style={{ display: 'flex', justifyContent: 'space-between', marginTop: 2 }}>
-                  <span>{t('cash.expectedCash')} LBP</span><strong>{money(reconciliation.expected_cash_lbp, 'LBP')}</strong>
-                </div>
-                {reconciliation.status === 'closed' && (
+              </div>
+
+              <div className="cash-drawer-body">
+                {!reconciliation ? (
+                  <div style={{ padding: '6px 2px', color: 'var(--text-3)', fontSize: 13, lineHeight: 1.55 }}>
+                    {t('cash.notStartedHint')}
+                  </div>
+                ) : (
                   <>
-                    <div style={{ display: 'flex', justifyContent: 'space-between', marginTop: 6 }}>
-                      <span>{t('cash.variance')} USD</span><VarianceTag value={reconciliation.variance} currency="USD" />
+                    <div className="cash-stat-pair">
+                      <div className="cash-stat">
+                        <div className="cash-stat-label">USD</div>
+                        <div className="cash-stat-value">{money(reconciliation.expected_cash, 'USD')}</div>
+                      </div>
+                      <div className="cash-stat">
+                        <div className="cash-stat-label">LBP</div>
+                        <div className="cash-stat-value">{money(reconciliation.expected_cash_lbp, 'LBP')}</div>
+                      </div>
                     </div>
-                    <div style={{ display: 'flex', justifyContent: 'space-between', marginTop: 2 }}>
-                      <span>{t('cash.variance')} LBP</span><VarianceTag value={reconciliation.variance_lbp} currency="LBP" />
-                    </div>
+                    {reconciliation.status === 'closed' && (
+                      <div className={`cash-variance-row ${hasVariance ? 'bad' : 'good'}`}>
+                        <span className="cash-variance-label">{t('cash.variance')}</span>
+                        <span className="cash-variance-value">
+                          {hasVariance
+                            ? `${varUsd ? money(varUsd, 'USD') : '—'} · ${varLbp ? money(varLbp, 'LBP') : '—'}`
+                            : t('cash.balanced')}
+                        </span>
+                      </div>
+                    )}
                   </>
                 )}
+                {!!drawer.auto_capture && (
+                  <div style={{
+                    marginTop: 10, fontFamily: 'var(--font-mono)', fontSize: 10.5,
+                    letterSpacing: '0.06em', textTransform: 'uppercase',
+                    color: 'var(--accent)',
+                  }}>
+                    ⚡ {t('cash.autoCapture')}
+                  </div>
+                )}
               </div>
-              <button className="btn btn-secondary btn-sm" style={{ width: '100%' }}
-                onClick={() => openDetail(reconciliation.id)}>{t('cash.viewDay')}</button>
-            </>
-          )}
-        </div>
-      ))}
-    </div>
+
+              <div className="cash-drawer-foot">
+                {!reconciliation && canCreate && (
+                  <button className="btn btn-primary btn-sm" onClick={() => onOpenDay(drawer.id)}>
+                    {t('cash.openDay')}
+                  </button>
+                )}
+                {reconciliation && (
+                  <button className="btn btn-secondary btn-sm" onClick={() => openDetail(reconciliation.id)}>
+                    {t('cash.viewDay')}
+                  </button>
+                )}
+              </div>
+            </div>
+          );
+        })}
+      </div>
+    </>
   );
 }
 
@@ -530,14 +643,30 @@ function HistoryView({ drawers, openDetail, refreshKey }) {
 
   return (
     <div>
-      <div style={{ display: 'flex', gap: 8, marginBottom: 12, flexWrap: 'wrap', alignItems: 'center' }}>
-        <input type="date" className="form-control" style={{ width: 170 }} value={date}
+      <div className="cash-filter-bar">
+        <span className="cash-filter-bar-label">
+          <svg width="12" height="12" viewBox="0 0 24 24" fill="none"
+            stroke="currentColor" strokeWidth="2.4"
+            strokeLinecap="round" strokeLinejoin="round" aria-hidden>
+            <polygon points="22 3 2 3 10 12.46 10 19 14 21 14 12.46 22 3"/>
+          </svg>
+          {t('common.filters') || 'Filters'}
+        </span>
+        <input type="date" className="form-control" style={{ width: 160 }} value={date}
           onChange={e => setDate(e.target.value)} />
         <select className="form-control" style={{ width: 180 }} value={drawerId}
           onChange={e => setDrawerId(e.target.value)}>
           <option value="">{t('cash.drawers')}</option>
           {drawers.map(d => <option key={d.id} value={d.id}>{d.name}</option>)}
         </select>
+        {rows && (
+          <span style={{
+            fontFamily: 'var(--font-mono)', fontSize: 11, color: 'var(--text-3)',
+            letterSpacing: '0.04em',
+          }}>
+            {rows.length} {t('cash.reconciliations') || 'reconciliations'}
+          </span>
+        )}
         {rows && rows.length > 0 && (
           <div style={{ marginInlineStart: 'auto' }}>
             <ExportButton data={exportData} filename="Cash_Reconciliations" sheetName="Reconciliations" />
@@ -674,27 +803,39 @@ export default function Cash() {
 
   return (
     <div>
-      <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center',
-                    flexWrap: 'wrap', gap: 8, marginBottom: 4 }}>
-        <h2 style={{ margin: 0 }}>{t('cash.title')}</h2>
-        <div style={{ display: 'flex', gap: 8, alignItems: 'center' }}>
+      {/* Workspace-style page header with title + subtitle on the left and
+          the "Open Day" primary action on the right. */}
+      <div className="page-header">
+        <div>
+          <h1 className="page-title">{t('cash.title')}</h1>
+          <p className="page-subtitle">{t('cash.subtitle')}</p>
+        </div>
+        <div className="page-actions">
           {canCreate && (
-            <button className="btn btn-primary btn-sm" onClick={() => setOpenDayFor(null)}>
+            <button className="btn btn-primary" onClick={() => setOpenDayFor(null)}>
+              <svg width="14" height="14" viewBox="0 0 24 24" fill="none"
+                stroke="currentColor" strokeWidth="2.4"
+                strokeLinecap="round" strokeLinejoin="round" aria-hidden>
+                <line x1="12" y1="5" x2="12" y2="19"/>
+                <line x1="5" y1="12" x2="19" y2="12"/>
+              </svg>
               {t('cash.openDay')}
             </button>
           )}
-          <div style={{ display: 'flex', gap: 4 }}>
-            {tabs.map(tb => (
-              <button key={tb.key}
-                className={`btn btn-sm ${view === tb.key ? 'btn-primary' : 'btn-secondary'}`}
-                onClick={() => setView(tb.key)}>
-                {tb.label}
-              </button>
-            ))}
-          </div>
         </div>
       </div>
-      <p style={{ color: 'var(--text-3)', fontSize: 13, margin: '0 0 16px' }}>{t('cash.subtitle')}</p>
+
+      {/* Workspace tabs — clean underline style, consistent with the rest
+          of the modules. */}
+      <div className="tabs">
+        {tabs.map(tb => (
+          <button key={tb.key}
+            className={`tab-btn${view === tb.key ? ' active' : ''}`}
+            onClick={() => setView(tb.key)}>
+            {tb.label}
+          </button>
+        ))}
+      </div>
 
       {view === 'today' && (
         <TodayView canCreate={canCreate} onOpenDay={(id) => setOpenDayFor(id)}

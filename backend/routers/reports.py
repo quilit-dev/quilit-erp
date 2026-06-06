@@ -601,3 +601,71 @@ def report_vat(
             for rid, r in ctx["rates"].items()
         ],
     }
+
+
+# ── Inventory valuation by warehouse ────────────────────────────────────────
+# Per Phase 3 of the multi-warehouse rollout. The valuation is intentionally
+# computed at the COMPANY-WIDE unit cost (`inventory.unit_cost`) — not per-
+# warehouse — because per-warehouse costing was deferred in the design ("we
+# don't have a clear business need for warehouse-level costing yet"). Same
+# item across warehouses is valued identically, only quantities differ. When
+# that ever changes, this query is the single place to update.
+
+@router.get("/inventory-by-warehouse")
+def report_inventory_by_warehouse(
+    user=Depends(require_perm("reports", "view")),
+    db: sqlite3.Connection = Depends(get_db),
+):
+    """Inventory holdings + valuation per warehouse, plus a 'totals' row that
+    sums across warehouses (matches the GL Inventory account by construction)."""
+    # Pull every active warehouse and aggregate stock currently sitting there.
+    # LEFT JOIN inventory_stock so an empty warehouse still appears as a row
+    # with zero counts — the operator wants to see all locations.
+    by_wh = db.execute(
+        "SELECT w.id, w.code, w.name, w.type, w.is_default, "
+        "       COALESCE(COUNT(s.inventory_id), 0)         AS sku_count, "
+        "       COALESCE(SUM(s.quantity), 0)               AS qty_total, "
+        "       COALESCE(SUM(s.quantity * COALESCE(i.unit_cost, 0)), 0) AS value "
+        "FROM warehouses w "
+        "LEFT JOIN inventory_stock s ON s.warehouse_id = w.id "
+        "LEFT JOIN inventory i       ON i.id = s.inventory_id "
+        "                            AND i.archived_at IS NULL AND i.deleted_at IS NULL "
+        "WHERE w.is_active = 1 AND w.archived_at IS NULL "
+        "GROUP BY w.id, w.code, w.name, w.type, w.is_default "
+        "ORDER BY w.is_default DESC, w.code"
+    ).fetchall()
+
+    # Top SKUs by total value across the company, with the warehouse holding
+    # the largest share so the operator can see "Pine planks are mostly in
+    # MAIN; iron nails are split 60/40 between MAIN and BRANCH-A".
+    top_skus = db.execute(
+        "SELECT i.id, i.name, i.unit, i.category, "
+        "       COALESCE(SUM(s.quantity), 0) AS qty_total, "
+        "       i.unit_cost AS unit_cost, "
+        "       COALESCE(SUM(s.quantity), 0) * COALESCE(i.unit_cost, 0) AS value, "
+        "       ("
+        "         SELECT w2.code FROM inventory_stock s2 "
+        "         JOIN warehouses w2 ON w2.id = s2.warehouse_id "
+        "         WHERE s2.inventory_id = i.id AND w2.is_active = 1 "
+        "           AND w2.archived_at IS NULL "
+        "         ORDER BY s2.quantity DESC LIMIT 1"
+        "       ) AS top_warehouse_code "
+        "FROM inventory i "
+        "LEFT JOIN inventory_stock s ON s.inventory_id = i.id "
+        "WHERE i.archived_at IS NULL AND i.deleted_at IS NULL "
+        "GROUP BY i.id, i.name, i.unit, i.category, i.unit_cost "
+        "HAVING COALESCE(SUM(s.quantity), 0) > 0 "
+        "ORDER BY value DESC LIMIT 25"
+    ).fetchall()
+
+    rows = [dict(r) for r in by_wh]
+    totals = {
+        "sku_count": sum(r["sku_count"] for r in rows),
+        "qty_total": round(sum(float(r["qty_total"] or 0) for r in rows), 2),
+        "value":     round(sum(float(r["value"]     or 0) for r in rows), 2),
+    }
+    return {
+        "warehouses": rows,
+        "totals":     totals,
+        "top_skus":   [dict(s) for s in top_skus],
+    }

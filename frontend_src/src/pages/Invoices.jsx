@@ -20,7 +20,10 @@ import { useSortPaginate } from '../hooks/useSortPaginate';
 import { useRecordExport } from '../hooks/useRecordExport';
 
 const METHODS    = ['Cash', 'Bank Transfer', 'Cheque', 'Card', 'Other'];
-const EMPTY_ITEM = { name: '', quantity: 1, unit_price: 0, tax_rate_id: null };
+// `discount` (in functional currency) is opt-in via Settings → "Enable
+// per-line discounts". When the toggle is off the field stays 0 and the
+// column is hidden — the rest of the form behaves exactly as before.
+const EMPTY_ITEM = { name: '', quantity: 1, unit_price: 0, discount: 0, tax_rate_id: null };
 const EMPTY_FORM = { quotation_id: '', project_id: '', client_id: '', due_date: '', notes: '', items: [{ ...EMPTY_ITEM }] };
 
 // Pre-built WhatsApp message for an invoice — bilingual short form so the
@@ -183,17 +186,26 @@ export default function Invoices() {
   const { data: inventory } = useData(getInventory);
   const { settings, exchangeRate, displayCurrency, taxRates } = useSettings();
 
-  const taxEnabled     = settings?.tax_enabled === '1';
-  const activeTaxRates = (taxRates || []).filter(r => r.is_active);
-  const defaultTaxRate = (taxRates || []).find(r => r.is_default) || null;
+  const taxEnabled      = settings?.tax_enabled === '1';
+  // Setting → "Enable per-line discounts" drives both the visible column
+  // and whether the line discounts roll into the invoice totals.
+  const discountEnabled = settings?.show_discount_col === '1';
+  const activeTaxRates  = (taxRates || []).filter(r => r.is_active);
+  const defaultTaxRate  = (taxRates || []).find(r => r.is_default) || null;
   const rateById = (id) =>
     (taxRates || []).find(r => r.id === id) || defaultTaxRate || null;
-  // Tax on one editor line, using the resolved (chosen or default) rate.
+  // Per-line net = qty × price − discount (when enabled), floored at 0.
+  // Tax on the line uses the discounted net so the customer is taxed on
+  // what they actually pay, matching how the backend prices.
+  const lineNet = (item) => {
+    const gross = (Number(item.quantity) || 0) * (Number(item.unit_price) || 0);
+    const disc  = discountEnabled ? (Number(item.discount) || 0) : 0;
+    return Math.max(0, gross - disc);
+  };
   const lineTaxAmt = (item) => {
     if (!taxEnabled) return 0;
     const r = rateById(item.tax_rate_id);
-    const net = (Number(item.quantity) || 0) * (Number(item.unit_price) || 0);
-    return r ? net * (Number(r.rate) || 0) / 100 : 0;
+    return r ? lineNet(item) * (Number(r.rate) || 0) / 100 : 0;
   };
 
   const [statusFilter, setStatusFilter] = useState('');
@@ -268,8 +280,13 @@ export default function Invoices() {
         due_date:     full.due_date     || '',
         notes:        full.notes        || '',
         items: full.items?.length
-          ? full.items.map(i => ({ name: i.name, quantity: i.quantity,
-                                   unit_price: i.unit_price, tax_rate_id: i.tax_rate_id ?? null }))
+          ? full.items.map(i => ({
+              name: i.name,
+              quantity: i.quantity,
+              unit_price: i.unit_price,
+              discount: i.discount || 0,
+              tax_rate_id: i.tax_rate_id ?? null,
+            }))
           : [{ ...EMPTY_ITEM }],
       });
     } catch (err) {
@@ -288,16 +305,20 @@ export default function Invoices() {
       ? { ...item, name, ...(price !== null ? { unit_price: price } : {}) }
       : item),
   }));
-  const invoiceSubtotal = (form.items || []).reduce((s, i) => s + (Number(i.quantity)||0) * (Number(i.unit_price)||0), 0);
-  const invoiceTaxAmt   = (form.items || []).reduce((s, i) => s + lineTaxAmt(i), 0);
-  const invoiceTotal    = invoiceSubtotal + invoiceTaxAmt;
+  // Subtotal uses the discounted net per line so the form preview matches
+  // what the backend pricing engine computes.
+  const invoiceSubtotal  = (form.items || []).reduce((s, i) => s + lineNet(i), 0);
+  const invoiceDiscount  = discountEnabled
+    ? (form.items || []).reduce((s, i) => s + (Number(i.discount) || 0), 0)
+    : 0;
+  const invoiceTaxAmt    = (form.items || []).reduce((s, i) => s + lineTaxAmt(i), 0);
+  const invoiceTotal     = invoiceSubtotal + invoiceTaxAmt;
 
   async function handleSave(e) {
     e.preventDefault(); setSaving(true);
     try {
-      const subtotal = (form.items || []).reduce(
-        (s, i) => s + (Number(i.quantity)||0) * (Number(i.unit_price)||0), 0
-      );
+      // Amount = discounted net, matching the backend's _price_items.
+      const subtotal = (form.items || []).reduce((s, i) => s + lineNet(i), 0);
       const payload = {
         quotation_id: form.quotation_id ? Number(form.quotation_id) : null,
         project_id:   form.project_id   ? Number(form.project_id)   : null,
@@ -306,7 +327,10 @@ export default function Invoices() {
         due_date:     form.due_date || null,
         notes:        form.notes    || null,
         items:        (form.items || []).map(i => ({
-          name: i.name, quantity: Number(i.quantity)||0, unit_price: Number(i.unit_price)||0,
+          name: i.name,
+          quantity: Number(i.quantity)||0,
+          unit_price: Number(i.unit_price)||0,
+          discount: discountEnabled ? (Number(i.discount) || 0) : 0,
           tax_rate_id: i.tax_rate_id ?? null,
         })),
         version:      editVersion,
@@ -588,22 +612,28 @@ export default function Invoices() {
               </div>
 
               {(() => {
-              const itemGrid = '1fr 78px 96px' + (taxEnabled ? ' 124px' : '') + ' 88px'
+              // Grid columns: description | qty | price | [disc?] | [tax?] | line total | [×?]
+              const itemGrid = '1fr 78px 96px'
+                             + (discountEnabled ? ' 92px' : '')
+                             + (taxEnabled      ? ' 124px' : '')
+                             + ' 88px'
                              + (amountsLocked ? '' : ' 34px');
               return <>
-              <div style={{ display:'grid', gridTemplateColumns:itemGrid, gap:8, marginBottom:4, alignItems:'center' }}>
+              <div style={{ display:'grid', gridTemplateColumns:itemGrid, gap:10, marginBottom:4, alignItems:'center' }}>
                 <span style={{ fontSize:11, fontWeight:600, color:'var(--text-3)', paddingLeft:4 }}>{t('invoices.descriptionCol')}</span>
                 <span style={{ fontSize:11, fontWeight:600, color:'var(--text-3)', textAlign:'center' }}>{t('invoices.qtyCol')}</span>
                 <span style={{ fontSize:11, fontWeight:600, color:'var(--text-3)', textAlign:'center' }}>{t('invoices.unitPriceCol')}</span>
+                {discountEnabled && <span style={{ fontSize:11, fontWeight:600, color:'var(--text-3)', textAlign:'center' }}>{t('common.discount')}</span>}
                 {taxEnabled && <span style={{ fontSize:11, fontWeight:600, color:'var(--text-3)', textAlign:'center' }}>{t('common.taxCol')}</span>}
                 <span style={{ fontSize:11, fontWeight:600, color:'var(--text-3)', textAlign:'right' }}>{t('common.total')}</span>
                 {!amountsLocked && <span />}
               </div>
 
               {(form.items||[]).map((item, i) => {
-                const lineTotal = (Number(item.quantity)||0) * (Number(item.unit_price)||0);
+                // Net per line — qty × price minus discount (when enabled).
+                const lineTotal = lineNet(item);
                 return (
-                  <div key={i} style={{ display:'grid', gridTemplateColumns:itemGrid, gap:8, marginBottom:8, alignItems:'center' }}>
+                  <div key={i} style={{ display:'grid', gridTemplateColumns:itemGrid, gap:10, marginBottom:10, alignItems:'center' }}>
                     {amountsLocked ? (
                       <span style={{ fontSize:13, padding:'6px 4px', color:'var(--text-2)' }}>{item.name || '—'}</span>
                     ) : (
@@ -619,6 +649,20 @@ export default function Invoices() {
                     <input type="number" className="form-control" placeholder="Unit $" min="0" step="0.01"
                       value={item.unit_price} onChange={e => setItem(i, 'unit_price', e.target.value)}
                       disabled={amountsLocked} style={amountsLocked ? { opacity:0.6 } : {}} />
+                    {discountEnabled && (
+                      amountsLocked ? (
+                        <span style={{ fontSize:13, padding:'6px 4px', color:'var(--text-2)', textAlign:'center' }}>
+                          {Number(item.discount || 0).toFixed(2)}
+                        </span>
+                      ) : (
+                        <input type="number" className="form-control"
+                          placeholder={t('common.discount')}
+                          title={t('common.discount')}
+                          min="0" step="0.01"
+                          value={item.discount}
+                          onChange={e => setItem(i, 'discount', e.target.value)} />
+                      )
+                    )}
                     {taxEnabled && (
                       amountsLocked ? (
                         <span style={{ fontSize:12, padding:'6px 2px', color:'var(--text-3)', textAlign:'center' }}>
@@ -648,10 +692,15 @@ export default function Invoices() {
               })()}
 
               <div style={{ textAlign:'right', marginTop:14, fontSize:13, color:'var(--text-2)' }}>
-                {!amountsLocked && invoiceTaxAmt > 0 && (
+                {!amountsLocked && (invoiceTaxAmt > 0 || invoiceDiscount > 0) && (
                   <>
                     <div>{t('common.subtotal')}: ${invoiceSubtotal.toFixed(2)}</div>
-                    <div>{t('common.taxCol')}: ${invoiceTaxAmt.toFixed(2)}</div>
+                    {invoiceDiscount > 0 && (
+                      <div style={{ color: 'var(--affirm)' }}>
+                        {t('common.discount')}: −${invoiceDiscount.toFixed(2)}
+                      </div>
+                    )}
+                    {invoiceTaxAmt > 0 && <div>{t('common.taxCol')}: ${invoiceTaxAmt.toFixed(2)}</div>}
                   </>
                 )}
                 <div style={{ fontWeight:700, fontSize:16, color:'var(--text-1)', marginTop: invoiceTaxAmt > 0 ? 4 : 0 }}>

@@ -142,6 +142,73 @@ def test_payroll_lifecycle_posts_expense(make_client, db):
     assert run["posted_expense_id"] == expense_id
 
 
+def test_payroll_future_period_posts_dated_today_not_future(make_client, db):
+    """A payroll run whose period_end is in the future must post its expense
+    AND its GL journal entry dated to TODAY, never to the future month-end —
+    otherwise the entry hides from the default "this month → today" GL /
+    Trial Balance views and the operator thinks payroll "didn't post".
+
+    A back-period run keeps its own month-end (already <= today), so only the
+    future-dated case is pulled back. This locks in accounting.clamp_posting_date.
+    """
+    from datetime import datetime, timedelta
+    c = make_client("superadmin")
+    _emp(c, full_name="Future", salary=2500)
+
+    # Use UTC "today" to match the app (accounting._today / utils._now use UTC); a
+    # local date.today() makes this assertion flaky around midnight in non-UTC zones.
+    today = datetime.utcnow().date()
+    # A period that ends well into the future relative to "now".
+    future_end = (today + timedelta(days=60)).isoformat()
+    start      = today.replace(day=1).isoformat()
+
+    run = c.post("/api/hr/payroll/runs",
+                 json={"period_start": start, "period_end": future_end}).json()
+    c.post(f"/api/hr/payroll/runs/{run['id']}/approve")
+    paid = c.post(f"/api/hr/payroll/runs/{run['id']}/mark-paid")
+    assert paid.status_code == 200, paid.text
+    expense_id = paid.json()["expense_id"]
+
+    # Expense row must be dated to today, not the future period end.
+    exp = db.execute("SELECT date FROM expenses WHERE id=?", (expense_id,)).fetchone()
+    assert exp["date"][:10] == today.isoformat(), (
+        f"expense dated {exp['date']} expected {today.isoformat()}"
+    )
+
+    # The GL journal entry must also be dated to today.
+    je = db.execute(
+        "SELECT entry_date FROM journal_entries "
+        "WHERE source_type='payroll' AND source_id=?", (run["id"],)
+    ).fetchone()
+    assert je is not None, "payroll did not post a journal entry"
+    assert je["entry_date"][:10] == today.isoformat(), (
+        f"JE dated {je['entry_date']} expected {today.isoformat()}"
+    )
+
+
+def test_payroll_back_period_keeps_its_month_end(make_client, db):
+    """The clamp must NOT move a back-period run — a payroll for a month that
+    has already ended keeps its own period-end date (which is <= today)."""
+    c = make_client("superadmin")
+    _emp(c, full_name="Past", salary=2500)
+
+    # A safely-past period (this fixture DB seeds dates around 2025-2026; we
+    # use an unambiguously historical window).
+    run = c.post("/api/hr/payroll/runs",
+                 json={"period_start": "2024-01-01", "period_end": "2024-01-31"}).json()
+    c.post(f"/api/hr/payroll/runs/{run['id']}/approve")
+    paid = c.post(f"/api/hr/payroll/runs/{run['id']}/mark-paid")
+    assert paid.status_code == 200, paid.text
+
+    je = db.execute(
+        "SELECT entry_date FROM journal_entries "
+        "WHERE source_type='payroll' AND source_id=?", (run["id"],)
+    ).fetchone()
+    assert je["entry_date"][:10] == "2024-01-31", (
+        f"back-period JE should keep its month-end, got {je['entry_date']}"
+    )
+
+
 def test_payroll_mark_paid_is_idempotent(make_client):
     c = make_client("superadmin")
     _emp(c, salary=2000)

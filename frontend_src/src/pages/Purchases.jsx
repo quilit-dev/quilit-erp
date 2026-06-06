@@ -13,6 +13,7 @@ import { useSortPaginate } from '../hooks/useSortPaginate';
 import { useLocale } from '../hooks/useLocale.jsx';
 import { useSettings } from '../hooks/useSettings.jsx';
 import { usePermissions } from '../hooks/usePermissions';
+import { useWarehouses } from '../hooks/useWarehouses';
 import Attachments from '../components/Attachments.jsx';
 
 const PURCHASE_CATEGORIES = [
@@ -99,6 +100,11 @@ function PurchaseForm({ initial = {}, inventoryItems = [], inventoryCategories =
 
   const allCats = [...new Set([...inventoryCategories, ...PURCHASE_CATEGORIES])].sort();
 
+  // Warehouse selector — the receipt will land here when the PO transitions
+  // to 'Received'. Defaults to the user's default warehouse so existing
+  // workflows don't change.
+  const { warehouses, defaultId: defaultWarehouseId } = useWarehouses();
+
   const [form, setForm] = useState({
     supplier:         initial.supplier         || '',
     product_name:     initial.product_name     || '',
@@ -111,7 +117,17 @@ function PurchaseForm({ initial = {}, inventoryItems = [], inventoryCategories =
     tax_rate_id:      initial.tax_rate_id      ?? null,
     status:           initial.status           || 'Ordered',
     notes:            initial.notes            || '',
+    warehouse_id:     initial.warehouse_id     ?? '',
   });
+
+  // Pre-select the resolved default warehouse once it arrives, but only if
+  // the operator hasn't already chosen one. Lets the user override.
+  useEffect(() => {
+    if (defaultWarehouseId && !form.warehouse_id) {
+      setForm(f => ({ ...f, warehouse_id: defaultWarehouseId }));
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [defaultWarehouseId]);
 
   const useCustom = form.category === '__custom__';
   const set = (k, v) => setForm(f => ({ ...f, [k]: v }));
@@ -143,6 +159,7 @@ function PurchaseForm({ initial = {}, inventoryItems = [], inventoryCategories =
       tax_rate_id:      taxEnabled ? (form.tax_rate_id ?? null) : null,
       status:           form.status,
       notes:            form.notes,
+      warehouse_id:     form.warehouse_id ? parseInt(form.warehouse_id) : null,
     });
   }
 
@@ -165,6 +182,21 @@ function PurchaseForm({ initial = {}, inventoryItems = [], inventoryCategories =
               onChange={v => set('supplier', v)}
             />
           </div>
+
+          {warehouses.length > 0 && (
+            <div className="form-group form-full">
+              <label className="form-label">{t('warehouses.receiveAt')}</label>
+              <select className="form-control"
+                value={form.warehouse_id}
+                onChange={e => set('warehouse_id', e.target.value)}>
+                {warehouses.map(w => (
+                  <option key={w.id} value={w.id}>
+                    {w.code} · {w.name}{w.is_default ? ` (${t('warehouses.defaultBadge').toLowerCase()})` : ''}
+                  </option>
+                ))}
+              </select>
+            </div>
+          )}
 
           {!isEdit && (
             <div className="form-group form-full">

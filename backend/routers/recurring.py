@@ -21,7 +21,7 @@ import sqlite3
 from database import get_db
 from permissions import require_perm
 from routers.audit import log_action
-from utils import _now, _today, get_tax_context, resolve_expense_tax, money
+from utils import _now, _today, get_tax_context, resolve_expense_tax, money, notify
 
 router = APIRouter()
 
@@ -284,9 +284,20 @@ def run_recurring(
 
     generated, locked_stop = _generate(db, tpl, user, _now(), _today())
     if generated:
+        total = round(len(generated) * float(tpl['amount']), 2)
         log_action(db, user, "generate", "recurring_expense", tpl_id, tpl['name'],
-                   {"count": len(generated),
-                    "amount": round(len(generated) * float(tpl['amount']), 2)})
+                   {"count": len(generated), "amount": total})
+        # Global, expenses-gated alert — finance users see new costs hit the
+        # books without having to refresh the list. Dedup by (template, hour)
+        # to absorb double-clicks on the Run button.
+        notify(
+            db, type="recurring_generated",
+            title=f"Recurring expense generated: {tpl['name']}",
+            body=f"{len(generated)} occurrence{'s' if len(generated) != 1 else ''} "
+                 f"· ${total:,.2f} posted to Expenses",
+            link="/expenses",
+            entity_type="recurring_expense", entity_id=tpl_id, dedup_hours=1,
+        )
     db.commit()
     return {
         "generated_count": len(generated),
@@ -322,6 +333,15 @@ def run_due(
     if total:
         log_action(db, user, "generate", "recurring_expense", None, "run-due",
                    {"templates": len(results), "count": total})
+        # One umbrella notification for the batch — finer-grained alerts would
+        # bury the bell when month-end processing fires 30 templates at once.
+        notify(
+            db, type="recurring_generated",
+            title=f"Recurring expenses posted ({total} occurrence{'s' if total != 1 else ''})",
+            body=f"{len(results)} template{'s' if len(results) != 1 else ''} processed for due dates ≤ {today}.",
+            link="/expenses",
+            entity_type="recurring_expense", entity_id=None, dedup_hours=1,
+        )
     db.commit()
     return {
         "total_generated": total,

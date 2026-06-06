@@ -28,6 +28,7 @@ from routers.finance import _check_period_locked
 from utils import _now, _today, notify, get_tax_context, resolve_inclusive_tax, money, validate_int_qty
 import costing
 import lots
+import accounting
 import sqlite3
 
 router = APIRouter()
@@ -38,6 +39,11 @@ class PosSessionOpen(BaseModel):
     opening_float:     float = 0      # USD float in the drawer at open
     opening_float_lbp: float = 0      # LBP float in the drawer at open
     note: Optional[str] = None
+    # The warehouse this register session sells out of. Defaults to the
+    # cashier's resolved default warehouse so existing API callers keep
+    # working. Every sale during the session deducts stock from this
+    # warehouse (see step 12 in `create_sale`).
+    warehouse_id: Optional[int] = None
 
 
 class PosSessionClose(BaseModel):
@@ -121,16 +127,20 @@ def open_session(
         raise HTTPException(409, "You already have an open register session.")
     if data.opening_float < 0 or data.opening_float_lbp < 0:
         raise HTTPException(400, "Opening float cannot be negative.")
+    # Resolve the warehouse this register sells out of (validates access).
+    import warehouse_access as wha
+    wid = wha.resolve_warehouse_id(user, db, data.warehouse_id)
     now = _now()
     cur = db.execute(
         "INSERT INTO pos_sessions "
-        "(cashier_id, cashier_name, status, opening_float, opening_float_lbp, note, opened_at) "
-        "VALUES (?,?,'open',?,?,?,?)",
+        "(cashier_id, cashier_name, status, opening_float, opening_float_lbp, note, warehouse_id, opened_at) "
+        "VALUES (?,?,'open',?,?,?,?,?)",
         (user["id"], user.get("username"), data.opening_float, data.opening_float_lbp,
-         data.note, now),
+         data.note, wid, now),
     )
     log_action(db, user, "open", "pos", cur.lastrowid, f"Session #{cur.lastrowid}",
-               {"opening_float": data.opening_float, "opening_float_lbp": data.opening_float_lbp})
+               {"opening_float": data.opening_float, "opening_float_lbp": data.opening_float_lbp,
+                "warehouse_id": wid})
     db.commit()
     return {"id": cur.lastrowid, "message": "Register session opened"}
 
@@ -450,7 +460,7 @@ def checkout(
         invoice_item_ids.append(ic.lastrowid)
 
     # 11. Payment — the sale is settled in full immediately.
-    db.execute(
+    pay_cur = db.execute(
         "INSERT INTO invoice_payments "
         "(invoice_id, amount, method, note, paid_at, idempotency_key, "
         " paid_currency, paid_amount, exchange_rate, cash_drawer_id) "
@@ -458,10 +468,44 @@ def checkout(
         (invoice_id, grand_total, method, "POS sale", now, data.idempotency_key,
          currency, total_in_currency, rate, pos_drawer_id),
     )
+    payment_id = pay_cur.lastrowid
+
+    # 11a. Auto-post the sale to the General Ledger (F-1 audit fix).
+    # Cash sale recognition (cash-basis):
+    #   DR  Cash & Bank / Cash — LBP        grand_total (USD-equivalent)
+    #     CR  Sales Revenue                            grand_total
+    # The cash account is selected by the tendered currency so LBP cash
+    # accumulates on its own ledger line (IAS 21 — monetary item in a non-
+    # functional currency stays separate so it can be revalued).
+    # Idempotent by (source_type, source_id) — a re-run of POS checkout would
+    # only ever happen via the idempotency key on the payment, but belt-and-
+    # braces: accounting.post_entry already de-dups on the same key.
+    accounting.post_entry(
+        db,
+        entry_date=now[:10],
+        memo=f"POS sale — {inv_no}",
+        lines=[
+            {"code": accounting.cash_account_for(currency),
+             "debit": grand_total, "memo": f"{method} ({currency})"},
+            {"code": accounting.REVENUE, "credit": grand_total},
+        ],
+        source_type="invoice_payment", source_id=payment_id, created_by=user["id"],
+    )
 
     # 12. Real-time stock deduction. COGS for each item is drawn here so it
     #     honours the costing method (FIFO/LIFO from cost layers; weighted
-    #     average values at the item's moving unit cost).
+    #     average values at the item's moving unit cost). The deduction comes
+    #     out of the POS session's warehouse (defaults to MAIN for sessions
+    #     opened before warehouses existed).
+    import warehouse_access as wha
+    # `session` is a sqlite3.Row — access via subscript, falling back to None
+    # so the helper resolves the company default.
+    sess_wid = None
+    try:
+        sess_wid = session["warehouse_id"]
+    except (IndexError, KeyError):
+        pass
+    pos_wid = wha.default_warehouse_id_for_row(db, sess_wid)
     for inv_id, qty_needed in needed.items():
         row        = stock_rows[inv_id]
         qty_before = float(row["quantity"])
@@ -473,11 +517,13 @@ def checkout(
         cogs_total += line_cogs
         item_eff_cost[inv_id] = round(line_cogs / qty_needed, 6) if qty_needed else 0.0
         db.execute("UPDATE inventory SET quantity=? WHERE id=?", (qty_after, inv_id))
+        wha.credit_warehouse_stock(db, inventory_id=inv_id,
+                                   warehouse_id=pos_wid, delta=-qty_needed)
         db.execute(
             "INSERT INTO stock_movements "
-            "(inventory_id, type, delta, qty_before, qty_after, reference, note, created_at) "
-            "VALUES (?,?,?,?,?,?,?,?)",
-            (inv_id, "sale", -qty_needed, qty_before, qty_after, inv_no, "POS sale", now),
+            "(inventory_id, type, delta, qty_before, qty_after, reference, note, warehouse_id, created_at) "
+            "VALUES (?,?,?,?,?,?,?,?,?)",
+            (inv_id, "sale", -qty_needed, qty_before, qty_after, inv_no, "POS sale", pos_wid, now),
         )
         min_stock = float(row["min_stock"] or 0)
         if min_stock > 0 and qty_after <= min_stock:
@@ -488,6 +534,26 @@ def checkout(
                    dedup_hours=24)
 
     cogs_total = money(cogs_total)
+
+    # 12a. Relieve inventory and recognise COGS for the goods that just left
+    # the warehouse (F-2 audit fix — perpetual inventory model):
+    #   DR  Cost of Goods Sold                  cogs_total
+    #     CR  Inventory                                  cogs_total
+    # `cogs_total` was already computed at FIFO/LIFO/weighted-avg layer cost in
+    # step 12; we just need to mirror the physical movement in the GL.
+    # Service-only sales (no stock-backed lines) have cogs_total == 0 and we
+    # skip the posting — accounting.post_entry would reject an all-zero entry.
+    if cogs_total > 0:
+        accounting.post_entry(
+            db,
+            entry_date=now[:10],
+            memo=f"POS COGS — {inv_no}",
+            lines=[
+                {"code": accounting.COGS,      "debit":  cogs_total},
+                {"code": accounting.INVENTORY, "credit": cogs_total},
+            ],
+            source_type="pos_cogs", source_id=invoice_id, created_by=user["id"],
+        )
 
     # 13. POS sale record (carries the sale's discount + cost-of-goods-sold).
     ps = db.execute(
@@ -630,7 +696,15 @@ def return_sale(
         (now, f"POS return: {data.reason or 'Customer return'}", inv["id"]),
     )
 
-    # Restock every inventory-backed line.
+    # Restock every inventory-backed line, returning the goods to the same
+    # warehouse the original sale was deducted from (the session's warehouse).
+    import warehouse_access as wha
+    ret_sess_wid = None
+    try:
+        ret_sess_wid = session["warehouse_id"]
+    except (IndexError, KeyError):
+        pass
+    return_wid = wha.default_warehouse_id_for_row(db, ret_sess_wid)
     for it in db.execute(
         "SELECT * FROM pos_sale_items WHERE pos_sale_id=? AND inventory_id IS NOT NULL",
         (sale_id,),
@@ -641,6 +715,8 @@ def return_sale(
         qty_before = float(row["quantity"])
         qty_after  = round(qty_before + float(it["quantity"]), 6)
         db.execute("UPDATE inventory SET quantity=? WHERE id=?", (qty_after, it["inventory_id"]))
+        wha.credit_warehouse_stock(db, inventory_id=it["inventory_id"],
+                                   warehouse_id=return_wid, delta=float(it["quantity"]))
         # Put the returned stock back as a new lot / cost layer at the price it
         # left at (the COGS snapshot on the sale line).
         lots.record_stock_in(db, it["inventory_id"], float(it["quantity"]),
@@ -648,10 +724,10 @@ def return_sale(
                              source_ref=inv["invoice_number"], now=now)
         db.execute(
             "INSERT INTO stock_movements "
-            "(inventory_id, type, delta, qty_before, qty_after, reference, note, created_at) "
-            "VALUES (?,?,?,?,?,?,?,?)",
+            "(inventory_id, type, delta, qty_before, qty_after, reference, note, warehouse_id, created_at) "
+            "VALUES (?,?,?,?,?,?,?,?,?)",
             (it["inventory_id"], "return", float(it["quantity"]), qty_before, qty_after,
-             inv["invoice_number"], "POS return", now),
+             inv["invoice_number"], "POS return", return_wid, now),
         )
 
     refund_amount = float(sale["total_usd"])

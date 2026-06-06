@@ -39,6 +39,9 @@ class StockUpdate(BaseModel):
     type: Optional[str] = "adjustment"
     reference: Optional[str] = None
     note: Optional[str] = None
+    # Per-warehouse adjustments — falls back to the user's resolved default
+    # warehouse when omitted so existing API callers keep working.
+    warehouse_id: Optional[int] = None
     # Optional lot metadata for a positive (stock-in) adjustment of a lot-tracked item.
     lot_number: Optional[str] = None
     expiry_date: Optional[str] = None
@@ -143,6 +146,33 @@ def get_item(item_id: int, user=Depends(require_perm("inventory", "view")), db: 
         raise HTTPException(404, "Item not found")
     return dict(row)
 
+@router.get("/{item_id}/by-warehouse")
+def get_item_by_warehouse(
+    item_id: int,
+    user=Depends(require_perm("inventory", "view")),
+    db: sqlite3.Connection = Depends(get_db),
+):
+    """Per-warehouse breakdown for a single item — what feeds the inventory
+    detail page's location panel. Lists every active warehouse with a row,
+    including those holding zero (so the operator can see where they could
+    transfer to)."""
+    if not db.execute("SELECT 1 FROM inventory WHERE id=? AND archived_at IS NULL",
+                       (item_id,)).fetchone():
+        raise HTTPException(404, "Item not found")
+    rows = db.execute(
+        "SELECT w.id AS warehouse_id, w.code, w.name, w.type, w.is_default, "
+        "       COALESCE(s.quantity, 0)            AS quantity, "
+        "       COALESCE(s.reserved_quantity, 0)   AS reserved_quantity, "
+        "       COALESCE(s.quarantine_quantity, 0) AS quarantine_quantity "
+        "FROM warehouses w "
+        "LEFT JOIN inventory_stock s "
+        "  ON s.warehouse_id = w.id AND s.inventory_id = ? "
+        "WHERE w.is_active = 1 AND w.archived_at IS NULL "
+        "ORDER BY w.is_default DESC, w.code",
+        (item_id,),
+    ).fetchall()
+    return [dict(r) for r in rows]
+
 @router.get("/{item_id}/movements")
 def get_movements(item_id: int, user=Depends(require_perm("inventory", "view")), db: sqlite3.Connection = Depends(get_db)):
     rows = db.execute(
@@ -191,9 +221,19 @@ def create_item(data: InventoryCreate, user=Depends(require_perm("inventory", "c
     )
     item_id = c.lastrowid
     if data.quantity and data.quantity != 0:
+        # Opening stock lands at the user's default warehouse so the per-
+        # warehouse breakdown is correct from day one.
+        import warehouse_access as wha
+        wid = wha.resolve_warehouse_id(user, db, None)
         db.execute(
-            "INSERT INTO stock_movements (inventory_id, type, delta, qty_before, qty_after, note, created_at) VALUES (?,?,?,?,?,?,?)",
-            (item_id, "adjustment", data.quantity, 0, data.quantity, "Initial stock", now)
+            "INSERT OR IGNORE INTO inventory_stock "
+            "(inventory_id, warehouse_id, quantity, reserved_quantity, quarantine_quantity) "
+            "VALUES (?, ?, ?, 0, 0)",
+            (item_id, wid, data.quantity),
+        )
+        db.execute(
+            "INSERT INTO stock_movements (inventory_id, type, delta, qty_before, qty_after, note, warehouse_id, created_at) VALUES (?,?,?,?,?,?,?,?)",
+            (item_id, "adjustment", data.quantity, 0, data.quantity, "Initial stock", wid, now)
         )
         # Opening stock: a lot for lot-tracked items, else a FIFO/LIFO cost layer.
         lots.record_stock_in(db, item_id, data.quantity, data.unit_cost or 0,
@@ -235,15 +275,49 @@ def update_stock(item_id: int, data: StockUpdate, user=Depends(require_perm("inv
     row = db.execute("SELECT * FROM inventory WHERE id = ? AND archived_at IS NULL", (item_id,)).fetchone()
     if not row:
         raise HTTPException(404, "Item not found")
-    qty_before = float(row["quantity"])
+    # Resolve the target warehouse — adjustments must always credit/debit a
+    # specific location, otherwise we can't reconcile counts against reality.
+    # `warehouse_access.resolve_warehouse_id` validates access + activeness.
+    import warehouse_access as wha
+    wid = wha.resolve_warehouse_id(user, db, data.warehouse_id)
+
+    # Per-warehouse balance check — the on-hand at this location, not the
+    # company-wide total. (You can't draw down 5 from BRANCH-A if MAIN holds
+    # everything; that's what makes adjustments warehouse-specific.)
+    ws_row = db.execute(
+        "SELECT quantity FROM inventory_stock WHERE inventory_id=? AND warehouse_id=?",
+        (item_id, wid),
+    ).fetchone()
+    wh_before = float(ws_row["quantity"]) if ws_row else 0.0
+    wh_after  = round(wh_before + data.delta, 6)
+    if wh_after < 0:
+        raise HTTPException(
+            400,
+            f"Insufficient stock at this warehouse. Current: {wh_before}, "
+            f"attempted change: {data.delta}"
+        )
+
+    qty_before = float(row["quantity"])         # company-wide total
     qty_after  = round(qty_before + data.delta, 6)
-    if qty_after < 0:
-        raise HTTPException(400, f"Insufficient stock. Current: {qty_before}, attempted change: {data.delta}")
     now = _now()
+    # Update BOTH per-warehouse balance and the company-wide total. The two
+    # invariants stay in sync because every quantity-changing path goes
+    # through this kind of paired write.
     db.execute("UPDATE inventory SET quantity = ? WHERE id = ?", (qty_after, item_id))
     db.execute(
-        "INSERT INTO stock_movements (inventory_id, type, delta, qty_before, qty_after, reference, note, created_at) VALUES (?,?,?,?,?,?,?,?)",
-        (item_id, data.type, data.delta, qty_before, qty_after, data.reference, data.note, now)
+        "INSERT OR IGNORE INTO inventory_stock "
+        "(inventory_id, warehouse_id, quantity, reserved_quantity, quarantine_quantity) "
+        "VALUES (?, ?, 0, 0, 0)",
+        (item_id, wid),
+    )
+    db.execute(
+        "UPDATE inventory_stock SET quantity=? WHERE inventory_id=? AND warehouse_id=?",
+        (wh_after, item_id, wid),
+    )
+    db.execute(
+        "INSERT INTO stock_movements (inventory_id, type, delta, qty_before, qty_after, reference, note, warehouse_id, created_at) "
+        "VALUES (?,?,?,?,?,?,?,?,?)",
+        (item_id, data.type, data.delta, qty_before, qty_after, data.reference, data.note, wid, now)
     )
     # Keep lots / cost layers in step with the adjustment. A positive delta adds
     # a lot (lot-tracked) or cost layer; a negative delta draws them down. A
@@ -257,20 +331,39 @@ def update_stock(item_id: int, data: StockUpdate, user=Depends(require_perm("inv
         lots.value_stock_out(db, item_id, -data.delta,
                              source_type="adjustment", source_ref=data.reference, now=now)
     min_stock = float(row["min_stock"] or 0)
-    if min_stock > 0 and qty_after <= min_stock:
-        notify(db, type="low_stock",
-               title=f"Low stock alert: {row['name']}",
-               body=f"Only {qty_after} {row['unit'] or 'units'} remaining (minimum: {min_stock})",
-               link=f"/inventory", entity_type="inventory", entity_id=item_id,
-               dedup_hours=24)
+    if min_stock > 0:
+        # Company-wide alert when the global total drops below min_stock —
+        # historical behaviour, kept for back-compat.
+        if qty_after <= min_stock:
+            notify(db, type="low_stock",
+                   title=f"Low stock alert: {row['name']}",
+                   body=f"Only {qty_after} {row['unit'] or 'units'} remaining (minimum: {min_stock})",
+                   link=f"/inventory", entity_type="inventory", entity_id=item_id,
+                   dedup_hours=24)
+        # Per-warehouse alert — fires when this specific warehouse drops below
+        # min_stock even if the company-wide total is still fine. Includes the
+        # warehouse code in the dedup key so simultaneous low-stock events at
+        # different warehouses each surface independently.
+        wh_code = db.execute("SELECT code, name FROM warehouses WHERE id=?", (wid,)).fetchone()
+        if wh_code and wh_after <= min_stock:
+            notify(db, type="low_stock_warehouse",
+                   title=f"Low stock at {wh_code['code']}: {row['name']}",
+                   body=f"Only {wh_after} {row['unit'] or 'units'} at {wh_code['name']} (minimum: {min_stock})",
+                   link=f"/inventory", entity_type="inventory", entity_id=item_id,
+                   dedup_hours=24)
     db.commit()
-    return {"message": "Stock updated", "qty_before": qty_before, "qty_after": qty_after}
+    return {"message": "Stock updated", "qty_before": qty_before, "qty_after": qty_after,
+            "warehouse_id": wid, "warehouse_qty_after": wh_after}
 
 
 class DeductToProject(BaseModel):
     project_id: int
     quantity:   float
     note:       Optional[str] = None
+    # Per-warehouse consumption — the materials are physically pulled from
+    # this warehouse. Defaults to the user's default warehouse so existing
+    # API callers keep working (the old behaviour effectively assumed MAIN).
+    warehouse_id: Optional[int] = None
 
 
 @router.post("/{item_id}/deduct-to-project")
@@ -297,14 +390,27 @@ def deduct_to_project(item_id: int, data: DeductToProject,
         raise HTTPException(400, "Quantity must be positive")
     validate_int_qty(data.quantity, "Quantity")
 
-    qty_before = float(item["quantity"])
-    if data.quantity > qty_before:
+    # Resolve + validate the source warehouse (row-level access enforced).
+    import warehouse_access as wha
+    wid = wha.resolve_warehouse_id(user, db, data.warehouse_id)
+
+    # Per-warehouse balance check — you can't draw 10 from BRANCH-A if all
+    # the stock is actually at MAIN. The old code only checked the company
+    # total, which silently desynced the per-warehouse balances.
+    ws_row = db.execute(
+        "SELECT quantity FROM inventory_stock WHERE inventory_id=? AND warehouse_id=?",
+        (item_id, wid),
+    ).fetchone()
+    wh_before = float(ws_row["quantity"]) if ws_row else 0.0
+    if data.quantity > wh_before:
         raise HTTPException(
             400,
-            f"Insufficient stock: {qty_before} {item['unit']} available, "
-            f"{data.quantity} requested."
+            f"Insufficient stock at this warehouse: {wh_before} {item['unit']} "
+            f"available, {data.quantity} requested."
         )
+    wh_after = round(wh_before - data.quantity, 6)
 
+    qty_before = float(item["quantity"])
     qty_after  = round(qty_before - data.quantity, 6)
     unit_cost  = float(item["unit_cost"] or 0)
     now        = _now()
@@ -317,13 +423,20 @@ def deduct_to_project(item_id: int, data: DeductToProject,
         lots.value_stock_out(db, item_id, data.quantity,
                              source_type="project", source_ref=f"PRJ-{data.project_id}", now=now), 2
     )
+    # Maintain BOTH balances in lock-step (the sync invariant the rest of
+    # the system relies on) and stamp the movement with the source warehouse.
     db.execute("UPDATE inventory SET quantity = ? WHERE id = ?", (qty_after, item_id))
     db.execute(
+        "UPDATE inventory_stock SET quantity = ? "
+        "WHERE inventory_id = ? AND warehouse_id = ?",
+        (wh_after, item_id, wid),
+    )
+    db.execute(
         "INSERT INTO stock_movements "
-        "(inventory_id, type, delta, qty_before, qty_after, reference, note, created_at) "
-        "VALUES (?,?,?,?,?,?,?,?)",
+        "(inventory_id, type, delta, qty_before, qty_after, reference, note, warehouse_id, created_at) "
+        "VALUES (?,?,?,?,?,?,?,?,?)",
         (item_id, "project_use", -data.quantity, qty_before, qty_after,
-         f"PRJ-{data.project_id}", note_text, now)
+         f"PRJ-{data.project_id}", note_text, wid, now)
     )
 
     # 2. Record as project expense (Materials category). The unit rate shown is

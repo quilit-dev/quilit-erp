@@ -22,7 +22,10 @@ import { useSortPaginate } from '../hooks/useSortPaginate';
 import { useRecordExport } from '../hooks/useRecordExport';
 
 const STATUSES   = ['Draft', 'Sent', 'Accepted', 'Rejected'];
-const EMPTY_ITEM = { name: '', quantity: 1, unit_price: 0, tax_rate_id: null };
+// `discount` (in functional currency) is opt-in via Settings → "Enable
+// per-line discounts". When the toggle is off the field stays 0 and the
+// column is hidden — the rest of the form behaves exactly as before.
+const EMPTY_ITEM = { name: '', quantity: 1, unit_price: 0, discount: 0, tax_rate_id: null };
 const makeEmpty  = () => ({ client_id: '', lead_id: '', project_id: '', project_name: '', status: 'Draft', notes: '', items: [{ ...EMPTY_ITEM }] });
 
 const menuItemStyle = {
@@ -173,8 +176,13 @@ export default function Quotations() {
         status:     full.status || 'Draft',
         notes:      full.notes  || '',
         items: full.items?.length
-          ? full.items.map(i => ({ name: i.name, quantity: i.quantity,
-                                   unit_price: i.unit_price, tax_rate_id: i.tax_rate_id ?? null }))
+          ? full.items.map(i => ({
+              name: i.name,
+              quantity: i.quantity,
+              unit_price: i.unit_price,
+              discount: i.discount || 0,
+              tax_rate_id: i.tax_rate_id ?? null,
+            }))
           : [{ ...EMPTY_ITEM }],
       });
     } catch (err) {
@@ -195,17 +203,29 @@ export default function Quotations() {
   }));
 
   const taxEnabled     = settings?.tax_enabled === '1';
+  // Setting → "Enable per-line discounts" — drives whether the form shows
+  // the Disc column AND whether the line discounts roll into the totals.
+  const discountEnabled = settings?.show_discount_col === '1';
   const activeTaxRates = (taxRates || []).filter(r => r.is_active);
   const defaultTaxRate = (taxRates || []).find(r => r.is_default) || null;
   const rateById = (id) =>
     (taxRates || []).find(r => r.id === id) || defaultTaxRate || null;
+  // Net per line — qty × price MINUS the per-line discount when enabled,
+  // floored at 0 so a typo can't drive a line negative.
+  const lineNet = (item) => {
+    const gross = (Number(item.quantity) || 0) * (Number(item.unit_price) || 0);
+    const disc  = discountEnabled ? (Number(item.discount) || 0) : 0;
+    return Math.max(0, gross - disc);
+  };
   const lineTaxAmt = (item) => {
     if (!taxEnabled) return 0;
     const r = rateById(item.tax_rate_id);
-    const net = (Number(item.quantity) || 0) * (Number(item.unit_price) || 0);
-    return r ? net * (Number(r.rate) || 0) / 100 : 0;
+    return r ? lineNet(item) * (Number(r.rate) || 0) / 100 : 0;
   };
-  const subtotal     = form.items.reduce((s, i) => s + (Number(i.quantity)||0) * (Number(i.unit_price)||0), 0);
+  const subtotal     = form.items.reduce((s, i) => s + lineNet(i), 0);
+  const discountTotal = discountEnabled
+    ? form.items.reduce((s, i) => s + (Number(i.discount) || 0), 0)
+    : 0;
   const quoteTaxAmt  = form.items.reduce((s, i) => s + lineTaxAmt(i), 0);
   const total        = subtotal + quoteTaxAmt;
 
@@ -219,7 +239,10 @@ export default function Quotations() {
         project_name: (!form.project_id && form.project_name.trim()) ? form.project_name.trim() : null,
         status: form.status, notes: form.notes || null,
         items: form.items.map(i => ({
-          name: i.name, quantity: Number(i.quantity)||0, unit_price: Number(i.unit_price)||0,
+          name: i.name,
+          quantity: Number(i.quantity)||0,
+          unit_price: Number(i.unit_price)||0,
+          discount: discountEnabled ? (Number(i.discount) || 0) : 0,
           tax_rate_id: i.tax_rate_id ?? null,
         })),
       };
@@ -527,8 +550,17 @@ export default function Quotations() {
                   <button type="button" className="btn btn-sm btn-secondary" onClick={addItem}>{t('common.addItem')}</button>
                 </div>
 
+                {/* Grid columns: name | qty | price | [disc?] | [tax?] | × */}
                 {form.items.map((item, i) => (
-                  <div key={i} style={{ display:'grid', gridTemplateColumns:'1fr 78px 96px' + (taxEnabled ? ' 124px' : '') + ' 34px', gap:8, marginBottom:8, alignItems:'center' }}>
+                  <div key={i} style={{
+                    display: 'grid',
+                    gridTemplateColumns:
+                      '1fr 78px 96px'
+                      + (discountEnabled ? ' 92px' : '')
+                      + (taxEnabled      ? ' 124px' : '')
+                      + ' 34px',
+                    gap: 10, marginBottom: 10, alignItems: 'center',
+                  }}>
                     <InventoryCombobox
                       value={item.name}
                       inventory={inventory || []}
@@ -538,6 +570,14 @@ export default function Quotations() {
                       value={item.quantity} onChange={e => setItem(i, 'quantity', e.target.value)} />
                     <input type="number" className="form-control" placeholder="Unit $" min="0" step="0.01"
                       value={item.unit_price} onChange={e => setItem(i, 'unit_price', e.target.value)} />
+                    {discountEnabled && (
+                      <input type="number" className="form-control"
+                        placeholder={t('common.discount')}
+                        title={t('common.discount')}
+                        min="0" step="0.01"
+                        value={item.discount}
+                        onChange={e => setItem(i, 'discount', e.target.value)} />
+                    )}
                     {taxEnabled && (
                       <select className="form-control" style={{ fontSize:12, padding:'6px 4px' }}
                         value={item.tax_rate_id ?? (defaultTaxRate?.id ?? '')}
@@ -553,13 +593,18 @@ export default function Quotations() {
                 ))}
 
                 <div style={{ textAlign:'right', marginTop:14, fontSize:13, color:'var(--text-2)' }}>
-                  {quoteTaxAmt > 0 && (
+                  {(quoteTaxAmt > 0 || discountTotal > 0) && (
                     <>
                       <div>{t('common.subtotal')}: {fmt(subtotal)}</div>
-                      <div>{t('common.taxCol')}: {fmt(quoteTaxAmt)}</div>
+                      {discountTotal > 0 && (
+                        <div style={{ color: 'var(--affirm)' }}>
+                          {t('common.discount')}: −{fmt(discountTotal)}
+                        </div>
+                      )}
+                      {quoteTaxAmt > 0 && <div>{t('common.taxCol')}: {fmt(quoteTaxAmt)}</div>}
                     </>
                   )}
-                  <div style={{ fontWeight:700, fontSize:16, color:'var(--text-1)', marginTop: quoteTaxAmt > 0 ? 4 : 0 }}>
+                  <div style={{ fontWeight:700, fontSize:16, color:'var(--text-1)', marginTop: (quoteTaxAmt > 0 || discountTotal > 0) ? 4 : 0 }}>
                     {t('common.total')}: <DualMoney value={total} block={false} />
                   </div>
                 </div>

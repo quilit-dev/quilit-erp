@@ -1,10 +1,11 @@
 # ERP System
 
 A full-stack business management platform for small-to-medium enterprises.
-Centralises sales, point-of-sale, finance, inventory, manufacturing, fixed
-assets, project management, HR and CRM into a single self-hosted application.
+Centralises sales, point-of-sale, accounting, finance, inventory, multi-
+warehouse stock, manufacturing, fixed assets, project management, HR, payroll,
+recruitment and CRM into a single self-hosted application.
 
-> **Version 2.1** · Python + FastAPI · React 18 · SQLite
+> **Version 2.2** · Python + FastAPI · React 18 · SQLite · Dual-currency (USD/LBP)
 
 ---
 
@@ -14,20 +15,28 @@ assets, project management, HR and CRM into a single self-hosted application.
 |--------|-------------|
 | **Sales & CRM** | Leads → quotations → invoices → payments; deal pipeline, contacts, activity log |
 | **POS** | Cash-drawer sessions, USD/LBP checkout, refunds that void invoices and restock |
-| **Inventory** | Raw / semi-finished / finished / consumable items, weighted-average landed cost, low-stock alerts, stock movements |
-| **Procurement** | Suppliers, PO lifecycle (Ordered → Received → Paid) that auto-posts expenses and adjusts inventory cost |
-| **Manufacturing** | Versioned BOMs with scrap %, multi-level sub-assemblies, production-order lifecycle (Draft → Confirmed → In Progress → Completed), weighted-average production costing |
-| **Finance** | P&L dashboards, expense tracking, recurring expense templates, period locking, smart insights |
-| **Fixed Assets** | Capital register, straight-line depreciation auto-posted as expenses, disposal with gain/loss, capex approval workflow |
-| **Cash** | Daily till reconciliation with auto-captured sales + expenses, USD/LBP variance reporting |
-| **Taxation** | Admin-managed named tax rates (standard / reduced / zero / exempt); per-line tax snapshot; VAT report with per-rate breakdown |
-| **Multi-currency** | Dual-currency (USD base + LBP secondary by default) with manual exchange-rate history |
-| **Projects & Planning** | Project lifecycle, budget-vs-actual, Gantt-style planning board, milestones |
-| **HR** | Departments, employees, leave requests (with auto-status flip while on leave) |
-| **Reports & Analytics** | Financial, VAT (per-rate base + tax), invoice aging, project profitability, sales pipeline, Excel + PDF export |
+| **Inventory** | Raw / semi-finished / finished / consumable items, FIFO / LIFO / weighted-average costing, lot tracking with FEFO, weighted-average landed cost, low-stock alerts |
+| **Multi-warehouse** | Multiple locations with row-level access (a clerk authorised for "BRANCH-A" never sees MAIN stock), `Draft → In Transit → Completed / Cancelled` transfer workflow gated on both endpoints, per-warehouse valuation report |
+| **Procurement** | Suppliers, PO lifecycle (`Ordered → Received → Paid`) that auto-posts expenses and adjusts inventory cost |
+| **Manufacturing** | Versioned BOMs with scrap %, multi-level sub-assemblies, production-order lifecycle (`Draft → Confirmed → In Progress → Completed`), QC pass/fail, resource costing, weighted-average production costing |
+| **Accounting (GL)** | Double-entry general ledger: Chart of Accounts with 30 seeded accounts, journal entries (manual + auto-posted), reversals, Trial Balance, Income Statement, Balance Sheet, period locks, year-end closing to Retained Earnings |
+| **Finance** | Cash-basis P&L dashboards, expense tracking, recurring expense templates, period locking with snapshots, Smart Insights v2 (cross-module: period locks, FX freshness, recurring run-rate, cash variance, A/R aging, fiscal-year close) |
+| **Fixed Assets** | Capital register, straight-line depreciation auto-posted as expenses + GL entries, disposal with gain/loss, capex approval workflow |
+| **Cash** | Daily till reconciliation with auto-captured sales + expenses, USD/LBP variance reporting, GL posting of variance to `6910 Cash Short & Over` |
+| **Taxation** | Admin-managed named tax rates (standard / reduced / zero / exempt); per-line tax snapshot so rate changes don't retroactively alter old documents; VAT report with per-rate breakdown |
+| **Multi-currency** | Dual-currency (USD base + LBP secondary by default) with manual exchange-rate history, currency-aware GL routing (1000 Cash vs 1010 Cash–LBP), FX gain/loss posting (4910 / 6920) |
+| **Projects & Planning** | Project lifecycle, budget-vs-actual, Gantt-style planning board, milestones, calendar events with attendee notifications |
+| **HR & Payroll** | Departments, employees, employment history timeline, leave requests (with auto-status flip while on leave), monthly payroll runs (`Draft → Approved → Paid`) with tax + NSSF + overtime breakdown, currency-aware payroll posting |
+| **HR Contracts** | First-class employment contract records with type / probation / salary / benefits / terms, PDF rendering, expiration alerts |
+| **HR Activities** | Per-employee personal calendar with reminders that surface in the notification bell |
+| **Recruitment** | Positions → applicants → interviews → offers; status timeline, hired-applicant promotion to employee |
+| **Reports & Analytics** | Financial, VAT (per-rate base + tax), invoice aging, project profitability, sales pipeline, inventory by warehouse, Excel export |
 | **Approvals** | Rule-based multi-step approval chains for expenses, invoices, purchases, projects and fixed-asset purchases |
-| **Access Control** | RBAC across 19+ modules, JWT sessions with revocation, audit log, recycle bin |
-| **Localization** | Full English and Arabic (RTL) |
+| **Announcements** | Internal top-down communications with audience targeting (all / role / department / individuals) + acknowledgements |
+| **Notifications** | 30+ typed alerts (overdue invoices, low stock, leave requests, payroll, transfers, FX stale, period unlocked, contract expiring, approvals…) — gated by module permission |
+| **Global Search** | Cross-module command palette (Ctrl+K) over 45+ entity types, grouped by category, with match highlighting and recent-records list |
+| **Access Control** | RBAC across 28 modules with 18 seeded roles, JWT sessions with revocation, append-only audit log, recycle bin |
+| **Localization** | Full English and Arabic (RTL) across every module — including payroll, contracts, accounting filters, reports, and the command palette |
 | **Per-customer builds** | Module visibility baked in at build time via `backend/vendor_config.py` — immutable at runtime |
 
 ---
@@ -37,10 +46,11 @@ assets, project management, HR and CRM into a single self-hosted application.
 | Layer | Technology |
 |-------|-----------|
 | Backend | Python 3.11+, FastAPI, Uvicorn |
-| Database | SQLite (zero-config, single file) |
+| Database | SQLite (zero-config, single file) in WAL mode |
 | Frontend | React 18, Vite, React Router v6 |
 | Auth | JWT (HS256) via HttpOnly cookies, PBKDF2-SHA256 passwords |
-| Packaging | PyInstaller (Windows .exe), Inno Setup |
+| Packaging | PyInstaller (Windows .exe), Inno Setup 6 |
+| Documentation | MkDocs Material (54 pages with Operator / Administrator / Auditor tabs) |
 
 ---
 
@@ -117,9 +127,10 @@ The Vite dev server proxies API requests to the backend automatically.
 ### Seeding Sample Data
 
 A single, comprehensive script fills every module with realistic, varied
-data (~110 records across 18 sections — clients, invoices in every payment
-state, manufacturing orders across the lifecycle, depreciated assets, cash
-reconciliations, CRM leads, HR records, approval policies, and more):
+data — clients, invoices in every payment state, manufacturing orders across
+the lifecycle, depreciated assets, cash reconciliations, journal entries,
+warehouses with seeded stock, CRM leads, HR records, payroll runs, contracts,
+applicants, approval policies, and more:
 
 ```bash
 cd backend
@@ -129,6 +140,16 @@ python seed.py --reset    # WIPES that DB file first, then seeds
 
 After seeding, log in with **`admin` / `Admin123!`**.
 
+### Running Tests
+
+```bash
+cd backend
+python -m pytest -q       # 800+ tests covering auth, RBAC, tax, POS,
+                          # multi-currency (F-1..F-9), period locking,
+                          # fiscal-year close, multi-warehouse, payroll,
+                          # contracts, recruitment, approvals, VAT, …
+```
+
 ---
 
 ## Per-customer module builds
@@ -137,7 +158,7 @@ Module visibility is configured by the vendor at **build time**, not at
 runtime. The single source of truth is `backend/vendor_config.py`:
 
 ```python
-ENABLED_MODULES = "sales,clients,quotations,invoices,inventory"
+ENABLED_MODULES = "sales,clients,quotations,invoices,inventory,warehouses"
 ```
 
 An empty string means "every module visible" (dev and demo default). To
@@ -146,9 +167,26 @@ the value is baked into the installer and cannot be changed from a running
 ERP, even by a superadmin. This closes the "delete `erp.db` + relaunch"
 attack against module gating.
 
-The prospect-facing module catalogue (`/discover`) and the inbox that
-collects submissions are vendor-hosted in the `marketing-site/` directory,
-separate from the customer's install.
+---
+
+## User Manual
+
+A 54-page MkDocs Material site lives under `docs/manual/` with separate
+tabs for each audience (Operator / Administrator / Auditor) on every module
+page. Build and preview locally:
+
+```bash
+cd docs/manual
+pip install mkdocs-material
+mkdocs serve              # http://localhost:8000
+mkdocs build              # static HTML in ../../static-manual/
+```
+
+Coverage spans Architecture, Foundation (auth, RBAC, warehouse access, audit
+trail, backups), Sales, Operations, Finance (including period-close and
+multi-currency), People (HR / payroll / contracts / recruitment / planning /
+approvals / announcements / notifications), and a Reference section with
+the full Chart of Accounts, permissions matrix and API surface.
 
 ---
 
@@ -184,38 +222,48 @@ DB_PATH=erp.db                         # Path to the SQLite database file
 erp-system/
 ├── backend/
 │   ├── main.py                # FastAPI app and router registration
-│   ├── database.py            # SQLite schema, numbered migrations
+│   ├── database.py            # SQLite schema, numbered migrations (120+)
 │   ├── auth_utils.py          # JWT + PBKDF2 password hashing
-│   ├── permissions.py         # RBAC middleware (19+ modules)
+│   ├── permissions.py         # RBAC middleware (28 modules)
+│   ├── warehouse_access.py    # Row-level warehouse access helpers
+│   ├── accounting.py          # Double-entry posting engine, GL reports
+│   ├── costing.py             # FIFO / LIFO / weighted-average inventory costing
+│   ├── lots.py                # Lot tracking + FEFO consumption
 │   ├── approval_engine.py     # Multi-step approval workflow
 │   ├── backup_manager.py      # Daily/weekly backups + USB export
 │   ├── utils.py               # Tax math (Decimal-based), notify(), helpers
-│   ├── routers/               # One file per module
+│   ├── vendor_config.py       # Per-customer enabled-modules constant
+│   ├── routers/               # One file per module (37 routers)
 │   │   ├── auth.py            clients.py     projects.py
 │   │   ├── quotations.py      invoices.py    inventory.py
-│   │   ├── purchases.py       suppliers.py   finance.py
+│   │   ├── warehouses.py      purchases.py   suppliers.py
 │   │   ├── pos.py             cash.py        manufacturing.py
 │   │   ├── assets.py          recurring.py   tax_rates.py
+│   │   ├── accounting.py      finance.py     reports.py
 │   │   ├── crm.py             planning.py    hr.py
-│   │   ├── reports.py         dashboard.py   search.py
-│   │   ├── notifications.py   approval_policies.py  approval_requests.py
+│   │   ├── hr_contracts.py    hr_activities.py  recruitment.py
+│   │   ├── dashboard.py       search.py      notifications.py
+│   │   ├── approval_policies.py  approval_requests.py
 │   │   ├── announcements.py   settings.py    documents.py
-│   │   ├── audit.py           archives.py
+│   │   ├── attachments.py     audit.py       archives.py
 │   │   └── users.py           roles.py
-│   ├── tests/                 # Pytest suite — 431 tests, full coverage of
-│   │                          # auth, tax, POS, manufacturing, VAT, RBAC
+│   ├── tests/                 # Pytest suite — 800+ tests, including
+│   │                          # multi-currency audit (F-1..F-9), period
+│   │                          # locking, fiscal-year close, multi-warehouse
 │   ├── seed.py                # Single comprehensive sample-data seeder
 │   ├── env.example
 │   └── requirements.txt
 ├── frontend_src/
 │   ├── src/
-│   │   ├── pages/             # One component per page (Discover.jsx + others)
+│   │   ├── pages/             # One component per page
 │   │   ├── components/        # Sidebar, NotificationBell, CommandPalette, shared
-│   │   ├── hooks/             # useSettings, usePermissions, useLocale
+│   │   ├── hooks/             # useSettings, usePermissions, useLocale, useWarehouses
 │   │   ├── api/client.js      # All HTTP calls
-│   │   ├── locales/           # en.js and ar.js translation strings
+│   │   ├── locales/           # en.js and ar.js translation strings (3000+ keys)
 │   │   └── index.css          # Design tokens + base component classes
 │   └── vite.config.js
+├── docs/manual/               # MkDocs Material user manual (54 pages,
+│                              # three-audience tabs per module)
 ├── backups/                   # Daily/weekly DB backups (gitignored)
 ├── installer/                 # Inno Setup files
 ├── launcher.py                # Entry point — run this from the project root
@@ -233,13 +281,23 @@ The backend exposes a REST API under `/api/*`. Interactive docs:
 - Swagger UI: `http://localhost:8765/docs`
 - ReDoc: `http://localhost:8765/redoc`
 
-Key endpoint groups: `/api/auth`, `/api/clients`, `/api/projects`,
-`/api/quotations`, `/api/invoices`, `/api/inventory`, `/api/purchases`,
-`/api/suppliers`, `/api/pos`, `/api/cash`, `/api/manufacturing`, `/api/assets`,
-`/api/recurring-expenses`, `/api/finance`, `/api/tax-rates`, `/api/crm`,
-`/api/planning`, `/api/hr`, `/api/reports`, `/api/approval-policies`,
-`/api/approval-requests`, `/api/notifications`, `/api/announcements`,
-`/api/search`, `/api/audit`, `/api/settings`.
+Key endpoint groups:
+
+```
+/api/auth                   /api/users                 /api/roles
+/api/clients                /api/projects              /api/planning
+/api/quotations             /api/invoices              /api/pos
+/api/suppliers              /api/purchases             /api/inventory
+/api/warehouses             /api/manufacturing         /api/assets
+/api/cash                   /api/expenses              /api/recurring-expenses
+/api/finance                /api/accounting            /api/tax-rates
+/api/crm                    /api/reports               /api/search
+/api/hr                     /api/hr-contracts          /api/hr-activities
+/api/recruitment            /api/approval-policies     /api/approval-requests
+/api/notifications          /api/announcements         /api/documents
+/api/attachments            /api/audit                 /api/archives
+/api/settings               /api/dashboard
+```
 
 ---
 
@@ -255,6 +313,10 @@ installer compilation:
 
 The compiled installer is written to `installer/Output/`. To build only the
 standalone executable, run `python -m PyInstaller ERP.spec`.
+
+The installer bundles the current `erp.db` as the default database so a fresh
+install ships seeded with whatever state was on the build machine. Customer
+data lives under `%APPDATA%\ERP System\` on first launch.
 
 ---
 

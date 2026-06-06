@@ -593,8 +593,11 @@ export default function Settings() {
           </div>
         </Section>
 
-        {/* 5. Backup & Integrity — admin only */}
-        {isAdmin && <Section title={t('settings.backupIntegrity')} icon="🗄️">
+        {/* 5. Backup & Integrity — admin only, and only on the self-hosted
+            (SQLite) edition. A cloud (Postgres) deployment is backed up
+            server-side, so this whole section (incl. the "works offline" pitch
+            and USB/local backup) is hidden when form.local_backup is false. */}
+        {isAdmin && form.local_backup && <Section title={t('settings.backupIntegrity')} icon="🗄️">
           <div style={{
             display: 'flex', gap: 10, alignItems: 'flex-start',
             background: 'var(--green-light)', border: '1px solid var(--green)',

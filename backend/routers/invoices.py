@@ -53,6 +53,10 @@ class InvoiceItemCreate(BaseModel):
     name:        str
     quantity:    float = 1
     unit_price:  float = 0
+    # Per-line discount in functional currency. Optional — defaults to 0
+    # for callers (and customers) that don't use line discounts. The pricing
+    # engine subtracts it from the net before computing tax.
+    discount:    float = 0
     tax_rate_id: Optional[int] = None
 
 class InvoiceCreate(BaseModel):
@@ -91,8 +95,9 @@ def _placeholder_invoice_number() -> str:
     return f"__pending__{uuid.uuid4().hex}"
 
 def _invoice_prefix(db) -> str:
-    row = db.execute("SELECT value FROM settings WHERE key='invoice_prefix'").fetchone()
-    return row["value"] if row and row["value"] else "INV-"
+    from utils import get_setting
+    # Empty or unset → default "INV-" (preserves prior behavior exactly).
+    return get_setting(db, "invoice_prefix") or "INV-"
 
 def _finalize_invoice_number(db, invoice_id: int, prefix: str) -> str:
     """Set the real, collision-free number on a freshly-inserted invoice row.
@@ -123,7 +128,8 @@ def _ensure_invoice_items_table(db):
             invoice_id INTEGER NOT NULL REFERENCES invoices(id) ON DELETE CASCADE,
             name       TEXT    NOT NULL,
             quantity   REAL    NOT NULL DEFAULT 1,
-            unit_price REAL    NOT NULL DEFAULT 0
+            unit_price REAL    NOT NULL DEFAULT 0,
+            discount   REAL    NOT NULL DEFAULT 0
         )
     """)
     db.commit()
@@ -135,19 +141,29 @@ def _has_payments(db, invoice_id: int) -> bool:
     return row[0] > 0
 
 def _price_items(db, items, fallback_amount):
-    """Roll up invoice line totals with per-line tax.
+    """Roll up invoice line totals with per-line tax AND per-line discount.
+
+    Per-line net is computed as `qty * unit_price - discount`, floored at 0.
+    Tax is then computed on the discounted net (which matches how the rest of
+    the world prices a discounted invoice — tax follows the customer's actual
+    consideration, not the pre-discount sticker price). An itemless invoice
+    treats `fallback_amount` as the net and applies the default rate.
 
     Returns (subtotal, tax_total, grand_total, line_tax) where line_tax is a
-    list parallel to `items` of (tax_rate_id, tax_rate, tax_amount). An itemless
-    invoice treats `fallback_amount` as the net and applies the default rate.
+    list parallel to `items` of (tax_rate_id, tax_rate, tax_amount).
     """
     ctx = get_tax_context(db)
     line_tax = []
     if items:
         subtotal = tax_total = 0.0
         for it in items:
-            # Per-line net at cents; tax is already cent-rounded by the helper.
-            net = money(float(it.quantity) * float(it.unit_price))
+            qty   = float(getattr(it, "quantity", 0) or 0)
+            price = float(getattr(it, "unit_price", 0) or 0)
+            disc  = float(getattr(it, "discount", 0) or 0)
+            # Per-line net at cents (after discount), tax is cent-rounded by
+            # the helper. max(0,...) keeps an over-large discount from
+            # producing a negative line that would distort the rollup.
+            net = money(max(0.0, qty * price - disc))
             rid, rate, tax_amt = resolve_line_tax(ctx, it.tax_rate_id, net)
             subtotal  += net
             tax_total += tax_amt
@@ -285,9 +301,11 @@ def create_invoice(
         rid, rate, tax_amt = line_tax[idx]
         db.execute(
             "INSERT INTO invoice_items "
-            "(invoice_id, name, quantity, unit_price, tax_rate_id, tax_rate, tax_amount) "
-            "VALUES (?,?,?,?,?,?,?)",
-            (invoice_id, item.name, item.quantity, item.unit_price, rid, rate, tax_amt),
+            "(invoice_id, name, quantity, unit_price, discount, tax_rate_id, tax_rate, tax_amount) "
+            "VALUES (?,?,?,?,?,?,?,?)",
+            (invoice_id, item.name, item.quantity, item.unit_price,
+             float(getattr(item, "discount", 0) or 0),
+             rid, rate, tax_amt),
         )
     # Auto-advance the linked project's status to Invoiced (forward-only).
     bump_project_status(db, data.project_id, "Invoiced")
@@ -312,6 +330,8 @@ def update_invoice(
         raise HTTPException(404, "Invoice not found")
     if inv["voided_at"]:
         raise HTTPException(400, "Voided invoices cannot be edited.")
+    # A finalised (locked-month / closed-year) invoice can't be edited.
+    _check_period_locked(db, inv["created_at"])
 
     # ── Optimistic locking ────────────────────────────────────────────────
     if data.version is not None and data.version != inv["version"]:
@@ -383,6 +403,9 @@ def void_invoice(
         raise HTTPException(404, "Invoice not found")
     if inv["voided_at"]:
         raise HTTPException(400, "Invoice is already voided.")
+    # Can't void an invoice that belongs to a locked month / closed year —
+    # reopen the period (or post a credit note in an open one) instead.
+    _check_period_locked(db, inv["created_at"])
     now = _now()
     db.execute(
         "UPDATE invoices SET voided_at=?, void_reason=?, version=version+1 WHERE id=?",
@@ -426,9 +449,24 @@ def add_payment(
     if currency not in ("USD", "LBP"):
         raise HTTPException(400, "Unsupported payment currency")
     if currency == "LBP":
+        # F-9 audit fix: if the caller omits exchange_rate, fall back to the
+        # latest rate stored in `exchange_rates` so manual data entry can't
+        # accidentally apply yesterday's rate or no rate at all. The supplied
+        # rate still takes precedence (and is stored on the payment) so an
+        # accountant can override when a contract dictates a different rate.
         if not data.exchange_rate or data.exchange_rate <= 0:
-            raise HTTPException(400, "An exchange rate is required for LBP payments.")
-        rate        = float(data.exchange_rate)
+            rate_row = db.execute(
+                "SELECT rate FROM exchange_rates ORDER BY id DESC LIMIT 1"
+            ).fetchone()
+            if not rate_row or not rate_row["rate"]:
+                raise HTTPException(
+                    400,
+                    "An exchange rate is required for LBP payments. No rate is "
+                    "configured — set one in Settings → Exchange Rate first."
+                )
+            rate = float(rate_row["rate"])
+        else:
+            rate = float(data.exchange_rate)
         usd_amount  = money(data.amount / rate)
         paid_amount = data.amount
     else:
@@ -482,13 +520,18 @@ def add_payment(
     )
     payment_id = pay_cur.lastrowid
 
-    # Auto-post to the general ledger: DR Cash & Bank, CR Sales Revenue (cash-basis).
+    # Auto-post to the general ledger: cash-basis revenue recognition.
+    # The cash account is selected by the tendered currency (F-5 audit fix):
+    # USD payments hit "1000 Cash & Bank", LBP payments hit "1010 Cash — LBP".
+    # Keeping them on distinct ledger lines is required by IAS 21 so each
+    # monetary holding can be revalued at the spot rate at period end.
     accounting.post_entry(
         db,
         entry_date=_now()[:10],
         memo=f"Payment received — {inv['invoice_number']}",
         lines=[
-            {"code": accounting.CASH,    "debit":  usd_amount, "memo": data.method},
+            {"code": accounting.cash_account_for(currency),
+             "debit":  usd_amount, "memo": f"{data.method} ({currency})"},
             {"code": accounting.REVENUE, "credit": usd_amount},
         ],
         source_type="invoice_payment", source_id=payment_id, created_by=user["id"],

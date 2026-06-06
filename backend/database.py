@@ -1,7 +1,19 @@
 import sqlite3, os
 from datetime import datetime
+from contextlib import contextmanager
+
+from db_compat import CompatConn
+from dialect import get_dialect
+from tenant_context import IS_SCHEMA_TENANCY, current_schema, valid_schema_name
 
 DB_PATH = os.environ.get("DB_PATH", "erp.db")
+
+# Database backend selector for the SaaS migration (docs/SAAS_ARCHITECTURE.md §5).
+#   'sqlite'   — default. Desktop / self-hosted / tests. The CompatConn wrapper is
+#                transparent here (identity dialect; native sqlite3.Row passes
+#                through), so behavior is byte-for-byte what it was before.
+#   'postgres' — cloud backend. Wired in Phase 1.
+DB_BACKEND = os.environ.get("DB_BACKEND", "sqlite").lower()
 
 def _configure(conn):
     conn.row_factory = sqlite3.Row
@@ -13,11 +25,64 @@ def _configure(conn):
     return conn
 
 def get_db():
-    conn = _configure(sqlite3.connect(DB_PATH, check_same_thread=False))
+    """Yield a request-scoped DB connection wrapped in CompatConn.
+
+    The wrapper lets the routers' raw SQL run unchanged on whichever backend
+    DB_BACKEND selects. In 'sqlite' mode the wrapping is transparent; the
+    PostgreSQL branch (pooling + per-tenant search_path) is added in Phase 1.
+    """
+    if DB_BACKEND in ("sqlite", "sqlite3"):
+        raw = _configure(sqlite3.connect(DB_PATH, check_same_thread=False))
+        conn = CompatConn(raw, get_dialect("sqlite"))
+        try:
+            yield conn
+        finally:
+            conn.close()
+    elif DB_BACKEND in ("postgres", "postgresql", "pg"):
+        import psycopg
+        from psycopg.rows import dict_row
+        connect_kwargs = {"row_factory": dict_row}
+        # Schema-per-tenant routing (Phase 2): pin the session's search_path to the
+        # request's tenant schema at connection time (libpq -c option, applied
+        # before any transaction). The schema name is validated, so it is safe to
+        # interpolate. In single-tenant mode this is skipped → default `public`.
+        if IS_SCHEMA_TENANCY:
+            schema = current_schema()
+            if valid_schema_name(schema):
+                connect_kwargs["options"] = f"-c search_path={schema},public"
+        raw = psycopg.connect(_pg_dsn(), **connect_kwargs)
+        conn = CompatConn(raw, get_dialect("postgres"))
+        try:
+            yield conn
+        finally:
+            # Discard any uncommitted work (mirrors closing a sqlite connection);
+            # routers persist via explicit db.commit().
+            try:
+                raw.rollback()
+            except Exception:
+                pass
+            raw.close()
+    else:
+        raise RuntimeError(f"Unknown DB_BACKEND={DB_BACKEND!r}")
+
+
+@contextmanager
+def session():
+    """A tenant-scoped DB connection for use OUTSIDE a request — background jobs,
+    the worker, CLI scripts. Mirrors request-time ``Depends(get_db)`` exactly (same
+    backend, same per-tenant search_path, same discard-on-exit cleanup), so the
+    same raw SQL works. Persist with an explicit ``db.commit()``. Usage:
+
+        with database.session() as db:
+            db.execute(...)
+            db.commit()
+    """
+    gen = get_db()
+    db = next(gen)
     try:
-        yield conn
+        yield db
     finally:
-        conn.close()
+        gen.close()
 
 
 # ── Migration helpers ─────────────────────────────────────────────────────────
@@ -2098,6 +2163,25 @@ def _run_migrations(conn, c):
             c.execute("ALTER TABLE production_orders ADD COLUMN production_hours REAL NOT NULL DEFAULT 0")
         done("109_mfg_resources")
 
+    # ── 110: financial-year closing ────────────────────────────────────────
+    # A closed year locks all dated-in-year modifications (via the shared
+    # period-lock guard) and snapshots its P&L + the year-end closing entry.
+    if need("110_fiscal_years"):
+        c.execute("""
+            CREATE TABLE IF NOT EXISTS fiscal_years (
+                year             INTEGER PRIMARY KEY,
+                status           TEXT    NOT NULL DEFAULT 'open',
+                total_income     REAL    NOT NULL DEFAULT 0,
+                total_expense    REAL    NOT NULL DEFAULT 0,
+                net_income       REAL    NOT NULL DEFAULT 0,
+                closing_entry_id INTEGER REFERENCES journal_entries(id) ON DELETE SET NULL,
+                closed_at        TEXT,
+                closed_by        INTEGER REFERENCES users(id) ON DELETE SET NULL,
+                notes            TEXT
+            )
+        """)
+        done("110_fiscal_years")
+
     # ── 102: inventory cost layers (FIFO / LIFO costing) ───────────────────
     # Each row is a surviving "lot" of stock at a known unit cost. Only
     # populated/consumed when inventory_costing_method is fifo or lifo; under
@@ -2212,6 +2296,215 @@ def _run_migrations(conn, c):
             )
         done("104_accounting")
 
+    # ── 120: multi-currency chart-of-accounts additions ────────────────────
+    # Four accounts the original CoA was missing, required by IAS 21 (foreign
+    # currency monetary items) and standard cash controls:
+    #   1010  Cash — LBP             LBP cash holdings, distinct from USD bank
+    #   4910  Foreign Exchange Gain
+    #   6910  Cash Short & Over      over/short on till close
+    #   6920  Foreign Exchange Loss
+    # MUST run AFTER 104_accounting because that's where chart_of_accounts is
+    # created. INSERT OR IGNORE makes it idempotent for already-installed DBs.
+    if need("120_multi_currency_accounts"):
+        _ts = datetime.utcnow().strftime("%Y-%m-%d %H:%M:%S")
+        for code, name, typ, normal, subtype in [
+            ("1010", "Cash — LBP",             "Asset",     "debit",  "Current Asset"),
+            ("4910", "Foreign Exchange Gain",  "Income",    "credit", "Other Income"),
+            ("6910", "Cash Short & Over",      "Expense",   "debit",  "Operating Expense"),
+            ("6920", "Foreign Exchange Loss",  "Expense",   "debit",  "Other Expense"),
+        ]:
+            c.execute(
+                "INSERT OR IGNORE INTO chart_of_accounts "
+                "(code, name, type, subtype, normal_balance, is_system, is_active, created_at) "
+                "VALUES (?,?,?,?,?,1,1,?)",
+                (code, name, typ, subtype, normal, _ts),
+            )
+        done("120_multi_currency_accounts")
+
+    # ── 121: payroll line currency (F-6 audit fix) ──────────────────────────
+    # `hr_contracts` carries `salary_currency` but `hr_payroll_lines` did not,
+    # so the mark-paid handler posted every line as USD regardless of the
+    # underlying contract — an 89,000× mis-statement for any LBP salary.
+    # Adding the column lets us snapshot the per-line currency at run-creation
+    # time and convert correctly to USD when posting to the GL. Existing
+    # payroll lines default to 'USD' (matches current 100%-USD data).
+    if need("121_payroll_line_currency"):
+        try:
+            c.execute(
+                "ALTER TABLE hr_payroll_lines ADD COLUMN salary_currency TEXT NOT NULL DEFAULT 'USD'"
+            )
+        except Exception:
+            pass    # column already exists on a partial earlier run
+        done("121_payroll_line_currency")
+
+    # ── 122: multi-warehouse foundation ─────────────────────────────────────
+    # Adds warehouses as an inventory dimension (NOT an accounting entity).
+    # Design decisions (per design proposal):
+    #   * One company-wide Inventory GL account (1200) — transfers never post.
+    #   * `inventory.quantity` stays the maintained company-wide total so every
+    #     existing query keeps working. `inventory_stock` carries the per-
+    #     warehouse breakdown.
+    #   * Lots and cost layers stay company-wide for v1 — per the explicit
+    #     "postpone warehouse-specific valuation" decision.
+    #   * Row-level RBAC: zero rows in `user_warehouse_access` for a user
+    #     means access to all warehouses (admin-friendly default). Any rows
+    #     restrict access to that explicit allow-list.
+    #   * Backfill seeds one default 'MAIN' warehouse, places all existing
+    #     stock there, and stamps historical movements and module records with
+    #     it — every existing install behaves identically after this migration.
+    if need("122_warehouses"):
+        c.execute("""
+            CREATE TABLE IF NOT EXISTS warehouses (
+                id             INTEGER PRIMARY KEY AUTOINCREMENT,
+                code           TEXT    UNIQUE NOT NULL,
+                name           TEXT    NOT NULL,
+                type           TEXT    NOT NULL DEFAULT 'Main',
+                                       -- 'Main' | 'Branch' | 'Production'
+                                       -- | 'Damaged' | 'Transit' | 'Returns'
+                address        TEXT,
+                manager_id     INTEGER REFERENCES users(id) ON DELETE SET NULL,
+                is_active      INTEGER NOT NULL DEFAULT 1,
+                is_default     INTEGER NOT NULL DEFAULT 0,
+                notes          TEXT,
+                archived_at    TEXT,
+                archive_reason TEXT,
+                created_at     TEXT    NOT NULL
+            )
+        """)
+        c.execute("CREATE UNIQUE INDEX IF NOT EXISTS idx_warehouses_one_default "
+                  "ON warehouses(is_default) WHERE is_default=1")
+
+        # Per-warehouse stock balances. `inventory.quantity` stays the SUM of
+        # `inventory_stock.quantity` rows for that item (maintained on every
+        # write so legacy SELECTs keep working).
+        c.execute("""
+            CREATE TABLE IF NOT EXISTS inventory_stock (
+                inventory_id        INTEGER NOT NULL REFERENCES inventory(id) ON DELETE CASCADE,
+                warehouse_id        INTEGER NOT NULL REFERENCES warehouses(id),
+                quantity            REAL    NOT NULL DEFAULT 0,
+                reserved_quantity   REAL    NOT NULL DEFAULT 0,
+                quarantine_quantity REAL    NOT NULL DEFAULT 0,
+                PRIMARY KEY (inventory_id, warehouse_id)
+            )
+        """)
+        c.execute("CREATE INDEX IF NOT EXISTS idx_inv_stock_warehouse "
+                  "ON inventory_stock(warehouse_id)")
+
+        # Row-level access list. Zero rows for a user = access to all
+        # warehouses (the safe default for existing installs).
+        c.execute("""
+            CREATE TABLE IF NOT EXISTS user_warehouse_access (
+                user_id      INTEGER NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+                warehouse_id INTEGER NOT NULL REFERENCES warehouses(id) ON DELETE CASCADE,
+                granted_at   TEXT    NOT NULL,
+                granted_by   INTEGER REFERENCES users(id) ON DELETE SET NULL,
+                PRIMARY KEY (user_id, warehouse_id)
+            )
+        """)
+
+        # Stock transfers — explicit workflow with audit trail.
+        c.execute("""
+            CREATE TABLE IF NOT EXISTS stock_transfers (
+                id                INTEGER PRIMARY KEY AUTOINCREMENT,
+                transfer_number   TEXT    UNIQUE NOT NULL,
+                from_warehouse_id INTEGER NOT NULL REFERENCES warehouses(id),
+                to_warehouse_id   INTEGER NOT NULL REFERENCES warehouses(id),
+                status            TEXT    NOT NULL DEFAULT 'Draft',
+                                          -- Draft | In Transit | Completed | Cancelled
+                notes             TEXT,
+                created_by        INTEGER REFERENCES users(id) ON DELETE SET NULL,
+                created_at        TEXT    NOT NULL,
+                dispatched_by     INTEGER REFERENCES users(id) ON DELETE SET NULL,
+                dispatched_at     TEXT,
+                received_by       INTEGER REFERENCES users(id) ON DELETE SET NULL,
+                received_at       TEXT,
+                cancelled_by      INTEGER REFERENCES users(id) ON DELETE SET NULL,
+                cancelled_at      TEXT,
+                cancel_reason     TEXT,
+                CHECK (from_warehouse_id <> to_warehouse_id)
+            )
+        """)
+        c.execute("CREATE INDEX IF NOT EXISTS idx_transfers_status "
+                  "ON stock_transfers(status, created_at)")
+        c.execute("""
+            CREATE TABLE IF NOT EXISTS stock_transfer_items (
+                id                INTEGER PRIMARY KEY AUTOINCREMENT,
+                transfer_id       INTEGER NOT NULL REFERENCES stock_transfers(id) ON DELETE CASCADE,
+                inventory_id      INTEGER NOT NULL REFERENCES inventory(id),
+                quantity          REAL    NOT NULL,
+                received_quantity REAL,
+                note              TEXT
+            )
+        """)
+        c.execute("CREATE INDEX IF NOT EXISTS idx_transfer_items_transfer "
+                  "ON stock_transfer_items(transfer_id)")
+
+        # Adding the per-module location dimension. SQLite ALTER TABLE
+        # rejects adding a column twice — wrap each in try/except so re-runs
+        # don't fail.
+        for ddl in (
+            "ALTER TABLE users             ADD COLUMN default_warehouse_id INTEGER REFERENCES warehouses(id)",
+            "ALTER TABLE stock_movements   ADD COLUMN warehouse_id INTEGER REFERENCES warehouses(id)",
+            "ALTER TABLE purchases         ADD COLUMN warehouse_id INTEGER REFERENCES warehouses(id)",
+            "ALTER TABLE pos_sessions      ADD COLUMN warehouse_id INTEGER REFERENCES warehouses(id)",
+            "ALTER TABLE production_orders ADD COLUMN warehouse_id INTEGER REFERENCES warehouses(id)",
+        ):
+            try:
+                c.execute(ddl)
+            except Exception:
+                pass
+
+        # ── Seed the default warehouse + backfill ─────────────────────────
+        # Exactly one warehouse is required for the system to function (every
+        # stock-touching operation defaults to it). Seed it before any
+        # backfill so the FK relationships are satisfiable.
+        _ts = datetime.utcnow().strftime("%Y-%m-%d %H:%M:%S")
+        c.execute(
+            "INSERT OR IGNORE INTO warehouses "
+            "(code, name, type, is_active, is_default, notes, created_at) "
+            "VALUES ('MAIN', 'Main Warehouse', 'Main', 1, 1, "
+            " 'Default warehouse, auto-created during multi-warehouse migration.', ?)",
+            (_ts,),
+        )
+        main_id = c.execute(
+            "SELECT id FROM warehouses WHERE code='MAIN'"
+        ).fetchone()[0]
+
+        # Backfill: every existing item's stock lives in MAIN
+        c.execute("""
+            INSERT OR IGNORE INTO inventory_stock
+                (inventory_id, warehouse_id, quantity, reserved_quantity, quarantine_quantity)
+            SELECT id, ?,
+                   COALESCE(quantity, 0),
+                   COALESCE(reserved_quantity, 0),
+                   COALESCE(quarantine_quantity, 0)
+            FROM inventory
+        """, (main_id,))
+
+        # Stamp historical movements + module records with MAIN so every
+        # row has a warehouse and we can drop NULLs from analytics.
+        for sql in (
+            "UPDATE stock_movements   SET warehouse_id = ? WHERE warehouse_id IS NULL",
+            "UPDATE purchases         SET warehouse_id = ? WHERE warehouse_id IS NULL",
+            "UPDATE pos_sessions      SET warehouse_id = ? WHERE warehouse_id IS NULL",
+            "UPDATE production_orders SET warehouse_id = ? WHERE warehouse_id IS NULL",
+        ):
+            c.execute(sql, (main_id,))
+
+        done("122_warehouses")
+
+    # ── 123: per-line discount on quotation_items ──────────────────────────
+    # invoice_items and pos_sale_items already carry a `discount` column from
+    # earlier migrations; quotation_items did not. Adding it here closes the
+    # last gap so the Settings → "Enable per-line discounts" toggle has a
+    # column to drive in every customer-facing document type.
+    add_col(
+        "123_quotation_items_discount",
+        "quotation_items",
+        "discount",
+        "ALTER TABLE quotation_items ADD COLUMN discount REAL NOT NULL DEFAULT 0",
+    )
+
     # ── 103: generic attachments (files on any business entity) ────────────
     # One table backs file attachments for every module (invoices, purchases,
     # projects, expenses, assets, suppliers, clients, quotations, inventory).
@@ -2235,6 +2528,34 @@ def _run_migrations(conn, c):
         c.execute("CREATE INDEX IF NOT EXISTS idx_attachments_entity "
                   "ON attachments(entity_type, entity_id, created_at)")
         done("103_attachments")
+
+    # ── 124: attachment object-storage backend (Phase 3) ──────────────────
+    # `storage_backend` says where the bytes live: 'db' (the BLOB column, the
+    # default — unchanged behavior) or 's3' (an S3/R2 object keyed by
+    # `storage_key`). For 's3' rows the BLOB is left empty. Adding columns only
+    # (no table rebuild) keeps this migration cheap and reversible.
+    if need("124_attachment_storage"):
+        if "attachments" in all_tables():
+            ac = cols("attachments")
+            if "storage_backend" not in ac:
+                c.execute("ALTER TABLE attachments ADD COLUMN storage_backend "
+                          "TEXT NOT NULL DEFAULT 'db'")
+            if "storage_key" not in ac:
+                c.execute("ALTER TABLE attachments ADD COLUMN storage_key TEXT")
+        done("124_attachment_storage")
+
+    # ── 125: object-storage backend for HR / recruitment files (Phase 3) ──
+    # Same additive treatment as attachments (124) for the two other BLOB tables.
+    if need("125_hr_recruitment_file_storage"):
+        for _tbl in ("hr_employee_files", "recruitment_applicant_files"):
+            if _tbl in all_tables():
+                _fc = cols(_tbl)
+                if "storage_backend" not in _fc:
+                    c.execute(f"ALTER TABLE {_tbl} ADD COLUMN storage_backend "
+                              "TEXT NOT NULL DEFAULT 'db'")
+                if "storage_key" not in _fc:
+                    c.execute(f"ALTER TABLE {_tbl} ADD COLUMN storage_key TEXT")
+        done("125_hr_recruitment_file_storage")
 
     # ── 091: backfill hire-row per existing employee ───────────────────────
     # Every employee already in the system gets a synthetic 'hire' row so the
@@ -2274,7 +2595,96 @@ def _run_migrations(conn, c):
 
 # ── Base schema ───────────────────────────────────────────────────────────────
 
+def _pg_dsn():
+    """PostgreSQL connection string. DATABASE_URL wins; otherwise assembled from
+    the standard libpq variables PGHOST/PGPORT/PGUSER/PGPASSWORD/PGDATABASE."""
+    dsn = os.environ.get("DATABASE_URL")
+    if dsn:
+        return dsn
+    host = os.environ.get("PGHOST", "localhost")
+    port = os.environ.get("PGPORT", "5432")
+    user = os.environ.get("PGUSER", "postgres")
+    pw   = os.environ.get("PGPASSWORD", "postgres")
+    name = os.environ.get("PGDATABASE", "erp")
+    return f"postgresql://{user}:{pw}@{host}:{port}/{name}"
+
+
+def _split_sql_statements(script):
+    """Split a SQL script into statements: drop full-line ``--`` comments, then
+    split on ``;`` outside single-quoted strings. Sufficient for the generated
+    pg_baseline.sql (which never embeds a semicolon inside a string literal)."""
+    lines = [ln for ln in script.splitlines() if not ln.lstrip().startswith("--")]
+    text = "\n".join(lines)
+    stmts, buf, in_str = [], [], False
+    i, n = 0, len(text)
+    while i < n:
+        ch = text[i]
+        buf.append(ch)
+        if ch == "'":
+            if in_str and i + 1 < n and text[i + 1] == "'":
+                buf.append("'"); i += 2; continue
+            in_str = not in_str
+        elif ch == ";" and not in_str:
+            s = "".join(buf).strip().rstrip(";").strip()
+            if s:
+                stmts.append(s)
+            buf = []
+        i += 1
+    tail = "".join(buf).strip().rstrip(";").strip()
+    if tail:
+        stmts.append(tail)
+    return stmts
+
+
+def _pg_initialized(raw):
+    """True once the baseline has been applied (schema_migrations exists + filled).
+    Uses named columns so it works regardless of the connection's row_factory."""
+    with raw.cursor() as cur:
+        cur.execute("SELECT to_regclass('public.schema_migrations') AS reg")
+        row = cur.fetchone()
+        reg = row["reg"] if hasattr(row, "keys") else row[0]
+        if reg is None:
+            return False
+        cur.execute("SELECT count(*) AS n FROM schema_migrations")
+        row = cur.fetchone()
+        return (row["n"] if hasattr(row, "keys") else row[0]) > 0
+
+
+def _apply_pg_baseline(raw):
+    """Apply the squashed Postgres schema (DDL + indexes + migration ledger)."""
+    path = os.path.join(os.path.dirname(os.path.abspath(__file__)),
+                        "migrations", "pg_baseline.sql")
+    with open(path, encoding="utf-8") as f:
+        script = f.read()
+    with raw.cursor() as cur:
+        for stmt in _split_sql_statements(script):
+            cur.execute(stmt)
+    raw.commit()
+
+
+def _init_db_postgres():
+    """PostgreSQL init: apply the baseline once, then run the SHARED seeding
+    through a CompatConn so the very same SQL the SQLite path uses is translated."""
+    import psycopg
+    from psycopg.rows import dict_row
+    raw = psycopg.connect(_pg_dsn(), row_factory=dict_row)
+    try:
+        if not _pg_initialized(raw):
+            _apply_pg_baseline(raw)
+        conn = CompatConn(raw, get_dialect("postgres"))
+        _seed_roles_and_admin(conn)
+        conn.commit()
+    finally:
+        raw.close()
+    print("Database initialized (postgres).")
+
+
 def init_db():
+    """Create the schema (if needed) and seed roles + admin for whichever backend
+    DB_BACKEND selects. SQLite replays its migration chain; PostgreSQL applies the
+    squashed baseline (docs/SAAS_ARCHITECTURE.md §6)."""
+    if DB_BACKEND not in ("sqlite", "sqlite3"):
+        return _init_db_postgres()
     conn = sqlite3.connect(DB_PATH)
     conn.execute("PRAGMA journal_mode = WAL")
     conn.execute("PRAGMA foreign_keys = ON")
@@ -2549,6 +2959,20 @@ def init_db():
     # Apply tracked ALTER TABLE migrations
     _run_migrations(conn, c)
 
+    _seed_roles_and_admin(c)
+
+    conn.commit()
+    conn.close()
+    print("Database initialized.")
+
+
+def _seed_roles_and_admin(c):
+    """Seed system roles, the permission matrix, the dependency-view backfill and
+    the superadmin. Shared verbatim by the SQLite and PostgreSQL init paths: `c`
+    is any object exposing sqlite3-style ``execute(...).fetchone()`` (a sqlite3
+    cursor or a CompatConn), and the SQL it runs is dialect-translated by the
+    wrapper. Idempotent — roles guard on existence, permissions use ON CONFLICT,
+    the admin is created only when absent."""
     # ── Seed default roles ────────────────────────────────────────────────
     # Every business module. Admin modules (settings/users/roles/audit) are
     # granted explicitly per-role below where relevant.
@@ -2819,8 +3243,5 @@ def init_db():
                 (admin_role[0],)
             )
 
-    conn.commit()
-    conn.close()
-    print("Database initialized.")
 
 init_db()

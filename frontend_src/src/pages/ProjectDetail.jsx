@@ -6,6 +6,7 @@ import {
 } from '../components/shared';
 import { useLocale } from '../hooks/useLocale.jsx';
 import { usePermissions } from '../hooks/usePermissions';
+import { useWarehouses } from '../hooks/useWarehouses';
 import Attachments from '../components/Attachments.jsx';
 import { openSafeHtmlDocument } from '../utils/exportUtils';
 
@@ -68,7 +69,14 @@ export default function ProjectDetail() {
   const [deductItem,   setDeductItem]   = useState('');
   const [deductQty,    setDeductQty]    = useState('');
   const [deductNote,   setDeductNote]   = useState('');
+  const [deductWarehouseId, setDeductWarehouseId] = useState('');
   const [deductSaving, setDeductSaving] = useState(false);
+  // Materials are physically pulled FROM a warehouse — defaults to the
+  // user's default warehouse so single-warehouse installs see no UI change.
+  const { warehouses: accessibleWarehouses, defaultId: defaultWarehouseId } = useWarehouses();
+  useEffect(() => {
+    if (defaultWarehouseId && !deductWarehouseId) setDeductWarehouseId(String(defaultWarehouseId));
+  }, [defaultWarehouseId, deductWarehouseId]);
   const [invSearch,    setInvSearch]    = useState('');
 
   // Expense add / edit / delete
@@ -177,9 +185,10 @@ export default function ProjectDetail() {
     setDeductSaving(true);
     try {
       const res = await deductToProject(Number(deductItem), {
-        project_id: Number(id),
-        quantity:   Number(deductQty),
-        note:       deductNote.trim() || undefined,
+        project_id:   Number(id),
+        quantity:     Number(deductQty),
+        note:         deductNote.trim() || undefined,
+        warehouse_id: deductWarehouseId ? Number(deductWarehouseId) : null,
       });
       toast(t('projects.deductedToast', { qty: deductQty, cost: fmt(res.cost) }));
       setDeductModal(false);
@@ -546,6 +555,24 @@ export default function ProjectDetail() {
                   ))}
                 </select>
               </div>
+
+              {accessibleWarehouses.length > 1 && (
+                <div className="form-group">
+                  <label className="form-label">{t('warehouses.field')}</label>
+                  <select
+                    className="form-control"
+                    value={deductWarehouseId}
+                    onChange={e => setDeductWarehouseId(e.target.value)}
+                  >
+                    {accessibleWarehouses.map(w => (
+                      <option key={w.id} value={w.id}>
+                        {w.code} · {w.name}
+                        {w.is_default ? ` (${t('warehouses.defaultBadge').toLowerCase()})` : ''}
+                      </option>
+                    ))}
+                  </select>
+                </div>
+              )}
 
               {deductItem && (() => {
                 const sel = inventory.find(i => String(i.id) === deductItem);

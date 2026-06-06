@@ -1,0 +1,168 @@
+site_name: ERP System — Operator, Administrator & Auditor Manual
+site_description: Comprehensive cross-audience documentation for the multi-warehouse,
+  dual-currency, double-entry ERP. Covers operator workflows, administrative
+  controls, and audit evidence for every module.
+site_author: ERP Vendor
+copyright: © 2026 — All rights reserved.
+
+# Source lives next to the code so docs stay in sync with the system they describe.
+docs_dir: docs
+site_dir: ../../static-manual
+
+theme:
+  name: material
+  language: en
+  features:
+    - navigation.tabs           # top-level sections as tabs across the top
+    - navigation.sections       # group sub-pages under headings
+    - navigation.expand
+    - navigation.path           # breadcrumbs
+    - navigation.indexes        # section index pages
+    - navigation.top            # back-to-top button
+    - toc.follow                # right-side TOC highlights as you scroll
+    - search.highlight
+    - search.suggest
+    - search.share
+    - content.tabs.link         # synchronise tab selection across pages
+    - content.code.copy
+    - content.code.annotate
+  palette:
+    # Light scheme + a dark toggle. Most readers prefer dark in documentation.
+    - media: "(prefers-color-scheme: light)"
+      scheme: default
+      primary: indigo
+      accent: indigo
+      toggle:
+        icon: material/brightness-7
+        name: Switch to dark mode
+    - media: "(prefers-color-scheme: dark)"
+      scheme: slate
+      primary: indigo
+      accent: indigo
+      toggle:
+        icon: material/brightness-4
+        name: Switch to light mode
+  font:
+    text: Inter
+    code: JetBrains Mono
+  icon:
+    repo: fontawesome/brands/git
+
+# Markdown extensions — enables tabs, admonitions, mermaid, code annotations
+# and the "Operator / Administrator / Auditor" content-tabs pattern used on
+# every module page.
+markdown_extensions:
+  - admonition
+  - attr_list
+  - md_in_html
+  - tables
+  - footnotes
+  - def_list
+  - toc:
+      permalink: true
+      title: On this page
+  - pymdownx.tilde
+  - pymdownx.caret
+  - pymdownx.mark
+  - pymdownx.keys
+  - pymdownx.tabbed:
+      alternate_style: true
+  - pymdownx.tasklist:
+      custom_checkbox: true
+  - pymdownx.highlight:
+      anchor_linenums: true
+      line_spans: __span
+      pygments_lang_class: true
+  - pymdownx.inlinehilite
+  - pymdownx.snippets
+  - pymdownx.details
+  - pymdownx.emoji:
+      # Renders :material-account-cog:, :octicons-arrow-right-24:, :fontawesome-*:
+      # as inline SVG icons via Material's bundled icon set. Without this,
+      # the colon-wrapped icon names render as literal text.
+      emoji_index: !!python/name:material.extensions.emoji.twemoji
+      emoji_generator: !!python/name:material.extensions.emoji.to_svg
+  - pymdownx.superfences:
+      custom_fences:
+        - name: mermaid
+          class: mermaid
+          format: !!python/name:pymdownx.superfences.fence_code_format
+
+plugins:
+  - search:
+      lang:
+        - en
+        - ar
+  - tags
+
+extra:
+  generator: false
+  social:
+    - icon: fontawesome/solid/envelope
+      link: mailto:support@example.com
+
+# ── Site navigation ────────────────────────────────────────────────────────
+# Phase 1 covers everything down to and including "Foundation". Subsequent
+# phases add the Sales, Operations, Finance, People, and Reference sections.
+nav:
+  - Home: index.md
+  - Architecture:
+      - architecture/index.md
+      - System overview: architecture/overview.md
+      - Technology stack: architecture/tech-stack.md
+      - Module map: architecture/module-map.md
+      - Data flow: architecture/data-flow.md
+      - Deployment topology: architecture/deployment.md
+  - Foundation:
+      - foundation/index.md
+      - Authentication: foundation/authentication.md
+      - Role-Based Access Control (RBAC): foundation/rbac.md
+      - Multi-warehouse access: foundation/warehouse-access.md
+      - Audit trail: foundation/audit-trail.md
+      - Backup & recovery: foundation/backups.md
+  - Sales:
+      - sales/index.md
+      - Quote-to-cash workflow: sales/quote-to-cash.md
+      - CRM: sales/crm.md
+      - Clients: sales/clients.md
+      - Quotations: sales/quotations.md
+      - Projects: sales/projects.md
+      - Invoices & Payments: sales/invoices.md
+  - Operations:
+      - operations/index.md
+      - Procure-to-stock workflow: operations/procure-to-stock.md
+      - Inventory: operations/inventory.md
+      - Warehouses & Transfers: operations/warehouses.md
+      - Suppliers: operations/suppliers.md
+      - Purchases: operations/purchases.md
+      - Manufacturing: operations/manufacturing.md
+      - POS (Point of Sale): operations/pos.md
+  - Finance:
+      - finance/index.md
+      - Period close workflow: finance/period-close.md
+      - Finance dashboard: finance/finance.md
+      - Expenses & Recurring: finance/expenses.md
+      - Cash & Reconciliation: finance/cash.md
+      - Fixed Assets: finance/assets.md
+      - Accounting (GL): finance/accounting.md
+      - Reports: finance/reports.md
+      - Tax Rates: finance/tax.md
+      - Multi-currency (USD/LBP): finance/multi-currency.md
+  - People:
+      - people/index.md
+      - Headline workflows: people/workflows.md
+      - HR (employees & payroll): people/hr.md
+      - HR Contracts: people/hr-contracts.md
+      - HR Activities: people/hr-activities.md
+      - Recruitment: people/recruitment.md
+      - Approvals: people/approvals.md
+      - Planning: people/planning.md
+      - Announcements: people/announcements.md
+      - Notifications: people/notifications.md
+  - Reference:
+      - reference/index.md
+      - Permissions matrix: reference/permissions.md
+      - Chart of accounts: reference/chart-of-accounts.md
+      - Module index: reference/module-index.md
+      - API surface: reference/api.md
+      - Glossary: reference/glossary.md

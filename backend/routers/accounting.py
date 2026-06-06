@@ -159,25 +159,78 @@ class JournalEntryIn(BaseModel):
 
 @router.get("/journal-entries")
 def list_journal_entries(
-    start: Optional[str] = None,
-    end: Optional[str] = None,
+    start:       Optional[str] = None,
+    end:         Optional[str] = None,
     source_type: Optional[str] = None,
-    limit: int = 200,
+    status:      Optional[str] = None,
+    q_text:      Optional[str] = None,
+    sort:        str = "entry_date",     # entry_date | entry_number | total_debit | source_type | status
+    direction:   str = "desc",           # asc | desc
+    limit:       int = 50,
+    offset:      int = 0,
     user=Depends(require_perm("accounting", "view")),
     db: sqlite3.Connection = Depends(get_db),
 ):
-    q = ("SELECT je.*, u.full_name AS created_by_name "
-         "FROM journal_entries je LEFT JOIN users u ON je.created_by = u.id WHERE 1=1")
-    params: list = []
+    """Return a page of journal entries plus a `total` count so the caller
+    can render real pagination instead of a fake "loaded N rows" indicator.
+
+    Filtering / sorting / paging is all done server-side so a customer with
+    50k journal entries (large historical archive) doesn't pay the cost of
+    streaming the whole result set down the wire on every navigation.
+    """
+    # Column whitelist — any other value silently falls back to entry_date so
+    # a malformed query never reaches the underlying SQL as raw column name.
+    _allowed = {"entry_date", "entry_number", "total_debit", "total_credit", "source_type", "status", "id"}
+    sort_col = sort if sort in _allowed else "entry_date"
+    sort_dir = "ASC" if (direction or "desc").lower() == "asc" else "DESC"
+
+    where, params = ["1=1"], []
     if start:
-        q += " AND je.entry_date >= ?"; params.append(start[:10])
+        where.append("je.entry_date >= ?"); params.append(start[:10])
     if end:
-        q += " AND je.entry_date <= ?"; params.append(end[:10])
+        where.append("je.entry_date <= ?"); params.append(end[:10])
     if source_type:
-        q += " AND je.source_type = ?"; params.append(source_type)
-    q += " ORDER BY je.entry_date DESC, je.id DESC LIMIT ?"
-    params.append(max(1, min(int(limit or 200), 1000)))
-    return [dict(r) for r in db.execute(q, params).fetchall()]
+        where.append("je.source_type = ?"); params.append(source_type)
+    if status:
+        where.append("je.status = ?"); params.append(status)
+    if q_text:
+        # Match on entry_number OR memo. Both are operator-visible and the
+        # most common things a user types into the search box.
+        like = f"%{q_text.strip()}%"
+        where.append("(je.entry_number LIKE ? OR je.memo LIKE ?)")
+        params += [like, like]
+
+    where_sql = " AND ".join(where)
+    total = db.execute(
+        f"SELECT COUNT(*) FROM journal_entries je WHERE {where_sql}",
+        params,
+    ).fetchone()[0]
+
+    # Stable secondary sort on id keeps the order deterministic when the
+    # primary sort key has ties (same date, same total, etc.).
+    rows = db.execute(
+        f"SELECT je.*, u.full_name AS created_by_name "
+        f"FROM journal_entries je LEFT JOIN users u ON je.created_by = u.id "
+        f"WHERE {where_sql} "
+        f"ORDER BY je.{sort_col} {sort_dir}, je.id DESC "
+        f"LIMIT ? OFFSET ?",
+        [*params, max(1, min(int(limit or 50), 500)), max(0, int(offset or 0))],
+    ).fetchall()
+
+    # Distinct source types are stable across pages — exposed alongside the
+    # rows so the UI's filter dropdown stays accurate without an extra call.
+    source_types = [r["source_type"] for r in db.execute(
+        "SELECT DISTINCT source_type FROM journal_entries "
+        "WHERE source_type IS NOT NULL ORDER BY source_type"
+    ).fetchall()]
+
+    return {
+        "rows":         [dict(r) for r in rows],
+        "total":        total,
+        "limit":        max(1, min(int(limit or 50), 500)),
+        "offset":       max(0, int(offset or 0)),
+        "source_types": source_types,
+    }
 
 
 @router.get("/journal-entries/{je_id}")
@@ -306,26 +359,208 @@ def get_income_statement(
 
 @router.get("/summary")
 def accounting_summary(
+    start: Optional[str] = None,
+    end:   Optional[str] = None,
     user=Depends(require_perm("accounting", "view")),
     db: sqlite3.Connection = Depends(get_db),
 ):
-    """Light dashboard: counts + this-month P&L + balance-sheet check."""
+    """Light dashboard: counts + P&L over the requested window + a
+    balance-sheet check as of the window's end date.
+
+    Defaults to the running month (1st → today) when no range is supplied —
+    matches the prior contract so existing callers keep working unchanged.
+    The response keeps the `month_*` field names so the frontend doesn't
+    have to be flipped in lockstep; semantically they now mean "the chosen
+    window" but the type stays identical for legacy compatibility.
+    """
     today = _today()
-    month_start = today[:7] + "-01"
+    end_d   = (end or today)[:10]
+    start_d = (start or (end_d[:7] + "-01"))[:10]
     accounts = db.execute(
         "SELECT COUNT(*) FROM chart_of_accounts WHERE is_active=1"
     ).fetchone()[0]
     entries = db.execute(
         "SELECT COUNT(*) FROM journal_entries WHERE status='posted'"
     ).fetchone()[0]
-    pnl = accounting.income_statement(db, month_start, today)
-    bs  = accounting.balance_sheet(db, today)
+    pnl = accounting.income_statement(db, start_d, end_d)
+    bs  = accounting.balance_sheet(db, end_d)
     return {
-        "accounts":      accounts,
+        "accounts":       accounts,
         "posted_entries": entries,
-        "month_income":  pnl["total_income"],
-        "month_expense": pnl["total_expense"],
-        "month_net":     pnl["net_income"],
-        "total_assets":  bs["total_assets"],
-        "balanced":      bs["balanced"],
+        # Range echoes back so the client can confirm the server-applied bounds.
+        "start":          start_d,
+        "end":            end_d,
+        # P&L over the requested window (legacy name kept for compatibility).
+        "month_income":   pnl["total_income"],
+        "month_expense":  pnl["total_expense"],
+        "month_net":      pnl["net_income"],
+        # Balance sheet snapshot at the window's end date.
+        "total_assets":   bs["total_assets"],
+        "balanced":       bs["balanced"],
     }
+
+
+# ══════════════════════════════════════════════════════════════════════════
+# FINANCIAL-YEAR CLOSING
+# ══════════════════════════════════════════════════════════════════════════
+@router.get("/fiscal-years")
+def list_fiscal_years(
+    user=Depends(require_perm("accounting", "view")),
+    db: sqlite3.Connection = Depends(get_db),
+):
+    """Each year with its status + P&L. Closed years use the frozen snapshot;
+    open years show their live year-to-date result."""
+    cur_year = datetime.utcnow().year
+    row = db.execute(
+        "SELECT MIN(substr(entry_date,1,4)) AS y FROM journal_entries WHERE status='posted'"
+    ).fetchone()
+    try:
+        start_year = min(int(row["y"]), cur_year) if row and row["y"] else cur_year
+    except (TypeError, ValueError):
+        start_year = cur_year
+    closed = {r["year"]: dict(r) for r in db.execute("SELECT * FROM fiscal_years").fetchall()}
+    out = []
+    for y in range(cur_year, start_year - 1, -1):
+        fy = closed.get(y)
+        if fy and fy["status"] == "closed":
+            out.append({"year": y, "status": "closed",
+                        "total_income": fy["total_income"], "total_expense": fy["total_expense"],
+                        "net_income": fy["net_income"], "closed_at": fy["closed_at"],
+                        "closing_entry_id": fy["closing_entry_id"]})
+        else:
+            pnl = accounting.income_statement(db, f"{y}-01-01", f"{y}-12-31")
+            out.append({"year": y, "status": "open",
+                        "total_income": pnl["total_income"], "total_expense": pnl["total_expense"],
+                        "net_income": pnl["net_income"], "closed_at": None, "closing_entry_id": None})
+    return out
+
+
+@router.post("/fiscal-years/{year}/close")
+def close_fiscal_year(
+    year: int,
+    user=Depends(require_perm("accounting", "edit")),
+    db: sqlite3.Connection = Depends(get_db),
+):
+    """Close a financial year: posts the year-end closing entry into Retained
+    Earnings and locks every dated-in-year modification."""
+    try:
+        result = accounting.close_fiscal_year(db, year, created_by=user["id"])
+    except ValueError as e:
+        raise HTTPException(400, str(e))
+    log_action(db, user, "close_year", "accounting", year, str(year),
+               {"net_income": result["net_income"]})
+    db.commit()
+    return {"message": f"Financial year {year} closed", **result}
+
+
+@router.post("/fiscal-years/{year}/reopen")
+def reopen_fiscal_year(
+    year: int,
+    user=Depends(require_perm("accounting", "delete")),
+    db: sqlite3.Connection = Depends(get_db),
+):
+    """Reopen a closed year — reverses the closing entry and unlocks the year."""
+    try:
+        result = accounting.reopen_fiscal_year(db, year, created_by=user["id"])
+    except ValueError as e:
+        raise HTTPException(400, str(e))
+    log_action(db, user, "reopen_year", "accounting", year, str(year))
+    db.commit()
+    return {"message": f"Financial year {year} reopened", **result}
+
+
+# ── F-8 audit fix: period-end FX revaluation ───────────────────────────────
+# IAS 21 — monetary items denominated in a foreign currency must be revalued
+# at the closing spot rate; the difference is recognised in P&L as FX gain
+# or loss. This endpoint re-marks the LBP cash balance to its current USD
+# equivalent and posts the resulting gain or loss.
+#
+#   LBP cash on books (USD-equivalent at historical rates)  =  L_book
+#   LBP cash physically on hand (counted at LBP × current rate) = L_now
+#
+#       L_now > L_book   →  unrealised GAIN
+#           DR  1010 Cash — LBP       (L_now − L_book)
+#             CR  4910 FX Gain
+#       L_now < L_book   →  unrealised LOSS
+#           DR  6920 FX Loss          (L_book − L_now)
+#             CR  1010 Cash — LBP
+#
+# The actual LBP balance is whatever the system thinks is in the 1010 account
+# (which equals USD-equivalent at the rates paid in); the operator supplies the
+# current physical LBP count (total LBP across drawers) and we translate to USD.
+
+class RevalueIn(BaseModel):
+    counted_lbp: float       # total LBP physically held across all drawers
+    as_of:        Optional[str] = None    # posting date; defaults to today
+    note:         Optional[str] = None
+
+
+@router.post("/fx-revaluation")
+def post_fx_revaluation(
+    data: RevalueIn,
+    user=Depends(require_perm("accounting", "create")),
+    db: sqlite3.Connection = Depends(get_db),
+):
+    """Mark the LBP cash account to the current spot rate and book the
+    difference as FX gain/loss. Run this at period close (monthly is typical)."""
+    if data.counted_lbp < 0:
+        raise HTTPException(400, "Counted LBP cannot be negative.")
+    rate_row = db.execute(
+        "SELECT rate FROM exchange_rates ORDER BY id DESC LIMIT 1"
+    ).fetchone()
+    if not rate_row or not rate_row["rate"] or rate_row["rate"] <= 0:
+        raise HTTPException(
+            400,
+            "No exchange rate configured. Set the LBP→USD rate in Settings → "
+            "Exchange Rate before running FX revaluation."
+        )
+    spot = float(rate_row["rate"])
+    posting_date = (data.as_of or accounting._now())[:10]
+    _check_period_locked(db, posting_date)
+
+    # USD-equivalent of the LBP cash actually counted
+    counted_usd = round(float(data.counted_lbp) / spot, 2)
+    # USD-equivalent currently on the books (signed balance of 1010 Cash — LBP)
+    lbp_acct_id = accounting.account_id_for(db, accounting.CASH_LBP)
+    book_row = db.execute(
+        "SELECT COALESCE(SUM(l.debit) - SUM(l.credit), 0) AS bal "
+        "FROM journal_entry_lines l "
+        "JOIN journal_entries je ON je.id = l.journal_entry_id "
+        "WHERE l.account_id = ? AND je.status='posted'",
+        (lbp_acct_id,),
+    ).fetchone()
+    book_usd = round(float(book_row["bal"] or 0), 2)
+    delta = round(counted_usd - book_usd, 2)
+    if abs(delta) < 0.01:
+        return {"message": "No FX adjustment needed.",
+                "counted_usd": counted_usd, "book_usd": book_usd, "delta": 0,
+                "rate": spot}
+
+    memo = f"FX revaluation — LBP cash @ {spot:,.0f} on {posting_date}"
+    if data.note:
+        memo += f" — {data.note}"
+    if delta > 0:
+        # Gain: LBP became worth more USD
+        lines = [
+            {"code": accounting.CASH_LBP, "debit":  delta,
+             "memo": f"Counted {data.counted_lbp:,.0f} LBP"},
+            {"code": accounting.FX_GAIN,  "credit": delta},
+        ]
+    else:
+        # Loss
+        lines = [
+            {"code": accounting.FX_LOSS,  "debit":  abs(delta),
+             "memo": f"Counted {data.counted_lbp:,.0f} LBP"},
+            {"code": accounting.CASH_LBP, "credit": abs(delta)},
+        ]
+    je_id = accounting.post_entry(
+        db, entry_date=posting_date, memo=memo, lines=lines,
+        source_type="fx_revaluation", source_id=None, created_by=user["id"],
+    )
+    log_action(db, user, "fx_revalue", "accounting", je_id, memo,
+               {"counted_lbp": data.counted_lbp, "rate": spot,
+                "book_usd": book_usd, "counted_usd": counted_usd, "delta": delta})
+    db.commit()
+    return {"message": "FX revaluation posted.",
+            "journal_entry_id": je_id, "rate": spot,
+            "book_usd": book_usd, "counted_usd": counted_usd, "delta": delta}

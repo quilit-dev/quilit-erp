@@ -25,6 +25,10 @@ class PurchaseCreate(BaseModel):
     tax_rate_id: Optional[int] = None
     status: Optional[str] = "Ordered"
     notes: Optional[str] = None
+    # Destination warehouse — defaults to the user's default if omitted so
+    # existing API callers keep working. The receipt lands here at status
+    # transition to 'Received'.
+    warehouse_id: Optional[int] = None
 
 class PurchaseUpdate(BaseModel):
     supplier: Optional[str] = None
@@ -35,6 +39,9 @@ class PurchaseUpdate(BaseModel):
     additional_costs: Optional[float] = None
     tax_rate_id: Optional[int] = None
     notes: Optional[str] = None
+    # Allow re-routing a not-yet-received PO to a different warehouse —
+    # rejected on the server if the purchase has already credited stock.
+    warehouse_id: Optional[int] = None
 
 class StatusUpdate(BaseModel):
     status: str
@@ -118,6 +125,10 @@ def create_purchase(data: PurchaseCreate, user=Depends(require_perm("purchases",
     validate_int_qty(data.quantity, "Purchase quantity")
     po = next_po_number(db)
     now = _now()
+    # Resolve the destination warehouse — falls back to the user's default
+    # so existing API callers keep working. Validates row-level access.
+    import warehouse_access as wha
+    warehouse_id = wha.resolve_warehouse_id(user, db, data.warehouse_id)
 
     # Auto-create inventory item if no existing item was linked
     inventory_id = data.inventory_id
@@ -140,11 +151,11 @@ def create_purchase(data: PurchaseCreate, user=Depends(require_perm("purchases",
     c = db.execute(
         """INSERT INTO purchases
            (po_number, supplier, inventory_id, product_name, category, quantity, unit_cost,
-            additional_costs, tax_rate_id, tax_rate, tax_amount, status, notes, ordered_at)
-           VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?)""",
+            additional_costs, tax_rate_id, tax_rate, tax_amount, status, notes, warehouse_id, ordered_at)
+           VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)""",
         (po, data.supplier, inventory_id, data.product_name, (data.category or 'Other'),
          data.quantity, data.unit_cost, data.additional_costs,
-         tax_rate_id, tax_rate, tax_amount, data.status, data.notes, now)
+         tax_rate_id, tax_rate, tax_amount, data.status, data.notes, warehouse_id, now)
     )
     purchase_id = c.lastrowid
 
@@ -206,6 +217,13 @@ def update_purchase(purchase_id: int, data: PurchaseUpdate,
         fields.append("additional_costs=?");  params.append(data.additional_costs)
     if data.notes is not None:
         fields.append("notes=?");             params.append(data.notes)
+    if data.warehouse_id is not None:
+        # Re-route the destination — only legal while the PO is still Ordered.
+        # (Already enforced above; `_credit_stock` runs at receipt and reads
+        # this column to land the units in the right warehouse.)
+        import warehouse_access as wha
+        new_wid = wha.resolve_warehouse_id(user, db, data.warehouse_id)
+        fields.append("warehouse_id=?");      params.append(new_wid)
 
     if fields:
         # Recompute tax from the effective (new or unchanged) values.
@@ -313,16 +331,23 @@ def _credit_stock(purchase_id: int, db: sqlite3.Connection):
         "UPDATE inventory SET quantity = ?, unit_cost = ? WHERE id = ?",
         (qty_after, new_unit_cost, row["inventory_id"])
     )
+    # Land the receipt in the purchase's warehouse (or the company default if
+    # the purchase was created before warehouses existed) — maintains the
+    # per-warehouse breakdown alongside the company-wide quantity above.
+    import warehouse_access as wha
+    wid = wha.default_warehouse_id_for_row(db, row["warehouse_id"])
+    wha.credit_warehouse_stock(db, inventory_id=row["inventory_id"],
+                                warehouse_id=wid, delta=qty)
     # Record the receipt as a tracked lot (lot-tracked items) or a FIFO/LIFO
     # cost layer. The weighted-average unit_cost above already reflects this lot.
     lots.record_stock_in(db, row["inventory_id"], qty, lot_unit_cost,
                          source_type="purchase", source_ref=row["po_number"], now=now)
     db.execute(
         """INSERT INTO stock_movements
-           (inventory_id, type, delta, qty_before, qty_after, reference, note, created_at)
-           VALUES (?,?,?,?,?,?,?,?)""",
+           (inventory_id, type, delta, qty_before, qty_after, reference, note, warehouse_id, created_at)
+           VALUES (?,?,?,?,?,?,?,?,?)""",
         (row["inventory_id"], "purchase", qty, qty_before, qty_after,
-         row["po_number"], f"Purchase received: {row['po_number']}", now)
+         row["po_number"], f"Purchase received: {row['po_number']}", wid, now)
     )
 
 def _record_expense(purchase_id: int, db: sqlite3.Connection):
@@ -341,14 +366,24 @@ def _record_expense(purchase_id: int, db: sqlite3.Connection):
          gross, now, row["tax_rate_id"], row["tax_rate"] or 0, tax_amt)
     )
     db.execute("UPDATE purchases SET expense_recorded = 1 WHERE id = ?", (purchase_id,))
-    # Auto-post to the general ledger: DR Cost of Goods Sold, CR Cash & Bank.
+    # Auto-post to the General Ledger (F-2 audit fix — perpetual inventory).
+    # OLD posting was DR COGS / CR Cash, which recognised the full purchase as
+    # an expense at acquisition — wrong under perpetual inventory because the
+    # cost is incurred when goods are SOLD (the POS sale now relieves COGS).
+    # Correct entry:
+    #   DR  Inventory                gross   (asset comes onto the books)
+    #     CR  Cash & Bank                       gross
+    # Note: the row also creates an `expenses` entry above so the cash-basis
+    # Finance dashboard keeps showing the cash outflow on the purchase date.
+    # The GL is the accrual source of truth; the cash-basis dashboard is the
+    # cash-flow view. They legitimately differ for inventory purchases.
     accounting.post_entry(
         db,
         entry_date=now[:10],
         memo=f"Purchase {row['po_number']} — {row['product_name']}",
         lines=[
-            {"code": accounting.COGS, "debit":  gross},
-            {"code": accounting.CASH, "credit": gross},
+            {"code": accounting.INVENTORY, "debit":  gross},
+            {"code": accounting.CASH,      "credit": gross},
         ],
         source_type="purchase", source_id=purchase_id, created_by=None,
     )
