@@ -80,7 +80,7 @@ a = Analysis(
         'warehouse_access', 'accounting', 'costing', 'lots',
         # SaaS infra wrappers (default backends are no-ops; redis/rq/boto3 stay
         # lazy so they are NOT pulled into the desktop bundle):
-        'storage', 'cache', 'jobs',
+        'storage', 'cache', 'jobs', 'mailer', 'email_templates',
 
         # All routers (keep in sync with launcher.py imports)
         'routers',

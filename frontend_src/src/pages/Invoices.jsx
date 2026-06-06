@@ -4,7 +4,7 @@ import { useSettings } from '../hooks/useSettings';
 import {
   getInvoices, getInvoice, getClients, getProjects, getInventory,
   createInvoice, updateInvoice, archiveInvoice, voidInvoice,
-  addInvoicePayment, deleteInvoicePayment, getCashDrawers,
+  addInvoicePayment, deleteInvoicePayment, getCashDrawers, sendInvoiceEmail,
 } from '../api/client';
 import {
   LoadingSpinner, ErrorAlert, EmptyState, Modal, ConfirmModal,
@@ -36,7 +36,7 @@ function _waMessage(inv) {
 }
 
 // ── Per-row action dropdown ───────────────────────────────────────────────
-function ActionMenu({ inv, exporting, onEdit, onPay, onExport, onVoid, onDelete }) {
+function ActionMenu({ inv, exporting, onEdit, onPay, onExport, onVoid, onDelete, onEmail }) {
   const { t } = useLocale();
   const [open, setOpen] = useState(false);
   const [dropUp, setDropUp] = useState(false);
@@ -143,6 +143,14 @@ function ActionMenu({ inv, exporting, onEdit, onPay, onExport, onVoid, onDelete 
               style={{ ...menuItemStyle, color: '#991b1b', opacity: (isExporting || isVoided) ? 0.4 : 1 }}
             >
               {exporting === 'pdf' ? '⏳ Exporting…' : '📄 Export PDF'}
+            </button>
+
+            <button
+              disabled={isVoided}
+              onClick={() => { setOpen(false); onEmail(); }}
+              style={{ ...menuItemStyle, color: 'var(--accent)', opacity: isVoided ? 0.4 : 1 }}
+            >
+              ✉️ Email to client
             </button>
 
             <div style={{ height: 1, background: 'var(--border)', margin: '4px 0' }} />
@@ -364,6 +372,16 @@ export default function Invoices() {
     finally { setVoiding(false); }
   }
 
+  async function handleEmail(inv) {
+    // Blank → the server falls back to the client's email on file.
+    const to = window.prompt('Email this invoice to:', inv.client_email || '');
+    if (to === null) return;
+    try {
+      const r = await sendInvoiceEmail(inv.id, { to: to.trim() || undefined });
+      toast((r && r.message) || 'Invoice emailed');
+    } catch (err) { toast(err.message || 'Email failed', 'red'); }
+  }
+
   async function openPayModal(inv) {
     setPayLoading(true);
     setPayForm({ amount: '', method: 'Cash', note: '', currency: 'USD', rate: exchangeRate?.rate || '', cash_drawer_id: '' });
@@ -537,6 +555,7 @@ export default function Invoices() {
                           onExport={(fmtType) => handleExport(inv, fmtType)}
                           onVoid={() => { setVoidId(inv.id); setVoidReason(''); }}
                           onDelete={() => setDeleteId(inv.id)}
+                          onEmail={() => handleEmail(inv)}
                         />
                       </td>
                     </tr>

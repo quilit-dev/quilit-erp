@@ -64,6 +64,25 @@ services:
       app: { condition: service_healthy }
       redis: { condition: service_healthy }
 
+  # Periodic tasks (overdue-invoice reminders, …). Enqueues email to the worker.
+  scheduler:
+    build:
+      context: .
+      target: app
+    image: erp-app
+    restart: unless-stopped
+    command: ["python", "scheduler.py"]
+    env_file: [.env]
+    environment:
+      DB_BACKEND: postgres
+      DATABASE_URL: postgresql://${POSTGRES_USER:-erp}:${POSTGRES_PASSWORD}@postgres:5432/${POSTGRES_DB:-erp}
+      REDIS_URL: redis://redis:6379/0
+      JOBS: rq
+      SCHEDULER_TICK: ${SCHEDULER_TICK:-3600}
+    depends_on:
+      app: { condition: service_healthy }
+      redis: { condition: service_healthy }
+
   web:
     build:
       context: .
