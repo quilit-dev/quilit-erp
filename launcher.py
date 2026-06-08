@@ -181,6 +181,7 @@ try:
     # the top-level `accounting.py` (double-entry engine) are different
     # modules sharing the same short name — a plain `import accounting` here
     # rebinds the name and would break `accounting.router` below.
+    import mailer            as _mailer  # noqa: F401 — registers email.send job
     import warehouse_access as _wha    # noqa: F401 — row-level RBAC helper
     import accounting       as _acct   # noqa: F401 — double-entry posting engine
     import costing          as _cost   # noqa: F401 — FIFO/LIFO/weighted-average

@@ -233,6 +233,8 @@ export default function Settings() {
   const [newRate,    setNewRate]    = useState('');
   const [rateNote,   setRateNote]   = useState('');
   const [savingRate, setSavingRate] = useState(false);
+  const [testEmailTo, setTestEmailTo] = useState('');
+  const [sendingTest, setSendingTest] = useState(false);
   const { reload: reloadSettings } = useSettings();
 
   useEffect(() => {
@@ -261,6 +263,8 @@ export default function Settings() {
     'default_tax_rate', 'tax_enabled', 'payment_terms_days',
     'invoice_prefix', 'quotation_prefix', 'inventory_costing_method',
     'footer_text', 'show_discount_col', 'show_tax_col',
+    'email_enabled', 'smtp_host', 'smtp_port', 'smtp_user',
+    'smtp_password', 'smtp_use_tls', 'smtp_from',
   ]);
 
   async function save() {
@@ -301,6 +305,16 @@ export default function Settings() {
     } catch (err) {
       setMsg({ type: 'err', text: t('settings.backupFailed') + ': ' + (err.message || '') });
     } finally { setRunningBackup(false); }
+  }
+
+  async function handleTestEmail() {
+    setSendingTest(true); setMsg(null);
+    try {
+      const r = await API.post('/api/settings/email-test', { to: testEmailTo.trim() });
+      setMsg({ type: 'ok', text: (r && r.message) || t('email.testSent') });
+    } catch (err) {
+      setMsg({ type: 'err', text: t('email.testFailed') + (err.message || '') });
+    } finally { setSendingTest(false); }
   }
 
   async function handleExportBackup() {
@@ -592,6 +606,43 @@ export default function Settings() {
             <Toggle disabled={!isAdmin} label={t('settings.showTaxCol')} checked={isOn('show_tax_col')} onChange={bool('show_tax_col')} />
           </div>
         </Section>
+
+        {/* Email (SMTP) — admin only. Send invoices/quotations + overdue
+            reminders. Credentials can also come from SMTP_* env vars (cloud). */}
+        {isAdmin && <Section title={t('email.section')} icon="✉️">
+          <div style={{ marginBottom: 14 }}>
+            <Toggle label={t('email.enableOutbound')}
+                    checked={isOn('email_enabled')} onChange={bool('email_enabled')} />
+          </div>
+          <div className="form-grid">
+            <Field label={t('email.smtpHost')}>
+              <Input value={form.smtp_host || ''} onChange={set('smtp_host')} placeholder="smtp.example.com" /></Field>
+            <Field label={t('email.smtpPort')}>
+              <Input value={form.smtp_port || ''} onChange={set('smtp_port')} placeholder="587" /></Field>
+            <Field label={t('email.smtpUser')}>
+              <Input value={form.smtp_user || ''} onChange={set('smtp_user')} /></Field>
+            <Field label={t('email.smtpPassword')} hint={form.smtp_password_set ? t('email.smtpPasswordSaved') : ''}>
+              <Input type="password" value={form.smtp_password || ''} onChange={set('smtp_password')}
+                     placeholder={form.smtp_password_set ? '••••••••' : ''} /></Field>
+            <Field label={t('email.fromAddress')} hint={t('email.fromHint')}>
+              <Input value={form.smtp_from || ''} onChange={set('smtp_from')} placeholder="billing@yourcompany.com" /></Field>
+          </div>
+          <div style={{ marginTop: 10 }}>
+            <Toggle label={t('email.useTls')} checked={isOn('smtp_use_tls')} onChange={bool('smtp_use_tls')} />
+          </div>
+          <div style={{ marginTop: 16, display: 'flex', gap: 8, alignItems: 'center', flexWrap: 'wrap' }}>
+            <input className="form-control" style={{ maxWidth: 260 }} placeholder="you@example.com"
+                   value={testEmailTo} onChange={e => setTestEmailTo(e.target.value)} />
+            <button className="btn btn-outline" disabled={sendingTest || !testEmailTo.trim()}
+                    onClick={handleTestEmail}>
+              {sendingTest ? t('email.sending') : t('email.sendTest')}
+            </button>
+          </div>
+          <div style={{ fontSize: 12, color: 'var(--text-3)', marginTop: 8 }}>
+            {t('email.smtpEnvHintPre')}
+            <code> SMTP_* </code> {t('email.smtpEnvHintPost')}
+          </div>
+        </Section>}
 
         {/* 5. Backup & Integrity — admin only, and only on the self-hosted
             (SQLite) edition. A cloud (Postgres) deployment is backed up

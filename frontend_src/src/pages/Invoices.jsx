@@ -3,8 +3,8 @@ import { useData } from '../hooks/useData';
 import { useSettings } from '../hooks/useSettings';
 import {
   getInvoices, getInvoice, getClients, getProjects, getInventory,
-  createInvoice, updateInvoice, archiveInvoice, voidInvoice,
-  addInvoicePayment, deleteInvoicePayment, getCashDrawers,
+  createInvoice, updateInvoice, voidInvoice,
+  addInvoicePayment, deleteInvoicePayment, getCashDrawers, sendInvoiceEmail,
 } from '../api/client';
 import {
   LoadingSpinner, ErrorAlert, EmptyState, Modal, ConfirmModal,
@@ -18,6 +18,7 @@ import { usePermissions } from '../hooks/usePermissions';
 import Attachments from '../components/Attachments.jsx';
 import { useSortPaginate } from '../hooks/useSortPaginate';
 import { useRecordExport } from '../hooks/useRecordExport';
+import EmailModal from '../components/EmailModal';
 
 const METHODS    = ['Cash', 'Bank Transfer', 'Cheque', 'Card', 'Other'];
 // `discount` (in functional currency) is opt-in via Settings → "Enable
@@ -36,7 +37,7 @@ function _waMessage(inv) {
 }
 
 // ── Per-row action dropdown ───────────────────────────────────────────────
-function ActionMenu({ inv, exporting, onEdit, onPay, onExport, onVoid, onDelete }) {
+function ActionMenu({ inv, exporting, onEdit, onPay, onExport, onVoid, onEmail }) {
   const { t } = useLocale();
   const [open, setOpen] = useState(false);
   const [dropUp, setDropUp] = useState(false);
@@ -59,7 +60,6 @@ function ActionMenu({ inv, exporting, onEdit, onPay, onExport, onVoid, onDelete 
 
   const isVoided    = inv.payment_status === 'Void' || !!inv.voided_at;
   const isPaid      = inv.payment_status === 'Paid';
-  const hasPayments = (inv.total_paid || 0) > 0;
   const isExporting = !!exporting;
 
   return (
@@ -145,6 +145,14 @@ function ActionMenu({ inv, exporting, onEdit, onPay, onExport, onVoid, onDelete 
               {exporting === 'pdf' ? '⏳ Exporting…' : '📄 Export PDF'}
             </button>
 
+            <button
+              disabled={isVoided}
+              onClick={() => { setOpen(false); onEmail(); }}
+              style={{ ...menuItemStyle, color: 'var(--accent)', opacity: isVoided ? 0.4 : 1 }}
+            >
+              {t('email.toClient')}
+            </button>
+
             <div style={{ height: 1, background: 'var(--border)', margin: '4px 0' }} />
 
             {!isVoided && (
@@ -153,15 +161,6 @@ function ActionMenu({ inv, exporting, onEdit, onPay, onExport, onVoid, onDelete 
                 style={{ ...menuItemStyle, color: '#92400e' }}
               >
                 🚫 {t('invoices.voidInvoiceTitle')}
-              </button>
-            )}
-
-            {!isVoided && !hasPayments && (
-              <button
-                onClick={() => { setOpen(false); onDelete(); }}
-                style={{ ...menuItemStyle, color: 'var(--red)' }}
-              >
-                🗄 Archive
               </button>
             )}
           </div>
@@ -234,7 +233,7 @@ export default function Invoices() {
   }, []);
   const [paySubmitting, setPaySubmitting] = useState(false);
 
-  const [deleteId, setDeleteId] = useState(null);
+  const [emailInv, setEmailInv] = useState(null);
 
   const { exportLoading, handleExport } = useRecordExport({
     fetchFull:   getInvoice,
@@ -348,13 +347,6 @@ export default function Invoices() {
     finally { setSaving(false); }
   }
 
-  async function handleArchiveInvoice() {
-    try {
-      await archiveInvoice(deleteId);
-      toast('Invoice archived'); setDeleteId(null); reload();
-    } catch (err) { toast(err.message, 'red'); }
-  }
-
   async function handleVoid() {
     setVoiding(true);
     try {
@@ -362,6 +354,11 @@ export default function Invoices() {
       toast(t('invoices.invoiceVoided')); setVoidId(null); setVoidReason(''); reload();
     } catch (err) { toast(err.message, 'red'); }
     finally { setVoiding(false); }
+  }
+
+  async function handleEmail({ to, message }) {
+    const r = await sendInvoiceEmail(emailInv.id, { to, message });
+    toast((r && r.message) || t('email.invoiceSent'));
   }
 
   async function openPayModal(inv) {
@@ -536,7 +533,7 @@ export default function Invoices() {
                           onPay={() => openPayModal(inv)}
                           onExport={(fmtType) => handleExport(inv, fmtType)}
                           onVoid={() => { setVoidId(inv.id); setVoidReason(''); }}
-                          onDelete={() => setDeleteId(inv.id)}
+                          onEmail={() => setEmailInv(inv)}
                         />
                       </td>
                     </tr>
@@ -947,13 +944,15 @@ export default function Invoices() {
         </Modal>
       )}
 
-      {deleteId && (
-        <ConfirmModal
-          message="Archive this invoice? It will be hidden from the main list. Only invoices with no payments can be archived. You can restore it from the Archives page."
-          confirmLabel="Archive"
-          confirmClass="btn-danger"
-          onConfirm={handleArchiveInvoice}
-          onCancel={() => setDeleteId(null)}
+      {emailInv && (
+        <EmailModal
+          title={t('email.invoiceTitle', { number: emailInv.invoice_number })}
+          docLabel={emailInv.client_name
+            ? t('email.invoiceDocTo', { number: emailInv.invoice_number, name: emailInv.client_name })
+            : t('email.invoiceDoc',   { number: emailInv.invoice_number })}
+          to={emailInv.client_email || ''}
+          onClose={() => setEmailInv(null)}
+          onSend={handleEmail}
         />
       )}
       {deletePayId && (

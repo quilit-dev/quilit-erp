@@ -19,6 +19,7 @@ from routers import purchases, settings, archives, documents, suppliers, audit, 
 from routers import reports, crm, planning, notifications
 from routers import approval_policies, approval_requests, hr, hr_contracts, recruitment, hr_activities, tax_rates, pos, cash, manufacturing
 from routers import assets, recurring, announcements, attachments, accounting, warehouses, platform
+import mailer  # noqa: F401 — registers the email.send background job at import time
 
 app = FastAPI(title="ERP System", version="2.0.0")
 
