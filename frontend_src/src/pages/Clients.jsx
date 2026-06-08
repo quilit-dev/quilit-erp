@@ -9,6 +9,7 @@ import {
 } from '../components/shared';
 import { useSortPaginate } from '../hooks/useSortPaginate';
 import { useLocale } from '../hooks/useLocale.jsx';
+import ImportWizard from '../components/ImportWizard';
 
 const EMPTY = { name: '', company: '', phone: '', email: '', address: '', type: 'private', notes: '' };
 
@@ -16,6 +17,7 @@ export default function Clients() {
   const navigate = useNavigate();
   const { data: clients, loading, error, reload } = useData(getClients);
   const [modal,    setModal]    = useState(null);
+  const [importing, setImporting] = useState(false);
   const [form,     setForm]     = useState(EMPTY);
   const [editId,   setEditId]   = useState(null);
   const [deleteId, setDeleteId] = useState(null);
@@ -68,9 +70,15 @@ export default function Clients() {
         </div>
         <div style={{ display: 'flex', gap: 8 }}>
           <ExportButton data={exportData} filename="Clients" sheetName="Clients" />
+          <button className="btn btn-secondary" onClick={() => setImporting(true)}>⬆ {t('imports.importBtn')}</button>
           <button className="btn btn-primary" onClick={openCreate}>{t('clients.addClient')}</button>
         </div>
       </div>
+
+      {importing && (
+        <ImportWizard entity="clients" title={`${t('imports.importBtn')} — ${t('clients.title')}`}
+          onClose={() => setImporting(false)} onDone={reload} />
+      )}
 
       <div className="card">
         <div className="card-header">
