@@ -374,6 +374,118 @@ def balance_sheet(db: sqlite3.Connection, as_of: str):
     }
 
 
+# ── Cash Flow Statement (GL-derived, direct method) ──────────────────────────
+# Codes 1000–1099 are reserved for Cash & Bank in the seeded Chart of Accounts
+# (1000 Cash & Bank, 1010 Cash — LBP). A user-added bank account placed in that
+# range is treated as cash too. The statement explains the change in those
+# accounts over a period and ALWAYS ties out: operating + investing + financing
+# == closing − opening, because every journal entry balances, so the non-cash
+# side of any cash-touching entry exactly equals −Δcash for that entry.
+
+def _cash_account_ids(db: sqlite3.Connection) -> list:
+    rows = db.execute(
+        "SELECT id FROM chart_of_accounts "
+        "WHERE type='Asset' AND LENGTH(code)=4 AND code >= '1000' AND code < '1100'"
+    ).fetchall()
+    return [r["id"] for r in rows]
+
+
+def _cf_activity(acct_type: str, subtype: str) -> str:
+    """Classify the NON-cash side of a cash-touching entry into one IAS-7
+    activity. Account type/subtype is fixed, so each account maps to exactly
+    one bucket."""
+    sub = (subtype or "").lower()
+    if acct_type == "Asset":
+        # Fixed / long-term assets and their contra (accumulated depreciation,
+        # which only surfaces here on a disposal) are investing; AR, inventory
+        # and other current assets are operating working-capital movements.
+        if "non-current" in sub or "fixed" in sub or "contra asset" in sub:
+            return "investing"
+        return "operating"
+    if acct_type == "Equity":
+        return "financing"
+    if acct_type == "Liability":
+        # Long-term borrowings are financing; payables / accruals are operating.
+        if "non-current" in sub or "long" in sub or "loan" in sub:
+            return "financing"
+        return "operating"
+    return "operating"   # Income / Expense
+
+
+def _cash_balance(db: sqlite3.Connection, cash_ids: list, as_of: str, op: str) -> float:
+    if not cash_ids:
+        return 0.0
+    ph = ",".join("?" for _ in cash_ids)
+    r = db.execute(
+        f"SELECT COALESCE(SUM(l.debit),0) d, COALESCE(SUM(l.credit),0) c "
+        f"FROM journal_entry_lines l JOIN journal_entries je ON je.id=l.journal_entry_id "
+        f"WHERE je.status != 'draft' AND l.account_id IN ({ph}) AND je.entry_date {op} ?",
+        (*cash_ids, as_of[:10]),
+    ).fetchone()
+    return round(float(r["d"]) - float(r["c"]), 2)
+
+
+def cash_flow_statement(db: sqlite3.Connection, start: str, end: str):
+    """Statement of cash flows over [start, end] (inclusive), derived directly
+    from the GL. Cash movements are bucketed by the type of the account on the
+    OTHER side of each cash-touching entry. Ties out by construction."""
+    cash_ids = _cash_account_ids(db)
+    opening = _cash_balance(db, cash_ids, start, "<")
+    closing = _cash_balance(db, cash_ids, end, "<=")
+
+    buckets = {"operating": [], "investing": [], "financing": []}
+    if cash_ids:
+        ph = ",".join("?" for _ in cash_ids)
+        rows = db.execute(
+            f"""SELECT a.code, a.name, a.type, a.subtype,
+                       COALESCE(SUM(l.debit),0)  AS debit,
+                       COALESCE(SUM(l.credit),0) AS credit
+                FROM journal_entry_lines l
+                JOIN journal_entries je ON je.id = l.journal_entry_id
+                JOIN chart_of_accounts a ON a.id = l.account_id
+                WHERE je.status != 'draft'
+                  AND je.entry_date >= ? AND je.entry_date <= ?
+                  AND l.account_id NOT IN ({ph})
+                  AND l.journal_entry_id IN (
+                      SELECT journal_entry_id FROM journal_entry_lines
+                      WHERE account_id IN ({ph})
+                  )
+                GROUP BY a.id
+                ORDER BY a.code""",
+            (start[:10], end[:10], *cash_ids, *cash_ids),
+        ).fetchall()
+        for r in rows:
+            # Cash effect of this account = −(debit − credit) on its non-cash
+            # lines, because the entry balances against cash.
+            amount = round(-(float(r["debit"]) - float(r["credit"])), 2)
+            if amount == 0:
+                continue
+            buckets[_cf_activity(r["type"], r["subtype"])].append(
+                {"code": r["code"], "name": r["name"], "amount": amount})
+
+    def _section(name):
+        items = buckets[name]
+        return items, round(sum(i["amount"] for i in items), 2)
+
+    operating, total_operating = _section("operating")
+    investing, total_investing = _section("investing")
+    financing, total_financing = _section("financing")
+    net_change = round(total_operating + total_investing + total_financing, 2)
+
+    return {
+        "start": start, "end": end,
+        "operating": operating, "total_operating": total_operating,
+        "investing": investing, "total_investing": total_investing,
+        "financing": financing, "total_financing": total_financing,
+        "net_change": net_change,
+        "opening_cash": opening,
+        "closing_cash": closing,
+        # Δcash from activities must reconcile opening→closing. Holds by
+        # construction; surfaced so the UI can show a "balanced" check.
+        "balanced": abs(net_change - round(closing - opening, 2)) < 0.01,
+    }
+
+
 def general_ledger(db: sqlite3.Connection, account_id: int, start: str = None, end: str = None):
     """Transactions for one account with a running balance, plus the opening
     balance carried in from before `start`."""

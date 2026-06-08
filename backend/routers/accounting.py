@@ -357,6 +357,16 @@ def get_income_statement(
     return accounting.income_statement(db, start, end)
 
 
+@router.get("/cash-flow")
+def get_cash_flow(
+    start: str,
+    end: str,
+    user=Depends(require_perm("accounting", "view")),
+    db: sqlite3.Connection = Depends(get_db),
+):
+    return accounting.cash_flow_statement(db, start, end)
+
+
 @router.get("/summary")
 def accounting_summary(
     start: Optional[str] = None,
