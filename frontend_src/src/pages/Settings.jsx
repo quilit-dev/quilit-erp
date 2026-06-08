@@ -311,9 +311,9 @@ export default function Settings() {
     setSendingTest(true); setMsg(null);
     try {
       const r = await API.post('/api/settings/email-test', { to: testEmailTo.trim() });
-      setMsg({ type: 'ok', text: (r && r.message) || 'Test email sent.' });
+      setMsg({ type: 'ok', text: (r && r.message) || t('email.testSent') });
     } catch (err) {
-      setMsg({ type: 'err', text: 'Test email failed: ' + (err.message || '') });
+      setMsg({ type: 'err', text: t('email.testFailed') + (err.message || '') });
     } finally { setSendingTest(false); }
   }
 
@@ -609,38 +609,38 @@ export default function Settings() {
 
         {/* Email (SMTP) — admin only. Send invoices/quotations + overdue
             reminders. Credentials can also come from SMTP_* env vars (cloud). */}
-        {isAdmin && <Section title="Email (SMTP)" icon="✉️">
+        {isAdmin && <Section title={t('email.section')} icon="✉️">
           <div style={{ marginBottom: 14 }}>
-            <Toggle label="Enable outbound email"
+            <Toggle label={t('email.enableOutbound')}
                     checked={isOn('email_enabled')} onChange={bool('email_enabled')} />
           </div>
           <div className="form-grid">
-            <Field label="SMTP host">
+            <Field label={t('email.smtpHost')}>
               <Input value={form.smtp_host || ''} onChange={set('smtp_host')} placeholder="smtp.example.com" /></Field>
-            <Field label="SMTP port">
+            <Field label={t('email.smtpPort')}>
               <Input value={form.smtp_port || ''} onChange={set('smtp_port')} placeholder="587" /></Field>
-            <Field label="SMTP username">
+            <Field label={t('email.smtpUser')}>
               <Input value={form.smtp_user || ''} onChange={set('smtp_user')} /></Field>
-            <Field label="SMTP password" hint={form.smtp_password_set ? 'saved — leave blank to keep' : ''}>
+            <Field label={t('email.smtpPassword')} hint={form.smtp_password_set ? t('email.smtpPasswordSaved') : ''}>
               <Input type="password" value={form.smtp_password || ''} onChange={set('smtp_password')}
                      placeholder={form.smtp_password_set ? '••••••••' : ''} /></Field>
-            <Field label="From address" hint="defaults to company email">
+            <Field label={t('email.fromAddress')} hint={t('email.fromHint')}>
               <Input value={form.smtp_from || ''} onChange={set('smtp_from')} placeholder="billing@yourcompany.com" /></Field>
           </div>
           <div style={{ marginTop: 10 }}>
-            <Toggle label="Use TLS (STARTTLS)" checked={isOn('smtp_use_tls')} onChange={bool('smtp_use_tls')} />
+            <Toggle label={t('email.useTls')} checked={isOn('smtp_use_tls')} onChange={bool('smtp_use_tls')} />
           </div>
           <div style={{ marginTop: 16, display: 'flex', gap: 8, alignItems: 'center', flexWrap: 'wrap' }}>
             <input className="form-control" style={{ maxWidth: 260 }} placeholder="you@example.com"
                    value={testEmailTo} onChange={e => setTestEmailTo(e.target.value)} />
             <button className="btn btn-outline" disabled={sendingTest || !testEmailTo.trim()}
                     onClick={handleTestEmail}>
-              {sendingTest ? '⏳ Sending…' : '✉️ Send test email'}
+              {sendingTest ? t('email.sending') : t('email.sendTest')}
             </button>
           </div>
           <div style={{ fontSize: 12, color: 'var(--text-3)', marginTop: 8 }}>
-            Save settings before testing. For cloud, SMTP credentials are best set via
-            <code> SMTP_* </code> environment variables (no secrets stored in the database).
+            {t('email.smtpEnvHintPre')}
+            <code> SMTP_* </code> {t('email.smtpEnvHintPost')}
           </div>
         </Section>}
 
