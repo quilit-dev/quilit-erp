@@ -154,125 +154,44 @@ def _lan_ip():
 LAN_IP = _lan_ip()
 log(f'LAN access : http://{LAN_IP}:{PORT}  (share this URL with office computers)')
 
+# ── Hand off to the ONE app definition (backend/main.py) ─────────────────────
+# launcher and the server share a SINGLE FastAPI app — main.py is the sole
+# source of truth for routers, middleware, error handlers and SPA serving. The
+# launcher used to keep a parallel copy of all that, which is exactly how the
+# imports router got missed here once. Now we only point main.py at the desktop's
+# runtime settings via env vars it already honours, then import its `app`; any
+# router added to main.py is automatically available in the desktop build too.
+#
+# These MUST be set before `import main`: main.py reads STATIC_DIR / ALLOWED_
+# ORIGINS at module load and hard-exits if SECRET_KEY is missing.
+os.environ.setdefault('STATIC_DIR', STATIC_DIR)              # serve the bundled SPA
+os.environ.setdefault('ALLOWED_ORIGINS',                     # same-origin LAN URLs
+                      f'http://localhost:{PORT},http://127.0.0.1:{PORT},http://{LAN_IP}:{PORT}')
+if not os.environ.get('SECRET_KEY'):
+    # The packaged build has no env vars; auth_utils loads-or-creates a key
+    # persisted next to the DB. Surface it as SECRET_KEY so main.py's required
+    # check passes while keeping the SAME key (sessions survive restarts).
+    import auth_utils
+    os.environ['SECRET_KEY'] = auth_utils.SECRET_KEY
+
 try:
-    from fastapi import FastAPI
-    from fastapi.responses import FileResponse, Response
-    from fastapi.middleware.cors import CORSMiddleware
     import uvicorn
 
-    from routers import (auth, dashboard, clients, projects, quotations,
-                         inventory, invoices, finance, purchases, settings,
-                         archives, documents, suppliers, audit, users, roles, search, reports, crm, planning,
-                         notifications, approval_policies, approval_requests, hr,
-                         hr_contracts, recruitment, hr_activities,
-                         tax_rates, pos, cash, manufacturing,
-                         assets, recurring, announcements, attachments, accounting,
-                         warehouses, platform, imports)
-    import database
-    import backup_manager
-    # Defensive imports of shared, top-level backend modules that routers
-    # pull in DYNAMICALLY (e.g. `import warehouse_access as wha` inside a
-    # function body). PyInstaller's static analyser only reliably catches
-    # module-level imports, so naming them here guarantees the frozen build
-    # bundles them and the routers don't ImportError at runtime.
-    #
-    # IMPORTANT: aliased with `as _xxx` so they don't shadow router names from
-    # the `from routers import (...)` block above. `routers.accounting` and
-    # the top-level `accounting.py` (double-entry engine) are different
-    # modules sharing the same short name — a plain `import accounting` here
-    # rebinds the name and would break `accounting.router` below.
+    # Defensive imports of shared, top-level backend modules that routers pull
+    # in DYNAMICALLY (e.g. `import warehouse_access as wha` inside a function
+    # body). PyInstaller's static analyser only reliably catches module-level
+    # imports, so naming them here guarantees the frozen build bundles them.
     import mailer            as _mailer  # noqa: F401 — registers email.send job
     import warehouse_access as _wha    # noqa: F401 — row-level RBAC helper
     import accounting       as _acct   # noqa: F401 — double-entry posting engine
     import costing          as _cost   # noqa: F401 — FIFO/LIFO/weighted-average
     import lots             as _lots   # noqa: F401 — lot-tracked stock IO
+    import backup_manager
     backup_manager.init(DB_PATH)
 
-    app = FastAPI(title='ERP System')
-    # Restrict CORS to the exact origins this server is reachable on — the SPA
-    # is served same-origin, so a wildcard policy is unnecessary and unsafe.
-    app.add_middleware(CORSMiddleware,
-                       allow_origins=[f'http://localhost:{PORT}',
-                                      f'http://127.0.0.1:{PORT}',
-                                      f'http://{LAN_IP}:{PORT}'],
-                       allow_credentials=False, allow_methods=['*'], allow_headers=['*'])
-
-    # Schema-per-tenant routing (Phase 2). Inert unless TENANCY=schema, so the
-    # desktop / single-tenant install is unaffected.
-    from tenancy import TenantMiddleware
-    app.add_middleware(TenantMiddleware)
-
-    # Bad-input safety net: known failures -> clean 4xx instead of 500.
-    from error_handlers import register_error_handlers
-    register_error_handlers(app)
-
-    app.include_router(auth.router,               prefix='/api/auth')
-    app.include_router(dashboard.router,          prefix='/api/dashboard')
-    app.include_router(clients.router,            prefix='/api/clients')
-    app.include_router(projects.router,           prefix='/api/projects')
-    app.include_router(quotations.router,         prefix='/api/quotations')
-    app.include_router(inventory.router,          prefix='/api/inventory')
-    app.include_router(invoices.router,           prefix='/api/invoices')
-    app.include_router(finance.router,            prefix='/api/finance')
-    app.include_router(purchases.router,          prefix='/api/purchases')
-    app.include_router(settings.router,           prefix='/api/settings')
-    app.include_router(archives.router,           prefix='/api/archives')
-    app.include_router(documents.router,          prefix='/api/documents')
-    app.include_router(suppliers.router,          prefix='/api/suppliers')
-    app.include_router(audit.router,              prefix='/api/audit')
-    app.include_router(users.router,              prefix='/api/users')
-    app.include_router(roles.router,              prefix='/api/roles')
-    app.include_router(search.router,             prefix='/api/search')
-    app.include_router(reports.router,            prefix='/api/reports')
-    app.include_router(crm.router,               prefix='/api/crm')
-    app.include_router(planning.router,           prefix='/api/planning')
-    app.include_router(notifications.router,      prefix='/api/notifications')
-    app.include_router(approval_policies.router,  prefix='/api/approval-policies')
-    app.include_router(approval_requests.router,  prefix='/api/approval-requests')
-    app.include_router(hr.router,                 prefix='/api/hr')
-    app.include_router(hr_contracts.router,       prefix='/api/hr/contracts')
-    app.include_router(recruitment.router,        prefix='/api/recruitment')
-    app.include_router(hr_activities.router,      prefix='/api/hr-activities')
-    app.include_router(tax_rates.router,          prefix='/api/tax-rates')
-    app.include_router(pos.router,                prefix='/api/pos')
-    app.include_router(cash.router,               prefix='/api/cash')
-    app.include_router(manufacturing.router,      prefix='/api/manufacturing')
-    app.include_router(assets.router,             prefix='/api/assets')
-    app.include_router(recurring.router,          prefix='/api/recurring-expenses')
-    app.include_router(announcements.router,      prefix='/api/announcements')
-    app.include_router(attachments.router,        prefix='/api/attachments')
-    app.include_router(accounting.router,         prefix='/api/accounting')
-    app.include_router(warehouses.router,         prefix='/api/warehouses')
-    app.include_router(platform.router,           prefix='/api/platform')
-    app.include_router(imports.router,            prefix='/api/imports')
-
-    @app.get('/api/health')
-    def health():
-        return {'status': 'ok', 'db': DB_PATH}
-
-    NO_CACHE    = {'Cache-Control': 'no-store, no-cache, must-revalidate',
-                   'Pragma': 'no-cache', 'Expires': '0'}
-    STATIC_EXTS = ('.png','.jpg','.jpeg','.gif','.svg','.ico',
-                   '.css','.js','.woff','.woff2','.ttf','.map','.webp')
-
-    @app.get('/{full_path:path}')
-    @app.get('/')
-    def serve_spa(full_path: str = ''):
-        if full_path.startswith('api/'):
-            return Response('{"detail":"Not found"}', status_code=404,
-                            media_type='application/json')
-        if full_path:
-            p = os.path.join(STATIC_DIR, full_path)
-            if os.path.isfile(p):
-                hdrs = {'Cache-Control': 'public, max-age=31536000, immutable'} \
-                       if '/assets/' in full_path else {}
-                return FileResponse(p, headers=hdrs)
-            if any(full_path.endswith(e) for e in STATIC_EXTS):
-                return Response(status_code=404)
-        idx = os.path.join(STATIC_DIR, 'index.html')
-        if os.path.exists(idx):
-            return FileResponse(idx, headers=NO_CACHE)
-        return Response(f'Frontend missing at {STATIC_DIR}', status_code=500)
+    # Importing main builds the app AND runs database.init_db() against DB_PATH
+    # (set above), applying any pending migrations to the seeded/existing DB.
+    from main import app
 
     def open_browser():
         url = f'http://127.0.0.1:{PORT}'   # localhost for the server machine itself
