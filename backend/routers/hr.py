@@ -1566,3 +1566,116 @@ def cancel_payroll_run(
                f"{run['period_start']} → {run['period_end']}")
     db.commit()
     return {"message": "Payroll run cancelled"}
+
+
+# ══════════════════════════════════════════════════════════════════════════════
+# ATTENDANCE (daily) — Phase 1: one row per employee per day, simple status mark.
+# ══════════════════════════════════════════════════════════════════════════════
+ATTENDANCE_STATUS = {"Present", "Absent", "Late", "Half-day", "Leave"}
+
+
+class AttendanceMark(BaseModel):
+    employee_id: int
+    date:        str
+    status:      str = "Present"
+    hours:       Optional[float] = None
+    note:        Optional[str] = None
+
+    @validator("status")
+    def _status_ok(cls, v):
+        if v not in ATTENDANCE_STATUS:
+            raise ValueError("Invalid status. Must be one of: "
+                             + ", ".join(sorted(ATTENDANCE_STATUS)))
+        return v
+
+
+class AttendanceBulk(BaseModel):
+    date:    str
+    records: list   # [{employee_id, status, hours?, note?}]
+
+
+def _upsert_attendance(db, employee_id, day, status, hours, note):
+    """Idempotent per (employee, date) — update in place or insert. Works on both
+    backends without a dialect-specific UPSERT."""
+    if status not in ATTENDANCE_STATUS:
+        raise HTTPException(400, "Invalid status. Must be one of: "
+                            + ", ".join(sorted(ATTENDANCE_STATUS)))
+    now = _now()
+    cur = db.execute(
+        "UPDATE hr_attendance SET status=?, hours=?, note=?, updated_at=? "
+        "WHERE employee_id=? AND date=?",
+        (status, hours, note, now, employee_id, day[:10]),
+    )
+    if not cur.rowcount:
+        db.execute(
+            "INSERT INTO hr_attendance "
+            "(employee_id, date, status, hours, note, created_at, updated_at) "
+            "VALUES (?,?,?,?,?,?,?)",
+            (employee_id, day[:10], status, hours, note, now, now),
+        )
+
+
+@router.get("/attendance")
+def list_attendance(date: str, user=Depends(require_perm("hr", "view")),
+                    db=Depends(get_db)):
+    """Active employees + their mark (if any) for `date` — drives the daily editor."""
+    rows = db.execute(
+        """SELECT e.id AS employee_id, e.full_name, e.job_title, e.employee_code,
+                  a.status, a.hours, a.note
+           FROM hr_employees e
+           LEFT JOIN hr_attendance a ON a.employee_id = e.id AND a.date = ?
+           WHERE e.archived_at IS NULL
+           ORDER BY e.full_name""",
+        (date[:10],),
+    ).fetchall()
+    return {"date": date[:10], "rows": [dict(r) for r in rows]}
+
+
+@router.post("/attendance")
+def mark_attendance(body: AttendanceMark, user=Depends(require_perm("hr", "edit")),
+                    db=Depends(get_db)):
+    _upsert_attendance(db, body.employee_id, body.date, body.status, body.hours, body.note)
+    db.commit()
+    return {"message": "Attendance saved"}
+
+
+@router.post("/attendance/bulk")
+def mark_attendance_bulk(body: AttendanceBulk, user=Depends(require_perm("hr", "edit")),
+                         db=Depends(get_db)):
+    """Save the whole day's roster in one call (the daily editor's Save button)."""
+    n = 0
+    for r in (body.records or []):
+        emp = r.get("employee_id")
+        if not emp:
+            continue
+        _upsert_attendance(db, int(emp), body.date, r.get("status") or "Present",
+                           r.get("hours"), r.get("note"))
+        n += 1
+    db.commit()
+    return {"saved": n}
+
+
+@router.get("/attendance/summary")
+def attendance_summary(month: str, user=Depends(require_perm("hr", "view")),
+                       db=Depends(get_db)):
+    """Per-employee status counts for a YYYY-MM month (lexical date range works on
+    the 'YYYY-MM-DD' string column)."""
+    m = month[:7]
+    start, end = f"{m}-01", f"{m}-31"
+    rows = db.execute(
+        """SELECT e.id AS employee_id, e.full_name, a.status, COUNT(a.id) AS n
+           FROM hr_employees e
+           LEFT JOIN hr_attendance a
+             ON a.employee_id = e.id AND a.date >= ? AND a.date <= ?
+           WHERE e.archived_at IS NULL
+           GROUP BY e.id, a.status
+           ORDER BY e.full_name""",
+        (start, end),
+    ).fetchall()
+    out = {}
+    for r in rows:
+        d = out.setdefault(r["employee_id"], {
+            "employee_id": r["employee_id"], "full_name": r["full_name"], "counts": {}})
+        if r["status"]:
+            d["counts"][r["status"]] = r["n"]
+    return {"month": m, "rows": list(out.values())}

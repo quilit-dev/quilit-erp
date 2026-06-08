@@ -370,6 +370,10 @@ export const getEmployee         = (id)          => api.get(`/api/hr/employees/$
 export const createEmployee      = (d)           => api.post('/api/hr/employees', d);
 export const updateEmployee      = (id, d)       => api.put(`/api/hr/employees/${id}`, d);
 export const archiveEmployee     = (id)          => api.patch(`/api/hr/employees/${id}/archive`);
+// Attendance (daily)
+export const getAttendance        = (date)        => api.get(`/api/hr/attendance?date=${encodeURIComponent(date)}`);
+export const saveAttendanceBulk   = (d)           => api.post('/api/hr/attendance/bulk', d);
+export const getAttendanceSummary = (month)       => api.get(`/api/hr/attendance/summary?month=${encodeURIComponent(month)}`);
 export const getLeaveRequests    = (params = {}) => api.get(`/api/hr/leave${_qs(params)}`);
 export const createLeaveRequest  = (d)           => api.post('/api/hr/leave', d);
 export const approveLeave        = (id, d = {})  => api.post(`/api/hr/leave/${id}/approve`, d);
