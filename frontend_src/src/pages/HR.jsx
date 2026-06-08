@@ -16,6 +16,7 @@ import {
   approvePayrollRun, markPayrollRunPaid, cancelPayrollRun,
   getContracts, createContract, updateContract, setContractStatus,
   archiveContract, getContractPrintData,
+  getAttendance, saveAttendanceBulk,
 } from '../api/client';
 import ImportWizard from '../components/ImportWizard';
 
@@ -247,6 +248,7 @@ export default function HR() {
     { key: 'payroll',     label: t('hr.tabPayroll'),     count: runs.length },
     { key: 'departments', label: t('hr.tabDepartments'), count: depts.length },
     { key: 'leave',       label: t('hr.tabLeave'),       count: leaves.length },
+    { key: 'attendance',  label: t('hr.tabAttendance'),  count: emps.length },
   ];
 
   return (
@@ -492,6 +494,10 @@ export default function HR() {
             </div>
           )}
         </div>
+      )}
+
+      {tab === 'attendance' && (
+        <AttendanceTab t={t} canEdit={canEdit} />
       )}
 
       {importing && (
@@ -1637,5 +1643,107 @@ function printContractHTML(contract, company) {
       setTimeout(() => document.body.removeChild(iframe), 2000);
     }
   };
+}
+
+// ── Attendance tab (daily) ────────────────────────────────────────────────────
+const ATT_STATUSES = ['Present', 'Absent', 'Late', 'Half-day', 'Leave'];
+const ATT_LABEL_KEY = {
+  'Present': 'hr.attPresent', 'Absent': 'hr.attAbsent', 'Late': 'hr.attLate',
+  'Half-day': 'hr.attHalfday', 'Leave': 'hr.attLeave',
+};
+
+function AttendanceTab({ t, canEdit }) {
+  const [date, setDate]     = useState(() => new Date().toISOString().slice(0, 10));
+  const [rows, setRows]     = useState(null);
+  const [saving, setSaving] = useState(false);
+
+  const load = useCallback(() => {
+    setRows(null);
+    getAttendance(date)
+      .then(d => setRows((d.rows || []).map(r => ({ ...r, status: r.status || '' }))))
+      .catch(e => { toast(e.message, 'red'); setRows([]); });
+  }, [date]);
+  useEffect(() => { load(); }, [load]);
+
+  const setRow = (id, field, val) =>
+    setRows(rs => rs.map(r => (r.employee_id === id ? { ...r, [field]: val } : r)));
+  const markAllPresent = () => setRows(rs => rs.map(r => ({ ...r, status: 'Present' })));
+
+  async function save() {
+    setSaving(true);
+    try {
+      const records = (rows || [])
+        .filter(r => r.status)                       // only rows that have a mark
+        .map(r => ({
+          employee_id: r.employee_id, status: r.status,
+          hours: (r.hours === '' || r.hours == null) ? null : Number(r.hours),
+          note: r.note || null,
+        }));
+      const res = await saveAttendanceBulk({ date, records });
+      toast(`${t('hr.attSaved')} (${res.saved})`);
+      load();
+    } catch (e) { toast(e.message, 'red'); }
+    finally { setSaving(false); }
+  }
+
+  return (
+    <div className="card">
+      <div className="card-header" style={{ display: 'flex', gap: 10, alignItems: 'center', flexWrap: 'wrap' }}>
+        <span className="card-title">{t('hr.tabAttendance')}</span>
+        <input type="date" className="form-control" style={{ width: 160 }}
+          value={date} onChange={e => setDate(e.target.value)} />
+        <div style={{ marginLeft: 'auto', display: 'flex', gap: 8 }}>
+          {canEdit && (
+            <button className="btn btn-secondary btn-sm" onClick={markAllPresent}
+              disabled={!rows || !rows.length}>✓ {t('hr.attMarkAllPresent')}</button>
+          )}
+          {canEdit && (
+            <button className="btn btn-primary btn-sm" onClick={save}
+              disabled={saving || !rows || !rows.length}>
+              {saving ? t('common.saving') : t('common.save')}
+            </button>
+          )}
+        </div>
+      </div>
+      {!rows ? <LoadingSpinner /> :
+        rows.length === 0 ? <EmptyState message={t('hr.noEmployees')} /> : (
+        <div className="table-wrap">
+          <table>
+            <thead><tr>
+              <th>{t('hr.colEmployee')}</th>
+              <th>{t('hr.attJobTitle')}</th>
+              <th>{t('common.status')}</th>
+              <th>{t('hr.attHours')}</th>
+              <th>{t('common.notes')}</th>
+            </tr></thead>
+            <tbody>
+              {rows.map(r => (
+                <tr key={r.employee_id}>
+                  <td className="td-primary">{r.full_name}</td>
+                  <td style={{ color: 'var(--text-3)', fontSize: 13 }}>{r.job_title || '—'}</td>
+                  <td>
+                    <select className="form-control" style={{ minWidth: 130 }} value={r.status}
+                      disabled={!canEdit} onChange={e => setRow(r.employee_id, 'status', e.target.value)}>
+                      <option value="">{t('hr.attNotMarked')}</option>
+                      {ATT_STATUSES.map(s => <option key={s} value={s}>{t(ATT_LABEL_KEY[s])}</option>)}
+                    </select>
+                  </td>
+                  <td>
+                    <input type="number" className="form-control" style={{ width: 80 }} min="0" step="0.5"
+                      value={r.hours ?? ''} disabled={!canEdit}
+                      onChange={e => setRow(r.employee_id, 'hours', e.target.value)} />
+                  </td>
+                  <td>
+                    <input className="form-control" value={r.note || ''} disabled={!canEdit}
+                      onChange={e => setRow(r.employee_id, 'note', e.target.value)} />
+                  </td>
+                </tr>
+              ))}
+            </tbody>
+          </table>
+        </div>
+      )}
+    </div>
+  );
 }
 
