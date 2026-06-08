@@ -27,13 +27,14 @@ import { useState, useEffect, useMemo, useCallback } from 'react';
 import {
   getAccounts, createAccount, updateAccount, deleteAccount,
   getJournalEntries, getJournalEntry, createJournalEntry, reverseJournalEntry,
-  getGeneralLedger, getTrialBalance, getBalanceSheet, getIncomeStatement,
+  getGeneralLedger, getTrialBalance, getBalanceSheet, getIncomeStatement, getCashFlow,
   getAccountingSummary, getFiscalYears, closeFiscalYear, reopenFiscalYear,
   getFinancePeriods, lockPeriod, unlockPeriod,
 } from '../api/client';
 import {
   LoadingSpinner, Modal, ConfirmModal, toast, ExportButton,
 } from '../components/shared';
+import { exportReportPDF } from '../utils/exportUtils';
 import { useLocale } from '../hooks/useLocale.jsx';
 import { usePermissions } from '../hooks/usePermissions';
 
@@ -175,6 +176,7 @@ export default function Accounting() {
     ['trialBalance', t('accounting.trialBalance')],
     ['incomeStatement', t('accounting.incomeStatement')],
     ['balanceSheet', t('accounting.balanceSheet')],
+    ['cashFlow', t('accounting.cashFlow')],
     ['closing', t('accounting.closing')],
   ];
 
@@ -202,6 +204,7 @@ export default function Accounting() {
       {tab === 'trialBalance' && <TrialBalance t={t} fmt={fmt} />}
       {tab === 'incomeStatement' && <IncomeStatement t={t} fmt={fmt} />}
       {tab === 'balanceSheet' && <BalanceSheet t={t} fmt={fmt} />}
+      {tab === 'cashFlow' && <CashFlow t={t} fmt={fmt} />}
       {tab === 'closing' && <>
         <YearEnd t={t} fmt={fmt} can={can} />
         <MonthlyPeriods t={t} fmt={fmt} can={can} />
@@ -947,6 +950,103 @@ function TrialBalance({ t, fmt }) {
   );
 }
 
+// ── Statement export (Excel + branded PDF), shared by all three statements ────
+function StatementExport({ kind, data, t }) {
+  if (!data) return null;
+  const acct = (r) => `${r.code} ${r.name}`;
+  const ind  = (r) => '   ' + acct(r);   // indent line items under a section
+  let title, subtitle, filename, sheetName, excelRows, pdfRows, totals, meta;
+
+  if (kind === 'income') {
+    title = t('accounting.incomeStatement'); filename = 'Income-Statement'; sheetName = 'Income Statement';
+    subtitle = `${data.start} → ${data.end}`;
+    meta = { [t('accounting.from')]: data.start, [t('accounting.to')]: data.end };
+    excelRows = [
+      ...data.income.map(r => ({ Section: t('accounting.income'), Account: acct(r), Amount: r.balance })),
+      { Section: t('accounting.income'),  Account: t('accounting.totalIncome'),  Amount: data.total_income },
+      ...data.expense.map(r => ({ Section: t('accounting.expense'), Account: acct(r), Amount: r.balance })),
+      { Section: t('accounting.expense'), Account: t('accounting.totalExpense'), Amount: data.total_expense },
+      { Section: '', Account: t('accounting.netIncome'), Amount: data.net_income },
+    ];
+    pdfRows = [
+      { label: t('accounting.income').toUpperCase(), amount: '' },
+      ...data.income.map(r => ({ label: ind(r), amount: r.balance })),
+      { label: t('accounting.totalIncome'), amount: data.total_income },
+      { label: t('accounting.expense').toUpperCase(), amount: '' },
+      ...data.expense.map(r => ({ label: ind(r), amount: r.balance })),
+      { label: t('accounting.totalExpense'), amount: data.total_expense },
+    ];
+    totals = { label: t('accounting.netIncome'), columns: [null, data.net_income] };
+  } else if (kind === 'balance') {
+    title = t('accounting.balanceSheet'); filename = 'Balance-Sheet'; sheetName = 'Balance Sheet';
+    subtitle = `${t('accounting.asOf')} ${data.as_of}`;
+    meta = { [t('accounting.asOf')]: data.as_of, [t('accounting.balanced')]: data.balanced ? t('common.yes') : t('common.no') };
+    excelRows = [
+      ...data.assets.map(r => ({ Section: t('accounting.assets'), Account: acct(r), Amount: r.balance })),
+      { Section: t('accounting.assets'), Account: t('accounting.totalAssets'), Amount: data.total_assets },
+      ...data.liabilities.map(r => ({ Section: t('accounting.liabilities'), Account: acct(r), Amount: r.balance })),
+      ...data.equity.map(r => ({ Section: t('accounting.equity'), Account: acct(r), Amount: r.balance })),
+      { Section: t('accounting.equity'), Account: t('accounting.currentEarnings'), Amount: data.net_income },
+      { Section: '', Account: t('accounting.liabilitiesAndEquity'), Amount: data.total_liabilities_equity },
+    ];
+    pdfRows = [
+      { label: t('accounting.assets').toUpperCase(), amount: '' },
+      ...data.assets.map(r => ({ label: ind(r), amount: r.balance })),
+      { label: t('accounting.totalAssets'), amount: data.total_assets },
+      { label: t('accounting.liabilities').toUpperCase(), amount: '' },
+      ...data.liabilities.map(r => ({ label: ind(r), amount: r.balance })),
+      { label: t('accounting.equity').toUpperCase(), amount: '' },
+      ...data.equity.map(r => ({ label: ind(r), amount: r.balance })),
+      { label: '   ' + t('accounting.currentEarnings'), amount: data.net_income },
+    ];
+    totals = { label: t('accounting.liabilitiesAndEquity'), columns: [null, data.total_liabilities_equity] };
+  } else {
+    title = t('accounting.cashFlow'); filename = 'Cash-Flow'; sheetName = 'Cash Flow';
+    subtitle = `${data.start} → ${data.end}`;
+    meta = { [t('accounting.from')]: data.start, [t('accounting.to')]: data.end };
+    const secX = (label, rows) => rows.map(r => ({ Section: label, Account: acct(r), Amount: r.amount }));
+    excelRows = [
+      ...secX(t('accounting.cfOperating'), data.operating),
+      { Section: t('accounting.cfOperating'), Account: t('accounting.cfNetOperating'), Amount: data.total_operating },
+      ...secX(t('accounting.cfInvesting'), data.investing),
+      { Section: t('accounting.cfInvesting'), Account: t('accounting.cfNetInvesting'), Amount: data.total_investing },
+      ...secX(t('accounting.cfFinancing'), data.financing),
+      { Section: t('accounting.cfFinancing'), Account: t('accounting.cfNetFinancing'), Amount: data.total_financing },
+      { Section: '', Account: t('accounting.cfNetChange'),    Amount: data.net_change },
+      { Section: '', Account: t('accounting.cfOpeningCash'),  Amount: data.opening_cash },
+      { Section: '', Account: t('accounting.cfClosingCash'),  Amount: data.closing_cash },
+    ];
+    const secP = (label, rows, tl, tv) => [
+      { label: label.toUpperCase(), amount: '' },
+      ...rows.map(r => ({ label: ind(r), amount: r.amount })),
+      { label: tl, amount: tv },
+    ];
+    pdfRows = [
+      ...secP(t('accounting.cfOperating'), data.operating, t('accounting.cfNetOperating'), data.total_operating),
+      ...secP(t('accounting.cfInvesting'), data.investing, t('accounting.cfNetInvesting'), data.total_investing),
+      ...secP(t('accounting.cfFinancing'), data.financing, t('accounting.cfNetFinancing'), data.total_financing),
+      { label: t('accounting.cfOpeningCash'), amount: data.opening_cash },
+      { label: t('accounting.cfClosingCash'), amount: data.closing_cash },
+    ];
+    totals = { label: t('accounting.cfNetChange'), columns: [null, data.net_change] };
+  }
+
+  const doPDF = () => exportReportPDF({
+    title, subtitle, filename, meta, rows: pdfRows, totals,
+    columns: [
+      { label: t('accounting.account'), align: 'left',  value: r => r.label },
+      { label: t('common.amount'),      align: 'right', width: '30%', value: r => r.amount },
+    ],
+  }).catch(e => toast(e.message, 'red'));
+
+  return (
+    <div style={{ display: 'flex', gap: 8, alignItems: 'center' }}>
+      <ExportButton data={excelRows} filename={filename} sheetName={sheetName} />
+      <button className="btn btn-secondary btn-sm" onClick={doPDF} title="Export to PDF">📄 PDF</button>
+    </div>
+  );
+}
+
 // ── Income Statement ─────────────────────────────────────────────────────────
 function StatementSection({ title, rows, fmt, color }) {
   return (
@@ -974,7 +1074,10 @@ function IncomeStatement({ t, fmt }) {
     <div className="card">
       <div className="card-header" style={{ display: 'flex', gap: 8, alignItems: 'center', justifyContent: 'space-between', flexWrap: 'wrap' }}>
         <span className="card-title">{t('accounting.incomeStatement')}</span>
-        <DateRange start={start} end={end} onStart={setStart} onEnd={setEnd} t={t} />
+        <div style={{ display: 'flex', gap: 8, alignItems: 'center', flexWrap: 'wrap' }}>
+          <DateRange start={start} end={end} onStart={setStart} onEnd={setEnd} t={t} />
+          <StatementExport kind="income" data={data} t={t} />
+        </div>
       </div>
       {!data ? <LoadingSpinner /> : (
         <div className="table-wrap"><table>
@@ -1003,9 +1106,10 @@ function BalanceSheet({ t, fmt }) {
     <div className="card">
       <div className="card-header" style={{ display: 'flex', gap: 8, alignItems: 'center', justifyContent: 'space-between', flexWrap: 'wrap' }}>
         <span className="card-title">{t('accounting.balanceSheet')}</span>
-        <div style={{ display: 'flex', gap: 8, alignItems: 'center' }}>
+        <div style={{ display: 'flex', gap: 8, alignItems: 'center', flexWrap: 'wrap' }}>
           <span style={{ fontSize: 13, color: 'var(--text-3)' }}>{t('accounting.asOf')}</span>
           <input type="date" className="form-control" style={{ width: 150 }} value={asOf} onChange={e => setAsOf(e.target.value)} />
+          <StatementExport kind="balance" data={data} t={t} />
         </div>
       </div>
       {!data ? <LoadingSpinner /> : (
@@ -1019,6 +1123,81 @@ function BalanceSheet({ t, fmt }) {
             <tr style={{ fontWeight: 700, borderTop: '2px solid var(--border)' }}>
               <td style={{ textAlign: 'right' }}>{t('accounting.liabilitiesAndEquity')}</td>
               <td style={{ textAlign: 'right' }}>{fmt(data.total_liabilities_equity)}</td>
+            </tr>
+            <tr><td colSpan={2} style={{ textAlign: 'right', color: data.balanced ? 'var(--green)' : 'var(--red)', fontSize: 12 }}>
+              {data.balanced ? `✓ ${t('accounting.balanced')}` : `⚠ ${t('accounting.notBalanced')}`}
+            </td></tr>
+          </tbody>
+        </table></div>
+      )}
+    </div>
+  );
+}
+
+
+// ── Cash Flow Statement ──────────────────────────────────────────────────────
+function CashFlowSection({ title, rows, total, totalLabel, fmt }) {
+  return (
+    <>
+      <tr style={{ background: 'var(--surface-2, #f9fafb)' }}>
+        <td colSpan={2} style={{ fontWeight: 700 }}>{title}</td>
+      </tr>
+      {rows.map(r => (
+        <tr key={r.code}>
+          <td style={{ paddingInlineStart: 24 }}>
+            <span className="text-mono" style={{ color: 'var(--text-3)' }}>{r.code}</span> {r.name}
+          </td>
+          <td style={{ textAlign: 'right', color: r.amount < 0 ? 'var(--red)' : undefined }}>{fmt(r.amount)}</td>
+        </tr>
+      ))}
+      {rows.length === 0 && (
+        <tr><td style={{ paddingInlineStart: 24, color: 'var(--text-3)' }}>—</td><td style={{ textAlign: 'right' }}>{fmt(0)}</td></tr>
+      )}
+      <tr style={{ fontWeight: 600 }}>
+        <td style={{ textAlign: 'right' }}>{totalLabel}</td>
+        <td style={{ textAlign: 'right', color: total < 0 ? 'var(--red)' : undefined }}>{fmt(total)}</td>
+      </tr>
+    </>
+  );
+}
+
+function CashFlow({ t, fmt }) {
+  const [start, setStart] = useState(monthStartISO());
+  const [end,   setEnd]   = useState(todayISO());
+  const [data, setData] = useState(null);
+  useEffect(() => {
+    setData(null);
+    getCashFlow({ start, end }).then(setData).catch(e => toast(e.message, 'red'));
+  }, [start, end]);
+  return (
+    <div className="card">
+      <div className="card-header" style={{ display: 'flex', gap: 8, alignItems: 'center', justifyContent: 'space-between', flexWrap: 'wrap' }}>
+        <span className="card-title">{t('accounting.cashFlow')}</span>
+        <div style={{ display: 'flex', gap: 8, alignItems: 'center', flexWrap: 'wrap' }}>
+          <DateRange start={start} end={end} onStart={setStart} onEnd={setEnd} t={t} />
+          <StatementExport kind="cashflow" data={data} t={t} />
+        </div>
+      </div>
+      {!data ? <LoadingSpinner /> : (
+        <div className="table-wrap"><table>
+          <tbody>
+            <CashFlowSection title={t('accounting.cfOperating')} rows={data.operating}
+              total={data.total_operating} totalLabel={t('accounting.cfNetOperating')} fmt={fmt} />
+            <CashFlowSection title={t('accounting.cfInvesting')} rows={data.investing}
+              total={data.total_investing} totalLabel={t('accounting.cfNetInvesting')} fmt={fmt} />
+            <CashFlowSection title={t('accounting.cfFinancing')} rows={data.financing}
+              total={data.total_financing} totalLabel={t('accounting.cfNetFinancing')} fmt={fmt} />
+            <tr style={{ fontWeight: 700, borderTop: '2px solid var(--border)', fontSize: 15 }}>
+              <td style={{ textAlign: 'right' }}>{t('accounting.cfNetChange')}</td>
+              <td style={{ textAlign: 'right', color: data.net_change < 0 ? 'var(--red)' : 'var(--green)' }}>{fmt(data.net_change)}</td>
+            </tr>
+            <tr>
+              <td style={{ textAlign: 'right', color: 'var(--text-3)' }}>{t('accounting.cfOpeningCash')}</td>
+              <td style={{ textAlign: 'right' }}>{fmt(data.opening_cash)}</td>
+            </tr>
+            <tr style={{ fontWeight: 600 }}>
+              <td style={{ textAlign: 'right' }}>{t('accounting.cfClosingCash')}</td>
+              <td style={{ textAlign: 'right' }}>{fmt(data.closing_cash)}</td>
             </tr>
             <tr><td colSpan={2} style={{ textAlign: 'right', color: data.balanced ? 'var(--green)' : 'var(--red)', fontSize: 12 }}>
               {data.balanced ? `✓ ${t('accounting.balanced')}` : `⚠ ${t('accounting.notBalanced')}`}

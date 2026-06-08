@@ -201,3 +201,64 @@ def test_create_custom_account(make_client):
     })
     assert r.status_code in (200, 201), r.text
     assert "6950" in _acct_map(c)
+
+
+# ── Cash Flow Statement ───────────────────────────────────────────────────────
+_WIDE = "start=2000-01-01&end=2099-12-31"
+
+
+def test_cash_flow_classifies_activities_and_ties_out(make_client):
+    """Cash flow is GL-derived and bucketed by the non-cash side of each
+    cash-touching entry: operating (working capital / P&L), investing (fixed
+    assets), financing (equity/loans). It must reconcile opening→closing."""
+    c = make_client("superadmin")
+    accts = _acct_map(c)
+    cash, equity, fixed = accts["1000"]["id"], accts["3000"]["id"], accts["1500"]["id"]
+
+    # Operating: collect a paid invoice (+1000) and pay rent in cash (−300).
+    _make_paid_invoice(c, 1000)
+    c.post("/api/finance/expenses", json={"category": "Rent", "amount": 300})
+    # Financing: owner injects 5000 cash.
+    c.post("/api/accounting/journal-entries", json={
+        "entry_date": "2026-01-05", "memo": "Owner capital",
+        "lines": [{"account_id": cash, "debit": 5000}, {"account_id": equity, "credit": 5000}],
+    })
+    # Investing: buy equipment for 2000 cash.
+    c.post("/api/accounting/journal-entries", json={
+        "entry_date": "2026-01-06", "memo": "Buy equipment",
+        "lines": [{"account_id": fixed, "debit": 2000}, {"account_id": cash, "credit": 2000}],
+    })
+
+    cf = c.get(f"/api/accounting/cash-flow?{_WIDE}").json()
+    assert cf["total_operating"] == pytest.approx(700)     # +1000 AR − 300 rent
+    assert cf["total_financing"] == pytest.approx(5000)
+    assert cf["total_investing"] == pytest.approx(-2000)
+    assert cf["net_change"]   == pytest.approx(3700)
+    assert cf["opening_cash"] == pytest.approx(0)
+    assert cf["closing_cash"] == pytest.approx(3700)
+    assert cf["balanced"] is True
+    # The headline reconciliation: activities sum to the change in cash.
+    assert cf["closing_cash"] - cf["opening_cash"] == pytest.approx(cf["net_change"])
+    # Sub-lines reference the real driving accounts.
+    assert "3000" in {r["code"] for r in cf["financing"]}
+    assert "1500" in {r["code"] for r in cf["investing"]}
+
+
+def test_cash_flow_internal_cash_transfer_is_neutral(make_client):
+    """Moving money between two cash accounts (USD till → LBP till) is not a cash
+    flow — it must not appear in any activity or change total cash."""
+    c = make_client("superadmin")
+    accts = _acct_map(c)
+    usd, lbp = accts["1000"]["id"], accts["1010"]["id"]
+    c.post("/api/accounting/journal-entries", json={
+        "entry_date": "2026-03-01", "memo": "Move USD to LBP till",
+        "lines": [{"account_id": lbp, "debit": 500}, {"account_id": usd, "credit": 500}],
+    })
+
+    cf = c.get(f"/api/accounting/cash-flow?{_WIDE}").json()
+    assert cf["total_operating"] == pytest.approx(0)
+    assert cf["total_investing"] == pytest.approx(0)
+    assert cf["total_financing"] == pytest.approx(0)
+    assert cf["net_change"]   == pytest.approx(0)
+    assert cf["closing_cash"] == pytest.approx(0)
+    assert cf["balanced"] is True

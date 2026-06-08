@@ -589,6 +589,7 @@ export const getGeneralLedger     = (params = {}) => api.get(`/api/accounting/ge
 export const getTrialBalance      = (params = {}) => api.get(`/api/accounting/trial-balance${_qs(params)}`);
 export const getBalanceSheet      = (params = {}) => api.get(`/api/accounting/balance-sheet${_qs(params)}`);
 export const getIncomeStatement   = (params = {}) => api.get(`/api/accounting/income-statement${_qs(params)}`);
+export const getCashFlow          = (params = {}) => api.get(`/api/accounting/cash-flow${_qs(params)}`);
 export const getAccountingSummary = (params = {}) => api.get(`/api/accounting/summary${_qs(params)}`);
 // Financial-year closing
 export const getFiscalYears   = ()     => api.get('/api/accounting/fiscal-years');
