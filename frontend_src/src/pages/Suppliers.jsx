@@ -10,6 +10,7 @@ import { useSortPaginate } from '../hooks/useSortPaginate';
 import { useLocale } from '../hooks/useLocale.jsx';
 import { usePermissions } from '../hooks/usePermissions';
 import Attachments from '../components/Attachments.jsx';
+import ImportWizard from '../components/ImportWizard';
 
 const EMPTY = {
   name: '', contact_name: '', phone: '', email: '',
@@ -21,6 +22,7 @@ export default function Suppliers() {
   const { can } = usePermissions();
   const { data: suppliers, loading, error, reload } = useData(getSuppliers);
   const [modal,      setModal]      = useState(null);
+  const [importing,  setImporting]  = useState(false);
   const [form,       setForm]       = useState(EMPTY);
   const [editId,     setEditId]     = useState(null);
   const [deleteId,   setDeleteId]   = useState(null);
@@ -96,9 +98,15 @@ export default function Suppliers() {
         </div>
         <div style={{ display: 'flex', gap: 8 }}>
           <ExportButton data={exportData} filename="Suppliers" sheetName="Suppliers" />
+          <button className="btn btn-secondary" onClick={() => setImporting(true)}>⬆ {t('imports.importBtn')}</button>
           <button className="btn btn-primary" onClick={openCreate}>{t('suppliers.addSupplier')}</button>
         </div>
       </div>
+
+      {importing && (
+        <ImportWizard entity="suppliers" title={`${t('imports.importBtn')} — ${t('suppliers.title')}`}
+          onClose={() => setImporting(false)} onDone={reload} />
+      )}
 
       <div className="card">
         <div className="card-header">

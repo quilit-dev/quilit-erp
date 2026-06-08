@@ -192,6 +192,11 @@ export const createSupplier    = (d)     => api.post('/api/suppliers/', d);
 export const updateSupplier    = (id, d) => api.put(`/api/suppliers/${id}`, d);
 export const archiveSupplier   = (id)    => api.patch(`/api/suppliers/${id}/archive`);
 
+// Bulk import wizard (clients / suppliers / inventory)
+export const getImportSchema = (entity)       => api.get(`/api/imports/${entity}/schema`);
+export const validateImport  = (entity, body) => api.post(`/api/imports/${entity}/validate`, body);
+export const commitImport    = (entity, body) => api.post(`/api/imports/${entity}/commit`, body);
+
 // Audit log
 export const getAuditLog = (params = {}) => api.get(`/api/audit/${_qs(params)}`);
 export const purgeAuditLog = (olderThanDays) =>

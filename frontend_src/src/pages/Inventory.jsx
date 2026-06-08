@@ -12,6 +12,7 @@ import {
 import { useSortPaginate } from '../hooks/useSortPaginate';
 import { useLocale } from '../hooks/useLocale.jsx';
 import { useWarehouses } from '../hooks/useWarehouses';
+import ImportWizard from '../components/ImportWizard';
 
 const UNITS = ['pcs', 'kg', 'g', 'l', 'ml', 'm', 'm²', 'm³', 'box', 'roll', 'set', 'pair'];
 const DEFAULT_CATEGORIES = ['Equipment', 'Materials', 'Safety', 'Tools', 'Consumables', 'Other'];
@@ -484,6 +485,7 @@ export default function Inventory() {
   const [fetchError, setFetchError] = useState(null);
 
   const [modal,      setModal]      = useState(null);
+  const [importing,  setImporting]  = useState(false);
   const [activeItem, setActiveItem] = useState(null);
   const [saving,     setSaving]     = useState(false);
 
@@ -578,9 +580,15 @@ export default function Inventory() {
               onClick={() => setView('lots')}>{t('inventory.tabLots')}</button>
           </div>
           {view === 'items' && <ExportButton data={exportData} filename="Inventory" sheetName="Inventory" />}
+          {view === 'items' && <button className="btn btn-secondary" onClick={() => setImporting(true)}>⬆ {t('imports.importBtn')}</button>}
           {view === 'items' && <button className="btn btn-primary" onClick={() => setModal('add')}>{t('inventory.addItem')}</button>}
         </div>
       </div>
+
+      {importing && (
+        <ImportWizard entity="inventory" title={`${t('imports.importBtn')} — ${t('inventory.title')}`}
+          onClose={() => setImporting(false)} onDone={load} />
+      )}
 
       {view === 'lots' && <LotsBrowser />}
 
