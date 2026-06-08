@@ -242,6 +242,14 @@ export default function ImportWizard({ entity, title, onClose, onDone }) {
   );
 }
 
+// Best human label for a previewed row across entities (clients/accounts use
+// `name`, employees `full_name`, …); falls back to the first non-empty value.
+function _label(p) {
+  if (!p) return '';
+  return p.name || p.full_name || (p.code ? `${p.code} ${p.name || ''}`.trim() : '')
+    || Object.values(p).find(v => v != null && v !== '') || '';
+}
+
 function PreviewTable({ rows, t }) {
   const shown = rows.slice(0, 200);
   return (
@@ -258,8 +266,7 @@ function PreviewTable({ rows, t }) {
               <td className="text-mono">{r.index + 1}</td>
               <td><Badge status={r.status} label={t('imports.' + r.status)} /></td>
               <td style={{ fontSize: 12, color: r.errors ? 'var(--red)' : 'var(--text-2)' }}>
-                {r.errors ? r.errors.join('; ')
-                          : r.note || (r.preview ? (r.preview.name || '') : '')}
+                {r.errors ? r.errors.join('; ') : (r.note || _label(r.preview))}
               </td>
             </tr>
           ))}

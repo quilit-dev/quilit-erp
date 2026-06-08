@@ -98,6 +98,52 @@ def test_commit_inventory_creates_item_with_opening_stock(make_client):
     assert "BadType" not in items
 
 
+# ── Chart of Accounts ───────────────────────────────────────────────────────────
+def test_schema_covers_all_entities(make_client):
+    c = make_client("superadmin")
+    for ent, req in [("clients", "name"), ("suppliers", "name"), ("inventory", "name"),
+                     ("accounts", "code"), ("leads", "name"), ("employees", "full_name")]:
+        s = c.get(f"/api/imports/{ent}/schema").json()
+        keys = {f["key"] for f in s["fields"]}
+        assert req in keys, f"{ent} missing {req}"
+
+
+def test_commit_accounts_dedupes_code_and_rejects_bad_type(make_client):
+    c = make_client("superadmin")
+    r = c.post("/api/imports/accounts/commit", json={"rows": [
+        {"code": "1000", "name": "Cash dup", "type": "Asset"},      # seeded code → duplicate
+        {"code": "7777", "name": "Marketing", "type": "Expense"},   # new → created
+        {"code": "7778", "name": "Bad", "type": "Nope"},            # invalid type → failed at create
+    ]}).json()
+    assert r["created"] == 1 and r["skipped"] == 1 and r["failed"] == 1
+    codes = {a["code"] for a in c.get("/api/accounting/accounts").json()}
+    assert "7777" in codes and "7778" not in codes
+
+
+# ── CRM leads ───────────────────────────────────────────────────────────────────
+def test_commit_leads_creates(make_client):
+    c = make_client("superadmin")
+    r = c.post("/api/imports/leads/commit", json={"rows": [
+        {"name": "Tech Startup", "company": "TS LLC", "email": "t@s.lb",
+         "status": "New", "score": "8", "estimated_value": "5000"},
+        {"company": "No Name Co"},        # missing name → failed
+    ]}).json()
+    assert r["created"] == 1 and r["failed"] == 1
+
+
+# ── HR employees (exercises real create side effects: code + timeline row) ───────
+def test_commit_employees_creates(make_client):
+    c = make_client("superadmin")
+    r = c.post("/api/imports/employees/commit", json={"rows": [
+        {"full_name": "Sara Haddad", "job_title": "Accountant",
+         "salary": "1200", "hire_date": "2026-01-15"},
+        {"job_title": "Ghost"},           # missing full_name → failed
+    ]}).json()
+    assert r["created"] == 1 and r["failed"] == 1
+    names = {e["full_name"] for e in c.get("/api/hr/employees").json()}
+    assert "Sara Haddad" in names
+
+
 # ── Permissions ────────────────────────────────────────────────────────────────
 def test_viewer_cannot_import(make_client):
     c = make_client("Viewer")

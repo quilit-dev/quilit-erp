@@ -35,6 +35,7 @@ import {
   LoadingSpinner, Modal, ConfirmModal, toast, ExportButton,
 } from '../components/shared';
 import { exportReportPDF } from '../utils/exportUtils';
+import ImportWizard from '../components/ImportWizard';
 import { useLocale } from '../hooks/useLocale.jsx';
 import { usePermissions } from '../hooks/usePermissions';
 
@@ -296,6 +297,7 @@ function Overview({ t, fmt, fmtDate }) {
 function Accounts({ t, canCreate, canEdit, can }) {
   const [rows,    setRows]    = useState(null);
   const [modal,   setModal]   = useState(null);
+  const [importing, setImporting] = useState(false);
   const [confirmDel, setConfirmDel] = useState(null);
 
   // Filters
@@ -390,9 +392,15 @@ function Accounts({ t, canCreate, canEdit, can }) {
             <option value="inactive">{t('accounting.inactiveOnly')}</option>
             <option value="all">{t('accounting.allStatuses')}</option>
           </select>
+          {canCreate && <button className="btn btn-sm btn-secondary" onClick={() => setImporting(true)}>⬆ {t('imports.importBtn')}</button>}
           {canCreate && <button className="btn btn-sm btn-primary" onClick={() => setModal({ code: '', name: '', type: 'Expense', subtype: '', description: '' })}>＋ {t('accounting.newAccount')}</button>}
         </div>
       </div>
+
+      {importing && (
+        <ImportWizard entity="accounts" title={`${t('imports.importBtn')} — ${t('accounting.accounts')}`}
+          onClose={() => setImporting(false)} onDone={load} />
+      )}
       <div className="table-wrap">
         <table>
           <thead><tr>

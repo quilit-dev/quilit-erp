@@ -12,6 +12,7 @@ import {
   getCRMDeals, createCRMDeal, updateCRMDeal, updateDealStage, archiveCRMDeal,
   getCRMDropdownClients, getCRMDropdownQuotations, getCRMDropdownUsers,
 } from '../api/client';
+import ImportWizard from '../components/ImportWizard';
 
 // ─── Helpers ────────────────────────────────────────────────────────────────
 
@@ -238,6 +239,7 @@ function LeadsTab({ t }) {
   const [modal, setModal]         = useState(null);
   const [selected, setSelected]   = useState(null);
   const [converting, setConverting] = useState(false);
+  const [importing, setImporting] = useState(false);
 
   const fetchLeads = useCallback(sig => {
     const p = {};
@@ -309,11 +311,17 @@ function LeadsTab({ t }) {
                 }))}
                 filename="CRM_Leads" sheetName="Leads" />
             )}
+            <button className="btn btn-secondary btn-sm" onClick={() => setImporting(true)}>⬆ {t('imports.importBtn')}</button>
             <button className="btn btn-primary btn-sm" onClick={() => { setSelected(null); setModal('form'); }}>
               {t('crm.addLead')}
             </button>
           </div>
         </div>
+
+        {importing && (
+          <ImportWizard entity="leads" title={`${t('imports.importBtn')} — ${t('crm.leads')}`}
+            onClose={() => setImporting(false)} onDone={reload} />
+        )}
 
         {loading ? <LoadingSpinner /> :
          error   ? <ErrorAlert message={error} onRetry={reload} /> :

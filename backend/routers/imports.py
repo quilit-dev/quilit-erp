@@ -28,6 +28,9 @@ from permissions import require_auth, check_perm
 from routers.clients import ClientCreate, create_client
 from routers.suppliers import SupplierCreate, create_supplier
 from routers.inventory import InventoryCreate, create_item
+from routers.accounting import AccountCreate, create_account
+from routers.crm import LeadCreate, create_lead
+from routers.hr import EmployeeBody, create_employee
 
 router = APIRouter()
 
@@ -50,6 +53,14 @@ def _dup_inventory(db, m) -> Optional[int]:
         return None
     r = db.execute("SELECT id FROM inventory WHERE barcode=? AND archived_at IS NULL",
                    (bc,)).fetchone()
+    return r["id"] if r else None
+
+
+def _dup_account(db, m) -> Optional[int]:
+    code = (m.code or "").strip()
+    if not code:
+        return None
+    r = db.execute("SELECT id FROM chart_of_accounts WHERE code=?", (code,)).fetchone()
     return r["id"] if r else None
 
 
@@ -99,6 +110,52 @@ ENTITIES: Dict[str, dict] = {
             {"key": "barcode",         "label": "Barcode"},
             {"key": "lot_tracked",     "label": "Lot tracked", "type": "bool"},
             {"key": "shelf_life_days", "label": "Shelf life (days)", "type": "int"},
+        ],
+    },
+    "accounts": {
+        "module": "accounting", "model": AccountCreate, "create": create_account,
+        "dup": _dup_account, "dup_key": "code",
+        "fields": [
+            {"key": "code",           "label": "Code", "required": True},
+            {"key": "name",           "label": "Name", "required": True},
+            {"key": "type",           "label": "Type", "required": True,
+             "hint": "Asset / Liability / Equity / Income / Expense"},
+            {"key": "subtype",        "label": "Group"},
+            {"key": "normal_balance", "label": "Normal balance", "hint": "debit or credit (optional)"},
+            {"key": "description",    "label": "Description"},
+        ],
+    },
+    "leads": {
+        "module": "crm", "model": LeadCreate, "create": create_lead,
+        "dup": None, "dup_key": None,
+        "fields": [
+            {"key": "name",            "label": "Name", "required": True},
+            {"key": "company",         "label": "Company"},
+            {"key": "email",           "label": "Email"},
+            {"key": "phone",           "label": "Phone"},
+            {"key": "source",          "label": "Source", "hint": "web / referral / cold_call / social / other"},
+            {"key": "status",          "label": "Status", "hint": "New / Contacted / Qualified / Proposal / Negotiation / Won / Lost"},
+            {"key": "score",           "label": "Score", "type": "int"},
+            {"key": "estimated_value", "label": "Estimated value", "type": "number"},
+            {"key": "expected_close",  "label": "Expected close", "hint": "YYYY-MM-DD"},
+            {"key": "notes",           "label": "Notes"},
+        ],
+    },
+    "employees": {
+        "module": "hr", "model": EmployeeBody, "create": create_employee,
+        "dup": None, "dup_key": None,
+        "fields": [
+            {"key": "full_name",       "label": "Full name", "required": True},
+            {"key": "job_title",       "label": "Job title"},
+            {"key": "employment_type", "label": "Employment type", "hint": "Full-time / Part-time / Contract"},
+            {"key": "status",          "label": "Status", "hint": "Active / On leave / Terminated"},
+            {"key": "hire_date",       "label": "Hire date", "hint": "YYYY-MM-DD"},
+            {"key": "end_date",        "label": "End date", "hint": "YYYY-MM-DD"},
+            {"key": "email",           "label": "Email"},
+            {"key": "phone",           "label": "Phone"},
+            {"key": "salary",          "label": "Salary", "type": "number"},
+            {"key": "address",         "label": "Address"},
+            {"key": "notes",           "label": "Notes"},
         ],
     },
 }

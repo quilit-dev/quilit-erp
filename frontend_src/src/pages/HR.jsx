@@ -17,6 +17,7 @@ import {
   getContracts, createContract, updateContract, setContractStatus,
   archiveContract, getContractPrintData,
 } from '../api/client';
+import ImportWizard from '../components/ImportWizard';
 
 // ── Reference values (mirror backend/routers/hr.py) ─────────────────────────
 const EMPLOYMENT_TYPES = ['Full-time', 'Part-time', 'Contract', 'Intern'];
@@ -134,6 +135,7 @@ export default function HR() {
   const [runId, setRunId] = useState(null);
 
   // ── Modals state ──────────────────────────────────────────────────────────
+  const [importing,  setImporting]  = useState(false);
   const [empModal,   setEmpModal]   = useState(false);
   const [empForm,    setEmpForm]    = useState(EMPTY_EMPLOYEE);
   const [empEditId,  setEmpEditId]  = useState(null);
@@ -300,6 +302,9 @@ export default function HR() {
                 Requested: fmtDate(l.created_at),
               }))}
               filename="Leave_Requests" sheetName="Leave" />
+          )}
+          {tab === 'employees' && canCreate && (
+            <button className="btn btn-secondary" onClick={() => setImporting(true)}>⬆ {t('imports.importBtn')}</button>
           )}
           {tab === 'employees' && canCreate && (
             <button className="btn btn-primary" onClick={openEmpCreate}>{t('hr.addEmployee')}</button>
@@ -487,6 +492,11 @@ export default function HR() {
             </div>
           )}
         </div>
+      )}
+
+      {importing && (
+        <ImportWizard entity="employees" title={`${t('imports.importBtn')} — ${t('hr.tabEmployees')}`}
+          onClose={() => setImporting(false)} onDone={reloadAll} />
       )}
 
       {/* ── Employee modal ─────────────────────────────────────────────────── */}
