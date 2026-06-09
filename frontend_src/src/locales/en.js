@@ -2653,6 +2653,8 @@ const en = {
     type_department:       'Department',
     type_contract:         'Contract',
     type_leave:            'Leave',
+    type_payroll_run:      'Payroll run',
+    type_attendance:       'Attendance',
     type_hr_activity:      'HR Activity',
     type_position:         'Position',
     type_applicant:        'Applicant',

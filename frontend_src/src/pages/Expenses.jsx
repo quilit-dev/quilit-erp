@@ -1,6 +1,7 @@
 import { usePersistedState } from '../hooks/usePersistedState';
-import { useState, useMemo } from 'react';
+import { useState, useMemo, useEffect } from 'react';
 import { useData } from '../hooks/useData';
+import { useFocusId } from '../hooks/useFocusId';
 import { getExpenses, getProjects, createExpense, updateExpense, voidExpense, getCashDrawers } from '../api/client';
 import {
   LoadingSpinner, ErrorAlert, EmptyState, Modal,
@@ -21,6 +22,15 @@ function TransactionsPanel() {
   const { data: projects } = useData(getProjects);
   const { data: cashDrawersData } = useData(getCashDrawers);
   const cashDrawers = (cashDrawersData || []).filter(d => d.is_active);
+
+  // Global-search deep link (?focus=<id>) → open that expense.
+  const [focusId, clearFocus] = useFocusId();
+  useEffect(() => {
+    if (focusId != null && expenses?.length) {
+      const exp = expenses.find(x => x.id === focusId);
+      if (exp) { openEdit(exp); clearFocus(); }
+    }
+  }, [focusId, expenses]);   // eslint-disable-line react-hooks/exhaustive-deps
   const { t } = useLocale();
   const { can } = usePermissions();
   const { settings, taxRates } = useSettings();

@@ -2640,6 +2640,8 @@ const ar = {
     type_department:       'قسم',
     type_contract:         'عقد',
     type_leave:            'إجازة',
+    type_payroll_run:      'مسير رواتب',
+    type_attendance:       'حضور',
     type_hr_activity:      'نشاط موظف',
     type_position:         'وظيفة شاغرة',
     type_applicant:        'مُتقدِّم',

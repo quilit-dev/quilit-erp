@@ -132,7 +132,7 @@ def search_all(
             lambda r: {
                 "id": r["id"], "type": "invoice", "title": r["invoice_number"],
                 "subtitle": _join(r["client_name"], _money(r["amount"])),
-                "url": "/invoices",
+                "url": f"/invoices?focus={r['id']}",
             },
         )
 
@@ -151,7 +151,7 @@ def search_all(
             lambda r: {
                 "id": r["id"], "type": "quotation", "title": r["quote_number"],
                 "subtitle": _join(r["client_name"], r["project_name"], _money(r["total"])),
-                "url": "/quotations",
+                "url": f"/quotations?focus={r['id']}",
             },
         )
 
@@ -167,7 +167,7 @@ def search_all(
             lambda r: {
                 "id": r["id"], "type": "inventory", "title": r["name"],
                 "subtitle": _join(r["category"], r["supplier"], r["barcode"]),
-                "url": "/inventory",
+                "url": f"/inventory?focus={r['id']}",
             },
         )
 
@@ -183,7 +183,7 @@ def search_all(
             lambda r: {
                 "id": r["id"], "type": "purchase", "title": r["po_number"],
                 "subtitle": _join(r["product_name"], r["supplier"], r["status"]),
-                "url": "/purchases",
+                "url": f"/purchases?focus={r['id']}",
             },
         )
 
@@ -218,7 +218,7 @@ def search_all(
                 "id": r["id"], "type": "expense",
                 "title": r["description"] or r["category"] or "Expense",
                 "subtitle": _join(r["category"], _money(r["amount"]), r["project_name"]),
-                "url": "/expenses",
+                "url": f"/expenses?focus={r['id']}",
             },
         )
 
@@ -345,6 +345,36 @@ def search_all(
                 "id": r["id"], "type": "leave",
                 "title": _join(r["emp"], r["leave_type"]) or "Leave request",
                 "subtitle": _join(r["status"], r["start_date"], r["end_date"]),
+                "url": "/hr",
+            },
+        )
+
+        # HR — Payroll runs (by pay period / status)
+        run(
+            "SELECT id, period_start, period_end, status FROM hr_payroll_runs"
+            " WHERE archived_at IS NULL AND ("
+            "   period_start LIKE ? OR period_end LIKE ? OR status LIKE ?)"
+            " LIMIT ?",
+            (term, term, term, limit),
+            lambda r: {
+                "id": r["id"], "type": "payroll_run",
+                "title": _join(r["period_start"], "→", r["period_end"]) or "Payroll run",
+                "subtitle": _join("Payroll", r["status"]),
+                "url": "/hr",
+            },
+        )
+
+        # HR — Attendance (free-text note only — status words would flood results)
+        run(
+            "SELECT a.id, a.date, a.status, a.note, e.full_name AS emp"
+            " FROM hr_attendance a LEFT JOIN hr_employees e ON a.employee_id = e.id"
+            " WHERE a.note LIKE ?"
+            " LIMIT ?",
+            (term, limit),
+            lambda r: {
+                "id": r["id"], "type": "attendance",
+                "title": _join(r["emp"], r["date"]) or "Attendance",
+                "subtitle": _join(r["status"], _clip(r["note"])),
                 "url": "/hr",
             },
         )
