@@ -2,7 +2,9 @@ import React, { useState } from 'react';
 import { completeSetup } from '../api/client';
 import { useLocale } from '../hooks/useLocale.jsx';
 
-const CURRENCIES = ['USD', 'EUR', 'GBP', 'AED', 'SAR', 'EGP', 'LBP', 'JOD'];
+// Lebanon SMB market: the ERP operates in USD with LBP as the secondary
+// (dual-currency) unit, so only these two are offered.
+const CURRENCIES = ['USD', 'LBP'];
 
 export default function Setup() {
   const { t } = useLocale();

@@ -65,7 +65,8 @@ const Toggle = ({ label, checked, onChange, disabled }) => (
   </label>
 );
 
-const CURRENCIES = ['USD', 'EUR', 'GBP', 'LBP', 'AED', 'SAR', 'EGP', 'JOD'];
+// Lebanon SMB market: USD functional currency + LBP secondary only.
+const CURRENCIES = ['USD', 'LBP'];
 
 const TAX_TYPES = ['standard', 'zero', 'exempt'];
 const EMPTY_RATE = { name: '', rate: '', tax_type: 'standard', is_default: false, is_active: true };
