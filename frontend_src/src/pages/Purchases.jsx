@@ -14,6 +14,7 @@ import { useLocale } from '../hooks/useLocale.jsx';
 import { useSettings } from '../hooks/useSettings.jsx';
 import { usePermissions } from '../hooks/usePermissions';
 import { useWarehouses } from '../hooks/useWarehouses';
+import { useFocusId } from '../hooks/useFocusId';
 import Attachments from '../components/Attachments.jsx';
 
 const PURCHASE_CATEGORIES = [
@@ -328,6 +329,15 @@ export default function Purchases() {
   const [modal,          setModal]          = useState(null);
   const [activePurchase, setActivePurchase] = useState(null);
   const [saving,         setSaving]         = useState(false);
+
+  // Global-search deep link (?focus=<id>) → open that purchase order.
+  const [focusId, clearFocus] = useFocusId();
+  useEffect(() => {
+    if (focusId != null && purchases?.length) {
+      const p = purchases.find(x => x.id === focusId);
+      if (p) { setActivePurchase(p); setModal('edit'); clearFocus(); }
+    }
+  }, [focusId, purchases]);   // eslint-disable-line react-hooks/exhaustive-deps
 
   const load = useCallback(async () => {
     setLoading(true);

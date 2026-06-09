@@ -18,6 +18,7 @@ import { usePermissions } from '../hooks/usePermissions';
 import Attachments from '../components/Attachments.jsx';
 import { useSortPaginate } from '../hooks/useSortPaginate';
 import { useRecordExport } from '../hooks/useRecordExport';
+import { useFocusId } from '../hooks/useFocusId';
 import EmailModal from '../components/EmailModal';
 
 const METHODS    = ['Cash', 'Bank Transfer', 'Cheque', 'Card', 'Other'];
@@ -184,6 +185,15 @@ export default function Invoices() {
   const { data: projects } = useData(getProjects);
   const { data: inventory } = useData(getInventory);
   const { settings, exchangeRate, displayCurrency, taxRates } = useSettings();
+
+  // Global-search deep link (?focus=<id>) → open that invoice's detail.
+  const [focusId, clearFocus] = useFocusId();
+  useEffect(() => {
+    if (focusId != null && invoices?.length) {
+      const inv = invoices.find(i => i.id === focusId);
+      if (inv) { openPayModal(inv); clearFocus(); }
+    }
+  }, [focusId, invoices]);   // eslint-disable-line react-hooks/exhaustive-deps
 
   const taxEnabled      = settings?.tax_enabled === '1';
   // Setting → "Enable per-line discounts" drives both the visible column

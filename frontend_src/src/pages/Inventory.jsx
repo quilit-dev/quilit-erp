@@ -12,6 +12,7 @@ import {
 import { useSortPaginate } from '../hooks/useSortPaginate';
 import { useLocale } from '../hooks/useLocale.jsx';
 import { useWarehouses } from '../hooks/useWarehouses';
+import { useFocusId } from '../hooks/useFocusId';
 import ImportWizard from '../components/ImportWizard';
 
 const UNITS = ['pcs', 'kg', 'g', 'l', 'ml', 'm', 'm²', 'm³', 'box', 'roll', 'set', 'pair'];
@@ -488,6 +489,15 @@ export default function Inventory() {
   const [importing,  setImporting]  = useState(false);
   const [activeItem, setActiveItem] = useState(null);
   const [saving,     setSaving]     = useState(false);
+
+  // Global-search deep link (?focus=<id>) → open that item's edit modal.
+  const [focusId, clearFocus] = useFocusId();
+  useEffect(() => {
+    if (focusId != null && items?.length) {
+      const it = items.find(x => x.id === focusId);
+      if (it) { setView('items'); setActiveItem(it); setModal('edit'); clearFocus(); }
+    }
+  }, [focusId, items]);   // eslint-disable-line react-hooks/exhaustive-deps
 
   const load = useCallback(async () => {
     setLoading(true);

@@ -41,6 +41,8 @@ const TYPE_ICONS = {
   department:         '🏢',
   contract:           '📃',
   leave:              '🌴',
+  payroll_run:        '🧮',
+  attendance:         '🕒',
   hr_activity:        '📅',
   position:           '📢',
   applicant:          '🧑‍💻',
@@ -94,6 +96,7 @@ const TYPE_CATEGORY = {
   tax_rate: 'finance',
   // People
   employee: 'people', department: 'people', contract: 'people', leave: 'people',
+  payroll_run: 'people', attendance: 'people',
   hr_activity: 'people', position: 'people', applicant: 'people',
   interview: 'people', offer: 'people', announcement: 'people',
   // Administration

@@ -20,6 +20,7 @@ import Attachments from '../components/Attachments.jsx';
 import InventoryCombobox from '../components/InventoryCombobox';
 import { useSortPaginate } from '../hooks/useSortPaginate';
 import { useRecordExport } from '../hooks/useRecordExport';
+import { useFocusId } from '../hooks/useFocusId';
 import EmailModal from '../components/EmailModal';
 
 const STATUSES   = ['Draft', 'Sent', 'Accepted', 'Rejected'];
@@ -139,6 +140,15 @@ export default function Quotations() {
   const { data: projects, loading: pLoading, reload: reloadProjects } = useData(getProjects);
   const { data: inventory } = useData(getInventory);
   const { settings, exchangeRate, displayCurrency, taxRates } = useSettings();
+
+  // Global-search deep link (?focus=<id>) → open that quotation.
+  const [focusId, clearFocus] = useFocusId();
+  useEffect(() => {
+    if (focusId != null && quotations?.length) {
+      const q = quotations.find(x => x.id === focusId);
+      if (q) { openEdit(q); clearFocus(); }
+    }
+  }, [focusId, quotations]);   // eslint-disable-line react-hooks/exhaustive-deps
 
   const [modalOpen,    setModalOpen]    = useState(false);
   const [form,         setForm]         = useState(makeEmpty);
