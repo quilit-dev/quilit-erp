@@ -16,7 +16,7 @@ import {
   approvePayrollRun, markPayrollRunPaid, cancelPayrollRun,
   getContracts, createContract, updateContract, setContractStatus,
   archiveContract, getContractPrintData,
-  getAttendance, saveAttendanceBulk,
+  getAttendance, saveAttendanceBulk, getAttendanceSummary,
 } from '../api/client';
 import ImportWizard from '../components/ImportWizard';
 
@@ -1653,9 +1653,12 @@ const ATT_LABEL_KEY = {
 };
 
 function AttendanceTab({ t, canEdit }) {
-  const [date, setDate]     = useState(() => new Date().toISOString().slice(0, 10));
-  const [rows, setRows]     = useState(null);
-  const [saving, setSaving] = useState(false);
+  const [view, setView]       = useState('day');     // 'day' | 'month'
+  const [date, setDate]       = useState(() => new Date().toISOString().slice(0, 10));
+  const [month, setMonth]     = useState(() => new Date().toISOString().slice(0, 7));
+  const [rows, setRows]       = useState(null);
+  const [summary, setSummary] = useState(null);
+  const [saving, setSaving]   = useState(false);
 
   const load = useCallback(() => {
     setRows(null);
@@ -1663,7 +1666,13 @@ function AttendanceTab({ t, canEdit }) {
       .then(d => setRows((d.rows || []).map(r => ({ ...r, status: r.status || '' }))))
       .catch(e => { toast(e.message, 'red'); setRows([]); });
   }, [date]);
-  useEffect(() => { load(); }, [load]);
+  const loadMonth = useCallback(() => {
+    setSummary(null);
+    getAttendanceSummary(month)
+      .then(d => setSummary(d.rows || []))
+      .catch(e => { toast(e.message, 'red'); setSummary([]); });
+  }, [month]);
+  useEffect(() => { if (view === 'day') load(); else loadMonth(); }, [view, load, loadMonth]);
 
   const setRow = (id, field, val) =>
     setRows(rs => rs.map(r => (r.employee_id === id ? { ...r, [field]: val } : r)));
@@ -1686,18 +1695,50 @@ function AttendanceTab({ t, canEdit }) {
     finally { setSaving(false); }
   }
 
+  // Excel export of whichever view is showing — month = per-employee counts,
+  // day = the day's roster. Uses the app's shared ExportButton.
+  const exportData = view === 'month'
+    ? (summary || []).map(emp => {
+        const c = emp.counts || {};
+        const row = { Employee: emp.full_name };
+        let total = 0;
+        ATT_STATUSES.forEach(s => { row[s] = c[s] || 0; total += c[s] || 0; });
+        row.Total = total;
+        return row;
+      })
+    : (rows || []).map(r => ({
+        Employee: r.full_name, 'Job title': r.job_title || '',
+        Status: r.status || '', Hours: r.hours ?? '', Notes: r.note || '',
+      }));
+  const exportName = view === 'month' ? `Attendance-${month}` : `Attendance-${date}`;
+  const hasData = view === 'month' ? !!(summary && summary.length) : !!(rows && rows.length);
+
   return (
     <div className="card">
       <div className="card-header" style={{ display: 'flex', gap: 10, alignItems: 'center', flexWrap: 'wrap' }}>
         <span className="card-title">{t('hr.tabAttendance')}</span>
-        <input type="date" className="form-control" style={{ width: 160 }}
-          value={date} onChange={e => setDate(e.target.value)} />
+        <div style={{ display: 'flex', gap: 4 }}>
+          <button className={`btn btn-sm ${view === 'day' ? 'btn-primary' : 'btn-secondary'}`}
+            onClick={() => setView('day')}>{t('hr.attDay')}</button>
+          <button className={`btn btn-sm ${view === 'month' ? 'btn-primary' : 'btn-secondary'}`}
+            onClick={() => setView('month')}>{t('hr.attMonth')}</button>
+        </div>
+        {view === 'day' ? (
+          <input type="date" className="form-control" style={{ width: 160 }}
+            value={date} onChange={e => setDate(e.target.value)} />
+        ) : (
+          <input type="month" className="form-control" style={{ width: 160 }}
+            value={month} onChange={e => setMonth(e.target.value)} />
+        )}
         <div style={{ marginLeft: 'auto', display: 'flex', gap: 8 }}>
-          {canEdit && (
+          {hasData && (
+            <ExportButton data={exportData} filename={exportName} sheetName="Attendance" />
+          )}
+          {view === 'day' && canEdit && (
             <button className="btn btn-secondary btn-sm" onClick={markAllPresent}
               disabled={!rows || !rows.length}>✓ {t('hr.attMarkAllPresent')}</button>
           )}
-          {canEdit && (
+          {view === 'day' && canEdit && (
             <button className="btn btn-primary btn-sm" onClick={save}
               disabled={saving || !rows || !rows.length}>
               {saving ? t('common.saving') : t('common.save')}
@@ -1705,7 +1746,8 @@ function AttendanceTab({ t, canEdit }) {
           )}
         </div>
       </div>
-      {!rows ? <LoadingSpinner /> :
+      {view === 'day' ? (
+        !rows ? <LoadingSpinner /> :
         rows.length === 0 ? <EmptyState message={t('hr.noEmployees')} /> : (
         <div className="table-wrap">
           <table>
@@ -1742,6 +1784,37 @@ function AttendanceTab({ t, canEdit }) {
             </tbody>
           </table>
         </div>
+      )
+      ) : (
+        !summary ? <LoadingSpinner /> :
+        summary.length === 0 ? <EmptyState message={t('hr.noEmployees')} /> : (
+          <div className="table-wrap">
+            <table>
+              <thead><tr>
+                <th>{t('hr.colEmployee')}</th>
+                {ATT_STATUSES.map(s => (
+                  <th key={s} style={{ textAlign: 'center' }}>{t(ATT_LABEL_KEY[s])}</th>
+                ))}
+                <th style={{ textAlign: 'center' }}>{t('hr.attTotalMarked')}</th>
+              </tr></thead>
+              <tbody>
+                {summary.map(emp => {
+                  const cnt = emp.counts || {};
+                  const total = ATT_STATUSES.reduce((a, s) => a + (cnt[s] || 0), 0);
+                  return (
+                    <tr key={emp.employee_id}>
+                      <td className="td-primary">{emp.full_name}</td>
+                      {ATT_STATUSES.map(s => (
+                        <td key={s} style={{ textAlign: 'center' }}>{cnt[s] || 0}</td>
+                      ))}
+                      <td style={{ textAlign: 'center', fontWeight: 600 }}>{total}</td>
+                    </tr>
+                  );
+                })}
+              </tbody>
+            </table>
+          </div>
+        )
       )}
     </div>
   );
