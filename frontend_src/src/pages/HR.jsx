@@ -1695,6 +1695,24 @@ function AttendanceTab({ t, canEdit }) {
     finally { setSaving(false); }
   }
 
+  // Excel export of whichever view is showing — month = per-employee counts,
+  // day = the day's roster. Uses the app's shared ExportButton.
+  const exportData = view === 'month'
+    ? (summary || []).map(emp => {
+        const c = emp.counts || {};
+        const row = { Employee: emp.full_name };
+        let total = 0;
+        ATT_STATUSES.forEach(s => { row[s] = c[s] || 0; total += c[s] || 0; });
+        row.Total = total;
+        return row;
+      })
+    : (rows || []).map(r => ({
+        Employee: r.full_name, 'Job title': r.job_title || '',
+        Status: r.status || '', Hours: r.hours ?? '', Notes: r.note || '',
+      }));
+  const exportName = view === 'month' ? `Attendance-${month}` : `Attendance-${date}`;
+  const hasData = view === 'month' ? !!(summary && summary.length) : !!(rows && rows.length);
+
   return (
     <div className="card">
       <div className="card-header" style={{ display: 'flex', gap: 10, alignItems: 'center', flexWrap: 'wrap' }}>
@@ -1712,20 +1730,21 @@ function AttendanceTab({ t, canEdit }) {
           <input type="month" className="form-control" style={{ width: 160 }}
             value={month} onChange={e => setMonth(e.target.value)} />
         )}
-        {view === 'day' && (
-          <div style={{ marginLeft: 'auto', display: 'flex', gap: 8 }}>
-            {canEdit && (
-              <button className="btn btn-secondary btn-sm" onClick={markAllPresent}
-                disabled={!rows || !rows.length}>✓ {t('hr.attMarkAllPresent')}</button>
-            )}
-            {canEdit && (
-              <button className="btn btn-primary btn-sm" onClick={save}
-                disabled={saving || !rows || !rows.length}>
-                {saving ? t('common.saving') : t('common.save')}
-              </button>
-            )}
-          </div>
-        )}
+        <div style={{ marginLeft: 'auto', display: 'flex', gap: 8 }}>
+          {hasData && (
+            <ExportButton data={exportData} filename={exportName} sheetName="Attendance" />
+          )}
+          {view === 'day' && canEdit && (
+            <button className="btn btn-secondary btn-sm" onClick={markAllPresent}
+              disabled={!rows || !rows.length}>✓ {t('hr.attMarkAllPresent')}</button>
+          )}
+          {view === 'day' && canEdit && (
+            <button className="btn btn-primary btn-sm" onClick={save}
+              disabled={saving || !rows || !rows.length}>
+              {saving ? t('common.saving') : t('common.save')}
+            </button>
+          )}
+        </div>
       </div>
       {view === 'day' ? (
         !rows ? <LoadingSpinner /> :
