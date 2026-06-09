@@ -1,9 +1,26 @@
-import { useState } from 'react';
+import { useState, useEffect } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { useData } from '../hooks/useData';
-import { getDashboard, getMonthlyReport } from '../api/client';
-import { LoadingSpinner, ErrorAlert, fmt as fmtStatic } from '../components/shared';
+import { getDashboard, getMonthlyReport, getFinanceRangeSummary } from '../api/client';
+import { LoadingSpinner, ErrorAlert, fmt as fmtStatic, DualMoney } from '../components/shared';
 import { useLocale } from '../hooks/useLocale.jsx';
+
+// Resolve a period preset to a {start,end} ISO range. Kept tiny on purpose —
+// three presets cover the common SMB needs without a date-picker.
+function periodRange(p) {
+  const d = new Date();
+  const iso = (x) => x.toISOString().slice(0, 10);
+  if (p === 'lastMonth') {
+    const start = new Date(d.getFullYear(), d.getMonth() - 1, 1);
+    const end   = new Date(d.getFullYear(), d.getMonth(), 0);
+    return { start: iso(start), end: iso(end) };
+  }
+  if (p === 'ytd') {
+    return { start: `${d.getFullYear()}-01-01`, end: iso(d) };
+  }
+  // 'month' (default) → 1st of this month → today
+  return { start: `${iso(d).slice(0, 7)}-01`, end: iso(d) };
+}
 
 // ── Tiny visualisation primitives ───────────────────────────────────────
 // All three are intentionally tiny so the dashboard renders in one frame and
@@ -308,6 +325,20 @@ export default function Dashboard() {
   const { t, fmt, isRTL } = useLocale();
   const navigate = useNavigate();
 
+  // Period selector for the headline finance KPIs. Default 'month' uses the
+  // dashboard payload (no extra request); other presets fetch a range summary.
+  const [period, setPeriod] = useState('month');
+  const [rangeSummary, setRangeSummary] = useState(null);
+  useEffect(() => {
+    if (period === 'month') { setRangeSummary(null); return; }
+    const { start, end } = periodRange(period);
+    let cancelled = false;
+    getFinanceRangeSummary({ start, end })
+      .then(d => { if (!cancelled) setRangeSummary(d); })
+      .catch(() => { if (!cancelled) setRangeSummary(null); });
+    return () => { cancelled = true; };
+  }, [period]);
+
   if (loading) return <LoadingSpinner />;
   if (error)   return <ErrorAlert message={error} onRetry={reload} />;
   if (!data)   return null;
@@ -330,11 +361,16 @@ export default function Dashboard() {
     planning:     perm.planning     === true,
   };
 
-  // Financial derivatives
-  const income    = data.monthly_income   ?? 0;
-  const expenses  = data.monthly_expenses ?? 0;
+  // Financial derivatives — 'month' uses the dashboard payload; other periods
+  // use the fetched range summary (falls back to monthly until it loads).
+  const usingRange = period !== 'month' && rangeSummary;
+  const income    = usingRange ? (rangeSummary.income   ?? 0) : (data.monthly_income   ?? 0);
+  const expenses  = usingRange ? (rangeSummary.expenses ?? 0) : (data.monthly_expenses ?? 0);
   const profit    = income - expenses;
   const margin    = income > 0 ? Math.round((profit / income) * 100) : 0;
+  const periodLabel = period === 'lastMonth' ? t('dashboard.periodLastMonth')
+                    : period === 'ytd'       ? t('dashboard.periodYtd')
+                    : t('dashboard.periodThisMonth');
   const unpaidAmt = data.unpaid_invoices_amount  || 0;
   const overdueAmt = data.overdue_invoices_amount || 0;
   const overdueCount = data.overdue_invoices_count || 0;
@@ -476,13 +512,25 @@ export default function Dashboard() {
       )}
 
       {/* ── Primary KPIs (finance) + Health Ring ───────────────────── */}
+      {showPrimaryFinance && can.finance && (
+        <div style={{ display: 'flex', justifyContent: 'flex-end', gap: 4, marginBottom: 8 }}>
+          {[
+            ['month',     t('dashboard.periodThisMonth')],
+            ['lastMonth', t('dashboard.periodLastMonth')],
+            ['ytd',       t('dashboard.periodYtd')],
+          ].map(([key, label]) => (
+            <button key={key} className={`btn btn-sm ${period === key ? 'btn-primary' : 'btn-secondary'}`}
+              onClick={() => setPeriod(key)}>{label}</button>
+          ))}
+        </div>
+      )}
       {showPrimaryFinance && (
         <div style={{ display: 'grid', gridTemplateColumns: 'minmax(0,1fr) 280px', gap: 16, marginBottom: 4 }}
              className="dash-finance-row">
           <div className="stats-grid" style={{ gridTemplateColumns: 'repeat(auto-fit, minmax(180px, 1fr))', marginBottom: 0 }}>
-            {can.finance && <KpiCard label={t('dashboard.monthlyRevenue')}  value={fmt(income)}     sub={t('dashboard.collectedThisMonth')}    icon="💰" accentColor="var(--green)"  accentBg="var(--green-light)"  sparkData={incSpark}  onClick={() => navigate('/finance')} />}
-            {can.finance && <KpiCard label={t('dashboard.monthlyExpenses')} value={fmt(expenses)}   sub={t('dashboard.operatingCosts')}          icon="📉" accentColor="var(--red)"    accentBg="var(--red-light)"    sparkData={expSpark}  onClick={() => navigate('/finance')} />}
-            {can.finance && <KpiCard label={t('dashboard.netProfit')}       value={fmt(profit)}     sub={t('dashboard.margin', { pct: margin })} icon={profit >= 0 ? '📈' : '⚠️'} accentColor={profit >= 0 ? 'var(--green)' : 'var(--red)'} accentBg={profit >= 0 ? 'var(--green-light)' : 'var(--red-light)'} sparkData={profSpark} onClick={() => navigate('/finance')} />}
+            {can.finance && <KpiCard label={t('dashboard.monthlyRevenue')}  value={<DualMoney value={income} />}   sub={periodLabel}                          icon="💰" accentColor="var(--green)"  accentBg="var(--green-light)"  sparkData={incSpark}  onClick={() => navigate('/finance')} />}
+            {can.finance && <KpiCard label={t('dashboard.monthlyExpenses')} value={<DualMoney value={expenses} />} sub={t('dashboard.operatingCosts')}          icon="📉" accentColor="var(--red)"    accentBg="var(--red-light)"    sparkData={expSpark}  onClick={() => navigate('/finance')} />}
+            {can.finance && <KpiCard label={t('dashboard.netProfit')}       value={<DualMoney value={profit} />}   sub={t('dashboard.margin', { pct: margin })} icon={profit >= 0 ? '📈' : '⚠️'} accentColor={profit >= 0 ? 'var(--green)' : 'var(--red)'} accentBg={profit >= 0 ? 'var(--green-light)' : 'var(--red-light)'} sparkData={profSpark} onClick={() => navigate('/finance')} />}
           </div>
           <div className="card" style={{ display: 'flex', flexDirection: 'column', alignItems: 'center', justifyContent: 'center', padding: 18, marginBottom: 0 }}>
             <HealthRing score={healthScore} t={t} />
