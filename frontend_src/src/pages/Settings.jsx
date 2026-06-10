@@ -236,6 +236,7 @@ export default function Settings() {
   const [savingRate, setSavingRate] = useState(false);
   const [testEmailTo, setTestEmailTo] = useState('');
   const [sendingTest, setSendingTest] = useState(false);
+  const [testMsg, setTestMsg]         = useState(null);   // inline result next to the button
   const { reload: reloadSettings } = useSettings();
 
   useEffect(() => {
@@ -309,12 +310,14 @@ export default function Settings() {
   }
 
   async function handleTestEmail() {
-    setSendingTest(true); setMsg(null);
+    setSendingTest(true); setMsg(null); setTestMsg(null);
     try {
       const r = await API.post('/api/settings/email-test', { to: testEmailTo.trim() });
-      setMsg({ type: 'ok', text: (r && r.message) || t('email.testSent') });
+      const ok = { type: 'ok', text: (r && r.message) || t('email.testSent') };
+      setMsg(ok); setTestMsg(ok);
     } catch (err) {
-      setMsg({ type: 'err', text: t('email.testFailed') + (err.message || '') });
+      const bad = { type: 'err', text: t('email.testFailed') + (err.message || '') };
+      setMsg(bad); setTestMsg(bad);   // also show it inline, right by the button
     } finally { setSendingTest(false); }
   }
 
@@ -639,6 +642,12 @@ export default function Settings() {
               {sendingTest ? t('email.sending') : t('email.sendTest')}
             </button>
           </div>
+          {testMsg && (
+            <div className={`alert alert-${testMsg.type === 'ok' ? 'green' : 'red'}`}
+                 style={{ marginTop: 12, marginBottom: 0, wordBreak: 'break-word' }}>
+              {testMsg.type === 'ok' ? '✓ ' : '✕ '}{testMsg.text}
+            </div>
+          )}
           <div style={{ fontSize: 12, color: 'var(--text-3)', marginTop: 8 }}>
             {t('email.smtpEnvHintPre')}
             <code> SMTP_* </code> {t('email.smtpEnvHintPost')}
