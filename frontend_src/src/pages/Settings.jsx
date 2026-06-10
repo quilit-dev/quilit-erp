@@ -234,9 +234,6 @@ export default function Settings() {
   const [newRate,    setNewRate]    = useState('');
   const [rateNote,   setRateNote]   = useState('');
   const [savingRate, setSavingRate] = useState(false);
-  const [testEmailTo, setTestEmailTo] = useState('');
-  const [sendingTest, setSendingTest] = useState(false);
-  const [testMsg, setTestMsg]         = useState(null);   // inline result next to the button
   const { reload: reloadSettings } = useSettings();
 
   useEffect(() => {
@@ -265,8 +262,6 @@ export default function Settings() {
     'default_tax_rate', 'tax_enabled', 'payment_terms_days',
     'invoice_prefix', 'quotation_prefix', 'inventory_costing_method',
     'footer_text', 'show_discount_col', 'show_tax_col',
-    'email_enabled', 'smtp_host', 'smtp_port', 'smtp_user',
-    'smtp_password', 'smtp_use_tls', 'smtp_from', 'resend_api_key',
   ]);
 
   async function save() {
@@ -309,17 +304,6 @@ export default function Settings() {
     } finally { setRunningBackup(false); }
   }
 
-  async function handleTestEmail() {
-    setSendingTest(true); setMsg(null); setTestMsg(null);
-    try {
-      const r = await API.post('/api/settings/email-test', { to: testEmailTo.trim() });
-      const ok = { type: 'ok', text: (r && r.message) || t('email.testSent') };
-      setMsg(ok); setTestMsg(ok);
-    } catch (err) {
-      const bad = { type: 'err', text: t('email.testFailed') + (err.message || '') };
-      setMsg(bad); setTestMsg(bad);   // also show it inline, right by the button
-    } finally { setSendingTest(false); }
-  }
 
   async function handleExportBackup() {
     const dest = usbPath.trim();
@@ -611,62 +595,6 @@ export default function Settings() {
           </div>
         </Section>
 
-        {/* Email (SMTP) — admin only. Send invoices/quotations + overdue
-            reminders. Credentials can also come from SMTP_* env vars (cloud). */}
-        {isAdmin && <Section title={t('email.section')} icon="✉️">
-          <div style={{ marginBottom: 14 }}>
-            <Toggle label={t('email.enableOutbound')}
-                    checked={isOn('email_enabled')} onChange={bool('email_enabled')} />
-          </div>
-          <div className="form-grid">
-            <Field label={t('email.smtpHost')}>
-              <Input value={form.smtp_host || ''} onChange={set('smtp_host')} placeholder="smtp.example.com" /></Field>
-            <Field label={t('email.smtpPort')}>
-              <Input value={form.smtp_port || ''} onChange={set('smtp_port')} placeholder="587" /></Field>
-            <Field label={t('email.smtpUser')}>
-              <Input value={form.smtp_user || ''} onChange={set('smtp_user')} /></Field>
-            <Field label={t('email.smtpPassword')} hint={form.smtp_password_set ? t('email.smtpPasswordSaved') : ''}>
-              <Input type="password" value={form.smtp_password || ''} onChange={set('smtp_password')}
-                     placeholder={form.smtp_password_set ? '••••••••' : ''} /></Field>
-            <Field label={t('email.fromAddress')} hint={t('email.fromHint')}>
-              <Input value={form.smtp_from || ''} onChange={set('smtp_from')} placeholder="billing@yourcompany.com" /></Field>
-          </div>
-          <div style={{ marginTop: 10 }}>
-            <Toggle label={t('email.useTls')} checked={isOn('smtp_use_tls')} onChange={bool('smtp_use_tls')} />
-          </div>
-
-          {/* Cloud delivery (Resend) — most hosts (Render included) block
-              outbound SMTP ports, so a cloud deployment delivers over Resend's
-              HTTPS API instead. A key here takes precedence over SMTP above. */}
-          <div style={{ marginTop: 18, paddingTop: 16, borderTop: '1px solid var(--border)' }}>
-            <div style={{ fontWeight: 600, fontSize: 13.5, marginBottom: 4 }}>{t('email.resendTitle')}</div>
-            <div style={{ fontSize: 12, color: 'var(--text-3)', marginBottom: 12, lineHeight: 1.5 }}>
-              {t('email.resendHint')}
-            </div>
-            <Field label={t('email.resendApiKey')} hint={form.resend_api_key_set ? t('email.resendApiKeySaved') : ''}>
-              <Input type="password" value={form.resend_api_key || ''} onChange={set('resend_api_key')}
-                     placeholder={form.resend_api_key_set ? '••••••••' : 're_...'} /></Field>
-          </div>
-
-          <div style={{ marginTop: 16, display: 'flex', gap: 8, alignItems: 'center', flexWrap: 'wrap' }}>
-            <input className="form-control" style={{ maxWidth: 260 }} placeholder="you@example.com"
-                   value={testEmailTo} onChange={e => setTestEmailTo(e.target.value)} />
-            <button className="btn btn-outline" disabled={sendingTest || !testEmailTo.trim()}
-                    onClick={handleTestEmail}>
-              {sendingTest ? t('email.sending') : t('email.sendTest')}
-            </button>
-          </div>
-          {testMsg && (
-            <div className={`alert alert-${testMsg.type === 'ok' ? 'green' : 'red'}`}
-                 style={{ marginTop: 12, marginBottom: 0, wordBreak: 'break-word' }}>
-              {testMsg.type === 'ok' ? '✓ ' : '✕ '}{testMsg.text}
-            </div>
-          )}
-          <div style={{ fontSize: 12, color: 'var(--text-3)', marginTop: 8 }}>
-            {t('email.smtpEnvHintPre')}
-            <code> SMTP_* </code> {t('email.smtpEnvHintPost')}
-          </div>
-        </Section>}
 
         {/* 5. Backup & Integrity — admin only, and only on the self-hosted
             (SQLite) edition. A cloud (Postgres) deployment is backed up

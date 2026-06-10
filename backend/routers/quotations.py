@@ -151,45 +151,6 @@ def get_quotation(
     result["total_with_tax"] = round(float(result["total"] or 0) + float(result["tax_total"] or 0), 2)
     return result
 
-# ── Email the quotation to the client / lead ─────────────────────────────────
-class SendEmailRequest(BaseModel):
-    to:      Optional[str] = None
-    message: Optional[str] = None
-
-@router.post("/{quote_id}/send-email")
-def send_quotation_email(
-    quote_id: int,
-    body: SendEmailRequest = SendEmailRequest(),
-    user=Depends(require_perm("quotations", "view")),
-    db: sqlite3.Connection = Depends(get_db),
-):
-    import mailer
-    if not mailer.is_enabled(db):
-        raise HTTPException(400, "Email is disabled or not configured. Enable it in "
-                                 "Settings (or set SMTP_* env vars).")
-    row = db.execute(
-        """SELECT q.*, c.name AS client_name, c.email AS client_email,
-                  l.name AS lead_name, l.email AS lead_email
-           FROM quotations q
-           LEFT JOIN clients   c ON q.client_id = c.id
-           LEFT JOIN crm_leads l ON q.lead_id   = l.id
-           WHERE q.id = ?""", (quote_id,)).fetchone()
-    if not row:
-        raise HTTPException(404, "Quotation not found")
-    q = dict(row)
-    q["client_name"] = q.get("client_name") or q.get("lead_name")
-    q["items"] = [dict(i) for i in db.execute(
-        "SELECT * FROM quotation_items WHERE quotation_id = ? ORDER BY id", (quote_id,)).fetchall()]
-    to = (body.to or q.get("client_email") or q.get("lead_email") or "").strip()
-    if not to:
-        raise HTTPException(400, "No recipient: the client/lead has no email on file — pass a 'to' address.")
-    import email_templates
-    subject, html = email_templates.render_quotation(db, q, q["items"], message=body.message)
-    mailer.send(db, to, subject, html)
-    log_action(db, user, "email", "quotation", quote_id, f"Emailed quotation to {to}")
-    db.commit()
-    return {"message": f"Quotation emailed to {to}."}
-
 # ── Create ────────────────────────────────────────────────────────────────
 @router.post("/")
 def create_quotation(

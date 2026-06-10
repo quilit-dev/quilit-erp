@@ -4,7 +4,7 @@ import { useSettings } from '../hooks/useSettings';
 import {
   getInvoices, getInvoice, getClients, getProjects, getInventory,
   createInvoice, updateInvoice, voidInvoice,
-  addInvoicePayment, deleteInvoicePayment, getCashDrawers, sendInvoiceEmail,
+  addInvoicePayment, deleteInvoicePayment, getCashDrawers,
 } from '../api/client';
 import {
   LoadingSpinner, ErrorAlert, EmptyState, Modal, ConfirmModal,
@@ -19,7 +19,6 @@ import Attachments from '../components/Attachments.jsx';
 import { useSortPaginate } from '../hooks/useSortPaginate';
 import { useRecordExport } from '../hooks/useRecordExport';
 import { useFocusId } from '../hooks/useFocusId';
-import EmailModal from '../components/EmailModal';
 
 const METHODS    = ['Cash', 'Bank Transfer', 'Cheque', 'Card', 'Other'];
 // `discount` (in functional currency) is opt-in via Settings → "Enable
@@ -38,7 +37,7 @@ function _waMessage(inv) {
 }
 
 // ── Per-row action dropdown ───────────────────────────────────────────────
-function ActionMenu({ inv, exporting, onEdit, onPay, onExport, onVoid, onEmail }) {
+function ActionMenu({ inv, exporting, onEdit, onPay, onExport, onVoid }) {
   const { t } = useLocale();
   const [open, setOpen] = useState(false);
   const [dropUp, setDropUp] = useState(false);
@@ -146,14 +145,6 @@ function ActionMenu({ inv, exporting, onEdit, onPay, onExport, onVoid, onEmail }
               {exporting === 'pdf' ? '⏳ Exporting…' : '📄 Export PDF'}
             </button>
 
-            <button
-              disabled={isVoided}
-              onClick={() => { setOpen(false); onEmail(); }}
-              style={{ ...menuItemStyle, color: 'var(--accent)', opacity: isVoided ? 0.4 : 1 }}
-            >
-              {t('email.toClient')}
-            </button>
-
             <div style={{ height: 1, background: 'var(--border)', margin: '4px 0' }} />
 
             {!isVoided && (
@@ -242,8 +233,6 @@ export default function Invoices() {
     getCashDrawers().then(d => setCashDrawers((d || []).filter(x => x.is_active))).catch(() => {});
   }, []);
   const [paySubmitting, setPaySubmitting] = useState(false);
-
-  const [emailInv, setEmailInv] = useState(null);
 
   const { exportLoading, handleExport } = useRecordExport({
     fetchFull:   getInvoice,
@@ -366,10 +355,6 @@ export default function Invoices() {
     finally { setVoiding(false); }
   }
 
-  async function handleEmail({ to, message }) {
-    const r = await sendInvoiceEmail(emailInv.id, { to, message });
-    toast((r && r.message) || t('email.invoiceSent'));
-  }
 
   async function openPayModal(inv) {
     setPayLoading(true);
@@ -543,7 +528,6 @@ export default function Invoices() {
                           onPay={() => openPayModal(inv)}
                           onExport={(fmtType) => handleExport(inv, fmtType)}
                           onVoid={() => { setVoidId(inv.id); setVoidReason(''); }}
-                          onEmail={() => setEmailInv(inv)}
                         />
                       </td>
                     </tr>
@@ -954,17 +938,6 @@ export default function Invoices() {
         </Modal>
       )}
 
-      {emailInv && (
-        <EmailModal
-          title={t('email.invoiceTitle', { number: emailInv.invoice_number })}
-          docLabel={emailInv.client_name
-            ? t('email.invoiceDocTo', { number: emailInv.invoice_number, name: emailInv.client_name })
-            : t('email.invoiceDoc',   { number: emailInv.invoice_number })}
-          to={emailInv.client_email || ''}
-          onClose={() => setEmailInv(null)}
-          onSend={handleEmail}
-        />
-      )}
       {deletePayId && (
         <ConfirmModal
           message={t('invoices.deletePaymentMsg')}
