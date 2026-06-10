@@ -266,7 +266,7 @@ export default function Settings() {
     'invoice_prefix', 'quotation_prefix', 'inventory_costing_method',
     'footer_text', 'show_discount_col', 'show_tax_col',
     'email_enabled', 'smtp_host', 'smtp_port', 'smtp_user',
-    'smtp_password', 'smtp_use_tls', 'smtp_from',
+    'smtp_password', 'smtp_use_tls', 'smtp_from', 'resend_api_key',
   ]);
 
   async function save() {
@@ -634,6 +634,20 @@ export default function Settings() {
           <div style={{ marginTop: 10 }}>
             <Toggle label={t('email.useTls')} checked={isOn('smtp_use_tls')} onChange={bool('smtp_use_tls')} />
           </div>
+
+          {/* Cloud delivery (Resend) — most hosts (Render included) block
+              outbound SMTP ports, so a cloud deployment delivers over Resend's
+              HTTPS API instead. A key here takes precedence over SMTP above. */}
+          <div style={{ marginTop: 18, paddingTop: 16, borderTop: '1px solid var(--border)' }}>
+            <div style={{ fontWeight: 600, fontSize: 13.5, marginBottom: 4 }}>{t('email.resendTitle')}</div>
+            <div style={{ fontSize: 12, color: 'var(--text-3)', marginBottom: 12, lineHeight: 1.5 }}>
+              {t('email.resendHint')}
+            </div>
+            <Field label={t('email.resendApiKey')} hint={form.resend_api_key_set ? t('email.resendApiKeySaved') : ''}>
+              <Input type="password" value={form.resend_api_key || ''} onChange={set('resend_api_key')}
+                     placeholder={form.resend_api_key_set ? '••••••••' : 're_...'} /></Field>
+          </div>
+
           <div style={{ marginTop: 16, display: 'flex', gap: 8, alignItems: 'center', flexWrap: 'wrap' }}>
             <input className="form-control" style={{ maxWidth: 260 }} placeholder="you@example.com"
                    value={testEmailTo} onChange={e => setTestEmailTo(e.target.value)} />

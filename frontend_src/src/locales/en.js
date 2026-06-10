@@ -211,8 +211,12 @@ const en = {
     sendTest:           '✉️ Send test email',
     testSent:           'Test email sent.',
     testFailed:         'Test email failed: ',
-    smtpEnvHintPre:     'Save settings before testing. For cloud, SMTP credentials are best set via',
+    smtpEnvHintPre:     'Save settings before testing. For cloud, credentials are best set via',
     smtpEnvHintPost:    'environment variables (no secrets stored in the database).',
+    resendTitle:        'Cloud delivery (Resend)',
+    resendHint:         'Cloud hosts (Render included) block outbound SMTP, so a cloud deployment sends over Resend’s HTTPS API. Paste a Resend API key to use it — it takes precedence over SMTP above. Leave blank on desktop/self-hosted.',
+    resendApiKey:       'Resend API key',
+    resendApiKeySaved:  'saved — leave blank to keep',
   },
 
   imports: {

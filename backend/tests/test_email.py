@@ -1,10 +1,12 @@
 """
 Feature #1 — outbound email (mailer.py) + the test-email endpoint.
 
-SMTP is mocked (no real server). Covers: OFF by default, gating, inline send,
-the admin test-email endpoint, and that the SMTP password is masked on read and
-never wiped by a blank submit.
+SMTP and the Resend HTTPS API are both mocked (no real server / no network).
+Covers: OFF by default, gating, inline send, transport selection (Resend wins
+when a key is set), the admin test-email endpoint surfacing real errors, and
+that secrets are masked on read and never wiped by a blank submit.
 """
+import io
 import smtplib
 
 import pytest
@@ -96,6 +98,67 @@ def test_email_test_surfaces_smtp_error(make_client, db, monkeypatch):
     assert r.status_code == 400, r.text
     body = r.text.lower()
     assert "failed" in body and ("535" in r.text or "credential" in body)
+
+
+# ── Resend (HTTPS API) transport — the cloud path ────────────────────────────
+
+def test_email_uses_resend_when_key_set(make_client, db, monkeypatch):
+    """A configured Resend API key routes the send over the HTTPS API (not
+    SMTP) — the transport that works on Render — and reports success."""
+    _set_email(db, resend_api_key="re_test_key", smtp_host="")   # no SMTP host
+    captured = {}
+
+    class _Resp:
+        def __enter__(self):
+            return self
+
+        def __exit__(self, *a):
+            return False
+
+        def read(self):
+            return b'{"id":"e1"}'
+
+    def _fake_urlopen(req, timeout=None):
+        import json as _json
+        captured["url"] = req.full_url
+        captured["auth"] = req.get_header("Authorization")
+        captured["body"] = _json.loads(req.data.decode())
+        return _Resp()
+
+    import urllib.request
+    monkeypatch.setattr(urllib.request, "urlopen", _fake_urlopen)
+
+    assert mailer.is_enabled(db) is True
+    r = make_client("superadmin").post("/api/settings/email-test", json={"to": "x@y.com"})
+    assert r.status_code == 200, r.text
+    assert captured["url"] == "https://api.resend.com/emails"
+    assert captured["auth"] == "Bearer re_test_key"
+    assert captured["body"]["to"] == ["x@y.com"]
+
+
+def test_resend_error_surfaces(make_client, db, monkeypatch):
+    """A Resend API error (e.g. invalid key) must surface as a 400 with the real
+    message — not a false 'sent'."""
+    _set_email(db, resend_api_key="re_bad", smtp_host="")
+    import urllib.error
+    import urllib.request
+
+    def _boom(req, timeout=None):
+        raise urllib.error.HTTPError(
+            req.full_url, 401, "Unauthorized", {},
+            io.BytesIO(b'{"message":"Invalid API key"}'))
+
+    monkeypatch.setattr(urllib.request, "urlopen", _boom)
+    r = make_client("superadmin").post("/api/settings/email-test", json={"to": "x@y.com"})
+    assert r.status_code == 400, r.text
+    assert "Invalid API key" in r.text or "401" in r.text
+
+
+def test_resend_key_masked_on_read(make_client, db):
+    _set_email(db, resend_api_key="re_secret")
+    s = make_client("superadmin").get("/api/settings/").json()
+    assert s["resend_api_key"] == ""          # never leaked
+    assert s["resend_api_key_set"] is True
 
 
 def test_password_masked_on_read(make_client, db):
