@@ -82,6 +82,22 @@ def test_email_test_endpoint(make_client, db, fake_smtp):
     assert any(s["to"] == "a@b.com" for s in fake_smtp.sent)
 
 
+def test_email_test_surfaces_smtp_error(make_client, db, monkeypatch):
+    """A failing SMTP send must return a 400 with the real reason — not a false
+    'sent' (the bug: the test used to queue the send, which swallows errors)."""
+    _set_email(db)
+
+    class _BoomSMTP(_FakeSMTP):
+        def send_message(self, msg):
+            raise smtplib.SMTPAuthenticationError(535, b"Bad credentials")
+
+    monkeypatch.setattr(smtplib, "SMTP", _BoomSMTP)
+    r = make_client("superadmin").post("/api/settings/email-test", json={"to": "a@b.com"})
+    assert r.status_code == 400, r.text
+    body = r.text.lower()
+    assert "failed" in body and ("535" in r.text or "credential" in body)
+
+
 def test_password_masked_on_read(make_client, db):
     _set_email(db, smtp_password="secret123")
     s = make_client("superadmin").get("/api/settings/").json()

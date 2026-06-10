@@ -118,3 +118,20 @@ def send(db, to, subject, html_body, reply_to=None):
     if not is_enabled(db):
         return False
     return jobs.enqueue("email.send", to, subject, html_body, reply_to)
+
+
+def send_test(db, to):
+    """Send a test message SYNCHRONOUSLY and return {sent, reason}. Unlike
+    send(), this bypasses the queue and surfaces the real SMTP error so the
+    Settings "Send test email" button is an authoritative diagnostic (a queued
+    send swallows failures by design so it can't break a business action)."""
+    cfg = resolve_config(db)
+    if not cfg:
+        return {"sent": False, "reason": "SMTP is not configured."}
+    try:
+        _send_now(cfg, to, "ERP — test email",
+                  "<p>This is a test message from your ERP. "
+                  "If you received it, outbound email is working.</p>")
+        return {"sent": True}
+    except Exception as e:   # noqa: BLE001 — report the exact failure to the admin
+        return {"sent": False, "reason": f"{type(e).__name__}: {e}"}
