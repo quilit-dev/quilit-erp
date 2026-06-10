@@ -53,3 +53,10 @@ services:
         value: "true"               # Render serves HTTPS
       - key: WEB_CONCURRENCY
         value: "2"                  # fit the 512 MB free instance
+      # Email: Render (and most PaaS) BLOCK outbound SMTP ports (25/465/587), so
+      # cloud email is delivered over Resend's HTTPS API instead. Configure it
+      # either in the app (Settings → Email → Resend API key) or via env here —
+      # add these in the Render dashboard so the key is NOT committed to git:
+      #   EMAIL_ENABLED  = 1
+      #   RESEND_API_KEY = re_...                 # https://resend.com/api-keys
+      #   RESEND_FROM    = onboarding@resend.dev  # or an address on a verified domain

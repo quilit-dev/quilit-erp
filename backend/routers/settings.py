@@ -63,8 +63,11 @@ DEFAULTS = {
     "footer_text":         "Thank you for your business.",
     "show_discount_col":   "0",
     "show_tax_col":        "1",
-    # Email (SMTP) — OFF until enabled. SMTP credentials may instead come from
-    # environment vars (SMTP_*), preferred for cloud so no secrets sit in the DB.
+    # Email — OFF until enabled. Two transports: SMTP (desktop / self-hosted) or
+    # Resend's HTTPS API (cloud — Render & most PaaS block outbound SMTP ports).
+    # Credentials may instead come from env vars (SMTP_* / RESEND_API_KEY),
+    # preferred for cloud so no secrets sit in the DB. A Resend key, when set,
+    # takes precedence over SMTP.
     "email_enabled":       "0",
     "smtp_host":           "",
     "smtp_port":           "587",
@@ -72,6 +75,7 @@ DEFAULTS = {
     "smtp_password":       "",
     "smtp_use_tls":        "1",
     "smtp_from":           "",
+    "resend_api_key":      "",
     # Setup
     "setup_complete":      "0",
 }
@@ -115,6 +119,7 @@ class SettingsUpdate(BaseModel):
     smtp_password:      Optional[str] = None
     smtp_use_tls:       Optional[str] = None
     smtp_from:          Optional[str] = None
+    resend_api_key:     Optional[str] = None
     # `enabled_modules` is deliberately absent — it lives in vendor_config.py
     # as an immutable constant. A PUT body containing it is rejected by
     # pydantic with 422 ("extra field not permitted") via model_config below.
@@ -152,9 +157,11 @@ def _get_all(db: sqlite3.Connection) -> dict:
     # backed up server-side, so the UI hides that whole section when this is false.
     from database import DB_BACKEND
     data["local_backup"] = DB_BACKEND in ("sqlite", "sqlite3")
-    # Never expose the SMTP password to the browser — report only whether one is set.
+    # Never expose secrets to the browser — report only whether each is set.
     data["smtp_password_set"] = bool(data.get("smtp_password"))
     data["smtp_password"] = ""
+    data["resend_api_key_set"] = bool(data.get("resend_api_key"))
+    data["resend_api_key"] = ""
     return data
 
 def _set_keys(db: sqlite3.Connection, updates: dict):
@@ -196,7 +203,7 @@ def email_test(body: EmailTestRequest, user=Depends(require_admin),
     # real SMTP error, instead of queueing (which would report a false success).
     result = mailer.send_test(db, body.to)
     if not result.get("sent"):
-        raise HTTPException(400, f"SMTP send failed — {result.get('reason')}")
+        raise HTTPException(400, f"Email send failed — {result.get('reason')}")
     return {"message": f"Test email sent to {body.to}."}
 
 
@@ -210,9 +217,11 @@ def update_settings(
     # SettingsUpdate, and the model rejects unknown fields outright. The
     # immutable source of truth is vendor_config.ENABLED_MODULES.
     updates = {k: v for k, v in body.dict().items() if v is not None}
-    # A blank SMTP password from the (masked) form must not wipe the stored one.
+    # A blank masked secret from the form must not wipe the stored one.
     if updates.get("smtp_password") == "":
         updates.pop("smtp_password", None)
+    if updates.get("resend_api_key") == "":
+        updates.pop("resend_api_key", None)
 
     # Inventory costing method: validate and, when switched to a lot-based
     # method, rebase the cost layers so they match on-hand stock immediately.
