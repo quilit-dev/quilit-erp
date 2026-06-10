@@ -122,6 +122,7 @@ def test_email_uses_resend_when_key_set(make_client, db, monkeypatch):
         import json as _json
         captured["url"] = req.full_url
         captured["auth"] = req.get_header("Authorization")
+        captured["ua"] = req.get_header("User-agent")
         captured["body"] = _json.loads(req.data.decode())
         return _Resp()
 
@@ -134,6 +135,9 @@ def test_email_uses_resend_when_key_set(make_client, db, monkeypatch):
     assert captured["url"] == "https://api.resend.com/emails"
     assert captured["auth"] == "Bearer re_test_key"
     assert captured["body"]["to"] == ["x@y.com"]
+    # A real User-Agent must be sent — the default "Python-urllib/x.y" gets a 403
+    # (Cloudflare error 1010) from api.resend.com's edge before Resend sees it.
+    assert captured["ua"] and "urllib" not in captured["ua"].lower()
 
 
 def test_resend_error_surfaces(make_client, db, monkeypatch):
