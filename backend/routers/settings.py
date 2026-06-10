@@ -192,9 +192,11 @@ def email_test(body: EmailTestRequest, user=Depends(require_admin),
     if not mailer.is_enabled(db):
         raise HTTPException(400, "Email is disabled or not configured. Turn it on "
                                  "and set SMTP details (or use SMTP_* env vars).")
-    mailer.send(db, body.to, "ERP — test email",
-                "<p>This is a test message from your ERP. "
-                "If you received it, outbound email is working.</p>")
+    # Synchronous + authoritative: actually attempt delivery and surface the
+    # real SMTP error, instead of queueing (which would report a false success).
+    result = mailer.send_test(db, body.to)
+    if not result.get("sent"):
+        raise HTTPException(400, f"SMTP send failed — {result.get('reason')}")
     return {"message": f"Test email sent to {body.to}."}
 
 
