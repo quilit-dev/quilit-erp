@@ -148,8 +148,16 @@ def _send_via_resend(cfg, to, subject, html_body, reply_to=None):
     req = urllib.request.Request(
         "https://api.resend.com/emails",
         data=json.dumps(payload).encode("utf-8"),
-        headers={"Authorization": f'Bearer {cfg["api_key"]}',
-                 "Content-Type": "application/json"},
+        headers={
+            "Authorization": f'Bearer {cfg["api_key"]}',
+            "Content-Type": "application/json",
+            "Accept": "application/json",
+            # api.resend.com is behind Cloudflare, whose bot rules reject the
+            # default "Python-urllib/x.y" client signature with a 403 (error
+            # 1010) before the request reaches Resend. A normal User-Agent in
+            # the well-behaved-bot format passes the edge.
+            "User-Agent": "ERP-System/1.0 (+https://github.com/alikoteich/erp-system)",
+        },
         method="POST",
     )
     try:
