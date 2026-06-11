@@ -8,6 +8,8 @@ backend/.env
 
 # Databases
 *.db
+*.db-wal
+*.db-shm
 backend/erp.db
 erp.db
 

@@ -48,5 +48,12 @@ EXPOSE 8000
 HEALTHCHECK --interval=15s --timeout=5s --start-period=40s --retries=5 \
     CMD curl -fsS http://localhost:${PORT:-8000}/api/health || exit 1
 ENTRYPOINT ["/usr/local/bin/entrypoint.sh"]
+# --forwarded-allow-ips='*': the container is only reachable through the
+# platform's proxy (Render/LB), so trust its X-Forwarded-* headers. Without
+# this, request.client.host is the proxy IP for everyone — making the login
+# rate-limit a single global bucket and recording the wrong IP in audit logs
+# and user_sessions. (Per-account lockout is a recommended follow-up to harden
+# against X-Forwarded-For spoofing.)
 CMD exec gunicorn main:app -k uvicorn.workers.UvicornWorker \
-    -b 0.0.0.0:${PORT:-8000} -w ${WEB_CONCURRENCY:-3} --timeout 120 --access-logfile -
+    -b 0.0.0.0:${PORT:-8000} -w ${WEB_CONCURRENCY:-3} --timeout 120 \
+    --forwarded-allow-ips='*' --access-logfile -
