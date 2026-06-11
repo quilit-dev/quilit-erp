@@ -44,6 +44,54 @@ app.add_middleware(
 from tenancy import TenantMiddleware
 app.add_middleware(TenantMiddleware)
 
+
+# ── Security response headers ────────────────────────────────────────────────
+# Hardening headers on every response: block MIME-sniffing, framing
+# (clickjacking), and constrain resource loading (defense-in-depth XSS). Pure
+# ASGI (not BaseHTTPMiddleware) so it never interferes with streaming/file
+# responses. The SPA is served same-origin with NO inline scripts (Vite emits
+# external module scripts), so `script-src 'self'` is safe; React inline styles
+# need `style-src 'unsafe-inline'`.
+class SecurityHeadersMiddleware:
+    def __init__(self, app, hsts: bool):
+        self.app = app
+        self._headers = [
+            (b"x-content-type-options", b"nosniff"),
+            (b"x-frame-options", b"DENY"),
+            (b"referrer-policy", b"strict-origin-when-cross-origin"),
+            (b"content-security-policy",
+             b"default-src 'self'; base-uri 'self'; frame-ancestors 'none'; "
+             b"object-src 'none'; img-src 'self' data: blob:; font-src 'self' data:; "
+             b"style-src 'self' 'unsafe-inline'; script-src 'self'; "
+             b"connect-src 'self'; form-action 'self'"),
+        ]
+        # HSTS only over HTTPS deployments (COOKIE_SECURE=true). Browsers ignore
+        # it over plain HTTP anyway, but sending it only when secure avoids
+        # surprising LAN-only self-hosted installs served on http://.
+        if hsts:
+            self._headers.append(
+                (b"strict-transport-security", b"max-age=31536000; includeSubDomains"))
+
+    async def __call__(self, scope, receive, send):
+        if scope["type"] != "http":
+            await self.app(scope, receive, send)
+            return
+
+        async def _send(message):
+            if message["type"] == "http.response.start":
+                headers = message.setdefault("headers", [])
+                present = {k.lower() for k, _ in headers}
+                for k, v in self._headers:
+                    if k not in present:
+                        headers.append((k, v))
+            await send(message)
+
+        await self.app(scope, receive, _send)
+
+
+from auth_utils import COOKIE_SECURE
+app.add_middleware(SecurityHeadersMiddleware, hsts=COOKIE_SECURE)
+
 app.include_router(auth.router,        prefix="/api/auth",        tags=["auth"])
 app.include_router(dashboard.router,   prefix="/api/dashboard",   tags=["dashboard"])
 app.include_router(clients.router,     prefix="/api/clients",     tags=["clients"])

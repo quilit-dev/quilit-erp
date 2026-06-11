@@ -1,6 +1,17 @@
 fastapi>=0.111.0
+# starlette floor pinned for PYSEC-2026-161 (Host-header / request.url.path
+# inconsistency → possible path-based auth bypass). Resolved transitively by
+# FastAPI, but pinned explicitly to enforce the security floor.
+starlette>=1.0.1
 uvicorn[standard]>=0.30.0
-PyJWT>=2.8.0
+# PyJWT >=2.13.0 fixes PYSEC-2026-175/177/178/179 (JWKS/HMAC confusion + detached
+# JWS DoS). This app uses HS256 with a static key (no JWKS), so impact is low,
+# but the upgrade is clean.
+PyJWT>=2.13.0
 pydantic>=2.7.0
-python-multipart>=0.0.9
+# python-multipart >=0.0.27 fixes CVE-2026-42561 (multipart header-parsing DoS).
+# Directly relevant — the attachments/imports endpoints parse uploaded files.
+python-multipart>=0.0.27
 python-dotenv>=1.0.0
+# idna >=3.15 fixes CVE-2026-45409 (idna.encode DoS on crafted input). Transitive.
+idna>=3.15
