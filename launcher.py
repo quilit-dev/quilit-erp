@@ -181,7 +181,6 @@ try:
     # in DYNAMICALLY (e.g. `import warehouse_access as wha` inside a function
     # body). PyInstaller's static analyser only reliably catches module-level
     # imports, so naming them here guarantees the frozen build bundles them.
-    import mailer            as _mailer  # noqa: F401 — registers email.send job
     import warehouse_access as _wha    # noqa: F401 — row-level RBAC helper
     import accounting       as _acct   # noqa: F401 — double-entry posting engine
     import costing          as _cost   # noqa: F401 — FIFO/LIFO/weighted-average

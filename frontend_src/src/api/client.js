@@ -112,7 +112,6 @@ export const cancelQuotation     = (id, reason) => api.patch(`/api/quotations/${
 export const archiveQuotation    = (id, reason) => api.patch(`/api/quotations/${id}/archive`, { reason });
 export const convertToInvoice    = (id) => api.post(`/api/quotations/${id}/convert-to-invoice`);
 export const convertToProject    = (id) => api.post(`/api/quotations/${id}/convert-to-project`);
-export const sendQuotationEmail  = (id, body) => api.post(`/api/quotations/${id}/send-email`, body || {});
 
 // Invoices + cumulative payments
 export const getInvoices       = (s)    => api.get('/api/invoices/', s);
@@ -123,7 +122,6 @@ export const archiveInvoice    = (id, reason) => api.patch(`/api/invoices/${id}/
 export const voidInvoice       = (id, reason) => api.patch(`/api/invoices/${id}/void`, { reason });
 export const addInvoicePayment    = (id, d)       => api.post(`/api/invoices/${id}/payments`, d);
 export const deleteInvoicePayment = (invId, payId) => api.delete(`/api/invoices/${invId}/payments/${payId}`);
-export const sendInvoiceEmail     = (id, body)    => api.post(`/api/invoices/${id}/send-email`, body || {});
 
 // Inventory
 export const getInventory           = (s)    => api.get('/api/inventory/', s);

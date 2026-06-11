@@ -18,8 +18,7 @@ from routers import clients, projects, quotations, inventory, invoices, finance,
 from routers import purchases, settings, archives, documents, suppliers, audit, users, roles, search
 from routers import reports, crm, planning, notifications
 from routers import approval_policies, approval_requests, hr, hr_contracts, recruitment, hr_activities, tax_rates, pos, cash, manufacturing
-from routers import assets, recurring, announcements, attachments, accounting, warehouses, platform, imports, cron
-import mailer  # noqa: F401 — registers the email.send background job at import time
+from routers import assets, recurring, announcements, attachments, accounting, warehouses, platform, imports
 
 app = FastAPI(title="ERP System", version="2.0.0")
 
@@ -84,7 +83,6 @@ app.include_router(accounting.router,         prefix="/api/accounting",         
 app.include_router(warehouses.router,         prefix="/api/warehouses",         tags=["warehouses"])
 app.include_router(platform.router,           prefix="/api/platform",           tags=["platform"])
 app.include_router(imports.router,            prefix="/api/imports",            tags=["imports"])
-app.include_router(cron.router,               prefix="/api/cron",               tags=["cron"])
 
 @app.get("/api/health")
 def health():

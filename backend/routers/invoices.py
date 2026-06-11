@@ -255,42 +255,6 @@ def get_invoice(
     d["amounts_locked"] = _has_payments(db, invoice_id)
     return d
 
-# ── Email the invoice to the client ─────────────────────────────────────────
-class SendEmailRequest(BaseModel):
-    to:      Optional[str] = None   # override; defaults to the client's email
-    message: Optional[str] = None   # optional note shown above the document
-
-@router.post("/{invoice_id}/send-email")
-def send_invoice_email(
-    invoice_id: int,
-    body: SendEmailRequest = SendEmailRequest(),
-    user=Depends(require_perm("invoices", "view")),
-    db: sqlite3.Connection = Depends(get_db),
-):
-    import mailer
-    if not mailer.is_enabled(db):
-        raise HTTPException(400, "Email is disabled or not configured. Enable it in "
-                                 "Settings (or set SMTP_* env vars).")
-    row = db.execute(
-        """SELECT i.*, c.name AS client_name, c.email AS client_email
-           FROM invoices i LEFT JOIN clients c ON i.client_id = c.id
-           WHERE i.id = ?""", (invoice_id,)).fetchone()
-    if not row:
-        raise HTTPException(404, "Invoice not found")
-    inv = _enrich(dict(row), db)
-    inv["items"] = ([dict(i) for i in db.execute(
-        "SELECT * FROM invoice_items WHERE invoice_id = ? ORDER BY id", (invoice_id,)).fetchall()]
-        if _table_exists(db, "invoice_items") else [])
-    to = (body.to or inv.get("client_email") or "").strip()
-    if not to:
-        raise HTTPException(400, "No recipient: the client has no email on file — pass a 'to' address.")
-    import email_templates
-    subject, html = email_templates.render_invoice(db, inv, inv["items"], message=body.message)
-    mailer.send(db, to, subject, html)
-    log_action(db, user, "email", "invoice", invoice_id, f"Emailed invoice to {to}")
-    db.commit()
-    return {"message": f"Invoice emailed to {to}."}
-
 # ── Create ────────────────────────────────────────────────────────────────
 @router.post("/")
 def create_invoice(

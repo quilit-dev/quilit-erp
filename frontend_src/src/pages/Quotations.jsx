@@ -6,7 +6,7 @@ import { useSettings } from '../hooks/useSettings';
 import {
   getQuotations, getQuotation, getClients, getProjects, getInventory,
   createQuotation, updateQuotation, cancelQuotation,
-  convertToInvoice, convertToProject, getCRMLeads, sendQuotationEmail,
+  convertToInvoice, convertToProject, getCRMLeads,
 } from '../api/client';
 import {
   LoadingSpinner, ErrorAlert, EmptyState, Modal, ConfirmModal,
@@ -21,7 +21,6 @@ import InventoryCombobox from '../components/InventoryCombobox';
 import { useSortPaginate } from '../hooks/useSortPaginate';
 import { useRecordExport } from '../hooks/useRecordExport';
 import { useFocusId } from '../hooks/useFocusId';
-import EmailModal from '../components/EmailModal';
 
 const STATUSES   = ['Draft', 'Sent', 'Accepted', 'Rejected'];
 // `discount` (in functional currency) is opt-in via Settings → "Enable
@@ -37,7 +36,7 @@ const menuItemStyle = {
 };
 
 // ── Per-row action dropdown (Edit / exports / Cancel / Archive) ───────────
-function QuoteActionMenu({ exporting, onEdit, onExport, onEmail, onCancel }) {
+function QuoteActionMenu({ exporting, onEdit, onExport, onCancel }) {
   const { t } = useLocale();
   const [open, setOpen]     = useState(false);
   const [dropUp, setDropUp] = useState(false);
@@ -113,10 +112,6 @@ function QuoteActionMenu({ exporting, onEdit, onExport, onEmail, onCancel }) {
             {exporting === 'pdf' ? '⏳ ' + t('common.exporting') : '📄 ' + t('quotations.exportPdf')}
           </button>
 
-          <button style={{ ...menuItemStyle, color: 'var(--accent)' }} onClick={() => { setOpen(false); onEmail(); }}>
-            {t('email.toClient')}
-          </button>
-
           {divider}
 
           <button style={{ ...menuItemStyle, color: '#92400e' }} onClick={() => { setOpen(false); onCancel(); }}>
@@ -155,7 +150,6 @@ export default function Quotations() {
   const [editId,       setEditId]       = useState(null);
   const [formLoading,  setFormLoading]  = useState(false);
   const [cancelId,     setCancelId]     = useState(null);
-  const [emailQuote,   setEmailQuote]   = useState(null);
   const [saving,       setSaving]       = useState(false);
   const [statusFilter, setStatusFilter] = usePersistedState('quotations.statusFilter', '');
   const [search, setSearch] = usePersistedState('quotations.search', '');
@@ -272,10 +266,6 @@ export default function Quotations() {
     } catch (err) { toast(err.message, 'red'); }
   }
 
-  async function handleEmail({ to, message }) {
-    const r = await sendQuotationEmail(emailQuote.id, { to, message });
-    toast((r && r.message) || t('email.quoteSent'));
-  }
 
   const [convertInvoiceId, setConvertInvoiceId] = useState(null);
   const [convertProjectId, setConvertProjectId] = useState(null);
@@ -461,7 +451,6 @@ export default function Quotations() {
                             exporting={exporting}
                             onEdit={() => openEdit(q)}
                             onExport={(type) => handleExport(q, type)}
-                            onEmail={() => setEmailQuote(q)}
                             onCancel={() => setCancelId(q.id)}
                           />
                         </div>
@@ -660,20 +649,6 @@ export default function Quotations() {
           onCancel={() => setConvertProjectId(null)}
         />
       )}
-      {emailQuote && (() => {
-        const recipientName = emailQuote.client_name || emailQuote.lead_name;
-        return (
-          <EmailModal
-            title={t('email.quoteTitle', { number: emailQuote.quote_number })}
-            docLabel={recipientName
-              ? t('email.quoteDocTo', { number: emailQuote.quote_number, name: recipientName })
-              : t('email.quoteDoc',   { number: emailQuote.quote_number })}
-            to={emailQuote.client_email || emailQuote.lead_email || ''}
-            onClose={() => setEmailQuote(null)}
-            onSend={handleEmail}
-          />
-        );
-      })()}
     </div>
   );
 }
