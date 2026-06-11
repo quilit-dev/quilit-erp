@@ -268,8 +268,15 @@ def trial_balance(db: sqlite3.Connection, as_of: str = None):
     out, td, tc = [], 0.0, 0.0
     for r in rows:
         debit, credit = round(float(r["debit"]), 2), round(float(r["credit"]), 2)
-        bal = _signed_balance(r["type"], debit, credit)
-        # In a trial balance each account shows its balance on its normal side.
+        # In a trial balance each account shows its balance on its NORMAL side,
+        # so the net must be computed in the normal-balance sign — not the type
+        # sign. For a contra account the two disagree (1510 Accumulated
+        # Depreciation: type Asset, normal credit); using the type sign put its
+        # balance in the wrong column and broke the TB tie-out.
+        if r["normal_balance"] == "debit":
+            bal = round(debit - credit, 2)
+        else:
+            bal = round(credit - debit, 2)
         dr = bal if r["normal_balance"] == "debit" else 0.0
         cr = bal if r["normal_balance"] == "credit" else 0.0
         # A negative natural balance flips sides.

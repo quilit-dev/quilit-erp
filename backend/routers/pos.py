@@ -696,6 +696,21 @@ def return_sale(
         (now, f"POS return: {data.reason or 'Customer return'}", inv["id"]),
     )
 
+    # Walk the general ledger back with the void (mirrors PATCH /invoices/{id}/void,
+    # which this raw UPDATE bypasses). The payment reversal credits the cash back
+    # out — that IS the refund leaving the till — and removes the revenue; the
+    # COGS reversal returns the goods' value to Inventory, matching the physical
+    # restock below. reverse_source is a no-op for anything already reversed.
+    for pay in db.execute(
+        "SELECT id FROM invoice_payments WHERE invoice_id=?", (inv["id"],)
+    ).fetchall():
+        accounting.reverse_source(db, "invoice_payment", pay["id"],
+                                  memo=f"POS return — {inv['invoice_number']}",
+                                  created_by=user["id"])
+    accounting.reverse_source(db, "pos_cogs", inv["id"],
+                              memo=f"POS return COGS — {inv['invoice_number']}",
+                              created_by=user["id"])
+
     # Restock every inventory-backed line, returning the goods to the same
     # warehouse the original sale was deducted from (the session's warehouse).
     import warehouse_access as wha

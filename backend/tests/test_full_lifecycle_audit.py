@@ -25,22 +25,18 @@ hand-off:
   6. RBAC seams      a Sales user cannot post journal entries, close a year,
                      or run payroll.
 
-Known deviations are encoded as @xfail(strict=True) so they document the
-defect today and fail loudly the day they are fixed (forcing the marker to be
-removed):
+Three defects found by the first audit pass are now FIXED and asserted as
+live invariants (they were strict xfails while open):
 
-  FINDING-1  POS return voids the invoice and restocks the goods, but never
-             reverses the sale's GL entries (revenue, cash, COGS, inventory)
-             — the ledger drifts from Finance/VAT on every refund.
-  FINDING-2  A taxed purchase debits Inventory (1200) at the VAT-INCLUSIVE
-             gross, while cost layers carry the ex-VAT cost — the input-VAT
-             portion is never relieved by COGS and accumulates in 1200.
-  FINDING-3  trial_balance() computes each balance by account TYPE but
-             presents it by normal_balance — for a contra account (1510
-             Accumulated Depreciation: type Asset, normal credit) the two
-             disagree, so after any depreciation the TB shows 1510 on the
-             DEBIT side and reports balanced=False. Ledger + balance sheet
-             are unaffected; it is a TB presentation defect.
+  FINDING-1  POS return now reverses the sale's GL entries (payment reversal
+             = cash refund + revenue removal; COGS reversal = inventory value
+             restored) — the ledger walks back with the void.
+  FINDING-2  A taxed purchase now debits Inventory at the EX-VAT landed cost
+             (matching the cost layers) and charges the input-VAT portion to
+             expense — GL Inventory always equals physical stock value.
+  FINDING-3  trial_balance() now nets each account in its NORMAL-BALANCE
+             sign, so contra accounts (1510 Accumulated Depreciation) land
+             on the credit side and the TB ties out after depreciation.
 
 Run just this file:
     cd backend && python -m pytest tests/test_full_lifecycle_audit.py -v
@@ -328,16 +324,10 @@ def test_vat_output_input_and_pos_return_declaration(make_client, db):
     assert s["income"] == pytest.approx(111, abs=CENT)
 
 
-# FINDING-1 ──────────────────────────────────────────────────────────────────
-@pytest.mark.xfail(
-    strict=True,
-    reason="FINDING-1: POS return voids the invoice and restocks the goods "
-           "but never reverses the sale's GL entries — revenue, cash, COGS "
-           "and inventory all stay on the ledger after the refund, so the GL "
-           "drifts from Finance/VAT on every POS return.")
+# FINDING-1 (fixed) ──────────────────────────────────────────────────────────
 def test_pos_return_reverses_the_general_ledger(make_client, db):
-    """DESIRED behaviour: after a full POS return the ledger shows no trace
-    of the sale — revenue 0, COGS 0, cash back out, inventory restored."""
+    """After a full POS return the ledger shows no trace of the sale —
+    revenue 0, COGS 0, cash back out, inventory restored."""
     c = make_client("superadmin")
     item = _item(c, "AUD Gadget", "finished", qty=10, cost=4, price=10)
     assert c.post("/api/pos/session/open",
@@ -365,17 +355,11 @@ def test_pos_return_reverses_the_general_ledger(make_client, db):
     assert bal.get("1200", (0, 0))[0] == pytest.approx(0, abs=CENT)
 
 
-# FINDING-2 ──────────────────────────────────────────────────────────────────
-@pytest.mark.xfail(
-    strict=True,
-    reason="FINDING-2: a taxed purchase debits Inventory (1200) at the VAT-"
-           "INCLUSIVE gross while cost layers carry the ex-VAT landed cost — "
-           "the input-VAT portion is never relieved by COGS and accumulates "
-           "in the GL inventory account forever.")
+# FINDING-2 (fixed) ──────────────────────────────────────────────────────────
 def test_taxed_purchase_gl_inventory_matches_physical_value(make_client):
-    """DESIRED behaviour: after buying 10 @ $10 + 11% VAT and selling all 10,
-    GL Inventory returns to zero (input VAT belongs in a VAT-receivable
-    account, not in stock)."""
+    """After buying 10 @ $10 + 11% VAT and selling all 10, GL Inventory
+    returns to zero: stock is carried ex-VAT (matching the cost layers) and
+    the input-VAT portion is expensed at purchase, not capitalised."""
     c = make_client("superadmin")
     _enable_vat(c)
     rid = _default_rate(c)
@@ -397,10 +381,13 @@ def test_taxed_purchase_gl_inventory_matches_physical_value(make_client):
         "payment_method": "Cash", "amount_tendered": 250, "idempotency_key": _key(),
     }).status_code == 200
 
-    # Zero units on hand ⇒ the GL inventory account must also be zero.
+    # Zero units on hand ⇒ the GL inventory account must also be zero, and the
+    # $11 input VAT sits in expense (6900), not in stock. Books stay balanced.
     assert c.get(f"/api/inventory/{item}").json()["quantity"] == pytest.approx(0)
-    _, bal = _tb(c)
+    tb, bal = _tb(c)
     assert bal.get("1200", (0, 0))[0] == pytest.approx(0, abs=CENT)
+    assert bal["6900"][0] == pytest.approx(11, abs=CENT)
+    assert tb["balanced"] is True
 
 
 # ═══════════════════════════════════════════════════════════════════════════
@@ -452,10 +439,11 @@ def test_payroll_and_depreciation_post_once_to_correct_accounts(make_client, db)
     # Re-running the same period must not double the charge.
     c.post(f"/api/assets/{aid}/depreciate", json={"period": "2026-01"})
 
-    # Assert the LEDGER itself (the journal lines are the source of truth;
-    # the trial-balance VIEW of 1510 is broken — see FINDING-3 below).
+    # Assert both the ledger lines (source of truth) and the trial-balance
+    # view, which now presents the contra-asset on its credit side.
     _, bal = _tb(c)
     assert bal["6300"][0] == pytest.approx(100, abs=CENT)   # Depreciation Expense
+    assert bal["1510"][1] == pytest.approx(100, abs=CENT)   # Accumulated Dep (credit)
     dep_lines = db.execute(
         """SELECT a.code, l.debit, l.credit
            FROM journal_entry_lines l
@@ -476,19 +464,14 @@ def test_payroll_and_depreciation_post_once_to_correct_accounts(make_client, db)
     assert isr["total_expense"] == pytest.approx(5100, abs=CENT)
     bs = c.get("/api/accounting/balance-sheet").json()
     assert bs["balanced"] is True
+    tb, _ = _tb(c)
+    assert tb["balanced"] is True
 
 
-# FINDING-3 ──────────────────────────────────────────────────────────────────
-@pytest.mark.xfail(
-    strict=True,
-    reason="FINDING-3: trial_balance() computes balances by account TYPE but "
-           "presents them by normal_balance — contra accounts (1510, type "
-           "Asset / normal credit) flip to the wrong side, so the TB shows "
-           "Accumulated Depreciation as a DEBIT and reports balanced=False "
-           "after any depreciation posting.")
+# FINDING-3 (fixed) ──────────────────────────────────────────────────────────
 def test_trial_balance_presents_contra_assets_on_the_credit_side(make_client):
-    """DESIRED behaviour: a $100 depreciation charge shows 6300 debit 100 and
-    1510 CREDIT 100, and the trial balance stays balanced."""
+    """A $100 depreciation charge shows 6300 debit 100 and 1510 CREDIT 100,
+    and the trial balance stays balanced."""
     c = make_client("superadmin")
     asset = c.post("/api/assets", json={
         "name": "AUD TB Machine", "category": "Equipment",
