@@ -411,11 +411,9 @@ def void_invoice(
         "UPDATE invoices SET voided_at=?, void_reason=?, version=version+1 WHERE id=?",
         (now, data.reason or "Voided", invoice_id),
     )
-    if inv["project_id"]:
-        db.execute(
-            "UPDATE projects SET actual_cost = MAX(0, actual_cost - ?) WHERE id=?",
-            (float(inv["total"] or 0), inv["project_id"]),
-        )
+    # NOTE: no projects.actual_cost adjustment here. Invoices are project
+    # REVENUE — only expenses feed actual_cost (see routers/finance.py), and
+    # invoice creation never increments it, so there is nothing to walk back.
     # Reverse the ledger entry for every payment on the voided invoice so the
     # books no longer recognise the revenue.
     for pay in db.execute(
