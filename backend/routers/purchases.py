@@ -367,24 +367,33 @@ def _record_expense(purchase_id: int, db: sqlite3.Connection):
     )
     db.execute("UPDATE purchases SET expense_recorded = 1 WHERE id = ?", (purchase_id,))
     # Auto-post to the General Ledger (F-2 audit fix — perpetual inventory).
-    # OLD posting was DR COGS / CR Cash, which recognised the full purchase as
-    # an expense at acquisition — wrong under perpetual inventory because the
-    # cost is incurred when goods are SOLD (the POS sale now relieves COGS).
-    # Correct entry:
-    #   DR  Inventory                gross   (asset comes onto the books)
-    #     CR  Cash & Bank                       gross
+    # Inventory is debited at the EX-VAT landed cost — the same value the cost
+    # layers carry — so the 1200 balance always equals the physical stock value
+    # and is fully relieved when the goods sell (COGS draws from those layers).
+    # Debiting the VAT-inclusive gross here capitalised the input VAT into
+    # Inventory, where COGS could never relieve it. The input-VAT portion is
+    # charged to expense on the purchase date instead — the same gross/cash-
+    # basis treatment a plain Finance expense gets. The VAT *declaration* reads
+    # the tax snapshot on the `expenses` row above, not the GL, so it is
+    # unaffected by this split.
+    #   DR  Inventory                  base   (ex-VAT — matches cost layers)
+    #   DR  General & Other Expense    VAT    (input VAT, only when taxed)
+    #     CR  Cash & Bank                      gross
     # Note: the row also creates an `expenses` entry above so the cash-basis
     # Finance dashboard keeps showing the cash outflow on the purchase date.
     # The GL is the accrual source of truth; the cash-basis dashboard is the
     # cash-flow view. They legitimately differ for inventory purchases.
+    tax_part = money(tax_amt)
+    lines = [{"code": accounting.INVENTORY, "debit": money(gross - tax_part)}]
+    if tax_part > 0:
+        lines.append({"code": accounting.OTHER_EXPENSE, "debit": tax_part,
+                      "memo": f"Input VAT — {row['po_number']}"})
+    lines.append({"code": accounting.CASH, "credit": gross})
     accounting.post_entry(
         db,
         entry_date=now[:10],
         memo=f"Purchase {row['po_number']} — {row['product_name']}",
-        lines=[
-            {"code": accounting.INVENTORY, "debit":  gross},
-            {"code": accounting.CASH,      "credit": gross},
-        ],
+        lines=lines,
         source_type="purchase", source_id=purchase_id, created_by=None,
     )
 
