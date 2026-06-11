@@ -1043,6 +1043,47 @@ html[lang="ar"], html[lang="ar"] body {
   display: inline-flex; align-items: center; justify-content: center;
 }
 
+/* ── Segmented control ── a connected toggle group for picking ONE option
+ *  (date-range presets, view filters). Deliberately NOT styled like .btn: a
+ *  recessed track with the active segment raised, so it reads as a selector
+ *  rather than a row of action buttons sitting next to Export / PDF. */
+.seg {
+  display: inline-flex;
+  align-items: center;
+  gap: 2px;
+  padding: 2px;
+  background: var(--surface-2);
+  border: 1px solid var(--rule);
+  border-radius: var(--r-sm);
+}
+.seg-item {
+  appearance: none;
+  border: none;
+  background: transparent;
+  padding: 5px 11px;
+  font-family: var(--font-sans);
+  font-size: 12.5px;
+  font-weight: 600;
+  letter-spacing: -0.005em;
+  color: var(--text-3);
+  border-radius: calc(var(--r-sm) - 2px);
+  cursor: pointer;
+  white-space: nowrap;
+  transition:
+    background var(--motion-fast) var(--ease),
+    color var(--motion-fast) var(--ease);
+}
+.seg-item:hover:not(.active) { color: var(--text); }
+.seg-item.active {
+  background: var(--surface);
+  color: var(--accent);
+  box-shadow: var(--shadow-xs);
+}
+.seg-item:focus-visible {
+  outline: 2px solid var(--accent);
+  outline-offset: 1px;
+}
+
 
 /* ── Tables ── Hairline rules, no vertical lines, no row banding. Hover
    shows a 2px accent rail on the leading edge of the row. Numeric cells
