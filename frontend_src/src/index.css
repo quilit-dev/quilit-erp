@@ -2939,7 +2939,7 @@ textarea.form-control {
   flex: 1 1 auto;
   overflow-y: auto;
   min-height: 0;
-  padding: 8px;
+  padding: 6px;
   scrollbar-width: thin;
   scrollbar-color: var(--rule-strong) transparent;
 }
@@ -2951,16 +2951,18 @@ textarea.form-control {
 }
 .pos-cart-list::-webkit-scrollbar-track { background: transparent; }
 
-/* Cart line — two-row layout: name + meta on top (full width), controls
- * underneath aligned to the right. Stacking instead of the previous
- * `grid-template-columns: 1fr auto` layout means long product names get
- * the full panel width to wrap into instead of being clipped behind the
- * qty controls. The controls drop to a tidy row of their own below. */
+/* Cart line — compact SINGLE row (Square / Shopify-POS style): name + meta
+ * flex to fill the leading space; the qty stepper, line total and remove X
+ * pack into a tight cluster on the trailing edge. Halving the old two-row
+ * height roughly doubles how many items show before the list scrolls. The row
+ * wraps gracefully (controls drop below) only when it genuinely can't fit —
+ * e.g. a narrow panel with per-line discounts enabled. */
 .pos-cart-line {
   display: flex;
-  flex-direction: column;
-  gap: 8px;
-  padding: 12px;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 6px 12px;
+  padding: 8px 10px;
   border-radius: var(--r-sm);
   border: 1px solid transparent;
   transition: background var(--motion-fast) var(--ease);
@@ -2972,20 +2974,19 @@ textarea.form-control {
 }
 .pos-cart-line:hover { background: var(--surface-2); }
 
-.pos-cart-line-body { min-width: 0; }
+.pos-cart-line-body { flex: 1 1 150px; min-width: 0; }
 
-/* Name now wraps to a clean 2-line clamp so an "extra-long product
- * description (large)" sort of label is still legible. Three+ lines
- * would dominate the cart so we cap at two and let the rest ellipsis. */
+/* Name clamps to a single line with ellipsis to keep every row compact;
+ * the qty × price meta sits just beneath it. */
 .pos-cart-line-name {
   font-size: 13.5px;
   font-weight: 600;
   letter-spacing: -0.005em;
   color: var(--text);
-  margin-bottom: 4px;
+  margin-bottom: 2px;
   line-height: 1.35;
   display: -webkit-box;
-  -webkit-line-clamp: 2;
+  -webkit-line-clamp: 1;
   -webkit-box-orient: vertical;
   overflow: hidden;
   word-break: break-word;
@@ -3009,15 +3010,14 @@ textarea.form-control {
   color: var(--negate);
 }
 
-/* Controls row beneath the name. Qty control on the leading edge, line
- * total in the middle (pushed right by margin-inline-start: auto), and
- * remove X at the trailing edge. */
+/* Trailing control cluster — qty stepper, line total, remove X. `margin-
+ * inline-start: auto` packs it to the trailing edge so the name body flexes to
+ * fill the rest; on a wrap it drops to its own line, right-aligned. */
 .pos-cart-line-right {
   display: flex;
   align-items: center;
   gap: 10px;
-}
-.pos-cart-line-right .pos-cart-line-total {
+  flex-shrink: 0;
   margin-inline-start: auto;
 }
 .pos-qty-control {
@@ -3052,9 +3052,12 @@ textarea.form-control {
   background: transparent;
 }
 .pos-qty-value {
-  min-width: 32px;
-  padding: 0 6px;
+  width: 40px;
+  min-width: 40px;
+  padding: 0 4px;
   text-align: center;
+  -moz-appearance: textfield;
+  appearance: textfield;
   font-family: var(--font-mono);
   font-size: 13px;
   font-weight: 700;
@@ -3068,6 +3071,12 @@ textarea.form-control {
 }
 .pos-qty-value:focus {
   background: var(--accent-tint);
+}
+/* Hide the number-spinner so the stepper stays a tight, even pill. */
+.pos-qty-value::-webkit-inner-spin-button,
+.pos-qty-value::-webkit-outer-spin-button {
+  -webkit-appearance: none;
+  margin: 0;
 }
 
 .pos-cart-line-total {
