@@ -4,6 +4,7 @@ One-click USB / folder backup — POST /api/settings/backup-export.
 Copies the live database to an external folder (USB drive, network share).
 Admin-only; the database keeps working fully offline.
 """
+import os
 import sqlite3
 import pytest
 
@@ -22,6 +23,11 @@ def test_backup_export_rejects_empty_path(make_client):
     assert r.status_code == 400
 
 
+@pytest.mark.skipif(
+    os.environ.get("DB_BACKEND", "sqlite").lower() not in ("sqlite", "sqlite3"),
+    reason="local file/USB backup is a SQLite (self-hosted) feature; cloud "
+           "deployments refuse it by design (settings._assert_local_backup)",
+)
 def test_backup_export_writes_db_and_checksum(make_client, tmp_path):
     """A valid destination folder receives a timestamped .db plus its sidecar."""
     import backup_manager
