@@ -1270,6 +1270,8 @@ function HistoryView({ canReturn }) {
     Payment:       s.payment_method || '',
     Total_USD:     s.total_usd || 0,
     Total_LBP:     s.total_lbp || 0,
+    Discount:      s.discount_total || 0,
+    COGS:          s.cogs_total || 0,
     Status:        s.status === 'returned' ? 'Returned' : 'Paid',
     Date:          fmtDate(s.created_at),
   }));

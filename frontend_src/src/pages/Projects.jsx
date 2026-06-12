@@ -103,9 +103,11 @@ export default function Projects() {
     Name: p.name, Client: p.client_name || '', Location: p.location || '',
     Status: p.status, Start: fmtDate(p.start_date), End: fmtDate(p.end_date),
     'Est. Cost': p.estimated_cost || 0,
+    'Actual Cost': p.actual_cost || 0,
     'Exp. Revenue': p.expected_revenue || 0,
     'Exp. Profit': (p.expected_revenue || 0) - (p.estimated_cost || 0),
     'Source Quote': p.source_quote_number || '',
+    Description: p.description || '',
   }));
 
   return (

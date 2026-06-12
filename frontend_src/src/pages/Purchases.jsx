@@ -423,6 +423,8 @@ export default function Purchases() {
     Quantity:          p.quantity,
     'Unit Cost':       p.unit_cost,
     'Additional':      p.additional_costs,
+    'VAT %':           p.tax_rate || 0,
+    'VAT Amount':      p.tax_amount || 0,
     Total:             p.total_cost,
     Status:            p.status,
     'Order Date':      fmtDate(p.ordered_at),

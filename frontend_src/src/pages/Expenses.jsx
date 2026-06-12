@@ -145,6 +145,10 @@ function TransactionsPanel() {
     Date: fmtDate(e.date), Category: e.category,
     Description: e.description || '',
     Project: e.project_name || '', Amount: e.amount,
+    'VAT %': e.tax_rate || 0, 'VAT Amount': e.tax_amount || 0,
+    'Net (excl. VAT)': +(((e.amount || 0) - (e.tax_amount || 0)).toFixed(2)),
+    'Payment Method': e.payment_method || '',
+    Status: e.voided_at ? 'Voided' : (e.status || 'Recorded'),
   }));
 
   const months = useMemo(() => {

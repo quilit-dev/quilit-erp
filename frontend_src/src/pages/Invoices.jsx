@@ -440,6 +440,8 @@ export default function Invoices() {
     'Status':        i.payment_status || 'Unpaid',
     'Client':        i.client_name    || '—',
     'Project':       i.project_name   || '—',
+    'Subtotal (USD)': i.subtotal      ?? i.amount ?? 0,
+    'VAT (USD)':     i.tax_total      || 0,
     'Amount (USD)':  i.amount         || 0,
     'Paid (USD)':    i.total_paid     || 0,
     'Remaining':     i.remaining      ?? (i.amount - (i.total_paid || 0)),
