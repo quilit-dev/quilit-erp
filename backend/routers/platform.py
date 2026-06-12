@@ -27,8 +27,17 @@ from auth_utils import (
     SECRET_KEY, ALGORITHM, COOKIE_SECURE, TOKEN_EXPIRE_HOURS,
     PLATFORM_COOKIE_NAME, create_platform_token,
 )
+from tenant_context import IS_SCHEMA_TENANCY
 
 router = APIRouter()
+
+
+def _require_cloud():
+    """The operator console only exists on the multi-tenant (cloud) deployment.
+    On desktop / single-tenant installs every platform endpoint is a 404 so the
+    surface is simply absent rather than half-working against SQLite."""
+    if not IS_SCHEMA_TENANCY:
+        raise HTTPException(status_code=404, detail="Not available on this deployment.")
 
 
 # ── auth dependency ──────────────────────────────────────────────────────────
@@ -36,6 +45,7 @@ router = APIRouter()
 def require_platform_admin(
     platform_session: Optional[str] = Cookie(None, alias=PLATFORM_COOKIE_NAME),
 ) -> dict:
+    _require_cloud()
     if not platform_session:
         raise HTTPException(status_code=401, detail="Not authenticated (platform).")
     try:
@@ -67,8 +77,16 @@ class TenantCreate(BaseModel):
 
 # ── auth endpoints ───────────────────────────────────────────────────────────
 
+@router.get("/status")
+def platform_status():
+    """Unauthenticated capability probe — lets the SPA decide whether to render
+    the operator console or a 'cloud only' notice without trial-and-error."""
+    return {"enabled": IS_SCHEMA_TENANCY}
+
+
 @router.post("/login")
 def platform_login(data: PlatformLogin, response: Response):
+    _require_cloud()
     admin = tenancy.verify_platform_admin(data.username, data.password)
     if not admin:
         raise HTTPException(status_code=401, detail="Invalid credentials.")
