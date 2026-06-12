@@ -44,4 +44,5 @@ PUBLIC_PATHS = {
     "/",
     "/api/health",                 # liveness probe — intentionally unauthenticated
     "/api/settings/setup-status",
+    "/api/platform/status",        # capability probe: {"enabled": bool} only, no data
 }

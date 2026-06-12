@@ -11,6 +11,7 @@ import { useLocale } from './hooks/useLocale.jsx';
 import { logout, getSetupStatus } from './api/client';
 
 const Login               = lazy(() => import('./pages/Login'));
+const PlatformConsole     = lazy(() => import('./pages/PlatformConsole'));
 const Setup               = lazy(() => import('./pages/Setup'));
 const ForceChangePassword = lazy(() => import('./pages/ForceChangePassword'));
 const Dashboard      = lazy(() => import('./pages/Dashboard'));
@@ -110,7 +111,9 @@ function SetupGate({ children }) {
   }, []);
 
   if (!checked) return <div style={{ minHeight: '100vh', display: 'flex', alignItems: 'center', justifyContent: 'center', background: 'var(--bg)' }}><LoadingSpinner /></div>;
-  if (!setupComplete && location.pathname !== '/setup') return <Navigate to="/setup" replace />;
+  // The operator console (/platform) is the vendor's surface, not a tenant
+  // page — a tenant's incomplete setup must never hijack it.
+  if (!setupComplete && location.pathname !== '/setup' && location.pathname !== '/platform') return <Navigate to="/setup" replace />;
   if (setupComplete && location.pathname === '/setup') return <Navigate to="/login" replace />;
   return children;
 }
@@ -254,6 +257,7 @@ export default function App() {
           <Routes>
             <Route path="/setup"                  element={<Page><Setup /></Page>} />
             <Route path="/login"                  element={<Page><Login /></Page>} />
+            <Route path="/platform"               element={<Page><PlatformConsole /></Page>} />
             <Route path="/force-change-password"  element={<RequireAuth><Page><ForceChangePassword /></Page></RequireAuth>} />
             <Route path="/"             element={Auth(<Dashboard />)} />
             <Route path="/clients"      element={Auth(<Clients />)} />
