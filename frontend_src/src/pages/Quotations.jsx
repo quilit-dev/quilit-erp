@@ -96,21 +96,21 @@ function QuoteActionMenu({ exporting, isVoided, onEdit, onExport, onVoid, onUnvo
             disabled={isVoided}
             onClick={() => { setOpen(false); onEdit(); }}
           >
-            ✏️ {t('common.edit')}
+            ✏️ {t('common.edit')} {isVoided ? `(${t('invoices.voidedLabel')})` : ''}
           </button>
 
           {divider}
 
           <button
-            style={{ ...menuItemStyle, color: '#166534', opacity: isExporting ? 0.5 : 1 }}
-            disabled={isExporting}
+            style={{ ...menuItemStyle, color: '#166534', opacity: (isExporting || isVoided) ? 0.4 : 1 }}
+            disabled={isExporting || isVoided}
             onClick={() => { setOpen(false); onExport('excel'); }}
           >
             {exporting === 'excel' ? '⏳ ' + t('common.exporting') : '📊 ' + t('quotations.exportXls')}
           </button>
           <button
-            style={{ ...menuItemStyle, color: '#991b1b', opacity: isExporting ? 0.5 : 1 }}
-            disabled={isExporting}
+            style={{ ...menuItemStyle, color: '#991b1b', opacity: (isExporting || isVoided) ? 0.4 : 1 }}
+            disabled={isExporting || isVoided}
             onClick={() => { setOpen(false); onExport('pdf'); }}
           >
             {exporting === 'pdf' ? '⏳ ' + t('common.exporting') : '📄 ' + t('quotations.exportPdf')}
@@ -446,10 +446,14 @@ export default function Quotations() {
                       <td>{fmtDate(q.created_at)}</td>
                       <td>
                         <div style={{ display:'flex', gap:6, alignItems:'center', justifyContent:'flex-end' }}>
-                          <WhatsAppShareButton
-                            phone={q.client_phone || q.lead_phone}
-                            message={`Hello${(q.client_name || q.lead_name) ? `, ${q.client_name || q.lead_name}` : ''}, please find our quotation ${q.quote_number} for ${fmt(q.total_with_tax ?? q.total)}. Looking forward to your feedback.`}
-                          />
+                          {isVoided ? (
+                            <span style={{ fontSize: 11, color: 'var(--text-3)', fontStyle: 'italic' }}>{t('invoices.voidedLabel')}</span>
+                          ) : (
+                            <WhatsAppShareButton
+                              phone={q.client_phone || q.lead_phone}
+                              message={`Hello${(q.client_name || q.lead_name) ? `, ${q.client_name || q.lead_name}` : ''}, please find our quotation ${q.quote_number} for ${fmt(q.total_with_tax ?? q.total)}. Looking forward to your feedback.`}
+                            />
+                          )}
                           {q.invoice_count === 0 && !isVoided && (
                             <button
                               className="btn btn-sm btn-secondary"
