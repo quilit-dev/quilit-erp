@@ -5,7 +5,7 @@ import { useData } from '../hooks/useData';
 import { useSettings } from '../hooks/useSettings';
 import {
   getQuotations, getQuotation, getClients, getProjects, getInventory,
-  createQuotation, updateQuotation, cancelQuotation,
+  createQuotation, updateQuotation, voidQuotation, unvoidQuotation,
   convertToInvoice, convertToProject, getCRMLeads,
 } from '../api/client';
 import {
@@ -35,8 +35,8 @@ const menuItemStyle = {
   fontSize: 13, cursor: 'pointer', color: 'var(--text)',
 };
 
-// ── Per-row action dropdown (Edit / exports / Cancel / Archive) ───────────
-function QuoteActionMenu({ exporting, onEdit, onExport, onCancel }) {
+// ── Per-row action dropdown (Edit / exports / Void / Unvoid) ──────────────
+function QuoteActionMenu({ exporting, isVoided, onEdit, onExport, onVoid, onUnvoid }) {
   const { t } = useLocale();
   const [open, setOpen]     = useState(false);
   const [dropUp, setDropUp] = useState(false);
@@ -91,7 +91,11 @@ function QuoteActionMenu({ exporting, onEdit, onExport, onCancel }) {
           borderRadius: 'var(--radius)', boxShadow: 'var(--shadow-lg)',
           minWidth: 180, padding: '4px 0', whiteSpace: 'nowrap',
         }}>
-          <button style={menuItemStyle} onClick={() => { setOpen(false); onEdit(); }}>
+          <button
+            style={{ ...menuItemStyle, opacity: isVoided ? 0.4 : 1, cursor: isVoided ? 'not-allowed' : 'pointer' }}
+            disabled={isVoided}
+            onClick={() => { setOpen(false); onEdit(); }}
+          >
             ✏️ {t('common.edit')}
           </button>
 
@@ -114,9 +118,15 @@ function QuoteActionMenu({ exporting, onEdit, onExport, onCancel }) {
 
           {divider}
 
-          <button style={{ ...menuItemStyle, color: '#92400e' }} onClick={() => { setOpen(false); onCancel(); }}>
-            🚫 {t('quotations.cancelQuote')}
-          </button>
+          {isVoided ? (
+            <button style={{ ...menuItemStyle, color: '#166534' }} onClick={() => { setOpen(false); onUnvoid(); }}>
+              ↩️ {t('quotations.unvoidQuote')}
+            </button>
+          ) : (
+            <button style={{ ...menuItemStyle, color: '#92400e' }} onClick={() => { setOpen(false); onVoid(); }}>
+              🚫 {t('quotations.voidQuote')}
+            </button>
+          )}
         </div>
       )}
     </div>
@@ -149,7 +159,7 @@ export default function Quotations() {
   const [form,         setForm]         = useState(makeEmpty);
   const [editId,       setEditId]       = useState(null);
   const [formLoading,  setFormLoading]  = useState(false);
-  const [cancelId,     setCancelId]     = useState(null);
+  const [voidQuoteId,  setVoidQuoteId]  = useState(null);
   const [saving,       setSaving]       = useState(false);
   const [statusFilter, setStatusFilter] = usePersistedState('quotations.statusFilter', '');
   const [search, setSearch] = usePersistedState('quotations.search', '');
@@ -259,10 +269,17 @@ export default function Quotations() {
     finally { setSaving(false); }
   }
 
-  async function handleCancel() {
+  async function handleVoid() {
     try {
-      await cancelQuotation(cancelId, 'Cancelled by user');
-      toast('Quotation cancelled'); setCancelId(null); reload();
+      await voidQuotation(voidQuoteId, 'Voided by user');
+      toast(t('quotations.quotationVoided')); setVoidQuoteId(null); reload();
+    } catch (err) { toast(err.message, 'red'); }
+  }
+
+  async function handleUnvoid(q) {
+    try {
+      await unvoidQuotation(q.id);
+      toast(t('quotations.quotationRestored')); reload();
     } catch (err) { toast(err.message, 'red'); }
   }
 
@@ -360,7 +377,7 @@ export default function Quotations() {
             <select className="form-control" style={{width:150}}
               value={statusFilter} onChange={e => setStatusFilter(e.target.value)}>
               <option value="">{t('common.allStatuses')}</option>
-              {STATUSES.map(s => <option key={s} value={s}>{tStatus(s)}</option>)}
+              {[...STATUSES, 'Voided'].map(s => <option key={s} value={s}>{tStatus(s)}</option>)}
             </select>
             {(search||clientFilter||projectFilter||statusFilter) && (
               <button className="btn btn-secondary btn-sm" style={{whiteSpace:'nowrap'}}
@@ -397,6 +414,7 @@ export default function Quotations() {
               <tbody>
                 {pagedQuotations.map(q => {
                   const exporting = exportLoading[q.id];
+                  const isVoided  = q.status === 'Voided' || q.status === 'Cancelled';
                   return (
                     <tr key={q.id}>
                       <td className="td-primary text-mono">{q.quote_number}</td>
@@ -432,7 +450,7 @@ export default function Quotations() {
                             phone={q.client_phone || q.lead_phone}
                             message={`Hello${(q.client_name || q.lead_name) ? `, ${q.client_name || q.lead_name}` : ''}, please find our quotation ${q.quote_number} for ${fmt(q.total_with_tax ?? q.total)}. Looking forward to your feedback.`}
                           />
-                          {q.invoice_count === 0 && (
+                          {q.invoice_count === 0 && !isVoided && (
                             <button
                               className="btn btn-sm btn-secondary"
                               style={{ background:'var(--accent)', color:'#fff', whiteSpace:'nowrap' }}
@@ -441,7 +459,7 @@ export default function Quotations() {
                               {t('quotations.toInvoice')}
                             </button>
                           )}
-                          {!q.project_id && (
+                          {!q.project_id && !isVoided && (
                             <button className="btn btn-sm btn-secondary" style={{ whiteSpace:'nowrap' }}
                               onClick={() => setConvertProjectId(q)}>
                               {t('quotations.toProject')}
@@ -449,9 +467,11 @@ export default function Quotations() {
                           )}
                           <QuoteActionMenu
                             exporting={exporting}
+                            isVoided={isVoided}
                             onEdit={() => openEdit(q)}
                             onExport={(type) => handleExport(q, type)}
-                            onCancel={() => setCancelId(q.id)}
+                            onVoid={() => setVoidQuoteId(q.id)}
+                            onUnvoid={() => handleUnvoid(q)}
                           />
                         </div>
                       </td>
@@ -626,13 +646,13 @@ export default function Quotations() {
         </Modal>
       )}
 
-      {cancelId && (
+      {voidQuoteId && (
         <ConfirmModal
-          message="Cancel this quotation? Its status will be set to Cancelled. No invoice can be raised from a cancelled quotation."
-          confirmLabel="Cancel Quotation"
+          message={t('quotations.voidQuoteMessage')}
+          confirmLabel={t('quotations.voidQuote')}
           confirmClass="btn-warning"
-          onConfirm={handleCancel}
-          onCancel={() => setCancelId(null)}
+          onConfirm={handleVoid}
+          onCancel={() => setVoidQuoteId(null)}
         />
       )}
       {convertInvoiceId && (

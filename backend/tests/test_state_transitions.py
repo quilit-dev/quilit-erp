@@ -68,9 +68,9 @@ def test_payment_on_voided_invoice_is_refused(make_client):
         f"BROKEN STATE TRANSITION: a voided invoice accepted a payment ({pay.status_code})")
 
 
-# ── Quotations: cancelled is terminal ────────────────────────────────────────
+# ── Quotations: voided is terminal (until unvoided) ─────────────────────────
 @pytest.mark.state
-def test_cancelled_quotation_cannot_convert_to_invoice(make_client):
+def test_voided_quotation_cannot_convert_to_invoice(make_client):
     c = make_client("superadmin")
     cid = _new_client(c, "Quote State Co")
     if not cid:
@@ -83,14 +83,14 @@ def test_cancelled_quotation_cannot_convert_to_invoice(make_client):
         pytest.skip(f"quotation create failed ({q.status_code})")
     qid = q.json()["id"]
 
-    cancelled = c.patch(f"/api/quotations/{qid}/cancel", json={"reason": "QA"})
-    if cancelled.status_code not in (200, 204):
-        pytest.skip(f"cancel not accepted ({cancelled.status_code})")
+    voided = c.patch(f"/api/quotations/{qid}/void", json={"reason": "QA"})
+    if voided.status_code not in (200, 204):
+        pytest.skip(f"void not accepted ({voided.status_code})")
 
     conv = c.post(f"/api/quotations/{qid}/convert-to-invoice")
-    assert conv.status_code < 500, f"convert of cancelled quotation crashed: {conv.status_code}"
+    assert conv.status_code < 500, f"convert of voided quotation crashed: {conv.status_code}"
     assert conv.status_code >= 400, (
-        f"BROKEN STATE TRANSITION: a cancelled quotation was converted to an "
+        f"BROKEN STATE TRANSITION: a voided quotation was converted to an "
         f"invoice ({conv.status_code})")
 
 
