@@ -3,7 +3,7 @@ import { useData } from '../hooks/useData';
 import { useSettings } from '../hooks/useSettings';
 import {
   getInvoices, getInvoice, getClients, getProjects, getInventory,
-  createInvoice, updateInvoice, voidInvoice,
+  createInvoice, updateInvoice, voidInvoice, unvoidInvoice,
   addInvoicePayment, deleteInvoicePayment, getCashDrawers,
 } from '../api/client';
 import {
@@ -37,7 +37,7 @@ function _waMessage(inv) {
 }
 
 // ── Per-row action dropdown ───────────────────────────────────────────────
-function ActionMenu({ inv, exporting, onEdit, onPay, onExport, onVoid }) {
+function ActionMenu({ inv, exporting, onEdit, onPay, onExport, onVoid, onUnvoid }) {
   const { t } = useLocale();
   const [open, setOpen] = useState(false);
   const [dropUp, setDropUp] = useState(false);
@@ -147,7 +147,14 @@ function ActionMenu({ inv, exporting, onEdit, onPay, onExport, onVoid }) {
 
             <div style={{ height: 1, background: 'var(--border)', margin: '4px 0' }} />
 
-            {!isVoided && (
+            {isVoided ? (
+              <button
+                onClick={() => { setOpen(false); onUnvoid(); }}
+                style={{ ...menuItemStyle, color: '#166534' }}
+              >
+                ↩️ {t('invoices.unvoidInvoiceTitle')}
+              </button>
+            ) : (
               <button
                 onClick={() => { setOpen(false); onVoid(); }}
                 style={{ ...menuItemStyle, color: '#92400e' }}
@@ -355,6 +362,15 @@ export default function Invoices() {
     finally { setVoiding(false); }
   }
 
+  const [unvoidTarget, setUnvoidTarget] = useState(null);
+
+  async function handleUnvoid() {
+    try {
+      await unvoidInvoice(unvoidTarget.id);
+      toast(t('invoices.invoiceRestored')); setUnvoidTarget(null); reload();
+    } catch (err) { toast(err.message, 'red'); }
+  }
+
 
   async function openPayModal(inv) {
     setPayLoading(true);
@@ -528,6 +544,7 @@ export default function Invoices() {
                           onPay={() => openPayModal(inv)}
                           onExport={(fmtType) => handleExport(inv, fmtType)}
                           onVoid={() => { setVoidId(inv.id); setVoidReason(''); }}
+                          onUnvoid={() => setUnvoidTarget(inv)}
                         />
                       </td>
                     </tr>
@@ -943,6 +960,15 @@ export default function Invoices() {
           message={t('invoices.deletePaymentMsg')}
           onConfirm={() => { handleDeletePayment(deletePayId); setDeletePayId(null); }}
           onCancel={() => setDeletePayId(null)}
+        />
+      )}
+
+      {unvoidTarget && (
+        <ConfirmModal
+          message={t('invoices.unvoidWarning')}
+          confirmLabel={t('invoices.unvoidInvoiceTitle')}
+          onConfirm={handleUnvoid}
+          onCancel={() => setUnvoidTarget(null)}
         />
       )}
     </div>

@@ -108,7 +108,8 @@ export const getQuotations       = (s) => api.get('/api/quotations/', s);
 export const getQuotation        = (id) => api.get(`/api/quotations/${id}`);
 export const createQuotation     = (d)  => api.post('/api/quotations/', d);
 export const updateQuotation     = (id, d) => api.put(`/api/quotations/${id}`, d);
-export const cancelQuotation     = (id, reason) => api.patch(`/api/quotations/${id}/cancel`, { reason });
+export const voidQuotation       = (id, reason) => api.patch(`/api/quotations/${id}/void`, { reason });
+export const unvoidQuotation     = (id) => api.patch(`/api/quotations/${id}/unvoid`);
 export const archiveQuotation    = (id, reason) => api.patch(`/api/quotations/${id}/archive`, { reason });
 export const convertToInvoice    = (id) => api.post(`/api/quotations/${id}/convert-to-invoice`);
 export const convertToProject    = (id) => api.post(`/api/quotations/${id}/convert-to-project`);
@@ -120,6 +121,7 @@ export const createInvoice     = (d)    => api.post('/api/invoices/', d);
 export const updateInvoice     = (id, d) => api.put(`/api/invoices/${id}`, d);
 export const archiveInvoice    = (id, reason) => api.patch(`/api/invoices/${id}/archive`, { reason });
 export const voidInvoice       = (id, reason) => api.patch(`/api/invoices/${id}/void`, { reason });
+export const unvoidInvoice     = (id)         => api.patch(`/api/invoices/${id}/unvoid`);
 export const addInvoicePayment    = (id, d)       => api.post(`/api/invoices/${id}/payments`, d);
 export const deleteInvoicePayment = (invId, payId) => api.delete(`/api/invoices/${invId}/payments/${payId}`);
 

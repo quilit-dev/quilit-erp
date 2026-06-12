@@ -1090,6 +1090,7 @@ CREATE TABLE IF NOT EXISTS quotations (
     archived_at TEXT DEFAULT NULL,
     archive_reason TEXT DEFAULT NULL,
     tax_total DOUBLE PRECISION NOT NULL DEFAULT 0,
+    void_prev_status TEXT DEFAULT NULL,
     UNIQUE (quote_number)
 );
 

@@ -94,6 +94,7 @@ const statusColors = {
   Unpaid: 'red', Partial: 'yellow', Paid: 'green',
   low: 'red', ok: 'green',
   Ordered: 'blue', Received: 'accent', 'Paid (PO)': 'green',
+  Voided: 'red', Cancelled: 'red',
 };
 
 export function Badge({ status }) {

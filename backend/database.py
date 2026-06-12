@@ -2612,6 +2612,15 @@ def _run_migrations(conn, c):
         c.execute("CREATE INDEX IF NOT EXISTS idx_hr_attendance_emp  ON hr_attendance(employee_id)")
         done("126_hr_attendance")
 
+    # ── 127: quotation void/unvoid ──────────────────────────────────────────
+    # Quotations move from a one-way 'Cancelled' status to a reversible
+    # Void/Unvoid pair (matching invoices). `void_prev_status` remembers the
+    # status the quotation had when it was voided so Unvoid can restore it
+    # exactly (Draft stays Draft, Sent stays Sent, ...).
+    if need("127_quotation_void"):
+        c.execute("ALTER TABLE quotations ADD COLUMN void_prev_status TEXT")
+        done("127_quotation_void")
+
     conn.commit()
 
 
@@ -2707,6 +2716,9 @@ def _ensure_pg_post_baseline(raw):
         """)
         cur.execute("CREATE INDEX IF NOT EXISTS idx_hr_attendance_date ON hr_attendance(date)")
         cur.execute("CREATE INDEX IF NOT EXISTS idx_hr_attendance_emp  ON hr_attendance(employee_id)")
+        # 127_quotation_void — column also lives in pg_baseline.sql for fresh
+        # installs; this bridges DBs initialised before that snapshot.
+        cur.execute("ALTER TABLE quotations ADD COLUMN IF NOT EXISTS void_prev_status TEXT")
     raw.commit()
 
 

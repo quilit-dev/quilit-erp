@@ -3,7 +3,7 @@ Quotations — commercial proposals only.
 
 Workflow:
   Draft → Sent → Accepted → [Convert to Invoice]
-                 Rejected / Cancelled
+                 Rejected / Voided (reversible via Unvoid)
 
 Payments are NOT recorded on quotations. When a quotation is accepted
 the user converts it to an Invoice, and payments are recorded there.
@@ -21,7 +21,7 @@ from datetime import datetime, timedelta
 
 router = APIRouter()
 
-class CancelRequest(BaseModel):
+class VoidRequest(BaseModel):
     reason: Optional[str] = None
 
 class ArchiveRequest(BaseModel):
@@ -212,6 +212,13 @@ def update_quotation(
     ).fetchone()
     if not existing:
         raise HTTPException(404, "Quotation not found")
+    # A voided quotation is read-only until it is unvoided, and the Voided
+    # status can only be entered through PATCH /void (which records the
+    # previous status for restore) — never by a plain update.
+    if existing["status"] in ("Voided", "Cancelled"):
+        raise HTTPException(400, "Voided quotations cannot be edited. Unvoid it first.")
+    if data.status in ("Voided", "Cancelled"):
+        raise HTTPException(400, "Use the Void action to void a quotation.")
 
     total, tax_total, line_tax = _price_quote_items(db, data.items)
     invoice_amount = round(total + tax_total, 4)
@@ -308,9 +315,10 @@ def convert_to_invoice(
     if not q:
         raise HTTPException(404, "Quotation not found")
 
-    # A cancelled / rejected quotation is a terminal state — no invoice may be
+    # A voided / rejected quotation is a terminal state — no invoice may be
     # raised from it (the UI promises this; enforce it on the server too).
-    if q["status"] in ("Cancelled", "Rejected"):
+    # 'Cancelled' covers legacy rows from before void/unvoid existed.
+    if q["status"] in ("Voided", "Cancelled", "Rejected"):
         raise HTTPException(
             400, f"Cannot create an invoice from a {q['status'].lower()} quotation."
         )
@@ -438,6 +446,10 @@ def convert_to_project(
     ).fetchone()
     if not q:
         raise HTTPException(404, "Quotation not found")
+    if q["status"] in ("Voided", "Cancelled", "Rejected"):
+        raise HTTPException(
+            400, f"Cannot start a project from a {q['status'].lower()} quotation."
+        )
     if q["project_id"]:
         return {"message": "Already linked to project", "project_id": q["project_id"]}
 
@@ -483,30 +495,58 @@ def convert_to_project(
     db.commit()
     return {"message": "Project created from accepted quotation", "project_id": pid}
 
-# ── Cancel ────────────────────────────────────────────────────────────────
-@router.patch("/{quote_id}/cancel")
-def cancel_quotation(
+# ── Void / Unvoid ─────────────────────────────────────────────────────────
+# Quotations are never hard-deleted and no longer 'Cancelled': voiding is the
+# one terminal action, and it is reversible. Void remembers the status the
+# quotation had (void_prev_status) so Unvoid restores it exactly. Legacy
+# 'Cancelled' rows (pre-127) stay terminal and are treated like voided ones.
+@router.patch("/{quote_id}/void")
+def void_quotation(
     quote_id: int,
-    data: CancelRequest = CancelRequest(),
+    data: VoidRequest = VoidRequest(),
     user=Depends(require_perm("quotations", "edit")),
     db: sqlite3.Connection = Depends(get_db),
 ):
     q = db.execute("SELECT * FROM quotations WHERE id = ? AND archived_at IS NULL", (quote_id,)).fetchone()
     if not q:
         raise HTTPException(404, "Quotation not found")
-    if q["status"] == "Cancelled":
-        raise HTTPException(400, "Quotation is already cancelled.")
+    if q["status"] in ("Voided", "Cancelled"):
+        raise HTTPException(400, "Quotation is already voided.")
     inv = db.execute("SELECT id FROM invoices WHERE quotation_id = ? AND archived_at IS NULL", (quote_id,)).fetchone()
     if inv:
-        raise HTTPException(400, "Cannot cancel a quotation that has an active invoice. Archive the invoice first.")
+        raise HTTPException(400, "Cannot void a quotation that has an active invoice. Archive the invoice first.")
     db.execute(
-        "UPDATE quotations SET status='Cancelled', archive_reason=? WHERE id=?",
-        (data.reason or "Cancelled", quote_id)
+        "UPDATE quotations SET status='Voided', void_prev_status=?, archive_reason=? WHERE id=?",
+        (q["status"], data.reason or "Voided", quote_id)
     )
-    log_action(db, user, "cancel", "quotation", quote_id,
-               q["quote_number"], {"reason": data.reason})
+    log_action(db, user, "void", "quotation", quote_id,
+               q["quote_number"], {"reason": data.reason, "previous_status": q["status"]})
     db.commit()
-    return {"message": "Quotation cancelled"}
+    return {"message": "Quotation voided"}
+
+
+@router.patch("/{quote_id}/unvoid")
+def unvoid_quotation(
+    quote_id: int,
+    user=Depends(require_perm("quotations", "edit")),
+    db: sqlite3.Connection = Depends(get_db),
+):
+    q = db.execute("SELECT * FROM quotations WHERE id = ? AND archived_at IS NULL", (quote_id,)).fetchone()
+    if not q:
+        raise HTTPException(404, "Quotation not found")
+    if q["status"] not in ("Voided", "Cancelled"):
+        raise HTTPException(400, "Quotation is not voided.")
+    # Restore the exact pre-void status; legacy 'Cancelled' rows (which never
+    # recorded one) reopen as Draft.
+    restored = q["void_prev_status"] or "Draft"
+    db.execute(
+        "UPDATE quotations SET status=?, void_prev_status=NULL, archive_reason=NULL WHERE id=?",
+        (restored, quote_id)
+    )
+    log_action(db, user, "unvoid", "quotation", quote_id,
+               q["quote_number"], {"restored_status": restored})
+    db.commit()
+    return {"message": "Quotation restored", "status": restored}
 
 # ── Archive ───────────────────────────────────────────────────────────────
 @router.patch("/{quote_id}/archive")

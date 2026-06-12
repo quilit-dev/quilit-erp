@@ -428,6 +428,62 @@ def void_invoice(
     return {"message": "Invoice voided", "voided_at": now}
 
 
+@router.patch("/{invoice_id}/unvoid")
+def unvoid_invoice(
+    invoice_id: int,
+    user=Depends(require_perm("invoices", "delete")),
+    db: sqlite3.Connection = Depends(get_db),
+):
+    """Reverse a void: the invoice returns to all financial totals and the
+    ledger entry for every payment is re-posted (void had reversed them).
+
+    POS-sale invoices are excluded — a POS return already restocked the
+    goods and is final; unvoiding here would desync stock and COGS."""
+    inv = db.execute(
+        "SELECT * FROM invoices WHERE id = ? AND archived_at IS NULL", (invoice_id,)
+    ).fetchone()
+    if not inv:
+        raise HTTPException(404, "Invoice not found")
+    if not inv["voided_at"]:
+        raise HTTPException(400, "Invoice is not voided.")
+    if db.execute("SELECT 1 FROM pos_sales WHERE invoice_id=?", (invoice_id,)).fetchone():
+        raise HTTPException(
+            400, "POS-sale invoices cannot be unvoided — the POS return already "
+                 "restocked the goods. Ring the sale up again instead.")
+    # Same period rules as void: the invoice's month and today's (where the
+    # re-recognition entries land) must both be open.
+    _check_period_locked(db, inv["created_at"])
+    _check_period_locked(db, _now())
+
+    db.execute(
+        "UPDATE invoices SET voided_at=NULL, void_reason=NULL, version=version+1 WHERE id=?",
+        (invoice_id,),
+    )
+    # Re-recognise every payment in the ledger. The void reversed the live
+    # entry per payment, so post_entry's idempotency guard sees no live entry
+    # and a fresh posting goes through — the GL history keeps all three
+    # movements (original, reversal, re-recognition) for the audit trail.
+    today = _now()[:10]
+    for pay in db.execute(
+        "SELECT * FROM invoice_payments WHERE invoice_id=?", (invoice_id,)
+    ).fetchall():
+        accounting.post_entry(
+            db,
+            entry_date=today,
+            memo=f"Unvoid — payment re-recognised — {inv['invoice_number']}",
+            lines=[
+                {"code": accounting.cash_account_for(pay["paid_currency"]),
+                 "debit": float(pay["amount"]),
+                 "memo": f"{pay['method']} ({pay['paid_currency'] or 'USD'})"},
+                {"code": accounting.REVENUE, "credit": float(pay["amount"])},
+            ],
+            source_type="invoice_payment", source_id=pay["id"], created_by=user["id"],
+        )
+    log_action(db, user, "unvoid", "invoice", invoice_id, inv["invoice_number"])
+    db.commit()
+    return {"message": "Invoice restored"}
+
+
 # ── Add payment ───────────────────────────────────────────────────────────
 @router.post("/{invoice_id}/payments")
 def add_payment(
