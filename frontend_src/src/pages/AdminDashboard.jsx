@@ -1,13 +1,19 @@
 import { useState, useEffect } from 'react';
 import * as XLSX from 'xlsx';
-import { getUserSessions, getOnlineUsers, getAuditLog, purgeAuditLog, getUsers, getRoles, revokeSession } from '../api/client';
+import { getUserSessions, getOnlineUsers, getAuditLog, getAuditFilters, purgeAuditLog, getUsers, getRoles, revokeSession } from '../api/client';
 import { LoadingSpinner, ErrorAlert, toast } from '../components/shared';
 import { useLocale } from '../hooks/useLocale.jsx';
 
 const ACTION_COLORS = {
-  create: 'green', update: 'blue', delete: 'red', restore: 'yellow',
+  create: 'green', update: 'blue', edit: 'blue', delete: 'red', restore: 'yellow',
   payment: 'accent', reset_password: 'red', enable: 'green', disable: 'red',
   update_permissions: 'blue',
+  void: 'red', unvoid: 'green', archive: 'yellow', unarchive: 'green',
+  approve: 'green', reject: 'red', force_approve: 'yellow', cancel: 'red',
+  login: 'blue', logout: 'gray', change_password: 'red',
+  mark_paid: 'accent', stock_adjust: 'blue', status_change: 'blue',
+  convert_to_invoice: 'accent', convert_to_project: 'accent',
+  export: 'yellow', import: 'yellow', backup: 'yellow', purge: 'red',
 };
 
 function KpiCard({ label, value, sub, color = 'accent' }) {
@@ -39,12 +45,34 @@ export default function AdminDashboard() {
   const { t } = useLocale();
   const me = (() => { try { return JSON.parse(localStorage.getItem('user') || '{}'); } catch { return {}; } })();
 
+  // Pretty names for known module keys; anything not listed falls back to the
+  // raw key, so a new audited module is never hidden — at worst unstyled.
   const MODULE_LABELS = {
-    dashboard: t('nav.dashboard'), clients: t('nav.clients'), projects: t('nav.projects'),
-    quotations: t('nav.quotations'), invoices: t('nav.invoices'), inventory: t('nav.inventory'),
-    purchases: t('nav.purchases'), suppliers: t('nav.suppliers'), finance: t('nav.finance'),
-    expenses: t('nav.expenses'), settings: t('nav.settings'), users: t('nav.users'),
-    roles: t('nav.roles'), audit: t('nav.audit'), expense: t('nav.expenses'),
+    dashboard: t('nav.dashboard'), clients: t('nav.clients'), client: t('nav.clients'),
+    projects: t('nav.projects'), project: t('nav.projects'),
+    quotations: t('nav.quotations'), quotation: t('nav.quotations'),
+    invoices: t('nav.invoices'), invoice: t('nav.invoices'),
+    inventory: t('nav.inventory'), warehouses: t('nav.warehouses'), warehouse: t('nav.warehouses'),
+    purchases: t('nav.purchases'), purchase: t('nav.purchases'),
+    suppliers: t('nav.suppliers'), supplier: t('nav.suppliers'),
+    finance: t('nav.finance'), expenses: t('nav.expenses'), expense: t('nav.expenses'),
+    accounting: t('nav.accounting'), journal_entry: t('nav.accounting'),
+    reports: t('nav.reports'), crm: t('nav.crm'), planning: t('nav.planning'),
+    planning_milestone: t('nav.planning'), planning_event: t('nav.planning'),
+    pos: t('nav.pos'), cash: t('nav.cash'),
+    manufacturing: t('nav.manufacturing'),
+    asset: t('nav.fixedAssets'), assets: t('nav.fixedAssets'),
+    hr: t('nav.hr'), hr_employee: t('nav.hr'), hr_department: t('nav.hr'),
+    hr_leave: t('nav.hr'), hr_payroll_run: t('nav.hr'), hr_payroll_line: t('nav.hr'),
+    hr_employee_file: t('nav.hr'), hr_contracts: t('nav.hrContracts'),
+    hr_activities: t('nav.hrActivities'), recruitment: t('nav.recruitment'),
+    announcements: t('nav.announcements'), announcement: t('nav.announcements'),
+    recurring_expense: t('nav.expenses'), attachment: t('admin.attachmentsModule'),
+    document: t('nav.quotations'), tax_rate: t('nav.settings'),
+    approval_policy: t('nav.approvals'), approval_request: t('nav.approvals'),
+    settings: t('nav.settings'), users: t('nav.users'), user: t('nav.users'),
+    roles: t('nav.roles'), role: t('nav.roles'),
+    audit: t('nav.audit'), auth: t('admin.authModule'),
   };
 
   const [tab,      setTab]      = useState('sessions');
@@ -59,6 +87,9 @@ export default function AdminDashboard() {
   // Audit filters
   const [af, setAf] = useState({ module: '', action: '', username: '', from_date: '', to_date: '' });
   const [offset, setOffset] = useState(0);
+  // Dropdown choices come from the log itself (distinct modules / actions),
+  // so they can never go stale as new audited actions are added.
+  const [filterOpts, setFilterOpts] = useState({ modules: [], actions: [] });
   const LIMIT = 50;
 
   // Purge state
@@ -121,6 +152,9 @@ export default function AdminDashboard() {
 
   useEffect(() => { loadOverview(); }, []);
   useEffect(() => { if (tab === 'audit') loadAudit(); }, [tab, af, offset]);
+  useEffect(() => {
+    if (tab === 'audit') getAuditFilters().then(setFilterOpts).catch(() => {});
+  }, [tab]);
 
   // Live online indicator — poll every 30s without reloading the whole page.
   useEffect(() => {
@@ -277,15 +311,13 @@ export default function AdminDashboard() {
           <div style={{ display: 'flex', gap: 8, marginBottom: 12, flexWrap: 'wrap' }}>
             <input className="form-control" style={{ width: 140 }} placeholder={t('admin.username')}
               value={af.username} onChange={e => { setAf(f => ({ ...f, username: e.target.value })); setOffset(0); }} />
-            <select className="form-control" style={{ width: 140 }} value={af.module} onChange={e => { setAf(f => ({ ...f, module: e.target.value })); setOffset(0); }}>
+            <select className="form-control" style={{ width: 160 }} value={af.module} onChange={e => { setAf(f => ({ ...f, module: e.target.value })); setOffset(0); }}>
               <option value="">{t('admin.allModules')}</option>
-              {Object.entries(MODULE_LABELS).map(([k, v]) => <option key={k} value={k}>{v}</option>)}
+              {filterOpts.modules.map(k => <option key={k} value={k}>{MODULE_LABELS[k] || k}</option>)}
             </select>
-            <select className="form-control" style={{ width: 140 }} value={af.action} onChange={e => { setAf(f => ({ ...f, action: e.target.value })); setOffset(0); }}>
+            <select className="form-control" style={{ width: 160 }} value={af.action} onChange={e => { setAf(f => ({ ...f, action: e.target.value })); setOffset(0); }}>
               <option value="">{t('admin.allActions')}</option>
-              {['create','update','delete','restore','payment','reset_password','enable','disable','update_permissions'].map(a => (
-                <option key={a} value={a}>{a}</option>
-              ))}
+              {filterOpts.actions.map(a => <option key={a} value={a}>{a.replace(/_/g, ' ')}</option>)}
             </select>
             <input className="form-control" type="date" style={{ width: 140 }} value={af.from_date}
               onChange={e => { setAf(f => ({ ...f, from_date: e.target.value })); setOffset(0); }} />

@@ -7,6 +7,7 @@ from pydantic import BaseModel
 from typing import Optional
 from database import get_db
 from permissions import require_perm
+from routers.audit import log_action
 from utils import _now
 import sqlite3
 
@@ -37,6 +38,8 @@ def save_document(
         (data.record_type, data.record_id, data.client_id,
          data.project_id, data.title, data.html_content, now),
     )
+    log_action(db, user, "create", "document", cur.lastrowid, data.title,
+               {"record_type": data.record_type, "record_id": data.record_id})
     db.commit()
     return {"id": cur.lastrowid, "message": "Document saved"}
 
@@ -90,9 +93,10 @@ def delete_document(
     user=Depends(require_perm("quotations", "delete")),
     db: sqlite3.Connection = Depends(get_db),
 ):
-    row = db.execute("SELECT id FROM documents WHERE id = ?", (doc_id,)).fetchone()
+    row = db.execute("SELECT id, title FROM documents WHERE id = ?", (doc_id,)).fetchone()
     if not row:
         raise HTTPException(404, "Document not found")
     db.execute("DELETE FROM documents WHERE id = ?", (doc_id,))
+    log_action(db, user, "delete", "document", doc_id, row["title"] or "")
     db.commit()
     return {"message": "Document removed"}

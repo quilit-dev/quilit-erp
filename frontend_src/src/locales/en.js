@@ -2063,6 +2063,8 @@ const en = {
     noActiveSessions: 'No active sessions.',
     allModules: 'All modules',
     allActions: 'All actions',
+    authModule: 'Authentication',
+    attachmentsModule: 'Attachments',
     purgeOlderThan: 'Purge older than',
     time: 'Time',
     action: 'Action',

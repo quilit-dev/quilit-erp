@@ -100,6 +100,23 @@ def list_audit_log(
     return {"total": total, "offset": offset, "limit": limit, "rows": [dict(r) for r in rows]}
 
 
+@router.get("/filters")
+def audit_filter_values(
+    user=Depends(require_admin),
+    db: sqlite3.Connection = Depends(get_db),
+):
+    """Distinct modules and actions present in the log — drives the Activity
+    Log filter dropdowns so they always match reality instead of a hardcoded
+    list that goes stale every time a router gains a new audited action."""
+    modules = [r["module"] for r in db.execute(
+        "SELECT DISTINCT module FROM audit_log WHERE module IS NOT NULL ORDER BY module"
+    ).fetchall()]
+    actions = [r["action"] for r in db.execute(
+        "SELECT DISTINCT action FROM audit_log WHERE action IS NOT NULL ORDER BY action"
+    ).fetchall()]
+    return {"modules": modules, "actions": actions}
+
+
 # ── Purge old logs ─────────────────────────────────────────────────────────────
 @router.delete("/purge")
 def purge_old_logs(

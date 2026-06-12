@@ -492,6 +492,8 @@ def convert_to_project(
         "UPDATE quotations SET project_id = ?, status = 'Accepted' WHERE id = ?",
         (pid, quote_id),
     )
+    log_action(db, user, "convert_to_project", "quotation", quote_id,
+               q["quote_number"], {"project_id": pid})
     db.commit()
     return {"message": "Project created from accepted quotation", "project_id": pid}
 

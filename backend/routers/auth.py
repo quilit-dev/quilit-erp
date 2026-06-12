@@ -6,6 +6,7 @@ from auth_utils import (
     COOKIE_NAME, COOKIE_SECURE, TOKEN_EXPIRE_HOURS,
 )
 from permissions import require_auth
+from routers.audit import log_action
 from utils import _now
 import sqlite3
 from datetime import datetime, timedelta
@@ -98,6 +99,7 @@ def login(data: LoginRequest, request: Request, response: Response, db: sqlite3.
         (row["id"], jti, ip, ua, now, now, expires_at)
     )
     db.execute("UPDATE users SET last_login=? WHERE id=?", (now, row["id"]))
+    log_action(db, dict(row), "login", "auth", row["id"], row["username"], {"ip": ip})
     db.commit()
 
     # Fetch role name + admin-tier flag
@@ -136,7 +138,8 @@ def logout(response: Response, user=Depends(require_auth), db: sqlite3.Connectio
     jti = user.get("jti")
     if jti:
         db.execute("UPDATE user_sessions SET revoked=1 WHERE jti=?", (jti,))
-        db.commit()
+    log_action(db, user, "logout", "auth", user.get("id"), user.get("username", ""))
+    db.commit()
     response.delete_cookie(key=COOKIE_NAME, path="/")
     return {"message": "Logged out."}
 
@@ -207,6 +210,7 @@ def change_password(
         "UPDATE users SET password_hash=?, must_change_password=0 WHERE id=?",
         (hash_password(data.new_password), user["id"])
     )
+    log_action(db, user, "change_password", "auth", user["id"], user.get("username", ""))
     db.commit()
     return {"message": "Password changed successfully."}
 
@@ -227,5 +231,7 @@ def force_change_password(
         "UPDATE users SET password_hash=?, must_change_password=0 WHERE id=?",
         (hash_password(data.new_password), user["id"])
     )
+    log_action(db, user, "change_password", "auth", user["id"], user.get("username", ""),
+               {"forced": True})
     db.commit()
     return {"message": "Password updated. Please log in again."}

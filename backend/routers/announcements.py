@@ -421,6 +421,7 @@ def acknowledge(
         "read_at=COALESCE(read_at, ?) WHERE id=?",
         (now, now, rec["id"]),
     )
+    log_action(db, user, "acknowledge", "announcement", aid)
     db.commit()
     return {"message": "Acknowledged", "acknowledged_at": now}
 
@@ -504,6 +505,7 @@ def create_comment(
             entity_id=aid,
         )
 
+    log_action(db, user, "comment", "announcement", aid)
     db.commit()
     return {"id": cur.lastrowid, "message": "Posted"}
 
@@ -525,6 +527,7 @@ def delete_comment(
     if not (user.get("is_superadmin") or user["id"] == row["author_id"]):
         raise HTTPException(403, "You can only delete your own comments")
     db.execute("UPDATE announcement_comments SET deleted_at=? WHERE id=?", (_now(), cid))
+    log_action(db, user, "delete_comment", "announcement", aid)
     db.commit()
     return {"message": "Deleted"}
 

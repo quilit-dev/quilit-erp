@@ -13,6 +13,7 @@ from fastapi import APIRouter, Depends, HTTPException, Query
 from typing import Optional
 from database import get_db
 from permissions import require_perm
+from routers.audit import log_action
 import sqlite3
 
 router = APIRouter()
@@ -155,6 +156,7 @@ def unarchive_item(
         raise HTTPException(400, "Item is not archived")
 
     db.execute(_UNARCHIVE_SQL[module], (item_id,))
+    log_action(db, user, "unarchive", module, item_id, row["label"] or f"#{item_id}")
     db.commit()
     return {
         "message": f"'{row['label']}' restored from {DISPLAY_NAMES.get(module, module)} archives",
