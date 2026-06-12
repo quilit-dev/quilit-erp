@@ -2,7 +2,7 @@ import { usePersistedState } from '../hooks/usePersistedState';
 import { useState } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { useData } from '../hooks/useData';
-import { getProjects, getClients, createProject, updateProject, cancelProject, archiveProject } from '../api/client';
+import { getProjects, getClients, createProject, updateProject, voidProject, unvoidProject, archiveProject } from '../api/client';
 import {
   LoadingSpinner, ErrorAlert, EmptyState, Modal, ConfirmModal,
   Badge, ExportButton, fmt, fmtDate, toast, SortableTh, Pagination
@@ -25,7 +25,7 @@ export default function Projects() {
   const [modal,        setModal]        = useState(null);
   const [form,         setForm]         = useState(EMPTY);
   const [editId,       setEditId]       = useState(null);
-  const [cancelId,     setCancelId]     = useState(null);
+  const [voidId,       setVoidId]       = useState(null);
   const [archiveId,    setArchiveId]    = useState(null);
   const [saving,       setSaving]       = useState(false);
   const [search, setSearch] = usePersistedState('projects.search', '');
@@ -81,11 +81,19 @@ export default function Projects() {
     finally { setSaving(false); }
   }
 
-  async function handleCancel() {
+  async function handleVoid() {
     try {
-      await cancelProject(cancelId, 'Cancelled by user');
-      toast('Project cancelled');
-      setCancelId(null);
+      await voidProject(voidId, 'Voided by user');
+      toast(t('projects.projectVoided'));
+      setVoidId(null);
+      reload();
+    } catch (err) { toast(err.message, 'red'); }
+  }
+
+  async function handleUnvoid(p) {
+    try {
+      await unvoidProject(p.id);
+      toast(t('projects.projectRestored'));
       reload();
     } catch (err) { toast(err.message, 'red'); }
   }
@@ -141,7 +149,7 @@ export default function Projects() {
             <select className="form-control" style={{ width: 180 }}
               value={statusFilter} onChange={e => setStatusFilter(e.target.value)}>
               <option value="">{t('common.allStatuses')}</option>
-              {STATUSES.map(s => <option key={s} value={s}>{tStatus(s)}</option>)}
+              {[...STATUSES, 'Voided'].map(s => <option key={s} value={s}>{tStatus(s)}</option>)}
             </select>
             {(search||clientFilter||statusFilter) && (
               <button className="btn btn-secondary btn-sm" style={{whiteSpace:'nowrap'}}
@@ -195,8 +203,15 @@ export default function Projects() {
                       <td>
                         <div style={{ display: 'flex', gap: 6 }}>
                           <button className="btn btn-sm btn-primary"   onClick={() => navigate(`/projects/${p.id}`)}>{t('common.view')}</button>
-                          <button className="btn btn-sm btn-secondary" onClick={() => openEdit(p)}>{t('common.edit')}</button>
-                          <button className="btn btn-sm btn-warning"  onClick={() => setCancelId(p.id)}>Cancel</button>
+                          {(p.status === 'Voided' || p.status === 'Cancelled') ? (
+                            <button className="btn btn-sm btn-secondary" style={{ color: '#166534', whiteSpace: 'nowrap' }}
+                              onClick={() => handleUnvoid(p)}>↩️ {t('projects.unvoidProject')}</button>
+                          ) : (
+                            <>
+                              <button className="btn btn-sm btn-secondary" onClick={() => openEdit(p)}>{t('common.edit')}</button>
+                              <button className="btn btn-sm btn-warning"  onClick={() => setVoidId(p.id)}>🚫 {t('projects.voidProject')}</button>
+                            </>
+                          )}
                           <button className="btn btn-sm btn-danger"   onClick={() => setArchiveId(p.id)}>Archive</button>
                         </div>
                       </td>
@@ -280,13 +295,13 @@ export default function Projects() {
         </Modal>
       )}
 
-      {cancelId && (
+      {voidId && (
         <ConfirmModal
-          message="Cancel this project? Its status will be set to Cancelled. You can still view it and it remains in the list with a Cancelled status."
-          confirmLabel="Cancel Project"
+          message={t('projects.voidProjectMessage')}
+          confirmLabel={t('projects.voidProject')}
           confirmClass="btn-warning"
-          onConfirm={handleCancel}
-          onCancel={() => setCancelId(null)}
+          onConfirm={handleVoid}
+          onCancel={() => setVoidId(null)}
         />
       )}
       {archiveId && (

@@ -135,11 +135,11 @@ def archive_client(client_id: int, data: ArchiveRequest = ArchiveRequest(),
     if not row:
         raise HTTPException(404, "Client not found")
     active_projects = db.execute(
-        "SELECT COUNT(*) FROM projects WHERE client_id = ? AND archived_at IS NULL AND status NOT IN ('Cancelled','Completed','Invoiced')",
+        "SELECT COUNT(*) FROM projects WHERE client_id = ? AND archived_at IS NULL AND status NOT IN ('Cancelled','Voided','Completed','Invoiced')",
         (client_id,)
     ).fetchone()[0]
     if active_projects:
-        raise HTTPException(400, f"Cannot archive: this client has {active_projects} active project(s). Cancel or complete them first.")
+        raise HTTPException(400, f"Cannot archive: this client has {active_projects} active project(s). Void or complete them first.")
     now = _now()
     db.execute(
         "UPDATE clients SET archived_at=?, archive_reason=? WHERE id=?",
