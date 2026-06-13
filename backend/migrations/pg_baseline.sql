@@ -1031,7 +1031,8 @@ CREATE TABLE IF NOT EXISTS projects (
     created_at TEXT,
     deleted_at TEXT DEFAULT NULL,
     archived_at TEXT DEFAULT NULL,
-    archive_reason TEXT DEFAULT NULL
+    archive_reason TEXT DEFAULT NULL,
+    void_prev_status TEXT DEFAULT NULL
 );
 
 CREATE TABLE IF NOT EXISTS purchases (

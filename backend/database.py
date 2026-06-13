@@ -2621,6 +2621,13 @@ def _run_migrations(conn, c):
         c.execute("ALTER TABLE quotations ADD COLUMN void_prev_status TEXT")
         done("127_quotation_void")
 
+    # ── 128: project void/unvoid ────────────────────────────────────────────
+    # Same reversible Void/Unvoid pair as quotations (127): void_prev_status
+    # remembers the status at void time so Unvoid restores it exactly.
+    if need("128_project_void"):
+        c.execute("ALTER TABLE projects ADD COLUMN void_prev_status TEXT")
+        done("128_project_void")
+
     conn.commit()
 
 
@@ -2716,9 +2723,11 @@ def _ensure_pg_post_baseline(raw):
         """)
         cur.execute("CREATE INDEX IF NOT EXISTS idx_hr_attendance_date ON hr_attendance(date)")
         cur.execute("CREATE INDEX IF NOT EXISTS idx_hr_attendance_emp  ON hr_attendance(employee_id)")
-        # 127_quotation_void — column also lives in pg_baseline.sql for fresh
-        # installs; this bridges DBs initialised before that snapshot.
+        # 127_quotation_void / 128_project_void — columns also live in
+        # pg_baseline.sql for fresh installs; this bridges DBs initialised
+        # before those snapshots.
         cur.execute("ALTER TABLE quotations ADD COLUMN IF NOT EXISTS void_prev_status TEXT")
+        cur.execute("ALTER TABLE projects ADD COLUMN IF NOT EXISTS void_prev_status TEXT")
     raw.commit()
 
 
