@@ -2993,16 +2993,17 @@ textarea.form-control {
 .pos-cart-list::-webkit-scrollbar-track { background: transparent; }
 
 /* Cart line — compact SINGLE row (Square / Shopify-POS style): name + meta
- * flex to fill the leading space; the qty stepper, line total and remove X
- * pack into a tight cluster on the trailing edge. Halving the old two-row
- * height roughly doubles how many items show before the list scrolls. The row
- * wraps gracefully (controls drop below) only when it genuinely can't fit —
- * e.g. a narrow panel with per-line discounts enabled. */
+ * flex to fill the leading space; the qty stepper, optional per-line discount,
+ * line total and remove X pack into a tight cluster on the trailing edge.
+ * The row NEVER wraps — the name body shrinks (ellipsis) to make room — so the
+ * height stays constant whether or not per-line discounts are enabled. (It
+ * used to wrap when the discount input was on, doubling every row's height and
+ * cutting how many items showed before the list scrolled.) */
 .pos-cart-line {
   display: flex;
-  flex-wrap: wrap;
+  flex-wrap: nowrap;
   align-items: center;
-  gap: 6px 12px;
+  gap: 10px;
   padding: 8px 10px;
   border-radius: var(--r-sm);
   border: 1px solid transparent;
@@ -3015,7 +3016,10 @@ textarea.form-control {
 }
 .pos-cart-line:hover { background: var(--surface-2); }
 
-.pos-cart-line-body { flex: 1 1 150px; min-width: 0; }
+/* Basis 0 + grow so the body takes only the leftover space and shrinks all the
+ * way down (name ellipsizes) before the trailing controls are ever squeezed —
+ * the controls are flex-shrink:0, so they always render at full size on one row. */
+.pos-cart-line-body { flex: 1 1 0; min-width: 0; }
 
 /* Name clamps to a single line with ellipsis to keep every row compact;
  * the qty × price meta sits just beneath it. */
@@ -3057,7 +3061,7 @@ textarea.form-control {
 .pos-cart-line-right {
   display: flex;
   align-items: center;
-  gap: 10px;
+  gap: 8px;
   flex-shrink: 0;
   margin-inline-start: auto;
 }
@@ -3125,19 +3129,21 @@ textarea.form-control {
   font-size: 13.5px;
   font-weight: 700;
   color: var(--text);
-  min-width: 64px;
+  min-width: 56px;
   text-align: end;
   font-variant-numeric: tabular-nums;
   letter-spacing: -0.012em;
+  flex-shrink: 0;
 }
 
 /* Per-line discount input — small, neutral, sits between qty control
    and line total. Only rendered when the "Enable per-line discounts"
    setting is on. */
 .pos-cart-line-disc {
-  width: 64px;
+  width: 54px;
+  flex-shrink: 0;
   height: 28px;
-  padding: 0 8px;
+  padding: 0 6px;
   font-family: var(--font-mono);
   font-size: 12px;
   font-weight: 600;
