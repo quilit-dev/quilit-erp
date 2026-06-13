@@ -1,7 +1,7 @@
 import { useState } from 'react';
 import { useData } from '../hooks/useData';
 import { usePersistedState } from '../hooks/usePersistedState';
-import { getSuppliers, getSupplier, createSupplier, updateSupplier, archiveSupplier } from '../api/client';
+import { getSuppliers, getSupplier, createSupplier, updateSupplier, archiveSupplier, unarchiveSupplier } from '../api/client';
 import {
   LoadingSpinner, ErrorAlert, EmptyState, Modal, ConfirmModal,
   ExportButton, fmt, fmtDate, toast, SortableTh, Pagination,
@@ -20,12 +20,17 @@ const EMPTY = {
 export default function Suppliers() {
   const { t, tStatus } = useLocale();
   const { can } = usePermissions();
-  const { data: suppliers, loading, error, reload } = useData(getSuppliers);
+  const [showArchived, setShowArchived] = usePersistedState('suppliers.showArchived', false);
+  const { data: suppliers, loading, error, reload } = useData(
+    (s) => getSuppliers(showArchived ? { include_archived: 1 } : {}),
+    [showArchived],
+  );
   const [modal,      setModal]      = useState(null);
   const [importing,  setImporting]  = useState(false);
   const [form,       setForm]       = useState(EMPTY);
   const [editId,     setEditId]     = useState(null);
   const [deleteId,   setDeleteId]   = useState(null);
+  const [restoreId,  setRestoreId]  = useState(null);
   const [saving,     setSaving]     = useState(false);
   const [detail,     setDetail]     = useState(null);
   const [detailLoad, setDetailLoad] = useState(false);
@@ -78,6 +83,13 @@ export default function Suppliers() {
     } catch (err) { toast(err.message, 'red'); }
   }
 
+  async function handleUnarchive() {
+    try {
+      await unarchiveSupplier(restoreId);
+      toast(t('suppliers.supplierRestored')); setRestoreId(null); reload();
+    } catch (err) { toast(err.message, 'red'); }
+  }
+
   const exportData = filtered.map(s => ({
     Name:              s.name,
     'Contact':         s.contact_name  || '',
@@ -122,6 +134,11 @@ export default function Suppliers() {
               <button className="btn btn-secondary btn-sm" onClick={() => setSearch('')}>✕ {t('common.clear')}</button>
             )}
           </div>
+          <label className="archived-toggle">
+            <input type="checkbox" checked={showArchived}
+              onChange={e => setShowArchived(e.target.checked)} />
+            {t('common.showArchived')}
+          </label>
         </div>
 
         {loading ? <LoadingSpinner /> :
@@ -142,8 +159,10 @@ export default function Suppliers() {
                 </tr>
               </thead>
               <tbody>
-                {sorted.map(s => (
-                  <tr key={s.id}>
+                {sorted.map(s => {
+                  const isArchived = !!s.archived_at;
+                  return (
+                  <tr key={s.id} className={isArchived ? 'row-archived' : undefined}>
                     <td className="td-primary">
                       <button
                         className="btn-link"
@@ -152,6 +171,7 @@ export default function Suppliers() {
                       >
                         {s.name}
                       </button>
+                      {isArchived && <span className="badge badge-gray" style={{ marginInlineStart: 8 }}>{t('common.archivedBadge')}</span>}
                     </td>
                     <td>{s.contact_name || '—'}</td>
                     <td>{s.phone  || '—'}</td>
@@ -162,12 +182,20 @@ export default function Suppliers() {
                     <td>
                       <div style={{ display: 'flex', gap: 5 }}>
                         <button className="btn btn-sm btn-secondary" onClick={() => openDetail(s)}>{t('common.view')}</button>
-                        <button className="btn btn-sm btn-secondary" onClick={() => openEdit(s)}>{t('common.edit')}</button>
-                        <button className="btn btn-sm btn-danger"    onClick={() => setDeleteId(s.id)}>{t('common.archive')}</button>
+                        {isArchived ? (
+                          <button className="btn btn-sm btn-secondary" style={{ color: '#166534', whiteSpace: 'nowrap' }}
+                            onClick={() => setRestoreId(s.id)}>↩️ {t('common.restore')}</button>
+                        ) : (
+                          <>
+                            <button className="btn btn-sm btn-secondary" onClick={() => openEdit(s)}>{t('common.edit')}</button>
+                            <button className="btn btn-sm btn-danger"    onClick={() => setDeleteId(s.id)}>{t('common.archive')}</button>
+                          </>
+                        )}
                       </div>
                     </td>
                   </tr>
-                ))}
+                  );
+                })}
               </tbody>
             </table>
             <Pagination page={page} totalPages={totalPages} pageSize={pageSize} pageSizes={PAGE_SIZES}
@@ -316,6 +344,14 @@ export default function Suppliers() {
           confirmClass="btn-danger"
           onConfirm={handleDelete}
           onCancel={() => setDeleteId(null)}
+        />
+      )}
+      {restoreId && (
+        <ConfirmModal
+          message={t('common.restoreConfirm')}
+          confirmLabel={t('common.restore')}
+          onConfirm={handleUnarchive}
+          onCancel={() => setRestoreId(null)}
         />
       )}
     </div>
