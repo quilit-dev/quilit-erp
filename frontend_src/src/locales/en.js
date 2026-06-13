@@ -105,6 +105,7 @@ const en = {
     exporting: 'Exporting…',
     delete: 'Delete',
     archive: 'Archive',
+    archiveConfirm: 'Archive this record? It will be hidden from the main list and can be restored from the Archives page.',
     edit: 'Edit',
     view: 'View',
     export: 'Export',
@@ -543,6 +544,7 @@ const en = {
     'Quotation Sent': 'Quotation Sent',
     Approved: 'Approved',
     'In Progress': 'In Progress',
+    'On Hold': 'On Hold',
     Completed: 'Completed',
     Invoiced: 'Invoiced',
     Unpaid: 'Unpaid',
@@ -1370,6 +1372,8 @@ const en = {
 
   inventory: {
     title: 'Inventory',
+    archiveItemTitle: 'Archive Item',
+    archiveItemConfirm: 'Archive "{{name}}"? It will be hidden from inventory but can be restored from Archives. Items with stock greater than 0 cannot be archived.',
     totalItems: '{{count}} items',
     addItem: '+ Add Item',
     searchPlaceholder: 'Search inventory…',

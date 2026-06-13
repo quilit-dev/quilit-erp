@@ -10,7 +10,10 @@ import {
 import { useSortPaginate } from '../hooks/useSortPaginate';
 import { useLocale } from '../hooks/useLocale.jsx';
 
-const STATUSES = ['Inquiry', 'Quotation Sent', 'Approved', 'In progress', 'Completed', 'Invoiced'];
+// Must match the backend's VALID_STATUSES casing exactly so tStatus() resolves
+// each one (e.g. 'In Progress', not 'In progress') and the filter dropdown
+// localizes like the status badges do.
+const STATUSES = ['Inquiry', 'Quotation Sent', 'Approved', 'In Progress', 'Completed', 'Invoiced'];
 const EMPTY = {
   name: '', client_id: '', location: '', status: 'Inquiry',
   start_date: '', end_date: '', estimated_cost: '', actual_cost: '', expected_revenue: '', description: '',
@@ -212,7 +215,7 @@ export default function Projects() {
                               <button className="btn btn-sm btn-warning"  onClick={() => setVoidId(p.id)}>🚫 {t('projects.voidProject')}</button>
                             </>
                           )}
-                          <button className="btn btn-sm btn-danger"   onClick={() => setArchiveId(p.id)}>Archive</button>
+                          <button className="btn btn-sm btn-danger"   onClick={() => setArchiveId(p.id)}>{t('common.archive')}</button>
                         </div>
                       </td>
                     </tr>
@@ -306,8 +309,8 @@ export default function Projects() {
       )}
       {archiveId && (
         <ConfirmModal
-          message="Archive this project? It will be hidden from the main list. You can restore it from the Archives page."
-          confirmLabel="Archive"
+          message={t('common.archiveConfirm')}
+          confirmLabel={t('common.archive')}
           confirmClass="btn-danger"
           onConfirm={handleArchive}
           onCancel={() => setArchiveId(null)}
