@@ -393,6 +393,8 @@ def update_task_dates(
         "UPDATE planning_tasks SET start_date=?, end_date=? WHERE id=?",
         (body.start_date, body.end_date, tid)
     )
+    log_action(db, user, "update", "planning", tid, f"Task #{tid} dates",
+               {"start_date": body.start_date, "end_date": body.end_date})
     db.commit()
     return {"message": "Dates updated"}
 
@@ -414,6 +416,8 @@ def update_task_status(
         db.execute("UPDATE planning_tasks SET status=?, progress=? WHERE id=?", (body.status, prog, tid))
     else:
         db.execute("UPDATE planning_tasks SET status=? WHERE id=?", (body.status, tid))
+    log_action(db, user, "status_change", "planning", tid, f"Task #{tid}",
+               {"status": body.status})
     db.commit()
     return {"message": "Status updated"}
 
@@ -427,6 +431,8 @@ def update_task_progress(
 ):
     p = max(0, min(100, body.progress))
     db.execute("UPDATE planning_tasks SET progress=? WHERE id=?", (p, tid))
+    log_action(db, user, "update", "planning", tid, f"Task #{tid} progress",
+               {"progress": p})
     db.commit()
     return {"message": "Progress updated"}
 
@@ -476,6 +482,7 @@ def create_milestone(
         "INSERT INTO planning_milestones (project_id, name, due_date, created_at) VALUES (?,?,?,?)",
         (body.project_id, body.name, body.due_date, now)
     )
+    log_action(db, user, "create", "planning_milestone", cur.lastrowid, body.name)
     db.commit()
     return {"id": cur.lastrowid, "message": "Milestone created"}
 
@@ -498,6 +505,7 @@ def update_milestone(
         "reached_at=COALESCE(?,reached_at) WHERE id=?",
         values + [mid],
     )
+    log_action(db, user, "update", "planning_milestone", mid, data.get("name") or str(mid))
     db.commit()
     return {"message": "Milestone updated"}
 

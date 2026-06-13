@@ -221,8 +221,14 @@ def migrate_to_s3(user=Depends(require_auth), db: sqlite3.Connection = Depends(g
     if not storage.is_s3():
         raise HTTPException(400, "Object storage is not configured (set STORAGE=s3).")
     if jobs.async_enabled():
+        log_action(db, user, "migrate", "attachment", None, "S3 migration queued")
+        db.commit()
         return {"status": "queued", "job_id": jobs.enqueue("attachments.backfill_to_s3")}
-    return {"migrated": _backfill_attachments(db)}
+    migrated = _backfill_attachments(db)
+    log_action(db, user, "migrate", "attachment", None, "S3 migration",
+               {"migrated": migrated})
+    db.commit()
+    return {"migrated": migrated}
 
 
 # ── List ───────────────────────────────────────────────────────────────────

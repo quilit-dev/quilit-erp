@@ -220,6 +220,8 @@ def add_comment(req_id: int, data: CommentPayload,
         comment = engine.add_comment(db, req_id, user["id"], data.comment)
     except engine.WorkflowError as e:
         raise HTTPException(e.status_code, e.detail)
+    log_action(db, user, "comment", "approval_request", req_id,
+               req["entity_label"] or f"{req['module']} #{req['entity_id']}")
     db.commit()
     comment["author_name"] = user.get("full_name") or user.get("username")
     return comment

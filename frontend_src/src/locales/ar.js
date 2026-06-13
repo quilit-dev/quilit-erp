@@ -2062,6 +2062,8 @@ const ar = {
     noActiveSessions: 'لا توجد جلسات نشطة.',
     allModules: 'جميع الأقسام',
     allActions: 'جميع الإجراءات',
+    authModule: 'تسجيل الدخول والحسابات',
+    attachmentsModule: 'المرفقات',
     purgeOlderThan: 'حذف أقدم من',
     time: 'الوقت',
     action: 'الإجراء',

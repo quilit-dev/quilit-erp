@@ -1336,6 +1336,9 @@ def update_payroll_line(
          breakd["net_amount"], notes, line_id),
     )
     _recompute_run_totals(db, row["payroll_run_id"])
+    log_action(db, user, "update", "hr_payroll_line", line_id,
+               f"Run #{row['payroll_run_id']} line #{line_id}",
+               {"net_amount": breakd["net_amount"]})
     db.commit()
     return {"net_amount": breakd["net_amount"], "breakdown": breakd, "message": "Payroll line updated"}
 
@@ -1635,6 +1638,8 @@ def list_attendance(date: str, user=Depends(require_perm("hr", "view")),
 def mark_attendance(body: AttendanceMark, user=Depends(require_perm("hr", "edit")),
                     db=Depends(get_db)):
     _upsert_attendance(db, body.employee_id, body.date, body.status, body.hours, body.note)
+    log_action(db, user, "attendance", "hr_employee", body.employee_id,
+               f"{body.date} — {body.status}")
     db.commit()
     return {"message": "Attendance saved"}
 
@@ -1651,6 +1656,8 @@ def mark_attendance_bulk(body: AttendanceBulk, user=Depends(require_perm("hr", "
         _upsert_attendance(db, int(emp), body.date, r.get("status") or "Present",
                            r.get("hours"), r.get("note"))
         n += 1
+    log_action(db, user, "attendance", "hr_employee", None,
+               f"Bulk roster — {body.date}", {"saved": n})
     db.commit()
     return {"saved": n}
 

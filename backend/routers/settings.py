@@ -14,6 +14,7 @@ from pydantic import BaseModel
 from typing import Optional
 from database import get_db, DB_PATH
 from permissions import require_auth, require_admin
+from routers.audit import log_action
 from utils import _now
 import vendor_config
 import sqlite3, os, shutil, tempfile, sys
@@ -193,10 +194,15 @@ def update_settings(
         _set_keys(db, updates)
         if new_method in ("fifo", "lifo") and new_method != prev_method:
             costing.rebase_layers(db, _now())
-            db.commit()
+        log_action(db, user, "update", "settings", None, "Settings",
+                   {"keys": sorted(updates)})
+        db.commit()
         return _get_all(db)
 
     _set_keys(db, updates)
+    log_action(db, user, "update", "settings", None, "Settings",
+               {"keys": sorted(updates)})
+    db.commit()
     return _get_all(db)
 
 
@@ -249,6 +255,8 @@ def set_exchange_rate(
         (body.rate, user["id"], user.get("full_name") or user.get("username"),
          (body.note or None), _now()),
     )
+    log_action(db, user, "update", "settings", None, "Exchange rate",
+               {"rate": body.rate, "note": body.note})
     db.commit()
     return get_exchange_rate(user, db)
 
@@ -296,6 +304,7 @@ def _detect_image(data: bytes) -> bool:
 async def upload_logo(
     file: UploadFile = File(...),
     user=Depends(require_admin),
+    db: sqlite3.Connection = Depends(get_db),
 ):
     data = await file.read(MAX_LOGO_SIZE + 1)
     if len(data) > MAX_LOGO_SIZE:
@@ -306,6 +315,9 @@ async def upload_logo(
     os.makedirs(os.path.dirname(logo_path), exist_ok=True)
     with open(logo_path, "wb") as f:
         f.write(data)
+    log_action(db, user, "update", "settings", None, "Company logo",
+               {"filename": file.filename, "size": len(data)})
+    db.commit()
     return {"ok": True, "message": "Logo updated"}
 
 
@@ -324,10 +336,13 @@ def _assert_local_backup():
 
 
 @router.get("/backup")
-def download_backup(user=Depends(require_admin)):
+def download_backup(user=Depends(require_admin), db: sqlite3.Connection = Depends(get_db)):
     _assert_local_backup()
     if not os.path.exists(DB_PATH):
         raise HTTPException(404, "Database file not found")
+    # A full-database download is the most sensitive export there is — record it.
+    log_action(db, user, "export", "settings", None, "Full database backup downloaded")
+    db.commit()
     return FileResponse(
         DB_PATH,
         media_type="application/octet-stream",
@@ -349,7 +364,7 @@ def backup_status(user=Depends(require_admin)):
 
 
 @router.post("/backup-now")
-def backup_now(user=Depends(require_admin)):
+def backup_now(user=Depends(require_admin), db: sqlite3.Connection = Depends(get_db)):
     """Trigger an immediate manual backup."""
     _assert_local_backup()
     try:
@@ -360,6 +375,8 @@ def backup_now(user=Depends(require_admin)):
         result = backup_manager.run_manual_backup()
         if not result.get("ok"):
             raise HTTPException(500, result.get("error", "Backup failed"))
+        log_action(db, user, "backup", "settings", None, "Manual backup")
+        db.commit()
         return result
     except HTTPException:
         raise
@@ -372,7 +389,8 @@ class BackupExportRequest(BaseModel):
 
 
 @router.post("/backup-export")
-def backup_export(body: BackupExportRequest, user=Depends(require_admin)):
+def backup_export(body: BackupExportRequest, user=Depends(require_admin),
+                  db: sqlite3.Connection = Depends(get_db)):
     """One-click backup to an external folder (USB drive / network share)."""
     _assert_local_backup()
     try:
@@ -383,6 +401,9 @@ def backup_export(body: BackupExportRequest, user=Depends(require_admin)):
         result = backup_manager.export_to_path(body.path)
         if not result.get("ok"):
             raise HTTPException(400, result.get("error", "Backup export failed"))
+        log_action(db, user, "export", "settings", None, "Backup exported",
+                   {"path": body.path})
+        db.commit()
         return result
     except HTTPException:
         raise
@@ -394,6 +415,7 @@ def backup_export(body: BackupExportRequest, user=Depends(require_admin)):
 async def restore_backup(
     file: UploadFile = File(...),
     user=Depends(require_admin),
+    db: sqlite3.Connection = Depends(get_db),
 ):
     _assert_local_backup()
     if not file.filename.endswith(".db"):
@@ -422,6 +444,14 @@ async def restore_backup(
     finally:
         os.unlink(tmp.name)
 
+    # Best-effort: the row lands in the restored database (the connection's
+    # path is the same file), so the restore event itself is on record.
+    log_action(db, user, "restore", "settings", None, "Database restored from upload",
+               {"filename": file.filename, "size": len(data)})
+    try:
+        db.commit()
+    except Exception:
+        pass
     return {"ok": True, "message": "Database restored. Please restart the server."}
 
 
@@ -480,6 +510,10 @@ def complete_setup(body: CompleteSetupRequest, db: sqlite3.Connection = Depends(
         "default_currency": body.default_currency or "USD",
         "setup_complete":   "1",
     })
+    # Pre-auth one-time event — recorded under the admin account it configures.
+    log_action(db, {"id": None, "username": "admin"}, "complete_setup", "settings",
+               None, "Initial setup wizard completed",
+               {"company_name": body.company_name or "My Company"})
     db.commit()
     return {"ok": True, "message": "Setup complete. You can now log in."}
 

@@ -199,6 +199,7 @@ export const commitImport    = (entity, body) => api.post(`/api/imports/${entity
 
 // Audit log
 export const getAuditLog = (params = {}) => api.get(`/api/audit/${_qs(params)}`);
+export const getAuditFilters = () => api.get('/api/audit/filters');
 export const purgeAuditLog = (olderThanDays) =>
   api.delete(`/api/audit/purge?older_than_days=${olderThanDays}`);
 

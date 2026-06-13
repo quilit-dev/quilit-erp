@@ -3,6 +3,7 @@ from pydantic import BaseModel
 from typing import Optional
 from database import get_db
 from permissions import require_perm, require_auth
+from routers.audit import log_action
 from utils import _now, notify, validate_int_qty
 import costing
 import lots
@@ -238,6 +239,8 @@ def create_item(data: InventoryCreate, user=Depends(require_perm("inventory", "c
         # Opening stock: a lot for lot-tracked items, else a FIFO/LIFO cost layer.
         lots.record_stock_in(db, item_id, data.quantity, data.unit_cost or 0,
                              source_type="opening", source_ref="Initial stock", now=now)
+    log_action(db, user, "create", "inventory", item_id, data.name,
+               {"quantity": data.quantity, "unit_cost": data.unit_cost})
     db.commit()
     return {"id": item_id, "message": "Item created"}
 
@@ -264,6 +267,7 @@ def update_item(item_id: int, data: InventoryCreate, user=Depends(require_perm("
         (data.name, data.category, ptype, data.min_stock, data.unit_cost, data.sale_price, data.supplier, data.unit, barcode,
          1 if data.lot_tracked else 0, data.shelf_life_days, item_id)
     )
+    log_action(db, user, "update", "inventory", item_id, data.name)
     db.commit()
     return {"message": "Item updated"}
 
@@ -351,6 +355,9 @@ def update_stock(item_id: int, data: StockUpdate, user=Depends(require_perm("inv
                    body=f"Only {wh_after} {row['unit'] or 'units'} at {wh_code['name']} (minimum: {min_stock})",
                    link=f"/inventory", entity_type="inventory", entity_id=item_id,
                    dedup_hours=24)
+    log_action(db, user, "stock_adjust", "inventory", item_id, row["name"],
+               {"delta": data.delta, "type": data.type, "qty_after": qty_after,
+                "warehouse_id": wid, "reference": data.reference})
     db.commit()
     return {"message": "Stock updated", "qty_before": qty_before, "qty_after": qty_after,
             "warehouse_id": wid, "warehouse_qty_after": wh_after}
@@ -452,6 +459,8 @@ def deduct_to_project(item_id: int, data: DeductToProject,
         (data.project_id, "Materials", desc, total_cost, now)
     )
 
+    log_action(db, user, "deduct_to_project", "inventory", item_id, item["name"],
+               {"project_id": data.project_id, "quantity": data.quantity, "cost": total_cost})
     db.commit()
     return {
         "message":    "Stock deducted and project expense recorded",
@@ -471,6 +480,7 @@ def archive_item(item_id: int, user=Depends(require_perm("inventory", "delete"))
         raise HTTPException(400, "Cannot archive an item reserved by an open production order.")
     now = _now()
     db.execute("UPDATE inventory SET archived_at = ? WHERE id = ?", (now, item_id))
+    log_action(db, user, "archive", "inventory", item_id, row["name"])
     db.commit()
     return {"message": "Item archived"}
 
@@ -480,5 +490,6 @@ def unarchive_item(item_id: int, user=Depends(require_perm("inventory", "edit"))
     if not row:
         raise HTTPException(404, "Item not found in archives")
     db.execute("UPDATE inventory SET archived_at = NULL WHERE id = ?", (item_id,))
+    log_action(db, user, "unarchive", "inventory", item_id)
     db.commit()
     return {"message": "Item restored from archive"}

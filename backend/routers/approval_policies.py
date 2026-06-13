@@ -3,6 +3,7 @@ from pydantic import BaseModel
 from typing import Optional, List
 from database import get_db
 from permissions import require_auth, require_admin
+from routers.audit import log_action
 from utils import _now
 import sqlite3, json
 
@@ -80,6 +81,9 @@ def create_policy(
             user["id"], now, now,
         ),
     )
+    log_action(db, user, "create", "approval_policy", db.execute(
+        "SELECT MAX(id) m FROM approval_policies").fetchone()["m"], data.name,
+        {"module": data.module, "trigger": data.trigger_action})
     db.commit()
     return {"ok": True}
 
@@ -112,6 +116,7 @@ def update_policy(
             _now(), policy_id,
         ),
     )
+    log_action(db, user, "update", "approval_policy", policy_id, data.name)
     db.commit()
     return {"ok": True}
 
@@ -130,6 +135,8 @@ def toggle_policy(
         "UPDATE approval_policies SET is_active=?, updated_at=? WHERE id=?",
         (new_val, _now(), policy_id),
     )
+    log_action(db, user, "enable" if new_val else "disable",
+               "approval_policy", policy_id)
     db.commit()
     return {"ok": True, "is_active": bool(new_val)}
 
@@ -140,7 +147,10 @@ def delete_policy(
     user=Depends(require_admin),
     db:   sqlite3.Connection = Depends(get_db),
 ):
+    row = db.execute("SELECT name FROM approval_policies WHERE id=?", (policy_id,)).fetchone()
     db.execute("DELETE FROM approval_policies WHERE id=?", (policy_id,))
+    log_action(db, user, "delete", "approval_policy", policy_id,
+               row["name"] if row else "")
     db.commit()
     return {"ok": True}
 
