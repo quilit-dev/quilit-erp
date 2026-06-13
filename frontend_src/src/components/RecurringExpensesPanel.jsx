@@ -23,7 +23,7 @@ const EMPTY_FORM = {
 
 export default function RecurringExpensesPanel() {
   const { data: templates, loading, error, reload } = useData(getRecurringExpenses);
-  const { data: projects } = useData(getProjects);
+  const { data: projects } = useData((s) => getProjects({}, s));
   const { t } = useLocale();
   const { settings, taxRates } = useSettings();
   const { can } = usePermissions();

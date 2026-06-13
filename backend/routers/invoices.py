@@ -181,11 +181,15 @@ def _price_items(db, items, fallback_amount):
 @router.get("/")
 def list_invoices(
     status: Optional[str] = None,
+    include_archived: bool = False,
     user=Depends(require_perm("invoices", "view")),
     db: sqlite3.Connection = Depends(get_db),
 ):
+    # `include_archived=1` returns archived invoices too (for the in-module
+    # "Show archived" filter); the default view still hides them.
+    arch_clause = "" if include_archived else "WHERE i.archived_at IS NULL"
     rows = db.execute(
-        """SELECT i.*,
+        f"""SELECT i.*,
                   p.name AS project_name,
                   c.name AS client_name, c.phone AS client_phone,
                   q.quote_number,
@@ -196,7 +200,7 @@ def list_invoices(
            LEFT JOIN projects   p ON i.project_id   = p.id
            LEFT JOIN clients    c ON i.client_id    = c.id
            LEFT JOIN quotations q ON i.quotation_id = q.id
-           WHERE i.archived_at IS NULL
+           {arch_clause}
            ORDER BY i.created_at DESC""",
     ).fetchall()
 

@@ -2,7 +2,7 @@ import { usePersistedState } from '../hooks/usePersistedState';
 import { useState } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { useData } from '../hooks/useData';
-import { getProjects, getClients, createProject, updateProject, voidProject, unvoidProject, archiveProject } from '../api/client';
+import { getProjects, getClients, createProject, updateProject, voidProject, unvoidProject, archiveProject, unarchiveProject } from '../api/client';
 import {
   LoadingSpinner, ErrorAlert, EmptyState, Modal, ConfirmModal,
   Badge, ExportButton, fmt, fmtDate, toast, SortableTh, Pagination
@@ -21,7 +21,11 @@ const EMPTY = {
 
 export default function Projects() {
   const navigate = useNavigate();
-  const { data: projects, loading, error, reload } = useData(getProjects);
+  const [showArchived, setShowArchived] = usePersistedState('projects.showArchived', false);
+  const { data: projects, loading, error, reload } = useData(
+    (s) => getProjects(showArchived ? { include_archived: 1 } : {}, s),
+    [showArchived],
+  );
   const { data: clients } = useData((s) => getClients({}, s));
   const { t, tStatus } = useLocale();
 
@@ -29,6 +33,7 @@ export default function Projects() {
   const [form,         setForm]         = useState(EMPTY);
   const [editId,       setEditId]       = useState(null);
   const [voidId,       setVoidId]       = useState(null);
+  const [restoreId,    setRestoreId]    = useState(null);
   const [archiveId,    setArchiveId]    = useState(null);
   const [saving,       setSaving]       = useState(false);
   const [search, setSearch] = usePersistedState('projects.search', '');
@@ -104,8 +109,17 @@ export default function Projects() {
   async function handleArchive() {
     try {
       await archiveProject(archiveId);
-      toast('Project archived');
+      toast(t('projects.projectArchived'));
       setArchiveId(null);
+      reload();
+    } catch (err) { toast(err.message, 'red'); }
+  }
+
+  async function handleUnarchiveRow() {
+    try {
+      await unarchiveProject(restoreId);
+      toast(t('projects.projectRestored'));
+      setRestoreId(null);
       reload();
     } catch (err) { toast(err.message, 'red'); }
   }
@@ -160,6 +174,11 @@ export default function Projects() {
                 ✕ {t('common.clear')}
               </button>
             )}
+            <label className="archived-toggle">
+              <input type="checkbox" checked={showArchived}
+                onChange={e => setShowArchived(e.target.checked)} />
+              {t('common.showArchived')}
+            </label>
           </div>
           {filtered.length !== (projects||[]).length && (
             <div style={{fontSize:12,color:'var(--text-3)'}}>
@@ -188,9 +207,13 @@ export default function Projects() {
               <tbody>
                 {pagedProjects.map(p => {
                   const expProfit = (p.expected_revenue || 0) - (p.estimated_cost || 0);
+                  const isArchived = !!p.archived_at;
                   return (
-                    <tr key={p.id}>
-                      <td className="td-primary">{p.name}</td>
+                    <tr key={p.id} className={isArchived ? 'row-archived' : undefined}>
+                      <td className="td-primary">
+                        {p.name}
+                        {isArchived && <span className="badge badge-gray" style={{ marginInlineStart: 8 }}>{t('common.archivedBadge')}</span>}
+                      </td>
                       <td>{p.client_name || '—'}</td>
                       <td><Badge status={p.status} /></td>
                       <td>{fmt(p.estimated_cost)}</td>
@@ -206,16 +229,23 @@ export default function Projects() {
                       <td>
                         <div style={{ display: 'flex', gap: 6 }}>
                           <button className="btn btn-sm btn-primary"   onClick={() => navigate(`/projects/${p.id}`)}>{t('common.view')}</button>
-                          {(p.status === 'Voided' || p.status === 'Cancelled') ? (
+                          {isArchived ? (
                             <button className="btn btn-sm btn-secondary" style={{ color: '#166534', whiteSpace: 'nowrap' }}
-                              onClick={() => handleUnvoid(p)}>↩️ {t('projects.unvoidProject')}</button>
+                              onClick={() => setRestoreId(p.id)}>↩️ {t('common.restore')}</button>
                           ) : (
                             <>
-                              <button className="btn btn-sm btn-secondary" onClick={() => openEdit(p)}>{t('common.edit')}</button>
-                              <button className="btn btn-sm btn-warning"  onClick={() => setVoidId(p.id)}>🚫 {t('projects.voidProject')}</button>
+                              {(p.status === 'Voided' || p.status === 'Cancelled') ? (
+                                <button className="btn btn-sm btn-secondary" style={{ color: '#166534', whiteSpace: 'nowrap' }}
+                                  onClick={() => handleUnvoid(p)}>↩️ {t('projects.unvoidProject')}</button>
+                              ) : (
+                                <>
+                                  <button className="btn btn-sm btn-secondary" onClick={() => openEdit(p)}>{t('common.edit')}</button>
+                                  <button className="btn btn-sm btn-warning"  onClick={() => setVoidId(p.id)}>🚫 {t('projects.voidProject')}</button>
+                                </>
+                              )}
+                              <button className="btn btn-sm btn-danger"   onClick={() => setArchiveId(p.id)}>{t('common.archive')}</button>
                             </>
                           )}
-                          <button className="btn btn-sm btn-danger"   onClick={() => setArchiveId(p.id)}>{t('common.archive')}</button>
                         </div>
                       </td>
                     </tr>
@@ -314,6 +344,14 @@ export default function Projects() {
           confirmClass="btn-danger"
           onConfirm={handleArchive}
           onCancel={() => setArchiveId(null)}
+        />
+      )}
+      {restoreId && (
+        <ConfirmModal
+          message={t('common.restoreConfirm')}
+          confirmLabel={t('common.restore')}
+          onConfirm={handleUnarchiveRow}
+          onCancel={() => setRestoreId(null)}
         />
       )}
     </div>

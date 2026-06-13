@@ -97,31 +97,34 @@ export const archiveClient   = (id, reason) => api.patch(`/api/clients/${id}/arc
 // uses the generic `unarchiveItem(module, id)` so we only maintain that.
 
 // Projects
-export const getProjects       = (s) => api.get('/api/projects/', s);
+export const getProjects       = (params = {}, s) => api.get(`/api/projects/${_qs(params)}`, s);
 export const getProject        = (id) => api.get(`/api/projects/${id}`);
 export const createProject     = (d) => api.post('/api/projects/', d);
 export const updateProject     = (id, d) => api.put(`/api/projects/${id}`, d);
 export const voidProject       = (id, reason) => api.patch(`/api/projects/${id}/void`, { reason });
 export const unvoidProject     = (id) => api.patch(`/api/projects/${id}/unvoid`);
 export const archiveProject    = (id, reason) => api.patch(`/api/projects/${id}/archive`, { reason });
+export const unarchiveProject  = (id) => api.patch(`/api/projects/${id}/unarchive`);
 
 // Quotations (proposals only — no payments)
-export const getQuotations       = (s) => api.get('/api/quotations/', s);
+export const getQuotations       = (params = {}, s) => api.get(`/api/quotations/${_qs(params)}`, s);
 export const getQuotation        = (id) => api.get(`/api/quotations/${id}`);
 export const createQuotation     = (d)  => api.post('/api/quotations/', d);
 export const updateQuotation     = (id, d) => api.put(`/api/quotations/${id}`, d);
 export const voidQuotation       = (id, reason) => api.patch(`/api/quotations/${id}/void`, { reason });
 export const unvoidQuotation     = (id) => api.patch(`/api/quotations/${id}/unvoid`);
 export const archiveQuotation    = (id, reason) => api.patch(`/api/quotations/${id}/archive`, { reason });
+export const unarchiveQuotation  = (id) => api.patch(`/api/quotations/${id}/unarchive`);
 export const convertToInvoice    = (id) => api.post(`/api/quotations/${id}/convert-to-invoice`);
 export const convertToProject    = (id) => api.post(`/api/quotations/${id}/convert-to-project`);
 
 // Invoices + cumulative payments
-export const getInvoices       = (s)    => api.get('/api/invoices/', s);
+export const getInvoices       = (params = {}, s) => api.get(`/api/invoices/${_qs(params)}`, s);
 export const getInvoice        = (id)   => api.get(`/api/invoices/${id}`);
 export const createInvoice     = (d)    => api.post('/api/invoices/', d);
 export const updateInvoice     = (id, d) => api.put(`/api/invoices/${id}`, d);
 export const archiveInvoice    = (id, reason) => api.patch(`/api/invoices/${id}/archive`, { reason });
+export const unarchiveInvoice  = (id) => api.patch(`/api/invoices/${id}/unarchive`);
 export const voidInvoice       = (id, reason) => api.patch(`/api/invoices/${id}/void`, { reason });
 export const unvoidInvoice     = (id)         => api.patch(`/api/invoices/${id}/unvoid`);
 export const addInvoicePayment    = (id, d)       => api.post(`/api/invoices/${id}/payments`, d);

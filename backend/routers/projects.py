@@ -67,6 +67,7 @@ class ArchiveRequest(BaseModel):
 
 @router.get("/")
 def list_projects(search: Optional[str] = None, status: Optional[str] = None,
+                  include_archived: bool = False,
                   user=Depends(require_perm("projects", "view")), db: sqlite3.Connection = Depends(get_db)):
     query = """SELECT p.*, c.name as client_name,
                (p.expected_revenue - p.estimated_cost) as profit,
@@ -74,8 +75,10 @@ def list_projects(search: Optional[str] = None, status: Optional[str] = None,
                FROM projects p
                LEFT JOIN clients c ON p.client_id = c.id
                LEFT JOIN quotations q ON p.source_quotation_id = q.id
-               WHERE p.archived_at IS NULL"""
+               WHERE 1=1"""
     params = []
+    if not include_archived:
+        query += " AND p.archived_at IS NULL"
     if search:
         query += " AND (p.name LIKE ? OR p.location LIKE ?)"
         s = f"%{search}%"

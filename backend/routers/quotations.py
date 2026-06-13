@@ -89,6 +89,7 @@ def _next_quote_number(db):
 @router.get("/")
 def list_quotations(
     status: Optional[str] = None,
+    include_archived: bool = False,
     user=Depends(require_perm("quotations", "view")),
     db: sqlite3.Connection = Depends(get_db),
 ):
@@ -104,9 +105,11 @@ def list_quotations(
         LEFT JOIN projects  p ON q.project_id = p.id
         LEFT JOIN clients   c ON q.client_id  = c.id
         LEFT JOIN crm_leads l ON q.lead_id    = l.id
-        WHERE q.archived_at IS NULL
+        WHERE 1=1
     """
     params = []
+    if not include_archived:
+        query += " AND q.archived_at IS NULL"
     if status:
         query += " AND q.status = ?"
         params.append(status)

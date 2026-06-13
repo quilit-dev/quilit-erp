@@ -3,7 +3,7 @@ import { useData } from '../hooks/useData';
 import { useSettings } from '../hooks/useSettings';
 import {
   getInvoices, getInvoice, getClients, getProjects, getInventory,
-  createInvoice, updateInvoice, voidInvoice, unvoidInvoice,
+  createInvoice, updateInvoice, voidInvoice, unvoidInvoice, unarchiveInvoice,
   addInvoicePayment, deleteInvoicePayment, getCashDrawers,
 } from '../api/client';
 import {
@@ -14,6 +14,7 @@ import {
 import { exportInvoicePDF, exportInvoiceExcel } from '../utils/exportUtils';
 import InventoryCombobox from '../components/InventoryCombobox';
 import { useLocale } from '../hooks/useLocale.jsx';
+import { usePersistedState } from '../hooks/usePersistedState';
 import { usePermissions } from '../hooks/usePermissions';
 import Attachments from '../components/Attachments.jsx';
 import { useSortPaginate } from '../hooks/useSortPaginate';
@@ -178,9 +179,13 @@ const menuItemStyle = {
 export default function Invoices() {
   const { t, tStatus } = useLocale();
   const { can } = usePermissions();
-  const { data: invoices, loading, error, reload } = useData(getInvoices);
+  const [showArchived, setShowArchived] = usePersistedState('invoices.showArchived', false);
+  const { data: invoices, loading, error, reload } = useData(
+    (s) => getInvoices(showArchived ? { include_archived: 1 } : {}, s),
+    [showArchived],
+  );
   const { data: clients  } = useData((s) => getClients({}, s));
-  const { data: projects } = useData(getProjects);
+  const { data: projects } = useData((s) => getProjects({}, s));
   const { data: inventory } = useData(getInventory);
   const { settings, exchangeRate, displayCurrency, taxRates } = useSettings();
 
@@ -371,6 +376,14 @@ export default function Invoices() {
     } catch (err) { toast(err.message, 'red'); }
   }
 
+  const [restoreId, setRestoreId] = useState(null);
+  async function handleUnarchive() {
+    try {
+      await unarchiveInvoice(restoreId);
+      toast(t('invoices.invoiceRestored')); setRestoreId(null); reload();
+    } catch (err) { toast(err.message, 'red'); }
+  }
+
 
   async function openPayModal(inv) {
     setPayLoading(true);
@@ -493,6 +506,11 @@ export default function Invoices() {
                 ✕ {t('common.clear')}
               </button>
             )}
+            <label className="archived-toggle">
+              <input type="checkbox" checked={showArchived}
+                onChange={e => setShowArchived(e.target.checked)} />
+              {t('common.showArchived')}
+            </label>
           </div>
           {filtered.length !== (invoices||[]).length && (
             <div style={{fontSize:12,color:'var(--text-3)'}}>
@@ -523,9 +541,13 @@ export default function Invoices() {
               <tbody>
                 {pagedInvoices.map(inv => {
                   const exporting = exportLoading[inv.id];
+                  const isArchived = !!inv.archived_at;
                   return (
-                    <tr key={inv.id}>
-                      <td className="td-primary text-mono">{inv.invoice_number}</td>
+                    <tr key={inv.id} className={isArchived ? 'row-archived' : undefined}>
+                      <td className="td-primary text-mono">
+                        {inv.invoice_number}
+                        {isArchived && <span className="badge badge-gray" style={{ marginInlineStart: 8 }}>{t('common.archivedBadge')}</span>}
+                      </td>
                       <td className="text-mono" style={{ fontSize:12, color:'var(--text-3)' }}>
                         {inv.quote_number || '—'}
                       </td>
@@ -539,15 +561,20 @@ export default function Invoices() {
                       <td><Badge status={inv.is_overdue ? 'Overdue' : inv.payment_status} /></td>
                       <td style={{ color: inv.is_overdue ? 'var(--red)' : 'var(--text-2)', fontWeight: inv.is_overdue ? 600 : 400 }}>{fmtDate(inv.due_date)}</td>
                       <td>
-                        <ActionMenu
-                          inv={inv}
-                          exporting={exporting}
-                          onEdit={() => openEdit(inv)}
-                          onPay={() => openPayModal(inv)}
-                          onExport={(fmtType) => handleExport(inv, fmtType)}
-                          onVoid={() => { setVoidId(inv.id); setVoidReason(''); }}
-                          onUnvoid={() => setUnvoidTarget(inv)}
-                        />
+                        {isArchived ? (
+                          <button className="btn btn-sm btn-secondary" style={{ color: '#166534', whiteSpace: 'nowrap' }}
+                            onClick={() => setRestoreId(inv.id)}>↩️ {t('common.restore')}</button>
+                        ) : (
+                          <ActionMenu
+                            inv={inv}
+                            exporting={exporting}
+                            onEdit={() => openEdit(inv)}
+                            onPay={() => openPayModal(inv)}
+                            onExport={(fmtType) => handleExport(inv, fmtType)}
+                            onVoid={() => { setVoidId(inv.id); setVoidReason(''); }}
+                            onUnvoid={() => setUnvoidTarget(inv)}
+                          />
+                        )}
                       </td>
                     </tr>
                   );
@@ -971,6 +998,14 @@ export default function Invoices() {
           confirmLabel={t('invoices.unvoidInvoiceTitle')}
           onConfirm={handleUnvoid}
           onCancel={() => setUnvoidTarget(null)}
+        />
+      )}
+      {restoreId && (
+        <ConfirmModal
+          message={t('common.restoreConfirm')}
+          confirmLabel={t('common.restore')}
+          onConfirm={handleUnarchive}
+          onCancel={() => setRestoreId(null)}
         />
       )}
     </div>
