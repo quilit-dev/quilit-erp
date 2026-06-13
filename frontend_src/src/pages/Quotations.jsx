@@ -138,7 +138,7 @@ export default function Quotations() {
   const { can } = usePermissions();
   const navigate = useNavigate();
   const { data: quotations, loading, error, reload } = useData(getQuotations);
-  const { data: clients,  loading: cLoading,  reload: reloadClients }  = useData(getClients);
+  const { data: clients,  loading: cLoading,  reload: reloadClients }  = useData((s) => getClients({}, s));
   // Quotations can also be addressed to CRM leads — load active (non-archived)
   // leads alongside the client list so the picker covers both.
   const { data: leads,    loading: lLoading,  reload: reloadLeads }    = useData((s) => getCRMLeads({}, s));
