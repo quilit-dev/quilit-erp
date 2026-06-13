@@ -8,8 +8,8 @@ import {
 } from '../components/shared';
 import {
   getHRSummary,
-  getDepartments, createDepartment, updateDepartment, archiveDepartment,
-  getEmployees, getEmployee, createEmployee, updateEmployee, archiveEmployee,
+  getDepartments, createDepartment, updateDepartment, archiveDepartment, unarchiveDepartment,
+  getEmployees, getEmployee, createEmployee, updateEmployee, archiveEmployee, unarchiveEmployee,
   getLeaveRequests, createLeaveRequest, approveLeave, rejectLeave, deleteLeaveRequest,
   uploadEmployeeFile, deleteEmployeeFile, employeeFileURL,
   getPayrollRuns, getPayrollRun, createPayrollRun, updatePayrollLine,
@@ -112,10 +112,13 @@ export default function HR() {
   const { can } = usePermissions();
 
   const [tab, setTab] = useState('employees');
+  const [showArchived, setShowArchived] = useState(false);
 
   const { data: summary,     reload: reloadSummary }                   = useData(getHRSummary);
-  const { data: departments, reload: reloadDepts }                     = useData(getDepartments);
-  const { data: employees, loading, error, reload: reloadEmps }        = useData(useCallback(() => getEmployees(), []));
+  const { data: departments, reload: reloadDepts }                     = useData(
+    useCallback(() => getDepartments(showArchived ? { include_archived: 1 } : {}), [showArchived]), [showArchived]);
+  const { data: employees, loading, error, reload: reloadEmps }        = useData(
+    useCallback(() => getEmployees(showArchived ? { include_archived: 1 } : {}), [showArchived]), [showArchived]);
   const { data: leave,       reload: reloadLeave }                     = useData(useCallback(() => getLeaveRequests(), []));
   const { data: payrollRuns, reload: reloadPayroll }                   = useData(useCallback(() => getPayrollRuns(), []));
 
@@ -235,8 +238,10 @@ export default function HR() {
   async function runConfirm() {
     if (!confirm) return;
     try {
-      if (confirm.kind === 'employee')   { await archiveEmployee(confirm.id);   toast('Employee archived'); }
-      if (confirm.kind === 'department') { await archiveDepartment(confirm.id); toast('Department archived'); }
+      if (confirm.kind === 'employee')   { await archiveEmployee(confirm.id);   toast(t('hr.employeeArchived')); }
+      if (confirm.kind === 'department') { await archiveDepartment(confirm.id); toast(t('hr.departmentArchived')); }
+      if (confirm.kind === 'restore-employee')   { await unarchiveEmployee(confirm.id);   toast(t('hr.employeeRestored')); }
+      if (confirm.kind === 'restore-department') { await unarchiveDepartment(confirm.id); toast(t('hr.departmentRestored')); }
       if (confirm.kind === 'leave')      { await deleteLeaveRequest(confirm.id); toast('Leave request removed'); }
       setConfirm(null); reloadAll();
     } catch (err) { toast(err.message || 'Action failed', 'error'); setConfirm(null); }
@@ -307,6 +312,13 @@ export default function HR() {
               }))}
               filename="Leave_Requests" sheetName="Leave" />
           )}
+          {(tab === 'employees' || tab === 'departments') && (
+            <label className="archived-toggle">
+              <input type="checkbox" checked={showArchived}
+                onChange={e => setShowArchived(e.target.checked)} />
+              {t('common.showArchived')}
+            </label>
+          )}
           {tab === 'employees' && canCreate && (
             <button className="btn btn-secondary" onClick={() => setImporting(true)}>⬆ {t('imports.importBtn')}</button>
           )}
@@ -344,11 +356,14 @@ export default function HR() {
                   </tr>
                 </thead>
                 <tbody>
-                  {emps.map(e => (
-                    <tr key={e.id} style={{ cursor: 'pointer' }} onClick={() => setDetailId(e.id)}>
+                  {emps.map(e => {
+                    const isArchived = !!e.archived_at;
+                    return (
+                    <tr key={e.id} className={isArchived ? 'row-archived' : undefined} style={{ cursor: 'pointer' }} onClick={() => setDetailId(e.id)}>
                       <td className="text-mono">{e.employee_code || '—'}</td>
                       <td className="td-primary" style={{ fontWeight: 600 }}>
                         <span style={{ color: 'var(--accent)' }}>{e.full_name}</span>
+                        {isArchived && <span className="badge badge-gray" style={{ marginInlineStart: 8 }}>{t('common.archivedBadge')}</span>}
                       </td>
                       <td>{e.job_title || '—'}</td>
                       <td>{e.department_name || '—'}</td>
@@ -356,12 +371,20 @@ export default function HR() {
                       <td><span className={`badge badge-${EMP_STATUS_BADGE[e.status] || 'gray'}`}>{empStatusLabel(e.status, t)}</span></td>
                       <td onClick={ev => ev.stopPropagation()}>
                         <div style={{ display: 'flex', gap: 5 }}>
-                          {canEdit && <button className="btn btn-sm btn-secondary" onClick={() => openEmpEdit(e)}>{t('common.edit')}</button>}
-                          {canDelete && <button className="btn btn-sm btn-danger" onClick={() => setConfirm({ kind: 'employee', id: e.id, label: e.full_name })}>{t('common.archive')}</button>}
+                          {isArchived ? (
+                            canEdit && <button className="btn btn-sm btn-secondary" style={{ color: '#166534', whiteSpace: 'nowrap' }}
+                              onClick={() => setConfirm({ kind: 'restore-employee', id: e.id, label: e.full_name })}>↩️ {t('common.restore')}</button>
+                          ) : (
+                            <>
+                              {canEdit && <button className="btn btn-sm btn-secondary" onClick={() => openEmpEdit(e)}>{t('common.edit')}</button>}
+                              {canDelete && <button className="btn btn-sm btn-danger" onClick={() => setConfirm({ kind: 'employee', id: e.id, label: e.full_name })}>{t('common.archive')}</button>}
+                            </>
+                          )}
                         </div>
                       </td>
                     </tr>
-                  ))}
+                    );
+                  })}
                 </tbody>
               </table>
             </div>
@@ -384,19 +407,32 @@ export default function HR() {
                   </tr>
                 </thead>
                 <tbody>
-                  {depts.map(d => (
-                    <tr key={d.id}>
-                      <td className="td-primary" style={{ fontWeight: 600 }}>{d.name}</td>
+                  {depts.map(d => {
+                    const isArchived = !!d.archived_at;
+                    return (
+                    <tr key={d.id} className={isArchived ? 'row-archived' : undefined}>
+                      <td className="td-primary" style={{ fontWeight: 600 }}>
+                        {d.name}
+                        {isArchived && <span className="badge badge-gray" style={{ marginInlineStart: 8 }}>{t('common.archivedBadge')}</span>}
+                      </td>
                       <td>{d.description || '—'}</td>
                       <td>{d.employee_count ?? 0}</td>
                       <td>
                         <div style={{ display: 'flex', gap: 5 }}>
-                          {canEdit && <button className="btn btn-sm btn-secondary" onClick={() => openDeptEdit(d)}>{t('common.edit')}</button>}
-                          {canDelete && <button className="btn btn-sm btn-danger" onClick={() => setConfirm({ kind: 'department', id: d.id, label: d.name })}>{t('common.archive')}</button>}
+                          {isArchived ? (
+                            canEdit && <button className="btn btn-sm btn-secondary" style={{ color: '#166534', whiteSpace: 'nowrap' }}
+                              onClick={() => setConfirm({ kind: 'restore-department', id: d.id, label: d.name })}>↩️ {t('common.restore')}</button>
+                          ) : (
+                            <>
+                              {canEdit && <button className="btn btn-sm btn-secondary" onClick={() => openDeptEdit(d)}>{t('common.edit')}</button>}
+                              {canDelete && <button className="btn btn-sm btn-danger" onClick={() => setConfirm({ kind: 'department', id: d.id, label: d.name })}>{t('common.archive')}</button>}
+                            </>
+                          )}
                         </div>
                       </td>
                     </tr>
-                  ))}
+                    );
+                  })}
                 </tbody>
               </table>
             </div>
@@ -730,20 +766,25 @@ export default function HR() {
       )}
 
       {/* ── Confirm ────────────────────────────────────────────────────────── */}
-      {confirm && (
+      {confirm && (() => {
+        const isRestore = confirm.kind === 'restore-employee' || confirm.kind === 'restore-department';
+        return (
         <ConfirmModal
-          title={confirm.kind === 'leave' ? t('common.delete') : t('common.archive')}
+          title={isRestore ? t('common.restore') : confirm.kind === 'leave' ? t('common.delete') : t('common.archive')}
           message={
-            confirm.kind === 'leave'
-              ? t('hr.confirmRemoveLeave', { name: confirm.label })
-              : t('hr.confirmArchive', { name: confirm.label })
+            isRestore
+              ? t('common.restoreConfirm')
+              : confirm.kind === 'leave'
+                ? t('hr.confirmRemoveLeave', { name: confirm.label })
+                : t('hr.confirmArchive', { name: confirm.label })
           }
-          confirmLabel={confirm.kind === 'leave' ? t('common.delete') : t('common.archive')}
-          confirmClass="btn-danger"
+          confirmLabel={isRestore ? t('common.restore') : confirm.kind === 'leave' ? t('common.delete') : t('common.archive')}
+          confirmClass={isRestore ? undefined : 'btn-danger'}
           onConfirm={runConfirm}
           onCancel={() => setConfirm(null)}
         />
-      )}
+        );
+      })()}
     </div>
   );
 }

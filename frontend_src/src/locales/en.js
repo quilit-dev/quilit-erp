@@ -372,6 +372,10 @@ const en = {
     fldReason: 'Reason',
     confirmArchive: 'Archive "{{name}}"? It will be moved to the Archives and can be restored later.',
     confirmRemoveLeave: 'Remove this pending leave request for {{name}}?',
+    employeeArchived: 'Employee archived',
+    employeeRestored: 'Employee restored',
+    departmentArchived: 'Department archived',
+    departmentRestored: 'Department restored',
 
     // ── Tabs / KPIs ────────────────────────────────────────────────────────
     tabPayroll:       'Payroll',

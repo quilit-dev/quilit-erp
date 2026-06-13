@@ -371,6 +371,10 @@ const ar = {
     fldReason: 'السبب',
     confirmArchive: 'أرشفة "{{name}}"؟ سيتم نقله إلى الأرشيف ويمكن استعادته لاحقاً.',
     confirmRemoveLeave: 'إزالة طلب الإجازة المعلق للموظف {{name}}؟',
+    employeeArchived: 'تمت أرشفة الموظف',
+    employeeRestored: 'تمت استعادة الموظف',
+    departmentArchived: 'تمت أرشفة القسم',
+    departmentRestored: 'تمت استعادة القسم',
 
     // ── التبويبات والمؤشرات ────────────────────────────────────────────────
     tabPayroll:       'الرواتب',
