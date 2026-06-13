@@ -807,6 +807,7 @@ const en = {
     voidProjectMessage: 'Void this project? It becomes read-only and drops out of active-project counts. You can restore it later with Unvoid.',
     projectVoided: 'Project voided',
     projectRestored: 'Project restored',
+    projectArchived: 'Project archived',
     deleteConfirm: 'Delete this project? This cannot be undone.',
     deleteMsg: 'Delete this project? Linked expenses will also be deleted. Blocked if quotations or invoices exist.',
     selectClient: 'Select client',

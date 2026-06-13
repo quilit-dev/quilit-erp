@@ -19,7 +19,7 @@ const CATEGORIES = EXPENSE_CATEGORIES;
 
 function TransactionsPanel() {
   const { data: expenses, loading, error, reload } = useData(getExpenses);
-  const { data: projects } = useData(getProjects);
+  const { data: projects } = useData((s) => getProjects({}, s));
   const { data: cashDrawersData } = useData(getCashDrawers);
   const cashDrawers = (cashDrawersData || []).filter(d => d.is_active);
 
