@@ -323,15 +323,17 @@ def _compute_payroll_line(base, bonus, deduct, overtime_amount, settings):
 
 @router.get("/departments")
 def list_departments(
+    include_archived: bool = False,
     user=Depends(require_perm("hr", "view")),
     db: sqlite3.Connection = Depends(get_db),
 ):
+    arch = "" if include_archived else "WHERE d.archived_at IS NULL"
     rows = db.execute(
-        """SELECT d.*,
+        f"""SELECT d.*,
                   (SELECT COUNT(*) FROM hr_employees e
                    WHERE e.department_id = d.id AND e.archived_at IS NULL) AS employee_count
            FROM hr_departments d
-           WHERE d.archived_at IS NULL
+           {arch}
            ORDER BY d.name ASC"""
     ).fetchall()
     return [dict(r) for r in rows]
@@ -519,6 +521,7 @@ def list_employees(
     search:        Optional[str] = None,
     department_id: Optional[int] = None,
     status:        Optional[str] = None,
+    include_archived: bool = False,
     user=Depends(require_perm("hr", "view")),
     db: sqlite3.Connection = Depends(get_db),
 ):
@@ -526,7 +529,12 @@ def list_employees(
     like = f"%{search}%" if search else None
     params = [search, like, like, like, like,
               department_id, department_id, status, status]
-    return [dict(r) for r in db.execute(_EMPLOYEE_LIST_SQL, params).fetchall()]
+    # include_archived=1 drops the active-only filter so archived employees
+    # surface for the in-module "Show archived" view (each carries archived_at).
+    sql = _EMPLOYEE_LIST_SQL
+    if include_archived:
+        sql = sql.replace("WHERE e.archived_at IS NULL", "WHERE 1=1")
+    return [dict(r) for r in db.execute(sql, params).fetchall()]
 
 
 @router.get("/employees/{emp_id}")

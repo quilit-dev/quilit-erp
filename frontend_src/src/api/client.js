@@ -370,15 +370,17 @@ export const cancelApprovalRequest  = (id, d = {})  => api.post(`/api/approval-r
 
 // Human Resources
 export const getHRSummary        = ()            => api.get('/api/hr/summary');
-export const getDepartments      = ()            => api.get('/api/hr/departments');
+export const getDepartments      = (params = {}) => api.get(`/api/hr/departments${_qs(params)}`);
 export const createDepartment    = (d)           => api.post('/api/hr/departments', d);
 export const updateDepartment    = (id, d)       => api.put(`/api/hr/departments/${id}`, d);
 export const archiveDepartment   = (id)          => api.patch(`/api/hr/departments/${id}/archive`);
+export const unarchiveDepartment = (id)          => api.patch(`/api/hr/departments/${id}/unarchive`);
 export const getEmployees        = (params = {}) => api.get(`/api/hr/employees${_qs(params)}`);
 export const getEmployee         = (id)          => api.get(`/api/hr/employees/${id}`);
 export const createEmployee      = (d)           => api.post('/api/hr/employees', d);
 export const updateEmployee      = (id, d)       => api.put(`/api/hr/employees/${id}`, d);
 export const archiveEmployee     = (id)          => api.patch(`/api/hr/employees/${id}/archive`);
+export const unarchiveEmployee   = (id)          => api.patch(`/api/hr/employees/${id}/unarchive`);
 // Attendance (daily)
 export const getAttendance        = (date)        => api.get(`/api/hr/attendance?date=${encodeURIComponent(date)}`);
 export const saveAttendanceBulk   = (d)           => api.post('/api/hr/attendance/bulk', d);
