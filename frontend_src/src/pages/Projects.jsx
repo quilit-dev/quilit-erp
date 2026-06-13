@@ -22,7 +22,7 @@ const EMPTY = {
 export default function Projects() {
   const navigate = useNavigate();
   const { data: projects, loading, error, reload } = useData(getProjects);
-  const { data: clients } = useData(getClients);
+  const { data: clients } = useData((s) => getClients({}, s));
   const { t, tStatus } = useLocale();
 
   const [modal,        setModal]        = useState(null);

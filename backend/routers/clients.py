@@ -23,9 +23,15 @@ class ArchiveRequest(BaseModel):
 
 @router.get("/")
 def list_clients(search: Optional[str] = None, type: Optional[str] = None,
+                 include_archived: bool = False,
                  user=Depends(require_perm("clients", "view")), db: sqlite3.Connection = Depends(get_db)):
-    query = "SELECT * FROM clients WHERE archived_at IS NULL"
+    # Default view hides archived rows. `include_archived=1` returns them too
+    # (each carries archived_at) so the list can offer an in-module "Show
+    # archived" filter with inline Restore — the primary archive UX (Option A).
+    query = "SELECT * FROM clients WHERE 1=1"
     params = []
+    if not include_archived:
+        query += " AND archived_at IS NULL"
     if search:
         query += " AND (name LIKE ? OR company LIKE ? OR phone LIKE ? OR email LIKE ?)"
         s = f"%{search}%"

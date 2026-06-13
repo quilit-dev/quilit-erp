@@ -179,7 +179,7 @@ export default function Invoices() {
   const { t, tStatus } = useLocale();
   const { can } = usePermissions();
   const { data: invoices, loading, error, reload } = useData(getInvoices);
-  const { data: clients  } = useData(getClients);
+  const { data: clients  } = useData((s) => getClients({}, s));
   const { data: projects } = useData(getProjects);
   const { data: inventory } = useData(getInventory);
   const { settings, exchangeRate, displayCurrency, taxRates } = useSettings();

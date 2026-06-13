@@ -734,6 +734,26 @@ html[lang="ar"], html[lang="ar"] body {
   flex-wrap: wrap;
 }
 
+/* "Show archived" filter toggle — sits in a list's card-header / filter bar.
+ * Shared by every module's in-module archive view (Option A). */
+.archived-toggle {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  font-size: 12.5px;
+  font-weight: 600;
+  color: var(--text-2);
+  white-space: nowrap;
+  cursor: pointer;
+  user-select: none;
+}
+.archived-toggle input { cursor: pointer; }
+
+/* An archived row shown inline among active ones reads as muted/struck so it's
+ * clearly inert until restored. */
+.row-archived { opacity: 0.62; }
+.row-archived .td-primary { text-decoration: line-through; text-decoration-color: var(--rule-strong); }
+
 .card-title {
   font-family: var(--font-display);
   font-weight: 700;

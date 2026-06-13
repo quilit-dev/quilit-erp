@@ -2,7 +2,7 @@ import { usePersistedState } from '../hooks/usePersistedState';
 import { useState } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { useData } from '../hooks/useData';
-import { getClients, createClient, updateClient, archiveClient } from '../api/client';
+import { getClients, createClient, updateClient, archiveClient, unarchiveClient } from '../api/client';
 import {
   LoadingSpinner, ErrorAlert, EmptyState, Modal, ConfirmModal,
   ExportButton, fmtDate, toast, SortableTh, Pagination
@@ -15,12 +15,17 @@ const EMPTY = { name: '', company: '', phone: '', email: '', address: '', type: 
 
 export default function Clients() {
   const navigate = useNavigate();
-  const { data: clients, loading, error, reload } = useData(getClients);
+  const [showArchived, setShowArchived] = usePersistedState('clients.showArchived', false);
+  const { data: clients, loading, error, reload } = useData(
+    (s) => getClients(showArchived ? { include_archived: 1 } : {}, s),
+    [showArchived],
+  );
   const [modal,    setModal]    = useState(null);
   const [importing, setImporting] = useState(false);
   const [form,     setForm]     = useState(EMPTY);
   const [editId,   setEditId]   = useState(null);
   const [deleteId, setDeleteId] = useState(null);
+  const [restoreId, setRestoreId] = useState(null);
   const [saving,   setSaving]   = useState(false);
   const [search, setSearch] = usePersistedState('clients.search', '');
   const { t } = useLocale();
@@ -49,8 +54,17 @@ export default function Clients() {
   async function handleArchive() {
     try {
       await archiveClient(deleteId);
-      toast('Client archived');
+      toast(t('clients.clientArchived'));
       setDeleteId(null);
+      reload();
+    } catch (err) { toast(err.message, 'red'); }
+  }
+
+  async function handleUnarchive() {
+    try {
+      await unarchiveClient(restoreId);
+      toast(t('clients.clientRestored'));
+      setRestoreId(null);
       reload();
     } catch (err) { toast(err.message, 'red'); }
   }
@@ -91,6 +105,11 @@ export default function Clients() {
                 value={search} onChange={e => setSearch(e.target.value)} />
             </div>
           </div>
+          <label className="archived-toggle">
+            <input type="checkbox" checked={showArchived}
+              onChange={e => setShowArchived(e.target.checked)} />
+            {t('common.showArchived')}
+          </label>
         </div>
 
         {loading ? <LoadingSpinner /> :
@@ -110,9 +129,14 @@ export default function Clients() {
                 </tr>
               </thead>
               <tbody>
-                {sorted.map(c => (
-                  <tr key={c.id}>
-                    <td className="td-primary">{c.name}</td>
+                {sorted.map(c => {
+                  const isArchived = !!c.archived_at;
+                  return (
+                  <tr key={c.id} className={isArchived ? 'row-archived' : undefined}>
+                    <td className="td-primary">
+                      {c.name}
+                      {isArchived && <span className="badge badge-gray" style={{ marginInlineStart: 8 }}>{t('common.archivedBadge')}</span>}
+                    </td>
                     <td>{c.company || '—'}</td>
                     <td><span className="badge badge-gray">{c.type}</span></td>
                     <td>{c.phone || '—'}</td>
@@ -121,12 +145,20 @@ export default function Clients() {
                     <td>
                       <div style={{ display: 'flex', gap: 6 }}>
                         <button className="btn btn-sm btn-primary"    onClick={() => navigate(`/clients/${c.id}`)}>{t('common.view')}</button>
-                        <button className="btn btn-sm btn-secondary"  onClick={() => openEdit(c)}>{t('common.edit')}</button>
-                        <button className="btn btn-sm btn-danger"     onClick={() => setDeleteId(c.id)}>{t('common.archive')}</button>
+                        {isArchived ? (
+                          <button className="btn btn-sm btn-secondary" style={{ color: '#166534' }}
+                            onClick={() => setRestoreId(c.id)}>↩️ {t('common.restore')}</button>
+                        ) : (
+                          <>
+                            <button className="btn btn-sm btn-secondary"  onClick={() => openEdit(c)}>{t('common.edit')}</button>
+                            <button className="btn btn-sm btn-danger"     onClick={() => setDeleteId(c.id)}>{t('common.archive')}</button>
+                          </>
+                        )}
                       </div>
                     </td>
                   </tr>
-                ))}
+                  );
+                })}
               </tbody>
             </table>
             <Pagination page={page} totalPages={totalPages} pageSize={pageSize} pageSizes={PAGE_SIZES}
@@ -198,6 +230,15 @@ export default function Clients() {
           confirmClass="btn-danger"
           onConfirm={handleArchive}
           onCancel={() => setDeleteId(null)}
+        />
+      )}
+
+      {restoreId && (
+        <ConfirmModal
+          message={t('common.restoreConfirm')}
+          confirmLabel={t('common.restore')}
+          onConfirm={handleUnarchive}
+          onCancel={() => setRestoreId(null)}
         />
       )}
     </div>

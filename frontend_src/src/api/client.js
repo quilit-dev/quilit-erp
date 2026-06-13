@@ -87,7 +87,8 @@ export const getMe  = () => api.get('/api/auth/me');
 export const getDashboard = (s) => api.get('/api/dashboard/', s);
 
 // Clients
-export const getClients      = (s) => api.get('/api/clients/', s);
+export const getClients      = (params = {}, s) => api.get(`/api/clients/${_qs(params)}`, s);
+export const unarchiveClient = (id) => api.patch(`/api/clients/${id}/unarchive`);
 export const getClient       = (id) => api.get(`/api/clients/${id}`);
 export const createClient    = (d) => api.post('/api/clients/', d);
 export const updateClient    = (id, d) => api.put(`/api/clients/${id}`, d);
