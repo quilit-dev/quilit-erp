@@ -147,7 +147,7 @@ export default function Quotations() {
   // leads alongside the client list so the picker covers both.
   const { data: leads,    loading: lLoading,  reload: reloadLeads }    = useData((s) => getCRMLeads({}, s));
   const { data: projects, loading: pLoading, reload: reloadProjects } = useData((s) => getProjects({}, s));
-  const { data: inventory } = useData(getInventory);
+  const { data: inventory } = useData((s) => getInventory({}, s));
   const { settings, exchangeRate, displayCurrency, taxRates } = useSettings();
 
   // Global-search deep link (?focus=<id>) → open that quotation.

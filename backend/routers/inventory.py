@@ -49,10 +49,12 @@ class StockUpdate(BaseModel):
 
 @router.get("/")
 def list_inventory(search: Optional[str] = None, category: Optional[str] = None,
-                   low_stock: Optional[bool] = None,
+                   low_stock: Optional[bool] = None, include_archived: bool = False,
                    user=Depends(require_perm("inventory", "view")), db: sqlite3.Connection = Depends(get_db)):
-    query = "SELECT * FROM inventory WHERE archived_at IS NULL"
+    query = "SELECT * FROM inventory WHERE 1=1"
     params = []
+    if not include_archived:
+        query += " AND archived_at IS NULL"
     if search:
         query += " AND (name LIKE ? OR supplier LIKE ? OR barcode = ?)"
         s = f"%{search}%"

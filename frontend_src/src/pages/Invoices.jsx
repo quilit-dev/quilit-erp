@@ -186,7 +186,7 @@ export default function Invoices() {
   );
   const { data: clients  } = useData((s) => getClients({}, s));
   const { data: projects } = useData((s) => getProjects({}, s));
-  const { data: inventory } = useData(getInventory);
+  const { data: inventory } = useData((s) => getInventory({}, s));
   const { settings, exchangeRate, displayCurrency, taxRates } = useSettings();
 
   // Global-search deep link (?focus=<id>) → open that invoice's detail.

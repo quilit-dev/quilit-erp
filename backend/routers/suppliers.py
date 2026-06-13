@@ -27,6 +27,7 @@ class SupplierCreate(BaseModel):
 @router.get("/")
 def list_suppliers(
     search: Optional[str] = None,
+    include_archived: bool = False,
     user=Depends(require_perm("suppliers", "view")),
     db: sqlite3.Connection = Depends(get_db),
 ):
@@ -40,9 +41,11 @@ def list_suppliers(
         LEFT JOIN purchases p ON (
             p.supplier_id = s.id OR (p.supplier_id IS NULL AND p.supplier = s.name)
         ) AND p.archived_at IS NULL
-        WHERE s.archived_at IS NULL
+        WHERE 1=1
     """
     params = []
+    if not include_archived:
+        query += " AND s.archived_at IS NULL"
     if search:
         query += " AND (s.name LIKE ? OR s.contact_name LIKE ? OR s.email LIKE ?)"
         q = f"%{search}%"

@@ -131,12 +131,13 @@ export const addInvoicePayment    = (id, d)       => api.post(`/api/invoices/${i
 export const deleteInvoicePayment = (invId, payId) => api.delete(`/api/invoices/${invId}/payments/${payId}`);
 
 // Inventory
-export const getInventory           = (s)    => api.get('/api/inventory/', s);
+export const getInventory           = (params = {}, s) => api.get(`/api/inventory/${_qs(params)}`, s);
 export const getInventoryByWarehouse = (itemId) => api.get(`/api/inventory/${itemId}/by-warehouse`);
 export const getInventoryByWarehouseReport = () => api.get('/api/reports/inventory-by-warehouse');
 export const createInventoryItem    = (d)    => api.post('/api/inventory/', d);
 export const updateInventoryItem    = (id, d) => api.put(`/api/inventory/${id}`, d);
 export const archiveInventoryItem   = (id)   => api.patch(`/api/inventory/${id}/archive`);
+export const unarchiveInventoryItem = (id)   => api.patch(`/api/inventory/${id}/unarchive`);
 export const updateStock            = (id, d) => api.patch(`/api/inventory/${id}/stock`, d);
 export const getStockMovements      = (id)   => api.get(`/api/inventory/${id}/movements`);
 export const deductToProject        = (id, d) => api.post(`/api/inventory/${id}/deduct-to-project`, d);
@@ -151,6 +152,7 @@ export const createPurchase       = (d)    => api.post('/api/purchases/', d);
 export const updatePurchase       = (id, d) => api.put(`/api/purchases/${id}`, d);
 export const updatePurchaseStatus = (id, status) => api.patch(`/api/purchases/${id}/status`, { status });
 export const archivePurchase      = (id)   => api.patch(`/api/purchases/${id}/archive`);
+export const unarchivePurchase    = (id)   => api.patch(`/api/purchases/${id}/unarchive`);
 
 // Finance
 export const getMonthlyReport = (s) => api.get('/api/finance/monthly', s);
@@ -196,6 +198,7 @@ export const getSupplier       = (id)    => api.get(`/api/suppliers/${id}`);
 export const createSupplier    = (d)     => api.post('/api/suppliers/', d);
 export const updateSupplier    = (id, d) => api.put(`/api/suppliers/${id}`, d);
 export const archiveSupplier   = (id)    => api.patch(`/api/suppliers/${id}/archive`);
+export const unarchiveSupplier = (id)    => api.patch(`/api/suppliers/${id}/unarchive`);
 
 // Bulk import wizard (clients / suppliers / inventory)
 export const getImportSchema = (entity)       => api.get(`/api/imports/${entity}/schema`);

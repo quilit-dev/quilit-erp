@@ -2,7 +2,7 @@ import { usePersistedState } from '../hooks/usePersistedState';
 import { useState, useEffect, useCallback } from 'react';
 import {
   createInventoryItem, updateInventoryItem,
-  archiveInventoryItem, updateStock, getStockMovements,
+  archiveInventoryItem, unarchiveInventoryItem, updateStock, getStockMovements,
   getLots, getLot, getInventoryByWarehouse,
 } from '../api/client';
 import {
@@ -479,6 +479,7 @@ export default function Inventory() {
   const [search, setSearch] = usePersistedState('inventory.search', '');
   const [categoryFilter, setCategoryFilter] = usePersistedState('inventory.categoryFilter', '');
   const [lowStockOnly,   setLowStockOnly]   = useState(false);
+  const [showArchived,   setShowArchived]   = usePersistedState('inventory.showArchived', false);
 
   const [items,      setItems]      = useState([]);
   const [categories, setCategories] = useState([]);
@@ -509,6 +510,7 @@ export default function Inventory() {
       if (search)         params.append('search',    search);
       if (categoryFilter) params.append('category',  categoryFilter);
       if (lowStockOnly)   params.append('low_stock', 'true');
+      if (showArchived)   params.append('include_archived', '1');
 
       const [inv, cats] = await Promise.all([
         fetch(`/api/inventory/?${params}`, { headers }).then(r => r.json()),
@@ -521,7 +523,7 @@ export default function Inventory() {
     } finally {
       setLoading(false);
     }
-  }, [search, categoryFilter, lowStockOnly]);
+  }, [search, categoryFilter, lowStockOnly, showArchived]);
 
   useEffect(() => { load(); }, [load]);
 
@@ -551,6 +553,15 @@ export default function Inventory() {
     try {
       await archiveInventoryItem(activeItem.id);
       toast(t('inventory.itemDeleted'));
+      setModal(null);
+      load();
+    } catch (err) { toast(err.message, 'red'); }
+  }
+
+  async function handleUnarchive() {
+    try {
+      await unarchiveInventoryItem(activeItem.id);
+      toast(t('inventory.itemRestored'));
       setModal(null);
       load();
     } catch (err) { toast(err.message, 'red'); }
@@ -629,6 +640,12 @@ export default function Inventory() {
             {t('inventory.lowStockOnly')}
           </label>
 
+          <label className="archived-toggle">
+            <input type="checkbox" checked={showArchived}
+              onChange={e => setShowArchived(e.target.checked)} />
+            {t('common.showArchived')}
+          </label>
+
           {hasFilters && (
             <button className="btn btn-sm btn-secondary"
               onClick={() => { setSearch(''); setCategoryFilter(''); setLowStockOnly(false); }}>
@@ -665,11 +682,13 @@ export default function Inventory() {
               <tbody>
                 {pagedItems.map(item => {
                   const isLow = item.min_stock > 0 && item.quantity <= item.min_stock;
+                  const isArchived = !!item.archived_at;
                   return (
-                    <tr key={item.id}>
+                    <tr key={item.id} className={isArchived ? 'row-archived' : undefined}>
                       <td className="td-primary">
                         {item.name}
-                        {isLow && <span className="badge badge-red" style={{ marginLeft: 6 }}>{t('inventory.lowStock')}</span>}
+                        {isLow && !isArchived && <span className="badge badge-red" style={{ marginLeft: 6 }}>{t('inventory.lowStock')}</span>}
+                        {isArchived && <span className="badge badge-gray" style={{ marginInlineStart: 8 }}>{t('common.archivedBadge')}</span>}
                       </td>
                       <td><CategoryBadge category={item.category} /></td>
                       <td><ProductTypeBadge type={item.product_type} /></td>
@@ -687,14 +706,21 @@ export default function Inventory() {
                       <td>{item.supplier || <span style={{ color: 'var(--text-3)' }}>—</span>}</td>
                       <td>
                         <div style={{ display: 'flex', gap: 6 }}>
-                          <button className="btn btn-sm btn-secondary"
-                            onClick={() => { setActiveItem(item); setModal('stock'); }}>{t('inventory.adjustStock')}</button>
-                          <button className="btn btn-sm btn-secondary"
-                            onClick={() => { setActiveItem(item); setModal('history'); }}>{t('common.history')}</button>
-                          <button className="btn btn-sm btn-secondary"
-                            onClick={() => { setActiveItem(item); setModal('edit'); }}>{t('common.edit')}</button>
-                          <button className="btn btn-sm btn-danger"
-                            onClick={() => { setActiveItem(item); setModal('delete'); }}>{t('common.archive')}</button>
+                          {isArchived ? (
+                            <button className="btn btn-sm btn-secondary" style={{ color: '#166534', whiteSpace: 'nowrap' }}
+                              onClick={() => { setActiveItem(item); setModal('restore'); }}>↩️ {t('common.restore')}</button>
+                          ) : (
+                            <>
+                              <button className="btn btn-sm btn-secondary"
+                                onClick={() => { setActiveItem(item); setModal('stock'); }}>{t('inventory.adjustStock')}</button>
+                              <button className="btn btn-sm btn-secondary"
+                                onClick={() => { setActiveItem(item); setModal('history'); }}>{t('common.history')}</button>
+                              <button className="btn btn-sm btn-secondary"
+                                onClick={() => { setActiveItem(item); setModal('edit'); }}>{t('common.edit')}</button>
+                              <button className="btn btn-sm btn-danger"
+                                onClick={() => { setActiveItem(item); setModal('delete'); }}>{t('common.archive')}</button>
+                            </>
+                          )}
                         </div>
                       </td>
                     </tr>
@@ -733,6 +759,14 @@ export default function Inventory() {
           confirmLabel={t('common.archive')}
           confirmClass="btn-danger"
           onConfirm={handleArchive}
+          onCancel={() => setModal(null)}
+        />
+      )}
+      {modal === 'restore' && activeItem && (
+        <ConfirmModal
+          message={t('common.restoreConfirm')}
+          confirmLabel={t('common.restore')}
+          onConfirm={handleUnarchive}
           onCancel={() => setModal(null)}
         />
       )}

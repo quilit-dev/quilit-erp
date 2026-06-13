@@ -66,10 +66,15 @@ def _compute_purchase_tax(db, quantity, unit_cost, tax_rate_id):
 
 @router.get("/")
 def list_purchases(status: Optional[str] = None, supplier: Optional[str] = None,
+                   include_archived: bool = False,
                    user=Depends(require_perm("purchases", "view")), db: sqlite3.Connection = Depends(get_db)):
     query = """SELECT p.*, i.name as inventory_name, i.unit as inventory_unit
                FROM purchases p LEFT JOIN inventory i ON p.inventory_id = i.id WHERE p.deleted_at IS NULL"""
     params = []
+    # Default view hides archived purchases (previously they leaked into the
+    # list — only deleted_at was filtered); include_archived=1 surfaces them.
+    if not include_archived:
+        query += " AND p.archived_at IS NULL"
     if status:
         query += " AND p.status = ?"
         params.append(status)

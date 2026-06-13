@@ -2,7 +2,7 @@ import { usePersistedState } from '../hooks/usePersistedState';
 import { useState, useCallback, useEffect, useRef } from 'react';
 import {
   getPurchases, getPurchaseStats, createPurchase,
-  updatePurchase, updatePurchaseStatus, archivePurchase,
+  updatePurchase, updatePurchaseStatus, archivePurchase, unarchivePurchase,
   getInventory, getCategories, getSuppliers,
 } from '../api/client';
 import {
@@ -325,6 +325,8 @@ export default function Purchases() {
   const [statusFilter, setStatusFilter] = usePersistedState('purchases.statusFilter', '');
   const [categoryFilter, setCategoryFilter] = usePersistedState('purchases.categoryFilter', '');
   const [supplierSearch, setSupplierSearch] = usePersistedState('purchases.supplierSearch', '');
+  const [showArchived, setShowArchived] = usePersistedState('purchases.showArchived', false);
+  const [restoreTarget, setRestoreTarget] = useState(null);
 
   const [modal,          setModal]          = useState(null);
   const [activePurchase, setActivePurchase] = useState(null);
@@ -346,6 +348,7 @@ export default function Purchases() {
       const qs = new URLSearchParams({
         ...(statusFilter   ? { status:   statusFilter   } : {}),
         ...(supplierSearch ? { supplier: supplierSearch } : {}),
+        ...(showArchived   ? { include_archived: '1' }    : {}),
       }).toString();
       const [purch, st, cats] = await Promise.all([
         getPurchases(qs ? `?${qs}` : ''),
@@ -363,7 +366,7 @@ export default function Purchases() {
     } finally {
       setLoading(false);
     }
-  }, [statusFilter, supplierSearch]);
+  }, [statusFilter, supplierSearch, showArchived]);
 
   useEffect(() => { load(); }, [load]);
 
@@ -402,6 +405,15 @@ export default function Purchases() {
       await archivePurchase(activePurchase.id);
       toast(t('purchases.purchaseDeletedMsg'));
       setModal(null);
+      load();
+    } catch (err) { toast(err.message, 'red'); }
+  }
+
+  async function handleUnarchive() {
+    try {
+      await unarchivePurchase(restoreTarget.id);
+      toast(t('purchases.purchaseRestored'));
+      setRestoreTarget(null);
       load();
     } catch (err) { toast(err.message, 'red'); }
   }
@@ -493,6 +505,12 @@ export default function Purchases() {
               {t('common.clear')}
             </button>
           )}
+
+          <label className="archived-toggle">
+            <input type="checkbox" checked={showArchived}
+              onChange={e => setShowArchived(e.target.checked)} />
+            {t('common.showArchived')}
+          </label>
         </div>
       </div>
 
@@ -522,9 +540,14 @@ export default function Purchases() {
                 </tr>
               </thead>
               <tbody>
-                {pagedPurchases.map(p => (
-                  <tr key={p.id}>
-                    <td className="td-primary text-mono">{p.po_number}</td>
+                {pagedPurchases.map(p => {
+                  const isArchived = !!p.archived_at;
+                  return (
+                  <tr key={p.id} className={isArchived ? 'row-archived' : undefined}>
+                    <td className="td-primary text-mono">
+                      {p.po_number}
+                      {isArchived && <span className="badge badge-gray" style={{ marginInlineStart: 8 }}>{t('common.archivedBadge')}</span>}
+                    </td>
                     <td className="td-primary">{p.supplier}</td>
                     <td>{p.product_name}</td>
                     <td>
@@ -539,27 +562,35 @@ export default function Purchases() {
                     <td style={{ whiteSpace: 'nowrap' }}>{fmtDate(p.ordered_at)}</td>
                     <td>
                       <div style={{ display: 'flex', gap: 6 }}>
-                        {p.status === 'Ordered' && (
+                        {isArchived ? (
+                          <button className="btn btn-sm btn-secondary" style={{ color: '#166534', whiteSpace: 'nowrap' }}
+                            onClick={() => setRestoreTarget(p)}>↩️ {t('common.restore')}</button>
+                        ) : (
                           <>
-                            <button className="btn btn-sm btn-secondary"
-                              onClick={() => handleStatus(p, 'Received')}>{t('purchases.receive')}</button>
-                            <button className="btn btn-sm btn-secondary"
-                              onClick={() => { setActivePurchase(p); setModal('edit'); }}>{t('common.edit')}</button>
-                            <button className="btn btn-sm btn-danger"
-                              onClick={() => { setActivePurchase(p); setModal('delete'); }}>{t('common.archive')}</button>
+                            {p.status === 'Ordered' && (
+                              <>
+                                <button className="btn btn-sm btn-secondary"
+                                  onClick={() => handleStatus(p, 'Received')}>{t('purchases.receive')}</button>
+                                <button className="btn btn-sm btn-secondary"
+                                  onClick={() => { setActivePurchase(p); setModal('edit'); }}>{t('common.edit')}</button>
+                                <button className="btn btn-sm btn-danger"
+                                  onClick={() => { setActivePurchase(p); setModal('delete'); }}>{t('common.archive')}</button>
+                              </>
+                            )}
+                            {p.status === 'Received' && (
+                              <button className="btn btn-sm btn-secondary"
+                                onClick={() => handleStatus(p, 'Paid')}>{t('purchases.markPaid')}</button>
+                            )}
+                            {p.status === 'Paid' && (
+                              <span style={{ color: 'var(--text-3)', fontSize: 12 }}>{t('purchases.completed')}</span>
+                            )}
                           </>
-                        )}
-                        {p.status === 'Received' && (
-                          <button className="btn btn-sm btn-secondary"
-                            onClick={() => handleStatus(p, 'Paid')}>{t('purchases.markPaid')}</button>
-                        )}
-                        {p.status === 'Paid' && (
-                          <span style={{ color: 'var(--text-3)', fontSize: 12 }}>{t('purchases.completed')}</span>
                         )}
                       </div>
                     </td>
                   </tr>
-                ))}
+                  );
+                })}
               </tbody>
             </table>
             <Pagination page={page} totalPages={totalPages} pageSize={pageSize} pageSizes={PAGE_SIZES}
@@ -602,6 +633,14 @@ export default function Purchases() {
           message={t('purchases.deleteMsg', { po_number: activePurchase.po_number })}
           onConfirm={handleDelete}
           onCancel={() => setModal(null)}
+        />
+      )}
+      {restoreTarget && (
+        <ConfirmModal
+          message={t('common.restoreConfirm')}
+          confirmLabel={t('common.restore')}
+          onConfirm={handleUnarchive}
+          onCancel={() => setRestoreTarget(null)}
         />
       )}
     </div>
