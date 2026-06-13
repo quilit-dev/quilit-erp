@@ -360,7 +360,7 @@ function LeadsTab({ t }) {
                           ? <button className="btn btn-sm btn-primary" onClick={() => { setSelected(l); setModal('convert'); }}>{t('crm.convertToClient')}</button>
                           : <button className="btn btn-sm btn-secondary" onClick={() => navigate(`/clients/${l.client_id}`)}>{t('crm.viewClient')}</button>
                         }
-                        <button className="btn btn-sm btn-danger" onClick={() => { setSelected(l); setModal('archive'); }}>Archive</button>
+                        <button className="btn btn-sm btn-danger" onClick={() => { setSelected(l); setModal('archive'); }}>{t('common.archive')}</button>
                       </div>
                     </td>
                   </tr>
@@ -378,7 +378,7 @@ function LeadsTab({ t }) {
       )}
       {modal === 'archive' && selected && (
         <ConfirmModal title={t('crm.archiveLead')} message={t('crm.archiveLeadMsg')}
-          confirmLabel="Archive" confirmClass="btn-danger"
+          confirmLabel={t('common.archive')} confirmClass="btn-danger"
           onConfirm={handleArchive} onCancel={() => { setModal(null); setSelected(null); }} />
       )}
       {modal === 'convert' && selected && (
@@ -1074,7 +1074,7 @@ function PipelineTab({ t }) {
       )}
       {modal === 'archive' && selected && (
         <ConfirmModal title={t('crm.archiveDeal')} message={t('crm.archiveDealMsg')}
-          confirmLabel="Archive" confirmClass="btn-danger"
+          confirmLabel={t('common.archive')} confirmClass="btn-danger"
           onConfirm={handleArchive} onCancel={() => { setModal(null); setSelected(null); }} />
       )}
       {modal === 'lost' && selected && (

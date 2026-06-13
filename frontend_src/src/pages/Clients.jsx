@@ -122,7 +122,7 @@ export default function Clients() {
                       <div style={{ display: 'flex', gap: 6 }}>
                         <button className="btn btn-sm btn-primary"    onClick={() => navigate(`/clients/${c.id}`)}>{t('common.view')}</button>
                         <button className="btn btn-sm btn-secondary"  onClick={() => openEdit(c)}>{t('common.edit')}</button>
-                        <button className="btn btn-sm btn-danger"     onClick={() => setDeleteId(c.id)}>Archive</button>
+                        <button className="btn btn-sm btn-danger"     onClick={() => setDeleteId(c.id)}>{t('common.archive')}</button>
                       </div>
                     </td>
                   </tr>
@@ -193,8 +193,8 @@ export default function Clients() {
 
       {deleteId && (
         <ConfirmModal
-          message="Archive this client? They will no longer appear in the main list. You can restore them from the Archives page."
-          confirmLabel="Archive"
+          message={t('common.archiveConfirm')}
+          confirmLabel={t('common.archive')}
           confirmClass="btn-danger"
           onConfirm={handleArchive}
           onCancel={() => setDeleteId(null)}

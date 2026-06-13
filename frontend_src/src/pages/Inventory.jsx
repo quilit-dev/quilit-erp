@@ -694,7 +694,7 @@ export default function Inventory() {
                           <button className="btn btn-sm btn-secondary"
                             onClick={() => { setActiveItem(item); setModal('edit'); }}>{t('common.edit')}</button>
                           <button className="btn btn-sm btn-danger"
-                            onClick={() => { setActiveItem(item); setModal('delete'); }}>Archive</button>
+                            onClick={() => { setActiveItem(item); setModal('delete'); }}>{t('common.archive')}</button>
                         </div>
                       </td>
                     </tr>
@@ -728,9 +728,9 @@ export default function Inventory() {
       )}
       {modal === 'delete' && activeItem && (
         <ConfirmModal
-          title="Archive Item"
-          message={`Archive "${activeItem.name}"? It will be hidden from inventory but can be restored from Archives. Note: items with stock > 0 cannot be archived.`}
-          confirmLabel="Archive"
+          title={t('inventory.archiveItemTitle')}
+          message={t('inventory.archiveItemConfirm', { name: activeItem.name })}
+          confirmLabel={t('common.archive')}
           confirmClass="btn-danger"
           onConfirm={handleArchive}
           onCancel={() => setModal(null)}

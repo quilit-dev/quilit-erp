@@ -546,7 +546,7 @@ export default function Purchases() {
                             <button className="btn btn-sm btn-secondary"
                               onClick={() => { setActivePurchase(p); setModal('edit'); }}>{t('common.edit')}</button>
                             <button className="btn btn-sm btn-danger"
-                              onClick={() => { setActivePurchase(p); setModal('delete'); }}>Archive</button>
+                              onClick={() => { setActivePurchase(p); setModal('delete'); }}>{t('common.archive')}</button>
                           </>
                         )}
                         {p.status === 'Received' && (

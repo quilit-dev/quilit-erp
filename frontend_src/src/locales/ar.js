@@ -105,6 +105,7 @@ const ar = {
     exporting: 'جارٍ التصدير…',
     delete: 'حذف',
     archive: 'أرشفة',
+    archiveConfirm: 'أرشفة هذا السجل؟ سيُخفى من القائمة الرئيسية ويمكن استعادته من صفحة الأرشيف.',
     edit: 'تعديل',
     view: 'عرض',
     export: 'تصدير',
@@ -542,6 +543,7 @@ const ar = {
     'Quotation Sent': 'عرض سعر مُرسل',
     Approved: 'معتمد',
     'In Progress': 'قيد التنفيذ',
+    'On Hold': 'معلّق',
     Completed: 'مكتمل',
     Invoiced: 'تم إصدار فاتورة',
     Unpaid: 'غير مدفوع',
@@ -1369,6 +1371,8 @@ const ar = {
 
   inventory: {
     title: 'المخزون',
+    archiveItemTitle: 'أرشفة العنصر',
+    archiveItemConfirm: 'أرشفة "{{name}}"؟ سيُخفى من المخزون ويمكن استعادته من الأرشيف. لا يمكن أرشفة العناصر التي يزيد مخزونها عن صفر.',
     totalItems: '{{count}} عنصر',
     addItem: '+ إضافة عنصر',
     searchPlaceholder: 'البحث في المخزون…',
