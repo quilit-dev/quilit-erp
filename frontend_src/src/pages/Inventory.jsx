@@ -567,7 +567,9 @@ export default function Inventory() {
     Name: i.name, Category: i.category || '', Type: i.product_type || '',
     Quantity: i.quantity, Reserved: i.reserved_quantity || 0, Unit: i.unit,
     'Min Stock': i.min_stock, 'Unit Cost (Landed)': i.unit_cost,
+    'Sale Price': i.sale_price || 0,
     'Total Value': fmtNum(i.quantity * i.unit_cost),
+    Barcode: i.barcode || '',
     Supplier: i.supplier || '',
     Status: i.min_stock > 0 && i.quantity <= i.min_stock ? 'Low Stock' : 'OK',
   }));

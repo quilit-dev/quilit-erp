@@ -186,9 +186,13 @@ export default function FixedAssets() {
 
   const exportData = filtered.map(a => ({
     Code: a.asset_code, Name: a.name, Category: a.category || '',
-    Cost: a.acquisition_cost, Depreciation: a.accumulated_depreciation,
+    Cost: a.acquisition_cost, 'Salvage Value': a.salvage_value || 0,
+    'Useful Life (months)': a.useful_life_months || '',
+    Method: a.depreciation_method || '',
+    Depreciation: a.accumulated_depreciation,
     'Book Value': a.book_value, Status: a.status,
     'Acquired': fmtDate(a.acquisition_date),
+    'In Service': fmtDate(a.in_service_date),
   }));
 
   const hasFilters = search || statusFilter;

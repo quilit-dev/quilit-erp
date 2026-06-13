@@ -287,10 +287,12 @@ export default function HR() {
           {tab === 'employees' && emps.length > 0 && (
             <ExportButton
               data={emps.map(e => ({
-                Code: e.code || '', Name: e.full_name, Job_Title: e.job_title || '',
-                Department: e.department_name || '', Status: e.status || '',
+                Code: e.employee_code || '', Name: e.full_name, Job_Title: e.job_title || '',
+                Department: e.department_name || '', Manager: e.manager_name || '',
+                Employment_Type: e.employment_type || '', Status: e.status || '',
+                Salary: e.salary ?? 0,
                 Email: e.email || '', Phone: e.phone || '',
-                Hired: e.hire_date || '',
+                Hired: e.hire_date || '', End_Date: e.end_date || '',
               }))}
               filename="Employees" sheetName="Employees" />
           )}
