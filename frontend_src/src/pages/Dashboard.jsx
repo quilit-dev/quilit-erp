@@ -2,8 +2,9 @@ import { useState, useEffect } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { useData } from '../hooks/useData';
 import { getDashboard, getMonthlyReport, getFinanceRangeSummary } from '../api/client';
-import { LoadingSpinner, ErrorAlert, fmt as fmtStatic, DualMoney } from '../components/shared';
+import { LoadingSpinner, ErrorAlert, useMoney, useMoneyCompact, DisplayCurrencyToggle } from '../components/shared';
 import { useLocale } from '../hooks/useLocale.jsx';
+import { useSettings } from '../hooks/useSettings.jsx';
 
 // Resolve a period preset to a {start,end} ISO range. Kept tiny on purpose —
 // three presets cover the common SMB needs without a date-picker.
@@ -54,11 +55,26 @@ function Sparkline({ data = [], color = 'var(--accent)', height = 32, width = 80
 
 function BarChart({ data = [], height = 180 }) {
   const [hovered, setHovered] = useState(null);
+  const { exchangeRate, displayCurrency } = useSettings();
+  const money = useMoney();
+  // Stored amounts are USD; scale the axis ticks into the displayed currency so
+  // the scale and the (currency-aware) tooltip never disagree. Ticks stay
+  // abbreviated (k/M/B) to fit the narrow axis gutter.
+  const lbp  = displayCurrency === 'LBP' && exchangeRate?.rate;
+  const rate = lbp ? exchangeRate.rate : 1;
+  const tick = (v) => {
+    const x = (v || 0) * rate;
+    const abbr = x >= 1e9 ? `${(x / 1e9).toFixed(1)}B`
+               : x >= 1e6 ? `${(x / 1e6).toFixed(1)}M`
+               : x >= 1e3 ? `${(x / 1e3).toFixed(0)}k`
+               : `${x.toFixed(0)}`;
+    return lbp ? abbr : `$${abbr}`;
+  };
   if (!data.length) return (
     <div style={{ height, display: 'flex', alignItems: 'center', justifyContent: 'center', color: 'var(--text-3)', fontSize: 13 }}>No data yet</div>
   );
   const maxVal = Math.max(...data.map(d => Math.max(d.income || 0, d.expenses || 0)), 1);
-  const labels = [maxVal, maxVal * 0.5, 0].map(v => v >= 1000 ? `$${(v/1000).toFixed(0)}k` : `$${v.toFixed(0)}`);
+  const labels = [maxVal, maxVal * 0.5, 0].map(tick);
   return (
     <div style={{ position: 'relative', height: height + 28, paddingBottom: 28 }}>
       <div style={{ position: 'absolute', left: 0, top: 0, bottom: 24, display: 'flex', flexDirection: 'column', justifyContent: 'space-between', color: 'var(--text-3)', fontSize: 10, fontWeight: 600, width: 34 }}>
@@ -77,7 +93,7 @@ function BarChart({ data = [], height = 180 }) {
               onMouseEnter={() => setHovered(i)} onMouseLeave={() => setHovered(null)}>
               {isHov && (
                 <div style={{ position: 'absolute', bottom: '100%', left: '50%', transform: 'translateX(-50%)', background: 'var(--text)', color: 'var(--surface)', fontSize: 10, fontWeight: 600, padding: '4px 8px', borderRadius: 5, whiteSpace: 'nowrap', zIndex: 10, marginBottom: 4 }}>
-                  {fmtStatic(d.income)} / {fmtStatic(d.expenses)}
+                  {money(d.income)} / {money(d.expenses)}
                 </div>
               )}
               <div style={{ width: '100%', display: 'flex', gap: 2, alignItems: 'flex-end', height: '100%' }}>
@@ -322,7 +338,9 @@ function SectionTitle({ children, right }) {
 export default function Dashboard() {
   const { data, loading, error, reload } = useData(getDashboard);
   const { data: monthly } = useData(getMonthlyReport);
-  const { t, fmt, isRTL } = useLocale();
+  const { t, isRTL } = useLocale();
+  const money = useMoney();
+  const moneyCompact = useMoneyCompact();
   const navigate = useNavigate();
 
   // Period selector for the headline finance KPIs. Default 'month' uses the
@@ -432,7 +450,7 @@ export default function Dashboard() {
   }
   if (can.cash && data.cash && Math.abs(data.cash.last_variance || 0) > 0.01) {
     chips.push({ icon: '💵', severity: 'yellow',
-      label: t('dashboard.cashVariance', { drawer: data.cash.last_drawer || '—' }) + ' · ' + fmt(data.cash.last_variance),
+      label: t('dashboard.cashVariance', { drawer: data.cash.last_drawer || '—' }) + ' · ' + money(data.cash.last_variance),
       onClick: () => navigate('/cash') });
   }
   if (can.manufacturing && data.manufacturing?.due_soon > 0) {
@@ -462,6 +480,7 @@ export default function Dashboard() {
           <p className="page-subtitle">{fullDate} · {t('common.realtimeOverview')}</p>
         </div>
         <div style={{ display: 'flex', alignItems: 'center', gap: 8, flexWrap: 'wrap' }}>
+          <DisplayCurrencyToggle />
           {data.unread_notifications > 0 && (
             <button
               onClick={() => navigate('/notifications')}
@@ -528,9 +547,9 @@ export default function Dashboard() {
         <div style={{ display: 'grid', gridTemplateColumns: 'minmax(0,1fr) 280px', gap: 16, marginBottom: 4 }}
              className="dash-finance-row">
           <div className="stats-grid" style={{ gridTemplateColumns: 'repeat(auto-fit, minmax(180px, 1fr))', marginBottom: 0 }}>
-            {can.finance && <KpiCard label={t('dashboard.monthlyRevenue')}  value={<DualMoney value={income} />}   sub={periodLabel}                          icon="💰" accentColor="var(--green)"  accentBg="var(--green-light)"  sparkData={incSpark}  onClick={() => navigate('/finance')} />}
-            {can.finance && <KpiCard label={t('dashboard.monthlyExpenses')} value={<DualMoney value={expenses} />} sub={t('dashboard.operatingCosts')}          icon="📉" accentColor="var(--red)"    accentBg="var(--red-light)"    sparkData={expSpark}  onClick={() => navigate('/finance')} />}
-            {can.finance && <KpiCard label={t('dashboard.netProfit')}       value={<DualMoney value={profit} />}   sub={t('dashboard.margin', { pct: margin })} icon={profit >= 0 ? '📈' : '⚠️'} accentColor={profit >= 0 ? 'var(--green)' : 'var(--red)'} accentBg={profit >= 0 ? 'var(--green-light)' : 'var(--red-light)'} sparkData={profSpark} onClick={() => navigate('/finance')} />}
+            {can.finance && <KpiCard label={t('dashboard.monthlyRevenue')}  value={moneyCompact(income)}   sub={periodLabel}                          icon="💰" accentColor="var(--green)"  accentBg="var(--green-light)"  sparkData={incSpark}  onClick={() => navigate('/finance')} />}
+            {can.finance && <KpiCard label={t('dashboard.monthlyExpenses')} value={moneyCompact(expenses)} sub={t('dashboard.operatingCosts')}          icon="📉" accentColor="var(--red)"    accentBg="var(--red-light)"    sparkData={expSpark}  onClick={() => navigate('/finance')} />}
+            {can.finance && <KpiCard label={t('dashboard.netProfit')}       value={moneyCompact(profit)}   sub={t('dashboard.margin', { pct: margin })} icon={profit >= 0 ? '📈' : '⚠️'} accentColor={profit >= 0 ? 'var(--green)' : 'var(--red)'} accentBg={profit >= 0 ? 'var(--green-light)' : 'var(--red-light)'} sparkData={profSpark} onClick={() => navigate('/finance')} />}
           </div>
           <div className="card" style={{ display: 'flex', flexDirection: 'column', alignItems: 'center', justifyContent: 'center', padding: 18, marginBottom: 0 }}>
             <HealthRing score={healthScore} t={t} />
@@ -549,7 +568,7 @@ export default function Dashboard() {
             {can.pos && data.pos && (
               <KpiCard compact
                 label={t('dashboard.posSalesToday')}
-                value={fmt(data.pos.total || 0)}
+                value={moneyCompact(data.pos.total || 0)}
                 sub={t(data.pos.c === 1 ? 'dashboard.salesCount' : 'dashboard.salesCount_plural', { count: data.pos.c || 0 })}
                 icon="🛍️" accentColor="var(--accent)" accentBg="var(--accent-light, var(--surface-2))"
                 onClick={() => navigate('/pos')} />
@@ -608,7 +627,7 @@ export default function Dashboard() {
             {can.crm && data.crm && (
               <KpiCard compact
                 label={t('dashboard.crmPipeline')}
-                value={fmt(data.crm.pipeline_value)}
+                value={moneyCompact(data.crm.pipeline_value)}
                 sub={t(data.crm.pipeline_count === 1 ? 'dashboard.openDeals' : 'dashboard.openDeals_plural', { count: data.crm.pipeline_count })}
                 icon="💼" accentColor="var(--purple)" accentBg="var(--purple-light)"
                 onClick={() => navigate('/crm')} />
@@ -616,7 +635,7 @@ export default function Dashboard() {
             {can.crm && data.crm && (
               <KpiCard compact
                 label={t('dashboard.wonThisMonth')}
-                value={fmt(data.crm.won_value)}
+                value={moneyCompact(data.crm.won_value)}
                 sub={t(data.crm.won_count === 1 ? 'dashboard.openDeals' : 'dashboard.openDeals_plural', { count: data.crm.won_count })}
                 icon="🏆" accentColor="var(--green)" accentBg="var(--green-light)"
                 onClick={() => navigate('/crm')} />
@@ -640,7 +659,7 @@ export default function Dashboard() {
             {can.assets && data.assets && (
               <KpiCard compact
                 label={t('dashboard.fixedAssetsBookValue')}
-                value={fmt(data.assets.book_value)}
+                value={moneyCompact(data.assets.book_value)}
                 sub={t('dashboard.assetsBookValue', { count: data.assets.count })}
                 icon="🏛️" accentColor="var(--text-2)" accentBg="var(--surface-2)"
                 onClick={() => navigate('/fixed-assets')} />
@@ -676,7 +695,7 @@ export default function Dashboard() {
             {can.invoices && (
               <KpiCard compact
                 label={t('dashboard.unpaidInvoices')}
-                value={fmt(unpaidAmt)}
+                value={moneyCompact(unpaidAmt)}
                 sub={t('dashboard.outstanding', { count: data.unpaid_invoices_count ?? 0 })}
                 icon="🧾"
                 accentColor={(data.unpaid_invoices_count ?? 0) > 0 ? 'var(--yellow)' : 'var(--green)'}
@@ -686,7 +705,7 @@ export default function Dashboard() {
             {can.invoices && (
               <KpiCard compact
                 label={t('dashboard.overdueInvoices')}
-                value={fmt(overdueAmt)}
+                value={moneyCompact(overdueAmt)}
                 sub={t('dashboard.pastDue', { count: overdueCount })}
                 icon="⏰"
                 accentColor={overdueCount > 0 ? 'var(--red)' : 'var(--green)'}
@@ -826,7 +845,7 @@ export default function Dashboard() {
                             <td className="td-mono">{i.invoice_number}</td>
                             <td>{i.client_name || '—'}</td>
                             <td><span className={`badge ${cls}`}>{i.payment_status}</span></td>
-                            <td style={{ textAlign: 'right' }} className="td-primary">{fmt(i.amount)}</td>
+                            <td style={{ textAlign: 'right' }} className="td-primary">{money(i.amount)}</td>
                           </tr>
                         );
                       })
