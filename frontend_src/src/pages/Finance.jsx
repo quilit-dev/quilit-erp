@@ -15,7 +15,8 @@ import {
   getInvoices,
   getFiscalYears,
 } from '../api/client';
-import { LoadingSpinner, ErrorAlert, fmt, DualMoney, ExchangeRateBadge } from '../components/shared';
+import { LoadingSpinner, ErrorAlert, useMoney, DisplayCurrencyToggle, ExchangeRateBadge } from '../components/shared';
+import { useSettings } from '../hooks/useSettings.jsx';
 import { useLocale } from '../hooks/useLocale.jsx';
 import { useScrollLock } from '../hooks/useScrollLock';
 import * as XLSX from 'xlsx';
@@ -86,12 +87,24 @@ function niceMax(rawMax) {
   return nice * mag;
 }
 
-function fmtAbbr(v) {
-  const abs = Math.abs(v);
-  const sign = v < 0 ? '-' : '';
-  if (abs >= 1_000_000) return `${sign}$${(abs / 1_000_000).toFixed(1)}M`;
-  if (abs >= 1_000)     return `${sign}$${(abs / 1_000).toFixed(abs >= 10_000 ? 0 : 1)}k`;
-  return `${sign}$${abs.toFixed(0)}`;
+// Abbreviated money for chart axes/tooltips, currency-aware via the page-header
+// DisplayCurrencyToggle. Stored amounts are USD; when LBP is selected we scale
+// by the manual rate and drop the symbol (the toggle + tooltip convey the unit)
+// so the compact k/M/B labels still fit the narrow axis gutters.
+function useAbbr() {
+  const { exchangeRate, displayCurrency } = useSettings();
+  const lbp  = displayCurrency === 'LBP' && exchangeRate?.rate;
+  const rate = lbp ? exchangeRate.rate : 1;
+  return (v) => {
+    const x = (Number(v) || 0) * rate;
+    const abs = Math.abs(x);
+    const sign = x < 0 ? '-' : '';
+    const sym = lbp ? '' : '$';
+    if (abs >= 1_000_000_000) return `${sign}${sym}${(abs / 1_000_000_000).toFixed(1)}B`;
+    if (abs >= 1_000_000)     return `${sign}${sym}${(abs / 1_000_000).toFixed(1)}M`;
+    if (abs >= 1_000)         return `${sign}${sym}${(abs / 1_000).toFixed(abs >= 10_000 ? 0 : 1)}k`;
+    return `${sign}${sym}${abs.toFixed(0)}`;
+  };
 }
 
 // Floating HTML tooltip anchored to cursor/point — never clips SVG
@@ -124,6 +137,7 @@ function ChartTooltip({ children, anchorX, anchorY, svgWidth, visible }) {
 // ── Line Chart ────────────────────────────────────────────────────────────
 function FinanceLineChart({ data }) {
   const { t } = useLocale();
+  const abbr = useAbbr();
   const [hovered, setHovered] = useState(null);
   const [containerRef, W] = useContainerWidth(640);
 
@@ -133,7 +147,7 @@ function FinanceLineChart({ data }) {
   const allVals = data.flatMap(d => [d.income, d.expenses]);
   const rawMax = Math.max(...allVals, 1);
   const maxV = niceMax(rawMax);
-  const yLabelWidth = fmtAbbr(maxV).length * 7 + 10; // ~7px per char
+  const yLabelWidth = abbr(maxV).length * 7 + 10; // ~7px per char
   const PL = Math.max(52, yLabelWidth);
   const PR = 16, PT = 18, PB = 38;
   // Responsive height: taller when fewer points, compact with many
@@ -187,7 +201,7 @@ function FinanceLineChart({ data }) {
                 stroke="#E5E7EB" strokeWidth={i === 0 ? 1.5 : 1}
                 strokeDasharray={i === 0 ? '0' : '4,4'} />
               <text x={PL - 6} y={y + 4} textAnchor="end" fontSize="10" fill="#9CA3AF">
-                {fmtAbbr(v)}
+                {abbr(v)}
               </text>
             </g>
           );
@@ -235,10 +249,10 @@ function FinanceLineChart({ data }) {
               {isH && (
                 <ChartTooltip anchorX={ix} anchorY={Math.min(iy, ey)} svgWidth={W} visible>
                   <div style={{ fontWeight: 700, marginBottom: 2 }}>{fmtMonth(d.month)}</div>
-                  <div style={{ color: '#6EE7B7' }}>▲ {t('finance.income')}: {fmtAbbr(d.income)}</div>
-                  <div style={{ color: '#FCA5A5' }}>▼ {t('finance.expenses')}: {fmtAbbr(d.expenses)}</div>
+                  <div style={{ color: '#6EE7B7' }}>▲ {t('finance.income')}: {abbr(d.income)}</div>
+                  <div style={{ color: '#FCA5A5' }}>▼ {t('finance.expenses')}: {abbr(d.expenses)}</div>
                   <div style={{ color: d.profit >= 0 ? '#6EE7B7' : '#FCA5A5', borderTop: '1px solid rgba(255,255,255,0.1)', marginTop: 3, paddingTop: 3, fontWeight: 700 }}>
-                    {d.profit >= 0 ? '▲' : '▼'} {t('finance.profit')}: {fmtAbbr(d.profit)}
+                    {d.profit >= 0 ? '▲' : '▼'} {t('finance.profit')}: {abbr(d.profit)}
                   </div>
                 </ChartTooltip>
               )}
@@ -270,6 +284,7 @@ function FinanceLineChart({ data }) {
 // ── Bar Chart ─────────────────────────────────────────────────────────────
 function ProfitBarChart({ data }) {
   const { t } = useLocale();
+  const abbr = useAbbr();
   const [hovered, setHovered] = useState(null);
   const [containerRef, W] = useContainerWidth(420);
 
@@ -281,7 +296,7 @@ function ProfitBarChart({ data }) {
   const rawMax = Math.max(maxPos, maxNeg, 1);
   const maxV = niceMax(rawMax);
 
-  const yLabelWidth = fmtAbbr(maxV).length * 7 + 10;
+  const yLabelWidth = abbr(maxV).length * 7 + 10;
   const PL = Math.max(52, yLabelWidth);
   const PR = 16, PT = 18, PB = 36;
   const H = 210;
@@ -332,7 +347,7 @@ function ProfitBarChart({ data }) {
                 strokeDasharray={v === 0 ? '0' : '3,3'}
               />
               <text x={PL - 6} y={y + 4} textAnchor="end" fontSize="10" fill="#9CA3AF">
-                {fmtAbbr(v)}
+                {abbr(v)}
               </text>
             </g>
           );
@@ -384,7 +399,7 @@ function ProfitBarChart({ data }) {
                 <ChartTooltip anchorX={cx} anchorY={pos ? by : zeroY} svgWidth={W} visible>
                   <div style={{ fontWeight: 700, marginBottom: 2 }}>{fmtMonth(d.month)}</div>
                   <div style={{ color: pos ? '#6EE7B7' : '#FCA5A5', fontWeight: 700 }}>
-                    {pos ? '▲' : '▼'} {fmtAbbr(d.profit)}
+                    {pos ? '▲' : '▼'} {abbr(d.profit)}
                   </div>
                   <div style={{ color: '#9CA3AF', fontSize: 10.5 }}>
                     {d.income > 0 ? `${t('finance.margin')}: ${((d.profit/d.income)*100).toFixed(1)}%` : ''}
@@ -405,6 +420,7 @@ function ProfitBarChart({ data }) {
 // ── Donut Chart ───────────────────────────────────────────────────────────
 function DonutChart({ data }) {
   const { t } = useLocale();
+  const abbr = useAbbr();
   const [hovered, setHovered] = useState(null);
   const [containerRef, W] = useContainerWidth(420);
 
@@ -461,13 +477,13 @@ function DonutChart({ data }) {
           {active ? (
             <>
               <text x={cx} y={cy - 9} textAnchor="middle" fontSize={Math.max(8, donutSize * 0.055)} fill="#6B7280">{active.category.length > 10 ? active.category.slice(0,10)+'…' : active.category}</text>
-              <text x={cx} y={cy + 7} textAnchor="middle" fontSize={Math.max(11, donutSize * 0.08)} fontWeight="800" fill={active.color}>{fmtAbbr(active.total)}</text>
+              <text x={cx} y={cy + 7} textAnchor="middle" fontSize={Math.max(11, donutSize * 0.08)} fontWeight="800" fill={active.color}>{abbr(active.total)}</text>
               <text x={cx} y={cy + 21} textAnchor="middle" fontSize={Math.max(8, donutSize * 0.055)} fill="#9CA3AF">{(active.pct * 100).toFixed(1)}%</text>
             </>
           ) : (
             <>
               <text x={cx} y={cy - 7} textAnchor="middle" fontSize={Math.max(9, donutSize * 0.065)} fill="#6B7280">{t('common.total')}</text>
-              <text x={cx} y={cy + 10} textAnchor="middle" fontSize={Math.max(12, donutSize * 0.09)} fontWeight="800" fill="#111827">{fmtAbbr(total)}</text>
+              <text x={cx} y={cy + 10} textAnchor="middle" fontSize={Math.max(12, donutSize * 0.09)} fontWeight="800" fill="#111827">{abbr(total)}</text>
             </>
           )}
         </svg>
@@ -490,7 +506,7 @@ function DonutChart({ data }) {
             <span style={{ width: 10, height: 10, borderRadius: '50%', background: s.color, flexShrink: 0 }} />
             <span style={{ fontSize: 12, color: 'var(--text-2)', flex: 1, fontWeight: 500, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{s.category}</span>
             <span style={{ fontSize: 11, color: 'var(--text-3)', marginRight: 6, flexShrink: 0 }}>{(s.pct * 100).toFixed(0)}%</span>
-            <span style={{ fontSize: 12, fontWeight: 700, color: 'var(--text)', flexShrink: 0 }}>{fmtAbbr(s.total)}</span>
+            <span style={{ fontSize: 12, fontWeight: 700, color: 'var(--text)', flexShrink: 0 }}>{abbr(s.total)}</span>
           </div>
         ))}
       </div>
@@ -611,12 +627,15 @@ function KpiCard({ label, value, change, color, icon, sub }) {
 //   • overdueAr     — /api/invoices?overdue=true   (open + overdue receivables)
 //   • fiscalYears   — /api/accounting/fiscal-years (open / closed status)
 //
-function generateInsights(summary, monthly, extras = {}) {
+// `fmtK` is the abbreviated money formatter for insight copy. It's injected by
+// the caller (the page passes a currency-aware abbreviator that honours the
+// DisplayCurrencyToggle); the default keeps a USD fallback for any caller that
+// doesn't pass one.
+function generateInsights(summary, monthly, extras = {}, fmtK = v => v >= 1000 ? `$${(v / 1000).toFixed(1)}k` : `$${Math.abs(v).toFixed(0)}`) {
   const insights = [];
   if (!summary) return insights;
 
   const { income, expenses, profit, margin, by_category, prev } = summary;
-  const fmtK = v => v >= 1000 ? `$${(v / 1000).toFixed(1)}k` : `$${Math.abs(v).toFixed(0)}`;
 
   // ── 1. Profit trend vs prior period ──────────────────────────────────
   if (prev?.profit_change != null) {
@@ -1283,6 +1302,7 @@ function SmartInsightsPanel({ insights }) {
 // ── Month Drill-Down Modal ────────────────────────────────────────────────
 function MonthDrillModal({ month, label, data, loading, onClose }) {
   const { t } = useLocale();
+  const money = useMoney();
   const incomeTotal  = (data?.income_records  || []).reduce((s, r) => s + r.amount, 0);
   const expenseTotal = (data?.expense_records || []).reduce((s, r) => s + r.amount, 0);
   const profit = incomeTotal - expenseTotal;
@@ -1346,7 +1366,7 @@ function MonthDrillModal({ month, label, data, loading, onClose }) {
                     border: '1px solid var(--border)', textAlign: 'center',
                   }}>
                     <div style={{ fontSize: 11, color: 'var(--text-3)', fontWeight: 600, textTransform: 'uppercase', letterSpacing: '.4px', marginBottom: 4 }}>{label}</div>
-                    <div style={{ fontSize: 20, fontWeight: 800, color }}>{fmt(value)}</div>
+                    <div style={{ fontSize: 20, fontWeight: 800, color }}>{money(value)}</div>
                   </div>
                 ))}
               </div>
@@ -1355,7 +1375,7 @@ function MonthDrillModal({ month, label, data, loading, onClose }) {
               <div style={{ marginBottom: 20 }}>
                 <div style={{ fontWeight: 700, fontSize: 14, marginBottom: 10, display: 'flex', alignItems: 'center', gap: 8 }}>
                   <span style={{ width: 8, height: 8, borderRadius: '50%', background: '#059669', display: 'inline-block' }} />
-                  {t('finance.income')} — {fmt(incomeTotal)}
+                  {t('finance.income')} — {money(incomeTotal)}
                 </div>
                 {Object.keys(incomeByProject).length === 0 ? (
                   <p style={{ color: 'var(--text-3)', fontSize: 13 }}>{t('finance.noIncomeMonth')}</p>
@@ -1365,7 +1385,7 @@ function MonthDrillModal({ month, label, data, loading, onClose }) {
                       <div key={proj} style={{ marginBottom: 10, border: '1px solid var(--border)', borderRadius: 8, overflow: 'hidden' }}>
                         <div style={{ background: '#F0FDF4', padding: '8px 14px', display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
                           <span style={{ fontWeight: 600, fontSize: 13, color: '#065F46' }}>{proj}</span>
-                          <span style={{ fontWeight: 700, color: '#059669' }}>{fmt(total)}</span>
+                          <span style={{ fontWeight: 700, color: '#059669' }}>{money(total)}</span>
                         </div>
                         <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: 12 }}>
                           <tbody>
@@ -1375,7 +1395,7 @@ function MonthDrillModal({ month, label, data, loading, onClose }) {
                                 <td style={{ padding: '7px 8px', fontWeight: 500 }}>{r.invoice_number}</td>
                                 <td style={{ padding: '7px 8px', color: 'var(--text-2)' }}>{r.client_name || '—'}</td>
                                 <td style={{ padding: '7px 8px', color: 'var(--text-3)', fontSize: 11 }}>{r.method}</td>
-                                <td style={{ padding: '7px 14px', textAlign: 'right', fontWeight: 600, color: '#059669' }}>{fmt(r.amount)}</td>
+                                <td style={{ padding: '7px 14px', textAlign: 'right', fontWeight: 600, color: '#059669' }}>{money(r.amount)}</td>
                               </tr>
                             ))}
                           </tbody>
@@ -1389,7 +1409,7 @@ function MonthDrillModal({ month, label, data, loading, onClose }) {
               <div>
                 <div style={{ fontWeight: 700, fontSize: 14, marginBottom: 10, display: 'flex', alignItems: 'center', gap: 8 }}>
                   <span style={{ width: 8, height: 8, borderRadius: '50%', background: '#DC2626', display: 'inline-block' }} />
-                  {t('finance.expenses')} — {fmt(expenseTotal)}
+                  {t('finance.expenses')} — {money(expenseTotal)}
                 </div>
                 {Object.keys(expByProject).length === 0 ? (
                   <p style={{ color: 'var(--text-3)', fontSize: 13 }}>{t('finance.noExpensesMonth')}</p>
@@ -1400,7 +1420,7 @@ function MonthDrillModal({ month, label, data, loading, onClose }) {
                       <div key={proj} style={{ marginBottom: 10, border: '1px solid var(--border)', borderRadius: 8, overflow: 'hidden' }}>
                         <div style={{ background: '#FFF5F5', padding: '8px 14px', display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
                           <span style={{ fontWeight: 600, fontSize: 13, color: '#991B1B' }}>{proj}</span>
-                          <span style={{ fontWeight: 700, color: '#DC2626' }}>{fmt(total)}</span>
+                          <span style={{ fontWeight: 700, color: '#DC2626' }}>{money(total)}</span>
                         </div>
                         <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: 12 }}>
                           <tbody>
@@ -1411,7 +1431,7 @@ function MonthDrillModal({ month, label, data, loading, onClose }) {
                                 <td style={{ padding: '7px 8px' }}>
                                   <span style={{ fontSize: 10.5, background: '#EFF6FF', color: '#1D4ED8', borderRadius: 4, padding: '2px 6px', fontWeight: 600 }}>{r.category}</span>
                                 </td>
-                                <td style={{ padding: '7px 14px', textAlign: 'right', fontWeight: 600, color: '#DC2626' }}>{fmt(r.amount)}</td>
+                                <td style={{ padding: '7px 14px', textAlign: 'right', fontWeight: 600, color: '#DC2626' }}>{money(r.amount)}</td>
                               </tr>
                             ))}
                           </tbody>
@@ -1442,6 +1462,7 @@ function exportExcel(sheets, filename) {
 // ── Reconciliation Modal ──────────────────────────────────────────────────
 function ReconciliationModal({ onClose }) {
   const { t } = useLocale();
+  const money = useMoney();
   const [data, setData] = useState(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState(null);
@@ -1492,10 +1513,10 @@ function ReconciliationModal({ onClose }) {
               {/* Summary row */}
               <div style={{ display: 'grid', gridTemplateColumns: 'repeat(4,1fr)', gap: 10, marginBottom: 20 }}>
                 {[
-                  { label: t('finance.totalInvoiced'), value: fmt(data.summary?.total_invoiced || 0), color: '#1B4F72' },
-                  { label: t('finance.collected'), value: fmt(data.summary?.total_collected || 0), color: '#059669' },
-                  { label: t('finance.outstanding'), value: fmt(data.summary?.outstanding || 0), color: '#D97706' },
-                  { label: t('finance.totalExpenses'), value: fmt(data.summary?.total_expenses || 0), color: '#DC2626' },
+                  { label: t('finance.totalInvoiced'), value: money(data.summary?.total_invoiced || 0), color: '#1B4F72' },
+                  { label: t('finance.collected'), value: money(data.summary?.total_collected || 0), color: '#059669' },
+                  { label: t('finance.outstanding'), value: money(data.summary?.outstanding || 0), color: '#D97706' },
+                  { label: t('finance.totalExpenses'), value: money(data.summary?.total_expenses || 0), color: '#DC2626' },
                 ].map(({ label, value, color }) => (
                   <div key={label} style={{ background: 'var(--surface-2)', borderRadius: 10, padding: '12px 14px', border: '1px solid var(--border)', textAlign: 'center' }}>
                     <div style={{ fontSize: 10.5, color: 'var(--text-3)', fontWeight: 600, textTransform: 'uppercase', letterSpacing: '.4px', marginBottom: 4 }}>{label}</div>
@@ -1542,6 +1563,8 @@ function ReconciliationModal({ onClose }) {
 // ── Main ──────────────────────────────────────────────────────────────────
 export default function Finance() {
   const { t } = useLocale();
+  const money = useMoney();
+  const abbr = useAbbr();
   const [preset, setPreset] = usePersistedState('finance.preset', 'month');
   const [custom, setCustom] = usePersistedState('finance.custom', { start: '', end: '' });
   const [summary, setSummary] = useState(null);
@@ -1627,7 +1650,7 @@ export default function Finance() {
     finally { setDrillLoading(false); }
   }
 
-  const insights = generateInsights(summary, monthly, extras);
+  const insights = generateInsights(summary, monthly, extras, abbr);
   const margin = summary?.income > 0 ? (summary.profit / summary.income * 100).toFixed(1) : null;
   const prev = summary?.prev || {};
 
@@ -1671,6 +1694,7 @@ export default function Finance() {
         </div>
         <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap', alignItems: 'center' }}>
           <ExchangeRateBadge />
+          <DisplayCurrencyToggle />
           <button className="btn btn-outline btn-sm" onClick={() => setShowRecon(true)}>
             🔍 {t('finance.reconcile')}
           </button>
@@ -1715,19 +1739,19 @@ export default function Finance() {
           <div className="stats-grid" style={{ gridTemplateColumns: 'repeat(auto-fit, minmax(220px, 1fr))', marginBottom: 24 }}>
             {[
               { label: t('finance.totalIncome'),
-                value: <DualMoney value={summary?.income || 0} />,
+                value: money(summary?.income || 0),
                 color: 'var(--affirm)',
                 icon: '💰',
                 change: prev.income_change,
                 sub: t('finance.incomePeriod') },
               { label: t('finance.totalExpenses'),
-                value: <DualMoney value={summary?.expenses || 0} />,
+                value: money(summary?.expenses || 0),
                 color: 'var(--negate)',
                 icon: '🧾',
                 change: prev.expenses_change != null ? -prev.expenses_change : null,
                 sub: t('finance.allCosts') },
               { label: t('finance.netProfit'),
-                value: <DualMoney value={summary?.profit || 0} />,
+                value: money(summary?.profit || 0),
                 color: (summary?.profit || 0) >= 0 ? 'var(--accent)' : 'var(--negate)',
                 icon: '📊',
                 change: prev.profit_change,
@@ -1821,9 +1845,9 @@ export default function Finance() {
                             {isBest && <span style={{ fontSize: 10, background: '#FEF9C3', color: '#92400E', borderRadius: 4, padding: '1px 5px', marginLeft: 6 }}>{t('finance.bestLabel')}</span>}
                             <span style={{ fontSize: 10, color: 'var(--text-3)', marginLeft: 6, opacity: isH ? 1 : 0, transition: 'opacity .15s' }}>↗ details</span>
                           </td>
-                          <td style={{ textAlign: 'right', color: '#059669', fontWeight: 600 }}>{fmt(m.income)}</td>
-                          <td style={{ textAlign: 'right', color: '#DC2626', fontWeight: 600 }}>{fmt(m.expenses)}</td>
-                          <td style={{ textAlign: 'right', fontWeight: 700, color: m.profit >= 0 ? '#059669' : '#DC2626' }}>{fmt(m.profit)}</td>
+                          <td style={{ textAlign: 'right', color: '#059669', fontWeight: 600 }}>{money(m.income)}</td>
+                          <td style={{ textAlign: 'right', color: '#DC2626', fontWeight: 600 }}>{money(m.expenses)}</td>
+                          <td style={{ textAlign: 'right', fontWeight: 700, color: m.profit >= 0 ? '#059669' : '#DC2626' }}>{money(m.profit)}</td>
                           <td style={{ textAlign: 'right', color: 'var(--text-3)' }}>{mgn !== null ? `${mgn}%` : '—'}</td>
                           <td style={{ textAlign: 'right' }}>
                             <span style={{ fontSize: 11, fontWeight: 600, borderRadius: 20, padding: '2px 8px', background: m.profit >= 0 ? '#ECFDF5' : '#FEF2F2', color: m.profit >= 0 ? '#059669' : '#DC2626' }}>
@@ -1843,9 +1867,9 @@ export default function Finance() {
                       <tfoot>
                         <tr style={{ background: 'var(--surface-2)' }}>
                           <td style={{ padding: '10px 16px', fontWeight: 700, fontSize: 12, color: 'var(--text-3)', textTransform: 'uppercase', letterSpacing: '.5px', borderTop: '2px solid var(--border)' }}>{t('common.total')}</td>
-                          <td style={{ padding: '10px 16px', textAlign: 'right', fontWeight: 800, color: '#059669', borderTop: '2px solid var(--border)' }}>{fmt(totI)}</td>
-                          <td style={{ padding: '10px 16px', textAlign: 'right', fontWeight: 800, color: '#DC2626', borderTop: '2px solid var(--border)' }}>{fmt(totE)}</td>
-                          <td style={{ padding: '10px 16px', textAlign: 'right', fontWeight: 800, color: totP >= 0 ? '#059669' : '#DC2626', borderTop: '2px solid var(--border)' }}>{fmt(totP)}</td>
+                          <td style={{ padding: '10px 16px', textAlign: 'right', fontWeight: 800, color: '#059669', borderTop: '2px solid var(--border)' }}>{money(totI)}</td>
+                          <td style={{ padding: '10px 16px', textAlign: 'right', fontWeight: 800, color: '#DC2626', borderTop: '2px solid var(--border)' }}>{money(totE)}</td>
+                          <td style={{ padding: '10px 16px', textAlign: 'right', fontWeight: 800, color: totP >= 0 ? '#059669' : '#DC2626', borderTop: '2px solid var(--border)' }}>{money(totP)}</td>
                           <td style={{ padding: '10px 16px', textAlign: 'right', fontWeight: 700, color: 'var(--text-3)', borderTop: '2px solid var(--border)' }}>{totM !== null ? `${totM}%` : '—'}</td>
                           <td style={{ borderTop: '2px solid var(--border)' }} />
                         </tr>
@@ -1862,7 +1886,7 @@ export default function Finance() {
             <div className="card fin-card" style={{ animationDelay: '0.55s' }}>
               <div className="card-header">
                 <span className="card-title">{t('finance.expensesByCategory')}</span>
-                <span style={{ fontSize: 11, color: 'var(--text-3)' }}>{t('common.total')}: {fmt(summary.expenses)}</span>
+                <span style={{ fontSize: 11, color: 'var(--text-3)' }}>{t('common.total')}: {money(summary.expenses)}</span>
               </div>
               <div style={{ padding: '4px 0' }}>
                 {summary.by_category.map((c, i) => {
@@ -1882,7 +1906,7 @@ export default function Finance() {
                       <div style={{ background: 'var(--bg)', borderRadius: 99, height: 6, overflow: 'hidden' }}>
                         <div style={{ height: '100%', borderRadius: 99, width: `${pct}%`, background: CHART_COLORS[i % CHART_COLORS.length], transition: 'width .6s ease' }} />
                       </div>
-                      <span style={{ fontSize: 13, color: 'var(--text)', textAlign: 'right', fontWeight: 700 }}>{fmt(c.total)}</span>
+                      <span style={{ fontSize: 13, color: 'var(--text)', textAlign: 'right', fontWeight: 700 }}>{money(c.total)}</span>
                       <span style={{ fontSize: 11, color: 'var(--text-3)', textAlign: 'right' }}>{pct.toFixed(1)}%</span>
                     </div>
                   );

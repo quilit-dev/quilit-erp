@@ -187,6 +187,22 @@ export function DualMoney({ value, block = true, style }) {
   );
 }
 
+// Single-currency formatter — the counterpart to <DualMoney>. Respects the
+// page-header DisplayCurrencyToggle and renders ONE currency at a time (USD or
+// LBP), never both. Returns a money(value) -> string function so it works in
+// JSX and string-concatenation contexts alike. Falls back to base-currency
+// (USD) when no exchange rate is set — the toggle is hidden then anyway, so the
+// page simply stays single-currency.
+export function useMoney() {
+  const { exchangeRate, displayCurrency } = useSettings();
+  return (value) => {
+    if (displayCurrency === 'LBP' && exchangeRate?.rate) {
+      return secondaryAmount(value, exchangeRate);
+    }
+    return fmt(value);
+  };
+}
+
 // A two-button segmented control that flips the app-wide display currency.
 // Renders nothing until an admin has set an exchange rate.
 export function DisplayCurrencyToggle() {
