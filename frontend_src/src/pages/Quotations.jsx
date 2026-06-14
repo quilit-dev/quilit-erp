@@ -5,7 +5,7 @@ import { useData } from '../hooks/useData';
 import { useSettings } from '../hooks/useSettings';
 import {
   getQuotations, getQuotation, getClients, getProjects, getInventory,
-  createQuotation, updateQuotation, voidQuotation, unvoidQuotation, unarchiveQuotation,
+  createQuotation, updateQuotation, voidQuotation, unvoidQuotation,
   convertToInvoice, convertToProject, getCRMLeads,
 } from '../api/client';
 import {
@@ -137,11 +137,9 @@ export default function Quotations() {
   const { t, tStatus } = useLocale();
   const { can } = usePermissions();
   const navigate = useNavigate();
-  const [showArchived, setShowArchived] = usePersistedState('quotations.showArchived', false);
-  const { data: quotations, loading, error, reload } = useData(
-    (s) => getQuotations(showArchived ? { include_archived: 1 } : {}, s),
-    [showArchived],
-  );
+  // Quotations use Void/Unvoid as their lifecycle, not archive — so there is
+  // no in-module "Show archived" view here.
+  const { data: quotations, loading, error, reload } = useData((s) => getQuotations({}, s));
   const { data: clients,  loading: cLoading,  reload: reloadClients }  = useData((s) => getClients({}, s));
   // Quotations can also be addressed to CRM leads — load active (non-archived)
   // leads alongside the client list so the picker covers both.
@@ -287,15 +285,6 @@ export default function Quotations() {
     } catch (err) { toast(err.message, 'red'); }
   }
 
-  const [restoreId, setRestoreId] = useState(null);
-  async function handleUnarchive() {
-    try {
-      await unarchiveQuotation(restoreId);
-      toast(t('quotations.quotationRestored')); setRestoreId(null); reload();
-    } catch (err) { toast(err.message, 'red'); }
-  }
-
-
   const [convertInvoiceId, setConvertInvoiceId] = useState(null);
   const [convertProjectId, setConvertProjectId] = useState(null);
 
@@ -397,11 +386,6 @@ export default function Quotations() {
                 ✕ {t('common.clear')}
               </button>
             )}
-            <label className="archived-toggle">
-              <input type="checkbox" checked={showArchived}
-                onChange={e => setShowArchived(e.target.checked)} />
-              {t('common.showArchived')}
-            </label>
           </div>
           {filtered.length !== (quotations||[]).length && (
             <div style={{fontSize:12,color:'var(--text-3)'}}>
@@ -432,13 +416,9 @@ export default function Quotations() {
                 {pagedQuotations.map(q => {
                   const exporting = exportLoading[q.id];
                   const isVoided  = q.status === 'Voided' || q.status === 'Cancelled';
-                  const isArchived = !!q.archived_at;
                   return (
-                    <tr key={q.id} className={isArchived ? 'row-archived' : undefined}>
-                      <td className="td-primary text-mono">
-                        {q.quote_number}
-                        {isArchived && <span className="badge badge-gray" style={{ marginInlineStart: 8 }}>{t('common.archivedBadge')}</span>}
-                      </td>
+                    <tr key={q.id}>
+                      <td className="td-primary text-mono">{q.quote_number}</td>
                       <td>
                         {q.client_name
                           ? q.client_name
@@ -467,11 +447,6 @@ export default function Quotations() {
                       <td>{fmtDate(q.created_at)}</td>
                       <td>
                         <div style={{ display:'flex', gap:6, alignItems:'center', justifyContent:'flex-end' }}>
-                          {isArchived ? (
-                            <button className="btn btn-sm btn-secondary" style={{ color: '#166534', whiteSpace: 'nowrap' }}
-                              onClick={() => setRestoreId(q.id)}>↩️ {t('common.restore')}</button>
-                          ) : (
-                          <>
                           {isVoided ? (
                             <span style={{ fontSize: 11, color: 'var(--text-3)', fontStyle: 'italic' }}>{t('invoices.voidedLabel')}</span>
                           ) : (
@@ -503,8 +478,6 @@ export default function Quotations() {
                             onVoid={() => setVoidQuoteId(q.id)}
                             onUnvoid={() => handleUnvoid(q)}
                           />
-                          </>
-                          )}
                         </div>
                       </td>
                     </tr>
@@ -685,14 +658,6 @@ export default function Quotations() {
           confirmClass="btn-warning"
           onConfirm={handleVoid}
           onCancel={() => setVoidQuoteId(null)}
-        />
-      )}
-      {restoreId && (
-        <ConfirmModal
-          message={t('common.restoreConfirm')}
-          confirmLabel={t('common.restore')}
-          onConfirm={handleUnarchive}
-          onCancel={() => setRestoreId(null)}
         />
       )}
       {convertInvoiceId && (
