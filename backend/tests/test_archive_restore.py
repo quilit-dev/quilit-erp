@@ -59,3 +59,23 @@ def test_planning_task_archive_restore(make_client):
     _roundtrip(c, create_path="/api/planning/tasks",
                create_body={"name": "Task R", "project_id": pid},
                slug="tasks", list_path="/api/planning/tasks", module="planning_tasks")
+
+
+def test_generic_unarchive_requires_module_edit_not_dashboard(make_client):
+    """The generic Archives unarchive endpoint must gate on the TARGET module's
+    own `edit` permission — not a blanket dashboard grant. A read-only Viewer
+    (planning.view but no planning.edit) must be refused, even though it can see
+    the dashboard and the archived record."""
+    admin = make_client("superadmin")
+    pid = admin.post("/api/planning/projects", json={"name": "RBAC Proj"}).json()["id"]
+    assert admin.patch(f"/api/planning/projects/{pid}/archive").status_code == 200
+
+    viewer = make_client("Viewer")
+    r = viewer.patch(f"/api/archives/planning_projects/{pid}/unarchive")
+    assert r.status_code == 403, r.text
+    # Still archived — the forbidden call must not have restored it.
+    assert pid in _archived_ids(admin, "planning_projects")
+
+    # A caller WITH planning.edit (superadmin) can restore it.
+    assert admin.patch(f"/api/archives/planning_projects/{pid}/unarchive").status_code == 200
+    assert pid not in _archived_ids(admin, "planning_projects")

@@ -93,8 +93,10 @@ export const getClient       = (id) => api.get(`/api/clients/${id}`);
 export const createClient    = (d) => api.post('/api/clients/', d);
 export const updateClient    = (id, d) => api.put(`/api/clients/${id}`, d);
 export const archiveClient   = (id, reason) => api.patch(`/api/clients/${id}/archive`, { reason });
-// Per-module unarchive helpers are intentionally absent — the Archives page
-// uses the generic `unarchiveItem(module, id)` so we only maintain that.
+// Each module owns a per-module unarchive helper (e.g. unarchiveClient above)
+// powering its in-module "Show archived" restore. The generic
+// `unarchiveItem(module, id)` remains as a cross-module fallback; the central
+// Archives page itself is now a read-only overview.
 
 // Projects
 export const getProjects       = (params = {}, s) => api.get(`/api/projects/${_qs(params)}`, s);

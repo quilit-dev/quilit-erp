@@ -105,7 +105,7 @@ const en = {
     exporting: 'Exporting…',
     delete: 'Delete',
     archive: 'Archive',
-    archiveConfirm: 'Archive this record? It will be hidden from the main list and can be restored from the Archives page.',
+    archiveConfirm: 'Archive this record? It will be hidden from the main list. Turn on "Show archived" to restore it.',
     restore: 'Restore',
     restoreConfirm: 'Restore this record? It returns to the active list.',
     showArchived: 'Show archived',
