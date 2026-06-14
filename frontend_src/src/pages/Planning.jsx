@@ -4,8 +4,8 @@ import { useData } from '../hooks/useData.js';
 import { usePermissions } from '../hooks/usePermissions.js';
 import { Modal, ConfirmModal, LoadingSpinner, ErrorAlert, EmptyState, toast } from '../components/shared';
 import {
-  getPlanningProjects, createPlanningProject, updatePlanningProject, archivePlanningProject,
-  getPlanningTasks, createPlanningTask, updatePlanningTask, archivePlanningTask,
+  getPlanningProjects, createPlanningProject, updatePlanningProject, archivePlanningProject, unarchivePlanningProject,
+  getPlanningTasks, createPlanningTask, updatePlanningTask, archivePlanningTask, unarchivePlanningTask,
   updateTaskDates, updateTaskStatus, updateTaskProgress,
   getPlanningMilestones,
   getPlanningSummary, getPlanningDropdownClients, getPlanningDropdownUsers,
@@ -812,7 +812,7 @@ function BoardView({ tasks, projects, onRefresh, onEdit }) {
 
 // ─── LIST VIEW ────────────────────────────────────────────────────────────────
 
-function ListView({ tasks, projects, onEdit, onArchive, onRefresh }) {
+function ListView({ tasks, projects, onEdit, onArchive, onRestore, onRefresh }) {
   const { t } = useLocale();
   const [selProject, setSelProject] = useState('');
   const [selStatus,  setSelStatus]  = useState('');
@@ -881,11 +881,12 @@ function ListView({ tasks, projects, onEdit, onArchive, onRefresh }) {
             {filtered.length === 0 ? (
               <tr><td colSpan={9} style={{ textAlign: 'center', padding: 40, color: 'var(--text-3)' }}>{t('planning.noTasksYet')}</td></tr>
             ) : filtered.map(task => (
-              <tr key={task.id}>
+              <tr key={task.id} className={task.archived_at ? 'row-archived' : ''}>
                 <td className="td-primary" style={{ maxWidth: 220 }}>
                   <div style={{ display: 'flex', alignItems: 'center', gap: 7 }}>
                     <div style={{ width: 8, height: 8, borderRadius: '50%', background: task.project_color || '#4f8ef7', flexShrink: 0 }} />
                     <span style={{ overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{task.name}</span>
+                    {task.archived_at && <Badge color="gray" style={{ flexShrink: 0 }}>{t('common.archivedBadge')}</Badge>}
                   </div>
                 </td>
                 <td>
@@ -924,13 +925,21 @@ function ListView({ tasks, projects, onEdit, onArchive, onRefresh }) {
                 </td>
                 <td>
                   <div style={{ display: 'flex', gap: 4, justifyContent: 'flex-end' }}>
-                    <button className="btn btn-outline btn-sm" onClick={() => onEdit(task)} title={t('planning.editTaskTitle')}>
-                      <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><path d="M11 4H4a2 2 0 00-2 2v14a2 2 0 002 2h14a2 2 0 002-2v-7"/><path d="M18.5 2.5a2.121 2.121 0 013 3L12 15l-4 1 1-4 9.5-9.5z"/></svg>
-                    </button>
-                    <button className="btn btn-outline btn-sm" onClick={() => onArchive(task)} title={t('planning.archiveTaskTitle')}
-                      style={{ color: 'var(--text-3)' }}>
-                      <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><polyline points="21 8 21 21 3 21 3 8"/><rect x="1" y="3" width="22" height="5"/><line x1="10" y1="12" x2="14" y2="12"/></svg>
-                    </button>
+                    {task.archived_at ? (
+                      <button className="btn btn-outline btn-sm" onClick={() => onRestore(task)} title={t('common.restore')}>
+                        ↩️ {t('common.restore')}
+                      </button>
+                    ) : (
+                      <>
+                        <button className="btn btn-outline btn-sm" onClick={() => onEdit(task)} title={t('planning.editTaskTitle')}>
+                          <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><path d="M11 4H4a2 2 0 00-2 2v14a2 2 0 002 2h14a2 2 0 002-2v-7"/><path d="M18.5 2.5a2.121 2.121 0 013 3L12 15l-4 1 1-4 9.5-9.5z"/></svg>
+                        </button>
+                        <button className="btn btn-outline btn-sm" onClick={() => onArchive(task)} title={t('planning.archiveTaskTitle')}
+                          style={{ color: 'var(--text-3)' }}>
+                          <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><polyline points="21 8 21 21 3 21 3 8"/><rect x="1" y="3" width="22" height="5"/><line x1="10" y1="12" x2="14" y2="12"/></svg>
+                        </button>
+                      </>
+                    )}
                   </div>
                 </td>
               </tr>
@@ -1488,7 +1497,7 @@ function CalendarView() {
 
 // ─── PROJECTS PANEL ───────────────────────────────────────────────────────────
 
-function ProjectsPanel({ projects, tasks, onNew, onEdit, onArchive }) {
+function ProjectsPanel({ projects, tasks, onNew, onEdit, onArchive, onRestore }) {
   const { t } = useLocale();
   return (
     <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(280px, 1fr))', gap: 14 }}>
@@ -1496,19 +1505,24 @@ function ProjectsPanel({ projects, tasks, onNew, onEdit, onArchive }) {
         const projTasks = tasks.filter(t => t.project_id === proj.id);
         const done = projTasks.filter(t => t.status === 'Done').length;
         const pct  = projTasks.length ? Math.round((done / projTasks.length) * 100) : 0;
+        const isArchived = !!proj.archived_at;
 
         return (
-          <div key={proj.id} className="card" style={{ padding: 0, overflow: 'hidden', border: `1px solid var(--border)` }}>
+          <div key={proj.id} className="card" style={{ padding: 0, overflow: 'hidden', border: `1px solid var(--border)`, opacity: isArchived ? 0.62 : 1 }}>
             <div style={{ height: 5, background: proj.color || '#4f8ef7' }} />
             <div style={{ padding: '14px 16px' }}>
               <div style={{ display: 'flex', alignItems: 'flex-start', justifyContent: 'space-between', gap: 8, marginBottom: 8 }}>
                 <div>
-                  <div style={{ fontWeight: 700, fontSize: 14, color: 'var(--text)', lineHeight: 1.3 }}>{proj.name}</div>
+                  <div style={{ fontWeight: 700, fontSize: 14, color: 'var(--text)', lineHeight: 1.3, textDecoration: isArchived ? 'line-through' : 'none' }}>{proj.name}</div>
                   {proj.client_name && <div style={{ fontSize: 11, color: 'var(--text-3)', marginTop: 2 }}>{proj.client_name}</div>}
                 </div>
-                <Badge color={proj.status === 'Active' ? 'green' : proj.status === 'On Hold' ? 'yellow' : proj.status === 'Completed' ? 'blue' : 'red'}>
-                  {tEnum(t, PROJ_STATUS_KEY, proj.status)}
-                </Badge>
+                {isArchived ? (
+                  <Badge color="gray">{t('common.archivedBadge')}</Badge>
+                ) : (
+                  <Badge color={proj.status === 'Active' ? 'green' : proj.status === 'On Hold' ? 'yellow' : proj.status === 'Completed' ? 'blue' : 'red'}>
+                    {tEnum(t, PROJ_STATUS_KEY, proj.status)}
+                  </Badge>
+                )}
               </div>
               {proj.description && <div style={{ fontSize: 12, color: 'var(--text-2)', marginBottom: 8, lineHeight: 1.4 }}>{proj.description}</div>}
 
@@ -1523,10 +1537,16 @@ function ProjectsPanel({ projects, tasks, onNew, onEdit, onArchive }) {
                 {proj.start_date && proj.end_date && <span style={{ fontSize: 10, color: 'var(--text-3)' }}>→</span>}
                 {proj.end_date && <span style={{ fontSize: 10, color: 'var(--text-3)' }}>{proj.end_date}</span>}
                 <div style={{ marginLeft: 'auto', display: 'flex', gap: 4 }}>
-                  <button className="btn btn-outline btn-sm" onClick={() => onEdit(proj)}>{t('common.edit')}</button>
-                  <button className="btn btn-outline btn-sm" style={{ color: 'var(--text-3)' }} onClick={() => onArchive(proj)}>
-                    <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><polyline points="21 8 21 21 3 21 3 8"/><rect x="1" y="3" width="22" height="5"/></svg>
-                  </button>
+                  {isArchived ? (
+                    <button className="btn btn-outline btn-sm" onClick={() => onRestore(proj)}>↩️ {t('common.restore')}</button>
+                  ) : (
+                    <>
+                      <button className="btn btn-outline btn-sm" onClick={() => onEdit(proj)}>{t('common.edit')}</button>
+                      <button className="btn btn-outline btn-sm" style={{ color: 'var(--text-3)' }} onClick={() => onArchive(proj)}>
+                        <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><polyline points="21 8 21 21 3 21 3 8"/><rect x="1" y="3" width="22" height="5"/></svg>
+                      </button>
+                    </>
+                  )}
                 </div>
               </div>
             </div>
@@ -1566,16 +1586,23 @@ export default function Planning() {
   const [editTask,    setEditTask]    = useState(null);
   const [archProj,    setArchProj]    = useState(null);
   const [archTask,    setArchTask]    = useState(null);
+  const [restoreProj, setRestoreProj] = useState(null);
+  const [restoreTask, setRestoreTask] = useState(null);
+
+  // Show archived — only the Projects and List views surface archived records
+  // (with a Restore action). Board, Gantt and Calendar always work off the
+  // active set, so inert records never clutter the live planning surfaces.
+  const [showArchived, setShowArchived] = useState(false);
 
   // Data
   const fetchSummary  = useCallback(s => getPlanningSummary(s), []);
-  const fetchProjects = useCallback(s => getPlanningProjects({}, s), []);
-  const fetchTasks    = useCallback(s => getPlanningTasks({}, s), []);
+  const fetchProjects = useCallback(s => getPlanningProjects({ include_archived: showArchived }, s), [showArchived]);
+  const fetchTasks    = useCallback(s => getPlanningTasks({ include_archived: showArchived }, s), [showArchived]);
   const fetchMilestones = useCallback(s => getPlanningMilestones({}, s), []);
 
   const { data: summary,    reload: reloadSummary }    = useData(fetchSummary);
-  const { data: projects,   reload: reloadProjects,   loading: projLoading, error: projError } = useData(fetchProjects);
-  const { data: tasks,      reload: reloadTasks,      loading: taskLoading }  = useData(fetchTasks);
+  const { data: projects,   reload: reloadProjects,   loading: projLoading, error: projError } = useData(fetchProjects, [showArchived]);
+  const { data: tasks,      reload: reloadTasks,      loading: taskLoading }  = useData(fetchTasks, [showArchived]);
   const { data: milestones, reload: reloadMilestones } = useData(fetchMilestones);
 
   const [clients, setClients] = useState([]);
@@ -1594,6 +1621,12 @@ export default function Planning() {
   const safeTasks      = tasks      || [];
   const safeMilestones = milestones || [];
 
+  // Active-only slices for the live planning surfaces. When "Show archived" is
+  // off the fetch already excludes archived rows, so these equal the full set;
+  // when it's on, board/gantt still ignore the archived records.
+  const activeProjects = safeProjects.filter(p => !p.archived_at);
+  const activeTasks    = safeTasks.filter(tk => !tk.archived_at);
+
   // Archive project
   async function handleArchiveProject(proj) {
     setArchProj(null);
@@ -1610,6 +1643,26 @@ export default function Planning() {
     try {
       await archivePlanningTask(task.id);
       toast(t('planning.taskArchived'));
+      reloadAll();
+    } catch (e) { toast(e.message || t('common.error'), 'error'); }
+  }
+
+  // Restore project
+  async function handleRestoreProject(proj) {
+    setRestoreProj(null);
+    try {
+      await unarchivePlanningProject(proj.id);
+      toast(t('common.restore'));
+      reloadAll();
+    } catch (e) { toast(e.message || t('common.error'), 'error'); }
+  }
+
+  // Restore task
+  async function handleRestoreTask(task) {
+    setRestoreTask(null);
+    try {
+      await unarchivePlanningTask(task.id);
+      toast(t('common.restore'));
       reloadAll();
     } catch (e) { toast(e.message || t('common.error'), 'error'); }
   }
@@ -1644,12 +1697,20 @@ export default function Planning() {
       <SummaryCards summary={summary} />
 
       {/* View tabs */}
-      <div className="tabs" style={{ marginBottom: 16 }}>
+      <div className="tabs" style={{ marginBottom: 16, display: 'flex', alignItems: 'center' }}>
         {VIEWS.map(v => (
           <button key={v.key} className={`tab-btn${view === v.key ? ' active' : ''}`} onClick={() => setView(v.key)}>
             {v.label}
           </button>
         ))}
+        {/* Show-archived toggle — only meaningful on the views that render
+            archived records (Projects cards + List table). */}
+        {(view === 'projects' || view === 'list') && (
+          <label className="archived-toggle" style={{ marginLeft: 'auto' }}>
+            <input type="checkbox" checked={showArchived} onChange={e => setShowArchived(e.target.checked)} />
+            {t('common.showArchived')}
+          </label>
+        )}
       </div>
 
       {/* Loading / Error */}
@@ -1661,23 +1722,25 @@ export default function Planning() {
           {view === 'projects' && (
             <ProjectsPanel
               projects={safeProjects}
-              tasks={safeTasks}
+              tasks={activeTasks}
               onNew={() => { setEditProj(null); setProjModal(true); }}
               onEdit={p => { setEditProj(p); setProjModal(true); }}
               onArchive={p => setArchProj(p)}
+              onRestore={p => setRestoreProj(p)}
             />
           )}
           {view === 'gantt' && (
-            <GanttView tasks={safeTasks} projects={safeProjects} milestones={safeMilestones} onRefresh={reloadTasks} />
+            <GanttView tasks={activeTasks} projects={activeProjects} milestones={safeMilestones} onRefresh={reloadTasks} />
           )}
           {view === 'board' && (
-            <BoardView tasks={safeTasks} projects={safeProjects} onRefresh={reloadAll} onEdit={t => { setEditTask(t); setTaskModal(true); }} />
+            <BoardView tasks={activeTasks} projects={activeProjects} onRefresh={reloadAll} onEdit={t => { setEditTask(t); setTaskModal(true); }} />
           )}
           {view === 'list' && (
             <ListView
               tasks={safeTasks} projects={safeProjects}
               onEdit={t => { setEditTask(t); setTaskModal(true); }}
               onArchive={t => setArchTask(t)}
+              onRestore={t => setRestoreTask(t)}
               onRefresh={reloadAll}
             />
           )}
@@ -1737,6 +1800,30 @@ export default function Planning() {
           message={`${t('planning.archiveTaskConfirm')} "${archTask.name}"?`}
           onConfirm={() => handleArchiveTask(archTask)}
           onCancel={() => setArchTask(null)}
+        />
+      )}
+
+      {/* Restore project confirm */}
+      {restoreProj && (
+        <ConfirmModal
+          title={t('common.restore')}
+          message={`${t('common.restoreConfirm')} "${restoreProj.name}"`}
+          confirmLabel={t('common.restore')}
+          confirmClass="btn-primary"
+          onConfirm={() => handleRestoreProject(restoreProj)}
+          onCancel={() => setRestoreProj(null)}
+        />
+      )}
+
+      {/* Restore task confirm */}
+      {restoreTask && (
+        <ConfirmModal
+          title={t('common.restore')}
+          message={`${t('common.restoreConfirm')} "${restoreTask.name}"`}
+          confirmLabel={t('common.restore')}
+          confirmClass="btn-primary"
+          onConfirm={() => handleRestoreTask(restoreTask)}
+          onCancel={() => setRestoreTask(null)}
         />
       )}
     </div>

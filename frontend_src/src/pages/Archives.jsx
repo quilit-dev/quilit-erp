@@ -1,7 +1,7 @@
 import { useState, useEffect, useCallback } from 'react';
-import { getArchives, unarchiveItem } from '../api/client.js';
+import { getArchives } from '../api/client.js';
 import {
-  LoadingSpinner, ErrorAlert, EmptyState, ConfirmModal, toast, fmtDate,
+  LoadingSpinner, ErrorAlert, EmptyState, fmtDate,
 } from '../components/shared.jsx';
 
 const MODULE_COLORS = {
@@ -42,7 +42,6 @@ export default function Archives() {
   const [error,     setError]     = useState(null);
   const [module,    setModule]    = useState('');
   const [search,    setSearch]    = useState('');
-  const [restoreId, setRestoreId] = useState(null);
 
   const load = useCallback(async () => {
     setLoading(true);
@@ -62,21 +61,6 @@ export default function Archives() {
 
   useEffect(() => { load(); }, [load]);
 
-  async function handleRestore() {
-    if (!restoreId) return;
-    try {
-      const item = items.find(i => i.id === restoreId.id && i.module === restoreId.module);
-      await unarchiveItem(restoreId.module, restoreId.id);
-      toast(`"${item?.label || restoreId.id}" restored successfully`);
-      setRestoreId(null);
-      load();
-    } catch (e) {
-      toast(e.message, 'red');
-    }
-  }
-
-  const restoreItem = restoreId ? items.find(i => i.id === restoreId.id && i.module === restoreId.module) : null;
-
   return (
     <div>
       <div className="page-header">
@@ -84,8 +68,8 @@ export default function Archives() {
           <h1 className="page-title">Archives</h1>
           <p className="page-subtitle">
             {items.length > 0
-              ? `${items.length} archived record${items.length !== 1 ? 's' : ''} — restore any item to return it to its module.`
-              : 'All archived records — restore any item to return it to its module.'}
+              ? `${items.length} archived record${items.length !== 1 ? 's' : ''} across all modules — a read-only overview. Restore a record from within its own module's list ("Show archived").`
+              : 'A read-only overview of everything archived across modules. Restore a record from within its own module’s list ("Show archived").'}
           </p>
         </div>
         <button className="btn btn-secondary" onClick={load}>Refresh</button>
@@ -152,7 +136,6 @@ export default function Archives() {
                   <th>Name / Reference</th>
                   <th>Archived On</th>
                   <th>Reason</th>
-                  <th style={{ width: 100 }}>Actions</th>
                 </tr>
               </thead>
               <tbody>
@@ -170,31 +153,12 @@ export default function Archives() {
                     <td style={{ fontSize: 13, color: 'var(--text-3)' }}>
                       {item.archive_reason || '—'}
                     </td>
-                    <td>
-                      <button
-                        className="btn btn-sm btn-secondary"
-                        onClick={() => setRestoreId({ id: item.id, module: item.module })}
-                      >
-                        Restore
-                      </button>
-                    </td>
                   </tr>
                 ))}
               </tbody>
             </table>
           </div>
         </div>
-      )}
-
-      {restoreId && (
-        <ConfirmModal
-          title="Restore from Archive"
-          message={`Restore "${restoreItem?.label || ''}" from ${MODULE_LABELS[restoreId.module] || restoreId.module}? The record will reappear in the main list.${restoreItem?.archive_reason ? ` (Archive reason: ${restoreItem.archive_reason})` : ''}`}
-          confirmLabel="Restore"
-          confirmClass="btn-primary"
-          onConfirm={handleRestore}
-          onCancel={() => setRestoreId(null)}
-        />
       )}
     </div>
   );

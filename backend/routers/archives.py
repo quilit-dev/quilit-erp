@@ -12,7 +12,7 @@ indefinitely for audit purposes.
 from fastapi import APIRouter, Depends, HTTPException, Query
 from typing import Optional
 from database import get_db
-from permissions import require_perm
+from permissions import require_perm, require_auth, check_perm
 from routers.audit import log_action
 import sqlite3
 
@@ -61,12 +61,35 @@ UNARCHIVE_ENDPOINTS = {
     "suppliers":      "/api/suppliers/{id}/unarchive",
     "hr_employees":   "/api/hr/employees/{id}/unarchive",
     "hr_departments": "/api/hr/departments/{id}/unarchive",
-    # CRM & Planning have no per-module unarchive endpoint — they are restored
-    # exclusively through this generic Archives route.
-    "crm_leads":         "/api/archives/crm_leads/{id}/unarchive",
-    "crm_deals":         "/api/archives/crm_deals/{id}/unarchive",
-    "planning_projects": "/api/archives/planning_projects/{id}/unarchive",
-    "planning_tasks":    "/api/archives/planning_tasks/{id}/unarchive",
+    # Every module now owns a per-module unarchive endpoint, used by its own
+    # in-module "Show archived" restore. This generic Archives route remains as
+    # a cross-module fallback.
+    "crm_leads":         "/api/crm/leads/{id}/unarchive",
+    "crm_deals":         "/api/crm/deals/{id}/unarchive",
+    "planning_projects": "/api/planning/projects/{id}/unarchive",
+    "planning_tasks":    "/api/planning/tasks/{id}/unarchive",
+}
+
+# Each archive module maps to the RBAC module that guards its writes. Restoring
+# a record is a write, so the caller must hold that module's `edit` permission —
+# the same right the per-module unarchive endpoints enforce. (Previously this
+# generic endpoint leaned on a blanket dashboard grant, which let anyone who
+# could see the dashboard restore records in modules they couldn't otherwise
+# touch.)
+RBAC_MODULE = {
+    "clients":           "clients",
+    "projects":          "projects",
+    "quotations":        "quotations",
+    "invoices":          "invoices",
+    "inventory":         "inventory",
+    "purchases":         "purchases",
+    "suppliers":         "suppliers",
+    "hr_employees":      "hr",
+    "hr_departments":    "hr",
+    "crm_leads":         "crm",
+    "crm_deals":         "crm",
+    "planning_projects": "planning",
+    "planning_tasks":    "planning",
 }
 
 
@@ -145,10 +168,14 @@ def list_archives(
 def unarchive_item(
     module:  str,
     item_id: int,
-    user=Depends(require_perm("dashboard", "create")),
+    user=Depends(require_auth),
     db: sqlite3.Connection = Depends(get_db),
 ):
     _assert_module(module)
+    # Gate on the target module's own `edit` permission, not a blanket dashboard
+    # grant. `require_auth` only proves a valid login; the real check is here,
+    # once `module` (a path param) is known and validated.
+    check_perm(user, db, RBAC_MODULE[module], "edit")
     row = db.execute(_ARCHIVE_SELECT_SQL[module], (item_id,)).fetchone()
     if not row:
         raise HTTPException(404, "Item not found")
