@@ -2392,6 +2392,7 @@ const en = {
     dealUpdated: 'Deal updated',
     dealArchived: 'Deal archived',
     dealRestored: 'Deal restored',
+    noArchivedDeals: 'No archived deals.',
     archiveDeal: 'Archive Deal',
     archiveDealMsg: 'Archive this deal?',
     stageQualification: 'Qualification',

@@ -9,7 +9,7 @@ import {
   getCRMDashboard, getCRMLeads, createCRMLead, updateCRMLead, archiveCRMLead, unarchiveCRMLead, convertCRMLead,
   getCRMContacts, createCRMContact, updateCRMContact, deleteCRMContact,
   getCRMActivities, createCRMActivity, updateCRMActivity, toggleActivityDone, deleteCRMActivity,
-  getCRMDeals, createCRMDeal, updateCRMDeal, updateDealStage, archiveCRMDeal,
+  getCRMDeals, createCRMDeal, updateCRMDeal, updateDealStage, archiveCRMDeal, unarchiveCRMDeal,
   getCRMDropdownClients, getCRMDropdownQuotations, getCRMDropdownUsers,
 } from '../api/client';
 import ImportWizard from '../components/ImportWizard';
@@ -951,8 +951,12 @@ function PipelineTab({ t }) {
   const [selected, setSelected] = useState(null);
   const [lostReason, setLostReason] = useState('');
   const [pendingStage, setPendingStage] = useState(null);
+  const [showArchived, setShowArchived] = useState(false);
 
-  const { data: deals, loading, error, reload } = useData(getCRMDeals);
+  const { data: deals, loading, error, reload } = useData(
+    (s) => getCRMDeals(showArchived ? { include_archived: 1 } : {}, s),
+    [showArchived],
+  );
   const { data: clients }    = useData(getCRMDropdownClients);
   const { data: quotations } = useData(getCRMDropdownQuotations);
   const { data: users }      = useData(getCRMDropdownUsers);
@@ -990,10 +994,22 @@ function PipelineTab({ t }) {
     } catch (e) { toast(e.message, 'red'); }
   }
 
+  async function handleUnarchive(deal) {
+    try {
+      await unarchiveCRMDeal(deal.id);
+      toast(t('crm.dealRestored')); reload();
+    } catch (e) { toast(e.message, 'red'); }
+  }
+
+  // The board only ever shows ACTIVE deals; archived ones surface as a flat
+  // restore list when "Show archived" is on (a kanban column per stage would
+  // mix inert cards into the live pipeline).
+  const activeDeals   = (deals || []).filter(d => !d.archived_at);
+  const archivedDeals = (deals || []).filter(d =>  d.archived_at);
   const byStage = {};
   DEAL_STAGES.forEach(s => { byStage[s] = []; });
-  (deals || []).forEach(d => { if (byStage[d.stage]) byStage[d.stage].push(d); });
-  const totalPipeline = (deals || []).filter(d => !['Won', 'Lost'].includes(d.stage)).reduce((a, d) => a + (d.value || 0), 0);
+  activeDeals.forEach(d => { if (byStage[d.stage]) byStage[d.stage].push(d); });
+  const totalPipeline = activeDeals.filter(d => !['Won', 'Lost'].includes(d.stage)).reduce((a, d) => a + (d.value || 0), 0);
 
   return (
     <div>
@@ -1018,15 +1034,43 @@ function PipelineTab({ t }) {
               }))}
               filename="CRM_Deals" sheetName="Pipeline" />
           )}
+          <label className="archived-toggle">
+            <input type="checkbox" checked={showArchived}
+              onChange={e => setShowArchived(e.target.checked)} />
+            {t('common.showArchived')}
+          </label>
           <button className="btn btn-primary btn-sm" onClick={() => { setSelected(null); setModal('create'); }}>
             {t('crm.addDeal')}
           </button>
         </div>
       </div>
 
+      {showArchived && (
+        <div className="card" style={{ marginBottom: 16, padding: 0 }}>
+          <div className="card-header"><strong>{t('common.archivedBadge')}</strong></div>
+          {archivedDeals.length === 0
+            ? <div style={{ padding: 16, color: 'var(--text-3)', fontSize: 13 }}>{t('crm.noArchivedDeals')}</div>
+            : (
+            <div className="table-wrap"><table><tbody>
+              {archivedDeals.map(d => (
+                <tr key={d.id} className="row-archived">
+                  <td className="td-primary">{d.title}</td>
+                  <td>{d.client_name || d.lead_name || '—'}</td>
+                  <td className="fw-600">{fmtCurr(d.value)}</td>
+                  <td style={{ textAlign: 'end' }}>
+                    <button className="btn btn-sm btn-secondary" style={{ color: '#166534', whiteSpace: 'nowrap' }}
+                      onClick={() => handleUnarchive(d)}>↩️ {t('common.restore')}</button>
+                  </td>
+                </tr>
+              ))}
+            </tbody></table></div>
+          )}
+        </div>
+      )}
+
       {loading ? <LoadingSpinner /> :
        error   ? <ErrorAlert message={error} onRetry={reload} /> :
-       !deals?.length ? <EmptyState message={t('crm.noDeals')} /> : (
+       !activeDeals.length ? <EmptyState message={t('crm.noDeals')} /> : (
         <div style={{ display: 'grid', gridTemplateColumns: 'repeat(5, 1fr)', gap: 12, overflowX: 'auto', minWidth: 0 }}>
           {DEAL_STAGES.map(stage => (
             <div key={stage} style={{ minWidth: 180 }}>
