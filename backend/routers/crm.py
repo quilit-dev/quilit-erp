@@ -150,6 +150,7 @@ def list_leads(
     search: Optional[str] = None,
     status: Optional[str] = None,
     source: Optional[str] = None,
+    include_archived: bool = False,
     user=Depends(require_perm("crm", "view")),
     db: sqlite3.Connection = Depends(get_db),
 ):
@@ -157,8 +158,10 @@ def list_leads(
            FROM crm_leads l
            LEFT JOIN users u ON u.id = l.assigned_to
            LEFT JOIN clients c ON c.id = l.client_id
-           WHERE l.archived_at IS NULL"""
+           WHERE 1=1"""
     params = []
+    if not include_archived:
+        q += " AND l.archived_at IS NULL"
     if search:
         q += " AND (l.name LIKE ? OR l.company LIKE ? OR l.email LIKE ? OR l.phone LIKE ?)"
         s = f"%{search}%"; params.extend([s, s, s, s])
@@ -260,6 +263,21 @@ def archive_lead(
     db.execute("UPDATE crm_leads SET archived_at=? WHERE id=?", (_now(), lead_id))
     db.commit()
     log_action(db, user, "archive", "crm_leads", lead_id, row["name"])
+    return {"ok": True}
+
+
+@router.patch("/leads/{lead_id}/unarchive")
+def unarchive_lead(
+    lead_id: int,
+    user=Depends(require_perm("crm", "edit")),
+    db: sqlite3.Connection = Depends(get_db),
+):
+    row = db.execute("SELECT name FROM crm_leads WHERE id=? AND archived_at IS NOT NULL", (lead_id,)).fetchone()
+    if not row:
+        raise HTTPException(404, "Lead not found in archives")
+    db.execute("UPDATE crm_leads SET archived_at=NULL WHERE id=?", (lead_id,))
+    db.commit()
+    log_action(db, user, "unarchive", "crm_leads", lead_id, row["name"])
     return {"ok": True}
 
 @router.post("/leads/{lead_id}/convert")
@@ -488,6 +506,7 @@ def delete_activity(
 def list_deals(
     stage: Optional[str] = None,
     client_id: Optional[int] = None,
+    include_archived: bool = False,
     user=Depends(require_perm("crm", "view")),
     db: sqlite3.Connection = Depends(get_db),
 ):
@@ -498,8 +517,10 @@ def list_deals(
            LEFT JOIN crm_leads l ON l.id = d.lead_id
            LEFT JOIN quotations q ON q.id = d.quotation_id
            LEFT JOIN users u ON u.id = d.assigned_to
-           WHERE d.archived_at IS NULL"""
+           WHERE 1=1"""
     params = []
+    if not include_archived:
+        q += " AND d.archived_at IS NULL"
     if stage:
         q += " AND d.stage = ?"; params.append(stage)
     if client_id:
@@ -592,6 +613,21 @@ def archive_deal(
     db.execute("UPDATE crm_deals SET archived_at=? WHERE id=?", (_now(), deal_id))
     db.commit()
     log_action(db, user, "archive", "crm_deals", deal_id, row["title"])
+    return {"ok": True}
+
+
+@router.patch("/deals/{deal_id}/unarchive")
+def unarchive_deal(
+    deal_id: int,
+    user=Depends(require_perm("crm", "edit")),
+    db: sqlite3.Connection = Depends(get_db),
+):
+    row = db.execute("SELECT title FROM crm_deals WHERE id=? AND archived_at IS NOT NULL", (deal_id,)).fetchone()
+    if not row:
+        raise HTTPException(404, "Deal not found in archives")
+    db.execute("UPDATE crm_deals SET archived_at=NULL WHERE id=?", (deal_id,))
+    db.commit()
+    log_action(db, user, "unarchive", "crm_deals", deal_id, row["title"])
     return {"ok": True}
 
 # ─── Dropdowns ───────────────────────────────────────────────────────────────
