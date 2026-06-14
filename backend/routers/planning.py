@@ -127,6 +127,7 @@ def row_to_dict(row):
 def list_projects(
     search: str = Query(""),
     status: str = Query(""),
+    include_archived: bool = False,
     user=Depends(require_perm("planning", "view")),
     db: sqlite3.Connection = Depends(get_db),
 ):
@@ -136,9 +137,11 @@ def list_projects(
                (SELECT COUNT(*) FROM planning_tasks t WHERE t.project_id=p.id AND t.archived_at IS NULL AND t.status='Done') as done_count
         FROM planning_projects p
         LEFT JOIN clients c ON p.client_id = c.id
-        WHERE p.archived_at IS NULL
+        WHERE 1=1
     """
     params = []
+    if not include_archived:
+        sql += " AND p.archived_at IS NULL"
     if search:
         sql += " AND (p.name LIKE ? OR p.description LIKE ?)"
         params += [f"%{search}%", f"%{search}%"]
@@ -229,6 +232,21 @@ def archive_project(
     return {"message": "Project archived"}
 
 
+@router.patch("/projects/{pid}/unarchive")
+def unarchive_project(
+    pid: int,
+    user=Depends(require_perm("planning", "edit")),
+    db: sqlite3.Connection = Depends(get_db),
+):
+    row = db.execute("SELECT id FROM planning_projects WHERE id=? AND archived_at IS NOT NULL", (pid,)).fetchone()
+    if not row:
+        raise HTTPException(status_code=404, detail="Project not found in archives")
+    db.execute("UPDATE planning_projects SET archived_at=NULL WHERE id=?", (pid,))
+    db.commit()
+    log_action(db, user, "unarchive", "planning", pid, str(pid))
+    return {"message": "Project restored"}
+
+
 # ─── Planning Tasks ──────────────────────────────────────────────────────────
 
 @router.get("/tasks")
@@ -237,6 +255,7 @@ def list_tasks(
     status: str = Query(""),
     assigned_to: Optional[int] = Query(None),
     search: str = Query(""),
+    include_archived: bool = False,
     user=Depends(require_perm("planning", "view")),
     db: sqlite3.Connection = Depends(get_db),
 ):
@@ -250,9 +269,11 @@ def list_tasks(
         LEFT JOIN users u ON t.assigned_to = u.id
         LEFT JOIN planning_projects p ON t.project_id = p.id
         LEFT JOIN planning_milestones m ON t.milestone_id = m.id
-        WHERE t.archived_at IS NULL
+        WHERE 1=1
     """
     params = []
+    if not include_archived:
+        sql += " AND t.archived_at IS NULL"
     if project_id:
         sql += " AND t.project_id=?"
         params.append(project_id)
@@ -447,6 +468,21 @@ def archive_task(
     db.commit()
     log_action(db, user, "archive", "planning", tid, str(tid))
     return {"message": "Task archived"}
+
+
+@router.patch("/tasks/{tid}/unarchive")
+def unarchive_task(
+    tid: int,
+    user=Depends(require_perm("planning", "edit")),
+    db: sqlite3.Connection = Depends(get_db),
+):
+    row = db.execute("SELECT id FROM planning_tasks WHERE id=? AND archived_at IS NOT NULL", (tid,)).fetchone()
+    if not row:
+        raise HTTPException(status_code=404, detail="Task not found in archives")
+    db.execute("UPDATE planning_tasks SET archived_at=NULL WHERE id=?", (tid,))
+    db.commit()
+    log_action(db, user, "unarchive", "planning", tid, str(tid))
+    return {"message": "Task restored"}
 
 
 # ─── Planning Milestones ─────────────────────────────────────────────────────

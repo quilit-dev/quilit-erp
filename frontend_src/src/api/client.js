@@ -296,6 +296,7 @@ export const getCRMLead        = (id)             => api.get(`/api/crm/leads/${i
 export const createCRMLead     = (d)              => api.post('/api/crm/leads', d);
 export const updateCRMLead     = (id, d)          => api.put(`/api/crm/leads/${id}`, d);
 export const archiveCRMLead    = (id)             => api.patch(`/api/crm/leads/${id}/archive`);
+export const unarchiveCRMLead  = (id)             => api.patch(`/api/crm/leads/${id}/unarchive`);
 export const convertCRMLead    = (id, d)          => api.post(`/api/crm/leads/${id}/convert`, d);
 export const getCRMContacts    = (params = {}, s) => api.get(`/api/crm/contacts${_qs(params)}`, s);
 export const createCRMContact  = (d)              => api.post('/api/crm/contacts', d);
@@ -311,6 +312,7 @@ export const createCRMDeal     = (d)              => api.post('/api/crm/deals', 
 export const updateCRMDeal     = (id, d)          => api.put(`/api/crm/deals/${id}`, d);
 export const updateDealStage   = (id, d)          => api.patch(`/api/crm/deals/${id}/stage`, d);
 export const archiveCRMDeal    = (id)             => api.patch(`/api/crm/deals/${id}/archive`);
+export const unarchiveCRMDeal  = (id)             => api.patch(`/api/crm/deals/${id}/unarchive`);
 export const getCRMDropdownClients    = ()         => api.get('/api/crm/dropdown/clients');
 export const getCRMDropdownQuotations = ()         => api.get('/api/crm/dropdown/quotations');
 export const getCRMDropdownUsers      = ()         => api.get('/api/crm/dropdown/users');
@@ -320,6 +322,7 @@ export const getPlanningProjects    = (params = {}, s) => api.get(`/api/planning
 export const createPlanningProject  = (d)              => api.post('/api/planning/projects', d);
 export const updatePlanningProject  = (id, d)          => api.put(`/api/planning/projects/${id}`, d);
 export const archivePlanningProject = (id)             => api.patch(`/api/planning/projects/${id}/archive`);
+export const unarchivePlanningProject = (id)           => api.patch(`/api/planning/projects/${id}/unarchive`);
 export const getPlanningTasks       = (params = {}, s) => api.get(`/api/planning/tasks${_qs(params)}`, s);
 export const createPlanningTask     = (d)              => api.post('/api/planning/tasks', d);
 export const updatePlanningTask     = (id, d)          => api.put(`/api/planning/tasks/${id}`, d);
@@ -327,6 +330,7 @@ export const updateTaskDates        = (id, d)          => api.patch(`/api/planni
 export const updateTaskStatus       = (id, d)          => api.patch(`/api/planning/tasks/${id}/status`, d);
 export const updateTaskProgress     = (id, d)          => api.patch(`/api/planning/tasks/${id}/progress`, d);
 export const archivePlanningTask    = (id)             => api.patch(`/api/planning/tasks/${id}/archive`);
+export const unarchivePlanningTask  = (id)             => api.patch(`/api/planning/tasks/${id}/unarchive`);
 export const getPlanningMilestones  = (params = {}, s) => api.get(`/api/planning/milestones${_qs(params)}`, s);
 export const getPlanningSummary     = (s)              => api.get('/api/planning/summary', s);
 export const getPlanningDropdownClients = ()           => api.get('/api/planning/dropdown/clients');

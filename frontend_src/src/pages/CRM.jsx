@@ -6,7 +6,7 @@ import {
   LoadingSpinner, ErrorAlert, EmptyState, Modal, ConfirmModal, ExportButton, toast, fmtDate,
 } from '../components/shared';
 import {
-  getCRMDashboard, getCRMLeads, createCRMLead, updateCRMLead, archiveCRMLead, convertCRMLead,
+  getCRMDashboard, getCRMLeads, createCRMLead, updateCRMLead, archiveCRMLead, unarchiveCRMLead, convertCRMLead,
   getCRMContacts, createCRMContact, updateCRMContact, deleteCRMContact,
   getCRMActivities, createCRMActivity, updateCRMActivity, toggleActivityDone, deleteCRMActivity,
   getCRMDeals, createCRMDeal, updateCRMDeal, updateDealStage, archiveCRMDeal,
@@ -236,6 +236,7 @@ function LeadsTab({ t }) {
   const navigate = useNavigate();
   const [search, setSearch]       = useState('');
   const [statusFilter, setStatus] = useState('');
+  const [showArchived, setShowArchived] = useState(false);
   const [modal, setModal]         = useState(null);
   const [selected, setSelected]   = useState(null);
   const [converting, setConverting] = useState(false);
@@ -245,10 +246,11 @@ function LeadsTab({ t }) {
     const p = {};
     if (search) p.search = search;
     if (statusFilter) p.status = statusFilter;
+    if (showArchived) p.include_archived = 1;
     return getCRMLeads(p, sig);
-  }, [search, statusFilter]);
+  }, [search, statusFilter, showArchived]);
 
-  const { data: leads, loading, error, reload } = useData(fetchLeads, [search, statusFilter]);
+  const { data: leads, loading, error, reload } = useData(fetchLeads, [search, statusFilter, showArchived]);
   const { data: users } = useData(getCRMDropdownUsers);
 
   const statusLabel = { New: t('crm.statusNew'), Contacted: t('crm.statusContacted'), Qualified: t('crm.statusQualified'), Proposal: t('crm.statusProposal'), Negotiation: t('crm.statusNegotiation'), Won: t('crm.statusWon'), Lost: t('crm.statusLost') };
@@ -265,6 +267,14 @@ function LeadsTab({ t }) {
     try {
       await archiveCRMLead(selected.id);
       toast(t('crm.leadArchived'));
+      setModal(null); setSelected(null); reload();
+    } catch (e) { toast(e.message, 'red'); }
+  }
+
+  async function handleUnarchive() {
+    try {
+      await unarchiveCRMLead(selected.id);
+      toast(t('crm.leadRestored'));
       setModal(null); setSelected(null); reload();
     } catch (e) { toast(e.message, 'red'); }
   }
@@ -293,6 +303,11 @@ function LeadsTab({ t }) {
               <option value="">{t('crm.allStatuses')}</option>
               {LEAD_STATUSES.map(s => <option key={s} value={s}>{statusLabel[s]}</option>)}
             </select>
+            <label className="archived-toggle">
+              <input type="checkbox" checked={showArchived}
+                onChange={e => setShowArchived(e.target.checked)} />
+              {t('common.showArchived')}
+            </label>
           </div>
           <div style={{ display: 'flex', gap: 8 }}>
             {leads && leads.length > 0 && (
@@ -341,11 +356,14 @@ function LeadsTab({ t }) {
                 </tr>
               </thead>
               <tbody>
-                {leads.map(l => (
-                  <tr key={l.id}>
+                {leads.map(l => {
+                  const isArchived = !!l.archived_at;
+                  return (
+                  <tr key={l.id} className={isArchived ? 'row-archived' : undefined}>
                     <td className="td-primary">
                       {l.name}
-                      {l.client_id && <span className="badge badge-green" style={{ marginLeft: 6, fontSize: 10 }}>{t('crm.alreadyConverted')}</span>}
+                      {l.client_id && !isArchived && <span className="badge badge-green" style={{ marginLeft: 6, fontSize: 10 }}>{t('crm.alreadyConverted')}</span>}
+                      {isArchived && <span className="badge badge-gray" style={{ marginInlineStart: 8 }}>{t('common.archivedBadge')}</span>}
                     </td>
                     <td>{l.company || '—'}</td>
                     <td>{l.source || '—'}</td>
@@ -355,16 +373,24 @@ function LeadsTab({ t }) {
                     <td>{l.assigned_name || '—'}</td>
                     <td>
                       <div style={{ display: 'flex', gap: 5 }}>
-                        <button className="btn btn-sm btn-secondary" onClick={() => { setSelected(l); setModal('form'); }}>{t('common.edit')}</button>
-                        {!l.client_id
-                          ? <button className="btn btn-sm btn-primary" onClick={() => { setSelected(l); setModal('convert'); }}>{t('crm.convertToClient')}</button>
-                          : <button className="btn btn-sm btn-secondary" onClick={() => navigate(`/clients/${l.client_id}`)}>{t('crm.viewClient')}</button>
-                        }
-                        <button className="btn btn-sm btn-danger" onClick={() => { setSelected(l); setModal('archive'); }}>{t('common.archive')}</button>
+                        {isArchived ? (
+                          <button className="btn btn-sm btn-secondary" style={{ color: '#166534', whiteSpace: 'nowrap' }}
+                            onClick={() => { setSelected(l); setModal('restore'); }}>↩️ {t('common.restore')}</button>
+                        ) : (
+                          <>
+                            <button className="btn btn-sm btn-secondary" onClick={() => { setSelected(l); setModal('form'); }}>{t('common.edit')}</button>
+                            {!l.client_id
+                              ? <button className="btn btn-sm btn-primary" onClick={() => { setSelected(l); setModal('convert'); }}>{t('crm.convertToClient')}</button>
+                              : <button className="btn btn-sm btn-secondary" onClick={() => navigate(`/clients/${l.client_id}`)}>{t('crm.viewClient')}</button>
+                            }
+                            <button className="btn btn-sm btn-danger" onClick={() => { setSelected(l); setModal('archive'); }}>{t('common.archive')}</button>
+                          </>
+                        )}
                       </div>
                     </td>
                   </tr>
-                ))}
+                  );
+                })}
               </tbody>
             </table>
           </div>
@@ -380,6 +406,11 @@ function LeadsTab({ t }) {
         <ConfirmModal title={t('crm.archiveLead')} message={t('crm.archiveLeadMsg')}
           confirmLabel={t('common.archive')} confirmClass="btn-danger"
           onConfirm={handleArchive} onCancel={() => { setModal(null); setSelected(null); }} />
+      )}
+      {modal === 'restore' && selected && (
+        <ConfirmModal message={t('common.restoreConfirm')}
+          confirmLabel={t('common.restore')}
+          onConfirm={handleUnarchive} onCancel={() => { setModal(null); setSelected(null); }} />
       )}
       {modal === 'convert' && selected && (
         <ConfirmModal title={t('crm.convertTitle')} message={t('crm.convertDesc')}
