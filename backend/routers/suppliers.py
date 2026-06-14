@@ -61,8 +61,10 @@ def get_supplier(
     user=Depends(require_perm("suppliers", "view")),
     db: sqlite3.Connection = Depends(get_db),
 ):
+    # Archived suppliers stay viewable (the list's "Show archived" View opens
+    # the detail) — only writes are blocked elsewhere.
     row = db.execute(
-        "SELECT * FROM suppliers WHERE id = ? AND archived_at IS NULL", (supplier_id,)
+        "SELECT * FROM suppliers WHERE id = ?", (supplier_id,)
     ).fetchone()
     if not row:
         raise HTTPException(404, "Supplier not found")

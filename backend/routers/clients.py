@@ -45,7 +45,9 @@ def list_clients(search: Optional[str] = None, type: Optional[str] = None,
 
 @router.get("/{client_id}")
 def get_client(client_id: int, user=Depends(require_perm("clients", "view")), db: sqlite3.Connection = Depends(get_db)):
-    row = db.execute("SELECT * FROM clients WHERE id = ? AND archived_at IS NULL", (client_id,)).fetchone()
+    # Archived clients are still viewable (the list's "Show archived" opens the
+    # detail) — only writes are blocked elsewhere. So no archived_at filter here.
+    row = db.execute("SELECT * FROM clients WHERE id = ?", (client_id,)).fetchone()
     if not row:
         raise HTTPException(404, "Client not found")
 

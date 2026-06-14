@@ -99,7 +99,7 @@ def get_project(project_id: int, user=Depends(require_perm("projects", "view")),
            FROM projects p
            LEFT JOIN clients c ON p.client_id = c.id
            LEFT JOIN quotations q ON p.source_quotation_id = q.id
-           WHERE p.id = ? AND p.archived_at IS NULL""",
+           WHERE p.id = ?""",
         (project_id,)
     ).fetchone()
     if not row:
