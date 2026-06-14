@@ -2380,6 +2380,7 @@ const ar = {
     dealUpdated: 'تم تحديث الصفقة',
     dealArchived: 'تمت أرشفة الصفقة',
     dealRestored: 'تمت استعادة الصفقة',
+    noArchivedDeals: 'لا توجد صفقات مؤرشفة.',
     archiveDeal: 'أرشفة الصفقة',
     archiveDealMsg: 'هل تريد أرشفة هذه الصفقة؟',
     stageQualification: 'تأهيل',
