@@ -203,6 +203,43 @@ export function useMoney() {
   };
 }
 
+// Compact, magnitude-abbreviated money for tight spaces like KPI cards. Lebanon's
+// currency runs into the billions/trillions of LBP, which blows past a card's
+// width as a fully grouped number — so anything from a thousand up is shown as
+// 12.3k / 1.2M / 3.4B / 5.6T. Sub-thousand amounts keep their exact grouped
+// form. USD gets the same treatment for consistency. Always currency-aware via
+// the DisplayCurrencyToggle.
+function _compactNum(abs) {
+  const pick = abs >= 1e12 ? [1e12, 'T']
+             : abs >= 1e9  ? [1e9,  'B']
+             : abs >= 1e6  ? [1e6,  'M']
+             : abs >= 1e3  ? [1e3,  'k']
+             : null;
+  if (!pick) return { body: _grp.format(Math.round(abs)), suffix: '' };
+  const n = abs / pick[0];
+  // More significant digits for smaller leading values; trim trailing zeros.
+  const dec = n < 10 ? 2 : n < 100 ? 1 : 0;
+  const body = n.toFixed(dec).replace(/\.?0+$/, '');
+  return { body, suffix: pick[1] };
+}
+
+export function useMoneyCompact() {
+  const { exchangeRate, displayCurrency } = useSettings();
+  const lbp = displayCurrency === 'LBP' && exchangeRate?.rate;
+  return (value) => {
+    const base = Number(value) || 0;
+    const x = lbp ? base * exchangeRate.rate : base;
+    const sign = x < 0 ? '-' : '';
+    const { body, suffix } = _compactNum(Math.abs(x));
+    const compact = lbp
+      ? `${sign}${body}${suffix} ${exchangeRate.secondary}`
+      : `${sign}$${body}${suffix}`;
+    // Exact value stays available on hover so no precision is lost.
+    const full = lbp ? secondaryAmount(base, exchangeRate) : fmt(base);
+    return <span title={full}>{compact}</span>;
+  };
+}
+
 // A two-button segmented control that flips the app-wide display currency.
 // Renders nothing until an admin has set an exchange rate.
 export function DisplayCurrencyToggle() {
