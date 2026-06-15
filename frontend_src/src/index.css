@@ -3825,6 +3825,32 @@ textarea.form-control {
     animation: sheetUp var(--motion-med) var(--ease-spring);
   }
   .modal-footer { padding-bottom: calc(12px + env(safe-area-inset-bottom)); }
+
+  /* ── Density ──────────────────────────────────────────────────────────────
+   * The layout above is responsive but still wears desktop's generous sizing,
+   * so on a phone it reads as oversized, full-width cards stacked in a tall
+   * column. This block tightens type and spacing and lays KPI tiles out 2-up so
+   * the screen carries real information density — clean and structured, like a
+   * native app rather than a scaled-down desktop. Scoped to phones; desktop and
+   * tablet keep their roomier sizing. */
+  .page-content { padding: 12px 12px calc(28px + env(safe-area-inset-bottom)); }
+  .page-header { margin-bottom: 16px; padding-bottom: 10px; }
+  .page-title { font-size: 1.3rem; line-height: 1.15; }
+  .page-subtitle { font-size: 12px; }
+
+  /* KPI tiles: a tidy 2-up grid with compact padding + value. The !important
+     overrides each page's inline grid-template / minmax so every KPI strip is
+     consistent instead of some 1-up and some 2-up. */
+  .stats-grid,
+  .cash-kpi-strip { grid-template-columns: repeat(2, minmax(0, 1fr)) !important; gap: 8px !important; }
+  .stat-card { padding: 12px 13px 11px; gap: 3px; }
+  .stat-value { font-size: 19px; }
+  .cash-kpi-strip .stat-value { font-size: 18px; }
+
+  /* Cards and tables a touch tighter so more fits per screen. */
+  .card-header { padding: 11px 13px; }
+  .card-body { padding: 13px; }
+  table { font-size: 12.5px; }
 }
 
 @keyframes sheetUp {
