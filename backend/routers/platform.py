@@ -75,6 +75,10 @@ class TenantCreate(BaseModel):
     plan: str = "standard"
 
 
+class DomainAdd(BaseModel):
+    domain: str
+
+
 # ── auth endpoints ───────────────────────────────────────────────────────────
 
 @router.get("/status")
@@ -145,3 +149,49 @@ def suspend_tenant(slug: str, admin=Depends(require_platform_admin)):
 def activate_tenant(slug: str, admin=Depends(require_platform_admin)):
     tenancy.set_tenant_status(slug, "active")
     return {"slug": slug, "status": "active"}
+
+
+# ── custom domains ───────────────────────────────────────────────────────────
+
+@router.get("/tenants/{slug}/domains")
+def list_domains(slug: str, admin=Depends(require_platform_admin)):
+    return tenancy.list_tenant_domains(slug)
+
+
+@router.post("/tenants/{slug}/domains")
+def add_domain(slug: str, data: DomainAdd, admin=Depends(require_platform_admin)):
+    """Attach a custom domain (pending verification). Returns the DNS TXT record
+    the client must publish to prove ownership before the domain goes live."""
+    try:
+        return tenancy.add_tenant_domain(slug, data.domain)
+    except ValueError as e:
+        raise HTTPException(status_code=400, detail=str(e))
+
+
+@router.post("/domains/{domain}/verify")
+def verify_domain(domain: str, admin=Depends(require_platform_admin)):
+    """Re-check the DNS TXT record and flip the domain to verified if it matches."""
+    try:
+        return tenancy.verify_tenant_domain(domain)
+    except ValueError as e:
+        raise HTTPException(status_code=404, detail=str(e))
+
+
+@router.delete("/domains/{domain}")
+def delete_domain(domain: str, admin=Depends(require_platform_admin)):
+    tenancy.remove_tenant_domain(domain)
+    return {"domain": domain, "removed": True}
+
+
+@router.get("/tls-check")
+def tls_check(domain: str = "", host: str = ""):
+    """On-demand TLS gate for the reverse proxy (e.g. Caddy `on_demand_tls.ask`).
+    UNAUTHENTICATED by design — the proxy calls it server-side before issuing a
+    certificate. Returns 200 only for a known, VERIFIED tenant domain so random
+    hosts pointed at us can't trigger certificate issuance. Caddy passes the SNI
+    host as `?domain=`; we also accept `?host=` for other proxies."""
+    _require_cloud()
+    candidate = (domain or host or "").strip().lower().rstrip(".")
+    if not candidate or not tenancy.is_verified_domain(candidate):
+        raise HTTPException(status_code=404, detail="Unknown domain.")
+    return {"domain": candidate, "ok": True}

@@ -15,3 +15,7 @@ python-multipart>=0.0.27
 python-dotenv>=1.0.0
 # idna >=3.15 fixes CVE-2026-45409 (idna.encode DoS on crafted input). Transitive.
 idna>=3.15
+# dnspython — TXT-record lookups for custom-domain ownership verification
+# (tenancy.verify_tenant_domain). Only used on the multi-tenant cloud deployment;
+# its absence degrades gracefully to "cannot verify yet".
+dnspython>=2.6.0
