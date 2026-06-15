@@ -575,10 +575,10 @@ const en = {
   },
 
   platform: {
-    title: 'Platform Console',
-    subtitle: 'Vendor control surface — provision and manage customer businesses',
+    title: 'Vendor Admin',
+    subtitle: 'Your private area — set up and manage the client businesses that use your ERP',
     cloudOnlyTitle: 'Cloud deployment only',
-    cloudOnlyBody: 'The platform console manages multi-tenant customer businesses and is not available on a self-hosted (single-company) installation.',
+    cloudOnlyBody: 'Vendor Admin manages the client businesses on your hosted (multi-tenant) deployment and is not available on a self-hosted (single-company) installation.',
     operatorUsername: 'Operator username',
     operatorPassword: 'Operator password',
     signIn: 'Sign In',
