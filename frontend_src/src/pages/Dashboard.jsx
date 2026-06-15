@@ -785,7 +785,7 @@ export default function Dashboard() {
 
       {/* ── Recent activity tables ─────────────────────────────────── */}
       {(can.projects || can.invoices) && (
-        <div style={{ display: 'grid', gridTemplateColumns: `repeat(${can.projects && can.invoices ? 2 : 1}, 1fr)`, gap: 16, marginBottom: 16 }}>
+        <div className="dash-activity-row" style={{ display: 'grid', gridTemplateColumns: `repeat(${can.projects && can.invoices ? 2 : 1}, 1fr)`, gap: 16, marginBottom: 16 }}>
           {can.projects && (
             <div className="card">
               <div className="card-header">
@@ -907,7 +907,7 @@ export default function Dashboard() {
           full width when viewport drops below ~900px so nothing wraps oddly. */}
       <style>{`
         @media (max-width: 900px) {
-          .dash-finance-row, .dash-chart-row { grid-template-columns: 1fr !important; }
+          .dash-finance-row, .dash-chart-row, .dash-activity-row { grid-template-columns: 1fr !important; }
         }
       `}</style>
     </div>

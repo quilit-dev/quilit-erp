@@ -118,7 +118,7 @@ function SummaryCards({ summary }) {
     { label: t('planning.overdueTasks'),   value: summary.overdue_tasks,   accent: '#ef4444' },
   ];
   return (
-    <div style={{ display: 'grid', gridTemplateColumns: 'repeat(4, 1fr)', gap: 12, marginBottom: 20 }}>
+    <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(140px, 1fr))', gap: 12, marginBottom: 20 }}>
       {cards.map(c => (
         <div key={c.label} className="stat-card" style={{ '--card-accent': c.accent }}>
           <div className="stat-label">{c.label}</div>
@@ -751,7 +751,7 @@ function BoardView({ tasks, projects, onRefresh, onEdit }) {
         <span style={{ fontSize: 11, color: 'var(--text-3)', marginLeft: 'auto' }}>{t('planning.dragColumnsHint')}</span>
       </div>
 
-      <div style={{ display: 'grid', gridTemplateColumns: `repeat(${STATUSES.length}, 1fr)`, gap: 12, alignItems: 'start' }}>
+      <div className="kanban-board" style={{ display: 'grid', gridTemplateColumns: `repeat(${STATUSES.length}, 1fr)`, gap: 12, alignItems: 'start' }}>
         {cols.map(col => (
           <div key={col.status}
             onDragOver={e => { e.preventDefault(); setDragOver(col.status); }}

@@ -1071,7 +1071,7 @@ function PipelineTab({ t }) {
       {loading ? <LoadingSpinner /> :
        error   ? <ErrorAlert message={error} onRetry={reload} /> :
        !activeDeals.length ? <EmptyState message={t('crm.noDeals')} /> : (
-        <div style={{ display: 'grid', gridTemplateColumns: 'repeat(5, 1fr)', gap: 12, overflowX: 'auto', minWidth: 0 }}>
+        <div className="kanban-board" style={{ display: 'grid', gridTemplateColumns: 'repeat(5, 1fr)', gap: 12, overflowX: 'auto', minWidth: 0 }}>
           {DEAL_STAGES.map(stage => (
             <div key={stage} style={{ minWidth: 180 }}>
               {/* Column header */}
