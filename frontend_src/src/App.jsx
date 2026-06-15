@@ -111,9 +111,10 @@ function SetupGate({ children }) {
   }, []);
 
   if (!checked) return <div style={{ minHeight: '100vh', display: 'flex', alignItems: 'center', justifyContent: 'center', background: 'var(--bg)' }}><LoadingSpinner /></div>;
-  // The operator console (/platform) is the vendor's surface, not a tenant
-  // page — a tenant's incomplete setup must never hijack it.
-  if (!setupComplete && location.pathname !== '/setup' && location.pathname !== '/platform') return <Navigate to="/setup" replace />;
+  // The operator console (/vendor-admin, legacy alias /platform) is the vendor's
+  // surface, not a tenant page — a tenant's incomplete setup must never hijack it.
+  const VENDOR_ADMIN_PATHS = ['/vendor-admin', '/platform'];
+  if (!setupComplete && location.pathname !== '/setup' && !VENDOR_ADMIN_PATHS.includes(location.pathname)) return <Navigate to="/setup" replace />;
   if (setupComplete && location.pathname === '/setup') return <Navigate to="/login" replace />;
   return children;
 }
@@ -257,7 +258,8 @@ export default function App() {
           <Routes>
             <Route path="/setup"                  element={<Page><Setup /></Page>} />
             <Route path="/login"                  element={<Page><Login /></Page>} />
-            <Route path="/platform"               element={<Page><PlatformConsole /></Page>} />
+            <Route path="/vendor-admin"           element={<Page><PlatformConsole /></Page>} />
+            <Route path="/platform"               element={<Page><PlatformConsole /></Page>} />{/* legacy alias */}
             <Route path="/force-change-password"  element={<RequireAuth><Page><ForceChangePassword /></Page></RequireAuth>} />
             <Route path="/"             element={Auth(<Dashboard />)} />
             <Route path="/clients"      element={Auth(<Clients />)} />
