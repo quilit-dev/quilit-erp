@@ -1,0 +1,48 @@
+# ─────────────────────────────────────────────────────────────────────────────
+# Caddy reverse proxy for the multi-tenant ERP with per-client custom domains.
+#
+# How it works
+#   • Every tenant is reachable at its own hostname (acme.erp.example.com or a
+#     client's own erp.clientco.com). The app resolves the tenant from the Host
+#     header (see backend/tenancy.py → resolve_tenant_from_scope).
+#   • On-demand TLS: Caddy fetches a Let's Encrypt certificate the first time a
+#     new host is seen — but ONLY if the `ask` endpoint approves it, so random
+#     domains pointed at this server can't trigger certificate issuance.
+#   • The ask endpoint is GET /api/platform/tls-check?domain=<host>, which the
+#     app answers 200 for a known + VERIFIED tenant domain and 404 otherwise.
+#
+# Onboarding a client domain
+#   1. Operator: POST /api/platform/tenants/<slug>/domains { "domain": "erp.clientco.com" }
+#      → returns a TXT record to publish.
+#   2. Client: add DNS  _erp-verify.erp.clientco.com  TXT  "<token>"
+#   3. Operator: POST /api/platform/domains/erp.clientco.com/verify  → verified.
+#   4. Client: point  erp.clientco.com  CNAME → app.erp.example.com  (or A → IP).
+#   5. First request triggers Caddy → ask → cert issued → live over HTTPS.
+#
+# Prereqs: the app runs with TENANCY=schema and COOKIE_SECURE=true (HTTPS).
+# ─────────────────────────────────────────────────────────────────────────────
+
+{
+	# Approve certificate issuance only for hosts the app recognises.
+	on_demand_tls {
+		ask http://app:8766/api/platform/tls-check
+	}
+	# email you@example.com   # ACME account email (recommended)
+}
+
+# Your own vendor domain + all tenant subdomains (acme.erp.example.com, …).
+erp.example.com, *.erp.example.com {
+	tls {
+		# Wildcard needs a DNS challenge; configure your DNS provider plugin here,
+		# or list explicit subdomains instead of the wildcard.
+	}
+	reverse_proxy app:8766
+}
+
+# Any other hostname (a client's custom domain) — gated by on-demand TLS.
+https:// {
+	tls {
+		on_demand
+	}
+	reverse_proxy app:8766
+}

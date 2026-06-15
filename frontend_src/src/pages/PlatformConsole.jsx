@@ -7,7 +7,7 @@
 // "operator not signed in" and must render the operator login form instead.
 // Operator auth lives on its own cookie (platform_session) — completely
 // separate from tenant sessions.
-import { useEffect, useState } from 'react';
+import { useEffect, useState, Fragment } from 'react';
 import { useLocale } from '../hooks/useLocale';
 import { LoadingSpinner, toast } from '../components/shared';
 
@@ -126,6 +126,7 @@ function TenantManager({ t }) {
   const [name, setName]       = useState('');
   const [plan, setPlan]       = useState('standard');
   const [busy, setBusy]       = useState(false);
+  const [expanded, setExpanded] = useState(null);   // slug whose domains panel is open
 
   async function reload() {
     try { setTenants(await pfetch('GET', '/api/platform/tenants')); }
@@ -228,7 +229,8 @@ function TenantManager({ t }) {
                 </td></tr>
               )}
               {tenants.map(tn => (
-                <tr key={tn.slug}>
+                <Fragment key={tn.slug}>
+                <tr>
                   <td className="text-mono">{tn.slug}</td>
                   <td>{tn.name || '—'}</td>
                   <td>{tn.plan}</td>
@@ -238,7 +240,12 @@ function TenantManager({ t }) {
                     </span>
                   </td>
                   <td style={{ fontSize: 12.5, color: 'var(--text-2)' }}>{(tn.created_at || '').slice(0, 10)}</td>
-                  <td style={{ textAlign: 'end' }}>
+                  <td style={{ textAlign: 'end', whiteSpace: 'nowrap' }}>
+                    <button className="btn btn-sm btn-secondary"
+                      onClick={() => setExpanded(expanded === tn.slug ? null : tn.slug)}>
+                      🌐 Domains
+                    </button>
+                    {' '}
                     {tn.status === 'active' ? (
                       <button className="btn btn-sm btn-secondary" style={{ color: '#92400e' }}
                         onClick={() => setStatus(tn, 'suspend')}>⏸ {t('platform.suspend')}</button>
@@ -248,11 +255,133 @@ function TenantManager({ t }) {
                     )}
                   </td>
                 </tr>
+                {expanded === tn.slug && (
+                  <tr>
+                    <td colSpan={6} style={{ background: 'var(--surface-2)', padding: 0 }}>
+                      <DomainManager slug={tn.slug} />
+                    </td>
+                  </tr>
+                )}
+                </Fragment>
               ))}
             </tbody>
           </table>
         )}
       </div>
     </>
+  );
+}
+
+// Per-tenant custom-domain management: attach a domain, show the DNS TXT record
+// the client must publish, verify it, and remove. A domain only routes traffic
+// (and only gets a TLS cert) once it shows as Verified.
+function DomainManager({ slug }) {
+  const [domains, setDomains] = useState(null);
+  const [input, setInput]     = useState('');
+  const [busy, setBusy]       = useState(false);
+  const [lastAdded, setLastAdded] = useState(null);   // { txt_name, txt_value } to display
+
+  async function reload() {
+    try { setDomains(await pfetch('GET', `/api/platform/tenants/${slug}/domains`)); }
+    catch (err) { toast(err.message, 'red'); }
+  }
+  useEffect(() => { reload(); /* eslint-disable-next-line */ }, [slug]);
+
+  async function add(e) {
+    e.preventDefault();
+    setBusy(true);
+    try {
+      const res = await pfetch('POST', `/api/platform/tenants/${slug}/domains`, { domain: input.trim().toLowerCase() });
+      setLastAdded(res);
+      setInput('');
+      toast('Domain added — publish the DNS TXT record, then Verify.');
+      reload();
+    } catch (err) { toast(err.message, 'red'); }
+    finally { setBusy(false); }
+  }
+
+  async function verify(domain) {
+    try {
+      const res = await pfetch('POST', `/api/platform/domains/${domain}/verify`);
+      toast(res.verified ? `Verified ${domain}` : `TXT record not found yet for ${domain}`, res.verified ? 'green' : 'red');
+      reload();
+    } catch (err) { toast(err.message, 'red'); }
+  }
+
+  async function remove(domain) {
+    try {
+      await pfetch('DELETE', `/api/platform/domains/${domain}`);
+      toast(`Removed ${domain}`);
+      if (lastAdded?.domain === domain) setLastAdded(null);
+      reload();
+    } catch (err) { toast(err.message, 'red'); }
+  }
+
+  return (
+    <div style={{ padding: 16 }}>
+      <strong style={{ display: 'block', marginBottom: 10 }}>Custom domains for {slug}</strong>
+
+      <form onSubmit={add} style={{ display: 'flex', gap: 8, alignItems: 'end', marginBottom: 12, flexWrap: 'wrap' }}>
+        <div className="form-group" style={{ margin: 0 }}>
+          <label className="form-label">Domain</label>
+          <input className="form-control" style={{ width: 280 }} value={input}
+            placeholder="erp.clientco.com"
+            onChange={e => setInput(e.target.value)} />
+        </div>
+        <button className="btn btn-primary btn-sm" disabled={busy || !input.trim()}>
+          {busy ? '…' : 'Add domain'}
+        </button>
+      </form>
+
+      {lastAdded?.txt_name && (
+        <div className="card" style={{ padding: 12, marginBottom: 12, border: '1px solid var(--accent)' }}>
+          <div style={{ fontSize: 12.5, color: 'var(--text-2)', marginBottom: 6 }}>
+            Ask the client to publish this DNS record, then click <b>Verify</b>:
+          </div>
+          <div style={{ fontFamily: 'var(--font-mono)', fontSize: 13 }}>
+            <div>Type: <b>TXT</b></div>
+            <div>Name: <b>{lastAdded.txt_name}</b></div>
+            <div>Value: <b>{lastAdded.txt_value}</b></div>
+          </div>
+          <div style={{ fontSize: 12, color: 'var(--text-3)', marginTop: 8 }}>
+            Once verified, point <b>{lastAdded.domain}</b> (CNAME → your app host, or A → your IP). HTTPS is issued automatically on first request.
+          </div>
+        </div>
+      )}
+
+      {domains === null ? <LoadingSpinner /> : domains.length === 0 ? (
+        <div style={{ fontSize: 13, color: 'var(--text-3)' }}>No custom domains yet — this tenant is reachable at its subdomain.</div>
+      ) : (
+        <table className="table" style={{ margin: 0 }}>
+          <thead>
+            <tr><th>Domain</th><th>Status</th><th /></tr>
+          </thead>
+          <tbody>
+            {domains.map(d => (
+              <tr key={d.domain}>
+                <td className="text-mono">{d.domain}</td>
+                <td>
+                  <span className={`badge badge-${d.verified ? 'green' : 'yellow'}`}>
+                    {d.verified ? 'Verified' : 'Pending DNS'}
+                  </span>
+                </td>
+                <td style={{ textAlign: 'end', whiteSpace: 'nowrap' }}>
+                  {!d.verified && (
+                    <>
+                      <button className="btn btn-sm btn-secondary" onClick={() => verify(d.domain)}>Verify</button>{' '}
+                      <button className="btn btn-sm btn-secondary"
+                        onClick={() => setLastAdded({ domain: d.domain, txt_name: `_erp-verify.${d.domain}`, txt_value: d.verify_token })}>
+                        Show TXT
+                      </button>{' '}
+                    </>
+                  )}
+                  <button className="btn btn-sm btn-secondary" style={{ color: '#b91c1c' }} onClick={() => remove(d.domain)}>Remove</button>
+                </td>
+              </tr>
+            ))}
+          </tbody>
+        </table>
+      )}
+    </div>
   );
 }
