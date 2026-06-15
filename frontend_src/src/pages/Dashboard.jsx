@@ -2,7 +2,7 @@ import { useState, useEffect } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { useData } from '../hooks/useData';
 import { getDashboard, getMonthlyReport, getFinanceRangeSummary } from '../api/client';
-import { LoadingSpinner, ErrorAlert, useMoney, useMoneyCompact, DisplayCurrencyToggle } from '../components/shared';
+import { LoadingSpinner, ErrorAlert, useMoney, DisplayCurrencyToggle } from '../components/shared';
 import { useLocale } from '../hooks/useLocale.jsx';
 import { useSettings } from '../hooks/useSettings.jsx';
 
@@ -340,7 +340,6 @@ export default function Dashboard() {
   const { data: monthly } = useData(getMonthlyReport);
   const { t, isRTL } = useLocale();
   const money = useMoney();
-  const moneyCompact = useMoneyCompact();
   const navigate = useNavigate();
 
   // Period selector for the headline finance KPIs. Default 'month' uses the
@@ -547,9 +546,9 @@ export default function Dashboard() {
         <div style={{ display: 'grid', gridTemplateColumns: 'minmax(0,1fr) 280px', gap: 16, marginBottom: 4 }}
              className="dash-finance-row">
           <div className="stats-grid" style={{ gridTemplateColumns: 'repeat(auto-fit, minmax(180px, 1fr))', marginBottom: 0 }}>
-            {can.finance && <KpiCard label={t('dashboard.monthlyRevenue')}  value={moneyCompact(income)}   sub={periodLabel}                          icon="💰" accentColor="var(--green)"  accentBg="var(--green-light)"  sparkData={incSpark}  onClick={() => navigate('/finance')} />}
-            {can.finance && <KpiCard label={t('dashboard.monthlyExpenses')} value={moneyCompact(expenses)} sub={t('dashboard.operatingCosts')}          icon="📉" accentColor="var(--red)"    accentBg="var(--red-light)"    sparkData={expSpark}  onClick={() => navigate('/finance')} />}
-            {can.finance && <KpiCard label={t('dashboard.netProfit')}       value={moneyCompact(profit)}   sub={t('dashboard.margin', { pct: margin })} icon={profit >= 0 ? '📈' : '⚠️'} accentColor={profit >= 0 ? 'var(--green)' : 'var(--red)'} accentBg={profit >= 0 ? 'var(--green-light)' : 'var(--red-light)'} sparkData={profSpark} onClick={() => navigate('/finance')} />}
+            {can.finance && <KpiCard label={t('dashboard.monthlyRevenue')}  value={money(income)}   sub={periodLabel}                          icon="💰" accentColor="var(--green)"  accentBg="var(--green-light)"  sparkData={incSpark}  onClick={() => navigate('/finance')} />}
+            {can.finance && <KpiCard label={t('dashboard.monthlyExpenses')} value={money(expenses)} sub={t('dashboard.operatingCosts')}          icon="📉" accentColor="var(--red)"    accentBg="var(--red-light)"    sparkData={expSpark}  onClick={() => navigate('/finance')} />}
+            {can.finance && <KpiCard label={t('dashboard.netProfit')}       value={money(profit)}   sub={t('dashboard.margin', { pct: margin })} icon={profit >= 0 ? '📈' : '⚠️'} accentColor={profit >= 0 ? 'var(--green)' : 'var(--red)'} accentBg={profit >= 0 ? 'var(--green-light)' : 'var(--red-light)'} sparkData={profSpark} onClick={() => navigate('/finance')} />}
           </div>
           <div className="card" style={{ display: 'flex', flexDirection: 'column', alignItems: 'center', justifyContent: 'center', padding: 18, marginBottom: 0 }}>
             <HealthRing score={healthScore} t={t} />
@@ -568,7 +567,7 @@ export default function Dashboard() {
             {can.pos && data.pos && (
               <KpiCard compact
                 label={t('dashboard.posSalesToday')}
-                value={moneyCompact(data.pos.total || 0)}
+                value={money(data.pos.total || 0)}
                 sub={t(data.pos.c === 1 ? 'dashboard.salesCount' : 'dashboard.salesCount_plural', { count: data.pos.c || 0 })}
                 icon="🛍️" accentColor="var(--accent)" accentBg="var(--accent-light, var(--surface-2))"
                 onClick={() => navigate('/pos')} />
@@ -627,7 +626,7 @@ export default function Dashboard() {
             {can.crm && data.crm && (
               <KpiCard compact
                 label={t('dashboard.crmPipeline')}
-                value={moneyCompact(data.crm.pipeline_value)}
+                value={money(data.crm.pipeline_value)}
                 sub={t(data.crm.pipeline_count === 1 ? 'dashboard.openDeals' : 'dashboard.openDeals_plural', { count: data.crm.pipeline_count })}
                 icon="💼" accentColor="var(--purple)" accentBg="var(--purple-light)"
                 onClick={() => navigate('/crm')} />
@@ -635,7 +634,7 @@ export default function Dashboard() {
             {can.crm && data.crm && (
               <KpiCard compact
                 label={t('dashboard.wonThisMonth')}
-                value={moneyCompact(data.crm.won_value)}
+                value={money(data.crm.won_value)}
                 sub={t(data.crm.won_count === 1 ? 'dashboard.openDeals' : 'dashboard.openDeals_plural', { count: data.crm.won_count })}
                 icon="🏆" accentColor="var(--green)" accentBg="var(--green-light)"
                 onClick={() => navigate('/crm')} />
@@ -659,7 +658,7 @@ export default function Dashboard() {
             {can.assets && data.assets && (
               <KpiCard compact
                 label={t('dashboard.fixedAssetsBookValue')}
-                value={moneyCompact(data.assets.book_value)}
+                value={money(data.assets.book_value)}
                 sub={t('dashboard.assetsBookValue', { count: data.assets.count })}
                 icon="🏛️" accentColor="var(--text-2)" accentBg="var(--surface-2)"
                 onClick={() => navigate('/fixed-assets')} />
@@ -695,7 +694,7 @@ export default function Dashboard() {
             {can.invoices && (
               <KpiCard compact
                 label={t('dashboard.unpaidInvoices')}
-                value={moneyCompact(unpaidAmt)}
+                value={money(unpaidAmt)}
                 sub={t('dashboard.outstanding', { count: data.unpaid_invoices_count ?? 0 })}
                 icon="🧾"
                 accentColor={(data.unpaid_invoices_count ?? 0) > 0 ? 'var(--yellow)' : 'var(--green)'}
@@ -705,7 +704,7 @@ export default function Dashboard() {
             {can.invoices && (
               <KpiCard compact
                 label={t('dashboard.overdueInvoices')}
-                value={moneyCompact(overdueAmt)}
+                value={money(overdueAmt)}
                 sub={t('dashboard.pastDue', { count: overdueCount })}
                 icon="⏰"
                 accentColor={overdueCount > 0 ? 'var(--red)' : 'var(--green)'}
