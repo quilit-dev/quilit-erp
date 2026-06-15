@@ -3725,11 +3725,109 @@ textarea.form-control {
   .sidebar-backdrop { display: block; }
   .sidebar-toggle   { display: inline-flex; }
 
-  /* Compact the topbar so it fits a phone: drop the search button + live pill. */
+  /* Compact the topbar so it fits a phone: drop the search button + live pill.
+     Both carry an inline `display:flex`, so the hide needs !important to win. */
   .topbar { padding: 0 12px; gap: 8px; }
-  .search-btn, .live-badge { display: none; }
+  .search-btn, .live-badge { display: none !important; }
 
   .page-content { padding: 16px 14px 40px; }
   .stats-grid { grid-template-columns: repeat(auto-fit, minmax(150px, 1fr)); gap: 10px; }
   .form-grid, .form-grid-3 { grid-template-columns: 1fr; }
+}
+
+
+/* ──────────────────────────────────────────────────────────────────────────
+ * Mobile app polish — phones & small tablets (≤ 900px)
+ *
+ * Builds on the drawer + topbar rules above so the ERP reads like a native
+ * mobile app rather than a shrunken desktop site:
+ *   • wide tables scroll inside their card instead of being clipped;
+ *   • page headers and filter/search toolbars stack instead of overflowing;
+ *   • tab strips become horizontally swipeable;
+ *   • dialogs rise as bottom sheets on phones;
+ *   • every tap target clears a comfortable ~40px and inputs use a 16px font
+ *     so iOS doesn't auto-zoom on focus;
+ *   • safe-area insets keep the chrome clear of notches / home indicators.
+ * Presentation only — no markup changes — so every page benefits at once.
+ * ────────────────────────────────────────────────────────────────────────── */
+@media (max-width: 900px) {
+  /* The single-column layout grid gives .main-content a `1fr` track whose
+     default `min-width: auto` lets it grow to its content's min-content width —
+     so one wide table or chart would stretch the whole page and create a
+     horizontal scroll. Pinning min-width:0 keeps the column at viewport width
+     and pushes the overflow down to the elements that handle it (tables scroll
+     inside their card, grids reflow). */
+  .main-content { min-width: 0; }
+
+  /* Safe-area (notch / home indicator) — relies on viewport-fit=cover. */
+  .topbar { padding-inline: max(12px, env(safe-area-inset-left)) max(12px, env(safe-area-inset-right)); }
+  .sidebar { padding-top: env(safe-area-inset-top); }
+  .page-content { padding-bottom: calc(40px + env(safe-area-inset-bottom)); }
+
+  /* Header: title stacks above its actions; the action row (a flex cluster,
+     whether .page-actions or an inline-styled div) wraps instead of spilling
+     past the screen edge. */
+  .page-header { flex-direction: column; align-items: stretch; gap: 12px; }
+  .page-header > * { min-width: 0; flex-wrap: wrap; }
+  .page-actions { flex-wrap: wrap; }
+
+  /* Card headers and filter/search toolbars wrap instead of overflowing. */
+  .card-header { flex-wrap: wrap; gap: 10px; }
+  .search-bar { flex-wrap: wrap; }
+  .search-input-wrap { flex: 1 1 100%; min-width: 0; }
+
+  /* Wide tables scroll horizontally inside their frame — the desktop rule uses
+     overflow:hidden for rounded corners, which would otherwise clip columns. */
+  .table-wrap,
+  .card .table-wrap { overflow-x: auto; -webkit-overflow-scrolling: touch; }
+
+  /* Tabs become a horizontally swipeable strip when they outrun the width. */
+  .tabs { flex-wrap: nowrap; overflow-x: auto; -webkit-overflow-scrolling: touch; scrollbar-width: none; }
+  .tabs::-webkit-scrollbar { display: none; }
+  .tab-btn { flex-shrink: 0; white-space: nowrap; }
+
+  /* Kanban boards (Planning / CRM): a fixed N-column grid can't fit a phone,
+     so switch to a horizontally swipeable strip of fixed-width columns — the
+     pattern every mobile board app (Trello, Linear…) uses. */
+  .kanban-board {
+    display: flex !important;
+    overflow-x: auto;
+    -webkit-overflow-scrolling: touch;
+    scroll-snap-type: x proximity;
+  }
+  .kanban-board > * {
+    flex: 0 0 80vw;
+    max-width: 320px;
+    scroll-snap-align: start;
+  }
+
+  /* Touch targets — comfortable taps; 16px inputs stop iOS auto-zoom on focus. */
+  .nav-link { padding: 11px 12px; }
+  .btn { min-height: 40px; }
+  .btn.btn-sm { min-height: 34px; }
+  .form-control,
+  select.form-control,
+  textarea.form-control { font-size: 16px; min-height: 42px; }
+  textarea.form-control { min-height: 64px; }
+  .icon-btn, .theme-toggle { width: 38px; height: 38px; }
+}
+
+/* Phones — dialogs become bottom sheets that rise from the edge. */
+@media (max-width: 560px) {
+  .modal-overlay { align-items: flex-end; padding: 0; }
+  .modal,
+  .modal.modal-lg,
+  .modal.modal-xl {
+    width: 100%;
+    max-width: 100%;
+    max-height: 92vh;
+    border-radius: var(--r-lg) var(--r-lg) 0 0;
+    animation: sheetUp var(--motion-med) var(--ease-spring);
+  }
+  .modal-footer { padding-bottom: calc(12px + env(safe-area-inset-bottom)); }
+}
+
+@keyframes sheetUp {
+  from { transform: translateY(100%); }
+  to   { transform: translateY(0); }
 }
