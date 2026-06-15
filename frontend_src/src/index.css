@@ -896,10 +896,14 @@ html[lang="ar"], html[lang="ar"] body {
   font-family: var(--font-display);
   font-weight: 700;
   font-size: 28px;
-  line-height: 1.05;
+  line-height: 1.1;
   letter-spacing: -0.028em;
   color: var(--text);
   font-variant-numeric: lining-nums tabular-nums slashed-zero;
+  /* Business owners read exact figures (e.g. 1,977,813,960 LBP), not K/M/B —
+     so let a long amount wrap cleanly onto a second line instead of spilling
+     out of the card. */
+  overflow-wrap: anywhere;
 }
 
 .stat-icon {
@@ -3844,8 +3848,11 @@ textarea.form-control {
   .stats-grid,
   .cash-kpi-strip { grid-template-columns: repeat(2, minmax(0, 1fr)) !important; gap: 8px !important; }
   .stat-card { padding: 12px 13px 11px; gap: 3px; }
-  .stat-value { font-size: 19px; }
-  .cash-kpi-strip .stat-value { font-size: 18px; }
+  /* Exact amounts (not K/M/B) need to fit a 2-up tile — a smaller hero value
+     keeps a billions-of-LBP figure on one line, wrapping to two only at the
+     extremes. !important overrides the per-card inline font-size so every tile
+     is uniform. */
+  .stat-value { font-size: 17px !important; line-height: 1.2; }
 
   /* Cards and tables a touch tighter so more fits per screen. */
   .card-header { padding: 11px 13px; }

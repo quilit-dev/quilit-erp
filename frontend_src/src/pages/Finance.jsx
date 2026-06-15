@@ -15,7 +15,7 @@ import {
   getInvoices,
   getFiscalYears,
 } from '../api/client';
-import { LoadingSpinner, ErrorAlert, useMoney, useMoneyCompact, DisplayCurrencyToggle, ExchangeRateBadge } from '../components/shared';
+import { LoadingSpinner, ErrorAlert, useMoney, DisplayCurrencyToggle, ExchangeRateBadge } from '../components/shared';
 import { useSettings } from '../hooks/useSettings.jsx';
 import { useLocale } from '../hooks/useLocale.jsx';
 import { useScrollLock } from '../hooks/useScrollLock';
@@ -1303,7 +1303,6 @@ function SmartInsightsPanel({ insights }) {
 function MonthDrillModal({ month, label, data, loading, onClose }) {
   const { t } = useLocale();
   const money = useMoney();
-  const moneyCompact = useMoneyCompact();
   const incomeTotal  = (data?.income_records  || []).reduce((s, r) => s + r.amount, 0);
   const expenseTotal = (data?.expense_records || []).reduce((s, r) => s + r.amount, 0);
   const profit = incomeTotal - expenseTotal;
@@ -1367,7 +1366,7 @@ function MonthDrillModal({ month, label, data, loading, onClose }) {
                     border: '1px solid var(--border)', textAlign: 'center',
                   }}>
                     <div style={{ fontSize: 11, color: 'var(--text-3)', fontWeight: 600, textTransform: 'uppercase', letterSpacing: '.4px', marginBottom: 4 }}>{label}</div>
-                    <div style={{ fontSize: 20, fontWeight: 800, color }}>{moneyCompact(value)}</div>
+                    <div style={{ fontSize: 20, fontWeight: 800, color }}>{money(value)}</div>
                   </div>
                 ))}
               </div>
@@ -1464,7 +1463,6 @@ function exportExcel(sheets, filename) {
 function ReconciliationModal({ onClose }) {
   const { t } = useLocale();
   const money = useMoney();
-  const moneyCompact = useMoneyCompact();
   const [data, setData] = useState(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState(null);
@@ -1515,10 +1513,10 @@ function ReconciliationModal({ onClose }) {
               {/* Summary row */}
               <div style={{ display: 'grid', gridTemplateColumns: 'repeat(4,1fr)', gap: 10, marginBottom: 20 }}>
                 {[
-                  { label: t('finance.totalInvoiced'), value: moneyCompact(data.summary?.total_invoiced || 0), color: '#1B4F72' },
-                  { label: t('finance.collected'), value: moneyCompact(data.summary?.total_collected || 0), color: '#059669' },
-                  { label: t('finance.outstanding'), value: moneyCompact(data.summary?.outstanding || 0), color: '#D97706' },
-                  { label: t('finance.totalExpenses'), value: moneyCompact(data.summary?.total_expenses || 0), color: '#DC2626' },
+                  { label: t('finance.totalInvoiced'), value: money(data.summary?.total_invoiced || 0), color: '#1B4F72' },
+                  { label: t('finance.collected'), value: money(data.summary?.total_collected || 0), color: '#059669' },
+                  { label: t('finance.outstanding'), value: money(data.summary?.outstanding || 0), color: '#D97706' },
+                  { label: t('finance.totalExpenses'), value: money(data.summary?.total_expenses || 0), color: '#DC2626' },
                 ].map(({ label, value, color }) => (
                   <div key={label} style={{ background: 'var(--surface-2)', borderRadius: 10, padding: '12px 14px', border: '1px solid var(--border)', textAlign: 'center' }}>
                     <div style={{ fontSize: 10.5, color: 'var(--text-3)', fontWeight: 600, textTransform: 'uppercase', letterSpacing: '.4px', marginBottom: 4 }}>{label}</div>
@@ -1566,7 +1564,6 @@ function ReconciliationModal({ onClose }) {
 export default function Finance() {
   const { t } = useLocale();
   const money = useMoney();
-  const moneyCompact = useMoneyCompact();
   const abbr = useAbbr();
   const [preset, setPreset] = usePersistedState('finance.preset', 'month');
   const [custom, setCustom] = usePersistedState('finance.custom', { start: '', end: '' });
@@ -1742,19 +1739,19 @@ export default function Finance() {
           <div className="stats-grid" style={{ gridTemplateColumns: 'repeat(auto-fit, minmax(220px, 1fr))', marginBottom: 24 }}>
             {[
               { label: t('finance.totalIncome'),
-                value: moneyCompact(summary?.income || 0),
+                value: money(summary?.income || 0),
                 color: 'var(--affirm)',
                 icon: '💰',
                 change: prev.income_change,
                 sub: t('finance.incomePeriod') },
               { label: t('finance.totalExpenses'),
-                value: moneyCompact(summary?.expenses || 0),
+                value: money(summary?.expenses || 0),
                 color: 'var(--negate)',
                 icon: '🧾',
                 change: prev.expenses_change != null ? -prev.expenses_change : null,
                 sub: t('finance.allCosts') },
               { label: t('finance.netProfit'),
-                value: moneyCompact(summary?.profit || 0),
+                value: money(summary?.profit || 0),
                 color: (summary?.profit || 0) >= 0 ? 'var(--accent)' : 'var(--negate)',
                 icon: '📊',
                 change: prev.profit_change,
