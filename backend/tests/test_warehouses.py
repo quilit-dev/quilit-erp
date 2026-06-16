@@ -439,3 +439,23 @@ def test_my_accessible_warehouses_returns_default(make_client):
     assert body["default_id"] is not None, body
     codes = {w["code"] for w in body["warehouses"]}
     assert "MAIN" in codes
+
+
+def test_warehouse_archive_unarchive_roundtrip(make_client):
+    """A non-default, empty warehouse can be archived (hidden from the active
+    list) and then restored back to active."""
+    c = make_client("superadmin")
+    wid = c.post("/api/warehouses/", json={"code": "ARCH1", "name": "Archive Me", "type": "Branch"}).json()["id"]
+
+    assert c.patch(f"/api/warehouses/{wid}/archive").status_code == 200
+    assert "ARCH1" not in {w["code"] for w in c.get("/api/warehouses/").json()}     # hidden
+    arch = c.get("/api/warehouses/", params={"include_archived": True}).json()
+    assert next(w for w in arch if w["code"] == "ARCH1")["archived_at"] is not None  # shows when asked
+
+    assert c.patch(f"/api/warehouses/{wid}/unarchive").status_code == 200
+    back = next(w for w in c.get("/api/warehouses/").json() if w["code"] == "ARCH1")  # active again
+    assert back["archived_at"] is None
+    assert back["is_active"] in (1, True)
+
+    # Restoring something that isn't archived is a 400, not a silent no-op.
+    assert c.patch(f"/api/warehouses/{wid}/unarchive").status_code == 400

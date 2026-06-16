@@ -17,7 +17,7 @@ import { useLocale } from '../hooks/useLocale.jsx';
 import { usePermissions } from '../hooks/usePermissions.js';
 import { LoadingSpinner, ErrorAlert, EmptyState, Modal, ConfirmModal, toast, fmt as fmtUsd } from '../components/shared';
 import {
-  getWarehouses, createWarehouse, updateWarehouse, archiveWarehouse,
+  getWarehouses, createWarehouse, updateWarehouse, archiveWarehouse, unarchiveWarehouse,
   setDefaultWarehouse, getWarehouseStock,
   getWarehouseAccess, grantWarehouseAccess, revokeWarehouseAccess,
   getUsers,
@@ -245,6 +245,10 @@ function WarehousesTab({ canEdit, t }) {
     try { await archiveWarehouse(confirm.id); toast(t('warehouses.toastArchived'), 'green'); setConfirm(null); load(); }
     catch (e) { toast(e.message, 'red'); setConfirm(null); }
   }
+  async function doRestore(row) {
+    try { await unarchiveWarehouse(row.id); toast(t('warehouses.toastRestored'), 'green'); load(); }
+    catch (e) { toast(e.message, 'red'); }
+  }
 
   if (loading) return <LoadingSpinner />;
   if (error)   return <ErrorAlert message={error} onRetry={load} />;
@@ -339,14 +343,22 @@ function WarehousesTab({ canEdit, t }) {
                 <th>{t('warehouses.name')}</th>
                 <th>{t('warehouses.type')}</th>
                 <th>{t('warehouses.archivedAt')}</th>
+                {canEdit && <th style={{ textAlign: 'right' }}>{t('warehouses.actions')}</th>}
               </tr></thead>
               <tbody>
                 {archived.map(r => (
-                  <tr key={r.id}>
+                  <tr key={r.id} className="row-archived">
                     <td className="td-mono">{r.code}</td>
                     <td>{r.name}</td>
                     <td>{t(`warehouses.type_${r.type}`) || r.type}</td>
                     <td>{r.archived_at ? new Date(r.archived_at).toLocaleDateString() : ''}</td>
+                    {canEdit && (
+                      <td style={{ textAlign: 'right' }}>
+                        <button className="btn btn-sm btn-outline" onClick={() => doRestore(r)}>
+                          ↩️ {t('common.restore')}
+                        </button>
+                      </td>
+                    )}
                   </tr>
                 ))}
               </tbody>

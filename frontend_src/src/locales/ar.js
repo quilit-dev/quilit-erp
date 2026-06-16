@@ -3460,6 +3460,7 @@ const ar = {
     toastCreated:        'تم إنشاء المستودع',
     toastUpdated:        'تم تحديث المستودع',
     toastArchived:       'تمت أرشفة المستودع',
+    toastRestored:       'تمت استعادة المستودع',
     toastNeedCodeName:   'الرمز والاسم مطلوبان',
     toastDefaultSet:     "تم تعيين '{{code}}' كمستودع افتراضي",
     toastAccessGranted:  'تم منح الصلاحية',

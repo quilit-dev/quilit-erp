@@ -567,7 +567,7 @@ export const disposeAsset       = (id, d)    => api.post(`/api/assets/${id}/disp
 export const archiveAsset       = (id)       => api.patch(`/api/assets/${id}/archive`);
 
 // Recurring Expenses
-export const getRecurringExpenses   = (s)     => api.get('/api/recurring-expenses', s);
+export const getRecurringExpenses   = (params = {}, s) => api.get(`/api/recurring-expenses${_qs(params)}`, s);
 export const getRecurringExpense    = (id)    => api.get(`/api/recurring-expenses/${id}`);
 export const createRecurringExpense = (d)     => api.post('/api/recurring-expenses', d);
 export const updateRecurringExpense = (id, d) => api.put(`/api/recurring-expenses/${id}`, d);
@@ -575,6 +575,7 @@ export const toggleRecurringExpense = (id)    => api.patch(`/api/recurring-expen
 export const runRecurringExpense    = (id)    => api.post(`/api/recurring-expenses/${id}/run`);
 export const runDueRecurringExpenses = ()     => api.post('/api/recurring-expenses/run-due');
 export const archiveRecurringExpense = (id)   => api.patch(`/api/recurring-expenses/${id}/archive`);
+export const unarchiveRecurringExpense = (id) => api.patch(`/api/recurring-expenses/${id}/unarchive`);
 
 // ── Attachments (generic — files on any business entity) ─────────────────────
 // One set of helpers backs every module. `entityType` is one of the keys in the
@@ -645,6 +646,7 @@ export const createWarehouse          = (d)            => api.post('/api/warehou
 export const updateWarehouse          = (id, d)        => api.put(`/api/warehouses/${id}`, d);
 export const setDefaultWarehouse      = (id)           => api.post(`/api/warehouses/${id}/set-default`);
 export const archiveWarehouse         = (id)           => api.patch(`/api/warehouses/${id}/archive`);
+export const unarchiveWarehouse       = (id)           => api.patch(`/api/warehouses/${id}/unarchive`);
 export const getWarehouseAccess       = (id)           => api.get(`/api/warehouses/${id}/access`);
 export const grantWarehouseAccess     = (id, userId)   => api.post(`/api/warehouses/${id}/access`, { user_id: userId });
 export const revokeWarehouseAccess    = (id, userId)   => api.delete(`/api/warehouses/${id}/access/${userId}`);

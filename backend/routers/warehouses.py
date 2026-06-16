@@ -334,6 +334,25 @@ def archive_warehouse(
     return {"message": "Warehouse archived"}
 
 
+@router.patch("/{wid}/unarchive")
+def unarchive_warehouse(
+    wid: int,
+    user=Depends(require_perm("warehouses", "edit")),
+    db: sqlite3.Connection = Depends(get_db),
+):
+    row = _wh_row(db, wid)
+    if not row["archived_at"]:
+        raise HTTPException(400, "Warehouse is not archived")
+    # Archiving sets is_active=0; restoring brings it back as an active warehouse.
+    db.execute(
+        "UPDATE warehouses SET archived_at=NULL, is_active=1 WHERE id=?",
+        (wid,),
+    )
+    log_action(db, user, "unarchive", "warehouse", wid, row["code"])
+    db.commit()
+    return {"message": "Warehouse restored"}
+
+
 # ─────────────────────────────────────────────────────────────────────────
 # PER-USER ACCESS CONTROL
 # ─────────────────────────────────────────────────────────────────────────
