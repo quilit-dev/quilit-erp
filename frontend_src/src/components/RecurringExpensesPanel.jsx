@@ -10,7 +10,7 @@ import {
 import {
   getRecurringExpenses, createRecurringExpense, updateRecurringExpense,
   toggleRecurringExpense, runRecurringExpense, runDueRecurringExpenses,
-  archiveRecurringExpense, getProjects,
+  archiveRecurringExpense, unarchiveRecurringExpense, getProjects,
 } from '../api/client';
 
 const FREQUENCIES = ['weekly', 'monthly', 'quarterly', 'annual'];
@@ -22,7 +22,9 @@ const EMPTY_FORM = {
 };
 
 export default function RecurringExpensesPanel() {
-  const { data: templates, loading, error, reload } = useData(getRecurringExpenses);
+  const [showArchived, setShowArchived] = useState(false);
+  const { data: templates, loading, error, reload } =
+    useData((s) => getRecurringExpenses({ include_archived: showArchived }, s), [showArchived]);
   const { data: projects } = useData((s) => getProjects({}, s));
   const { t } = useLocale();
   const { settings, taxRates } = useSettings();
@@ -36,6 +38,7 @@ export default function RecurringExpensesPanel() {
   const [saving, setSaving]   = useState(false);
   const [busy, setBusy]       = useState(false);
   const [archiveTarget, setArchive] = useState(null);
+  const [restoreTarget, setRestore] = useState(null);
 
   function openAdd() { setForm(EMPTY_FORM); setEditId(null); setModal(true); }
 
@@ -117,6 +120,15 @@ export default function RecurringExpensesPanel() {
     } catch (err) { toast(err.message, 'red'); }
   }
 
+  async function handleRestore() {
+    try {
+      await unarchiveRecurringExpense(restoreTarget.id);
+      toast(t('common.restore'));
+      setRestore(null);
+      reload();
+    } catch (err) { toast(err.message, 'red'); }
+  }
+
   const stats = useMemo(() => {
     const list = templates || [];
     const active = list.filter(r => r.is_active);
@@ -135,7 +147,11 @@ export default function RecurringExpensesPanel() {
           <h1 className="page-title">{t('recurring.title')}</h1>
           <p className="page-subtitle">{t('recurring.subtitle')}</p>
         </div>
-        <div style={{ display: 'flex', gap: 8 }}>
+        <div style={{ display: 'flex', gap: 8, alignItems: 'center', flexWrap: 'wrap' }}>
+          <label className="archived-toggle">
+            <input type="checkbox" checked={showArchived} onChange={e => setShowArchived(e.target.checked)} />
+            {t('common.showArchived')}
+          </label>
           {can('expenses', 'create') && stats.due > 0 && (
             <button className="btn btn-secondary" disabled={busy} onClick={handleRunDue}>
               {t('recurring.runDue', { count: stats.due })}
@@ -182,9 +198,14 @@ export default function RecurringExpensesPanel() {
               </thead>
               <tbody>
                 {templates.map(r => (
-                  <tr key={r.id} style={r.is_active ? {} : { opacity: 0.55 }}>
+                  <tr key={r.id}
+                    className={r.archived_at ? 'row-archived' : ''}
+                    style={(!r.is_active && !r.archived_at) ? { opacity: 0.55 } : undefined}>
                     <td className="td-primary">
                       {r.name}
+                      {r.archived_at && (
+                        <span className="badge badge-gray" style={{ marginInlineStart: 6 }}>{t('common.archivedBadge')}</span>
+                      )}
                       {r.project_name && (
                         <div style={{ fontSize: 11, color: 'var(--text-3)' }}>{r.project_name}</div>
                       )}
@@ -211,25 +232,35 @@ export default function RecurringExpensesPanel() {
                     </td>
                     <td style={{ textAlign: 'right' }}>
                       <div style={{ display: 'flex', gap: 6, justifyContent: 'flex-end' }}>
-                        {r.is_active && r.due_count > 0 && can('expenses', 'create') && (
-                          <button className="btn btn-sm btn-primary" disabled={busy} onClick={() => handleRun(r.id)}>
-                            {t('recurring.run')}
-                          </button>
-                        )}
-                        {can('expenses', 'edit') && (
-                          <button className="btn btn-sm btn-secondary" onClick={() => handleToggle(r.id)}>
-                            {r.is_active ? t('recurring.pause') : t('recurring.resume')}
-                          </button>
-                        )}
-                        {can('expenses', 'edit') && (
-                          <button className="btn btn-sm btn-secondary" onClick={() => openEdit(r)}>
-                            {t('common.edit')}
-                          </button>
-                        )}
-                        {can('expenses', 'delete') && (
-                          <button className="btn btn-sm btn-secondary" onClick={() => setArchive(r)}>
-                            {t('common.archive')}
-                          </button>
+                        {r.archived_at ? (
+                          can('expenses', 'edit') && (
+                            <button className="btn btn-sm btn-secondary" onClick={() => setRestore(r)}>
+                              ↩️ {t('common.restore')}
+                            </button>
+                          )
+                        ) : (
+                          <>
+                            {r.is_active && r.due_count > 0 && can('expenses', 'create') && (
+                              <button className="btn btn-sm btn-primary" disabled={busy} onClick={() => handleRun(r.id)}>
+                                {t('recurring.run')}
+                              </button>
+                            )}
+                            {can('expenses', 'edit') && (
+                              <button className="btn btn-sm btn-secondary" onClick={() => handleToggle(r.id)}>
+                                {r.is_active ? t('recurring.pause') : t('recurring.resume')}
+                              </button>
+                            )}
+                            {can('expenses', 'edit') && (
+                              <button className="btn btn-sm btn-secondary" onClick={() => openEdit(r)}>
+                                {t('common.edit')}
+                              </button>
+                            )}
+                            {can('expenses', 'delete') && (
+                              <button className="btn btn-sm btn-secondary" onClick={() => setArchive(r)}>
+                                {t('common.archive')}
+                              </button>
+                            )}
+                          </>
                         )}
                       </div>
                     </td>
@@ -337,6 +368,17 @@ export default function RecurringExpensesPanel() {
           confirmLabel={t('common.archive')}
           onConfirm={handleArchive}
           onCancel={() => setArchive(null)}
+        />
+      )}
+
+      {restoreTarget && (
+        <ConfirmModal
+          title={t('common.restore')}
+          message={`${t('common.restoreConfirm')} "${restoreTarget.name}"`}
+          confirmClass="btn-primary"
+          confirmLabel={t('common.restore')}
+          onConfirm={handleRestore}
+          onCancel={() => setRestore(null)}
         />
       )}
     </div>

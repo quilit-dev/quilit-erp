@@ -3494,6 +3494,7 @@ const en = {
     toastCreated:        'Warehouse created',
     toastUpdated:        'Warehouse updated',
     toastArchived:       'Warehouse archived',
+    toastRestored:       'Warehouse restored',
     toastNeedCodeName:   'Code and name are required',
     toastDefaultSet:     "'{{code}}' is now the default",
     toastAccessGranted:  'Access granted',
