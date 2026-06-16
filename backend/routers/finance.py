@@ -763,7 +763,7 @@ def reconciliation(
                COUNT(ii.id) AS item_count
         FROM invoices i
         LEFT JOIN invoice_items ii ON ii.invoice_id = i.id
-        WHERE i.archived_at IS NULL
+        WHERE i.archived_at IS NULL AND i.voided_at IS NULL
         GROUP BY i.id
         HAVING COUNT(ii.id) > 0
            AND ABS(i.amount - (COALESCE(SUM(ii.quantity * ii.unit_price), 0)
@@ -786,7 +786,7 @@ def reconciliation(
                COALESCE(SUM(ip.amount), 0) AS total_paid
         FROM invoices i
         LEFT JOIN invoice_payments ip ON ip.invoice_id = i.id
-        WHERE i.archived_at IS NULL
+        WHERE i.archived_at IS NULL AND i.voided_at IS NULL
         GROUP BY i.id
         HAVING COALESCE(SUM(ip.amount), 0) > i.amount + 0.01
     """).fetchall()
@@ -798,18 +798,20 @@ def reconciliation(
             "message": f"{r['invoice_number']}: overpaid by ${over:.2f} (paid ${r['total_paid']:.2f}, invoice ${r['amount']:.2f})",
         })
 
-    # ── 3. Payments on soft-deleted invoices ───────────────────────────────
+    # ── 3. Payments on archived or voided invoices ─────────────────────────
     rows = db.execute("""
-        SELECT ip.id, ip.amount, ip.paid_at, i.invoice_number
+        SELECT ip.id, ip.amount, ip.paid_at, i.invoice_number,
+               i.voided_at, i.archived_at
         FROM invoice_payments ip
         JOIN invoices i ON ip.invoice_id = i.id
-        WHERE i.archived_at IS NOT NULL
+        WHERE i.archived_at IS NOT NULL OR i.voided_at IS NOT NULL
     """).fetchall()
     for r in rows:
+        state = "voided" if r["voided_at"] else "archived"
         issues.append({
             "type": "orphaned_payment", "severity": "warning",
             "invoice_number": r["invoice_number"],
-            "message": f"Payment ${float(r['amount']):.2f} on {str(r['paid_at'])[:10]} belongs to deleted invoice {r['invoice_number']}",
+            "message": f"Payment ${float(r['amount']):.2f} on {str(r['paid_at'])[:10]} belongs to {state} invoice {r['invoice_number']}",
         })
 
     # ── 4. Future-dated expenses ───────────────────────────────────────────
@@ -823,13 +825,56 @@ def reconciliation(
             "message": f"Expense '{r['category']}' ${float(r['amount']):.2f} is dated in the future: {r['date']}",
         })
 
+    # ── 5. Ledger ↔ sub-ledger integrity ───────────────────────────────────
+    # This ERP recognises revenue/cost on CASH movement (a payment posts
+    # Dr Cash / Cr Revenue; a purchase posts Dr Inventory / Cr Cash). There is
+    # no accrual AR/AP control account, so the correct tie-out is NOT
+    # "GL AR == outstanding invoices" — it's that the ledger no longer
+    # recognises a transaction that has been cancelled. Voiding an invoice is
+    # supposed to reverse its payment entries (see routers/invoices.py); this
+    # catches any reversal that didn't happen — a live (posted, not-reversed)
+    # ledger entry still booking revenue for a voided invoice. Archived
+    # invoices are intentionally NOT flagged: archiving only hides a record, the
+    # cash really was received, so the revenue legitimately stays on the books.
+    rows = db.execute("""
+        SELECT je.id, je.entry_number, je.total_debit, i.invoice_number
+        FROM journal_entries je
+        JOIN invoice_payments ip ON ip.id = je.source_id
+        JOIN invoices i ON i.id = ip.invoice_id
+        WHERE je.source_type = 'invoice_payment'
+          AND je.status = 'posted' AND je.reversed_by IS NULL
+          AND i.voided_at IS NOT NULL
+    """).fetchall()
+    for r in rows:
+        issues.append({
+            "type": "unreversed_void", "severity": "error",
+            "invoice_number": r["invoice_number"],
+            "message": (f"Ledger entry {r['entry_number'] or r['id']} still books "
+                        f"${float(r['total_debit']):.2f} for voided invoice "
+                        f"{r['invoice_number']} — it should have been reversed."),
+        })
+
+    # Trial balance must always tie out (entries are balanced by construction;
+    # a failure here means data was written around the ledger API).
+    tb = accounting.trial_balance(db)
+    if not tb["balanced"]:
+        issues.append({
+            "type": "gl_unbalanced", "severity": "error",
+            "message": (f"General ledger is out of balance: debits "
+                        f"${tb['total_debit']:.2f} ≠ credits ${tb['total_credit']:.2f}."),
+        })
+
     # ── Summary totals ─────────────────────────────────────────────────────
+    # Voided invoices are excluded — a void removes the invoice from financial
+    # totals, so it must not inflate invoiced/outstanding here either.
     total_invoiced = float(db.execute(
-        "SELECT COALESCE(SUM(amount),0) FROM invoices WHERE archived_at IS NULL"
+        "SELECT COALESCE(SUM(amount),0) FROM invoices "
+        "WHERE archived_at IS NULL AND voided_at IS NULL"
     ).fetchone()[0])
     total_collected = float(db.execute(
         "SELECT COALESCE(SUM(ip.amount),0) FROM invoice_payments ip "
-        "JOIN invoices i ON ip.invoice_id=i.id WHERE i.archived_at IS NULL"
+        "JOIN invoices i ON ip.invoice_id=i.id "
+        "WHERE i.archived_at IS NULL AND i.voided_at IS NULL"
     ).fetchone()[0])
     total_expenses = float(db.execute(
         "SELECT COALESCE(SUM(amount),0) FROM expenses WHERE archived_at IS NULL AND voided_at IS NULL"

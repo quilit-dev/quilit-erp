@@ -1480,6 +1480,8 @@ function ReconciliationModal({ onClose }) {
     overpayment:       { bg: '#FEE2E2', text: '#991B1B', icon: '💸', label: 'Overpayment' },
     orphaned_payment:  { bg: '#FEE2E2', text: '#991B1B', icon: '🔗', label: 'Orphaned Payment' },
     future_expense:    { bg: '#EFF6FF', text: '#1D4ED8', icon: '📅', label: 'Future-Dated Expense' },
+    unreversed_void:   { bg: '#FEE2E2', text: '#991B1B', icon: '↩️', label: 'Unreversed Void' },
+    gl_unbalanced:     { bg: '#FEE2E2', text: '#991B1B', icon: '⚖️', label: 'Ledger Out of Balance' },
   };
 
   // Migrated to the shared modal shell — same scroll-lock + sticky-header
