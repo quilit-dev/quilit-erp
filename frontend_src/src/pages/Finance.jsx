@@ -631,7 +631,7 @@ function KpiCard({ label, value, change, color, icon, sub }) {
 // the caller (the page passes a currency-aware abbreviator that honours the
 // DisplayCurrencyToggle); the default keeps a USD fallback for any caller that
 // doesn't pass one.
-function generateInsights(summary, monthly, extras = {}, fmtK = v => v >= 1000 ? `$${(v / 1000).toFixed(1)}k` : `$${Math.abs(v).toFixed(0)}`) {
+function generateInsights(summary, monthly, extras = {}, fmtK = v => v >= 1000 ? `$${(v / 1000).toFixed(1)}k` : `$${Math.abs(v).toFixed(0)}`, t = (k) => k) {
   const insights = [];
   if (!summary) return insights;
 
@@ -644,17 +644,17 @@ function generateInsights(summary, monthly, extras = {}, fmtK = v => v >= 1000 ?
       insights.push({
         id: 'profit-up', priority: 1, type: 'positive',
         icon: '📈', category: 'Trend',
-        title: `Profit up ${ch}% vs last period`,
-        detail: `You made ${fmtK(profit - (prev.profit || 0))} more than the previous period. Keep momentum.`,
+        title: t('finance.ins.profitUp.t', { pct: ch }),
+        detail: t('finance.ins.profitUp.d', { amt: fmtK(profit - (prev.profit || 0)) }),
         action: null,
       });
     } else {
       insights.push({
         id: 'profit-down', priority: 1, type: 'critical',
         icon: '📉', category: 'Trend',
-        title: `Profit down ${Math.abs(ch)}% vs last period`,
-        detail: `${fmtK(Math.abs(profit - (prev.profit || 0)))} less than the previous period.`,
-        action: 'Review expense categories below to find where costs grew.',
+        title: t('finance.ins.profitDown.t', { pct: Math.abs(ch) }),
+        detail: t('finance.ins.profitDown.d', { amt: fmtK(Math.abs(profit - (prev.profit || 0))) }),
+        action: t('finance.ins.profitDown.a'),
       });
     }
   }
@@ -666,17 +666,17 @@ function generateInsights(summary, monthly, extras = {}, fmtK = v => v >= 1000 ?
       insights.push({
         id: 'rev-surge', priority: 2, type: 'positive',
         icon: '🚀', category: 'Revenue',
-        title: `Revenue surge: +${ch}%`,
-        detail: `Strong growth of ${fmtK(income - (prev.income || 0))} over the prior period.`,
-        action: 'Identify what drove the spike — replicate it.',
+        title: t('finance.ins.revSurge.t', { pct: ch }),
+        detail: t('finance.ins.revSurge.d', { amt: fmtK(income - (prev.income || 0)) }),
+        action: t('finance.ins.revSurge.a'),
       });
     } else if (ch < -10) {
       insights.push({
         id: 'rev-drop', priority: 1, type: 'critical',
         icon: '⚠️', category: 'Revenue',
-        title: `Revenue dropped ${Math.abs(ch)}%`,
-        detail: `Income fell by ${fmtK(Math.abs(income - (prev.income || 0)))} since last period.`,
-        action: 'Check for delayed invoices or lost recurring clients.',
+        title: t('finance.ins.revDrop.t', { pct: Math.abs(ch) }),
+        detail: t('finance.ins.revDrop.d', { amt: fmtK(Math.abs(income - (prev.income || 0))) }),
+        action: t('finance.ins.revDrop.a'),
       });
     }
   }
@@ -688,16 +688,16 @@ function generateInsights(summary, monthly, extras = {}, fmtK = v => v >= 1000 ?
       insights.push({
         id: 'exp-spike', priority: 2, type: 'warning',
         icon: '🧾', category: 'Expenses',
-        title: `Expenses jumped ${ch}%`,
-        detail: `Costs rose ${fmtK(expenses - (prev.expenses || 0))} vs last period.`,
-        action: `Largest category is "${by_category?.[0]?.category}" — review for one-time vs recurring costs.`,
+        title: t('finance.ins.expSpike.t', { pct: ch }),
+        detail: t('finance.ins.expSpike.d', { amt: fmtK(expenses - (prev.expenses || 0)) }),
+        action: t('finance.ins.expSpike.a', { cat: by_category?.[0]?.category }),
       });
     } else if (ch < -10) {
       insights.push({
         id: 'exp-down', priority: 3, type: 'positive',
         icon: '✂️', category: 'Expenses',
-        title: `Expenses cut ${Math.abs(ch)}%`,
-        detail: `You saved ${fmtK(Math.abs(expenses - (prev.expenses || 0)))} compared to the prior period.`,
+        title: t('finance.ins.expDown.t', { pct: Math.abs(ch) }),
+        detail: t('finance.ins.expDown.d', { amt: fmtK(Math.abs(expenses - (prev.expenses || 0))) }),
         action: null,
       });
     }
@@ -710,33 +710,33 @@ function generateInsights(summary, monthly, extras = {}, fmtK = v => v >= 1000 ?
       insights.push({
         id: 'margin-excellent', priority: 3, type: 'positive',
         icon: '🏆', category: 'Margin',
-        title: `${m.toFixed(1)}% margin — excellent`,
-        detail: 'You keep more than $0.40 of every dollar earned. Strong financial health.',
+        title: t('finance.ins.marginExcellent.t', { pct: m.toFixed(1) }),
+        detail: t('finance.ins.marginExcellent.d'),
         action: null,
       });
     } else if (m >= 20) {
       insights.push({
         id: 'margin-healthy', priority: 4, type: 'neutral',
         icon: '📊', category: 'Margin',
-        title: `${m.toFixed(1)}% profit margin`,
-        detail: 'Healthy, but room to grow. Cutting your top expense category by 10% could push margin above 25%.',
+        title: t('finance.ins.marginHealthy.t', { pct: m.toFixed(1) }),
+        detail: t('finance.ins.marginHealthy.d'),
         action: null,
       });
     } else if (m > 0) {
       insights.push({
         id: 'margin-thin', priority: 2, type: 'warning',
         icon: '⚡', category: 'Margin',
-        title: `Thin margin: ${m.toFixed(1)}%`,
-        detail: 'Less than $0.20 profit per dollar earned. A small dip in revenue could turn unprofitable.',
-        action: 'Focus on either raising rates or cutting the top 2 expense categories.',
+        title: t('finance.ins.marginThin.t', { pct: m.toFixed(1) }),
+        detail: t('finance.ins.marginThin.d'),
+        action: t('finance.ins.marginThin.a'),
       });
     } else {
       insights.push({
         id: 'margin-loss', priority: 1, type: 'critical',
         icon: '🔴', category: 'Margin',
-        title: 'Operating at a loss this period',
-        detail: `Expenses exceed income by ${fmtK(Math.abs(profit))}.`,
-        action: 'Immediate review needed. Are any expenses one-time or avoidable?',
+        title: t('finance.ins.marginLoss.t'),
+        detail: t('finance.ins.marginLoss.d', { amt: fmtK(Math.abs(profit)) }),
+        action: t('finance.ins.marginLoss.a'),
       });
     }
   }
@@ -749,9 +749,9 @@ function generateInsights(summary, monthly, extras = {}, fmtK = v => v >= 1000 ?
       insights.push({
         id: 'exp-concentration', priority: 2, type: 'warning',
         icon: '🎯', category: 'Expenses',
-        title: `${top.category} is ${topPct}% of all costs`,
-        detail: `Heavy concentration in one category creates cost risk. ${fmtK(top.total)} spent here.`,
-        action: 'Can any of this be renegotiated, deferred, or split across periods?',
+        title: t('finance.ins.expConcentration.t', { cat: top.category, pct: topPct }),
+        detail: t('finance.ins.expConcentration.d', { amt: fmtK(top.total) }),
+        action: t('finance.ins.expConcentration.a'),
       });
     }
     // Top 2 categories dominance
@@ -762,9 +762,9 @@ function generateInsights(summary, monthly, extras = {}, fmtK = v => v >= 1000 ?
         insights.push({
           id: 'exp-top2', priority: 3, type: 'neutral',
           icon: '📦', category: 'Expenses',
-          title: `Top 2 categories = ${top2Pct}% of spend`,
-          detail: `"${by_category[0].category}" and "${by_category[1].category}" dominate your cost structure.`,
-          action: 'Diversifying spend or reducing these reduces total risk.',
+          title: t('finance.ins.expTop2.t', { pct: top2Pct }),
+          detail: t('finance.ins.expTop2.d', { c1: by_category[0].category, c2: by_category[1].category }),
+          action: t('finance.ins.expTop2.a'),
         });
       }
     }
@@ -781,9 +781,9 @@ function generateInsights(summary, monthly, extras = {}, fmtK = v => v >= 1000 ?
       insights.push({
         id: 'scissors', priority: 2, type: 'warning',
         icon: '✂️', category: 'Trend',
-        title: 'Costs growing faster than revenue',
-        detail: 'Over the last 3 months, expenses are rising faster than income — a "scissors" pattern that compresses margin.',
-        action: 'Freeze non-essential spending until revenue catches up.',
+        title: t('finance.ins.scissors.t'),
+        detail: t('finance.ins.scissors.d'),
+        action: t('finance.ins.scissors.a'),
       });
     }
 
@@ -799,8 +799,8 @@ function generateInsights(summary, monthly, extras = {}, fmtK = v => v >= 1000 ?
       insights.push({
         id: 'streak', priority: 4, type: 'positive',
         icon: '🔥', category: 'Trend',
-        title: `${streak}-month profit streak`,
-        detail: `${streak} consecutive profitable months. Consistent execution.`,
+        title: t('finance.ins.streak.t', { n: streak }),
+        detail: t('finance.ins.streak.d', { n: streak }),
         action: null,
       });
     }
@@ -812,8 +812,8 @@ function generateInsights(summary, monthly, extras = {}, fmtK = v => v >= 1000 ?
       insights.push({
         id: 'best-month', priority: 5, type: 'positive',
         icon: '🏅', category: 'Performance',
-        title: `Best month: ${fmtMonth(best.month)}`,
-        detail: `${fmtK(best.profit)} net profit — your peak this period.`,
+        title: t('finance.ins.bestMonth.t', { month: fmtMonth(best.month) }),
+        detail: t('finance.ins.bestMonth.d', { amt: fmtK(best.profit) }),
         action: null,
       });
     }
@@ -821,8 +821,8 @@ function generateInsights(summary, monthly, extras = {}, fmtK = v => v >= 1000 ?
       insights.push({
         id: 'worst-month', priority: 3, type: 'warning',
         icon: '📅', category: 'Performance',
-        title: `${fmtMonth(worst.month)} was a loss month`,
-        detail: `${fmtK(Math.abs(worst.profit))} deficit. Was this seasonal or a one-time event?`,
+        title: t('finance.ins.worstMonth.t', { month: fmtMonth(worst.month) }),
+        detail: t('finance.ins.worstMonth.d', { amt: fmtK(Math.abs(worst.profit)) }),
         action: null,
       });
     }
@@ -836,9 +836,9 @@ function generateInsights(summary, monthly, extras = {}, fmtK = v => v >= 1000 ?
       insights.push({
         id: 'volatility', priority: 3, type: 'warning',
         icon: '〰️', category: 'Revenue',
-        title: `High revenue volatility (${cvInc.toFixed(0)}% CV)`,
-        detail: `Income swings significantly month to month (avg ${fmtK(avgInc)}, std dev ${fmtK(stdInc)}).`,
-        action: 'Consider retainer agreements or recurring billing to smooth cash flow.',
+        title: t('finance.ins.volatility.t', { cv: cvInc.toFixed(0) }),
+        detail: t('finance.ins.volatility.d', { avg: fmtK(avgInc), std: fmtK(stdInc) }),
+        action: t('finance.ins.volatility.a'),
       });
     }
 
@@ -849,9 +849,9 @@ function generateInsights(summary, monthly, extras = {}, fmtK = v => v >= 1000 ?
         insights.push({
           id: 'breakeven-close', priority: 2, type: 'warning',
           icon: '⚖️', category: 'Risk',
-          title: `Only ${safetyBuffer.toFixed(1)}% from break-even`,
-          detail: `A ${safetyBuffer.toFixed(0)}% drop in revenue would wipe out your profit entirely.`,
-          action: 'Build a buffer by targeting one new client or cutting the smallest expense categories.',
+          title: t('finance.ins.breakeven.t', { pct: safetyBuffer.toFixed(1) }),
+          detail: t('finance.ins.breakeven.d', { pct: safetyBuffer.toFixed(0) }),
+          action: t('finance.ins.breakeven.a'),
         });
       }
     }
@@ -865,8 +865,8 @@ function generateInsights(summary, monthly, extras = {}, fmtK = v => v >= 1000 ?
           insights.push({
             id: 'growth-strong', priority: 3, type: 'positive',
             icon: '📐', category: 'Revenue',
-            title: `${growthRate.toFixed(0)}% revenue growth this period`,
-            detail: `From ${fmtK(first.income)} to ${fmtK(last.income)} — strong upward trajectory.`,
+            title: t('finance.ins.growthStrong.t', { pct: growthRate.toFixed(0) }),
+            detail: t('finance.ins.growthStrong.d', { from: fmtK(first.income), to: fmtK(last.income) }),
             action: null,
           });
         }
@@ -881,16 +881,16 @@ function generateInsights(summary, monthly, extras = {}, fmtK = v => v >= 1000 ?
       insights.push({
         id: 'efficiency-poor', priority: 2, type: 'warning',
         icon: '⛽', category: 'Efficiency',
-        title: `Spending ${efficiencyRatio.toFixed(0)}¢ to earn $1`,
-        detail: `Your expense-to-revenue ratio is high. Very little room for error or unexpected costs.`,
-        action: `Target the top expense "${by_category?.[0]?.category}" for a 10–15% reduction first.`,
+        title: t('finance.ins.efficiencyPoor.t', { cents: efficiencyRatio.toFixed(0) }),
+        detail: t('finance.ins.efficiencyPoor.d'),
+        action: t('finance.ins.efficiencyPoor.a', { cat: by_category?.[0]?.category }),
       });
     } else if (efficiencyRatio <= 60) {
       insights.push({
         id: 'efficiency-great', priority: 5, type: 'positive',
         icon: '⚡', category: 'Efficiency',
-        title: `Lean operation: ${efficiencyRatio.toFixed(0)}¢ spent per $1 earned`,
-        detail: 'Very efficient cost structure — you retain a large portion of every dollar earned.',
+        title: t('finance.ins.efficiencyGreat.t', { cents: efficiencyRatio.toFixed(0) }),
+        detail: t('finance.ins.efficiencyGreat.d'),
         action: null,
       });
     }
@@ -916,9 +916,9 @@ function generateInsights(summary, monthly, extras = {}, fmtK = v => v >= 1000 ?
       insights.push({
         id: 'period-not-locked', priority: 2, type: 'warning',
         icon: '🔒', category: 'Controls',
-        title: `${stale.length} closed month${stale.length === 1 ? '' : 's'} not locked`,
-        detail: `${last.label} ended more than 10 days ago and is still open — entries can still be backdated into it.`,
-        action: 'Lock these months in Accounting → Period Locks to harden the audit trail.',
+        title: t('finance.ins.periodNotLocked.t', { n: stale.length }),
+        detail: t('finance.ins.periodNotLocked.d', { label: last.label }),
+        action: t('finance.ins.periodNotLocked.a'),
       });
     }
   }
@@ -942,9 +942,9 @@ function generateInsights(summary, monthly, extras = {}, fmtK = v => v >= 1000 ?
         insights.push({
           id: 'recurring-heavy', priority: 3, type: 'warning',
           icon: '🔁', category: 'Fixed costs',
-          title: `Fixed costs are ${Math.min(share, 999).toFixed(0)}% of monthly burn`,
-          detail: `${fmtK(monthlyRecurring)}/mo is committed via ${active.length} recurring template${active.length === 1 ? '' : 's'}. A revenue dip hits margin immediately.`,
-          action: 'Audit recurring expenses — pause any low-value subscriptions.',
+          title: t('finance.ins.recurringHeavy.t', { pct: Math.min(share, 999).toFixed(0) }),
+          detail: t('finance.ins.recurringHeavy.d', { amt: fmtK(monthlyRecurring), n: active.length }),
+          action: t('finance.ins.recurringHeavy.a'),
         });
       }
     }
@@ -953,9 +953,9 @@ function generateInsights(summary, monthly, extras = {}, fmtK = v => v >= 1000 ?
       insights.push({
         id: 'recurring-overdue', priority: 2, type: 'warning',
         icon: '⏰', category: 'Fixed costs',
-        title: `${overdue.length} recurring expense${overdue.length === 1 ? '' : 's'} overdue`,
-        detail: `Templates "${overdue.slice(0, 2).map(r => r.name).join('", "')}" haven't been generated to date.`,
-        action: 'Open Expenses → Recurring and click "Run all due" to catch up.',
+        title: t('finance.ins.recurringOverdue.t', { n: overdue.length }),
+        detail: t('finance.ins.recurringOverdue.d', { names: overdue.slice(0, 2).map(r => r.name).join('", "') }),
+        action: t('finance.ins.recurringOverdue.a'),
       });
     }
   }
@@ -978,9 +978,9 @@ function generateInsights(summary, monthly, extras = {}, fmtK = v => v >= 1000 ?
       insights.push({
         id: 'cash-variance', priority: 2, type: 'warning',
         icon: '💵', category: 'Cash',
-        title: `${offShifts.length} of last ${recent.length} cash closes were off`,
-        detail: `Net shortage of ${fmtK(Math.abs(totalShort))} across recent reconciliations.`,
-        action: 'Check cashier handover routine — recurring drift usually points to a process gap.',
+        title: t('finance.ins.cashVariance.t', { off: offShifts.length, total: recent.length }),
+        detail: t('finance.ins.cashVariance.d', { amt: fmtK(Math.abs(totalShort)) }),
+        action: t('finance.ins.cashVariance.a'),
       });
     }
   }
@@ -997,9 +997,9 @@ function generateInsights(summary, monthly, extras = {}, fmtK = v => v >= 1000 ?
       insights.push({
         id: 'fx-stale', priority: 2, type: 'warning',
         icon: '💱', category: 'FX',
-        title: `USD ↔ LBP rate is ${age} days old`,
-        detail: `Latest rate (1 USD = ${Number(extras.fxRate.rate || 0).toLocaleString()} LBP) was set ${age} days ago. LBP postings still use it.`,
-        action: 'Set a fresh spot rate in Settings → Exchange Rate.',
+        title: t('finance.ins.fxStale.t', { age }),
+        detail: t('finance.ins.fxStale.d', { rate: Number(extras.fxRate.rate || 0).toLocaleString(), age }),
+        action: t('finance.ins.fxStale.a'),
       });
     }
   }
@@ -1025,19 +1025,19 @@ function generateInsights(summary, monthly, extras = {}, fmtK = v => v >= 1000 ?
       insights.push({
         id: 'ar-overdue', priority: 1, type: 'critical',
         icon: '⏳', category: 'Receivables',
-        title: `${past.length} invoices overdue — ${fmtK(overdue$)} unpaid`,
-        detail: `Past-due invoices are tying up working capital. The oldest is from ${past
+        title: t('finance.ins.arOverdue.t', { n: past.length, amt: fmtK(overdue$) }),
+        detail: t('finance.ins.arOverdue.d', { date: past
           .sort((a, b) => new Date(a.due_date) - new Date(b.due_date))[0]
-          .due_date?.slice(0, 10)}.`,
-        action: 'Open Invoices → filter "Overdue" and follow up via the client phone numbers.',
+          .due_date?.slice(0, 10) }),
+        action: t('finance.ins.arOverdue.a'),
       });
     } else if (income > 0 && outstanding > income * 0.5) {
       insights.push({
         id: 'ar-bloated', priority: 3, type: 'warning',
         icon: '💼', category: 'Receivables',
-        title: `Open A/R = ${Math.round(outstanding / income * 100)}% of period revenue`,
-        detail: `${fmtK(outstanding)} sitting in unpaid invoices vs ${fmtK(income)} collected this period.`,
-        action: 'Tighten payment terms or send statements to slow payers.',
+        title: t('finance.ins.arBloated.t', { pct: Math.round(outstanding / income * 100) }),
+        detail: t('finance.ins.arBloated.d', { amt: fmtK(outstanding), income: fmtK(income) }),
+        action: t('finance.ins.arBloated.a'),
       });
     }
   }
@@ -1059,9 +1059,9 @@ function generateInsights(summary, monthly, extras = {}, fmtK = v => v >= 1000 ?
       insights.push({
         id: 'fy-not-closed', priority: 2, type: 'warning',
         icon: '📚', category: 'Controls',
-        title: `Fiscal year ${stalePriorYear.year} is still open`,
-        detail: `Net income of ${fmtK(stalePriorYear.net_income || 0)} hasn't been transferred to Retained Earnings yet.`,
-        action: 'Close the year in Accounting → Closing — it posts the closing entry automatically.',
+        title: t('finance.ins.fyNotClosed.t', { year: stalePriorYear.year }),
+        detail: t('finance.ins.fyNotClosed.d', { amt: fmtK(stalePriorYear.net_income || 0) }),
+        action: t('finance.ins.fyNotClosed.a'),
       });
     }
   }
@@ -1142,7 +1142,7 @@ function InsightCard({ insight, index }) {
           <span style={{
             fontSize: 10, fontWeight: 700, letterSpacing: '.6px',
             textTransform: 'uppercase', color: s.tone,
-          }}>{insight.category}</span>
+          }}>{t('finance.insCat.' + String(insight.category).toLowerCase().replace(/\s+/g, ''))}</span>
           <span style={{ fontSize: 10, color: 'var(--text-3)' }}>·</span>
           <span style={{ fontSize: 10, color: 'var(--text-3)', fontWeight: 500 }}>
             {t(`finance.severity_${insight.type}`) || insight.type}
@@ -1652,7 +1652,7 @@ export default function Finance() {
     finally { setDrillLoading(false); }
   }
 
-  const insights = generateInsights(summary, monthly, extras, abbr);
+  const insights = generateInsights(summary, monthly, extras, abbr, t);
   const margin = summary?.income > 0 ? (summary.profit / summary.income * 100).toFixed(1) : null;
   const prev = summary?.prev || {};
 
