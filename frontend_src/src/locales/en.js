@@ -1884,6 +1884,21 @@ const en = {
     booksClean: 'Books are clean — no issues found',
     issuesDetected: '{{count}} issue(s) detected',
     reviewItems: 'Review each item below and correct the records',
+    // Reconciliation issue chips + messages ({{amounts}} are currency-formatted)
+    reconState: { voided: 'voided', archived: 'archived' },
+    reconIssue: {
+      vat_mismatch: 'VAT Mismatch', overpayment: 'Overpayment',
+      orphaned_payment: 'Orphaned Payment', future_expense: 'Future-Dated Expense',
+      unreversed_void: 'Unreversed Void', gl_unbalanced: 'Ledger Out of Balance',
+    },
+    reconMsg: {
+      vat_mismatch:     '{{invoice_number}}: stored {{stored}} ≠ line net+tax {{expected}}',
+      overpayment:      '{{invoice_number}}: overpaid by {{over}} (paid {{paid}}, invoice {{amount}})',
+      orphaned_payment: 'Payment {{amount}} on {{date}} belongs to {{state}} invoice {{invoice_number}}',
+      future_expense:   'Expense "{{category}}" {{amount}} is dated in the future: {{date}}',
+      unreversed_void:  'Ledger entry {{entry}} still books {{amount}} for voided invoice {{invoice_number}} — it should have been reversed.',
+      gl_unbalanced:    'General ledger is out of balance: debits {{debit}} ≠ credits {{credit}}.',
+    },
     periodsTitle: '🔒 Accounting Periods',
     periodsSubtitle: 'Lock closed months to prevent backdated edits',
     currentLabel: 'Current',

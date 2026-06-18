@@ -774,6 +774,10 @@ def reconciliation(
         issues.append({
             "type": "vat_mismatch", "severity": "error",
             "invoice_number": r["invoice_number"], "invoice_id": r["id"],
+            # Structured params let the client render a localized message; `message`
+            # stays as an English fallback.
+            "params": {"invoice_number": r["invoice_number"],
+                       "stored": round(float(r["amount"]), 2), "expected": expected},
             "message": (
                 f"{r['invoice_number']}: stored ${r['amount']:.2f} ≠ "
                 f"lines net+tax ${expected:.2f}"
@@ -795,6 +799,10 @@ def reconciliation(
         issues.append({
             "type": "overpayment", "severity": "error",
             "invoice_number": r["invoice_number"], "invoice_id": r["id"],
+            "params": {"invoice_number": r["invoice_number"],
+                       "over": round(over, 2),
+                       "paid": round(float(r["total_paid"]), 2),
+                       "amount": round(float(r["amount"]), 2)},
             "message": f"{r['invoice_number']}: overpaid by ${over:.2f} (paid ${r['total_paid']:.2f}, invoice ${r['amount']:.2f})",
         })
 
@@ -811,6 +819,10 @@ def reconciliation(
         issues.append({
             "type": "orphaned_payment", "severity": "warning",
             "invoice_number": r["invoice_number"],
+            "params": {"amount": round(float(r["amount"]), 2),
+                       "date": str(r["paid_at"])[:10],
+                       "state": state,
+                       "invoice_number": r["invoice_number"]},
             "message": f"Payment ${float(r['amount']):.2f} on {str(r['paid_at'])[:10]} belongs to {state} invoice {r['invoice_number']}",
         })
 
@@ -822,6 +834,9 @@ def reconciliation(
     for r in rows:
         issues.append({
             "type": "future_expense", "severity": "warning",
+            "params": {"category": r["category"],
+                       "amount": round(float(r["amount"]), 2),
+                       "date": str(r["date"])[:10]},
             "message": f"Expense '{r['category']}' ${float(r['amount']):.2f} is dated in the future: {r['date']}",
         })
 
@@ -849,6 +864,9 @@ def reconciliation(
         issues.append({
             "type": "unreversed_void", "severity": "error",
             "invoice_number": r["invoice_number"],
+            "params": {"entry": r["entry_number"] or r["id"],
+                       "amount": round(float(r["total_debit"]), 2),
+                       "invoice_number": r["invoice_number"]},
             "message": (f"Ledger entry {r['entry_number'] or r['id']} still books "
                         f"${float(r['total_debit']):.2f} for voided invoice "
                         f"{r['invoice_number']} — it should have been reversed."),
@@ -860,6 +878,8 @@ def reconciliation(
     if not tb["balanced"]:
         issues.append({
             "type": "gl_unbalanced", "severity": "error",
+            "params": {"debit": round(float(tb["total_debit"]), 2),
+                       "credit": round(float(tb["total_credit"]), 2)},
             "message": (f"General ledger is out of balance: debits "
                         f"${tb['total_debit']:.2f} ≠ credits ${tb['total_credit']:.2f}."),
         })

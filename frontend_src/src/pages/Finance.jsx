@@ -1460,6 +1460,29 @@ function exportExcel(sheets, filename) {
 }
 
 // ── Reconciliation Modal ──────────────────────────────────────────────────
+// Localized reconciliation label/message. The server sends a `type`, structured
+// `params`, and an English `message` fallback. We translate the label and rebuild
+// the message from params (money fields formatted via the currency toggle) so the
+// modal reads fully in the active language; if a key is missing we fall back to
+// the server text rather than showing a raw key.
+const _RECON_MONEY_FIELDS = ['stored', 'expected', 'over', 'paid', 'amount', 'debit', 'credit'];
+
+function reconLabel(issue, t, fallback) {
+  const key = 'finance.reconIssue.' + issue.type;
+  const out = t(key);
+  return out === key ? fallback : out;
+}
+
+function reconMessage(issue, t, money) {
+  if (!issue.params) return issue.message;
+  const key = 'finance.reconMsg.' + issue.type;
+  const fp = { ...issue.params };
+  _RECON_MONEY_FIELDS.forEach(k => { if (fp[k] != null) fp[k] = money(fp[k]); });
+  if (fp.state) fp.state = t('finance.reconState.' + fp.state);
+  const out = t(key, fp);
+  return out === key ? issue.message : out;
+}
+
 function ReconciliationModal({ onClose }) {
   const { t } = useLocale();
   const money = useMoney();
@@ -1545,10 +1568,10 @@ function ReconciliationModal({ onClose }) {
                   <div key={i} style={{ background: 'var(--surface)', border: '1px solid var(--border)', borderLeft: `4px solid ${style.text === '#991B1B' ? '#DC2626' : style.text === '#92400E' ? '#D97706' : '#3B82F6'}`, borderRadius: 10, padding: '12px 16px', marginBottom: 8 }}>
                     <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginBottom: 4 }}>
                       <span style={{ fontSize: 16 }}>{style.icon}</span>
-                      <span style={{ fontSize: 11, fontWeight: 700, background: style.bg, color: style.text, borderRadius: 4, padding: '1px 6px' }}>{style.label}</span>
+                      <span style={{ fontSize: 11, fontWeight: 700, background: style.bg, color: style.text, borderRadius: 4, padding: '1px 6px' }}>{reconLabel(issue, t, style.label)}</span>
                       {issue.invoice_number && <span style={{ fontSize: 11, color: 'var(--text-3)' }}>#{issue.invoice_number}</span>}
                     </div>
-                    <div style={{ fontSize: 13, color: 'var(--text)', fontWeight: 500 }}>{issue.message}</div>
+                    <div style={{ fontSize: 13, color: 'var(--text)', fontWeight: 500 }}>{reconMessage(issue, t, money)}</div>
                     {issue.detail && <div style={{ fontSize: 12, color: 'var(--text-3)', marginTop: 3 }}>{issue.detail}</div>}
                   </div>
                 );

@@ -1881,6 +1881,21 @@ const ar = {
     booksClean: 'الحسابات سليمة — لا توجد مشاكل',
     issuesDetected: 'تم اكتشاف {{count}} مشكلة',
     reviewItems: 'راجع كل بند أدناه وصحح السجلات',
+    // رقائق ورسائل مشاكل التسوية ({{amounts}} مُنسّقة بالعملة)
+    reconState: { voided: 'ملغاة', archived: 'مؤرشفة' },
+    reconIssue: {
+      vat_mismatch: 'عدم تطابق الضريبة', overpayment: 'دفع زائد',
+      orphaned_payment: 'دفعة معلّقة', future_expense: 'مصروف بتاريخ مستقبلي',
+      unreversed_void: 'إلغاء غير معكوس', gl_unbalanced: 'دفتر غير متوازن',
+    },
+    reconMsg: {
+      vat_mismatch:     'الفاتورة {{invoice_number}}: المسجّل {{stored}} ≠ صافي البنود + الضريبة {{expected}}',
+      overpayment:      'الفاتورة {{invoice_number}}: دفع زائد بمقدار {{over}} (المدفوع {{paid}}، الفاتورة {{amount}})',
+      orphaned_payment: 'دفعة {{amount}} بتاريخ {{date}} تخص فاتورة {{state}} {{invoice_number}}',
+      future_expense:   'المصروف "{{category}}" {{amount}} مؤرّخ في المستقبل: {{date}}',
+      unreversed_void:  'القيد {{entry}} لا يزال يسجّل {{amount}} لفاتورة ملغاة {{invoice_number}} — كان يجب عكسه.',
+      gl_unbalanced:    'دفتر الأستاذ غير متوازن: المدين {{debit}} ≠ الدائن {{credit}}.',
+    },
     periodsTitle: '🔒 الفترات المحاسبية',
     periodsSubtitle: 'قفل الأشهر المغلقة لمنع التعديلات بأثر رجعي',
     currentLabel: 'الحالي',
