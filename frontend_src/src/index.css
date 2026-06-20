@@ -1257,6 +1257,21 @@ table tfoot td {
   text-align: right;
 }
 
+/* Remove the native up/down spinner stepper from EVERY number field across the
+   ERP. The steppers add visual noise, are easy to mis-click, and aren't wanted
+   here — values are typed directly. Scoped to input[type="number"] (not just
+   .form-control) so raw number inputs are covered too. */
+input[type="number"]::-webkit-outer-spin-button,
+input[type="number"]::-webkit-inner-spin-button {
+  -webkit-appearance: none;
+  appearance: none;
+  margin: 0;
+}
+input[type="number"] {
+  -moz-appearance: textfield;   /* Firefox */
+  appearance: textfield;
+}
+
 /* ── Select dropdowns ──────────────────────────────────────────────────
  *
  * Native <select> elements ignore most of the .form-control treatment
