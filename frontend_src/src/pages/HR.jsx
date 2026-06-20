@@ -373,7 +373,7 @@ export default function HR() {
                         <div style={{ display: 'flex', gap: 5 }}>
                           {isArchived ? (
                             canEdit && <button className="btn btn-sm btn-secondary" style={{ color: '#166534', whiteSpace: 'nowrap' }}
-                              onClick={() => setConfirm({ kind: 'restore-employee', id: e.id, label: e.full_name })}>↩️ {t('common.restore')}</button>
+                              onClick={() => setConfirm({ kind: 'restore-employee', id: e.id, label: e.full_name })}><svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true"><polyline points="1 4 1 10 7 10"/><path d="M3.51 15a9 9 0 1 0 2.13-9.36L1 10"/></svg>{t('common.restore')}</button>
                           ) : (
                             <>
                               {canEdit && <button className="btn btn-sm btn-secondary" onClick={() => openEmpEdit(e)}>{t('common.edit')}</button>}
@@ -421,7 +421,7 @@ export default function HR() {
                         <div style={{ display: 'flex', gap: 5 }}>
                           {isArchived ? (
                             canEdit && <button className="btn btn-sm btn-secondary" style={{ color: '#166534', whiteSpace: 'nowrap' }}
-                              onClick={() => setConfirm({ kind: 'restore-department', id: d.id, label: d.name })}>↩️ {t('common.restore')}</button>
+                              onClick={() => setConfirm({ kind: 'restore-department', id: d.id, label: d.name })}><svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true"><polyline points="1 4 1 10 7 10"/><path d="M3.51 15a9 9 0 1 0 2.13-9.36L1 10"/></svg>{t('common.restore')}</button>
                           ) : (
                             <>
                               {canEdit && <button className="btn btn-sm btn-secondary" onClick={() => openDeptEdit(d)}>{t('common.edit')}</button>}
