@@ -2745,9 +2745,17 @@ textarea.form-control {
   border-bottom: 1px solid var(--rule);
   background: var(--surface);
   overflow-x: auto;
-  scrollbar-width: none;
+  overflow-y: hidden;
+  scrollbar-width: thin;
+  scrollbar-color: var(--rule-strong) transparent;
 }
-.pos-categories::-webkit-scrollbar { display: none; }
+.pos-categories::-webkit-scrollbar { height: 8px; }
+.pos-categories::-webkit-scrollbar-thumb {
+  background: var(--rule-strong);
+  border-radius: 999px;
+  border: 2px solid var(--surface);
+}
+.pos-categories::-webkit-scrollbar-track { background: transparent; }
 
 /* Each pill is inline-flex with its own internal `gap` so the label and
  * the count badge always share a baseline. Fixed 30 px height keeps the
