@@ -152,7 +152,7 @@ function ActionMenu({ inv, exporting, onEdit, onPay, onExport, onVoid, onUnvoid 
                 onClick={() => { setOpen(false); onUnvoid(); }}
                 style={{ ...menuItemStyle, color: '#166534' }}
               >
-                ↩️ {t('invoices.unvoidInvoiceTitle')}
+                <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true" style={{ verticalAlign: '-2px', marginInlineEnd: 6 }}><polyline points="1 4 1 10 7 10"/><path d="M3.51 15a9 9 0 1 0 2.13-9.36L1 10"/></svg>{t('invoices.unvoidInvoiceTitle')}
               </button>
             ) : (
               <button

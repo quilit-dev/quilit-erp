@@ -184,7 +184,7 @@ export default function Suppliers() {
                         <button className="btn btn-sm btn-secondary" onClick={() => openDetail(s)}>{t('common.view')}</button>
                         {isArchived ? (
                           <button className="btn btn-sm btn-secondary" style={{ color: '#166534', whiteSpace: 'nowrap' }}
-                            onClick={() => setRestoreId(s.id)}>↩️ {t('common.restore')}</button>
+                            onClick={() => setRestoreId(s.id)}><svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true"><polyline points="1 4 1 10 7 10"/><path d="M3.51 15a9 9 0 1 0 2.13-9.36L1 10"/></svg>{t('common.restore')}</button>
                         ) : (
                           <>
                             <button className="btn btn-sm btn-secondary" onClick={() => openEdit(s)}>{t('common.edit')}</button>
