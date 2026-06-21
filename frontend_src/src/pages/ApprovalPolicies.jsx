@@ -1,7 +1,7 @@
 import { useState, useEffect, useCallback } from 'react';
 import { useLocale } from '../hooks/useLocale.jsx';
 import { useData } from '../hooks/useData.js';
-import { Modal, ConfirmModal, LoadingSpinner, ErrorAlert, toast } from '../components/shared';
+import { Modal, ConfirmModal, LoadingSpinner, ErrorAlert, toast, NumberInput} from '../components/shared';
 import {
   getApprovalPolicies, getApprovalPolicyMeta,
   createApprovalPolicy, updateApprovalPolicy,
@@ -245,7 +245,7 @@ function PolicyForm({ initial, meta, roles, onSave, onClose }) {
             </div>
             <div className="form-group">
               <label className="form-label">{t('approvals.priority')}</label>
-              <input type="number" className="form-control" value={form.priority} onChange={e => set('priority', Number(e.target.value))} min={0} />
+              <NumberInput className="form-control" value={form.priority} onChange={e => set('priority', Number(e.target.value))} min={0} />
             </div>
             <div className="form-group" style={{ display: 'flex', alignItems: 'flex-end' }}>
               <label style={{ display: 'flex', alignItems: 'center', gap: 8, cursor: 'pointer', fontSize: 13, fontWeight: 500, color: 'var(--text)' }}>

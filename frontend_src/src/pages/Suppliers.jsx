@@ -4,8 +4,7 @@ import { usePersistedState } from '../hooks/usePersistedState';
 import { getSuppliers, getSupplier, createSupplier, updateSupplier, archiveSupplier, unarchiveSupplier } from '../api/client';
 import {
   LoadingSpinner, ErrorAlert, EmptyState, Modal, ConfirmModal,
-  ExportButton, fmt, fmtDate, toast, SortableTh, Pagination,
-} from '../components/shared';
+  ExportButton, fmt, fmtDate, toast, SortableTh, Pagination, NumberInput} from '../components/shared';
 import { useSortPaginate } from '../hooks/useSortPaginate';
 import { useLocale } from '../hooks/useLocale.jsx';
 import { usePermissions } from '../hooks/usePermissions';
@@ -233,7 +232,7 @@ export default function Suppliers() {
                 </div>
                 <div className="form-group">
                   <label className="form-label">{t('suppliers.paymentTermsDaysLabel')}</label>
-                  <input className="form-control" type="number" min="0" step="1"
+                  <NumberInput className="form-control" min="0" step="1"
                     value={form.payment_terms_days}
                     onChange={e => setForm(f => ({ ...f, payment_terms_days: e.target.value }))} />
                 </div>

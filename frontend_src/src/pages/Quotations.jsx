@@ -11,8 +11,7 @@ import {
 import {
   LoadingSpinner, ErrorAlert, EmptyState, Modal, ConfirmModal,
   Badge, ExportButton, fmt, fmtDate, toast, SortableTh, Pagination,
-  DualMoney, ExchangeRateBadge, DisplayCurrencyToggle, WhatsAppShareButton,
-} from '../components/shared';
+  DualMoney, ExchangeRateBadge, DisplayCurrencyToggle, WhatsAppShareButton, NumberInput} from '../components/shared';
 import { exportQuotationPDF, exportQuotationExcel } from '../utils/exportUtils';
 import { useLocale } from '../hooks/useLocale.jsx';
 import { usePermissions } from '../hooks/usePermissions';
@@ -590,12 +589,12 @@ export default function Quotations() {
                       inventory={inventory || []}
                       onChange={(name) => setItemFromInventory(i, name)}
                     />
-                    <input type="number" className="form-control" placeholder={t('common.quantity')} min="0" step="any"
+                    <NumberInput className="form-control" placeholder={t('common.quantity')} min="0" step="any"
                       value={item.quantity} onChange={e => setItem(i, 'quantity', e.target.value)} />
-                    <input type="number" className="form-control" placeholder="Unit $" min="0" step="0.01"
+                    <NumberInput className="form-control" placeholder="Unit $" min="0" step="0.01"
                       value={item.unit_price} onChange={e => setItem(i, 'unit_price', e.target.value)} />
                     {discountEnabled && (
-                      <input type="number" className="form-control"
+                      <NumberInput className="form-control"
                         placeholder={t('common.discount')}
                         title={t('common.discount')}
                         min="0" step="0.01"

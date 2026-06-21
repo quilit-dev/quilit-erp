@@ -5,8 +5,7 @@ import { useSettings } from '../hooks/useSettings.jsx';
 import { useWarehouses } from '../hooks/useWarehouses';
 import {
   LoadingSpinner, ErrorAlert, EmptyState, Modal, ConfirmModal,
-  DisplayCurrencyToggle, ExportButton, fmt, secondaryAmount, toast,
-} from '../components/shared';
+  DisplayCurrencyToggle, ExportButton, fmt, secondaryAmount, toast, NumberInput} from '../components/shared';
 import {
   getBoms, getBom, getBomVersions, createBom, updateBom, createBomVersion, archiveBom,
   getProductionOrders, getProductionOrder, createProductionOrder, updateProductionOrder,
@@ -82,7 +81,7 @@ function CostInput({ valueUsd, onChange, placeholder }) {
   }
   return (
     <div style={{ display: 'flex', gap: 4 }}>
-      <input className="form-control" type="number" step="any" min="0"
+      <NumberInput className="form-control" step="any" min="0"
         value={raw} placeholder={placeholder} onChange={e => handle(e.target.value)} />
       {lbp > 0 && (
         <select className="form-control" style={{ width: 70, flexShrink: 0 }}
@@ -199,7 +198,7 @@ function BomModal({ mode, bom, products, onClose, onSaved }) {
           </div>
           <div className="form-group">
             <label className="form-label">{t('manufacturing.batchYield')}</label>
-            <input className="form-control" type="number" step="1" min="1" value={yieldQty}
+            <NumberInput className="form-control" step="1" min="1" value={yieldQty}
               onChange={e => setYieldQty(e.target.value)} />
           </div>
           <div className="form-group">
@@ -207,7 +206,7 @@ function BomModal({ mode, bom, products, onClose, onSaved }) {
               <span style={{ fontWeight: 400, color: 'var(--text-3)', marginLeft: 6, fontSize: 11 }}>
                 {t('manufacturing.standardHoursHint')}</span>
             </label>
-            <input className="form-control" type="number" step="any" min="0" value={stdHours}
+            <NumberInput className="form-control" step="any" min="0" value={stdHours}
               onChange={e => setStdHours(e.target.value)} placeholder="0" />
           </div>
         </div>
@@ -237,11 +236,11 @@ function BomModal({ mode, bom, products, onClose, onSaved }) {
                   </select>
                 </td>
                 <td>
-                  <input className="form-control" style={{ height: 32 }} type="number" step="1" min="1"
+                  <NumberInput className="form-control" style={{ height: 32 }} step="1" min="1"
                     value={l.quantity} onChange={e => setLine(l.key, { quantity: e.target.value })} />
                 </td>
                 <td>
-                  <input className="form-control" style={{ height: 32 }} type="number" step="any" min="0" max="100"
+                  <NumberInput className="form-control" style={{ height: 32 }} step="any" min="0" max="100"
                     value={l.scrap_pct} onChange={e => setLine(l.key, { scrap_pct: e.target.value })} />
                 </td>
                 <td>
@@ -276,7 +275,7 @@ function BomModal({ mode, bom, products, onClose, onSaved }) {
                 <td><input className="form-control" style={{ height: 32 }} value={r.name}
                   onChange={e => setResRow(r.key, { name: e.target.value, resource_id: '' })}
                   placeholder={t('manufacturing.resourceName')} /></td>
-                <td><input className="form-control" style={{ height: 32 }} type="number" min="0" step="any"
+                <td><NumberInput className="form-control" style={{ height: 32 }} min="0" step="any"
                   value={r.hourly_rate} onChange={e => setResRow(r.key, { hourly_rate: e.target.value })} /></td>
                 <td><button className="icon-btn" onClick={() => delRes(r.key)} title={t('common.delete')}>
                   <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round"><line x1="18" y1="6" x2="6" y2="18"/><line x1="6" y1="6" x2="18" y2="18"/></svg>
@@ -530,7 +529,7 @@ function OrderModal({ boms, initialBom, onClose, onCreated }) {
         )}
         <div className="form-group">
           <label className="form-label">{t('manufacturing.quantityToProduce')}</label>
-          <input className="form-control" type="number" step="1" min="1" value={qty}
+          <NumberInput className="form-control" step="1" min="1" value={qty}
             onChange={e => setQty(e.target.value)} autoFocus />
         </div>
         {warehouses.length > 1 && (
@@ -656,11 +655,11 @@ function CompleteModal({ order, onClose, onDone }) {
                 <td>{r.name}</td>
                 <td style={{ textAlign: 'end', color: 'var(--text-3)' }}>{num(r.required)}</td>
                 <td>
-                  <input className="form-control" style={{ height: 32 }} type="number" step="1" min="0"
+                  <NumberInput className="form-control" style={{ height: 32 }} step="1" min="0"
                     value={r.consumed} onChange={e => setRow(r.id, { consumed: e.target.value })} />
                 </td>
                 <td>
-                  <input className="form-control" style={{ height: 32 }} type="number" step="1" min="0"
+                  <NumberInput className="form-control" style={{ height: 32 }} step="1" min="0"
                     value={r.scrapped} onChange={e => setRow(r.id, { scrapped: e.target.value })} />
                 </td>
               </tr>
@@ -670,7 +669,7 @@ function CompleteModal({ order, onClose, onDone }) {
         <div className="form-grid" style={{ marginTop: 10 }}>
           <div className="form-group">
             <label className="form-label">{t('manufacturing.quantityProduced')}</label>
-            <input className="form-control" type="number" step="1" min="1" value={produced}
+            <NumberInput className="form-control" step="1" min="1" value={produced}
               onChange={e => setProduced(e.target.value)} />
           </div>
           {usesResources ? (
@@ -679,7 +678,7 @@ function CompleteModal({ order, onClose, onDone }) {
                 <span style={{ fontWeight: 400, color: 'var(--text-3)', marginLeft: 6, fontSize: 11 }}>
                   {t('manufacturing.productionHoursHint')}</span>
               </label>
-              <input className="form-control" type="number" step="any" min="0" value={hours}
+              <NumberInput className="form-control" step="any" min="0" value={hours}
                 onChange={e => setHours(e.target.value)} placeholder={t('manufacturing.standardIfBlank')} />
             </div>
           ) : (
@@ -1527,17 +1526,17 @@ function QCResolveModal({ qcId, canEdit, onClose, onDone }) {
             <div className="form-grid">
               <div className="form-group">
                 <label className="form-label">{t('manufacturing.qcPassed')}</label>
-                <input type="number" min="0" step="1" className="form-control" value={passed}
+                <NumberInput min="0" step="1" className="form-control" value={passed}
                   onChange={e => { setPassed(e.target.value); const v = total - (Number(e.target.value) || 0); setRejected(String(v >= 0 ? v : 0)); }} />
               </div>
               <div className="form-group">
                 <label className="form-label">{t('manufacturing.qcRejected')}</label>
-                <input type="number" min="0" step="1" className="form-control" value={rejected}
+                <NumberInput min="0" step="1" className="form-control" value={rejected}
                   onChange={e => setRejected(e.target.value)} />
               </div>
               <div className="form-group">
                 <label className="form-label">{t('manufacturing.qcRework')}</label>
-                <input type="number" min="0" step="1" className="form-control" value={rework}
+                <NumberInput min="0" step="1" className="form-control" value={rework}
                   onChange={e => setRework(e.target.value)} placeholder="0" />
               </div>
             </div>
@@ -1553,7 +1552,7 @@ function QCResolveModal({ qcId, canEdit, onClose, onDone }) {
               <div key={d.key} style={{ display: 'flex', gap: 6, marginBottom: 6 }}>
                 <input className="form-control" style={{ flex: 2 }} placeholder={t('manufacturing.defectReason')}
                   value={d.reason} onChange={e => setDefects(ds => ds.map((x, j) => j === i ? { ...x, reason: e.target.value } : x))} />
-                <input className="form-control" style={{ width: 90 }} type="number" min="0" placeholder={t('manufacturing.qcQuantity')}
+                <NumberInput className="form-control" style={{ width: 90 }} min="0" placeholder={t('manufacturing.qcQuantity')}
                   value={d.quantity} onChange={e => setDefects(ds => ds.map((x, j) => j === i ? { ...x, quantity: e.target.value } : x))} />
                 <button className="icon-btn" onClick={() => setDefects(ds => ds.filter((_, j) => j !== i))}>✕</button>
               </div>
@@ -1669,7 +1668,7 @@ function ResourcesView({ canCreate, canEdit, canDelete }) {
               </div>
               <div className="form-group">
                 <label className="form-label">{t('manufacturing.hourlyRate')} / h</label>
-                <input type="number" min="0" step="0.01" className="form-control"
+                <NumberInput min="0" step="0.01" className="form-control"
                   value={modal.hourly_rate} onChange={e => setModal(m => ({ ...m, hourly_rate: e.target.value }))} />
               </div>
             </div>

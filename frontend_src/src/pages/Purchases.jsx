@@ -7,8 +7,7 @@ import {
 } from '../api/client';
 import {
   LoadingSpinner, ErrorAlert, EmptyState, Modal, ConfirmModal,
-  ExportButton, fmt, fmtDate, toast, SortableTh, Pagination
-} from '../components/shared';
+  ExportButton, fmt, fmtDate, toast, SortableTh, Pagination, NumberInput} from '../components/shared';
 import { useSortPaginate } from '../hooks/useSortPaginate';
 import { useLocale } from '../hooks/useLocale.jsx';
 import { useSettings } from '../hooks/useSettings.jsx';
@@ -235,19 +234,19 @@ function PurchaseForm({ initial = {}, inventoryItems = [], inventoryCategories =
 
           <div className="form-group">
             <label className="form-label">{t('purchases.quantityLabel')}</label>
-            <input className="form-control" type="number" step="1" min="1" required
+            <NumberInput className="form-control" step="1" min="1" required
               value={form.quantity} onChange={e => set('quantity', e.target.value)} />
           </div>
 
           <div className="form-group">
             <label className="form-label">{t('purchases.unitCostDollar')}</label>
-            <input className="form-control" type="number" step="any" min="0"
+            <NumberInput className="form-control" step="any" min="0"
               value={form.unit_cost} onChange={e => set('unit_cost', e.target.value)} />
           </div>
 
           <div className="form-group">
             <label className="form-label">{t('purchases.additionalCostsDollar')}</label>
-            <input className="form-control" type="number" step="any" min="0"
+            <NumberInput className="form-control" step="any" min="0"
               value={form.additional_costs} onChange={e => set('additional_costs', e.target.value)} />
           </div>
 

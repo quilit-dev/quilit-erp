@@ -7,8 +7,7 @@ import { usePermissions } from '../hooks/usePermissions.js';
 import Attachments from '../components/Attachments.jsx';
 import {
   LoadingSpinner, ErrorAlert, EmptyState, Modal, ConfirmModal,
-  ExportButton, fmt, fmtDate, toast, SortableTh, Pagination,
-} from '../components/shared';
+  ExportButton, fmt, fmtDate, toast, SortableTh, Pagination, NumberInput} from '../components/shared';
 import {
   getAssets, getAssetsSummary, getAsset, createAsset, updateAsset,
   depreciateAsset, runDepreciation, disposeAsset, archiveAsset, getSuppliers,
@@ -336,13 +335,13 @@ export default function FixedAssets() {
                 </div>
                 <div className="form-group">
                   <label className="form-label">{t('assets.fldCost')} *</label>
-                  <input type="number" className="form-control" required step="0.01" min="0"
+                  <NumberInput className="form-control" required step="0.01" min="0"
                     value={form.acquisition_cost}
                     onChange={e => setForm(f => ({ ...f, acquisition_cost: e.target.value }))} />
                 </div>
                 <div className="form-group">
                   <label className="form-label">{t('assets.fldSalvage')}</label>
-                  <input type="number" className="form-control" step="0.01" min="0"
+                  <NumberInput className="form-control" step="0.01" min="0"
                     value={form.salvage_value}
                     onChange={e => setForm(f => ({ ...f, salvage_value: e.target.value }))} />
                 </div>
@@ -367,7 +366,7 @@ export default function FixedAssets() {
                 {form.depreciation_method === 'straight_line' && (
                   <div className="form-group">
                     <label className="form-label">{t('assets.fldLife')} *</label>
-                    <input type="number" className="form-control" required min="1" step="1"
+                    <NumberInput className="form-control" required min="1" step="1"
                       value={form.useful_life_months}
                       onChange={e => setForm(f => ({ ...f, useful_life_months: e.target.value }))} />
                   </div>
@@ -532,7 +531,7 @@ export default function FixedAssets() {
                 </div>
                 <div className="form-group">
                   <label className="form-label">{t('assets.fldProceeds')}</label>
-                  <input type="number" className="form-control" step="0.01" min="0"
+                  <NumberInput className="form-control" step="0.01" min="0"
                     value={disposeForm.disposal_proceeds}
                     onChange={e => setDisposeForm(f => ({ ...f, disposal_proceeds: e.target.value }))} />
                 </div>

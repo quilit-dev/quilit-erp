@@ -5,8 +5,7 @@ import { useData } from '../hooks/useData';
 import { getProjects, getClients, createProject, updateProject, archiveProject, unarchiveProject } from '../api/client';
 import {
   LoadingSpinner, ErrorAlert, EmptyState, Modal, ConfirmModal,
-  Badge, ExportButton, fmt, fmtDate, toast, SortableTh, Pagination
-} from '../components/shared';
+  Badge, ExportButton, fmt, fmtDate, toast, SortableTh, Pagination, NumberInput} from '../components/shared';
 import { useSortPaginate } from '../hooks/useSortPaginate';
 import { useLocale } from '../hooks/useLocale.jsx';
 
@@ -277,13 +276,13 @@ export default function Projects() {
                 </div>
                 <div className="form-group">
                   <label className="form-label">{t('projects.estimatedCostLabel')}</label>
-                  <input type="number" className="form-control" step="0.01" min="0"
+                  <NumberInput className="form-control" step="0.01" min="0"
                     value={form.estimated_cost || ''}
                     onChange={e => setForm(f => ({ ...f, estimated_cost: e.target.value }))} />
                 </div>
                 <div className="form-group">
                   <label className="form-label">{t('projects.expectedRevenueLabel')}</label>
-                  <input type="number" className="form-control" step="0.01" min="0"
+                  <NumberInput className="form-control" step="0.01" min="0"
                     value={form.expected_revenue || ''}
                     onChange={e => setForm(f => ({ ...f, expected_revenue: e.target.value }))} />
                 </div>

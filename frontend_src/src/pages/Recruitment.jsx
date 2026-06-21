@@ -4,8 +4,7 @@ import { usePermissions } from '../hooks/usePermissions.js';
 import { useLocale } from '../hooks/useLocale.jsx';
 import {
   LoadingSpinner, ErrorAlert, EmptyState, Modal, ConfirmModal,
-  fmt, fmtDate, toast,
-} from '../components/shared';
+  fmt, fmtDate, toast, NumberInput} from '../components/shared';
 import {
   getRecruitmentSummary,
   getPositions, createPosition, updatePosition, archivePosition,
@@ -467,17 +466,17 @@ function PositionForm({ posId, initial, departments, onClose, onSaved }) {
             </div>
             <div className="form-group">
               <label className="form-label">{t('recruitment.fieldHeadcount')}</label>
-              <input type="number" step="1" min="1" className="form-control" value={form.headcount}
+              <NumberInput step="1" min="1" className="form-control" value={form.headcount}
                 onChange={e => setForm(f => ({ ...f, headcount: e.target.value }))} />
             </div>
             <div className="form-group">
               <label className="form-label">{t('recruitment.fieldSalaryMin')}</label>
-              <input type="number" min="0" step="any" className="form-control" value={form.salary_min || ''}
+              <NumberInput min="0" step="any" className="form-control" value={form.salary_min || ''}
                 onChange={e => setForm(f => ({ ...f, salary_min: e.target.value }))} />
             </div>
             <div className="form-group">
               <label className="form-label">{t('recruitment.fieldSalaryMax')}</label>
-              <input type="number" min="0" step="any" className="form-control" value={form.salary_max || ''}
+              <NumberInput min="0" step="any" className="form-control" value={form.salary_max || ''}
                 onChange={e => setForm(f => ({ ...f, salary_max: e.target.value }))} />
             </div>
             <div className="form-group">
@@ -582,12 +581,12 @@ function ApplicantForm({ mode, initial, positions, onClose, onSaved }) {
             </div>
             <div className="form-group">
               <label className="form-label">{t('recruitment.fieldExpected')}</label>
-              <input type="number" min="0" step="any" className="form-control" value={form.expected_salary || ''}
+              <NumberInput min="0" step="any" className="form-control" value={form.expected_salary || ''}
                 onChange={e => setForm(f => ({ ...f, expected_salary: e.target.value }))} />
             </div>
             <div className="form-group">
               <label className="form-label">{t('recruitment.fieldRating')}</label>
-              <input type="number" min="1" max="5" step="1" className="form-control" value={form.rating || ''}
+              <NumberInput min="1" max="5" step="1" className="form-control" value={form.rating || ''}
                 onChange={e => setForm(f => ({ ...f, rating: e.target.value }))} />
             </div>
             <div className="form-group" style={{ gridColumn: '1 / -1' }}>
@@ -1219,7 +1218,7 @@ function InterviewForm({ appId, existing, onClose, onSaved }) {
             </div>
             <div className="form-group">
               <label className="form-label">{t('recruitment.intFieldDuration')}</label>
-              <input type="number" min="0" step="5" className="form-control" value={form.duration_min}
+              <NumberInput min="0" step="5" className="form-control" value={form.duration_min}
                 onChange={e => setForm(f => ({ ...f, duration_min: e.target.value }))} />
             </div>
             <div className="form-group">
@@ -1235,7 +1234,7 @@ function InterviewForm({ appId, existing, onClose, onSaved }) {
             </div>
             <div className="form-group">
               <label className="form-label">{t('recruitment.intFieldScore')}</label>
-              <input type="number" min="1" max="10" step="1" className="form-control"
+              <NumberInput min="1" max="10" step="1" className="form-control"
                 value={form.score}
                 onChange={e => setForm(f => ({ ...f, score: e.target.value }))} />
             </div>
@@ -1363,7 +1362,7 @@ function ConvertForm({ applicant, positions, onClose, onConverted }) {
             </div>
             <div className="form-group">
               <label className="form-label">{t('recruitment.fieldSalary')}</label>
-              <input type="number" min="0" step="any" className="form-control" value={form.salary}
+              <NumberInput min="0" step="any" className="form-control" value={form.salary}
                 onChange={e => setForm(f => ({ ...f, salary: e.target.value }))} />
             </div>
             <div className="form-group">
@@ -1526,7 +1525,7 @@ function OfferForm({ appId, applicant, existing, onClose, onSaved }) {
             </div>
             <div className="form-group">
               <label className="form-label">{t('recruitment.offerProbMonths')}</label>
-              <input type="number" min="0" max={LB_MAX_PROBATION_MONTHS} step="1"
+              <NumberInput min="0" max={LB_MAX_PROBATION_MONTHS} step="1"
                      className="form-control" value={form.probation_months}
                      onChange={e => set('probation_months', e.target.value)} />
               <div style={{ fontSize: 11, color: 'var(--text-3)', marginTop: 2 }}>
@@ -1547,7 +1546,7 @@ function OfferForm({ appId, applicant, existing, onClose, onSaved }) {
             </div>
             <div className="form-group">
               <label className="form-label">{t('recruitment.offerWeeklyHours')}</label>
-              <input type="number" min="0" max={LB_MAX_WEEKLY_HOURS} step="0.5"
+              <NumberInput min="0" max={LB_MAX_WEEKLY_HOURS} step="0.5"
                      className="form-control" value={form.weekly_hours}
                      onChange={e => set('weekly_hours', e.target.value)} />
               <div style={{ fontSize: 11, color: 'var(--text-3)', marginTop: 2 }}>
@@ -1564,7 +1563,7 @@ function OfferForm({ appId, applicant, existing, onClose, onSaved }) {
             {/* — Compensation — */}
             <div className="form-group">
               <label className="form-label">{t('recruitment.offerSalaryLbl')} *</label>
-              <input type="number" min="0" step="any" required className="form-control"
+              <NumberInput min="0" step="any" required className="form-control"
                      value={form.salary} onChange={e => set('salary', e.target.value)} />
             </div>
             <div className="form-group">
@@ -1585,7 +1584,7 @@ function OfferForm({ appId, applicant, existing, onClose, onSaved }) {
             {/* — Leave & termination — */}
             <div className="form-group">
               <label className="form-label">{t('recruitment.offerAnnualLeave')}</label>
-              <input type="number" min="0" step="1" className="form-control"
+              <NumberInput min="0" step="1" className="form-control"
                      value={form.annual_leave_days}
                      onChange={e => set('annual_leave_days', e.target.value)} />
               <div style={{ fontSize: 11, color: 'var(--text-3)', marginTop: 2 }}>
@@ -1594,7 +1593,7 @@ function OfferForm({ appId, applicant, existing, onClose, onSaved }) {
             </div>
             <div className="form-group">
               <label className="form-label">{t('recruitment.offerNoticePeriod')}</label>
-              <input type="number" min="0" step="1" className="form-control"
+              <NumberInput min="0" step="1" className="form-control"
                      value={form.notice_period_days}
                      onChange={e => set('notice_period_days', e.target.value)} />
             </div>
@@ -1626,7 +1625,7 @@ function OfferForm({ appId, applicant, existing, onClose, onSaved }) {
                 {form.include_non_compete && (
                   <div style={{ marginInlineStart: 24, marginTop: 4 }}>
                     <label className="form-label" style={{ fontSize: 11 }}>{t('recruitment.offerNCDuration')}</label>
-                    <input type="number" min="0" max="24" step="1"
+                    <NumberInput min="0" max="24" step="1"
                            className="form-control" style={{ maxWidth: 140 }}
                            value={form.non_compete_months}
                            onChange={e => set('non_compete_months', e.target.value)} />

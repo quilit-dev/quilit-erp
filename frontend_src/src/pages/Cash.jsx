@@ -1,7 +1,7 @@
 import { useState, useEffect, useCallback } from 'react';
 import { useLocale } from '../hooks/useLocale.jsx';
 import { usePermissions } from '../hooks/usePermissions.js';
-import { LoadingSpinner, ErrorAlert, EmptyState, Modal, ConfirmModal, ExportButton, toast } from '../components/shared';
+import { LoadingSpinner, ErrorAlert, EmptyState, Modal, ConfirmModal, ExportButton, toast, NumberInput} from '../components/shared';
 import {
   getCashDrawers, createCashDrawer, updateCashDrawer, getCashSummary,
   getCashReconciliations, getCashReconciliation, openCashReconciliation,
@@ -121,12 +121,12 @@ function OpenDayModal({ drawers, presetDrawerId, onClose, onOpened }) {
           </div>
           <div className="form-group">
             <label className="form-label">{t('cash.openingBalance')} (USD)</label>
-            <input type="number" step="any" min="0" className="form-control" value={openingUsd}
+            <NumberInput step="any" min="0" className="form-control" value={openingUsd}
               placeholder="0" onChange={e => setOpeningUsd(e.target.value)} />
           </div>
           <div className="form-group">
             <label className="form-label">{t('cash.openingBalance')} (LBP)</label>
-            <input type="number" step="any" min="0" className="form-control" value={openingLbp}
+            <NumberInput step="any" min="0" className="form-control" value={openingLbp}
               placeholder="0" onChange={e => setOpeningLbp(e.target.value)} />
           </div>
         </div>
@@ -188,12 +188,12 @@ function CloseDayModal({ recon, onClose, onClosed }) {
         <div className="form-grid">
           <div className="form-group">
             <label className="form-label">{t('cash.countedCash')} (USD)</label>
-            <input type="number" step="any" min="0" className="form-control" value={countedUsd}
+            <NumberInput step="any" min="0" className="form-control" value={countedUsd}
               autoFocus onChange={e => setCountedUsd(e.target.value)} />
           </div>
           <div className="form-group">
             <label className="form-label">{t('cash.countedCash')} (LBP)</label>
-            <input type="number" step="any" min="0" className="form-control" value={countedLbp}
+            <NumberInput step="any" min="0" className="form-control" value={countedLbp}
               placeholder="0" onChange={e => setCountedLbp(e.target.value)} />
           </div>
         </div>
@@ -400,7 +400,7 @@ function ReconDetailModal({ reconId, canCreate, canEdit, canDelete, onClose, onC
                 </div>
                 <div className="form-group" style={{ margin: 0, width: 110 }}>
                   <label className="form-label">{t('cash.amount')}</label>
-                  <input type="number" step="any" min="0" className="form-control" style={{ height: 32 }}
+                  <NumberInput step="any" min="0" className="form-control" style={{ height: 32 }}
                     value={amount} onChange={e => setAmount(e.target.value)} />
                 </div>
                 <button className="btn btn-secondary btn-sm" disabled={adding} onClick={addMv}>

@@ -156,6 +156,8 @@ const en = {
     allProjects: 'All Projects',
     allMonths: 'All Months',
     allModules: 'All Modules',
+    otherOption: 'Other…',
+    otherSpecify: 'Type a value',
     close: 'Close',
     refresh: 'Refresh',
     previous: 'Previous',

@@ -5,8 +5,7 @@ import { useSettings } from '../hooks/useSettings.jsx';
 import { usePermissions } from '../hooks/usePermissions.js';
 import {
   LoadingSpinner, ErrorAlert, EmptyState, Modal, ConfirmModal,
-  fmt, fmtDate, toast, CategoryBadge, EXPENSE_CATEGORIES,
-} from './shared';
+  fmt, fmtDate, toast, CategoryBadge, EXPENSE_CATEGORIES, SelectOther, NumberInput} from './shared';
 import {
   getRecurringExpenses, createRecurringExpense, updateRecurringExpense,
   toggleRecurringExpense, runRecurringExpense, runDueRecurringExpenses,
@@ -291,7 +290,7 @@ export default function RecurringExpensesPanel() {
                 </div>
                 <div className="form-group">
                   <label className="form-label">{t('common.amount')} *</label>
-                  <input type="number" className="form-control" required step="0.01" min="0"
+                  <NumberInput className="form-control" required step="0.01" min="0"
                     value={form.amount} onChange={e => setForm(f => ({ ...f, amount: e.target.value }))} />
                 </div>
                 <div className="form-group">
@@ -321,15 +320,18 @@ export default function RecurringExpensesPanel() {
                 </div>
                 <div className="form-group">
                   <label className="form-label">{t('expenses.paymentMethodLabel')}</label>
-                  <select className="form-control" value={form.payment_method}
-                    onChange={e => setForm(f => ({ ...f, payment_method: e.target.value }))}>
-                    <option value="">—</option>
-                    <option value="Cash">{t('expenses.methodCash')}</option>
-                    <option value="Bank Transfer">{t('expenses.methodBank')}</option>
-                    <option value="Cheque">{t('expenses.methodCheque')}</option>
-                    <option value="Card">{t('expenses.methodCard')}</option>
-                    <option value="Other">{t('expenses.methodOther')}</option>
-                  </select>
+                  <SelectOther
+                    value={form.payment_method || ''}
+                    onChange={v => setForm(f => ({ ...f, payment_method: v }))}
+                    includeNone
+                    options={[
+                      { value: 'Cash',          label: t('expenses.methodCash') },
+                      { value: 'Bank Transfer', label: t('expenses.methodBank') },
+                      { value: 'Cheque',        label: t('expenses.methodCheque') },
+                      { value: 'Card',          label: t('expenses.methodCard') },
+                    ]}
+                    otherLabel={t('expenses.methodOther')}
+                  />
                 </div>
                 {taxEnabled && (
                   <div className="form-group">

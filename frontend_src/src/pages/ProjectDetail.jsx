@@ -2,8 +2,7 @@ import { useState, useEffect } from 'react';
 import { useParams, useNavigate, Link } from 'react-router-dom';
 import { getProject, getInventory, deductToProject, createExpense, updateExpense, voidExpense, updateProject, getDocumentContent } from '../api/client';
 import {
-  LoadingSpinner, ErrorAlert, Badge, fmt, fmtDate, toast, Modal, CategoryBadge,
-} from '../components/shared';
+  LoadingSpinner, ErrorAlert, Badge, fmt, fmtDate, toast, Modal, CategoryBadge, NumberInput} from '../components/shared';
 import { useLocale } from '../hooks/useLocale.jsx';
 import { usePermissions } from '../hooks/usePermissions';
 import { useWarehouses } from '../hooks/useWarehouses';
@@ -385,8 +384,7 @@ export default function ProjectDetail() {
                 <span style={{ minWidth: 110, color: 'var(--text-3)', fontWeight: 500 }}>{t('projects.estCost')}</span>
                 {editingCost ? (
                   <div style={{ display: 'flex', alignItems: 'center', gap: 6, flex: 1 }}>
-                    <input
-                      type="number"
+                    <NumberInput
                       className="form-control"
                       style={{ width: 140, padding: '3px 8px', fontSize: 13, height: 30 }}
                       value={costDraft}
@@ -587,8 +585,7 @@ export default function ProjectDetail() {
                           {t('projects.maxQty', { n: sel.quantity, unit: sel.unit })}
                         </span>}
                       </label>
-                      <input
-                        type="number"
+                      <NumberInput
                         className="form-control"
                         required
                         min="1"
@@ -784,7 +781,7 @@ export default function ProjectDetail() {
                 </div>
                 <div className="form-group form-full">
                   <label className="form-label">{t('projects.amountLabel')} *</label>
-                  <input type="number" className="form-control" required step="0.01" min="0"
+                  <NumberInput className="form-control" required step="0.01" min="0"
                     value={expenseForm.amount}
                     onChange={e => setExpenseForm(f => ({ ...f, amount: e.target.value }))} />
                 </div>

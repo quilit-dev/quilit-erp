@@ -3,7 +3,7 @@ import { useLocale } from '../hooks/useLocale.jsx';
 import { usePermissions } from '../hooks/usePermissions.js';
 import { useSettings } from '../hooks/useSettings.jsx';
 import { useWarehouses } from '../hooks/useWarehouses';
-import { LoadingSpinner, ErrorAlert, EmptyState, Modal, ConfirmModal, Badge, ExportButton, toast } from '../components/shared';
+import { LoadingSpinner, ErrorAlert, EmptyState, Modal, ConfirmModal, Badge, ExportButton, toast, NumberInput} from '../components/shared';
 import {
   getPosSession, openPosSession, closePosSession, getPosSessions,
   posCheckout, getPosSales, getPosSale, returnPosSale, getPosProducts, getClients,
@@ -144,12 +144,12 @@ function OpenRegisterPanel({ onOpened }) {
         )}
         <div className="form-group">
           <label className="form-label">{t('pos.openingFloat')} (USD)</label>
-          <input className="form-control" type="number" step="any" min="0" value={floatUsd}
+          <NumberInput className="form-control" step="any" min="0" value={floatUsd}
             onChange={e => setFloatUsd(e.target.value)} autoFocus />
         </div>
         <div className="form-group">
           <label className="form-label">{t('pos.openingFloat')} (LBP)</label>
-          <input className="form-control" type="number" step="any" min="0" value={floatLbp}
+          <NumberInput className="form-control" step="any" min="0" value={floatLbp}
             onChange={e => setFloatLbp(e.target.value)} />
         </div>
         <button className="btn btn-primary" style={{ width: '100%', marginTop: 4 }}
@@ -198,12 +198,12 @@ function CloseRegisterModal({ session, onClose, onClosed }) {
         <div className="form-grid">
           <div className="form-group">
             <label className="form-label">{t('pos.closingCount')} (USD)</label>
-            <input className="form-control" type="number" step="any" min="0" value={countUsd}
+            <NumberInput className="form-control" step="any" min="0" value={countUsd}
               onChange={e => setCountUsd(e.target.value)} autoFocus />
           </div>
           <div className="form-group">
             <label className="form-label">{t('pos.closingCount')} (LBP)</label>
-            <input className="form-control" type="number" step="any" min="0" value={countLbp}
+            <NumberInput className="form-control" step="any" min="0" value={countLbp}
               placeholder="0" onChange={e => setCountLbp(e.target.value)} />
           </div>
         </div>
@@ -525,7 +525,7 @@ function CheckoutModal({ pricing, clients, drawers, onClose, onDone }) {
           {currency === 'LBP' && (
             <div className="form-group form-full">
               <label className="form-label">{t('pos.exchangeRate')}</label>
-              <input className="form-control" type="number" step="any" min="0" value={rate}
+              <NumberInput className="form-control" step="any" min="0" value={rate}
                 onChange={e => setRate(e.target.value)} />
             </div>
           )}
@@ -534,7 +534,7 @@ function CheckoutModal({ pricing, clients, drawers, onClose, onDone }) {
               <label className="form-label">
                 {t('pos.amountTendered')} ({currency}) — {t('pos.total')}: {num(totalInCurrency)}
               </label>
-              <input className="form-control" type="number" step="any" min="0" value={tendered}
+              <NumberInput className="form-control" step="any" min="0" value={tendered}
                 onChange={e => setTendered(e.target.value)} autoFocus />
             </div>
           )}
@@ -1000,8 +1000,8 @@ function RegisterView({ session, onClose, onSold }) {
                         <button type="button" className="pos-qty-btn"
                           onClick={() => bumpQty(l.key, -1)}
                           aria-label="−">−</button>
-                        <input className="pos-qty-value"
-                          type="number" min="1" step="1"
+                        <NumberInput className="pos-qty-value"
+                          min="1" step="1"
                           value={qty}
                           onChange={e => setLine(l.key, { quantity: e.target.value })}
                           onFocus={e => e.target.select()} />
@@ -1010,7 +1010,7 @@ function RegisterView({ session, onClose, onSold }) {
                           aria-label="+">+</button>
                       </div>
                       {discountEnabled && (
-                        <input type="number"
+                        <NumberInput
                           className="pos-cart-line-disc"
                           min="0" step="0.01"
                           placeholder={t('pos.discount')}
@@ -1041,9 +1041,9 @@ function RegisterView({ session, onClose, onSold }) {
           <div className="pos-cart-summary">
             <div className="pos-cart-discount-row">
               <label htmlFor="pos-order-discount">{t('pos.orderDiscount')}</label>
-              <input id="pos-order-discount"
+              <NumberInput id="pos-order-discount"
                 className="pos-cart-discount-input"
-                type="number" step="any" min="0"
+                step="any" min="0"
                 value={orderDiscount}
                 placeholder="0"
                 onChange={e => setOrderDiscount(e.target.value)} />
