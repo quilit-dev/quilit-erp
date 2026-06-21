@@ -2628,6 +2628,14 @@ def _run_migrations(conn, c):
         c.execute("ALTER TABLE projects ADD COLUMN void_prev_status TEXT")
         done("128_project_void")
 
+    # ── 129: invoice approval gate ──────────────────────────────────────────
+    # Invoices have no stored status column — payment status is *derived* from
+    # amount/paid/voided_at — so an approval gate needs its own field. NULL means
+    # "no approval required / cleared"; 'Pending Approval' parks a freshly-created
+    # invoice until a policy clears it; resolution writes 'Approved' / 'Rejected'.
+    add_col("129_invoice_approval_status", "invoices", "approval_status",
+            "ALTER TABLE invoices ADD COLUMN approval_status TEXT")
+
     conn.commit()
 
 
@@ -2728,6 +2736,9 @@ def _ensure_pg_post_baseline(raw):
         # before those snapshots.
         cur.execute("ALTER TABLE quotations ADD COLUMN IF NOT EXISTS void_prev_status TEXT")
         cur.execute("ALTER TABLE projects ADD COLUMN IF NOT EXISTS void_prev_status TEXT")
+        # 129_invoice_approval_status — the approval gate for invoices (which have
+        # no stored status column of their own).
+        cur.execute("ALTER TABLE invoices ADD COLUMN IF NOT EXISTS approval_status TEXT")
     raw.commit()
 
 

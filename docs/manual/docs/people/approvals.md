@@ -1,8 +1,19 @@
 # Approvals
 
 The rule-based multi-step approval engine. Used by Expenses, Purchases,
-Invoices, Projects, and Fixed Assets to gate operations that exceed
-configurable thresholds.
+Fixed Assets, Projects, Quotations, and Invoices to gate operations that exceed
+configurable thresholds. The governable modules, their trigger actions, the
+fields you can write conditions against, and how an approved/rejected request
+resolves the entity are all declared in one place — the `MODULE_REGISTRY` in
+`backend/approval_engine.py` — and the policy builder is driven from it, so the
+UI can only ever offer targets the engine actually enforces.
+
+Invoices are a special case: an invoice has no stored status column (its
+payment status is *derived* from amount/paid/voided_at), so the gate lives in a
+dedicated `approval_status` field. A gated invoice is parked in **Pending
+Approval** — it accepts no payments and does not advance its project — until it
+clears; an approved invoice is released (and its project moves to *Invoiced*),
+while a rejected invoice is voided so it leaves all financial totals.
 
 ## Purpose
 
@@ -32,7 +43,7 @@ When a triggering action happens, the engine:
 
 ## Quick reference
 
-- **Modules with approval policies**: expenses, purchases, invoices, projects, assets
+- **Modules with approval policies**: expenses, purchases, fixed assets, projects, quotations, invoices
 - **Approval types**: `single` (one-of-roles clears) — multi-step extensible
 - **Conditions**: JSON-encoded; common operators: `>`, `<`, `>=`, `<=`, `==`, `IN`
 - **Request status**: `pending → approved / rejected / cancelled`
@@ -93,8 +104,8 @@ When a triggering action happens, the engine:
     |---|---|
     | Name | Display name |
     | Description | What this policy guards |
-    | Module | `expenses`, `purchases`, `invoices`, `projects`, `assets` |
-    | Trigger action | Usually `create`; sometimes `update` or `void` |
+    | Module | `expense`, `purchase`, `fixed_asset`, `project`, `quotation`, `invoice` |
+    | Trigger action | `create` (the action set is per-module — see `MODULE_REGISTRY`) |
     | Conditions | JSON: `{"amount": {">": 5000}}` |
     | Approval type | `single` (any approver) or multi-step |
     | Approver roles | Comma-separated role names |

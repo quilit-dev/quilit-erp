@@ -4,6 +4,7 @@ from typing import Optional
 from database import get_db
 from permissions import require_perm
 from routers.audit import log_action
+from approval_engine import evaluate_and_apply
 from utils import _now
 import sqlite3
 
@@ -58,9 +59,6 @@ class ProjectCreate(BaseModel):
     actual_cost: Optional[float] = 0
     expected_revenue: Optional[float] = 0
     description: Optional[str] = None
-
-class VoidRequest(BaseModel):
-    reason: Optional[str] = None
 
 class ArchiveRequest(BaseModel):
     reason: Optional[str] = None
@@ -178,21 +176,43 @@ def create_project(data: ProjectCreate, user=Depends(require_perm("projects", "c
         (data.name, data.client_id, data.location, data.status, data.start_date,
          data.end_date, data.estimated_cost, data.actual_cost, data.expected_revenue, data.description, now)
     )
-    log_action(db, user, "create", "project", c.lastrowid, data.name)
+    project_id = c.lastrowid
+
+    # An active policy can gate a new project behind approval. The snapshot keeps
+    # the requested status so an approval can release the project back to it.
+    entity_data = {
+        "estimated_cost":   float(data.estimated_cost or 0),
+        "expected_revenue": float(data.expected_revenue or 0),
+        "status":           data.status,
+    }
+    needs_approval = evaluate_and_apply(
+        db, module="project", action="create",
+        entity_data=entity_data, user_id=user["id"],
+        entity_id=project_id, entity_label=data.name,
+    )
+    if needs_approval:
+        db.execute("UPDATE projects SET status='Pending Approval' WHERE id=?", (project_id,))
+
+    log_action(db, user, "create", "project", project_id, data.name)
     db.commit()
-    return {"id": c.lastrowid, "message": "Project created"}
+    return {
+        "id": project_id,
+        "pending_approval": bool(needs_approval),
+        "message": "Project pending approval" if needs_approval else "Project created",
+    }
 
 @router.put("/{project_id}")
 def update_project(project_id: int, data: ProjectCreate, user=Depends(require_perm("projects", "edit")), db: sqlite3.Connection = Depends(get_db)):
     existing = db.execute("SELECT status FROM projects WHERE id=?", (project_id,)).fetchone()
     if not existing:
         raise HTTPException(404, "Project not found")
-    # A voided project is read-only until unvoided, and Voided can only be
-    # entered via PATCH /void (which records the previous status for restore).
+    # Terminal projects — legacy 'Voided' rows, or 'Cancelled' set when an
+    # approval is rejected — are read-only, and these terminal statuses can never
+    # be entered through a plain edit.
     if existing["status"] in ("Voided", "Cancelled"):
-        raise HTTPException(400, "Voided projects cannot be edited. Unvoid it first.")
+        raise HTTPException(400, "This project is closed and cannot be edited.")
     if data.status in ("Voided", "Cancelled"):
-        raise HTTPException(400, "Use the Void action to void a project.")
+        raise HTTPException(400, "Projects cannot be set to a terminal status manually.")
     db.execute(
         """UPDATE projects SET name=?, client_id=?, location=?, status=?, start_date=?,
            end_date=?, estimated_cost=?, actual_cost=?, expected_revenue=?, description=? WHERE id=?""",
@@ -206,58 +226,15 @@ def update_project(project_id: int, data: ProjectCreate, user=Depends(require_pe
 @router.patch("/{project_id}/status")
 def update_status(project_id: int, status: str, user=Depends(require_perm("projects", "edit")), db: sqlite3.Connection = Depends(get_db)):
     if status not in VALID_STATUSES or status in ("Voided", "Cancelled"):
-        raise HTTPException(400, f"Invalid status '{status}'. Use the Void action for terminal states.")
+        raise HTTPException(400, f"Invalid status '{status}'.")
     proj = db.execute("SELECT name, status FROM projects WHERE id = ?", (project_id,)).fetchone()
     if proj and proj["status"] in ("Voided", "Cancelled"):
-        raise HTTPException(400, "Voided projects cannot change status. Unvoid it first.")
+        raise HTTPException(400, "This project is closed and cannot change status.")
     db.execute("UPDATE projects SET status = ? WHERE id = ?", (status, project_id))
     log_action(db, user, "status_change", "project", project_id,
                proj["name"] if proj else "", {"status": status})
     db.commit()
     return {"message": "Status updated"}
-
-# ── Void / Unvoid ─────────────────────────────────────────────────────────
-# Projects are never hard-deleted and no longer 'Cancelled': voiding is the
-# one terminal action, and it is reversible. Void remembers the status the
-# project had (void_prev_status) so Unvoid restores it exactly. Legacy
-# 'Cancelled' rows (pre-128) stay terminal and are treated like voided ones.
-@router.patch("/{project_id}/void")
-def void_project(project_id: int, data: VoidRequest = VoidRequest(),
-                 user=Depends(require_perm("projects", "edit")), db: sqlite3.Connection = Depends(get_db)):
-    row = db.execute("SELECT * FROM projects WHERE id = ? AND archived_at IS NULL", (project_id,)).fetchone()
-    if not row:
-        raise HTTPException(404, "Project not found")
-    if row["status"] in ("Voided", "Cancelled"):
-        raise HTTPException(400, "Project is already voided.")
-    db.execute(
-        "UPDATE projects SET status='Voided', void_prev_status=?, archive_reason=? WHERE id=?",
-        (row["status"], data.reason or "Voided", project_id)
-    )
-    log_action(db, user, "void", "project", project_id, row["name"],
-               {"reason": data.reason, "previous_status": row["status"]})
-    db.commit()
-    return {"message": "Project voided"}
-
-
-@router.patch("/{project_id}/unvoid")
-def unvoid_project(project_id: int, user=Depends(require_perm("projects", "edit")),
-                   db: sqlite3.Connection = Depends(get_db)):
-    row = db.execute("SELECT * FROM projects WHERE id = ? AND archived_at IS NULL", (project_id,)).fetchone()
-    if not row:
-        raise HTTPException(404, "Project not found")
-    if row["status"] not in ("Voided", "Cancelled"):
-        raise HTTPException(400, "Project is not voided.")
-    # Restore the exact pre-void status; legacy 'Cancelled' rows (which never
-    # recorded one) reopen as Inquiry.
-    restored = row["void_prev_status"] or "Inquiry"
-    db.execute(
-        "UPDATE projects SET status=?, void_prev_status=NULL, archive_reason=NULL WHERE id=?",
-        (restored, project_id)
-    )
-    log_action(db, user, "unvoid", "project", project_id, row["name"],
-               {"restored_status": restored})
-    db.commit()
-    return {"message": "Project restored", "status": restored}
 
 @router.patch("/{project_id}/archive")
 def archive_project(project_id: int, data: ArchiveRequest = ArchiveRequest(),

@@ -571,6 +571,7 @@ const ar = {
     Void: 'ملغي',
     Voided: 'ملغي',
     Cancelled: 'ملغى',
+    'Pending Approval': 'بانتظار الموافقة',
   },
 
   platform: {
@@ -805,10 +806,6 @@ const ar = {
     projectCreated: 'تم إنشاء المشروع',
     projectUpdated: 'تم تحديث المشروع',
     projectDeleted: 'تم حذف المشروع',
-    voidProject: 'إلغاء',
-    unvoidProject: 'استعادة',
-    voidProjectMessage: 'إلغاء هذا المشروع؟ يصبح للقراءة فقط ويخرج من عدد المشاريع النشطة. يمكنك استعادته لاحقاً.',
-    projectVoided: 'تم إلغاء المشروع',
     projectRestored: 'تمت استعادة المشروع',
     projectArchived: 'تمت أرشفة المشروع',
     deleteConfirm: 'هل تريد حذف هذا المشروع؟ لا يمكن التراجع.',

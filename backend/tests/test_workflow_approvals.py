@@ -179,7 +179,7 @@ def test_create_and_list_policy(make_client):
     c = make_client("superadmin")
     payload = {
         "name": "QA — purchases need a manager",
-        "module": "purchases",
+        "module": "purchase",
         "trigger_action": "create",
         "condition_logic": "AND",
         "conditions": [],
@@ -202,3 +202,171 @@ def test_create_and_list_policy(make_client):
 def test_create_policy_with_garbage_body_never_5xx(make_client):
     r = make_client("superadmin").post("/api/approval-policies/", json={"name": 123, "module": None})
     assert r.status_code < 500, f"malformed policy body crashed: {r.status_code} {r.text[:160]}"
+
+
+# ── registry coverage: unsupported targets are refused ───────────────────────
+@pytest.mark.workflow
+def test_policy_for_unknown_module_is_refused(make_client):
+    """The builder must not be able to persist a dead policy aimed at a module
+    the engine cannot enforce."""
+    r = make_client("superadmin").post("/api/approval-policies/", json={
+        "name": "bad module", "module": "telepathy", "trigger_action": "create",
+        "approval_type": "single", "approver_roles": ["Manager"],
+    })
+    assert r.status_code == 400, r.text
+
+
+@pytest.mark.workflow
+def test_policy_for_unsupported_action_is_refused(make_client):
+    """A real module with an action it doesn't register must be refused."""
+    r = make_client("superadmin").post("/api/approval-policies/", json={
+        "name": "bad action", "module": "expense", "trigger_action": "teleport",
+        "approval_type": "single", "approver_roles": ["Manager"],
+    })
+    assert r.status_code == 400, r.text
+
+
+@pytest.mark.workflow
+def test_meta_modules_reports_new_modules(make_client):
+    """Metadata is derived from the registry, so every governable module must
+    show up with fields and a create action."""
+    meta = make_client("superadmin").get("/api/approval-policies/meta/modules").json()
+    for m in ("expense", "purchase", "fixed_asset", "project", "quotation", "invoice"):
+        assert m in meta["modules"], f"{m} missing from policy metadata"
+        assert "create" in meta["module_actions"][m]
+        assert meta["module_fields"][m], f"{m} has no builder fields"
+
+
+# ── end-to-end gating: a new module is parked, then released on approval ──────
+@pytest.mark.workflow
+def test_project_create_is_gated_and_restored_on_approval(db, make_client):
+    """A project-create policy parks a new project in 'Pending Approval'; the
+    RESTORE resolution releases it back to its requested status on approval."""
+    admin = make_client("superadmin")
+    pol = admin.post("/api/approval-policies/", json={
+        "name": "All projects need a manager",
+        "module": "project", "trigger_action": "create",
+        "condition_logic": "AND", "conditions": [],
+        "approval_type": "single", "approver_roles": ["Manager"],
+        "priority": 5, "is_active": True,
+    })
+    assert pol.status_code in (200, 201), pol.text
+
+    created = admin.post("/api/projects/", json={"name": "Gated Project", "status": "Inquiry"})
+    assert created.status_code == 200, created.text
+    body = created.json()
+    assert body.get("pending_approval") is True, body
+    pid = body["id"]
+
+    row = db.execute("SELECT status FROM projects WHERE id=?", (pid,)).fetchone()
+    assert row["status"] == "Pending Approval", row["status"]
+
+    req = db.execute(
+        "SELECT id FROM approval_requests WHERE module='project' AND entity_id=? AND status='pending'",
+        (pid,),
+    ).fetchone()
+    assert req, "no pending approval request was raised for the project"
+
+    r = make_client("Manager").post(f"/api/approval-requests/{req['id']}/approve", json={})
+    assert r.status_code == 200, r.text
+
+    after = db.execute("SELECT status FROM projects WHERE id=?", (pid,)).fetchone()
+    assert after["status"] == "Inquiry", (
+        f"approved project should be restored to its requested status, got {after['status']!r}")
+
+
+@pytest.mark.workflow
+def test_invoice_create_is_gated_then_released_on_approval(db, make_client):
+    """A gated invoice is parked in 'Pending Approval', refuses payments while
+    pending, and is released (and its project advanced) on approval."""
+    admin = make_client("superadmin")
+    pol = admin.post("/api/approval-policies/", json={
+        "name": "Invoices over $1k need Finance",
+        "module": "invoice", "trigger_action": "create",
+        "condition_logic": "AND",
+        "conditions": [{"field": "amount", "op": ">", "value": "1000"}],
+        "approval_type": "single", "approver_roles": ["Finance Manager"],
+        "priority": 5, "is_active": True,
+    })
+    assert pol.status_code in (200, 201), pol.text
+
+    created = admin.post("/api/invoices/", json={"amount": 5000})
+    assert created.status_code == 200, created.text
+    body = created.json()
+    assert body.get("pending_approval") is True, body
+    iid = body["id"]
+
+    row = db.execute("SELECT approval_status FROM invoices WHERE id=?", (iid,)).fetchone()
+    assert row["approval_status"] == "Pending Approval", row["approval_status"]
+
+    # Pending invoices must refuse payment.
+    pay = admin.post(f"/api/invoices/{iid}/payments", json={
+        "amount": 100, "currency": "USD", "method": "Cash",
+        "idempotency_key": "test-pending-pay-1",
+    })
+    assert pay.status_code == 400, pay.text
+
+    # The list view surfaces the pending state as the display status.
+    listed = admin.get("/api/invoices/").json()
+    mine = next(r for r in listed if r["id"] == iid)
+    assert mine["payment_status"] == "Pending Approval", mine["payment_status"]
+
+    req = db.execute(
+        "SELECT id FROM approval_requests WHERE module='invoice' AND entity_id=? AND status='pending'",
+        (iid,),
+    ).fetchone()
+    assert req, "no pending approval request was raised for the invoice"
+
+    r = make_client("Finance Manager").post(f"/api/approval-requests/{req['id']}/approve", json={})
+    assert r.status_code == 200, r.text
+
+    after = db.execute("SELECT approval_status, voided_at FROM invoices WHERE id=?", (iid,)).fetchone()
+    assert after["approval_status"] == "Approved", after["approval_status"]
+    assert after["voided_at"] is None, "an approved invoice must not be voided"
+
+    # Now that it is approved, payment is accepted.
+    pay2 = admin.post(f"/api/invoices/{iid}/payments", json={
+        "amount": 100, "currency": "USD", "method": "Cash",
+        "idempotency_key": "test-approved-pay-1",
+    })
+    assert pay2.status_code == 200, pay2.text
+
+
+@pytest.mark.workflow
+def test_invoice_create_rejection_voids(db, make_client):
+    """A rejected invoice is voided so it leaves all financial totals."""
+    admin = make_client("superadmin")
+    admin.post("/api/approval-policies/", json={
+        "name": "All invoices need Finance",
+        "module": "invoice", "trigger_action": "create",
+        "conditions": [], "approval_type": "single",
+        "approver_roles": ["Finance Manager"], "is_active": True,
+    })
+    iid = admin.post("/api/invoices/", json={"amount": 800}).json()["id"]
+    req = db.execute(
+        "SELECT id FROM approval_requests WHERE module='invoice' AND entity_id=?", (iid,),
+    ).fetchone()
+    make_client("Finance Manager").post(f"/api/approval-requests/{req['id']}/reject", json={})
+    after = db.execute(
+        "SELECT approval_status, voided_at FROM invoices WHERE id=?", (iid,)).fetchone()
+    assert after["approval_status"] == "Rejected", after["approval_status"]
+    assert after["voided_at"] is not None, "a rejected invoice should be voided"
+
+
+@pytest.mark.workflow
+def test_project_create_rejection_cancels(db, make_client):
+    """Rejecting a gated project resolves it to the registry's 'Cancelled'."""
+    admin = make_client("superadmin")
+    admin.post("/api/approval-policies/", json={
+        "name": "All projects need a manager",
+        "module": "project", "trigger_action": "create",
+        "conditions": [], "approval_type": "single",
+        "approver_roles": ["Manager"], "is_active": True,
+    })
+    pid = admin.post("/api/projects/", json={"name": "Doomed", "status": "Inquiry"}).json()["id"]
+    req = db.execute(
+        "SELECT id FROM approval_requests WHERE module='project' AND entity_id=?", (pid,),
+    ).fetchone()
+    make_client("Manager").post(f"/api/approval-requests/{req['id']}/reject", json={})
+    after = db.execute("SELECT status FROM projects WHERE id=?", (pid,)).fetchone()
+    assert after["status"] == "Cancelled", after["status"]

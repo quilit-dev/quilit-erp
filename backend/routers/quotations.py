@@ -16,6 +16,7 @@ from permissions import require_perm
 from routers.audit import log_action
 from utils import _now, get_tax_context, resolve_line_tax, money, notify
 from routers.projects import bump_project_status
+from approval_engine import evaluate_and_apply
 import sqlite3
 from datetime import datetime, timedelta
 
@@ -195,12 +196,33 @@ def create_quotation(
                             - float(getattr(item, "discount", 0) or 0)), 4),
              rid, rate, tax_amt),
         )
-    # Auto-advance the linked project's status — a quotation existing means
-    # we're at least past "Inquiry" / "Quotation Sent".
-    bump_project_status(db, data.project_id, "Quotation Sent")
+    # An active policy can gate a new quotation behind approval. The snapshot
+    # keeps the requested status so an approval can release it back to it.
+    entity_data = {
+        "total":     float(total or 0),
+        "tax_total": float(tax_total or 0),
+        "status":    data.status,
+    }
+    needs_approval = evaluate_and_apply(
+        db, module="quotation", action="create",
+        entity_data=entity_data, user_id=user["id"],
+        entity_id=qid, entity_label=f"{qn} — {data.project_name or ''}".strip(" —"),
+    )
+    if needs_approval:
+        db.execute("UPDATE quotations SET status='Pending Approval' WHERE id=?", (qid,))
+    else:
+        # Auto-advance the linked project's status — a quotation existing means
+        # we're at least past "Inquiry" / "Quotation Sent". Held back until the
+        # quotation clears approval so the project doesn't jump ahead of a draft.
+        bump_project_status(db, data.project_id, "Quotation Sent")
+
     log_action(db, user, "create", "quotation", qid, qn)
     db.commit()
-    return {"id": qid, "quote_number": qn, "message": "Quotation created"}
+    return {
+        "id": qid, "quote_number": qn,
+        "pending_approval": bool(needs_approval),
+        "message": "Quotation pending approval" if needs_approval else "Quotation created",
+    }
 
 # ── Update ────────────────────────────────────────────────────────────────
 @router.put("/{quote_id}")

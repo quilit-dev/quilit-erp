@@ -242,7 +242,14 @@ def _finalize(db: sqlite3.Connection, req, status: str, user: dict, comment) -> 
            WHERE id=?""",
         (status, _now(), user["id"], comment, req["id"]),
     )
-    apply_resolution(db, req["module"], req["entity_id"], status)
+    try:
+        snapshot = json.loads(req["entity_snapshot"] or "{}")
+    except (TypeError, ValueError):
+        snapshot = {}
+    apply_resolution(
+        db, req["module"], req["trigger_action"], req["entity_id"], status,
+        original_status=snapshot.get("status"),
+    )
     _notify_requester(db, req, status, comment)
 
 
@@ -442,36 +449,183 @@ def _notify_requester(db: sqlite3.Connection, req, status: str, comment) -> None
 
 
 # ══════════════════════════════════════════════════════════════════════════════
-# 4. RESOLUTION — side-effects on the originating business entity
+# 4. MODULE REGISTRY — the single source of truth for what approvals can govern
+# ══════════════════════════════════════════════════════════════════════════════
+#
+# Bringing a module (or a new action on an existing module) under approval is a
+# one-place change: register it here, then wire evaluate_and_apply(...) into the
+# matching router action. Everything else is *derived* from this table — the
+# policy-builder metadata served to the UI (so the builder can never advertise a
+# module the engine doesn't actually enforce) and the post-resolution status
+# side-effects applied when a request is approved or rejected.
+#
+# Each action declares the entity status to write on approval / rejection. The
+# RESTORE sentinel means "put the entity back to the status it held when the
+# request was raised" (read from the request's entity snapshot) — used by
+# create-gates that parked a brand-new record in 'Pending Approval' and simply
+# need to release it once approved.
+#
+# SECURITY: `table` and `status_column` are trusted developer-defined constants.
+# The `module` / `action` values arriving on a request are only ever used as
+# dict *keys* into this registry — never interpolated into SQL. A resolution
+# UPDATE is assembled solely from the registry's own table/column strings, so an
+# attacker-controlled module string can never reach raw SQL.
+
+RESTORE = "__restore__"
+
+MODULE_REGISTRY = {
+    "expense": {
+        "label": "Expense",
+        "table": "expenses",
+        "status_column": "status",
+        "fields": [
+            {"key": "amount",         "label": "Amount",         "type": "number"},
+            {"key": "category",       "label": "Category",       "type": "text"},
+            {"key": "payment_method", "label": "Payment Method", "type": "text"},
+            {"key": "status",         "label": "Status",         "type": "text"},
+        ],
+        "actions": {
+            "create": {"approved": "Approved", "rejected": "Rejected"},
+        },
+    },
+    "purchase": {
+        "label": "Purchase Order",
+        "table": "purchases",
+        "status_column": "status",
+        "fields": [
+            {"key": "total_cost", "label": "Total Cost", "type": "number"},
+            {"key": "quantity",   "label": "Quantity",   "type": "number"},
+            {"key": "supplier",   "label": "Supplier",   "type": "text"},
+            {"key": "category",   "label": "Category",   "type": "text"},
+            {"key": "status",     "label": "Status",     "type": "text"},
+        ],
+        "actions": {
+            "create": {"approved": "Ordered", "rejected": "Cancelled"},
+        },
+    },
+    "fixed_asset": {
+        "label": "Fixed Asset",
+        "table": "fixed_assets",
+        "status_column": "status",
+        "fields": [
+            {"key": "acquisition_cost",    "label": "Acquisition Cost", "type": "number"},
+            {"key": "category",            "label": "Category",         "type": "text"},
+            {"key": "depreciation_method", "label": "Method",           "type": "text"},
+        ],
+        "actions": {
+            "create": {"approved": "Active", "rejected": "Disposed"},
+        },
+    },
+    "project": {
+        "label": "Project",
+        "table": "projects",
+        "status_column": "status",
+        "fields": [
+            {"key": "estimated_cost",   "label": "Estimated Cost",   "type": "number"},
+            {"key": "expected_revenue", "label": "Expected Revenue", "type": "number"},
+            {"key": "status",           "label": "Status",           "type": "text"},
+        ],
+        "actions": {
+            # A new project is parked in 'Pending Approval' on create; approval
+            # releases it back to the status it was created with.
+            "create": {"approved": RESTORE, "rejected": "Cancelled"},
+        },
+    },
+    "quotation": {
+        "label": "Quotation",
+        "table": "quotations",
+        "status_column": "status",
+        "fields": [
+            {"key": "total",     "label": "Total",     "type": "number"},
+            {"key": "tax_total", "label": "Tax Total", "type": "number"},
+            {"key": "status",    "label": "Status",    "type": "text"},
+        ],
+        "actions": {
+            "create": {"approved": RESTORE, "rejected": "Rejected"},
+        },
+    },
+    "invoice": {
+        # Invoices have NO stored payment-status column — payment state is
+        # derived from amount/paid/voided_at — so the gate lives in its own
+        # `approval_status` field (migration 129). A gated invoice is parked in
+        # 'Pending Approval', cannot take payments, and does not advance its
+        # project until it clears; a rejected invoice is voided (see the
+        # side-effects in apply_resolution).
+        "label": "Invoice",
+        "table": "invoices",
+        "status_column": "approval_status",
+        "fields": [
+            {"key": "amount",    "label": "Amount",    "type": "number"},
+            {"key": "subtotal",  "label": "Subtotal",  "type": "number"},
+            {"key": "tax_total", "label": "Tax Total", "type": "number"},
+        ],
+        "actions": {
+            "create": {"approved": "Approved", "rejected": "Rejected"},
+        },
+    },
+}
+
+_OPERATORS = {
+    "number": [">", "<", ">=", "<=", "==", "!="],
+    "text":   ["==", "!=", "contains"],
+}
+
+
+def supported_module(module: str) -> bool:
+    """True if `module` can be governed by approval policies."""
+    return module in MODULE_REGISTRY
+
+
+def supported_action(module: str, action: str) -> bool:
+    """True if `action` is a governable trigger for `module`."""
+    return action in (MODULE_REGISTRY.get(module, {}).get("actions") or {})
+
+
+def policy_metadata() -> dict:
+    """
+    Module / action / field metadata for the policy-builder UI, derived wholly
+    from MODULE_REGISTRY so the builder can never drift from what the engine
+    actually enforces.
+    """
+    return {
+        "modules":        list(MODULE_REGISTRY.keys()),
+        "module_labels":  {m: cfg["label"] for m, cfg in MODULE_REGISTRY.items()},
+        "module_actions": {m: list(cfg["actions"].keys()) for m, cfg in MODULE_REGISTRY.items()},
+        "module_fields":  {m: cfg["fields"] for m, cfg in MODULE_REGISTRY.items()},
+        "operators":      _OPERATORS,
+    }
+
+
+# ══════════════════════════════════════════════════════════════════════════════
+# 5. RESOLUTION — side-effects on the originating business entity
 # ══════════════════════════════════════════════════════════════════════════════
 
-# Pre-built, fully-parameterised UPDATE per module. The table name is baked into
-# each literal statement and is never interpolated, so `module` cannot reach raw SQL.
-_RESOLUTION_UPDATE = {
-    "expense":     "UPDATE expenses     SET status=? WHERE id=?",
-    "invoice":     "UPDATE invoices     SET status=? WHERE id=?",
-    "purchase":    "UPDATE purchases    SET status=? WHERE id=?",
-    "project":     "UPDATE projects     SET status=? WHERE id=?",
-    "fixed_asset": "UPDATE fixed_assets SET status=? WHERE id=?",
-}
-_APPROVED_STATUS = {
-    "expense":     "Approved", "invoice": "Sent",  "purchase": "Ordered",
-    "project":     "Active",   "fixed_asset": "Active",
-}
-_REJECTED_STATUS = {
-    "expense":     "Rejected", "invoice": "Draft", "purchase": "Cancelled",
-    "project":     "Cancelled", "fixed_asset": "Disposed",
-}
+def apply_resolution(db: sqlite3.Connection, module: str, action: str,
+                     entity_id: int, resolution: str, *,
+                     original_status=None) -> None:
+    """
+    Update the originating entity once its request is fully resolved.
 
+    Driven by MODULE_REGISTRY and *aware of the trigger action*, so different
+    actions on the same module (e.g. a future 'create' vs 'void') can resolve to
+    different statuses. Silently no-ops for any module/action not in the registry
+    (e.g. legacy requests), so an unrecognised request can never crash a resolve.
+    """
+    cfg     = MODULE_REGISTRY.get(module)
+    act_cfg = (cfg.get("actions", {}).get(action) if cfg else None)
+    if cfg and act_cfg:
+        target = act_cfg.get("approved" if resolution == "approved" else "rejected")
+        if target == RESTORE:
+            target = original_status
+        if target:
+            # table / status_column are trusted registry constants — see the
+            # SECURITY note on MODULE_REGISTRY; `module` never reaches this SQL.
+            db.execute(
+                f'UPDATE {cfg["table"]} SET {cfg["status_column"]}=? WHERE id=?',
+                (target, entity_id),
+            )
 
-def apply_resolution(db: sqlite3.Connection, module: str, entity_id: int,
-                     resolution: str) -> None:
-    """Update the originating entity once its request is fully resolved."""
-    update_sql = _RESOLUTION_UPDATE.get(module)
-    status     = (_APPROVED_STATUS if resolution == "approved" else _REJECTED_STATUS).get(module)
-    if update_sql and status:
-        db.execute(update_sql, (status, entity_id))
-
+    # ── module-specific side-effects ──────────────────────────────────────────
     # An approved expense rolls its amount into the linked project's actual cost.
     if module == "expense" and resolution == "approved":
         row = db.execute(
@@ -494,3 +648,23 @@ def apply_resolution(db: sqlite3.Connection, module: str, entity_id: int,
             (datetime.utcnow().strftime("%Y-%m-%d"),
              "Approval rejected", entity_id),
         )
+
+    # Invoice gate side-effects. The 'Invoiced' project advance is deferred from
+    # creation to approval (so a draft awaiting sign-off doesn't drag the project
+    # forward); a rejected invoice is voided so it leaves all financial totals
+    # exactly like a manual void would. A pending invoice can hold no payments
+    # (the router blocks them), so there is no ledger to reverse here.
+    if module == "invoice":
+        row = db.execute(
+            "SELECT project_id FROM invoices WHERE id=?", (entity_id,)
+        ).fetchone()
+        if resolution == "approved":
+            if row and row["project_id"]:
+                from routers.projects import bump_project_status   # lazy: avoid import cycle
+                bump_project_status(db, row["project_id"], "Invoiced")
+        elif resolution == "rejected":
+            db.execute(
+                "UPDATE invoices SET voided_at=?, void_reason=?, version=version+1 "
+                "WHERE id=? AND voided_at IS NULL",
+                (_now(), "Approval rejected", entity_id),
+            )

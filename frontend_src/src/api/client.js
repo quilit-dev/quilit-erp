@@ -103,8 +103,6 @@ export const getProjects       = (params = {}, s) => api.get(`/api/projects/${_q
 export const getProject        = (id) => api.get(`/api/projects/${id}`);
 export const createProject     = (d) => api.post('/api/projects/', d);
 export const updateProject     = (id, d) => api.put(`/api/projects/${id}`, d);
-export const voidProject       = (id, reason) => api.patch(`/api/projects/${id}/void`, { reason });
-export const unvoidProject     = (id) => api.patch(`/api/projects/${id}/unvoid`);
 export const archiveProject    = (id, reason) => api.patch(`/api/projects/${id}/archive`, { reason });
 export const unarchiveProject  = (id) => api.patch(`/api/projects/${id}/unarchive`);
 
