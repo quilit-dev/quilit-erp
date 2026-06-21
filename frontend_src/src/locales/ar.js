@@ -156,6 +156,8 @@ const ar = {
     allProjects: 'جميع المشاريع',
     allMonths: 'جميع الأشهر',
     allModules: 'جميع الأقسام',
+    otherOption: 'أخرى…',
+    otherSpecify: 'أدخل قيمة',
     close: 'إغلاق',
     refresh: 'تحديث',
     previous: 'السابق',

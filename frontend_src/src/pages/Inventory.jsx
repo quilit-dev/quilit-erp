@@ -7,8 +7,7 @@ import {
 } from '../api/client';
 import {
   LoadingSpinner, ErrorAlert, EmptyState, Modal, ConfirmModal,
-  ExportButton, toast, SortableTh, Pagination
-} from '../components/shared';
+  ExportButton, toast, SortableTh, Pagination, NumberInput} from '../components/shared';
 import { useSortPaginate } from '../hooks/useSortPaginate';
 import { useLocale } from '../hooks/useLocale.jsx';
 import { useWarehouses } from '../hooks/useWarehouses';
@@ -118,26 +117,26 @@ function ItemForm({ initial = {}, knownCategories = [], onSave, onCancel, saving
           {!isEdit && (
             <div className="form-group">
               <label className="form-label">{t('inventory.initialQuantity')}</label>
-              <input className="form-control" type="number" step="1" min="0"
+              <NumberInput className="form-control" step="1" min="0"
                 value={form.quantity} onChange={e => set('quantity', e.target.value)} />
             </div>
           )}
 
           <div className="form-group">
             <label className="form-label">{t('inventory.minStockAlert')}</label>
-            <input className="form-control" type="number" step="1" min="0"
+            <NumberInput className="form-control" step="1" min="0"
               value={form.min_stock} onChange={e => set('min_stock', e.target.value)} />
           </div>
 
           <div className="form-group">
             <label className="form-label">{t('inventory.unitCostLabel')}</label>
-            <input className="form-control" type="number" step="any" min="0"
+            <NumberInput className="form-control" step="any" min="0"
               value={form.unit_cost} onChange={e => set('unit_cost', e.target.value)} />
           </div>
 
           <div className="form-group">
             <label className="form-label">{t('inventory.salePriceLabel')}</label>
-            <input className="form-control" type="number" step="any" min="0"
+            <NumberInput className="form-control" step="any" min="0"
               value={form.sale_price} onChange={e => set('sale_price', e.target.value)} />
           </div>
 
@@ -171,7 +170,7 @@ function ItemForm({ initial = {}, knownCategories = [], onSave, onCancel, saving
             {form.lot_tracked && (
               <div style={{ marginTop: 8, maxWidth: 240 }}>
                 <label className="form-label">{t('inventory.shelfLifeDays')}</label>
-                <input className="form-control" type="number" min="0" step="1"
+                <NumberInput className="form-control" min="0" step="1"
                   value={form.shelf_life_days}
                   onChange={e => set('shelf_life_days', e.target.value)}
                   placeholder={t('inventory.shelfLifeHint')} />
@@ -263,7 +262,7 @@ function StockForm({ item, onDone, onCancel }) {
           )}
           <div className="form-group form-full">
             <label className="form-label">{t('inventory.qtyChange')}</label>
-            <input className="form-control" type="number" step="1" required
+            <NumberInput className="form-control" step="1" required
               placeholder="e.g. 10 or -5"
               value={delta} onChange={e => setDelta(e.target.value)} />
           </div>

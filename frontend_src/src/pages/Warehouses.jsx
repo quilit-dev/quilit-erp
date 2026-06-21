@@ -15,7 +15,7 @@
 import { useState, useEffect, useCallback, useMemo } from 'react';
 import { useLocale } from '../hooks/useLocale.jsx';
 import { usePermissions } from '../hooks/usePermissions.js';
-import { LoadingSpinner, ErrorAlert, EmptyState, Modal, ConfirmModal, toast, fmt as fmtUsd } from '../components/shared';
+import { LoadingSpinner, ErrorAlert, EmptyState, Modal, ConfirmModal, toast, fmt as fmtUsd, NumberInput} from '../components/shared';
 import {
   getWarehouses, createWarehouse, updateWarehouse, archiveWarehouse, unarchiveWarehouse,
   setDefaultWarehouse, getWarehouseStock,
@@ -737,7 +737,7 @@ function TransfersTab({ canEdit, t }) {
                         </select>
                       </td>
                       <td>
-                        <input type="number" className="form-control" min={0.01} step={1} value={it.quantity}
+                        <NumberInput className="form-control" min={0.01} step={1} value={it.quantity}
                           onChange={e => setForm(f => ({ ...f, items: f.items.map((x, i) => i === idx ? { ...x, quantity: e.target.value } : x) }))} />
                       </td>
                       <td>

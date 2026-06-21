@@ -1,7 +1,7 @@
 import { useState, useEffect, useCallback, useMemo } from 'react';
 import { useLocale } from '../hooks/useLocale.jsx';
 import { useData } from '../hooks/useData.js';
-import { Modal, ConfirmModal, EmptyState, toast } from '../components/shared';
+import { Modal, ConfirmModal, EmptyState, toast, NumberInput} from '../components/shared';
 import {
   getHRActivities, getHRActivity, getHRActivitiesSummary,
   createHRActivity, updateHRActivity, completeHRActivity, archiveHRActivity,
@@ -243,7 +243,7 @@ function ActivityForm({ initial, applicants, employees, onSave, onClose }) {
           </div>
           <div className="form-group">
             <label className="form-label">{t('hrActivities.duration')}</label>
-            <input type="number" min="0" step="5" className="form-control"
+            <NumberInput min="0" step="5" className="form-control"
                    value={form.duration_min}
                    onChange={e => set('duration_min', e.target.value)} />
           </div>

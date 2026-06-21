@@ -32,8 +32,7 @@ import {
   getFinancePeriods, lockPeriod, unlockPeriod,
 } from '../api/client';
 import {
-  LoadingSpinner, Modal, ConfirmModal, toast, ExportButton,
-} from '../components/shared';
+  LoadingSpinner, Modal, ConfirmModal, toast, ExportButton, NumberInput} from '../components/shared';
 import { exportReportPDF } from '../utils/exportUtils';
 import ImportWizard from '../components/ImportWizard';
 import { useLocale } from '../hooks/useLocale.jsx';
@@ -732,9 +731,9 @@ function NewEntryModal({ t, fmt, onClose, onSaved }) {
                     {accounts.map(a => <option key={a.id} value={a.id}>{a.code} — {a.name}</option>)}
                   </select>
                 </td>
-                <td><input type="number" min="0" step="0.01" className="form-control" style={{ textAlign: 'right' }}
+                <td><NumberInput min="0" step="0.01" className="form-control" style={{ textAlign: 'right' }}
                   value={l.debit} onChange={e => setLine(i, { debit: e.target.value, credit: '' })} /></td>
-                <td><input type="number" min="0" step="0.01" className="form-control" style={{ textAlign: 'right' }}
+                <td><NumberInput min="0" step="0.01" className="form-control" style={{ textAlign: 'right' }}
                   value={l.credit} onChange={e => setLine(i, { credit: e.target.value, debit: '' })} /></td>
                 <td>{lines.length > 2 && <button className="btn btn-sm btn-secondary" onClick={() => setLines(ls => ls.filter((_, j) => j !== i))}>✕</button>}</td>
               </tr>

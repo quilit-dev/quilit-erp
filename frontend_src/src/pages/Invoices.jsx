@@ -9,8 +9,7 @@ import {
 import {
   LoadingSpinner, ErrorAlert, EmptyState, Modal, ConfirmModal,
   Badge, ExportButton, fmt, fmtDate, toast, SortableTh, Pagination,
-  DualMoney, ExchangeRateBadge, DisplayCurrencyToggle, WhatsAppShareButton,
-} from '../components/shared';
+  DualMoney, ExchangeRateBadge, DisplayCurrencyToggle, WhatsAppShareButton, NumberInput} from '../components/shared';
 import { exportInvoicePDF, exportInvoiceExcel } from '../utils/exportUtils';
 import InventoryCombobox from '../components/InventoryCombobox';
 import { useLocale } from '../hooks/useLocale.jsx';
@@ -656,10 +655,10 @@ export default function Invoices() {
                         onChange={(name, price) => setItemFromInventory(i, name, price)}
                       />
                     )}
-                    <input type="number" className="form-control" placeholder={t('common.quantity')} min="0" step="any"
+                    <NumberInput className="form-control" placeholder={t('common.quantity')} min="0" step="any"
                       value={item.quantity} onChange={e => setItem(i, 'quantity', e.target.value)}
                       disabled={amountsLocked} style={amountsLocked ? { opacity:0.6 } : {}} />
-                    <input type="number" className="form-control" placeholder="Unit $" min="0" step="0.01"
+                    <NumberInput className="form-control" placeholder="Unit $" min="0" step="0.01"
                       value={item.unit_price} onChange={e => setItem(i, 'unit_price', e.target.value)}
                       disabled={amountsLocked} style={amountsLocked ? { opacity:0.6 } : {}} />
                     {discountEnabled && (
@@ -668,7 +667,7 @@ export default function Invoices() {
                           {Number(item.discount || 0).toFixed(2)}
                         </span>
                       ) : (
-                        <input type="number" className="form-control"
+                        <NumberInput className="form-control"
                           placeholder={t('common.discount')}
                           title={t('common.discount')}
                           min="0" step="0.01"
@@ -822,7 +821,7 @@ export default function Invoices() {
                     )}
                     <div className="form-group" style={{ margin:0, flex:'1 1 130px', minWidth:120 }}>
                       <label className="form-label">{t('invoices.paymentAmount')} *</label>
-                      <input type="number" className="form-control" min="0.01" step="0.01"
+                      <NumberInput className="form-control" min="0.01" step="0.01"
                         required value={payForm.amount}
                         onChange={e => setPayForm(f => ({ ...f, amount: e.target.value }))}
                         placeholder={payInLbp ? '' : t('invoices.maxAmount', { amount: fmt(payModal.remaining) })} />
@@ -835,7 +834,7 @@ export default function Invoices() {
                     {payInLbp && (
                       <div className="form-group" style={{ margin:0, width:140 }}>
                         <label className="form-label">{t('invoices.exchangeRateLabel')} *</label>
-                        <input type="number" className="form-control" min="0.01" step="any"
+                        <NumberInput className="form-control" min="0.01" step="any"
                           required value={payForm.rate}
                           onChange={e => setPayForm(f => ({ ...f, rate: e.target.value }))} />
                       </div>

@@ -4,8 +4,7 @@ import { usePermissions } from '../hooks/usePermissions.js';
 import { useLocale } from '../hooks/useLocale.jsx';
 import {
   LoadingSpinner, ErrorAlert, EmptyState, Modal, ConfirmModal,
-  ExportButton, fmt, fmtDate, toast,
-} from '../components/shared';
+  ExportButton, fmt, fmtDate, toast, NumberInput} from '../components/shared';
 import {
   getHRSummary,
   getDepartments, createDepartment, updateDepartment, archiveDepartment, unarchiveDepartment,
@@ -603,7 +602,7 @@ export default function HR() {
                 </div>
                 <div className="form-group">
                   <label className="form-label">{t('hr.fldSalary')}</label>
-                  <input type="number" min="0" step="0.01" className="form-control" value={empForm.salary}
+                  <NumberInput min="0" step="0.01" className="form-control" value={empForm.salary}
                     onChange={e => setEmpForm(f => ({ ...f, salary: e.target.value }))} />
                 </div>
                 <div className="form-group">
@@ -1282,24 +1281,24 @@ function PayrollLineRow({ line, editable, onPatch }) {
       </td>
       <td>
         {editable
-          ? <input type="number" step="0.01" min="0" className="form-control" style={{ textAlign: 'right', padding: '4px 6px' }}
+          ? <NumberInput step="0.01" min="0" className="form-control" style={{ textAlign: 'right', padding: '4px 6px' }}
                    value={base} onChange={e => setBase(e.target.value)} onBlur={() => commit()} />
           : <div style={{ textAlign: 'right' }}>{fmt(line.base_salary || 0)}</div>}
       </td>
       <td>
         {editable
-          ? <input type="number" step="0.01" min="0" className="form-control" style={{ textAlign: 'right', padding: '4px 6px' }}
+          ? <NumberInput step="0.01" min="0" className="form-control" style={{ textAlign: 'right', padding: '4px 6px' }}
                    value={bonus} onChange={e => setBonus(e.target.value)} onBlur={() => commit()} />
           : <div style={{ textAlign: 'right' }}>{fmt(line.bonuses || 0)}</div>}
       </td>
       <td>
         {editable ? (
           <div style={{ display: 'flex', gap: 4 }}>
-            <input type="number" step="0.01" min="0" className="form-control"
+            <NumberInput step="0.01" min="0" className="form-control"
                    style={{ textAlign: 'right', padding: '4px 6px', width: 50 }}
                    placeholder={t('hr.hoursPh')} value={otHours}
                    onChange={e => setOtHours(e.target.value)} onBlur={() => commit({ overtime_amount: null })} />
-            <input type="number" step="0.01" min="0" className="form-control"
+            <NumberInput step="0.01" min="0" className="form-control"
                    style={{ textAlign: 'right', padding: '4px 6px', width: 60 }}
                    placeholder={t('hr.amountPh')} value={otAmt}
                    onChange={e => setOtAmt(e.target.value)} onBlur={() => commit()} />
@@ -1313,7 +1312,7 @@ function PayrollLineRow({ line, editable, onPatch }) {
       </td>
       <td>
         {editable
-          ? <input type="number" step="0.01" min="0" className="form-control" style={{ textAlign: 'right', padding: '4px 6px' }}
+          ? <NumberInput step="0.01" min="0" className="form-control" style={{ textAlign: 'right', padding: '4px 6px' }}
                    value={deduct} onChange={e => setDeduct(e.target.value)} onBlur={() => commit()} />
           : <div style={{ textAlign: 'right' }}>{fmt(line.deductions || 0)}</div>}
       </td>
@@ -1512,7 +1511,7 @@ function ContractForm({ empId, existing, onClose, onSaved }) {
             </div>
             <div className="form-group">
               <label className="form-label">{t('hr.weeklyHours')}</label>
-              <input type="number" min="0" step="0.5" className="form-control" value={form.weekly_hours}
+              <NumberInput min="0" step="0.5" className="form-control" value={form.weekly_hours}
                 onChange={e => setForm(f => ({ ...f, weekly_hours: e.target.value }))} />
             </div>
             <div className="form-group" style={{ gridColumn: '1 / -1' }}>
@@ -1522,7 +1521,7 @@ function ContractForm({ empId, existing, onClose, onSaved }) {
             </div>
             <div className="form-group">
               <label className="form-label">{t('hr.salaryField')}</label>
-              <input type="number" min="0" step="any" className="form-control" value={form.salary}
+              <NumberInput min="0" step="any" className="form-control" value={form.salary}
                 onChange={e => setForm(f => ({ ...f, salary: e.target.value }))} />
             </div>
             <div className="form-group">
@@ -1814,7 +1813,7 @@ function AttendanceTab({ t, canEdit }) {
                     </select>
                   </td>
                   <td>
-                    <input type="number" className="form-control" style={{ width: 80 }} min="0" step="0.5"
+                    <NumberInput className="form-control" style={{ width: 80 }} min="0" step="0.5"
                       value={r.hours ?? ''} disabled={!canEdit}
                       onChange={e => setRow(r.employee_id, 'hours', e.target.value)} />
                   </td>

@@ -1,3 +1,4 @@
+import { useState, useEffect } from 'react';
 import * as XLSX from 'xlsx';
 import { useLocale } from '../hooks/useLocale.jsx';
 import { useSettings } from '../hooks/useSettings.jsx';
@@ -153,6 +154,83 @@ export function Badge({ status }) {
   const { tStatus } = useLocale();
   const color = statusColors[status] || 'gray';
   return <span className={`badge badge-${color}`}>{tStatus(status)}</span>;
+}
+
+// ── Number input that shows a greyed "0" placeholder ───────────
+// Drop-in replacement for <input type="number">. A field whose value is the
+// default numeric 0 (or null/empty) renders blank with a greyed "0" placeholder
+// instead of a literal 0 — so typing "1" gives "1", not "10". A value the user
+// actually typed (a string, including "0" or "0.5") shows normally, so decimals
+// keep working. All other props (className, min, step, onChange, …) pass through.
+export function NumberInput({ value, placeholder = '0', ...props }) {
+  const blank = value === 0 || value === null || value === undefined || value === '';
+  return <input {...props} type="number" placeholder={placeholder} value={blank ? '' : value} />;
+}
+
+// ── Select with an inline "Other" entry ────────────────────────
+// A drop-in replacement for a <select> whose list can't cover every value.
+// Picking the "Other…" option reveals an inline text input so the user can
+// type a value that isn't in the list (e.g. a payment method or lead source
+// not offered as a preset). Only use this for FREE-TEXT backend fields — never
+// for closed enums (e.g. expense category, which maps to GL accounts).
+//
+//   <SelectOther value={form.x} onChange={v => setForm(f => ({...f, x: v}))}
+//     options={[{ value: 'Cash', label: 'Cash' }, ...]} includeNone />
+//
+// Renders inside conditionally-mounted modals, so its "other mode" resets
+// naturally each time the form is opened.
+export function SelectOther({
+  value, onChange, options = [],
+  includeNone = false, noneLabel = '—',
+  otherValue = '__other__', otherLabel, placeholder,
+  className = 'form-control', required = false,
+}) {
+  const { t } = useLocale();
+  const norm = (o) => (o && typeof o === 'object' ? o : { value: o, label: o });
+  const opts = options.map(norm);
+  const inList = (v) => opts.some(o => o.value === v);
+  const isCustom = value != null && value !== '' && !inList(value);
+
+  const [other, setOther] = useState(isCustom);
+  useEffect(() => {
+    // Re-sync when the value changes from outside (e.g. opening an edit form).
+    // A blank value is left alone so a fresh "Other" pick keeps the input open.
+    if (value && inList(value)) setOther(false);
+    else if (value && !inList(value)) setOther(true);
+  }, [value]); // eslint-disable-line react-hooks/exhaustive-deps
+
+  const showInput = other || isCustom;
+
+  const onSelect = (e) => {
+    const v = e.target.value;
+    if (v === otherValue) { setOther(true); onChange(''); }
+    else { setOther(false); onChange(v); }
+  };
+
+  return (
+    <>
+      <select
+        className={className}
+        value={showInput ? otherValue : (value ?? '')}
+        onChange={onSelect}
+        required={required}
+      >
+        {includeNone && <option value="">{noneLabel}</option>}
+        {opts.map(o => <option key={o.value} value={o.value}>{o.label}</option>)}
+        <option value={otherValue}>{otherLabel || t('common.otherOption')}</option>
+      </select>
+      {showInput && (
+        <input
+          className={className}
+          style={{ marginTop: 8 }}
+          placeholder={placeholder || t('common.otherSpecify')}
+          value={value || ''}
+          onChange={(e) => onChange(e.target.value)}
+          required={required}
+        />
+      )}
+    </>
+  );
 }
 
 // ── Expense category badge ─────────────────────────────────────

@@ -6,8 +6,7 @@ import { getExpenses, getProjects, createExpense, updateExpense, voidExpense, ge
 import {
   LoadingSpinner, ErrorAlert, EmptyState, Modal,
   ExportButton, fmt, fmtDate, toast, SortableTh, Pagination,
-  CATEGORY_COLORS, CategoryBadge, EXPENSE_CATEGORIES,
-} from '../components/shared';
+  CATEGORY_COLORS, CategoryBadge, EXPENSE_CATEGORIES, SelectOther, NumberInput} from '../components/shared';
 import { useSortPaginate } from '../hooks/useSortPaginate';
 import { useLocale } from '../hooks/useLocale.jsx';
 import { useSettings } from '../hooks/useSettings.jsx';
@@ -347,7 +346,7 @@ function TransactionsPanel() {
                 </div>
                 <div className="form-group">
                   <label className="form-label">{t('expenses.amountLabel')}</label>
-                  <input type="number" className="form-control" required step="0.01" min="0"
+                  <NumberInput className="form-control" required step="0.01" min="0"
                     value={form.amount} onChange={e => setForm(f => ({ ...f, amount: e.target.value }))} />
                 </div>
                 <div className="form-group">
@@ -360,15 +359,18 @@ function TransactionsPanel() {
                 </div>
                 <div className="form-group">
                   <label className="form-label">{t('expenses.paymentMethodLabel')}</label>
-                  <select className="form-control" value={form.payment_method || ''}
-                    onChange={e => setForm(f => ({ ...f, payment_method: e.target.value }))}>
-                    <option value="">—</option>
-                    <option value="Cash">{t('expenses.methodCash')}</option>
-                    <option value="Bank Transfer">{t('expenses.methodBank')}</option>
-                    <option value="Cheque">{t('expenses.methodCheque')}</option>
-                    <option value="Card">{t('expenses.methodCard')}</option>
-                    <option value="Other">{t('expenses.methodOther')}</option>
-                  </select>
+                  <SelectOther
+                    value={form.payment_method || ''}
+                    onChange={v => setForm(f => ({ ...f, payment_method: v }))}
+                    includeNone
+                    options={[
+                      { value: 'Cash',          label: t('expenses.methodCash') },
+                      { value: 'Bank Transfer', label: t('expenses.methodBank') },
+                      { value: 'Cheque',        label: t('expenses.methodCheque') },
+                      { value: 'Card',          label: t('expenses.methodCard') },
+                    ]}
+                    otherLabel={t('expenses.methodOther')}
+                  />
                 </div>
                 {form.payment_method === 'Cash' && cashDrawers.length > 0 && (
                   <div className="form-group">

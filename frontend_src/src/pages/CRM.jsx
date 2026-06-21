@@ -3,8 +3,7 @@ import { useNavigate } from 'react-router-dom';
 import { useLocale } from '../hooks/useLocale.jsx';
 import { useData } from '../hooks/useData';
 import {
-  LoadingSpinner, ErrorAlert, EmptyState, Modal, ConfirmModal, ExportButton, toast, fmtDate,
-} from '../components/shared';
+  LoadingSpinner, ErrorAlert, EmptyState, Modal, ConfirmModal, ExportButton, toast, fmtDate, SelectOther, NumberInput} from '../components/shared';
 import {
   getCRMDashboard, getCRMLeads, createCRMLead, updateCRMLead, archiveCRMLead, unarchiveCRMLead, convertCRMLead,
   getCRMContacts, createCRMContact, updateCRMContact, deleteCRMContact,
@@ -184,10 +183,13 @@ function LeadForm({ initial, users, onSave, onClose, t }) {
           </div>
           <div className="form-group">
             <label className="form-label">{t('crm.source')}</label>
-            <select className="form-control" value={form.source || ''} onChange={f('source')}>
-              <option value="">—</option>
-              {LEAD_SOURCES.map(s => <option key={s} value={s}>{sourceLabel[s]}</option>)}
-            </select>
+            <SelectOther
+              value={form.source || ''}
+              onChange={v => setForm(p => ({ ...p, source: v }))}
+              includeNone
+              options={LEAD_SOURCES.filter(s => s !== 'other').map(s => ({ value: s, label: sourceLabel[s] }))}
+              otherLabel={t('crm.sourceOther')}
+            />
           </div>
           <div className="form-group">
             <label className="form-label">{t('crm.status')}</label>
@@ -197,7 +199,7 @@ function LeadForm({ initial, users, onSave, onClose, t }) {
           </div>
           <div className="form-group">
             <label className="form-label">{t('crm.estimatedValue')} ($)</label>
-            <input className="form-control" type="number" min="0" value={form.estimated_value || ''} onChange={f('estimated_value')} />
+            <NumberInput className="form-control" min="0" value={form.estimated_value || ''} onChange={f('estimated_value')} />
           </div>
           <div className="form-group">
             <label className="form-label">{t('crm.expectedClose')}</label>
@@ -205,7 +207,7 @@ function LeadForm({ initial, users, onSave, onClose, t }) {
           </div>
           <div className="form-group">
             <label className="form-label">{t('crm.score')} (0–100)</label>
-            <input className="form-control" type="number" min="0" max="100" value={form.score || 0} onChange={f('score')} />
+            <NumberInput className="form-control" min="0" max="100" value={form.score || 0} onChange={f('score')} />
           </div>
           <div className="form-group">
             <label className="form-label">{t('crm.assignedTo')}</label>
@@ -904,11 +906,11 @@ function DealForm({ initial, clients, quotations, users, leads, onSave, onClose,
           </div>
           <div className="form-group">
             <label className="form-label">{t('crm.value')} ($)</label>
-            <input className="form-control" type="number" min="0" value={form.value || ''} onChange={f('value')} />
+            <NumberInput className="form-control" min="0" value={form.value || ''} onChange={f('value')} />
           </div>
           <div className="form-group">
             <label className="form-label">{t('crm.probability')}</label>
-            <input className="form-control" type="number" min="0" max="100" value={form.probability || 0} onChange={f('probability')} />
+            <NumberInput className="form-control" min="0" max="100" value={form.probability || 0} onChange={f('probability')} />
           </div>
           <div className="form-group">
             <label className="form-label">{t('crm.expectedClose')}</label>
