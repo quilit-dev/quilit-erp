@@ -5,9 +5,22 @@ from database import get_db
 from permissions import require_auth, require_admin
 from routers.audit import log_action
 from utils import _now
+import approval_engine as engine
 import sqlite3, json
 
 router = APIRouter()
+
+
+def _validate_target(module: str, action: str) -> None:
+    """Reject policies aimed at a module/action the engine cannot enforce, so the
+    builder can never persist a dead policy that would silently do nothing."""
+    if not engine.supported_module(module):
+        raise HTTPException(400, f"Unsupported approval module: {module!r}")
+    if not engine.supported_action(module, action):
+        allowed = ", ".join(engine.MODULE_REGISTRY[module]["actions"].keys())
+        raise HTTPException(
+            400, f"Module {module!r} does not support the action {action!r} "
+                 f"(allowed: {allowed})")
 
 # ── Pydantic models ───────────────────────────────────────────────────────────
 
@@ -62,6 +75,7 @@ def create_policy(
     user=Depends(require_admin),
     db:   sqlite3.Connection = Depends(get_db),
 ):
+    _validate_target(data.module, data.trigger_action)
     now = _now()
     db.execute(
         """INSERT INTO approval_policies
@@ -98,6 +112,7 @@ def update_policy(
     existing = db.execute("SELECT id FROM approval_policies WHERE id=?", (policy_id,)).fetchone()
     if not existing:
         raise HTTPException(404, "Policy not found")
+    _validate_target(data.module, data.trigger_action)
     db.execute(
         """UPDATE approval_policies SET
                name=?, description=?, module=?, trigger_action=?, condition_logic=?,
@@ -157,43 +172,7 @@ def delete_policy(
 
 @router.get("/meta/modules")
 def get_modules(user=Depends(require_auth)):
-    """Return module/field/action metadata for the policy builder UI."""
-    return {
-        "modules": ["expense", "invoice", "purchase", "project", "fixed_asset"],
-        "module_actions": {
-            "expense":     ["create"],
-            "invoice":     ["create", "void"],
-            "purchase":    ["create"],
-            "project":     ["create", "cancel"],
-            "fixed_asset": ["create"],
-        },
-        "module_fields": {
-            "expense":  [
-                {"key": "amount",   "label": "Amount",   "type": "number"},
-                {"key": "category", "label": "Category", "type": "text"},
-                {"key": "status",   "label": "Status",   "type": "text"},
-            ],
-            "invoice":  [
-                {"key": "amount",   "label": "Amount",   "type": "number"},
-                {"key": "status",   "label": "Status",   "type": "text"},
-            ],
-            "purchase": [
-                {"key": "total_cost", "label": "Total Cost",  "type": "number"},
-                {"key": "quantity",   "label": "Quantity",    "type": "number"},
-                {"key": "status",     "label": "Status",      "type": "text"},
-            ],
-            "project":  [
-                {"key": "budget", "label": "Budget", "type": "number"},
-                {"key": "status", "label": "Status", "type": "text"},
-            ],
-            "fixed_asset": [
-                {"key": "acquisition_cost", "label": "Acquisition Cost", "type": "number"},
-                {"key": "category",         "label": "Category",         "type": "text"},
-                {"key": "depreciation_method", "label": "Method",        "type": "text"},
-            ],
-        },
-        "operators": {
-            "number": [">", "<", ">=", "<=", "==", "!="],
-            "text":   ["==", "!=", "contains"],
-        },
-    }
+    """Module/field/action metadata for the policy builder UI, derived from the
+    engine's MODULE_REGISTRY so the builder only ever offers targets the engine
+    can actually enforce."""
+    return engine.policy_metadata()

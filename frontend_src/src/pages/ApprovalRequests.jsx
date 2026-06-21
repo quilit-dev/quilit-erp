@@ -20,10 +20,12 @@ const STATUS_CFG = {
 };
 
 const MODULE_CFG = {
-  expense:  { color: '#b45309', bg: '#fef3c7' },
-  invoice:  { color: '#1d4ed8', bg: '#dbeafe' },
-  purchase: { color: '#16a34a', bg: '#dcfce7' },
-  project:  { color: '#be185d', bg: '#fce7f3' },
+  expense:     { color: '#b45309', bg: '#fef3c7' },
+  purchase:    { color: '#16a34a', bg: '#dcfce7' },
+  project:     { color: '#be185d', bg: '#fce7f3' },
+  quotation:   { color: '#1d4ed8', bg: '#dbeafe' },
+  invoice:     { color: '#0369a1', bg: '#e0f2fe' },
+  fixed_asset: { color: '#6d28d9', bg: '#ede9fe' },
 };
 
 const STEP_STATUS_CFG = {
@@ -57,7 +59,7 @@ function ModuleTag({ module }) {
   const cfg = MODULE_CFG[module] || { color: 'var(--text-2)', bg: 'var(--bg)' };
   return (
     <span style={{ padding: '2px 8px', borderRadius: 99, fontSize: 10, fontWeight: 700, background: cfg.bg, color: cfg.color, textTransform: 'capitalize' }}>
-      {module}
+      {(module || '').replace(/_/g, ' ')}
     </span>
   );
 }

@@ -12,20 +12,28 @@ import {
 // ── Constants ─────────────────────────────────────────────────────────────────
 
 const MODULE_COLORS = {
-  expense:  { bg: '#fef3c7', color: '#b45309' },
-  invoice:  { bg: '#dbeafe', color: '#1d4ed8' },
-  purchase: { bg: '#dcfce7', color: '#16a34a' },
-  project:  { bg: '#fce7f3', color: '#be185d' },
+  expense:     { bg: '#fef3c7', color: '#b45309' },
+  purchase:    { bg: '#dcfce7', color: '#16a34a' },
+  project:     { bg: '#fce7f3', color: '#be185d' },
+  quotation:   { bg: '#dbeafe', color: '#1d4ed8' },
+  invoice:     { bg: '#e0f2fe', color: '#0369a1' },
+  fixed_asset: { bg: '#ede9fe', color: '#6d28d9' },
 };
 
-function ModuleBadge({ module }) {
+// Module names are labelled by the backend registry (meta.module_labels) so the
+// UI never drifts from what the engine enforces; fall back to a tidy
+// title-cased form (e.g. "fixed_asset" → "Fixed asset") when meta is absent.
+const prettyModule = (m) => (m || '').charAt(0).toUpperCase() + (m || '').slice(1).replace(/_/g, ' ');
+const moduleLabel  = (meta, m) => meta?.module_labels?.[m] || prettyModule(m);
+
+function ModuleBadge({ module, label }) {
   const cfg = MODULE_COLORS[module] || { bg: 'var(--bg)', color: 'var(--text-2)' };
   return (
     <span style={{
       padding: '2px 8px', borderRadius: 99, fontSize: 11, fontWeight: 700,
-      background: cfg.bg, color: cfg.color, textTransform: 'capitalize',
+      background: cfg.bg, color: cfg.color,
     }}>
-      {module}
+      {label || prettyModule(module)}
     </span>
   );
 }
@@ -222,8 +230,8 @@ function PolicyForm({ initial, meta, roles, onSave, onClose }) {
             <div className="form-group">
               <label className="form-label">{t('approvals.module')}</label>
               <select className="form-control" value={form.module} onChange={e => set('module', e.target.value)}>
-                {(meta?.modules || ['expense', 'invoice', 'purchase', 'project']).map(m => (
-                  <option key={m} value={m} style={{ textTransform: 'capitalize' }}>{m.charAt(0).toUpperCase() + m.slice(1)}</option>
+                {(meta?.modules || ['expense', 'purchase', 'project']).map(m => (
+                  <option key={m} value={m}>{moduleLabel(meta, m)}</option>
                 ))}
               </select>
             </div>
@@ -387,7 +395,7 @@ function PolicyForm({ initial, meta, roles, onSave, onClose }) {
 
 // ── Policy Row ────────────────────────────────────────────────────────────────
 
-function PolicyRow({ policy, onEdit, onToggle, onDelete }) {
+function PolicyRow({ policy, meta, onEdit, onToggle, onDelete }) {
   const { t } = useLocale();
   const conditions = Array.isArray(policy.conditions) ? policy.conditions : [];
   const steps      = Array.isArray(policy.steps)      ? policy.steps      : [];
@@ -401,7 +409,7 @@ function PolicyRow({ policy, onEdit, onToggle, onDelete }) {
           <div style={{ fontSize: 11, color: 'var(--text-3)', marginTop: 2 }}>{policy.description}</div>
         )}
       </td>
-      <td><ModuleBadge module={policy.module} /></td>
+      <td><ModuleBadge module={policy.module} label={moduleLabel(meta, policy.module)} /></td>
       <td style={{ fontSize: 12, color: 'var(--text-2)', textTransform: 'capitalize' }}>{policy.trigger_action}</td>
       <td>
         {conditions.length === 0 ? (
@@ -528,7 +536,7 @@ export default function ApprovalPolicies() {
     }
   }
 
-  const modules = meta?.modules || ['expense', 'invoice', 'purchase', 'project'];
+  const modules = meta?.modules || ['expense', 'purchase', 'project'];
 
   return (
     <div>
@@ -569,7 +577,7 @@ export default function ApprovalPolicies() {
             </div>
             <select className="form-control" style={{ width: 160 }} value={modFilt} onChange={e => setModFilt(e.target.value)}>
               <option value="">{t('common.allModules')}</option>
-              {modules.map(m => <option key={m} value={m} style={{ textTransform: 'capitalize' }}>{m.charAt(0).toUpperCase() + m.slice(1)}</option>)}
+              {modules.map(m => <option key={m} value={m}>{moduleLabel(meta, m)}</option>)}
             </select>
             <span style={{ fontSize: 12, color: 'var(--text-3)', marginInlineStart: 'auto' }}>
               {filtered.length === 1
@@ -600,7 +608,7 @@ export default function ApprovalPolicies() {
                     {t('approvals.noPolicies')}
                   </td></tr>
                 ) : filtered.map(p => (
-                  <PolicyRow key={p.id} policy={p}
+                  <PolicyRow key={p.id} policy={p} meta={meta}
                     onEdit={p => { setEditing(p); setModal(true); }}
                     onToggle={handleToggle}
                     onDelete={p => setDelConf(p)}

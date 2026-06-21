@@ -2,7 +2,7 @@ import { usePersistedState } from '../hooks/usePersistedState';
 import { useState } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { useData } from '../hooks/useData';
-import { getProjects, getClients, createProject, updateProject, voidProject, unvoidProject, archiveProject, unarchiveProject } from '../api/client';
+import { getProjects, getClients, createProject, updateProject, archiveProject, unarchiveProject } from '../api/client';
 import {
   LoadingSpinner, ErrorAlert, EmptyState, Modal, ConfirmModal,
   Badge, ExportButton, fmt, fmtDate, toast, SortableTh, Pagination
@@ -32,7 +32,6 @@ export default function Projects() {
   const [modal,        setModal]        = useState(null);
   const [form,         setForm]         = useState(EMPTY);
   const [editId,       setEditId]       = useState(null);
-  const [voidId,       setVoidId]       = useState(null);
   const [restoreId,    setRestoreId]    = useState(null);
   const [archiveId,    setArchiveId]    = useState(null);
   const [saving,       setSaving]       = useState(false);
@@ -87,23 +86,6 @@ export default function Projects() {
       reload();
     } catch (err) { toast(err.message, 'red'); }
     finally { setSaving(false); }
-  }
-
-  async function handleVoid() {
-    try {
-      await voidProject(voidId, 'Voided by user');
-      toast(t('projects.projectVoided'));
-      setVoidId(null);
-      reload();
-    } catch (err) { toast(err.message, 'red'); }
-  }
-
-  async function handleUnvoid(p) {
-    try {
-      await unvoidProject(p.id);
-      toast(t('projects.projectRestored'));
-      reload();
-    } catch (err) { toast(err.message, 'red'); }
   }
 
   async function handleArchive() {
@@ -166,7 +148,7 @@ export default function Projects() {
             <select className="form-control" style={{ width: 180 }}
               value={statusFilter} onChange={e => setStatusFilter(e.target.value)}>
               <option value="">{t('common.allStatuses')}</option>
-              {[...STATUSES, 'Voided'].map(s => <option key={s} value={s}>{tStatus(s)}</option>)}
+              {STATUSES.map(s => <option key={s} value={s}>{tStatus(s)}</option>)}
             </select>
             {(search||clientFilter||statusFilter) && (
               <button className="btn btn-secondary btn-sm" style={{whiteSpace:'nowrap'}}
@@ -234,14 +216,8 @@ export default function Projects() {
                               onClick={() => setRestoreId(p.id)}><svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true"><polyline points="1 4 1 10 7 10"/><path d="M3.51 15a9 9 0 1 0 2.13-9.36L1 10"/></svg>{t('common.restore')}</button>
                           ) : (
                             <>
-                              {(p.status === 'Voided' || p.status === 'Cancelled') ? (
-                                <button className="btn btn-sm btn-secondary" style={{ color: '#166534', whiteSpace: 'nowrap' }}
-                                  onClick={() => handleUnvoid(p)}><svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true"><polyline points="1 4 1 10 7 10"/><path d="M3.51 15a9 9 0 1 0 2.13-9.36L1 10"/></svg>{t('projects.unvoidProject')}</button>
-                              ) : (
-                                <>
-                                  <button className="btn btn-sm btn-secondary" onClick={() => openEdit(p)}>{t('common.edit')}</button>
-                                  <button className="btn btn-sm btn-warning"  onClick={() => setVoidId(p.id)}>🚫 {t('projects.voidProject')}</button>
-                                </>
+                              {!(p.status === 'Voided' || p.status === 'Cancelled') && (
+                                <button className="btn btn-sm btn-secondary" onClick={() => openEdit(p)}>{t('common.edit')}</button>
                               )}
                               <button className="btn btn-sm btn-danger"   onClick={() => setArchiveId(p.id)}>{t('common.archive')}</button>
                             </>
@@ -328,15 +304,6 @@ export default function Projects() {
         </Modal>
       )}
 
-      {voidId && (
-        <ConfirmModal
-          message={t('projects.voidProjectMessage')}
-          confirmLabel={t('projects.voidProject')}
-          confirmClass="btn-warning"
-          onConfirm={handleVoid}
-          onCancel={() => setVoidId(null)}
-        />
-      )}
       {archiveId && (
         <ConfirmModal
           message={t('common.archiveConfirm')}

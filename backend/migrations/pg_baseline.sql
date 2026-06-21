@@ -695,6 +695,7 @@ CREATE TABLE IF NOT EXISTS invoices (
     archive_reason TEXT DEFAULT NULL,
     subtotal DOUBLE PRECISION NOT NULL DEFAULT 0,
     tax_total DOUBLE PRECISION NOT NULL DEFAULT 0,
+    approval_status TEXT DEFAULT NULL,
     UNIQUE (invoice_number)
 );
 

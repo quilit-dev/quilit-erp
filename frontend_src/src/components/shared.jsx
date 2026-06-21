@@ -146,6 +146,7 @@ const statusColors = {
   low: 'red', ok: 'green',
   Ordered: 'blue', Received: 'accent', 'Paid (PO)': 'green',
   Voided: 'red', Cancelled: 'red',
+  'Pending Approval': 'yellow',
 };
 
 export function Badge({ status }) {

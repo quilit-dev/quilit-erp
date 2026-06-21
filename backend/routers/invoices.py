@@ -19,6 +19,7 @@ from permissions import require_perm
 from routers.audit import log_action
 from routers.finance import _check_period_locked
 from routers.projects import bump_project_status
+from approval_engine import evaluate_and_apply
 from utils import _now, _today, get_tax_context, resolve_line_tax, money, notify
 import accounting
 import sqlite3
@@ -106,6 +107,13 @@ def _finalize_invoice_number(db, invoice_id: int, prefix: str) -> str:
     db.execute("UPDATE invoices SET invoice_number=? WHERE id=?", (inv_no, invoice_id))
     return inv_no
 
+def _apply_pending(row: dict) -> None:
+    """An invoice awaiting approval is a draft: surface 'Pending Approval' as its
+    display status and keep it off the overdue radar until it clears."""
+    if row.get("approval_status") == "Pending Approval":
+        row["payment_status"] = "Pending Approval"
+        row["is_overdue"]     = False
+
 def _enrich(row: dict, db) -> dict:
     total_paid = _payment_total(db, row["id"])
     amount     = float(row["amount"])
@@ -113,6 +121,7 @@ def _enrich(row: dict, db) -> dict:
     row["remaining"]      = money(amount - total_paid)
     row["payment_status"] = _derive_status(amount, total_paid, row.get("voided_at"))
     row["is_overdue"]     = _is_overdue(row.get("due_date"), row["payment_status"])
+    _apply_pending(row)
     return row
 
 def _table_exists(db, name):
@@ -212,6 +221,7 @@ def list_invoices(
         d["remaining"]      = round(float(d["amount"]) - total_paid, 4)
         d["payment_status"] = _derive_status(float(d["amount"]), total_paid, d.get("voided_at"))
         d["is_overdue"]     = _is_overdue(d.get("due_date"), d["payment_status"])
+        _apply_pending(d)
         result.append(d)
 
     if status == "Overdue":
@@ -311,12 +321,34 @@ def create_invoice(
              float(getattr(item, "discount", 0) or 0),
              rid, rate, tax_amt),
         )
-    # Auto-advance the linked project's status to Invoiced (forward-only).
-    bump_project_status(db, data.project_id, "Invoiced")
+    # An active policy can gate the invoice behind approval. A gated invoice is
+    # parked in 'Pending Approval' (it takes no payments and its project advance
+    # is deferred to approval — see approval_engine.apply_resolution).
+    entity_data = {
+        "amount":    float(computed_amount or 0),
+        "subtotal":  float(subtotal or 0),
+        "tax_total": float(tax_total or 0),
+    }
+    needs_approval = evaluate_and_apply(
+        db, module="invoice", action="create",
+        entity_data=entity_data, user_id=user["id"],
+        entity_id=invoice_id, entity_label=inv_no,
+    )
+    if needs_approval:
+        db.execute("UPDATE invoices SET approval_status='Pending Approval' WHERE id=?",
+                   (invoice_id,))
+    else:
+        # Auto-advance the linked project's status to Invoiced (forward-only).
+        bump_project_status(db, data.project_id, "Invoiced")
+
     log_action(db, user, "create", "invoice", invoice_id, inv_no,
                {"amount": computed_amount})
     db.commit()
-    return {"id": invoice_id, "invoice_number": inv_no, "message": "Invoice created"}
+    return {
+        "id": invoice_id, "invoice_number": inv_no,
+        "pending_approval": bool(needs_approval),
+        "message": "Invoice pending approval" if needs_approval else "Invoice created",
+    }
 
 # ── Update ────────────────────────────────────────────────────────────────
 @router.put("/{invoice_id}")
@@ -541,6 +573,8 @@ def add_payment(
         raise HTTPException(404, "Invoice not found")
     if inv["voided_at"]:
         raise HTTPException(400, "Cannot add payments to a voided invoice.")
+    if inv["approval_status"] == "Pending Approval":
+        raise HTTPException(400, "Cannot record payments on an invoice awaiting approval.")
 
     _check_period_locked(db, _now()[:7] + "-01")
 

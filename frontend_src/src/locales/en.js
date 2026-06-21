@@ -572,6 +572,7 @@ const en = {
     Void: 'Void',
     Voided: 'Voided',
     Cancelled: 'Cancelled',
+    'Pending Approval': 'Pending Approval',
   },
 
   platform: {
@@ -806,10 +807,6 @@ const en = {
     projectCreated: 'Project created',
     projectUpdated: 'Project updated',
     projectDeleted: 'Project deleted',
-    voidProject: 'Void',
-    unvoidProject: 'Unvoid',
-    voidProjectMessage: 'Void this project? It becomes read-only and drops out of active-project counts. You can restore it later with Unvoid.',
-    projectVoided: 'Project voided',
     projectRestored: 'Project restored',
     projectArchived: 'Project archived',
     deleteConfirm: 'Delete this project? This cannot be undone.',
