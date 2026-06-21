@@ -15,7 +15,7 @@ import {
   getInvoices,
   getFiscalYears,
 } from '../api/client';
-import { LoadingSpinner, ErrorAlert, useMoney, DisplayCurrencyToggle, ExchangeRateBadge } from '../components/shared';
+import { LoadingSpinner, ErrorAlert, useMoney, DisplayCurrencyToggle, ExchangeRateBadge, Icon } from '../components/shared';
 import { useSettings } from '../hooks/useSettings.jsx';
 import { useLocale } from '../hooks/useLocale.jsx';
 import { useScrollLock } from '../hooks/useScrollLock';
@@ -552,10 +552,10 @@ function KpiCard({ label, value, change, color, icon, sub }) {
       }}>
         {icon ? (
           <span style={{
-            fontSize: 13, lineHeight: 1,
+            lineHeight: 1,
             color: color || 'var(--text-3)',
             opacity: 0.7,
-          }}>{icon}</span>
+          }}><Icon name={icon} size={15} /></span>
         ) : <span />}
 
         {!neutral && (
@@ -1499,12 +1499,12 @@ function ReconciliationModal({ onClose }) {
   }, []);
 
   const ISSUE_COLORS = {
-    vat_mismatch:      { bg: '#FEF3C7', text: '#92400E', icon: '⚠️', label: 'VAT Mismatch' },
-    overpayment:       { bg: '#FEE2E2', text: '#991B1B', icon: '💸', label: 'Overpayment' },
-    orphaned_payment:  { bg: '#FEE2E2', text: '#991B1B', icon: '🔗', label: 'Orphaned Payment' },
-    future_expense:    { bg: '#EFF6FF', text: '#1D4ED8', icon: '📅', label: 'Future-Dated Expense' },
-    unreversed_void:   { bg: '#FEE2E2', text: '#991B1B', icon: '↩️', label: 'Unreversed Void' },
-    gl_unbalanced:     { bg: '#FEE2E2', text: '#991B1B', icon: '⚖️', label: 'Ledger Out of Balance' },
+    vat_mismatch:      { bg: '#FEF3C7', text: '#92400E', icon: 'alert-triangle', label: 'VAT Mismatch' },
+    overpayment:       { bg: '#FEE2E2', text: '#991B1B', icon: 'banknote', label: 'Overpayment' },
+    orphaned_payment:  { bg: '#FEE2E2', text: '#991B1B', icon: 'link', label: 'Orphaned Payment' },
+    future_expense:    { bg: '#EFF6FF', text: '#1D4ED8', icon: 'calendar', label: 'Future-Dated Expense' },
+    unreversed_void:   { bg: '#FEE2E2', text: '#991B1B', icon: 'rotate-ccw', label: 'Unreversed Void' },
+    gl_unbalanced:     { bg: '#FEE2E2', text: '#991B1B', icon: 'scale', label: 'Ledger Out of Balance' },
   };
 
   // Migrated to the shared modal shell — same scroll-lock + sticky-header
@@ -1552,7 +1552,7 @@ function ReconciliationModal({ onClose }) {
 
               {/* Status banner */}
               <div style={{ padding: '12px 16px', borderRadius: 10, marginBottom: 16, display: 'flex', alignItems: 'center', gap: 10, background: data.clean ? '#F0FDF4' : '#FFF5F5', border: `1px solid ${data.clean ? '#BBF7D0' : '#FCA5A5'}` }}>
-                <span style={{ fontSize: 22 }}>{data.clean ? '✅' : '⚠️'}</span>
+                <span style={{ display: 'inline-flex', color: data.clean ? '#059669' : '#991B1B' }}><Icon name={data.clean ? 'check-circle' : 'alert-triangle'} size={22} /></span>
                 <div>
                   <div style={{ fontWeight: 700, color: data.clean ? '#065F46' : '#991B1B', fontSize: 14 }}>
                     {data.clean ? t('finance.booksClean') : t('finance.issuesDetected', { count: data.issue_count })}
@@ -1563,11 +1563,11 @@ function ReconciliationModal({ onClose }) {
 
               {/* Issues list */}
               {(data.issues || []).map((issue, i) => {
-                const style = ISSUE_COLORS[issue.type] || { bg: '#F3F4F6', text: '#374151', icon: '⚡', label: issue.type };
+                const style = ISSUE_COLORS[issue.type] || { bg: '#F3F4F6', text: '#374151', icon: 'zap', label: issue.type };
                 return (
                   <div key={i} style={{ background: 'var(--surface)', border: '1px solid var(--border)', borderLeft: `4px solid ${style.text === '#991B1B' ? '#DC2626' : style.text === '#92400E' ? '#D97706' : '#3B82F6'}`, borderRadius: 10, padding: '12px 16px', marginBottom: 8 }}>
                     <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginBottom: 4 }}>
-                      <span style={{ fontSize: 16 }}>{style.icon}</span>
+                      <span style={{ display: 'inline-flex', color: style.text }}><Icon name={style.icon} size={16} /></span>
                       <span style={{ fontSize: 11, fontWeight: 700, background: style.bg, color: style.text, borderRadius: 4, padding: '1px 6px' }}>{reconLabel(issue, t, style.label)}</span>
                       {issue.invoice_number && <span style={{ fontSize: 11, color: 'var(--text-3)' }}>#{issue.invoice_number}</span>}
                     </div>
@@ -1721,7 +1721,7 @@ export default function Finance() {
           <ExchangeRateBadge />
           <DisplayCurrencyToggle />
           <button className="btn btn-outline btn-sm" onClick={() => setShowRecon(true)}>
-            🔍 {t('finance.reconcile')}
+<Icon name="search" size={14} />{t('finance.reconcile')}
           </button>
           <button className="btn btn-secondary btn-sm" onClick={handleExportExcel} disabled={exportLoading}>
             ↓ {exportLoading ? t('finance.exportingLabel') : t('finance.exportExcel')}
@@ -1766,25 +1766,25 @@ export default function Finance() {
               { label: t('finance.totalIncome'),
                 value: money(summary?.income || 0),
                 color: 'var(--affirm)',
-                icon: '💰',
+                icon: 'banknote',
                 change: prev.income_change,
                 sub: t('finance.incomePeriod') },
               { label: t('finance.totalExpenses'),
                 value: money(summary?.expenses || 0),
                 color: 'var(--negate)',
-                icon: '🧾',
+                icon: 'receipt',
                 change: prev.expenses_change != null ? -prev.expenses_change : null,
                 sub: t('finance.allCosts') },
               { label: t('finance.netProfit'),
                 value: money(summary?.profit || 0),
                 color: (summary?.profit || 0) >= 0 ? 'var(--accent)' : 'var(--negate)',
-                icon: '📊',
+                icon: 'bar-chart',
                 change: prev.profit_change,
                 sub: t('finance.incomeMinus') },
               { label: t('finance.profitMargin'),
                 value: margin !== null ? `${margin}%` : '—',
                 color: 'var(--accent)',
-                icon: '🎯',
+                icon: 'target',
                 change: prev.margin_change,
                 sub: t('finance.netOverIncome') },
             ].map((kpi, i) => (

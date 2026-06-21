@@ -1875,7 +1875,7 @@ const en = {
     detailsSubtitle: 'Income, expenses and project breakdown',
     noIncomeMonth: 'No income recorded this month.',
     noExpensesMonth: 'No expenses recorded this month.',
-    reconcileTitle: '🔍 Reconciliation Check',
+    reconcileTitle: 'Reconciliation Check',
     reconcileSubtitle: 'VAT validation, payment integrity, and anomaly detection',
     runningChecks: 'Running checks…',
     totalInvoiced: 'Total Invoiced',
