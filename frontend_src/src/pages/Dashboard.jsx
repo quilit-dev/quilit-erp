@@ -2,7 +2,7 @@ import { useState, useEffect } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { useData } from '../hooks/useData';
 import { getDashboard, getMonthlyReport, getFinanceRangeSummary } from '../api/client';
-import { LoadingSpinner, ErrorAlert, useMoney, DisplayCurrencyToggle } from '../components/shared';
+import { LoadingSpinner, ErrorAlert, useMoney, DisplayCurrencyToggle, Icon } from '../components/shared';
 import { useLocale } from '../hooks/useLocale.jsx';
 import { useSettings } from '../hooks/useSettings.jsx';
 
@@ -183,10 +183,10 @@ function KpiCard({ label, value, sub, icon, accentColor, accentBg, sparkData, tr
       }}>
         {icon ? (
           <span style={{
-            fontSize: 13, lineHeight: 1,
+            lineHeight: 1,
             color: accentColor || 'var(--text-3)',
-            opacity: 0.7,
-          }}>{icon}</span>
+            opacity: 0.85,
+          }}><Icon name={icon} size={15} /></span>
         ) : <span />}
         {trend != null ? (
           <span style={{
@@ -278,7 +278,7 @@ function ActionChip({ icon, label, count, severity = 'yellow', onClick }) {
       }}
     >
       {icon && (
-        <span style={{ fontSize: 13, opacity: 0.85, lineHeight: 1 }}>{icon}</span>
+        <span style={{ opacity: 0.85, lineHeight: 1, display: 'inline-flex' }}><Icon name={icon} size={13} /></span>
       )}
       <span>{label}</span>
       {count != null && (
@@ -314,7 +314,7 @@ function Insight({ icon, text, color, onClick }) {
         transition: 'background .15s',
       }}
     >
-      <div style={{ width: 20, height: 20, borderRadius: 5, background: color + '20', display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: 11, flexShrink: 0 }}>{icon}</div>
+      <div style={{ width: 20, height: 20, borderRadius: 5, background: color + '20', color, display: 'flex', alignItems: 'center', justifyContent: 'center', flexShrink: 0 }}><Icon name={icon} size={12} /></div>
       <span style={{ color: 'var(--text-2)', flex: 1 }}>{text}</span>
       {clickable && (
         <span style={{ fontSize: 11, color: 'var(--text-3)', opacity: hover ? 1 : 0, transition: 'opacity .15s' }}>→</span>
@@ -428,37 +428,37 @@ export default function Dashboard() {
   // Built once so we can render a friendly "all clear" empty state when zero.
   const chips = [];
   if (can.invoices && overdueCount > 0) {
-    chips.push({ icon: '⏰', severity: 'red',
+    chips.push({ icon: 'clock', severity: 'red',
       label: t('dashboard.overdueAction', { count: overdueCount }),
       count: overdueCount, onClick: () => navigate('/invoices') });
   }
   if (data.my_pending_approvals > 0) {
-    chips.push({ icon: '✅', severity: 'purple',
+    chips.push({ icon: 'check-circle', severity: 'purple',
       label: t('dashboard.pendingApprovals') + ' · ' + t('dashboard.waitingOnYou'),
       count: data.my_pending_approvals, onClick: () => navigate('/approvals') });
   }
   if (can.inventory && (data.low_stock_alerts || 0) > 0) {
-    chips.push({ icon: '📦', severity: 'red',
+    chips.push({ icon: 'package', severity: 'red',
       label: t(data.low_stock_alerts > 1 ? 'dashboard.lowStockAlert_plural' : 'dashboard.lowStockAlert', { count: data.low_stock_alerts }),
       onClick: () => navigate('/inventory') });
   }
   if (can.hr && data.hr?.pending_leave > 0) {
-    chips.push({ icon: '🌴', severity: 'yellow',
+    chips.push({ icon: 'sun', severity: 'yellow',
       label: t(data.hr.pending_leave > 1 ? 'dashboard.leaveRequestsPending_plural' : 'dashboard.leaveRequestsPending', { count: data.hr.pending_leave }),
       count: data.hr.pending_leave, onClick: () => navigate('/hr') });
   }
   if (can.cash && data.cash && Math.abs(data.cash.last_variance || 0) > 0.01) {
-    chips.push({ icon: '💵', severity: 'yellow',
+    chips.push({ icon: 'banknote', severity: 'yellow',
       label: t('dashboard.cashVariance', { drawer: data.cash.last_drawer || '—' }) + ' · ' + money(data.cash.last_variance),
       onClick: () => navigate('/cash') });
   }
   if (can.manufacturing && data.manufacturing?.due_soon > 0) {
-    chips.push({ icon: '🏭', severity: 'yellow',
+    chips.push({ icon: 'factory', severity: 'yellow',
       label: t(data.manufacturing.due_soon > 1 ? 'dashboard.productionDueSoon_plural' : 'dashboard.productionDueSoon', { count: data.manufacturing.due_soon }),
       onClick: () => navigate('/manufacturing') });
   }
   if (data.unread_announcements > 0) {
-    chips.push({ icon: '📣', severity: 'blue',
+    chips.push({ icon: 'megaphone', severity: 'blue',
       label: t(data.unread_announcements > 1 ? 'dashboard.unreadAnnouncementChip_plural' : 'dashboard.unreadAnnouncementChip', { count: data.unread_announcements }),
       count: data.unread_announcements, onClick: () => navigate('/announcements') });
   }
@@ -492,7 +492,7 @@ export default function Dashboard() {
               }}
               title="Notifications"
             >
-              <span style={{ fontSize: 13 }}>🔔</span>
+              <span style={{ display: 'inline-flex' }}><Icon name="bell" size={13} /></span>
               <span style={{ background: 'var(--red)', color: '#fff', borderRadius: 999, padding: '0 6px', fontSize: 10.5, fontWeight: 700 }}>{data.unread_notifications}</span>
             </button>
           )}
@@ -510,8 +510,8 @@ export default function Dashboard() {
           background: 'linear-gradient(135deg, var(--surface) 0%, var(--surface-2) 100%)',
           border: '1px solid var(--border)', borderRadius: 12,
         }}>
-          <div style={{ fontSize: 10.5, fontWeight: 700, color: 'var(--text-3)', textTransform: 'uppercase', letterSpacing: '.8px', marginBottom: 10 }}>
-            ⚡ {t('dashboard.needsAttention')}
+          <div style={{ display: 'inline-flex', alignItems: 'center', gap: 5, fontSize: 10.5, fontWeight: 700, color: 'var(--text-3)', textTransform: 'uppercase', letterSpacing: '.8px', marginBottom: 10 }}>
+            <Icon name="zap" size={12} /> {t('dashboard.needsAttention')}
           </div>
           <div style={{ display: 'flex', flexWrap: 'wrap', gap: 8 }}>
             {chips.map((c, i) => <ActionChip key={i} {...c} />)}
@@ -524,7 +524,7 @@ export default function Dashboard() {
           color: 'var(--green)', borderRadius: 12, fontSize: 12.5, fontWeight: 600,
           display: 'flex', alignItems: 'center', gap: 8,
         }}>
-          <span>✅</span>
+          <Icon name="check-circle" size={15} />
           <span>{t('dashboard.everythingClear')}</span>
         </div>
       )}
@@ -546,9 +546,9 @@ export default function Dashboard() {
         <div style={{ display: 'grid', gridTemplateColumns: 'minmax(0,1fr) 280px', gap: 16, marginBottom: 4 }}
              className="dash-finance-row">
           <div className="stats-grid" style={{ gridTemplateColumns: 'repeat(auto-fit, minmax(180px, 1fr))', marginBottom: 0 }}>
-            {can.finance && <KpiCard label={t('dashboard.monthlyRevenue')}  value={money(income)}   sub={periodLabel}                          icon="💰" accentColor="var(--green)"  accentBg="var(--green-light)"  sparkData={incSpark}  onClick={() => navigate('/finance')} />}
-            {can.finance && <KpiCard label={t('dashboard.monthlyExpenses')} value={money(expenses)} sub={t('dashboard.operatingCosts')}          icon="📉" accentColor="var(--red)"    accentBg="var(--red-light)"    sparkData={expSpark}  onClick={() => navigate('/finance')} />}
-            {can.finance && <KpiCard label={t('dashboard.netProfit')}       value={money(profit)}   sub={t('dashboard.margin', { pct: margin })} icon={profit >= 0 ? '📈' : '⚠️'} accentColor={profit >= 0 ? 'var(--green)' : 'var(--red)'} accentBg={profit >= 0 ? 'var(--green-light)' : 'var(--red-light)'} sparkData={profSpark} onClick={() => navigate('/finance')} />}
+            {can.finance && <KpiCard label={t('dashboard.monthlyRevenue')}  value={money(income)}   sub={periodLabel}                          icon="banknote" accentColor="var(--green)"  accentBg="var(--green-light)"  sparkData={incSpark}  onClick={() => navigate('/finance')} />}
+            {can.finance && <KpiCard label={t('dashboard.monthlyExpenses')} value={money(expenses)} sub={t('dashboard.operatingCosts')}          icon="trending-down" accentColor="var(--red)"    accentBg="var(--red-light)"    sparkData={expSpark}  onClick={() => navigate('/finance')} />}
+            {can.finance && <KpiCard label={t('dashboard.netProfit')}       value={money(profit)}   sub={t('dashboard.margin', { pct: margin })} icon={profit >= 0 ? 'trending-up' : 'alert-triangle'} accentColor={profit >= 0 ? 'var(--green)' : 'var(--red)'} accentBg={profit >= 0 ? 'var(--green-light)' : 'var(--red-light)'} sparkData={profSpark} onClick={() => navigate('/finance')} />}
           </div>
           <div className="card" style={{ display: 'flex', flexDirection: 'column', alignItems: 'center', justifyContent: 'center', padding: 18, marginBottom: 0 }}>
             <HealthRing score={healthScore} t={t} />
@@ -569,7 +569,7 @@ export default function Dashboard() {
                 label={t('dashboard.posSalesToday')}
                 value={money(data.pos.total || 0)}
                 sub={t(data.pos.c === 1 ? 'dashboard.salesCount' : 'dashboard.salesCount_plural', { count: data.pos.c || 0 })}
-                icon="🛍️" accentColor="var(--accent)" accentBg="var(--accent-light, var(--surface-2))"
+                icon="shopping-bag" accentColor="var(--accent)" accentBg="var(--accent-light, var(--surface-2))"
                 onClick={() => navigate('/pos')} />
             )}
             {can.cash && data.cash && (
@@ -579,7 +579,7 @@ export default function Dashboard() {
                 sub={data.cash.open_sessions > 0
                   ? t(data.cash.open_sessions === 1 ? 'dashboard.drawerOpen' : 'dashboard.drawerOpen_plural', { count: data.cash.open_sessions })
                   : t('dashboard.allClosed')}
-                icon="💵"
+                icon="banknote"
                 accentColor={data.cash.open_sessions > 0 ? 'var(--yellow)' : 'var(--green)'}
                 accentBg={data.cash.open_sessions > 0 ? 'var(--yellow-light)' : 'var(--green-light)'}
                 onClick={() => navigate('/cash')} />
@@ -591,7 +591,7 @@ export default function Dashboard() {
                 sub={data.manufacturing.due_soon > 0
                   ? t('dashboard.dueThisWeek', { count: data.manufacturing.due_soon })
                   : t(data.manufacturing.in_progress === 1 ? 'dashboard.productionActive' : 'dashboard.productionActive_plural', { count: data.manufacturing.in_progress })}
-                icon="🏭"
+                icon="factory"
                 accentColor={data.manufacturing.due_soon > 0 ? 'var(--yellow)' : 'var(--blue)'}
                 accentBg={data.manufacturing.due_soon > 0 ? 'var(--yellow-light)' : 'var(--blue-light)'}
                 onClick={() => navigate('/manufacturing')} />
@@ -601,7 +601,7 @@ export default function Dashboard() {
                 label={t('dashboard.onLeaveToday')}
                 value={data.hr.on_leave}
                 sub={t('dashboard.headcount', { count: data.hr.headcount })}
-                icon="🌴" accentColor="var(--purple)" accentBg="var(--purple-light)"
+                icon="sun" accentColor="var(--purple)" accentBg="var(--purple-light)"
                 onClick={() => navigate('/hr')} />
             )}
             {can.planning && data.planning && (
@@ -611,7 +611,7 @@ export default function Dashboard() {
                 sub={data.planning.upcoming_milestones > 0
                   ? t(data.planning.upcoming_milestones === 1 ? 'dashboard.upcomingMilestones' : 'dashboard.upcomingMilestones_plural', { count: data.planning.upcoming_milestones })
                   : ''}
-                icon="🗓️" accentColor="var(--blue)" accentBg="var(--blue-light)"
+                icon="calendar" accentColor="var(--blue)" accentBg="var(--blue-light)"
                 onClick={() => navigate('/planning')} />
             )}
           </div>
@@ -628,7 +628,7 @@ export default function Dashboard() {
                 label={t('dashboard.crmPipeline')}
                 value={money(data.crm.pipeline_value)}
                 sub={t(data.crm.pipeline_count === 1 ? 'dashboard.openDeals' : 'dashboard.openDeals_plural', { count: data.crm.pipeline_count })}
-                icon="💼" accentColor="var(--purple)" accentBg="var(--purple-light)"
+                icon="briefcase" accentColor="var(--purple)" accentBg="var(--purple-light)"
                 onClick={() => navigate('/crm')} />
             )}
             {can.crm && data.crm && (
@@ -636,7 +636,7 @@ export default function Dashboard() {
                 label={t('dashboard.wonThisMonth')}
                 value={money(data.crm.won_value)}
                 sub={t(data.crm.won_count === 1 ? 'dashboard.openDeals' : 'dashboard.openDeals_plural', { count: data.crm.won_count })}
-                icon="🏆" accentColor="var(--green)" accentBg="var(--green-light)"
+                icon="award" accentColor="var(--green)" accentBg="var(--green-light)"
                 onClick={() => navigate('/crm')} />
             )}
             {can.crm && data.crm && (
@@ -644,7 +644,7 @@ export default function Dashboard() {
                 label={t('dashboard.newLeads')}
                 value={data.crm.new_leads}
                 sub={t('dashboard.leadsThisMonth')}
-                icon="🎯" accentColor="var(--blue)" accentBg="var(--blue-light)"
+                icon="target" accentColor="var(--blue)" accentBg="var(--blue-light)"
                 onClick={() => navigate('/crm')} />
             )}
             {can.recruitment && data.recruitment && (
@@ -652,7 +652,7 @@ export default function Dashboard() {
                 label={t('dashboard.openPositions')}
                 value={data.recruitment.open_positions}
                 sub={t(data.recruitment.active_applicants === 1 ? 'dashboard.activeApplicants' : 'dashboard.activeApplicants_plural', { count: data.recruitment.active_applicants })}
-                icon="📢" accentColor="var(--accent)" accentBg="var(--surface-2)"
+                icon="megaphone" accentColor="var(--accent)" accentBg="var(--surface-2)"
                 onClick={() => navigate('/recruitment')} />
             )}
             {can.assets && data.assets && (
@@ -660,7 +660,7 @@ export default function Dashboard() {
                 label={t('dashboard.fixedAssetsBookValue')}
                 value={money(data.assets.book_value)}
                 sub={t('dashboard.assetsBookValue', { count: data.assets.count })}
-                icon="🏛️" accentColor="var(--text-2)" accentBg="var(--surface-2)"
+                icon="landmark" accentColor="var(--text-2)" accentBg="var(--surface-2)"
                 onClick={() => navigate('/fixed-assets')} />
             )}
             {data.warehouses && (
@@ -672,12 +672,12 @@ export default function Dashboard() {
                 value={data.warehouses.active}
                 sub={
                   data.warehouses.lowest_low_count > 0
-                    ? `⚠ ${data.warehouses.lowest_code}: ${data.warehouses.lowest_low_count} low`
+                    ? `${data.warehouses.lowest_code}: ${data.warehouses.lowest_low_count} low`
                     : data.warehouses.in_transit > 0
                       ? `${data.warehouses.in_transit} in transit`
                       : t('dashboard.allClear') || 'All clear'
                 }
-                icon="🏬"
+                icon="building"
                 accentColor={data.warehouses.lowest_low_count > 0 ? 'var(--yellow)' : 'var(--blue)'}
                 accentBg={data.warehouses.lowest_low_count > 0 ? 'var(--yellow-light)' : 'var(--blue-light)'}
                 onClick={() => navigate('/warehouses')} />
@@ -696,7 +696,7 @@ export default function Dashboard() {
                 label={t('dashboard.unpaidInvoices')}
                 value={money(unpaidAmt)}
                 sub={t('dashboard.outstanding', { count: data.unpaid_invoices_count ?? 0 })}
-                icon="🧾"
+                icon="receipt"
                 accentColor={(data.unpaid_invoices_count ?? 0) > 0 ? 'var(--yellow)' : 'var(--green)'}
                 accentBg={(data.unpaid_invoices_count ?? 0) > 0 ? 'var(--yellow-light)' : 'var(--green-light)'}
                 onClick={() => navigate('/invoices')} />
@@ -706,31 +706,31 @@ export default function Dashboard() {
                 label={t('dashboard.overdueInvoices')}
                 value={money(overdueAmt)}
                 sub={t('dashboard.pastDue', { count: overdueCount })}
-                icon="⏰"
+                icon="clock"
                 accentColor={overdueCount > 0 ? 'var(--red)' : 'var(--green)'}
                 accentBg={overdueCount > 0 ? 'var(--red-light)' : 'var(--green-light)'}
                 onClick={() => navigate('/invoices')} />
             )}
             {can.projects && (
               <KpiCard compact label={t('dashboard.activeProjects')} value={data.active_projects ?? 0}
-                icon="🏗" accentColor="var(--blue)" accentBg="var(--blue-light)"
+                icon="building" accentColor="var(--blue)" accentBg="var(--blue-light)"
                 onClick={() => navigate('/projects')} />
             )}
             {can.quotes && (
               <KpiCard compact label={t('dashboard.pendingQuotes')} value={data.pending_quotes ?? 0}
-                icon="📋" accentColor="var(--purple)" accentBg="var(--purple-light)"
+                icon="clipboard" accentColor="var(--purple)" accentBg="var(--purple-light)"
                 onClick={() => navigate('/quotations')} />
             )}
             {can.inventory && (
               <KpiCard compact label={t('dashboard.lowStockItems')} value={data.low_stock_alerts ?? 0}
-                icon="📦"
+                icon="package"
                 accentColor={(data.low_stock_alerts ?? 0) > 0 ? 'var(--red)' : 'var(--green)'}
                 accentBg={(data.low_stock_alerts ?? 0) > 0 ? 'var(--red-light)' : 'var(--green-light)'}
                 onClick={() => navigate('/inventory')} />
             )}
             {can.finance && (
               <KpiCard compact label={t('dashboard.profitMargin')} value={`${margin}%`}
-                icon="📊"
+                icon="bar-chart"
                 accentColor={margin > 15 ? 'var(--green)' : margin > 0 ? 'var(--yellow)' : 'var(--red)'}
                 accentBg={margin > 15 ? 'var(--green-light)' : margin > 0 ? 'var(--yellow-light)' : 'var(--red-light)'}
                 onClick={() => navigate('/finance')} />
@@ -767,15 +767,15 @@ export default function Dashboard() {
             <div className="card-header"><div className="card-title">{t('dashboard.keyInsights')}</div></div>
             <div className="card-body">
               <div style={{ background: 'var(--surface-2)', borderRadius: 8, padding: '12px 14px', border: '1px solid var(--border)' }}>
-                {can.finance && margin > 20 && <Insight icon="✅" text={t('dashboard.strongMargin', { pct: margin })} color="var(--green)" onClick={() => navigate('/finance')} />}
-                {can.finance && margin > 0 && margin <= 20 && <Insight icon="⚠️" text={t('dashboard.thinMargin', { pct: margin })} color="var(--yellow)" onClick={() => navigate('/finance')} />}
-                {can.finance && margin < 0 && <Insight icon="🔴" text={t('dashboard.operatingLoss')} color="var(--red)" onClick={() => navigate('/finance')} />}
-                {can.invoices && (data.unpaid_invoices_count ?? 0) > 0 && <Insight icon="📬" text={t(data.unpaid_invoices_count > 1 ? 'dashboard.unpaidInvoiceCount_plural' : 'dashboard.unpaidInvoiceCount', { count: data.unpaid_invoices_count })} color="var(--yellow)" onClick={() => navigate('/invoices')} />}
-                {can.invoices && overdueCount > 0 && <Insight icon="⏰" text={t('dashboard.overdueAction', { count: overdueCount })} color="var(--red)" onClick={() => navigate('/invoices')} />}
-                {can.inventory && (data.low_stock_alerts ?? 0) > 0 && <Insight icon="📦" text={t(data.low_stock_alerts > 1 ? 'dashboard.lowStockAlert_plural' : 'dashboard.lowStockAlert', { count: data.low_stock_alerts })} color="var(--red)" onClick={() => navigate('/inventory')} />}
-                {can.projects && (data.active_projects ?? 0) > 0 && <Insight icon="🏗" text={t(data.active_projects > 1 ? 'dashboard.projectsInProgress_plural' : 'dashboard.projectsInProgress', { count: data.active_projects })} color="var(--blue)" onClick={() => navigate('/projects')} />}
-                {can.quotes && (data.pending_quotes ?? 0) > 0 && <Insight icon="📋" text={t(data.pending_quotes > 1 ? 'dashboard.quotesAwaiting_plural' : 'dashboard.quotesAwaiting', { count: data.pending_quotes })} color="var(--purple)" onClick={() => navigate('/quotations')} />}
-                {margin >= 0 && (data.unpaid_invoices_count ?? 0) === 0 && (data.low_stock_alerts ?? 0) === 0 && <Insight icon="✅" text={t('common.allNominal')} color="var(--green)" />}
+                {can.finance && margin > 20 && <Insight icon="check-circle" text={t('dashboard.strongMargin', { pct: margin })} color="var(--green)" onClick={() => navigate('/finance')} />}
+                {can.finance && margin > 0 && margin <= 20 && <Insight icon="alert-triangle" text={t('dashboard.thinMargin', { pct: margin })} color="var(--yellow)" onClick={() => navigate('/finance')} />}
+                {can.finance && margin < 0 && <Insight icon="alert-circle" text={t('dashboard.operatingLoss')} color="var(--red)" onClick={() => navigate('/finance')} />}
+                {can.invoices && (data.unpaid_invoices_count ?? 0) > 0 && <Insight icon="mail" text={t(data.unpaid_invoices_count > 1 ? 'dashboard.unpaidInvoiceCount_plural' : 'dashboard.unpaidInvoiceCount', { count: data.unpaid_invoices_count })} color="var(--yellow)" onClick={() => navigate('/invoices')} />}
+                {can.invoices && overdueCount > 0 && <Insight icon="clock" text={t('dashboard.overdueAction', { count: overdueCount })} color="var(--red)" onClick={() => navigate('/invoices')} />}
+                {can.inventory && (data.low_stock_alerts ?? 0) > 0 && <Insight icon="package" text={t(data.low_stock_alerts > 1 ? 'dashboard.lowStockAlert_plural' : 'dashboard.lowStockAlert', { count: data.low_stock_alerts })} color="var(--red)" onClick={() => navigate('/inventory')} />}
+                {can.projects && (data.active_projects ?? 0) > 0 && <Insight icon="building" text={t(data.active_projects > 1 ? 'dashboard.projectsInProgress_plural' : 'dashboard.projectsInProgress', { count: data.active_projects })} color="var(--blue)" onClick={() => navigate('/projects')} />}
+                {can.quotes && (data.pending_quotes ?? 0) > 0 && <Insight icon="clipboard" text={t(data.pending_quotes > 1 ? 'dashboard.quotesAwaiting_plural' : 'dashboard.quotesAwaiting', { count: data.pending_quotes })} color="var(--purple)" onClick={() => navigate('/quotations')} />}
+                {margin >= 0 && (data.unpaid_invoices_count ?? 0) === 0 && (data.low_stock_alerts ?? 0) === 0 && <Insight icon="check-circle" text={t('common.allNominal')} color="var(--green)" />}
               </div>
             </div>
           </div>
@@ -896,7 +896,7 @@ export default function Dashboard() {
       {/* ── Empty state for users with very limited permissions ───── */}
       {noPermissions && (
         <div style={{ textAlign: 'center', padding: '80px 20px', color: 'var(--text-3)' }}>
-          <div style={{ fontSize: 48, marginBottom: 16 }}>👋</div>
+          <div style={{ marginBottom: 16, display: 'flex', justifyContent: 'center', color: 'var(--text-3)' }}><Icon name="layout-dashboard" size={44} strokeWidth={1.5} /></div>
           <p style={{ fontSize: 16, fontWeight: 600, color: 'var(--text)', marginBottom: 8 }}>{t('common.welcomeERP')}</p>
           <p style={{ fontSize: 13 }}>{t('common.dashboardPersonalized')}</p>
         </div>

@@ -1872,7 +1872,7 @@ const ar = {
     detailsSubtitle: 'الدخل والمصروفات وتوزيع المشاريع',
     noIncomeMonth: 'لا دخل مسجل هذا الشهر.',
     noExpensesMonth: 'لا مصروفات مسجلة هذا الشهر.',
-    reconcileTitle: '🔍 فحص التسوية',
+    reconcileTitle: 'فحص التسوية',
     reconcileSubtitle: 'التحقق من ضريبة القيمة المضافة وسلامة المدفوعات واكتشاف الشذوذات',
     runningChecks: 'جار تشغيل الفحوصات…',
     totalInvoiced: 'إجمالي الفواتير',
