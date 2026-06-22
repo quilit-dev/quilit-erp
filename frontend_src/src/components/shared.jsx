@@ -1,4 +1,4 @@
-import { useState, useEffect } from 'react';
+import { useState, useEffect, useRef } from 'react';
 import * as XLSX from 'xlsx';
 import { useLocale } from '../hooks/useLocale.jsx';
 import { useSettings } from '../hooks/useSettings.jsx';
@@ -34,6 +34,8 @@ const ICON_PATHS = {
   'shopping-bag':   '<path d="M6 2 3 6v14a2 2 0 0 0 2 2h14a2 2 0 0 0 2-2V6l-3-4Z"/><path d="M3 6h18"/><path d="M16 10a4 4 0 0 1-8 0"/>',
   'clipboard':      '<rect width="8" height="4" x="8" y="2" rx="1"/><path d="M16 4h2a2 2 0 0 1 2 2v14a2 2 0 0 1-2 2H6a2 2 0 0 1-2-2V6a2 2 0 0 1 2-2h2"/>',
   'mail':           '<rect width="20" height="16" x="2" y="4" rx="2"/><path d="m22 7-8.97 5.7a1.94 1.94 0 0 1-2.06 0L2 7"/>',
+  'phone':          '<path d="M22 16.92v3a2 2 0 0 1-2.18 2 19.79 19.79 0 0 1-8.63-3.07 19.5 19.5 0 0 1-6-6 19.79 19.79 0 0 1-3.07-8.67A2 2 0 0 1 4.11 2h3a2 2 0 0 1 2 1.72 12.84 12.84 0 0 0 .7 2.81 2 2 0 0 1-.45 2.11L8.09 9.91a16 16 0 0 0 6 6l1.27-1.27a2 2 0 0 1 2.11-.45 12.84 12.84 0 0 0 2.81.7A2 2 0 0 1 22 16.92z"/>',
+  'users':          '<path d="M16 21v-2a4 4 0 0 0-4-4H6a4 4 0 0 0-4 4v2"/><circle cx="9" cy="7" r="4"/><path d="M22 21v-2a4 4 0 0 0-3-3.87"/><path d="M16 3.13a4 4 0 0 1 0 7.75"/>',
   'link':           '<path d="M10 13a5 5 0 0 0 7.54.54l3-3a5 5 0 0 0-7.07-7.07l-1.72 1.71"/><path d="M14 11a5 5 0 0 0-7.54-.54l-3 3a5 5 0 0 0 7.07 7.07l1.71-1.71"/>',
   'rotate-ccw':     '<polyline points="1 4 1 10 7 10"/><path d="M3.51 15a9 9 0 1 0 2.13-9.36L1 10"/>',
   'scale':          '<path d="m16 16 3-8 3 8c-.87.65-1.92 1-3 1s-2.13-.35-3-1Z"/><path d="m2 16 3-8 3 8c-.87.65-1.92 1-3 1s-2.13-.35-3-1Z"/><path d="M7 21h10"/><path d="M12 3v18"/><path d="M3 7h2c2 0 5-1 7-2 2 1 5 2 7 2h2"/>',
@@ -154,6 +156,73 @@ export function Badge({ status }) {
   const { tStatus } = useLocale();
   const color = statusColors[status] || 'gray';
   return <span className={`badge badge-${color}`}>{tStatus(status)}</span>;
+}
+
+// ── Supplier search-select (type-ahead combobox) ───────────────
+// Free-text input with a filtered supplier dropdown — the supplier name is
+// stored as text, so an unknown name can still be typed. Shared by the
+// Purchase Order form and the Inventory item form. Pass required for forms
+// where a supplier is mandatory (purchases); it defaults to optional.
+export function SupplierCombobox({ value, suppliers = [], onChange, required = false, placeholder }) {
+  const { t } = useLocale();
+  const [open,  setOpen]  = useState(false);
+  const [query, setQuery] = useState(value || '');
+  const wrapRef = useRef(null);
+
+  useEffect(() => { setQuery(value || ''); }, [value]);
+
+  useEffect(() => {
+    function handler(e) {
+      if (wrapRef.current && !wrapRef.current.contains(e.target)) setOpen(false);
+    }
+    document.addEventListener('mousedown', handler);
+    return () => document.removeEventListener('mousedown', handler);
+  }, []);
+
+  const filtered = query.trim().length === 0
+    ? suppliers.slice(0, 8)
+    : suppliers.filter(s => s.name.toLowerCase().includes(query.toLowerCase())).slice(0, 8);
+
+  return (
+    <div ref={wrapRef} style={{ position: 'relative' }}>
+      <input
+        className="form-control"
+        placeholder={placeholder || t('purchases.searchSupplierPlaceholder')}
+        value={query}
+        required={required}
+        autoComplete="off"
+        onChange={e => { setQuery(e.target.value); setOpen(true); onChange(e.target.value); }}
+        onFocus={() => setOpen(true)}
+        onKeyDown={e => { if (e.key === 'Escape') setOpen(false); }}
+      />
+      {open && filtered.length > 0 && (
+        <div style={{
+          position: 'absolute', top: '100%', left: 0, right: 0, zIndex: 999,
+          background: 'var(--surface-1, #fff)', border: '1px solid var(--border, #e2e8f0)',
+          borderRadius: 6, boxShadow: '0 4px 16px rgba(0,0,0,0.12)',
+          marginTop: 2, maxHeight: 200, overflowY: 'auto',
+        }}>
+          <div style={{ padding: '4px 10px 3px', fontSize: 10, fontWeight: 700, letterSpacing: '0.5px',
+            textTransform: 'uppercase', color: 'var(--text-3)', borderBottom: '1px solid var(--border)' }}>
+            {t('purchases.suppliersDropHeader')}
+          </div>
+          {filtered.map(s => (
+            <div key={s.id}
+              onMouseDown={() => { setQuery(s.name); setOpen(false); onChange(s.name); }}
+              style={{ padding: '7px 10px', cursor: 'pointer', fontSize: 13,
+                borderBottom: '1px solid var(--border, #f1f5f9)', display: 'flex',
+                justifyContent: 'space-between', alignItems: 'center' }}
+              onMouseEnter={e => e.currentTarget.style.background = 'var(--surface-2, #f8fafc)'}
+              onMouseLeave={e => e.currentTarget.style.background = 'transparent'}
+            >
+              <span style={{ fontWeight: 500 }}>{s.name}</span>
+              {s.contact_name && <span style={{ color: 'var(--text-3)', fontSize: 11 }}>{s.contact_name}</span>}
+            </div>
+          ))}
+        </div>
+      )}
+    </div>
+  );
 }
 
 // ── Number input that shows a greyed "0" placeholder ───────────

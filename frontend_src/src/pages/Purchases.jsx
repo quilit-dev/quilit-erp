@@ -7,7 +7,8 @@ import {
 } from '../api/client';
 import {
   LoadingSpinner, ErrorAlert, EmptyState, Modal, ConfirmModal,
-  ExportButton, fmt, fmtDate, toast, SortableTh, Pagination, NumberInput} from '../components/shared';
+  ExportButton, fmt, fmtDate, toast, SortableTh, Pagination, NumberInput, SupplierCombobox,
+} from '../components/shared';
 import { useSortPaginate } from '../hooks/useSortPaginate';
 import { useLocale } from '../hooks/useLocale.jsx';
 import { useSettings } from '../hooks/useSettings.jsx';
@@ -22,70 +23,6 @@ const PURCHASE_CATEGORIES = [
 
 const fmtNum = (n) =>
   Number(n || 0).toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 });
-
-// ── Supplier combobox ────────────────────────────────────────────────────────
-
-function SupplierCombobox({ value, suppliers = [], onChange }) {
-  const { t } = useLocale();
-  const [open,  setOpen]  = useState(false);
-  const [query, setQuery] = useState(value || '');
-  const wrapRef = useRef(null);
-
-  useEffect(() => { setQuery(value || ''); }, [value]);
-
-  useEffect(() => {
-    function handler(e) {
-      if (wrapRef.current && !wrapRef.current.contains(e.target)) setOpen(false);
-    }
-    document.addEventListener('mousedown', handler);
-    return () => document.removeEventListener('mousedown', handler);
-  }, []);
-
-  const filtered = query.trim().length === 0
-    ? suppliers.slice(0, 8)
-    : suppliers.filter(s => s.name.toLowerCase().includes(query.toLowerCase())).slice(0, 8);
-
-  return (
-    <div ref={wrapRef} style={{ position: 'relative' }}>
-      <input
-        className="form-control"
-        placeholder={t('purchases.searchSupplierPlaceholder')}
-        value={query}
-        required
-        autoComplete="off"
-        onChange={e => { setQuery(e.target.value); setOpen(true); onChange(e.target.value); }}
-        onFocus={() => setOpen(true)}
-        onKeyDown={e => { if (e.key === 'Escape') setOpen(false); }}
-      />
-      {open && filtered.length > 0 && (
-        <div style={{
-          position: 'absolute', top: '100%', left: 0, right: 0, zIndex: 999,
-          background: 'var(--surface-1, #fff)', border: '1px solid var(--border, #e2e8f0)',
-          borderRadius: 6, boxShadow: '0 4px 16px rgba(0,0,0,0.12)',
-          marginTop: 2, maxHeight: 200, overflowY: 'auto',
-        }}>
-          <div style={{ padding: '4px 10px 3px', fontSize: 10, fontWeight: 700, letterSpacing: '0.5px',
-            textTransform: 'uppercase', color: 'var(--text-3)', borderBottom: '1px solid var(--border)' }}>
-            {t('purchases.suppliersDropHeader')}
-          </div>
-          {filtered.map(s => (
-            <div key={s.id}
-              onMouseDown={() => { setQuery(s.name); setOpen(false); onChange(s.name); }}
-              style={{ padding: '7px 10px', cursor: 'pointer', fontSize: 13,
-                borderBottom: '1px solid var(--border, #f1f5f9)', display: 'flex',
-                justifyContent: 'space-between', alignItems: 'center' }}
-              onMouseEnter={e => e.currentTarget.style.background = 'var(--surface-2, #f8fafc)'}
-              onMouseLeave={e => e.currentTarget.style.background = 'transparent'}
-            >
-              <span style={{ fontWeight: 500 }}>{s.name}</span>
-              {s.contact_name && <span style={{ color: 'var(--text-3)', fontSize: 11 }}>{s.contact_name}</span>}
-            </div>
-          ))}
-        </div>
-      )}
-    </div>
-  );
-}
 
 // ── Purchase form ────────────────────────────────────────────────────────────
 
@@ -179,6 +116,7 @@ function PurchaseForm({ initial = {}, inventoryItems = [], inventoryCategories =
             <SupplierCombobox
               value={form.supplier}
               suppliers={suppliers}
+              required
               onChange={v => set('supplier', v)}
             />
           </div>

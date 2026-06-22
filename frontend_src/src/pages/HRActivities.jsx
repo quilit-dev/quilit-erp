@@ -1,7 +1,7 @@
 import { useState, useEffect, useCallback, useMemo } from 'react';
 import { useLocale } from '../hooks/useLocale.jsx';
 import { useData } from '../hooks/useData.js';
-import { Modal, ConfirmModal, EmptyState, toast, NumberInput} from '../components/shared';
+import { Modal, ConfirmModal, EmptyState, toast, NumberInput, Icon } from '../components/shared';
 import {
   getHRActivities, getHRActivity, getHRActivitiesSummary,
   createHRActivity, updateHRActivity, completeHRActivity, archiveHRActivity,
@@ -19,13 +19,14 @@ const TYPE_COLOR = {
   Note:      '#6b7280',
   Task:      '#8b5cf6',
 };
+// Formal line-icon names from the shared Icon set (no decorative emoji).
 const TYPE_ICON = {
-  Call:      '📞',
-  Meeting:   '👥',
-  Interview: '🎯',
-  Email:     '✉️',
-  Note:      '📝',
-  Task:      '✅',
+  Call:      'phone',
+  Meeting:   'users',
+  Interview: 'target',
+  Email:     'mail',
+  Note:      'clipboard',
+  Task:      'check-circle',
 };
 const REMINDER_CHOICES = [
   { value: 0,    key: 'hrActivities.remindNone' },
@@ -220,7 +221,7 @@ function ActivityForm({ initial, applicants, employees, onSave, onClose }) {
                       fontSize: 12, fontWeight: 600,
                       transition: 'all .12s',
                     }}>
-                    <span style={{ marginInlineEnd: 6 }}>{TYPE_ICON[tp]}</span>
+                    <Icon name={TYPE_ICON[tp]} size={14} style={{ marginInlineEnd: 6, verticalAlign: '-2px' }} />
                     {t(`hrActivities.type_${tp.toLowerCase()}`)}
                   </button>
                 );
@@ -324,9 +325,9 @@ function ActivityRow({ activity, scope, onEdit, onComplete, onArchive }) {
       <div style={{
         flexShrink: 0, width: 36, height: 36, borderRadius: 8,
         background: `${color}22`, display: 'flex', alignItems: 'center',
-        justifyContent: 'center', fontSize: 18,
+        justifyContent: 'center', color,
       }}>
-        {TYPE_ICON[activity.activity_type]}
+        <Icon name={TYPE_ICON[activity.activity_type]} size={18} />
       </div>
 
       <div style={{ flex: 1, minWidth: 0 }}>
