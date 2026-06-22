@@ -245,6 +245,8 @@ const en = {
     signedInAs: 'Signed in as',
     administrator: 'Administrator',
     staff: 'Staff',
+    branch: 'Branch',
+    allBranches: 'All branches',
     dashboard: 'Dashboard',
     clients: 'Clients',
     projects: 'Projects',
@@ -3526,6 +3528,7 @@ const en = {
     nameLabel:       'Name',
     typeLabel:       'Type',
     addressLabel:    'Address',
+    phoneLabel:      'Phone',
     notesLabel:      'Notes',
     activeChk:       'Active (selectable in operational forms)',
 

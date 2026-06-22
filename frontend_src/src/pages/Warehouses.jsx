@@ -192,7 +192,7 @@ function WarehousesTab({ canEdit, t }) {
   const [loading, setLoading] = useState(true);
   const [error, setError]     = useState('');
   const [modal, setModal]     = useState(null);
-  const [form, setForm]       = useState({ code: '', name: '', type: 'Main', address: '', notes: '', is_active: true });
+  const [form, setForm]       = useState({ code: '', name: '', type: 'Main', address: '', phone: '', notes: '', is_active: true });
   const [confirm, setConfirm] = useState(null);
   const [saving, setSaving]   = useState(false);
   const [stockModal, setStockModal] = useState(null);   // warehouse row whose stock to show
@@ -206,13 +206,13 @@ function WarehousesTab({ canEdit, t }) {
   useEffect(() => { load(); }, [load]);
 
   function openCreate() {
-    setForm({ code: '', name: '', type: 'Main', address: '', notes: '', is_active: true });
+    setForm({ code: '', name: '', type: 'Main', address: '', phone: '', notes: '', is_active: true });
     setModal('create');
   }
   function openEdit(row) {
     setForm({
       code: row.code, name: row.name, type: row.type,
-      address: row.address || '', notes: row.notes || '',
+      address: row.address || '', phone: row.phone || '', notes: row.notes || '',
       is_active: !!row.is_active,
     });
     setModal({ ...row });
@@ -396,6 +396,11 @@ function WarehousesTab({ canEdit, t }) {
               <label className="form-label">{t('warehouses.addressLabel')}</label>
               <input className="form-control" value={form.address}
                 onChange={e => setForm(f => ({ ...f, address: e.target.value }))} />
+            </div>
+            <div className="form-group">
+              <label className="form-label">{t('warehouses.phoneLabel')}</label>
+              <input className="form-control" value={form.phone}
+                onChange={e => setForm(f => ({ ...f, phone: e.target.value }))} />
             </div>
             <div className="form-group">
               <label className="form-label">{t('warehouses.notesLabel')}</label>

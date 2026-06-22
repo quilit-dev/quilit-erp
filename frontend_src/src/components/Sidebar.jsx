@@ -3,7 +3,7 @@ import { useState, useEffect, useRef } from 'react';
 import { useSettings } from '../hooks/useSettings.jsx';
 import { usePermissions } from '../hooks/usePermissions.js';
 import { useLocale } from '../hooks/useLocale.jsx';
-import { logout as apiLogout, getAnnouncementsUnread } from '../api/client';
+import { logout as apiLogout, getAnnouncementsUnread, getMyWarehouses, getBranchFilter, setBranchFilter } from '../api/client';
 
 const Icons = {
   dashboard: <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><rect x="3" y="3" width="7" height="7" rx="1"/><rect x="14" y="3" width="7" height="7" rx="1"/><rect x="3" y="14" width="7" height="7" rx="1"/><rect x="14" y="14" width="7" height="7" rx="1"/></svg>,
@@ -125,6 +125,28 @@ export default function Sidebar() {
     setLogoError(false);
     setLogoKey(Date.now());
   }, [settings]);
+
+  // Branch context — "branch" == a warehouse/location. The switcher only
+  // appears for users who can reach more than one branch (typically admins /
+  // multi-branch managers); single-branch users keep the unchanged UI. Choosing
+  // a branch focuses every read on it (?branch_id= via the API client); "All
+  // branches" clears the focus. A reload re-fetches all pages under the new
+  // scope — the simplest reliable way to re-scope data the pages already loaded.
+  const [branches, setBranches] = useState([]);
+  const [branchSel, setBranchSel] = useState(getBranchFilter() || 'all');
+  useEffect(() => {
+    let alive = true;
+    getMyWarehouses()
+      .then(data => { if (alive) setBranches((data && data.warehouses) || []); })
+      .catch(() => { /* silent — non-critical chrome */ });
+    return () => { alive = false; };
+  }, []);
+  function onBranchChange(e) {
+    const val = e.target.value;
+    setBranchSel(val);
+    setBranchFilter(val === 'all' ? null : val);
+    window.location.reload();
+  }
 
   const initials = companyName.split(' ').map(w => w[0]).filter(c => c && /[a-zA-Z]/.test(c)).slice(0, 2).join('').toUpperCase();
   const userInitials = (() => {
@@ -269,6 +291,24 @@ export default function Sidebar() {
           </>
         )}
       </nav>
+
+      {/* Branch switcher — only when the user can reach more than one branch. */}
+      {branches.length > 1 && (
+        <div style={{ padding: '0 10px 8px' }}>
+          <label style={{ display: 'flex', alignItems: 'center', gap: 7, padding: '7px 10px',
+            border: '1px solid var(--border)', borderRadius: 'var(--r-sm)', background: 'var(--surface)' }}>
+            <span className="nav-link-icon" style={{ color: 'var(--text-3)', display: 'inline-flex', flexShrink: 0 }}>{Icons.warehouses}</span>
+            <select value={branchSel} onChange={onBranchChange} aria-label={t('nav.branch')}
+              style={{ flex: 1, minWidth: 0, border: 'none', background: 'transparent', font: 'inherit',
+                fontSize: 12.5, fontWeight: 600, color: 'var(--text)', cursor: 'pointer', outline: 'none' }}>
+              <option value="all">{t('nav.allBranches')}</option>
+              {branches.map(b => (
+                <option key={b.id} value={b.id}>{b.name}</option>
+              ))}
+            </select>
+          </label>
+        </div>
+      )}
 
       {/* Footer — the account card is the trigger for a sign-out popover. */}
       <div className="sidebar-footer" ref={accountRef} style={{ position: 'relative' }}>

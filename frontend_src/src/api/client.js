@@ -6,6 +6,28 @@ const RETRY_BACKOFF = 1.5;
 
 const sleep = (ms) => new Promise(r => setTimeout(r, ms));
 
+// ─── Branch context (multi-branch) ───────────────────────────────────────────
+// "Branch" == a warehouse/location. When the user focuses a single branch via
+// the sidebar switcher, every GET is transparently scoped with ?branch_id=. The
+// backend ignores the param on endpoints that don't declare it (FastAPI drops
+// undeclared query params), so this is a safe, central way to scope reads
+// without touching every page. `null` means "all branches" (admin default).
+let _branchFilter = null;
+try {
+  const v = localStorage.getItem('branch_filter');
+  _branchFilter = v && v !== 'all' ? v : null;
+} catch { /* localStorage unavailable */ }
+
+export function setBranchFilter(id) {
+  _branchFilter = (id == null || id === '' || id === 'all') ? null : String(id);
+  try {
+    if (_branchFilter == null) localStorage.removeItem('branch_filter');
+    else localStorage.setItem('branch_filter', _branchFilter);
+  } catch { /* ignore */ }
+}
+
+export function getBranchFilter() { return _branchFilter; }
+
 async function extractError(res) {
   const clone = res.clone();
   try {
@@ -26,9 +48,14 @@ async function request(method, path, body, signal) {
     attempt++;
     if (signal?.aborted) throw new DOMException('Aborted', 'AbortError');
     const headers = { 'Content-Type': 'application/json' };
+    // Scope reads to the focused branch (see the branch-context block above).
+    let url = `${BASE}${path}`;
+    if (method === 'GET' && _branchFilter != null && !/[?&]branch_id=/.test(path)) {
+      url += (path.includes('?') ? '&' : '?') + 'branch_id=' + encodeURIComponent(_branchFilter);
+    }
     let res;
     try {
-      res = await fetch(`${BASE}${path}`, {
+      res = await fetch(url, {
         method, headers, signal, credentials: 'include',
         body: body !== undefined ? JSON.stringify(body) : undefined,
       });

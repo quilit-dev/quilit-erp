@@ -244,6 +244,8 @@ const ar = {
     signedInAs: 'مسجّل الدخول باسم',
     administrator: 'مدير',
     staff: 'موظف',
+    branch: 'الفرع',
+    allBranches: 'كل الفروع',
     dashboard: 'لوحة التحكم',
     clients: 'العملاء',
     projects: 'المشاريع',
@@ -3490,6 +3492,7 @@ const ar = {
     nameLabel:       'الاسم',
     typeLabel:       'النوع',
     addressLabel:    'العنوان',
+    phoneLabel:      'الهاتف',
     notesLabel:      'ملاحظات',
     activeChk:       'نشط (قابل للاختيار في النماذج التشغيلية)',
 
