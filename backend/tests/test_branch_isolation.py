@@ -79,3 +79,31 @@ def test_zero_grant_user_sees_all_branches(make_client, db):
     # Finance manager with NO grants → sees both branches.
     fm = make_client("Finance Manager")
     assert len(fm.get("/api/finance/expenses").json()) == 2
+
+
+def test_dashboard_and_reports_scope_to_branch(make_client, db):
+    """A branch-restricted user's dashboard + financial reports reflect only
+    their branch; an admin sees the company-wide totals."""
+    admin = make_client("superadmin")
+    main_id = _main_branch_id(admin)
+    br2 = _make_branch(admin)
+    admin.post("/api/finance/expenses",
+               json={"category": "Materials", "amount": 100, "branch_id": main_id})
+    admin.post("/api/finance/expenses",
+               json={"category": "Materials", "amount": 200, "branch_id": br2})
+
+    # Admin: company-wide expense report total = 300.
+    rep_all = admin.get("/api/reports/financial").json()
+    assert abs(rep_all["total_expenses"] - 300) < 0.001
+
+    # Admin focused on br2: only 200.
+    rep_focus = admin.get(f"/api/reports/financial?branch_id={br2}").json()
+    assert abs(rep_focus["total_expenses"] - 200) < 0.001
+
+    # Finance manager granted br2 only: report + dashboard reflect only 200.
+    fm = make_client("Finance Manager")
+    _grant(admin, br2, "u_finance_mgr", db)
+    rep_fm = fm.get("/api/reports/financial").json()
+    assert abs(rep_fm["total_expenses"] - 200) < 0.001
+    dash_fm = fm.get("/api/dashboard/").json()
+    assert abs((dash_fm.get("monthly_expenses") or 0) - 200) < 0.001
