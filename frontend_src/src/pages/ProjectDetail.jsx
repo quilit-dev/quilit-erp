@@ -2,7 +2,8 @@ import { useState, useEffect } from 'react';
 import { useParams, useNavigate, Link } from 'react-router-dom';
 import { getProject, getInventory, deductToProject, createExpense, updateExpense, voidExpense, updateProject, getDocumentContent } from '../api/client';
 import {
-  LoadingSpinner, ErrorAlert, Badge, fmt, fmtDate, toast, Modal, CategoryBadge, NumberInput} from '../components/shared';
+  LoadingSpinner, ErrorAlert, Badge, fmt, fmtDate, toast, Modal, CategoryBadge, NumberInput, SelectOther,
+} from '../components/shared';
 import { useLocale } from '../hooks/useLocale.jsx';
 import { usePermissions } from '../hooks/usePermissions';
 import { useWarehouses } from '../hooks/useWarehouses';
@@ -769,10 +770,13 @@ export default function ProjectDetail() {
               <div className="form-grid">
                 <div className="form-group">
                   <label className="form-label">{t('projects.categoryLabel')} *</label>
-                  <select className="form-control" value={expenseForm.category}
-                    onChange={e => setExpenseForm(f => ({ ...f, category: e.target.value }))}>
-                    {CATEGORIES.map(c => <option key={c} value={c}>{c}</option>)}
-                  </select>
+                  <SelectOther
+                    value={expenseForm.category}
+                    onChange={v => setExpenseForm(f => ({ ...f, category: v }))}
+                    options={CATEGORIES}
+                    otherLabel={t('common.addCategoryOption')}
+                    required
+                  />
                 </div>
                 <div className="form-group">
                   <label className="form-label">{t('common.date')}</label>

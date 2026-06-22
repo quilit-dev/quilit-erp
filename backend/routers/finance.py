@@ -78,8 +78,13 @@ class ExpenseCreate(BaseModel):
 
     @validator('category')
     def category_valid(cls, v):
-        if v not in _VALID_EXPENSE_CATEGORIES:
-            raise ValueError(f'Invalid category. Must be one of: {", ".join(sorted(_VALID_EXPENSE_CATEGORIES))}')
+        # Custom categories are allowed: the ledger maps any unknown category to
+        # the Other Expense account (accounting.expense_account_code), so the GL
+        # always balances. _VALID_EXPENSE_CATEGORIES stays the seed/known set for
+        # the pickers; here we only require a non-empty value.
+        v = (v or '').strip()
+        if not v:
+            raise ValueError('Category is required')
         return v
 
 

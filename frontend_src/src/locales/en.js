@@ -158,6 +158,7 @@ const en = {
     allModules: 'All Modules',
     otherOption: 'Other…',
     otherSpecify: 'Type a value',
+    addCategoryOption: '+ Add new category…',
     close: 'Close',
     refresh: 'Refresh',
     previous: 'Previous',

@@ -334,10 +334,13 @@ function TransactionsPanel() {
               <div className="form-grid">
                 <div className="form-group">
                   <label className="form-label">{t('expenses.categoryLabel')}</label>
-                  <select className="form-control" value={form.category}
-                    onChange={e => setForm(f => ({ ...f, category: e.target.value }))}>
-                    {CATEGORIES.map(c => <option key={c} value={c}>{c}</option>)}
-                  </select>
+                  <SelectOther
+                    value={form.category}
+                    onChange={v => setForm(f => ({ ...f, category: v }))}
+                    options={CATEGORIES}
+                    otherLabel={t('common.addCategoryOption')}
+                    required
+                  />
                 </div>
                 <div className="form-group">
                   <label className="form-label">{t('expenses.dateLabel')}</label>
