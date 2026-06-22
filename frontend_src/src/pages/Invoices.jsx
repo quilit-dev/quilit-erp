@@ -9,7 +9,7 @@ import {
 import {
   LoadingSpinner, ErrorAlert, EmptyState, Modal, ConfirmModal,
   Badge, ExportButton, fmt, fmtDate, toast, SortableTh, Pagination,
-  DualMoney, ExchangeRateBadge, DisplayCurrencyToggle, WhatsAppShareButton, NumberInput} from '../components/shared';
+  DualMoney, ExchangeRateBadge, DisplayCurrencyToggle, WhatsAppShareButton, NumberInput, BranchField} from '../components/shared';
 import { exportInvoicePDF, exportInvoiceExcel } from '../utils/exportUtils';
 import InventoryCombobox from '../components/InventoryCombobox';
 import { useLocale } from '../hooks/useLocale.jsx';
@@ -24,7 +24,7 @@ const METHODS    = ['Cash', 'Bank Transfer', 'Cheque', 'Card', 'Other'];
 // per-line discounts". When the toggle is off the field stays 0 and the
 // column is hidden — the rest of the form behaves exactly as before.
 const EMPTY_ITEM = { name: '', quantity: 1, unit_price: 0, discount: 0, tax_rate_id: null };
-const EMPTY_FORM = { quotation_id: '', project_id: '', client_id: '', due_date: '', notes: '', items: [{ ...EMPTY_ITEM }] };
+const EMPTY_FORM = { quotation_id: '', project_id: '', client_id: '', due_date: '', notes: '', branch_id: '', items: [{ ...EMPTY_ITEM }] };
 
 // Pre-built WhatsApp message for an invoice — bilingual short form so the
 // client immediately sees what they're being sent before opening the file.
@@ -285,6 +285,7 @@ export default function Invoices() {
         client_id:    full.client_id    || '',
         due_date:     full.due_date     || '',
         notes:        full.notes        || '',
+        branch_id:    full.branch_id    ?? '',
         items: full.items?.length
           ? full.items.map(i => ({
               name: i.name,
@@ -332,6 +333,7 @@ export default function Invoices() {
         amount:       subtotal,
         due_date:     form.due_date || null,
         notes:        form.notes    || null,
+        branch_id:    form.branch_id || null,
         items:        (form.items || []).map(i => ({
           name: i.name,
           quantity: Number(i.quantity)||0,
@@ -595,6 +597,8 @@ export default function Invoices() {
                   <input type="date" className="form-control" value={form.due_date||''}
                     onChange={e => setForm(f => ({ ...f, due_date: e.target.value }))} />
                 </div>
+                <BranchField value={form.branch_id}
+                  onChange={v => setForm(f => ({ ...f, branch_id: v }))} />
                 <div className="form-group">
                   <label className="form-label">{t('invoices.notesLabel')}</label>
                   <input className="form-control" value={form.notes||''}

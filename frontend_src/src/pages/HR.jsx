@@ -4,7 +4,7 @@ import { usePermissions } from '../hooks/usePermissions.js';
 import { useLocale } from '../hooks/useLocale.jsx';
 import {
   LoadingSpinner, ErrorAlert, EmptyState, Modal, ConfirmModal,
-  ExportButton, fmt, fmtDate, toast, NumberInput} from '../components/shared';
+  ExportButton, fmt, fmtDate, toast, NumberInput, BranchField} from '../components/shared';
 import {
   getHRSummary,
   getDepartments, createDepartment, updateDepartment, archiveDepartment, unarchiveDepartment,
@@ -38,7 +38,7 @@ const CHANGE_TYPES = [
 const EMPTY_EMPLOYEE = {
   full_name: '', job_title: '', department_id: '', employment_type: 'Full-time',
   status: 'Active', hire_date: '', end_date: '', email: '', phone: '',
-  salary: 0, manager_id: '', address: '', notes: '',
+  salary: 0, manager_id: '', address: '', notes: '', branch_id: '',
   change_type: '', change_reason: '',
 };
 
@@ -182,6 +182,7 @@ export default function HR() {
         salary:        Number(empForm.salary) || 0,
         hire_date:     empForm.hire_date || null,
         end_date:      empForm.end_date || null,
+        branch_id:     empForm.branch_id || null,
         // Only send the change_type when the user picked one explicitly —
         // empty / unknown is treated by the backend as "auto-detect".
         change_type:   empForm.change_type || null,
@@ -566,6 +567,8 @@ export default function HR() {
                     {depts.map(d => <option key={d.id} value={d.id}>{d.name}</option>)}
                   </select>
                 </div>
+                <BranchField value={empForm.branch_id}
+                  onChange={v => setEmpForm(f => ({ ...f, branch_id: v }))} />
                 <div className="form-group">
                   <label className="form-label">{t('hr.fldEmploymentType')}</label>
                   <select className="form-control" value={empForm.employment_type}

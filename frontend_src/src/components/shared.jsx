@@ -3,6 +3,7 @@ import * as XLSX from 'xlsx';
 import { useLocale } from '../hooks/useLocale.jsx';
 import { useSettings } from '../hooks/useSettings.jsx';
 import { useScrollLock } from '../hooks/useScrollLock';
+import { getMyWarehouses, getBranchFilter } from '../api/client';
 
 // ── Icon set ───────────────────────────────────────────────────
 // A small, consistent line-icon family (Lucide-style: 24-grid, currentColor
@@ -301,6 +302,53 @@ export function SelectOther({
         />
       )}
     </>
+  );
+}
+
+// ── Branch picker (multi-branch) ───────────────────────────────
+// "Branch" == a warehouse/location. Renders a labelled select of the branches
+// the user can transact in, so a create form can target one explicitly. It
+// self-fetches the accessible branches and renders NOTHING when the user can
+// reach one branch or fewer — single-branch installs stay visually unchanged
+// and the backend resolves the default branch on its own.
+//
+//   <BranchField value={form.branch_id}
+//     onChange={v => setForm(f => ({ ...f, branch_id: v }))} />
+//
+// `value` is a branch id (number) or '' / null. Defaults to the currently
+// focused branch (the sidebar switcher) the first time it mounts on a fresh
+// form, so "focus Branch B → add expense" lands in B without extra clicks.
+export function BranchField({ value, onChange, label }) {
+  const { t } = useLocale();
+  const [branches, setBranches] = useState([]);
+  useEffect(() => {
+    let alive = true;
+    getMyWarehouses()
+      .then(data => {
+        if (!alive) return;
+        const list = (data && data.warehouses) || [];
+        setBranches(list);
+        // Seed an empty form with the focused branch, or the resolved default.
+        if ((value == null || value === '') && list.length > 1) {
+          const focused = getBranchFilter();
+          const seed = focused && list.some(b => String(b.id) === String(focused))
+            ? focused : (data.default_id ?? '');
+          if (seed !== '' && seed != null) onChange(seed);
+        }
+      })
+      .catch(() => { /* non-critical */ });
+    return () => { alive = false; };
+  }, []); // eslint-disable-line react-hooks/exhaustive-deps
+
+  if (branches.length <= 1) return null;   // single-branch → no picker
+  return (
+    <div className="form-group">
+      <label className="form-label">{label || t('nav.branch')}</label>
+      <select className="form-control" value={value ?? ''}
+        onChange={e => onChange(e.target.value ? Number(e.target.value) : '')}>
+        {branches.map(b => <option key={b.id} value={b.id}>{b.name}</option>)}
+      </select>
+    </div>
   );
 }
 
