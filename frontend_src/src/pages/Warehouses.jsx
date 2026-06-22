@@ -854,6 +854,10 @@ export default function Warehouses() {
   const [tab, setTab] = useState('warehouses');
 
   const canEdit = isSuperadmin || can('warehouses', 'edit') || can('warehouses', 'create');
+  // Stock transfers are an INVENTORY operation (backend gates them on the
+  // `inventory` permission), so a Branch Manager — full inventory, view-only
+  // warehouses — can run them while still being unable to create branches.
+  const canTransfer = isSuperadmin || can('inventory', 'edit') || can('inventory', 'create');
 
   return (
     <div>
@@ -882,7 +886,7 @@ export default function Warehouses() {
       </div>
 
       {tab === 'warehouses' && <WarehousesTab canEdit={canEdit} t={t} />}
-      {tab === 'transfers'  && <TransfersTab  canEdit={canEdit} t={t} />}
+      {tab === 'transfers'  && <TransfersTab  canEdit={canTransfer} t={t} />}
       {tab === 'access'     && <AccessTab t={t} />}
     </div>
   );

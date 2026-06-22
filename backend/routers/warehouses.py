@@ -6,10 +6,12 @@ Two surfaces in one router:
   * **Admin** — CRUD warehouses, manage per-user access. Requires module-level
     `warehouses` permission. Superadmin/admin always passes.
   * **Operations** — stock transfers between warehouses (Draft → In Transit →
-    Completed). Each step is permission-checked against BOTH endpoints
-    (`require_perm("warehouses", ...)`) AND row-level access on the source
-    and destination warehouses (a clerk authorised for the East branch can't
-    dispatch a transfer FROM the West branch).
+    Completed). These are an INVENTORY operation, gated on
+    `require_perm("inventory", ...)` (NOT `warehouses`, which stays reserved for
+    branch/warehouse administration) PLUS row-level access on the source and
+    destination warehouses (a clerk authorised for the East branch can't
+    dispatch a transfer FROM the West branch). This lets a Branch Manager run
+    inter-branch transfers without being able to create branches.
 
 Accounting note: transfers never touch the GL. They are a quantity reallocation
 within a single 1200 Inventory account, not a financial event.
@@ -574,7 +576,12 @@ def get_transfer(
 @router.post("/transfers/")
 def create_transfer(
     data: TransferIn,
-    user=Depends(require_perm("warehouses", "create")),
+    # Transfers are an INVENTORY operation (moving stock between locations), not
+    # warehouse administration — so they're gated on `inventory`, keeping
+    # branch/warehouse CREATION on `warehouses`. This lets a Branch Manager
+    # (full inventory, view-only warehouses) run inter-branch transfers without
+    # being able to create branches.
+    user=Depends(require_perm("inventory", "create")),
     db: sqlite3.Connection = Depends(get_db),
 ):
     """Open a Draft transfer. No stock moves yet — that happens at dispatch."""
@@ -627,7 +634,7 @@ def create_transfer(
 @router.post("/transfers/{tid}/dispatch")
 def dispatch_transfer(
     tid: int,
-    user=Depends(require_perm("warehouses", "edit")),
+    user=Depends(require_perm("inventory", "edit")),
     db: sqlite3.Connection = Depends(get_db),
 ):
     """Move stock OUT of the source warehouse. Status: Draft → In Transit.
@@ -689,7 +696,7 @@ def dispatch_transfer(
 def receive_transfer(
     tid: int,
     data: TransferReceive = None,
-    user=Depends(require_perm("warehouses", "edit")),
+    user=Depends(require_perm("inventory", "edit")),
     db: sqlite3.Connection = Depends(get_db),
 ):
     """Receive stock INTO the destination warehouse. Status: In Transit →
@@ -776,7 +783,10 @@ def receive_transfer(
 def cancel_transfer(
     tid: int,
     data: TransferCancel = None,
-    user=Depends(require_perm("warehouses", "delete")),
+    # Cancelling/rolling back a transfer is a transfer-level action, gated with
+    # the rest of the transfer workflow on `inventory` (edit) rather than
+    # warehouse administration.
+    user=Depends(require_perm("inventory", "edit")),
     db: sqlite3.Connection = Depends(get_db),
 ):
     """Cancel a Draft transfer (no stock moved) or roll back an In Transit
