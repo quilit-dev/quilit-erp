@@ -140,6 +140,48 @@ def test_recruitment_branch_isolation(make_client, db):
     assert blocked.status_code == 403
 
 
+def test_branch_manager_is_scoped_with_full_access(make_client, db):
+    """A Branch Manager runs one branch: full operational access, but scoped to
+    their home branch (not global like the Business Owner)."""
+    from helpers.seeding import TEST_PASSWORD
+    from auth_utils import hash_password
+
+    admin = make_client("superadmin")
+    main_id = _main_branch_id(admin)
+    br2 = _make_branch(admin)
+    admin.post("/api/finance/expenses",
+               json={"category": "Materials", "amount": 100, "branch_id": main_id})
+    admin.post("/api/finance/expenses",
+               json={"category": "Materials", "amount": 200, "branch_id": br2})
+
+    role_id = db.execute("SELECT id FROM roles WHERE name='Branch Manager'").fetchone()["id"]
+    db.execute(
+        "INSERT INTO users (username, password_hash, full_name, role, role_id, "
+        " is_active, is_superadmin, must_change_password, branch_id, created_at) "
+        "VALUES (?,?,?,?,?,1,0,0,?,datetime('now'))",
+        ("u_branchmgr", hash_password(TEST_PASSWORD), "Branch Mgr", "Branch Manager",
+         role_id, br2),
+    )
+    db.commit()
+
+    bm = make_client()
+    assert bm.post("/api/auth/login",
+                   json={"username": "u_branchmgr", "password": TEST_PASSWORD}).status_code == 200
+
+    # Scoped: sees only their branch's expense.
+    visible = bm.get("/api/finance/expenses").json()
+    assert len(visible) == 1 and float(visible[0]["amount"]) == 200
+
+    # Full access: can create operational data, and it lands in their branch.
+    r = bm.post("/api/finance/expenses", json={"category": "Transport", "amount": 30})
+    assert r.status_code == 200, r.text
+    assert len(bm.get("/api/finance/expenses").json()) == 2
+
+    # Not global: cannot reach the other branch even by passing its id.
+    assert bm.post("/api/finance/expenses",
+                   json={"category": "X", "amount": 5, "branch_id": main_id}).status_code == 403
+
+
 def test_dashboard_and_reports_scope_to_branch(make_client, db):
     """A branch-scoped user's dashboard + financial reports reflect only their
     home branch; an admin sees the company-wide totals."""
@@ -166,6 +208,33 @@ def test_dashboard_and_reports_scope_to_branch(make_client, db):
     assert abs(rep_fm["total_expenses"] - 200) < 0.001
     dash_fm = fm.get("/api/dashboard/").json()
     assert abs((dash_fm.get("monthly_expenses") or 0) - 200) < 0.001
+
+
+def test_accounting_statements_scope_to_branch(make_client, db):
+    """The Accounting statements are branch-aware: a scoped accountant sees only
+    their branch's P&L, and the trial balance / balance sheet still balance."""
+    admin = make_client("superadmin")
+    main_id = _main_branch_id(admin)
+    br2 = _make_branch(admin)
+    admin.post("/api/finance/expenses",
+               json={"category": "Materials", "amount": 100, "branch_id": main_id})
+    admin.post("/api/finance/expenses",
+               json={"category": "Materials", "amount": 200, "branch_id": br2})
+
+    rng = "start=2000-01-01&end=2100-01-01"
+    pnl_all = admin.get(f"/api/accounting/income-statement?{rng}").json()
+    assert abs(pnl_all["total_expense"] - 300) < 0.01
+    pnl_b2 = admin.get(f"/api/accounting/income-statement?{rng}&branch_id={br2}").json()
+    assert abs(pnl_b2["total_expense"] - 200) < 0.01
+
+    # Scoped accountant whose home branch is br2.
+    acc = make_client("Accountant")
+    _assign_branch("u_accountant", br2, db)
+    pnl = acc.get(f"/api/accounting/income-statement?{rng}").json()
+    assert abs(pnl["total_expense"] - 200) < 0.01
+    # Per-branch statements still tie out.
+    assert acc.get("/api/accounting/trial-balance").json()["balanced"] is True
+    assert acc.get("/api/accounting/balance-sheet").json()["balanced"] is True
 
 
 def test_branch_comparison_report(make_client, db):

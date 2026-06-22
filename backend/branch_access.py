@@ -123,6 +123,25 @@ def branch_filter(user: dict, db: sqlite3.Connection, *, column: str = "branch_i
     return "", []
 
 
+def scope_branch_id(user: dict, db: sqlite3.Connection, selected=None):
+    """Resolve the single branch a READ should be limited to, or ``None`` for
+    "all branches". Used by statement-style queries (the Accounting ledger /
+    trial balance / P&L / balance sheet) that build their own SQL and want a
+    plain id rather than a fragment.
+
+    * Global users: the ``selected`` branch (the switcher) if given, else None.
+    * Scoped users: always their home branch.
+    """
+    if not is_global(user):
+        return home_branch_id(user, db)
+    if selected is not None and str(selected) != "":
+        try:
+            return int(selected)
+        except (TypeError, ValueError):
+            raise HTTPException(400, "Invalid branch filter.")
+    return None
+
+
 def assert_can_view_branch(user: dict, db: sqlite3.Connection, row_branch_id) -> None:
     """Row-level guard for detail-by-id endpoints: raise 404 if the caller may
     not see a record belonging to ``row_branch_id``. 404 (not 403) so a scoped

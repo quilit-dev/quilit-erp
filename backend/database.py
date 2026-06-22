@@ -3213,7 +3213,8 @@ def _seed_roles_and_admin(c):
 
     default_roles = [
         ('Admin',               'Full access to every module and administration', '#DC2626', 1),
-        ('Business Owner',      'Full administration of this install — staff, roles, settings and reports; cannot change which modules are installed', '#0F766E', 1),
+        ('Business Owner',      'Highest rank — full administration across ALL branches: staff, roles, settings and consolidated reports; cannot change which modules are installed', '#0F766E', 1),
+        ('Branch Manager',      'Runs one branch — full control of sales, operations, finance, HR and reports for their own branch only', '#4F46E5', 1),
         ('Manager',             'Oversee all business operations with approvals',  '#7C3AED', 1),
         ('Finance Manager',     'Full finance, invoicing and expense authority',   '#059669', 1),
         ('Accountant',          'Day-to-day finance, invoices and expenses',       '#10B981', 1),
@@ -3261,6 +3262,22 @@ def _seed_roles_and_admin(c):
     # grant no access. These are sensible defaults so admins rarely need to
     # build a custom role from scratch.
     ROLE_PERMS = {
+        # Branch Manager — the per-branch counterpart of the Business Owner.
+        # Full control of every operational module, but NOT admin-tier (is_admin
+        # stays 0), so branch_access scopes everything they see and do to their
+        # own home branch. Branch/warehouse CREATION and the install-level admin
+        # surfaces (users/roles/settings/audit) stay with the Business Owner —
+        # warehouses is view-only here so creating new branches is owner-only.
+        'Branch Manager': {
+            'dashboard': _V,
+            'clients': _FULL, 'projects': _FULL, 'quotations': _FULL, 'invoices': _FULL,
+            'pos': _FULL, 'cash': _FULL, 'crm': _FULL, 'planning': _FULL,
+            'inventory': _FULL, 'purchases': _FULL, 'suppliers': _FULL, 'warehouses': _V,
+            'manufacturing': _FULL, 'assets': _FULL,
+            'finance': _FULL, 'expenses': _FULL, 'accounting': _FULL, 'reports': _V,
+            'hr': _FULL, 'hr_contracts': _FULL, 'recruitment': _FULL, 'hr_activities': _FULL,
+            'announcements': _V,
+        },
         'Manager': {
             'dashboard': _V, 'clients': _VCEA, 'projects': _VCEA, 'quotations': _VCEA,
             'invoices': _VCEA, 'suppliers': _VCEA, 'crm': _VCEA, 'planning': _VCEA,

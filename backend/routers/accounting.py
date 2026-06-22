@@ -17,6 +17,7 @@ from routers.audit import log_action
 from routers.finance import _check_period_locked
 from utils import _now
 import accounting
+import branch_access
 import sqlite3
 
 router = APIRouter()
@@ -155,6 +156,7 @@ class JournalEntryIn(BaseModel):
     entry_date: str
     memo:       Optional[str] = None
     lines:      List[JournalLineIn]
+    branch_id:  Optional[int] = None   # branch == warehouse; resolved on post
 
 
 @router.get("/journal-entries")
@@ -164,6 +166,7 @@ def list_journal_entries(
     source_type: Optional[str] = None,
     status:      Optional[str] = None,
     q_text:      Optional[str] = None,
+    branch_id:   Optional[int] = None,
     sort:        str = "entry_date",     # entry_date | entry_number | total_debit | source_type | status
     direction:   str = "desc",           # asc | desc
     limit:       int = 50,
@@ -199,6 +202,10 @@ def list_journal_entries(
         like = f"%{q_text.strip()}%"
         where.append("(je.entry_number LIKE ? OR je.memo LIKE ?)")
         params += [like, like]
+    # Branch scoping: scoped users see only their branch's entries.
+    bf, bp = branch_access.branch_filter(user, db, column="je.branch_id", selected=branch_id)
+    if bf:
+        where.append(bf[len(" AND "):]); params += bp
 
     where_sql = " AND ".join(where)
     total = db.execute(
@@ -246,6 +253,7 @@ def get_journal_entry(
     ).fetchone()
     if not je:
         raise HTTPException(404, "Journal entry not found")
+    branch_access.assert_can_view_branch(user, db, je["branch_id"])
     lines = db.execute(
         "SELECT l.*, a.code AS account_code, a.name AS account_name, a.type AS account_type "
         "FROM journal_entry_lines l JOIN chart_of_accounts a ON a.id = l.account_id "
@@ -277,6 +285,9 @@ def create_journal_entry(
             raise HTTPException(400, f"Account #{l.account_id} does not exist.")
         if not a["is_active"]:
             raise HTTPException(400, f"Account #{l.account_id} is inactive.")
+    # Tag the entry with the caller's branch (scoped users → forced home branch;
+    # global users → their focused/default branch).
+    branch_id = branch_access.resolve_branch_id(user, db, getattr(data, "branch_id", None))
     try:
         je_id = accounting.post_entry(
             db,
@@ -286,6 +297,7 @@ def create_journal_entry(
                     "credit": l.credit or 0, "memo": l.memo} for l in valid],
             source_type="manual",
             created_by=user["id"],
+            branch_id=branch_id,
         )
     except ValueError as e:
         raise HTTPException(400, str(e))
@@ -320,10 +332,12 @@ def get_general_ledger(
     account_id: int,
     start: Optional[str] = None,
     end: Optional[str] = None,
+    branch_id: Optional[int] = None,
     user=Depends(require_perm("accounting", "view")),
     db: sqlite3.Connection = Depends(get_db),
 ):
-    result = accounting.general_ledger(db, account_id, start, end)
+    scope = branch_access.scope_branch_id(user, db, branch_id)
+    result = accounting.general_ledger(db, account_id, start, end, branch_id=scope)
     if result is None:
         raise HTTPException(404, "Account not found")
     return result
@@ -332,45 +346,54 @@ def get_general_ledger(
 @router.get("/trial-balance")
 def get_trial_balance(
     as_of: Optional[str] = None,
+    branch_id: Optional[int] = None,
     user=Depends(require_perm("accounting", "view")),
     db: sqlite3.Connection = Depends(get_db),
 ):
-    return accounting.trial_balance(db, as_of or _today())
+    scope = branch_access.scope_branch_id(user, db, branch_id)
+    return accounting.trial_balance(db, as_of or _today(), branch_id=scope)
 
 
 @router.get("/balance-sheet")
 def get_balance_sheet(
     as_of: Optional[str] = None,
+    branch_id: Optional[int] = None,
     user=Depends(require_perm("accounting", "view")),
     db: sqlite3.Connection = Depends(get_db),
 ):
-    return accounting.balance_sheet(db, as_of or _today())
+    scope = branch_access.scope_branch_id(user, db, branch_id)
+    return accounting.balance_sheet(db, as_of or _today(), branch_id=scope)
 
 
 @router.get("/income-statement")
 def get_income_statement(
     start: str,
     end: str,
+    branch_id: Optional[int] = None,
     user=Depends(require_perm("accounting", "view")),
     db: sqlite3.Connection = Depends(get_db),
 ):
-    return accounting.income_statement(db, start, end)
+    scope = branch_access.scope_branch_id(user, db, branch_id)
+    return accounting.income_statement(db, start, end, branch_id=scope)
 
 
 @router.get("/cash-flow")
 def get_cash_flow(
     start: str,
     end: str,
+    branch_id: Optional[int] = None,
     user=Depends(require_perm("accounting", "view")),
     db: sqlite3.Connection = Depends(get_db),
 ):
-    return accounting.cash_flow_statement(db, start, end)
+    scope = branch_access.scope_branch_id(user, db, branch_id)
+    return accounting.cash_flow_statement(db, start, end, branch_id=scope)
 
 
 @router.get("/summary")
 def accounting_summary(
     start: Optional[str] = None,
     end:   Optional[str] = None,
+    branch_id: Optional[int] = None,
     user=Depends(require_perm("accounting", "view")),
     db: sqlite3.Connection = Depends(get_db),
 ):
@@ -386,14 +409,16 @@ def accounting_summary(
     today = _today()
     end_d   = (end or today)[:10]
     start_d = (start or (end_d[:7] + "-01"))[:10]
+    scope = branch_access.scope_branch_id(user, db, branch_id)
+    bf, bp = branch_access.branch_filter(user, db, column="branch_id", selected=branch_id)
     accounts = db.execute(
         "SELECT COUNT(*) FROM chart_of_accounts WHERE is_active=1"
     ).fetchone()[0]
     entries = db.execute(
-        "SELECT COUNT(*) FROM journal_entries WHERE status='posted'"
+        "SELECT COUNT(*) FROM journal_entries WHERE status='posted'" + bf, bp
     ).fetchone()[0]
-    pnl = accounting.income_statement(db, start_d, end_d)
-    bs  = accounting.balance_sheet(db, end_d)
+    pnl = accounting.income_statement(db, start_d, end_d, branch_id=scope)
+    bs  = accounting.balance_sheet(db, end_d, branch_id=scope)
     return {
         "accounts":       accounts,
         "posted_entries": entries,
