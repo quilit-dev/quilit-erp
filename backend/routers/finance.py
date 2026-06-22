@@ -11,6 +11,7 @@ from routers.audit import log_action
 from utils import _now, get_tax_context, resolve_expense_tax, money
 from approval_engine import evaluate_and_apply
 import accounting
+import branch_access
 import sqlite3
 from datetime import datetime
 
@@ -69,6 +70,7 @@ class ExpenseCreate(BaseModel):
     tax_rate_id:    Optional[int] = None
     payment_method: Optional[str] = None
     cash_drawer_id: Optional[int] = None
+    branch_id:      Optional[int] = None   # branch == warehouse; resolved on create
 
     @validator('amount')
     def amount_positive(cls, v):
@@ -357,6 +359,7 @@ def monthly_report(
 def list_expenses(
     project_id: Optional[int] = None,
     category:   Optional[str] = None,
+    branch_id:  Optional[int] = None,
     user=Depends(require_perm("expenses", "view")),
     db: sqlite3.Connection = Depends(get_db),
 ):
@@ -369,6 +372,11 @@ def list_expenses(
     if category:
         query += " AND e.category = ?"
         params.append(category)
+    # Branch scoping: restricted users see only their branches; admins may pass
+    # branch_id to focus one branch, or omit it to see all.
+    bf, bp = branch_access.branch_filter(user, db, column="e.branch_id", selected=branch_id)
+    query += bf
+    params += bp
     query += " ORDER BY e.date DESC"
     rows = db.execute(query, params).fetchall()
     return [dict(r) for r in rows]
@@ -454,13 +462,14 @@ def create_expense(
     gross = money(data.amount)
     t_rid, t_rate, t_amt = resolve_expense_tax(get_tax_context(db), data.tax_rate_id, gross)
     drawer_id = _resolve_cash_drawer(db, data.payment_method, data.cash_drawer_id)
+    branch_id = branch_access.resolve_branch_id(user, db, data.branch_id)
     cur = db.execute(
         "INSERT INTO expenses (project_id, category, description, amount, date, created_at, status, "
-        " tax_rate_id, tax_rate, tax_amount, payment_method, cash_drawer_id) "
-        "VALUES (?,?,?,?,?,?,?,?,?,?,?,?)",
+        " tax_rate_id, tax_rate, tax_amount, payment_method, cash_drawer_id, branch_id) "
+        "VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?)",
         (data.project_id, data.category, data.description,
          gross, data.date or datetime.utcnow().strftime("%Y-%m-%d"), now, "Recorded",
-         t_rid, t_rate, t_amt, (data.payment_method or None), drawer_id),
+         t_rid, t_rate, t_amt, (data.payment_method or None), drawer_id, branch_id),
     )
     expense_id = cur.lastrowid
 

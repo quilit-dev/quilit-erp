@@ -78,6 +78,7 @@ class WarehouseIn(BaseModel):
     name:       str = Field(..., min_length=1, max_length=120)
     type:       str = "Main"
     address:    Optional[str] = None
+    phone:      Optional[str] = None
     manager_id: Optional[int] = None
     is_active:  bool = True
     notes:      Optional[str] = None
@@ -87,6 +88,7 @@ class WarehouseUpdate(BaseModel):
     name:       Optional[str] = None
     type:       Optional[str] = None
     address:    Optional[str] = None
+    phone:      Optional[str] = None
     manager_id: Optional[int] = None
     is_active:  Optional[bool] = None
     notes:      Optional[str] = None
@@ -229,9 +231,9 @@ def create_warehouse(
     now = _now()
     cur = db.execute(
         "INSERT INTO warehouses "
-        "(code, name, type, address, manager_id, is_active, is_default, notes, created_at) "
-        "VALUES (?, ?, ?, ?, ?, ?, 0, ?, ?)",
-        (data.code, data.name, data.type, data.address, data.manager_id,
+        "(code, name, type, address, phone, manager_id, is_active, is_default, notes, created_at) "
+        "VALUES (?, ?, ?, ?, ?, ?, ?, 0, ?, ?)",
+        (data.code, data.name, data.type, data.address, data.phone, data.manager_id,
          1 if data.is_active else 0, data.notes, now),
     )
     log_action(db, user, "create", "warehouse", cur.lastrowid, data.code,
@@ -265,7 +267,7 @@ def update_warehouse(
             400, f"Warehouse type must be one of: {', '.join(VALID_TYPES)}"
         )
     fields, params = [], []
-    for k in ("name", "type", "address", "manager_id", "notes"):
+    for k in ("name", "type", "address", "phone", "manager_id", "notes"):
         v = getattr(data, k)
         if v is not None:
             fields.append(f"{k}=?"); params.append(v)
