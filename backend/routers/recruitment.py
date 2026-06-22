@@ -24,6 +24,7 @@ from routers.hr_activities import (
     _clear_reminder as _hr_clear_reminder,
 )
 from utils import _now, notify
+import branch_access
 import sqlite3
 import storage
 
@@ -94,6 +95,7 @@ class PositionBody(BaseModel):
     requirements:    Optional[str] = None
     posted_at:       Optional[str] = None
     closed_at:       Optional[str] = None
+    branch_id:       Optional[int] = None   # branch == warehouse; resolved on create
 
     @validator("title")
     def _title_not_blank(cls, v):
@@ -131,6 +133,7 @@ class ApplicantBody(BaseModel):
     rating:          Optional[int]   = None
     assigned_to:     Optional[int]   = None
     notes:           Optional[str]   = None
+    branch_id:       Optional[int]   = None   # branch == warehouse; resolved on create
 
     @validator("full_name")
     def _name_not_blank(cls, v):
@@ -237,6 +240,8 @@ def list_positions(
     params: list = []
     if status:
         q += " AND p.status = ?"; params.append(status)
+    bf, bp = branch_access.branch_filter(user, db, column="p.branch_id")
+    q += bf; params += bp
     q += " ORDER BY p.created_at DESC"
     return [dict(r) for r in db.execute(q, params).fetchall()]
 
@@ -255,6 +260,7 @@ def get_position(
     ).fetchone()
     if not row:
         raise HTTPException(404, "Position not found")
+    branch_access.assert_can_view_branch(user, db, row["branch_id"])
     result = dict(row)
     result["applicants"] = [
         dict(r) for r in db.execute(
@@ -278,17 +284,18 @@ def create_position(
     ).fetchone():
         raise HTTPException(400, "Selected department does not exist.")
     now = _now()
+    branch_id = branch_access.resolve_branch_id(user, db, data.branch_id)
     cur = db.execute(
         """INSERT INTO recruitment_positions
            (title, department_id, employment_type, location, salary_min, salary_max,
             headcount, status, description, requirements, posted_at, closed_at,
-            created_by, created_at)
-           VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?)""",
+            created_by, created_at, branch_id)
+           VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)""",
         (data.title, data.department_id, data.employment_type, data.location,
          data.salary_min, data.salary_max, data.headcount, data.status,
          data.description, data.requirements,
          data.posted_at or now[:10], data.closed_at,
-         user["id"], now),
+         user["id"], now, branch_id),
     )
     log_action(db, user, "create", "recruitment_position", cur.lastrowid, data.title)
     db.commit()
@@ -383,6 +390,8 @@ def list_applicants(
     if search:
         q += " AND (a.full_name LIKE ? OR a.email LIKE ? OR a.phone LIKE ?)"
         s = f"%{search}%"; params.extend([s, s, s])
+    bf, bp = branch_access.branch_filter(user, db, column="a.branch_id")
+    q += bf; params += bp
     q += " ORDER BY a.applied_at DESC"
     return [dict(r) for r in db.execute(q, params).fetchall()]
 
@@ -407,6 +416,7 @@ def get_applicant(
     ).fetchone()
     if not row:
         raise HTTPException(404, "Applicant not found")
+    branch_access.assert_can_view_branch(user, db, row["branch_id"])
     result = dict(row)
     result["interviews"] = [
         dict(r) for r in db.execute(
@@ -451,15 +461,24 @@ def create_applicant(
     ).fetchone():
         raise HTTPException(400, "Selected recruiter does not exist.")
     now = _now()
+    # An applicant inherits its position's branch when one is chosen; otherwise
+    # the caller's home branch (forced for scoped users).
+    pos_branch = None
+    if data.position_id:
+        prow = db.execute(
+            "SELECT branch_id FROM recruitment_positions WHERE id=?", (data.position_id,)
+        ).fetchone()
+        pos_branch = prow["branch_id"] if prow else None
+    branch_id = branch_access.resolve_branch_id(user, db, data.branch_id or pos_branch)
     cur = db.execute(
         """INSERT INTO recruitment_applicants
            (position_id, full_name, email, phone, source, expected_salary, rating,
             assigned_to, notes, status, applied_at, last_status_change,
-            created_by, created_at)
-           VALUES (?,?,?,?,?,?,?,?,?,'Applied',?,?,?,?)""",
+            created_by, created_at, branch_id)
+           VALUES (?,?,?,?,?,?,?,?,?,'Applied',?,?,?,?,?)""",
         (data.position_id, data.full_name, data.email, data.phone, data.source,
          data.expected_salary, data.rating, data.assigned_to, data.notes,
-         now[:10], now, user["id"], now),
+         now[:10], now, user["id"], now, branch_id),
     )
     app_id = cur.lastrowid
     _record_status_change(db, app_id, None, "Applied", "Applicant registered", user["id"])
@@ -1223,26 +1242,30 @@ def recruitment_summary(
     user=Depends(require_perm("recruitment", "view")),
     db: sqlite3.Connection = Depends(get_db),
 ):
+    bf_p, bpp = branch_access.branch_filter(user, db, column="branch_id")          # positions
+    bf_a, bpa = branch_access.branch_filter(user, db, column="branch_id")          # applicants
+    bf_ai, bpai = branch_access.branch_filter(user, db, column="a.branch_id")      # applicants via join
     open_positions = db.execute(
         "SELECT COUNT(*) FROM recruitment_positions "
-        "WHERE archived_at IS NULL AND status='Open'"
+        "WHERE archived_at IS NULL AND status='Open'" + bf_p, bpp
     ).fetchone()[0]
     by_status = {
         r["status"]: r["count"]
         for r in db.execute(
-            """SELECT status, COUNT(*) AS count
-               FROM recruitment_applicants WHERE archived_at IS NULL
-               GROUP BY status"""
+            "SELECT status, COUNT(*) AS count "
+            "FROM recruitment_applicants WHERE archived_at IS NULL" + bf_a +
+            " GROUP BY status", bpa
         ).fetchall()
     }
     upcoming = db.execute(
-        "SELECT COUNT(*) FROM recruitment_interviews "
-        "WHERE status='Scheduled' AND scheduled_at >= date('now')"
+        "SELECT COUNT(*) FROM recruitment_interviews i "
+        "JOIN recruitment_applicants a ON i.applicant_id = a.id "
+        "WHERE i.status='Scheduled' AND i.scheduled_at >= date('now')" + bf_ai, bpai
     ).fetchone()[0]
     hired_ytd = db.execute(
         "SELECT COUNT(*) FROM recruitment_applicants "
         "WHERE converted_employee_id IS NOT NULL "
-        "  AND substr(applied_at,1,4) = strftime('%Y','now')"
+        "  AND substr(applied_at,1,4) = strftime('%Y','now')" + bf_a, bpa
     ).fetchone()[0]
     return {
         "open_positions":      open_positions,
