@@ -160,7 +160,7 @@ function LineChart({ data, label1, label2, color1 = '#1B4F72', color2 = '#DC2626
   return (
     <div ref={containerRef} style={{ width: '100%' }}>
       <svg viewBox={`0 0 ${W} ${H}`} width={W} height={H}
-        style={{ display: 'block', fontFamily: 'inherit', overflow: 'visible', cursor: 'crosshair' }}>
+        style={{ display: 'block', fontFamily: 'inherit', overflow: 'visible', cursor: 'crosshair', direction: 'ltr' }}>
         <defs>
           <linearGradient id={`lg1_${key1}`} x1="0" y1="0" x2="0" y2="1">
             <stop offset="0%" stopColor={color1} stopOpacity="0.22" />
@@ -253,7 +253,7 @@ function HBarChart({ data, colorFn, labelKey = 'group_name', valueKey = 'total',
 
   return (
     <div ref={containerRef} style={{ width: '100%', overflow: 'hidden' }}>
-      <svg viewBox={`0 0 ${W} ${H}`} width="100%" height={H} style={{ display: 'block', overflow: 'hidden', fontFamily: 'inherit' }}>
+      <svg viewBox={`0 0 ${W} ${H}`} width="100%" height={H} style={{ display: 'block', overflow: 'hidden', fontFamily: 'inherit', direction: 'ltr' }}>
         {data.map((d, i) => {
           const y = PT + i * (barH + gap);
           const barW = Math.max(2, (d[valueKey] / maxVal) * barAreaW);
@@ -306,7 +306,7 @@ function VBarChart({ data, color = '#1B4F72', labelKey = 'month', valueKey = 'va
 
   return (
     <div ref={containerRef} style={{ width: '100%' }}>
-      <svg viewBox={`0 0 ${W} ${H}`} width={W} height={H} style={{ display: 'block', fontFamily: 'inherit', overflow: 'visible' }}>
+      <svg viewBox={`0 0 ${W} ${H}`} width={W} height={H} style={{ display: 'block', fontFamily: 'inherit', overflow: 'visible', direction: 'ltr' }}>
         {yTicks.map((v, i) => {
           const y = PT + yScale(v);
           return (
@@ -381,7 +381,7 @@ function DonutChart({ data, labelKey = 'group_name', valueKey = 'total', size = 
   const hov = hovered !== null ? slices[hovered] : null;
 
   return (
-    <svg viewBox={`0 0 ${size} ${size}`} width={size} height={size} style={{ display: 'block', overflow: 'visible' }}>
+    <svg viewBox={`0 0 ${size} ${size}`} width={size} height={size} style={{ display: 'block', overflow: 'visible', direction: 'ltr' }}>
       {slices.map((s, i) => (
         <path key={i} d={arc(s.startAngle, s.angle, hovered === i ? R + 6 : R, r)}
           fill={s.color} opacity={hovered === null || hovered === i ? 1 : 0.65}
