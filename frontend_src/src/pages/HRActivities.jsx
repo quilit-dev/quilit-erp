@@ -349,18 +349,19 @@ function ActivityRow({ activity, scope, onEdit, onComplete, onArchive }) {
 
         <div style={{ fontSize: 11, color: 'var(--text-3)', display: 'flex', flexWrap: 'wrap', gap: 10 }}>
           <span>
-            🗓 {formatWhen(activity.scheduled_at, lang)}
+            <Icon name="calendar" size={12} style={{ verticalAlign: '-2px', marginInlineEnd: 4 }} />
+            {formatWhen(activity.scheduled_at, lang)}
             {!isDone && (
               <span style={{ marginInlineStart: 6, color: isOverdue ? '#ef4444' : 'var(--text-3)' }}>
                 ({relativeFromNow(activity.scheduled_at, t)})
               </span>
             )}
           </span>
-          {activity.duration_min > 0 && <span>⏱ {activity.duration_min}m</span>}
-          {activity.location && <span>📍 {activity.location}</span>}
+          {activity.duration_min > 0 && <span><Icon name="clock" size={12} style={{ verticalAlign: '-2px', marginInlineEnd: 4 }} />{activity.duration_min}m</span>}
+          {activity.location && <span><Icon name="map-pin" size={12} style={{ verticalAlign: '-2px', marginInlineEnd: 4 }} />{activity.location}</span>}
           {linked && <span>{linked.kind}: <strong style={{ color: 'var(--text-2)' }}>{linked.name}</strong></span>}
           {activity.reminder_minutes_before > 0 && !isDone && (
-            <span>⏰ {t('hrActivities.remindsBeforeShort', { n: activity.reminder_minutes_before })}</span>
+            <span><Icon name="bell" size={12} style={{ verticalAlign: '-2px', marginInlineEnd: 4 }} />{t('hrActivities.remindsBeforeShort', { n: activity.reminder_minutes_before })}</span>
           )}
         </div>
 
@@ -371,7 +372,8 @@ function ActivityRow({ activity, scope, onEdit, onComplete, onArchive }) {
         )}
         {isDone && activity.completed_notes && (
           <div style={{ fontSize: 12, color: 'var(--text-2)', marginTop: 6, lineHeight: 1.4, fontStyle: 'italic' }}>
-            ✓ {activity.completed_notes}
+            <Icon name="check-circle" size={12} style={{ verticalAlign: '-2px', marginInlineEnd: 4, color: '#10b981' }} />
+            {activity.completed_notes}
           </div>
         )}
       </div>
@@ -379,7 +381,8 @@ function ActivityRow({ activity, scope, onEdit, onComplete, onArchive }) {
       <div style={{ display: 'flex', flexDirection: 'column', gap: 4, flexShrink: 0 }}>
         {!isDone && (
           <button className="btn btn-primary btn-sm" onClick={() => onComplete(activity)}>
-            ✓ {t('hrActivities.markDone')}
+            <Icon name="check-circle" size={14} style={{ verticalAlign: '-3px', marginInlineEnd: 4 }} />
+            {t('hrActivities.markDone')}
           </button>
         )}
         <button className="btn btn-outline btn-sm" onClick={() => onEdit(activity)}>
@@ -569,7 +572,7 @@ export default function HRActivities() {
       {/* List */}
       {loading ? null : filtered.length === 0 ? (
         <EmptyState
-          icon="📭"
+          icon={<Icon name="inbox" size={28} />}
           message={search ? t('hrActivities.emptySearch') : t(`hrActivities.empty_${scope}`)}
         />
       ) : (
