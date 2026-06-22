@@ -283,10 +283,13 @@ export default function RecurringExpensesPanel() {
                 </div>
                 <div className="form-group">
                   <label className="form-label">{t('common.category')} *</label>
-                  <select className="form-control" value={form.category}
-                    onChange={e => setForm(f => ({ ...f, category: e.target.value }))}>
-                    {EXPENSE_CATEGORIES.map(c => <option key={c} value={c}>{c}</option>)}
-                  </select>
+                  <SelectOther
+                    value={form.category}
+                    onChange={v => setForm(f => ({ ...f, category: v }))}
+                    options={EXPENSE_CATEGORIES}
+                    otherLabel={t('common.addCategoryOption')}
+                    required
+                  />
                 </div>
                 <div className="form-group">
                   <label className="form-label">{t('common.amount')} *</label>

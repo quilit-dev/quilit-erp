@@ -158,6 +158,7 @@ const ar = {
     allModules: 'جميع الأقسام',
     otherOption: 'أخرى…',
     otherSpecify: 'أدخل قيمة',
+    addCategoryOption: '+ إضافة فئة جديدة…',
     close: 'إغلاق',
     refresh: 'تحديث',
     previous: 'السابق',
