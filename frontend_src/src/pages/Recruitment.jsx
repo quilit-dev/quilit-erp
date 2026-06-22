@@ -4,7 +4,7 @@ import { usePermissions } from '../hooks/usePermissions.js';
 import { useLocale } from '../hooks/useLocale.jsx';
 import {
   LoadingSpinner, ErrorAlert, EmptyState, Modal, ConfirmModal,
-  fmt, fmtDate, toast, NumberInput} from '../components/shared';
+  fmt, fmtDate, toast, NumberInput, BranchField} from '../components/shared';
 import {
   getRecruitmentSummary,
   getPositions, createPosition, updatePosition, archivePosition,
@@ -101,11 +101,11 @@ function tEnum(t, map, val) {
 const EMPTY_POSITION  = {
   title: '', department_id: '', employment_type: 'Full-time', location: '',
   salary_min: '', salary_max: '', headcount: 1, status: 'Open',
-  description: '', requirements: '',
+  description: '', requirements: '', branch_id: '',
 };
 const EMPTY_APPLICANT = {
   full_name: '', position_id: '', email: '', phone: '', source: '',
-  expected_salary: '', rating: '', notes: '',
+  expected_salary: '', rating: '', notes: '', branch_id: '',
 };
 
 // ── Offer letter constants (Lebanon-aware) ────────────────────────────────
@@ -425,6 +425,7 @@ function PositionForm({ posId, initial, departments, onClose, onSaved }) {
         salary_min:    form.salary_min !== '' ? Number(form.salary_min) : null,
         salary_max:    form.salary_max !== '' ? Number(form.salary_max) : null,
         headcount:     Number(form.headcount) || 1,
+        branch_id:     form.branch_id || null,
       };
       if (posId) await updatePosition(posId, payload);
       else       await createPosition(payload);
@@ -487,6 +488,8 @@ function PositionForm({ posId, initial, departments, onClose, onSaved }) {
                   <option key={s} value={s}>{tEnum(t, POS_STATUS_KEY, s)}</option>)}
               </select>
             </div>
+            <BranchField value={form.branch_id}
+              onChange={v => setForm(f => ({ ...f, branch_id: v }))} />
             <div className="form-group" style={{ gridColumn: '1 / -1' }}>
               <label className="form-label">{t('recruitment.fieldDescription')}</label>
               <textarea className="form-control" rows={3} value={form.description || ''}
@@ -535,6 +538,7 @@ function ApplicantForm({ mode, initial, positions, onClose, onSaved }) {
         position_id:     form.position_id ? Number(form.position_id) : null,
         expected_salary: form.expected_salary !== '' ? Number(form.expected_salary) : null,
         rating:          form.rating ? Number(form.rating) : null,
+        branch_id:       form.branch_id || null,
       };
       if (isEdit) await updateApplicant(initial.id, payload);
       else        await createApplicant(payload);
@@ -563,6 +567,8 @@ function ApplicantForm({ mode, initial, positions, onClose, onSaved }) {
                   <option key={p.id} value={p.id}>{p.title}</option>)}
               </select>
             </div>
+            <BranchField value={form.branch_id}
+              onChange={v => setForm(f => ({ ...f, branch_id: v }))} />
             <div className="form-group">
               <label className="form-label">{t('recruitment.fieldSource')}</label>
               <input className="form-control" placeholder={t('recruitment.sourcePlaceholder')}

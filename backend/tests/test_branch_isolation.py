@@ -116,6 +116,30 @@ def test_business_owner_is_global(make_client, db):
     assert len(owner.get("/api/finance/expenses").json()) == 2
 
 
+def test_recruitment_branch_isolation(make_client, db):
+    """Applicants are branch-scoped: a branch HR manager sees only their branch's
+    applicants and cannot register one into another branch."""
+    admin = make_client("superadmin")
+    main_id = _main_branch_id(admin)
+    br2 = _make_branch(admin)
+
+    assert admin.post("/api/recruitment/applicants",
+                      json={"full_name": "Alice", "branch_id": main_id}).status_code == 200
+    assert admin.post("/api/recruitment/applicants",
+                      json={"full_name": "Bob", "branch_id": br2}).status_code == 200
+    assert len(admin.get("/api/recruitment/applicants").json()) == 2
+
+    hr = make_client("HR Manager")
+    _assign_branch("u_hr_mgr", br2, db)
+    visible = hr.get("/api/recruitment/applicants").json()
+    assert len(visible) == 1 and visible[0]["full_name"] == "Bob"
+
+    # Cannot register an applicant into another branch.
+    blocked = hr.post("/api/recruitment/applicants",
+                      json={"full_name": "Mallory", "branch_id": main_id})
+    assert blocked.status_code == 403
+
+
 def test_dashboard_and_reports_scope_to_branch(make_client, db):
     """A branch-scoped user's dashboard + financial reports reflect only their
     home branch; an admin sees the company-wide totals."""

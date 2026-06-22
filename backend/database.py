@@ -2705,6 +2705,24 @@ def _run_migrations(conn, c):
         c.execute("CREATE INDEX IF NOT EXISTS idx_journal_entries_branch ON journal_entries(branch_id)")
         done("131c_branch_hierarchy_backfill")
 
+    # ── 132: branch-scope recruitment (positions + applicants) ──────────────
+    # Each branch hires its own people, so recruitment is branch-specific like
+    # the other operational modules (it was previously global). Backfill to the
+    # default branch so existing pipelines stay visible.
+    add_col("132a_positions_branch", "recruitment_positions", "branch_id",
+            "ALTER TABLE recruitment_positions ADD COLUMN branch_id INTEGER REFERENCES warehouses(id)")
+    add_col("132b_applicants_branch", "recruitment_applicants", "branch_id",
+            "ALTER TABLE recruitment_applicants ADD COLUMN branch_id INTEGER REFERENCES warehouses(id)")
+    if need("132c_recruitment_branch_backfill"):
+        drow = c.execute("SELECT id FROM warehouses WHERE is_default=1 LIMIT 1").fetchone()
+        if drow:
+            did = drow[0]
+            for tbl in ("recruitment_positions", "recruitment_applicants"):
+                if tbl in all_tables() and "branch_id" in cols(tbl):
+                    c.execute(f"UPDATE {tbl} SET branch_id=? WHERE branch_id IS NULL", (did,))
+                    c.execute(f"CREATE INDEX IF NOT EXISTS idx_{tbl}_branch ON {tbl}(branch_id)")
+        done("132c_recruitment_branch_backfill")
+
     conn.commit()
 
 
@@ -2839,6 +2857,18 @@ def _ensure_pg_post_baseline(raw):
         cur.execute("UPDATE journal_entries SET branch_id="
                     "(SELECT id FROM warehouses WHERE is_default=1 LIMIT 1) "
                     "WHERE branch_id IS NULL")
+        # 132_recruitment_branch — branch-scope recruitment.
+        for _tbl in ("recruitment_positions", "recruitment_applicants"):
+            cur.execute(
+                f"ALTER TABLE {_tbl} ADD COLUMN IF NOT EXISTS branch_id "
+                f"INTEGER REFERENCES warehouses(id)"
+            )
+            cur.execute(f"CREATE INDEX IF NOT EXISTS idx_{_tbl}_branch ON {_tbl}(branch_id)")
+            cur.execute(
+                f"UPDATE {_tbl} SET branch_id="
+                f"(SELECT id FROM warehouses WHERE is_default=1 LIMIT 1) "
+                f"WHERE branch_id IS NULL"
+            )
     raw.commit()
 
 
