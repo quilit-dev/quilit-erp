@@ -27,6 +27,7 @@ from permissions import require_perm
 from routers.audit import log_action
 from utils import _now, notify
 import accounting
+import branch_access
 import io
 
 
@@ -99,6 +100,7 @@ class EmployeeBody(BaseModel):
     user_id:         Optional[int] = None
     address:         Optional[str] = None
     notes:           Optional[str] = None
+    branch_id:       Optional[int] = None   # branch == warehouse; resolved on create
     # On PUT only — annotate WHY the change happened. Auto-classified into a
     # change_type if not provided (raise / promotion / role_change / transfer /
     # adjustment). The values are stored in hr_employment_changes.
@@ -522,6 +524,7 @@ def list_employees(
     department_id: Optional[int] = None,
     status:        Optional[str] = None,
     include_archived: bool = False,
+    branch_id:     Optional[int] = None,
     user=Depends(require_perm("hr", "view")),
     db: sqlite3.Connection = Depends(get_db),
 ):
@@ -534,6 +537,11 @@ def list_employees(
     sql = _EMPLOYEE_LIST_SQL
     if include_archived:
         sql = sql.replace("WHERE e.archived_at IS NULL", "WHERE 1=1")
+    # Branch scoping: restricted users see only their branches' employees.
+    bf, bp = branch_access.branch_filter(user, db, column="e.branch_id", selected=branch_id)
+    if bf:
+        sql = sql.replace("ORDER BY e.full_name ASC", bf + "\n    ORDER BY e.full_name ASC")
+        params = params + bp
     return [dict(r) for r in db.execute(sql, params).fetchall()]
 
 
@@ -610,16 +618,17 @@ def create_employee(
     db: sqlite3.Connection = Depends(get_db),
 ):
     _validate_refs(db, data)
+    branch_id = branch_access.resolve_branch_id(user, db, data.branch_id)
     cur = db.execute(
         """INSERT INTO hr_employees
                (full_name, job_title, department_id, employment_type, status,
                 hire_date, end_date, email, phone, salary, manager_id, user_id,
-                address, notes, created_at)
-           VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)""",
+                address, notes, created_at, branch_id)
+           VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)""",
         (data.full_name, data.job_title, data.department_id, data.employment_type,
          data.status, data.hire_date or None, data.end_date or None, data.email,
          data.phone, data.salary, data.manager_id, data.user_id, data.address,
-         data.notes, _now()),
+         data.notes, _now(), branch_id),
     )
     emp_id = cur.lastrowid
     code   = f"EMP-{emp_id:04d}"

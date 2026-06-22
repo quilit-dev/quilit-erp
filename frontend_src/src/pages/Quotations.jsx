@@ -11,7 +11,7 @@ import {
 import {
   LoadingSpinner, ErrorAlert, EmptyState, Modal, ConfirmModal,
   Badge, ExportButton, fmt, fmtDate, toast, SortableTh, Pagination,
-  DualMoney, ExchangeRateBadge, DisplayCurrencyToggle, WhatsAppShareButton, NumberInput} from '../components/shared';
+  DualMoney, ExchangeRateBadge, DisplayCurrencyToggle, WhatsAppShareButton, NumberInput, BranchField} from '../components/shared';
 import { exportQuotationPDF, exportQuotationExcel } from '../utils/exportUtils';
 import { useLocale } from '../hooks/useLocale.jsx';
 import { usePermissions } from '../hooks/usePermissions';
@@ -26,7 +26,7 @@ const STATUSES   = ['Draft', 'Sent', 'Accepted', 'Rejected'];
 // per-line discounts". When the toggle is off the field stays 0 and the
 // column is hidden — the rest of the form behaves exactly as before.
 const EMPTY_ITEM = { name: '', quantity: 1, unit_price: 0, discount: 0, tax_rate_id: null };
-const makeEmpty  = () => ({ client_id: '', lead_id: '', project_id: '', project_name: '', status: 'Draft', notes: '', items: [{ ...EMPTY_ITEM }] });
+const makeEmpty  = () => ({ client_id: '', lead_id: '', project_id: '', project_name: '', status: 'Draft', notes: '', branch_id: '', items: [{ ...EMPTY_ITEM }] });
 
 const menuItemStyle = {
   display: 'flex', alignItems: 'center', gap: 8, width: '100%', padding: '8px 14px',
@@ -192,6 +192,7 @@ export default function Quotations() {
         project_name: full.project_name  || '',
         status:     full.status || 'Draft',
         notes:      full.notes  || '',
+        branch_id:  full.branch_id ?? '',
         items: full.items?.length
           ? full.items.map(i => ({
               name: i.name,
@@ -255,6 +256,7 @@ export default function Quotations() {
         project_id:   form.project_id   ? Number(form.project_id) : null,
         project_name: (!form.project_id && form.project_name.trim()) ? form.project_name.trim() : null,
         status: form.status, notes: form.notes || null,
+        branch_id: form.branch_id || null,
         items: form.items.map(i => ({
           name: i.name,
           quantity: Number(i.quantity)||0,
@@ -560,6 +562,8 @@ export default function Quotations() {
                       {STATUSES.map(s => <option key={s} value={s}>{tStatus(s)}</option>)}
                     </select>
                   </div>
+                  <BranchField value={form.branch_id}
+                    onChange={v => setForm(f => ({ ...f, branch_id: v }))} />
                   <div className="form-group">
                     <label className="form-label">{t('quotations.notesLabel')}</label>
                     <input className="form-control" value={form.notes}

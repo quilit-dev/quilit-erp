@@ -12,9 +12,11 @@ in the `permissions` block — keeping the dashboard a single, cohesive snapshot
 of the business rather than a stack of disconnected widgets.
 """
 from fastapi import APIRouter, Depends
+from typing import Optional
 from database import get_db
 from permissions import require_perm
 from utils import _today
+import branch_access
 import sqlite3
 
 router = APIRouter()
@@ -41,7 +43,22 @@ def _scalar(db: sqlite3.Connection, sql: str, params=()):
 
 
 @router.get("/")
-def dashboard(user=Depends(require_perm("dashboard", "view")), db: sqlite3.Connection = Depends(get_db)):
+def dashboard(branch_id: Optional[int] = None,
+              user=Depends(require_perm("dashboard", "view")),
+              db: sqlite3.Connection = Depends(get_db)):
+    # ── Branch scoping ───────────────────────────────────────────────────
+    # "branch" == warehouse. Restricted users are auto-scoped to their
+    # branches; admins may focus one with ?branch_id=. Each fragment targets a
+    # table that carries a branch_id column; tables without one (POS sales,
+    # CRM, assets, planning, recruitment — global per the design) are unscoped.
+    def _bf(col):
+        return branch_access.branch_filter(user, db, column=col, selected=branch_id)
+    bf_q,  bp_q  = _bf("branch_id")     # quotations
+    bf_i,  bp_i  = _bf("i.branch_id")   # invoices (alias i)
+    bf_e,  bp_e  = _bf("branch_id")     # expenses
+    bf_cd, bp_cd = _bf("branch_id")     # cash_drawers
+    bf_emp, bp_emp = _bf("branch_id")   # hr_employees
+
     # ── Module-view gates ────────────────────────────────────────────────
     show_projects      = _can(user, db, "projects")
     show_quotes        = _can(user, db, "quotations")
@@ -70,7 +87,8 @@ def dashboard(user=Depends(require_perm("dashboard", "view")), db: sqlite3.Conne
 
     pending_quotes = _scalar(db,
         "SELECT COUNT(*) FROM quotations"
-        " WHERE status IN ('Draft', 'Sent') AND deleted_at IS NULL"
+        " WHERE status IN ('Draft', 'Sent') AND deleted_at IS NULL" + bf_q,
+        bp_q,
     ) if show_quotes else None
 
     low_stock = _scalar(db,
@@ -89,7 +107,8 @@ def dashboard(user=Depends(require_perm("dashboard", "view")), db: sqlite3.Conne
            WHERE i.deleted_at IS NULL
              AND i.amount > COALESCE(
                  (SELECT SUM(ip.amount) FROM invoice_payments ip WHERE ip.invoice_id = i.id), 0
-             )"""
+             )""" + bf_i,
+        bp_i,
     ).fetchone() if show_invoices else None
 
     overdue = db.execute(
@@ -100,8 +119,8 @@ def dashboard(user=Depends(require_perm("dashboard", "view")), db: sqlite3.Conne
            FROM invoices i
            WHERE i.deleted_at IS NULL AND i.due_date IS NOT NULL AND i.due_date < ?
              AND i.amount > COALESCE(
-                 (SELECT SUM(ip.amount) FROM invoice_payments ip WHERE ip.invoice_id = i.id), 0)""",
-        (_today(),),
+                 (SELECT SUM(ip.amount) FROM invoice_payments ip WHERE ip.invoice_id = i.id), 0)""" + bf_i,
+        (_today(), *bp_i),
     ).fetchone() if show_invoices else None
 
     # ── Finance: monthly income / expenses + 6-month chart ───────────────
@@ -109,19 +128,23 @@ def dashboard(user=Depends(require_perm("dashboard", "view")), db: sqlite3.Conne
         """SELECT COALESCE(SUM(ip.amount), 0)
            FROM invoice_payments ip JOIN invoices i ON ip.invoice_id = i.id
            WHERE i.deleted_at IS NULL
-             AND strftime('%Y-%m', ip.paid_at) = strftime('%Y-%m', 'now')"""
+             AND strftime('%Y-%m', ip.paid_at) = strftime('%Y-%m', 'now')""" + bf_i,
+        bp_i,
     ) if (show_finance or show_invoices) else None
 
     monthly_expenses = _scalar(db,
         """SELECT COALESCE(SUM(amount), 0) FROM expenses
            WHERE deleted_at IS NULL
-             AND strftime('%Y-%m', date) = strftime('%Y-%m', 'now')"""
+             AND strftime('%Y-%m', date) = strftime('%Y-%m', 'now')""" + bf_e,
+        bp_e,
     ) if show_finance else None
 
     monthly_chart = db.execute(
         """SELECT strftime('%Y-%m', ip.paid_at) AS month, COALESCE(SUM(ip.amount),0) AS income
            FROM invoice_payments ip JOIN invoices i ON ip.invoice_id = i.id
-           WHERE i.deleted_at IS NULL GROUP BY month ORDER BY month DESC LIMIT 6"""
+           WHERE i.deleted_at IS NULL""" + bf_i +
+        " GROUP BY month ORDER BY month DESC LIMIT 6",
+        bp_i,
     ).fetchall() if (show_finance or show_invoices) else []
 
     # ── POS: today's sales (count + USD total + last sale time) ──────────
@@ -138,9 +161,12 @@ def dashboard(user=Depends(require_perm("dashboard", "view")), db: sqlite3.Conne
     if show_cash:
         open_sessions = _scalar(db,
             "SELECT COUNT(*) FROM cash_reconciliations WHERE status = 'open'"
+            " AND drawer_id IN (SELECT id FROM cash_drawers WHERE 1=1" + bf_cd + ")",
+            bp_cd,
         )
         total_drawers = _scalar(db,
-            "SELECT COUNT(*) FROM cash_drawers WHERE is_active = 1"
+            "SELECT COUNT(*) FROM cash_drawers WHERE is_active = 1" + bf_cd,
+            bp_cd,
         )
         # Last reconciliation across all drawers — surface variance if any
         last = db.execute(
@@ -185,7 +211,8 @@ def dashboard(user=Depends(require_perm("dashboard", "view")), db: sqlite3.Conne
     if show_hr:
         headcount = _scalar(db,
             "SELECT COUNT(*) FROM hr_employees"
-            " WHERE archived_at IS NULL AND status IN ('Active','On Leave')"
+            " WHERE archived_at IS NULL AND status IN ('Active','On Leave')" + bf_emp,
+            bp_emp,
         )
         on_leave = _scalar(db,
             "SELECT COUNT(*) FROM hr_leave_requests"
@@ -350,7 +377,9 @@ def dashboard(user=Depends(require_perm("dashboard", "view")), db: sqlite3.Conne
                              WHERE ip.invoice_id = i.id), 0) AS total_paid,
                   c.name AS client_name
            FROM invoices i LEFT JOIN clients c ON i.client_id = c.id
-           WHERE i.deleted_at IS NULL ORDER BY i.created_at DESC LIMIT 5"""
+           WHERE i.deleted_at IS NULL""" + bf_i +
+        " ORDER BY i.created_at DESC LIMIT 5",
+        bp_i,
     ).fetchall() if show_invoices else []
 
     result_invoices = []

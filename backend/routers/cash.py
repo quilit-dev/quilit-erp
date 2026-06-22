@@ -26,6 +26,7 @@ from database import get_db
 from permissions import require_perm
 from routers.audit import log_action
 from utils import _now, _today, notify
+import branch_access
 import sqlite3
 import accounting
 
@@ -37,6 +38,7 @@ class DrawerIn(BaseModel):
     name:         str
     is_active:    bool = True
     auto_capture: bool = False
+    branch_id:    Optional[int] = None   # branch == warehouse; resolved on create
 
 
 class ReconOpen(BaseModel):
@@ -180,11 +182,13 @@ def _get_recon(db, rec_id):
 # ── Drawers ────────────────────────────────────────────────────────────────
 @router.get("/drawers")
 def list_drawers(
+    branch_id: Optional[int] = None,
     user=Depends(require_perm("cash", "view")),
     db: sqlite3.Connection = Depends(get_db),
 ):
+    bf, bp = branch_access.branch_filter(user, db, column="branch_id", selected=branch_id)
     return [dict(r) for r in db.execute(
-        "SELECT * FROM cash_drawers ORDER BY is_active DESC, name"
+        f"SELECT * FROM cash_drawers WHERE 1=1{bf} ORDER BY is_active DESC, name", bp
     ).fetchall()]
 
 
@@ -202,9 +206,11 @@ def create_drawer(
     # Only one drawer auto-captures the day's business cash.
     if data.auto_capture:
         db.execute("UPDATE cash_drawers SET auto_capture=0")
+    branch_id = branch_access.resolve_branch_id(user, db, data.branch_id)
     cur = db.execute(
-        "INSERT INTO cash_drawers (name, is_active, auto_capture, created_at) VALUES (?,?,?,?)",
-        (name, 1 if data.is_active else 0, 1 if data.auto_capture else 0, _now()),
+        "INSERT INTO cash_drawers (name, is_active, auto_capture, created_at, branch_id) "
+        "VALUES (?,?,?,?,?)",
+        (name, 1 if data.is_active else 0, 1 if data.auto_capture else 0, _now(), branch_id),
     )
     log_action(db, user, "create", "cash", cur.lastrowid, name)
     db.commit()

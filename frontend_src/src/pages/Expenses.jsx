@@ -6,7 +6,7 @@ import { getExpenses, getProjects, createExpense, updateExpense, voidExpense, ge
 import {
   LoadingSpinner, ErrorAlert, EmptyState, Modal,
   ExportButton, fmt, fmtDate, toast, SortableTh, Pagination,
-  CATEGORY_COLORS, CategoryBadge, EXPENSE_CATEGORIES, SelectOther, NumberInput} from '../components/shared';
+  CATEGORY_COLORS, CategoryBadge, EXPENSE_CATEGORIES, SelectOther, NumberInput, BranchField} from '../components/shared';
 import { useSortPaginate } from '../hooks/useSortPaginate';
 import { useLocale } from '../hooks/useLocale.jsx';
 import { useSettings } from '../hooks/useSettings.jsx';
@@ -49,13 +49,13 @@ function TransactionsPanel() {
   const [form, setForm] = useState({
     project_id: '', category: 'Other', description: '',
     amount: '', date: new Date().toISOString().slice(0, 10), tax_rate_id: null,
-    payment_method: '', cash_drawer_id: null,
+    payment_method: '', cash_drawer_id: null, branch_id: '',
   });
 
   const EMPTY_FORM = {
     project_id: '', category: 'Other', description: '',
     amount: '', date: new Date().toISOString().slice(0, 10), tax_rate_id: null,
-    payment_method: '', cash_drawer_id: null,
+    payment_method: '', cash_drawer_id: null, branch_id: '',
   };
 
   function openAdd() { setForm(EMPTY_FORM); setEditId(null); setModal(true); }
@@ -70,6 +70,7 @@ function TransactionsPanel() {
       tax_rate_id: exp.tax_rate_id ?? null,
       payment_method: exp.payment_method || '',
       cash_drawer_id: exp.cash_drawer_id ?? null,
+      branch_id:      exp.branch_id ?? '',
     });
     setEditId(exp.id);
     setModal(true);
@@ -84,6 +85,7 @@ function TransactionsPanel() {
         project_id:  form.project_id ? Number(form.project_id) : null,
         amount:      Number(form.amount),
         tax_rate_id: taxEnabled ? (form.tax_rate_id ?? null) : null,
+        branch_id:   form.branch_id || null,
       };
       if (editId) {
         await updateExpense(editId, payload);
@@ -360,6 +362,8 @@ function TransactionsPanel() {
                     {(projects || []).map(p => <option key={p.id} value={p.id}>{p.name}</option>)}
                   </select>
                 </div>
+                <BranchField value={form.branch_id}
+                  onChange={v => setForm(f => ({ ...f, branch_id: v }))} />
                 <div className="form-group">
                   <label className="form-label">{t('expenses.paymentMethodLabel')}</label>
                   <SelectOther

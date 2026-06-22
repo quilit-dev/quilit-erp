@@ -7,6 +7,7 @@ from permissions import require_perm
 from utils import get_tax_context
 from datetime import date
 from typing import Optional
+import branch_access
 import sqlite3
 
 router = APIRouter()
@@ -25,26 +26,31 @@ def _year_start():
 def report_financial(
     start: Optional[str] = Query(None),
     end:   Optional[str] = Query(None),
+    branch_id: Optional[int] = Query(None),
     user=Depends(require_perm("reports", "view")),
     db: sqlite3.Connection = Depends(get_db),
 ):
     start = start or _year_start()
     end   = end   or _today()
+    # Branch scoping (branch == warehouse). `bf_i` targets the joined invoices
+    # alias; `bf_n` the un-aliased invoices/expenses tables.
+    bf_i, bp_i = branch_access.branch_filter(user, db, column="i.branch_id", selected=branch_id)
+    bf_n, bp_n = branch_access.branch_filter(user, db, column="branch_id", selected=branch_id)
 
     total_income = db.execute(
         """SELECT COALESCE(SUM(ip.amount), 0)
            FROM invoice_payments ip
            JOIN invoices i ON ip.invoice_id = i.id
            WHERE DATE(ip.paid_at) BETWEEN ? AND ?
-             AND i.voided_at IS NULL AND i.archived_at IS NULL""",
-        (start, end),
+             AND i.voided_at IS NULL AND i.archived_at IS NULL""" + bf_i,
+        (start, end, *bp_i),
     ).fetchone()[0]
 
     total_expenses = db.execute(
         """SELECT COALESCE(SUM(amount), 0) FROM expenses
            WHERE archived_at IS NULL AND voided_at IS NULL
-             AND DATE(date) BETWEEN ? AND ?""",
-        (start, end),
+             AND DATE(date) BETWEEN ? AND ?""" + bf_n,
+        (start, end, *bp_n),
     ).fetchone()[0]
 
     inc_rows = db.execute(
@@ -52,18 +58,18 @@ def report_financial(
            FROM invoice_payments ip
            JOIN invoices i ON ip.invoice_id = i.id
            WHERE DATE(ip.paid_at) BETWEEN ? AND ?
-             AND i.voided_at IS NULL AND i.archived_at IS NULL
-           GROUP BY m ORDER BY m""",
-        (start, end),
+             AND i.voided_at IS NULL AND i.archived_at IS NULL""" + bf_i +
+        " GROUP BY m ORDER BY m",
+        (start, end, *bp_i),
     ).fetchall()
 
     exp_rows = db.execute(
         """SELECT strftime('%Y-%m', date) AS m, COALESCE(SUM(amount), 0) AS v
            FROM expenses
            WHERE archived_at IS NULL AND voided_at IS NULL
-             AND DATE(date) BETWEEN ? AND ?
-           GROUP BY m ORDER BY m""",
-        (start, end),
+             AND DATE(date) BETWEEN ? AND ?""" + bf_n +
+        " GROUP BY m ORDER BY m",
+        (start, end, *bp_n),
     ).fetchall()
 
     inc_map = {r["m"]: r["v"] for r in inc_rows}
@@ -83,9 +89,9 @@ def report_financial(
         """SELECT category, COALESCE(SUM(amount), 0) AS total, COUNT(*) AS count
            FROM expenses
            WHERE archived_at IS NULL AND voided_at IS NULL
-             AND DATE(date) BETWEEN ? AND ?
-           GROUP BY category ORDER BY total DESC""",
-        (start, end),
+             AND DATE(date) BETWEEN ? AND ?""" + bf_n +
+        " GROUP BY category ORDER BY total DESC",
+        (start, end, *bp_n),
     ).fetchall()
 
     inv_totals = db.execute(
@@ -94,8 +100,8 @@ def report_financial(
                   COALESCE(SUM(tax_total),0) AS vat
            FROM invoices
            WHERE voided_at IS NULL AND archived_at IS NULL
-             AND DATE(created_at) BETWEEN ? AND ?""",
-        (start, end),
+             AND DATE(created_at) BETWEEN ? AND ?""" + bf_n,
+        (start, end, *bp_n),
     ).fetchone()
     total_invoiced = float(inv_totals["gross"] or 0)
 
@@ -108,8 +114,8 @@ def report_financial(
                   COALESCE(SUM(tax_amount), 0)          AS vat
            FROM expenses
            WHERE archived_at IS NULL AND voided_at IS NULL
-             AND DATE(date) BETWEEN ? AND ?""",
-        (start, end),
+             AND DATE(date) BETWEEN ? AND ?""" + bf_n,
+        (start, end, *bp_n),
     ).fetchone()
 
     return {
@@ -245,12 +251,14 @@ def report_clients(
 # ── 4. Invoice Aging ─────────────────────────────────────────────────────────
 @router.get("/invoice-aging")
 def report_invoice_aging(
+    branch_id: Optional[int] = Query(None),
     user=Depends(require_perm("reports", "view")),
     db: sqlite3.Connection = Depends(get_db),
 ):
     from datetime import datetime as dt
 
     today = date.today()
+    bf_i, bp_i = branch_access.branch_filter(user, db, column="i.branch_id", selected=branch_id)
 
     invoices = db.execute(
         """SELECT
@@ -267,9 +275,9 @@ def report_invoice_aging(
            WHERE i.voided_at IS NULL AND i.archived_at IS NULL
              AND COALESCE((
                  SELECT SUM(ip.amount) FROM invoice_payments ip WHERE ip.invoice_id = i.id
-             ), 0) < i.amount
-           ORDER BY i.due_date""",
-        (),
+             ), 0) < i.amount""" + bf_i +
+        " ORDER BY i.due_date",
+        tuple(bp_i),
     ).fetchall()
 
     buckets = {"current": [], "1_30": [], "31_60": [], "61_90": [], "over_90": []}
@@ -320,11 +328,16 @@ def report_expenses(
     start:    Optional[str] = Query(None),
     end:      Optional[str] = Query(None),
     group_by: str = Query("category"),
+    branch_id: Optional[int] = Query(None),
     user=Depends(require_perm("reports", "view")),
     db: sqlite3.Connection = Depends(get_db),
 ):
     start = start or _year_start()
     end   = end   or _today()
+    # Branch scoping (branch == warehouse). `bf_e` targets the aliased table in
+    # the project grouping; `bf_n` the un-aliased queries.
+    bf_e, bp_e = branch_access.branch_filter(user, db, column="e.branch_id", selected=branch_id)
+    bf_n, bp_n = branch_access.branch_filter(user, db, column="branch_id", selected=branch_id)
 
     if group_by == "project":
         rows = db.execute(
@@ -333,9 +346,9 @@ def report_expenses(
                FROM expenses e
                LEFT JOIN projects p ON e.project_id = p.id
                WHERE e.archived_at IS NULL AND e.voided_at IS NULL
-                 AND DATE(e.date) BETWEEN ? AND ?
-               GROUP BY group_name ORDER BY total DESC""",
-            (start, end),
+                 AND DATE(e.date) BETWEEN ? AND ?""" + bf_e +
+            " GROUP BY group_name ORDER BY total DESC",
+            (start, end, *bp_e),
         ).fetchall()
     elif group_by == "month":
         rows = db.execute(
@@ -343,18 +356,18 @@ def report_expenses(
                       COALESCE(SUM(amount), 0) AS total, COUNT(*) AS count
                FROM expenses
                WHERE archived_at IS NULL AND voided_at IS NULL
-                 AND DATE(date) BETWEEN ? AND ?
-               GROUP BY group_name ORDER BY group_name""",
-            (start, end),
+                 AND DATE(date) BETWEEN ? AND ?""" + bf_n +
+            " GROUP BY group_name ORDER BY group_name",
+            (start, end, *bp_n),
         ).fetchall()
     else:
         rows = db.execute(
             """SELECT category AS group_name, COALESCE(SUM(amount), 0) AS total, COUNT(*) AS count
                FROM expenses
                WHERE archived_at IS NULL AND voided_at IS NULL
-                 AND DATE(date) BETWEEN ? AND ?
-               GROUP BY group_name ORDER BY total DESC""",
-            (start, end),
+                 AND DATE(date) BETWEEN ? AND ?""" + bf_n +
+            " GROUP BY group_name ORDER BY total DESC",
+            (start, end, *bp_n),
         ).fetchall()
 
     data = [dict(r) for r in rows]
@@ -365,8 +378,8 @@ def report_expenses(
     count = db.execute(
         """SELECT COUNT(*) FROM expenses
            WHERE archived_at IS NULL AND voided_at IS NULL
-             AND DATE(date) BETWEEN ? AND ?""",
-        (start, end),
+             AND DATE(date) BETWEEN ? AND ?""" + bf_n,
+        (start, end, *bp_n),
     ).fetchone()[0]
 
     return {
@@ -382,32 +395,35 @@ def report_expenses(
 def report_pipeline(
     start: Optional[str] = Query(None),
     end:   Optional[str] = Query(None),
+    branch_id: Optional[int] = Query(None),
     user=Depends(require_perm("reports", "view")),
     db: sqlite3.Connection = Depends(get_db),
 ):
     start = start or _year_start()
     end   = end   or _today()
+    bf_q, bp_q = branch_access.branch_filter(user, db, column="branch_id", selected=branch_id)
+    bf_qa, bp_qa = branch_access.branch_filter(user, db, column="q.branch_id", selected=branch_id)
 
     by_status = db.execute(
         """SELECT status, COUNT(*) AS count, COALESCE(SUM(total), 0) AS value
            FROM quotations
            WHERE archived_at IS NULL
-             AND DATE(created_at) BETWEEN ? AND ?
-           GROUP BY status ORDER BY count DESC""",
-        (start, end),
+             AND DATE(created_at) BETWEEN ? AND ?""" + bf_q +
+        " GROUP BY status ORDER BY count DESC",
+        (start, end, *bp_q),
     ).fetchall()
 
     totals = db.execute(
         """SELECT COUNT(*), COALESCE(SUM(total), 0) FROM quotations
-           WHERE archived_at IS NULL AND DATE(created_at) BETWEEN ? AND ?""",
-        (start, end),
+           WHERE archived_at IS NULL AND DATE(created_at) BETWEEN ? AND ?""" + bf_q,
+        (start, end, *bp_q),
     ).fetchone()
 
     converted = db.execute(
         """SELECT COUNT(*) FROM quotations
            WHERE archived_at IS NULL AND DATE(created_at) BETWEEN ? AND ?
-             AND status IN ('Accepted', 'Invoiced')""",
-        (start, end),
+             AND status IN ('Accepted', 'Invoiced')""" + bf_q,
+        (start, end, *bp_q),
     ).fetchone()[0]
 
     total_count = totals[0] or 0
@@ -419,9 +435,9 @@ def report_pipeline(
            FROM quotations q
            JOIN clients c ON q.client_id = c.id
            WHERE q.archived_at IS NULL
-             AND DATE(q.created_at) BETWEEN ? AND ?
-           GROUP BY c.id ORDER BY value DESC LIMIT 10""",
-        (start, end),
+             AND DATE(q.created_at) BETWEEN ? AND ?""" + bf_qa +
+        " GROUP BY c.id ORDER BY value DESC LIMIT 10",
+        (start, end, *bp_qa),
     ).fetchall()
 
     monthly_quotes = db.execute(
@@ -429,9 +445,9 @@ def report_pipeline(
                   COUNT(*) AS count, COALESCE(SUM(total), 0) AS value
            FROM quotations
            WHERE archived_at IS NULL
-             AND DATE(created_at) BETWEEN ? AND ?
-           GROUP BY month ORDER BY month""",
-        (start, end),
+             AND DATE(created_at) BETWEEN ? AND ?""" + bf_q +
+        " GROUP BY month ORDER BY month",
+        (start, end, *bp_q),
     ).fetchall()
 
     return {
@@ -450,6 +466,7 @@ def report_pipeline(
 def report_vat(
     start: Optional[str] = Query(None),
     end:   Optional[str] = Query(None),
+    branch_id: Optional[int] = Query(None),
     user=Depends(require_perm("reports", "view")),
     db: sqlite3.Connection = Depends(get_db),
 ):
@@ -480,6 +497,10 @@ def report_vat(
     """
     start = start or _year_start()
     end   = end   or _today()
+    # Branch scoping (branch == warehouse). `bf_i` targets joined invoices
+    # (alias i), `bf_n` the un-aliased invoices/expenses tables.
+    bf_i, bp_i = branch_access.branch_filter(user, db, column="i.branch_id", selected=branch_id)
+    bf_n, bp_n = branch_access.branch_filter(user, db, column="branch_id", selected=branch_id)
 
     ctx      = get_tax_context(db)
     def_rate = ctx["rates"].get(ctx["default_id"], {}).get("rate", 0) if ctx["default_id"] else 0
@@ -489,15 +510,15 @@ def report_vat(
         """SELECT COALESCE(SUM(amount),0) AS gross, COALESCE(SUM(tax_total),0) AS vat
            FROM invoices
            WHERE voided_at IS NULL AND archived_at IS NULL
-             AND DATE(created_at) BETWEEN ? AND ?""",
-        (start, end),
+             AND DATE(created_at) BETWEEN ? AND ?""" + bf_n,
+        (start, end, *bp_n),
     ).fetchone()
     inp_row = db.execute(
         """SELECT COALESCE(SUM(amount),0) AS gross, COALESCE(SUM(tax_amount),0) AS vat
            FROM expenses
            WHERE archived_at IS NULL AND voided_at IS NULL
-             AND DATE(date) BETWEEN ? AND ?""",
-        (start, end),
+             AND DATE(date) BETWEEN ? AND ?""" + bf_n,
+        (start, end, *bp_n),
     ).fetchone()
 
     def split(gross, vat):
@@ -518,9 +539,9 @@ def report_vat(
            FROM invoice_items ii
            JOIN invoices i ON ii.invoice_id = i.id
            WHERE i.voided_at IS NULL AND i.archived_at IS NULL
-             AND DATE(i.created_at) BETWEEN ? AND ?
-           GROUP BY ii.tax_rate ORDER BY ii.tax_rate""",
-        (start, end),
+             AND DATE(i.created_at) BETWEEN ? AND ?""" + bf_i +
+        " GROUP BY ii.tax_rate ORDER BY ii.tax_rate",
+        (start, end, *bp_i),
     ).fetchall()
     inp_by_rate = db.execute(
         """SELECT tax_rate AS rate,
@@ -528,9 +549,9 @@ def report_vat(
                   COALESCE(SUM(tax_amount), 0)          AS vat
            FROM expenses
            WHERE archived_at IS NULL AND voided_at IS NULL
-             AND DATE(date) BETWEEN ? AND ?
-           GROUP BY tax_rate ORDER BY tax_rate""",
-        (start, end),
+             AND DATE(date) BETWEEN ? AND ?""" + bf_n +
+        " GROUP BY tax_rate ORDER BY tax_rate",
+        (start, end, *bp_n),
     ).fetchall()
 
     def _by_rate(rows):
@@ -555,9 +576,9 @@ def report_vat(
                   COALESCE(SUM(subtotal),0)  AS b
            FROM invoices
            WHERE voided_at IS NULL AND archived_at IS NULL
-             AND DATE(created_at) BETWEEN ? AND ?
-           GROUP BY m""",
-        (start, end),
+             AND DATE(created_at) BETWEEN ? AND ?""" + bf_n +
+        " GROUP BY m",
+        (start, end, *bp_n),
     ).fetchall()
     exp_rows = db.execute(
         """SELECT strftime('%Y-%m', date) AS m,
@@ -565,9 +586,9 @@ def report_vat(
                   COALESCE(SUM(amount - tax_amount),0) AS b
            FROM expenses
            WHERE archived_at IS NULL AND voided_at IS NULL
-             AND DATE(date) BETWEEN ? AND ?
-           GROUP BY m""",
-        (start, end),
+             AND DATE(date) BETWEEN ? AND ?""" + bf_n +
+        " GROUP BY m",
+        (start, end, *bp_n),
     ).fetchall()
     inc_map = {r["m"]: {"v": r["v"], "b": r["b"]} for r in inc_rows}
     exp_map = {r["m"]: {"v": r["v"], "b": r["b"]} for r in exp_rows}
@@ -669,3 +690,77 @@ def report_inventory_by_warehouse(
         "totals":     totals,
         "top_skus":   [dict(s) for s in top_skus],
     }
+
+
+# ── Branch comparison (multi-branch) ────────────────────────────────────────
+@router.get("/branch-comparison")
+def report_branch_comparison(
+    start: Optional[str] = Query(None),
+    end:   Optional[str] = Query(None),
+    user=Depends(require_perm("reports", "view")),
+    db: sqlite3.Connection = Depends(get_db),
+):
+    """Income / expenses / profit per branch for the period — the Super Admin's
+    consolidated, side-by-side view. A restricted (branch) user sees only the
+    branches they can access; an admin sees all. Branch == warehouse."""
+    start = start or _year_start()
+    end   = end   or _today()
+
+    allowed = branch_access.accessible_branch_ids(user, db)   # None == all
+    wh_sql = ("SELECT id, code, name, is_default FROM warehouses "
+              "WHERE archived_at IS NULL")
+    wh_params: list = []
+    if allowed is not None:
+        if not allowed:
+            return {"branches": [], "totals": {"income": 0, "expenses": 0, "profit": 0, "invoiced": 0}}
+        wh_sql += f" AND id IN ({','.join('?' for _ in allowed)})"
+        wh_params = list(allowed)
+    wh_sql += " ORDER BY is_default DESC, code"
+    branches = [dict(r) for r in db.execute(wh_sql, wh_params).fetchall()]
+
+    income_map = {r["bid"]: float(r["v"] or 0) for r in db.execute(
+        """SELECT i.branch_id AS bid, COALESCE(SUM(ip.amount), 0) AS v
+           FROM invoice_payments ip JOIN invoices i ON ip.invoice_id = i.id
+           WHERE DATE(ip.paid_at) BETWEEN ? AND ?
+             AND i.voided_at IS NULL AND i.archived_at IS NULL
+           GROUP BY i.branch_id""",
+        (start, end),
+    ).fetchall()}
+    expense_map = {r["bid"]: float(r["v"] or 0) for r in db.execute(
+        """SELECT branch_id AS bid, COALESCE(SUM(amount), 0) AS v
+           FROM expenses
+           WHERE archived_at IS NULL AND voided_at IS NULL
+             AND DATE(date) BETWEEN ? AND ?
+           GROUP BY branch_id""",
+        (start, end),
+    ).fetchall()}
+    invoiced_map = {r["bid"]: float(r["v"] or 0) for r in db.execute(
+        """SELECT branch_id AS bid, COALESCE(SUM(amount), 0) AS v
+           FROM invoices
+           WHERE voided_at IS NULL AND archived_at IS NULL
+             AND DATE(created_at) BETWEEN ? AND ?
+           GROUP BY branch_id""",
+        (start, end),
+    ).fetchall()}
+
+    out = []
+    for b in branches:
+        inc = round(income_map.get(b["id"], 0), 2)
+        exp = round(expense_map.get(b["id"], 0), 2)
+        out.append({
+            "id":        b["id"],
+            "code":      b["code"],
+            "name":      b["name"],
+            "is_default": b["is_default"],
+            "income":    inc,
+            "expenses":  exp,
+            "profit":    round(inc - exp, 2),
+            "invoiced":  round(invoiced_map.get(b["id"], 0), 2),
+        })
+    totals = {
+        "income":   round(sum(r["income"]   for r in out), 2),
+        "expenses": round(sum(r["expenses"] for r in out), 2),
+        "profit":   round(sum(r["profit"]   for r in out), 2),
+        "invoiced": round(sum(r["invoiced"] for r in out), 2),
+    }
+    return {"branches": out, "totals": totals, "start": start, "end": end}

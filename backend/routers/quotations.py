@@ -17,6 +17,7 @@ from routers.audit import log_action
 from utils import _now, get_tax_context, resolve_line_tax, money, notify
 from routers.projects import bump_project_status
 from approval_engine import evaluate_and_apply
+import branch_access
 import sqlite3
 from datetime import datetime, timedelta
 
@@ -75,6 +76,7 @@ class QuotationCreate(BaseModel):
     status:       Optional[str] = "Draft"
     notes:        Optional[str] = None
     items:        List[QuoteItem] = []
+    branch_id:    Optional[int] = None   # branch == warehouse; resolved on create
 
 def _next_quote_number(db):
     from utils import get_setting
@@ -91,6 +93,7 @@ def _next_quote_number(db):
 def list_quotations(
     status: Optional[str] = None,
     include_archived: bool = False,
+    branch_id: Optional[int] = None,
     user=Depends(require_perm("quotations", "view")),
     db: sqlite3.Connection = Depends(get_db),
 ):
@@ -114,6 +117,9 @@ def list_quotations(
     if status:
         query += " AND q.status = ?"
         params.append(status)
+    bf, bp = branch_access.branch_filter(user, db, column="q.branch_id", selected=branch_id)
+    query += bf
+    params += bp
     query += " ORDER BY q.created_at DESC"
     rows = db.execute(query, params).fetchall()
     result = []
@@ -173,13 +179,14 @@ def create_quotation(
     ).fetchone():
         raise HTTPException(400, "Lead not found.")
 
+    branch_id = branch_access.resolve_branch_id(user, db, data.branch_id)
     cur = db.execute(
         "INSERT INTO quotations "
         "(quote_number, project_id, client_id, lead_id, project_name, status, notes, "
-        " total, tax_total, created_at) "
-        "VALUES (?,?,?,?,?,?,?,?,?,?)",
+        " total, tax_total, created_at, branch_id) "
+        "VALUES (?,?,?,?,?,?,?,?,?,?,?)",
         (qn, data.project_id, data.client_id, data.lead_id, data.project_name,
-         data.status, data.notes, total, tax_total, now),
+         data.status, data.notes, total, tax_total, now, branch_id),
     )
     qid = cur.lastrowid
     for idx, item in enumerate(data.items):

@@ -22,6 +22,7 @@ from routers.projects import bump_project_status
 from approval_engine import evaluate_and_apply
 from utils import _now, _today, get_tax_context, resolve_line_tax, money, notify
 import accounting
+import branch_access
 import sqlite3
 import uuid
 from datetime import datetime, timedelta
@@ -69,6 +70,7 @@ class InvoiceCreate(BaseModel):
     notes:        Optional[str]  = None
     items:        Optional[list[InvoiceItemCreate]] = None
     version:      Optional[int]  = None   # required on PUT for optimistic locking
+    branch_id:    Optional[int]  = None   # branch == warehouse; resolved on create
 
 class PaymentCreate(BaseModel):
     amount:           float                   # value tendered, expressed in `currency`
@@ -191,12 +193,22 @@ def _price_items(db, items, fallback_amount):
 def list_invoices(
     status: Optional[str] = None,
     include_archived: bool = False,
+    branch_id: Optional[int] = None,
     user=Depends(require_perm("invoices", "view")),
     db: sqlite3.Connection = Depends(get_db),
 ):
     # `include_archived=1` returns archived invoices too (for the in-module
     # "Show archived" filter); the default view still hides them.
-    arch_clause = "" if include_archived else "WHERE i.archived_at IS NULL"
+    conditions, params = [], []
+    if not include_archived:
+        conditions.append("i.archived_at IS NULL")
+    # Branch scoping: restricted users see only their branches; admins may pass
+    # branch_id to focus one branch, or omit it to see all.
+    bf, bp = branch_access.branch_filter(user, db, column="i.branch_id", selected=branch_id)
+    if bf:
+        conditions.append(bf[len(" AND "):])   # branch_filter returns a leading " AND "
+        params += bp
+    where_clause = ("WHERE " + " AND ".join(conditions)) if conditions else ""
     rows = db.execute(
         f"""SELECT i.*,
                   p.name AS project_name,
@@ -209,8 +221,9 @@ def list_invoices(
            LEFT JOIN projects   p ON i.project_id   = p.id
            LEFT JOIN clients    c ON i.client_id    = c.id
            LEFT JOIN quotations q ON i.quotation_id = q.id
-           {arch_clause}
+           {where_clause}
            ORDER BY i.created_at DESC""",
+        params,
     ).fetchall()
 
     result = []
@@ -301,13 +314,14 @@ def create_invoice(
     # Reserve the row first (placeholder number), then derive the real number
     # from its id — see the helper notes; this is what makes concurrent creates
     # collision-free.
+    branch_id = branch_access.resolve_branch_id(user, db, data.branch_id)
     cur = db.execute(
         "INSERT INTO invoices "
         "(invoice_number, quotation_id, project_id, client_id, amount, subtotal, tax_total, "
-        " due_date, notes, created_at, version) "
-        "VALUES (?,?,?,?,?,?,?,?,?,?,1)",
+        " due_date, notes, created_at, version, branch_id) "
+        "VALUES (?,?,?,?,?,?,?,?,?,?,1,?)",
         (_placeholder_invoice_number(), data.quotation_id, data.project_id, data.client_id,
-         computed_amount, subtotal, tax_total, due_date, data.notes, now),
+         computed_amount, subtotal, tax_total, due_date, data.notes, now, branch_id),
     )
     invoice_id = cur.lastrowid
     inv_no     = _finalize_invoice_number(db, invoice_id, _invoice_prefix(db))

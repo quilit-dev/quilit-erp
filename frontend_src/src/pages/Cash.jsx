@@ -1,7 +1,7 @@
 import { useState, useEffect, useCallback } from 'react';
 import { useLocale } from '../hooks/useLocale.jsx';
 import { usePermissions } from '../hooks/usePermissions.js';
-import { LoadingSpinner, ErrorAlert, EmptyState, Modal, ConfirmModal, ExportButton, toast, NumberInput} from '../components/shared';
+import { LoadingSpinner, ErrorAlert, EmptyState, Modal, ConfirmModal, ExportButton, toast, NumberInput, BranchField} from '../components/shared';
 import {
   getCashDrawers, createCashDrawer, updateCashDrawer, getCashSummary,
   getCashReconciliations, getCashReconciliation, openCashReconciliation,
@@ -38,13 +38,14 @@ function DrawerModal({ drawer, onClose, onSaved }) {
   const [name, setName] = useState(drawer?.name || '');
   const [active, setActive] = useState(drawer ? !!drawer.is_active : true);
   const [autoCapture, setAutoCapture] = useState(drawer ? !!drawer.auto_capture : false);
+  const [branchId, setBranchId] = useState(drawer?.branch_id ?? '');
   const [busy, setBusy] = useState(false);
 
   async function save() {
     if (!name.trim()) { toast(t('cash.drawerName'), 'red'); return; }
     setBusy(true);
     try {
-      const payload = { name: name.trim(), is_active: active, auto_capture: autoCapture };
+      const payload = { name: name.trim(), is_active: active, auto_capture: autoCapture, branch_id: branchId || null };
       if (isEdit) { await updateCashDrawer(drawer.id, payload); toast(t('cash.drawerUpdated'), 'green'); }
       else        { await createCashDrawer(payload);            toast(t('cash.drawerCreated'), 'green'); }
       onSaved();
@@ -59,6 +60,7 @@ function DrawerModal({ drawer, onClose, onSaved }) {
           <label className="form-label">{t('cash.drawerName')}</label>
           <input className="form-control" value={name} autoFocus onChange={e => setName(e.target.value)} />
         </div>
+        <BranchField value={branchId} onChange={setBranchId} />
         <label style={{ display: 'flex', alignItems: 'center', gap: 8, fontSize: 13, marginTop: 8 }}>
           <input type="checkbox" checked={active} onChange={e => setActive(e.target.checked)} />
           {t('cash.active')}
