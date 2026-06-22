@@ -107,3 +107,28 @@ def test_dashboard_and_reports_scope_to_branch(make_client, db):
     assert abs(rep_fm["total_expenses"] - 200) < 0.001
     dash_fm = fm.get("/api/dashboard/").json()
     assert abs((dash_fm.get("monthly_expenses") or 0) - 200) < 0.001
+
+
+def test_branch_comparison_report(make_client, db):
+    """Admin sees a per-branch comparison covering all branches; a restricted
+    user sees only their branch's row."""
+    admin = make_client("superadmin")
+    main_id = _main_branch_id(admin)
+    br2 = _make_branch(admin)
+    admin.post("/api/finance/expenses",
+               json={"category": "Materials", "amount": 100, "branch_id": main_id})
+    admin.post("/api/finance/expenses",
+               json={"category": "Materials", "amount": 200, "branch_id": br2})
+
+    comp = admin.get("/api/reports/branch-comparison").json()
+    by_id = {r["id"]: r for r in comp["branches"]}
+    assert by_id[main_id]["expenses"] == 100
+    assert by_id[br2]["expenses"] == 200
+    assert comp["totals"]["expenses"] == 300
+
+    fm = make_client("Finance Manager")
+    _grant(admin, br2, "u_finance_mgr", db)
+    comp_fm = fm.get("/api/reports/branch-comparison").json()
+    ids = [r["id"] for r in comp_fm["branches"]]
+    assert ids == [br2]
+    assert comp_fm["totals"]["expenses"] == 200

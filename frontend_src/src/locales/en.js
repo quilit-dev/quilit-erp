@@ -2200,6 +2200,10 @@ const en = {
     income: 'Income',
     expenses: 'Expenses',
     profit: 'Profit',
+    invoiced: 'Invoiced',
+    total: 'Total',
+    branchComparison: 'Branch Comparison',
+    defaultBranch: 'Default',
 
     projects: 'Project Profitability',
     projectsSubtitle: 'Revenue, cost and margin per project',
