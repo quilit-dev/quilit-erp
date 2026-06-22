@@ -251,13 +251,18 @@ def _signed_balance(acct_type: str, debit: float, credit: float) -> float:
     return round(credit - debit, 2)
 
 
-def trial_balance(db: sqlite3.Connection, as_of: str = None):
+def trial_balance(db: sqlite3.Connection, as_of: str = None, branch_id=None):
     """Debit/credit totals per account up to `as_of` (inclusive). Only posted
-    entries count. Returns rows + grand totals (which always tie out)."""
+    entries count. Returns rows + grand totals (which always tie out).
+
+    `branch_id` scopes the TB to one branch — it still balances because every
+    journal entry is balanced AND tagged to a single branch."""
     cond = ["je.status != 'draft'"]
     params = []
     if as_of:
         cond.append("je.entry_date <= ?"); params.append(as_of[:10])
+    if branch_id is not None:
+        cond.append("je.branch_id = ?"); params.append(branch_id)
     where = " AND ".join(cond)
     # Filter lines INSIDE the join so excluded entries don't contribute to the
     # sums; the outer LEFT JOIN still keeps zero-activity accounts out via HAVING.
@@ -302,7 +307,7 @@ def trial_balance(db: sqlite3.Connection, as_of: str = None):
 
 
 def _type_totals(db: sqlite3.Connection, start: str = None, end: str = None,
-                 exclude_closing: bool = False):
+                 exclude_closing: bool = False, branch_id=None):
     """Per-account signed balances grouped for the financial statements.
 
     `exclude_closing` drops year-end closing entries — used by the Income
@@ -322,6 +327,8 @@ def _type_totals(db: sqlite3.Connection, start: str = None, end: str = None,
         cond.append("je.entry_date >= ?"); params.append(start[:10])
     if end:
         cond.append("je.entry_date <= ?"); params.append(end[:10])
+    if branch_id is not None:
+        cond.append("je.branch_id = ?"); params.append(branch_id)
     where = " AND ".join(cond)
     # Filter lines INSIDE the join so excluded entries (out of range / closing)
     # don't contribute to the sums; the outer LEFT JOIN keeps zero accounts.
@@ -348,10 +355,10 @@ def _type_totals(db: sqlite3.Connection, start: str = None, end: str = None,
     return result
 
 
-def income_statement(db: sqlite3.Connection, start: str, end: str):
+def income_statement(db: sqlite3.Connection, start: str, end: str, branch_id=None):
     """Revenue − expenses over a period (P&L). Excludes year-end closing
     entries so the operating result is shown even after the year is closed."""
-    rows = _type_totals(db, start, end, exclude_closing=True)
+    rows = _type_totals(db, start, end, exclude_closing=True, branch_id=branch_id)
     income   = [r for r in rows if r["type"] == "Income"  and r["balance"] != 0]
     expense  = [r for r in rows if r["type"] == "Expense" and r["balance"] != 0]
     total_income  = round(sum(r["balance"] for r in income), 2)
@@ -365,10 +372,11 @@ def income_statement(db: sqlite3.Connection, start: str, end: str):
     }
 
 
-def balance_sheet(db: sqlite3.Connection, as_of: str):
+def balance_sheet(db: sqlite3.Connection, as_of: str, branch_id=None):
     """Assets = Liabilities + Equity (incl. net income to date). Balances by
-    construction because every journal entry balances."""
-    rows = _type_totals(db, None, as_of)
+    construction because every journal entry balances — and stays balanced when
+    scoped to one branch, since each entry is tagged to a single branch."""
+    rows = _type_totals(db, None, as_of, branch_id=branch_id)
     assets      = [r for r in rows if r["type"] == "Asset"     and r["balance"] != 0]
     liabilities = [r for r in rows if r["type"] == "Liability" and r["balance"] != 0]
     equity      = [r for r in rows if r["type"] == "Equity"    and r["balance"] != 0]
@@ -431,27 +439,32 @@ def _cf_activity(acct_type: str, subtype: str) -> str:
     return "operating"   # Income / Expense
 
 
-def _cash_balance(db: sqlite3.Connection, cash_ids: list, as_of: str, op: str) -> float:
+def _cash_balance(db: sqlite3.Connection, cash_ids: list, as_of: str, op: str,
+                  branch_id=None) -> float:
     if not cash_ids:
         return 0.0
     ph = ",".join("?" for _ in cash_ids)
+    bc = " AND je.branch_id = ?" if branch_id is not None else ""
+    bp = [branch_id] if branch_id is not None else []
     r = db.execute(
         f"SELECT COALESCE(SUM(l.debit),0) d, COALESCE(SUM(l.credit),0) c "
         f"FROM journal_entry_lines l JOIN journal_entries je ON je.id=l.journal_entry_id "
-        f"WHERE je.status != 'draft' AND l.account_id IN ({ph}) AND je.entry_date {op} ?",
-        (*cash_ids, as_of[:10]),
+        f"WHERE je.status != 'draft' AND l.account_id IN ({ph}) AND je.entry_date {op} ?{bc}",
+        (*cash_ids, as_of[:10], *bp),
     ).fetchone()
     return round(float(r["d"]) - float(r["c"]), 2)
 
 
-def cash_flow_statement(db: sqlite3.Connection, start: str, end: str):
+def cash_flow_statement(db: sqlite3.Connection, start: str, end: str, branch_id=None):
     """Statement of cash flows over [start, end] (inclusive), derived directly
     from the GL. Cash movements are bucketed by the type of the account on the
     OTHER side of each cash-touching entry. Ties out by construction."""
     cash_ids = _cash_account_ids(db)
-    opening = _cash_balance(db, cash_ids, start, "<")
-    closing = _cash_balance(db, cash_ids, end, "<=")
+    opening = _cash_balance(db, cash_ids, start, "<", branch_id)
+    closing = _cash_balance(db, cash_ids, end, "<=", branch_id)
 
+    bc = " AND je.branch_id = ?" if branch_id is not None else ""
+    bp = [branch_id] if branch_id is not None else []
     buckets = {"operating": [], "investing": [], "financing": []}
     if cash_ids:
         ph = ",".join("?" for _ in cash_ids)
@@ -463,7 +476,7 @@ def cash_flow_statement(db: sqlite3.Connection, start: str, end: str):
                 JOIN journal_entries je ON je.id = l.journal_entry_id
                 JOIN chart_of_accounts a ON a.id = l.account_id
                 WHERE je.status != 'draft'
-                  AND je.entry_date >= ? AND je.entry_date <= ?
+                  AND je.entry_date >= ? AND je.entry_date <= ?{bc}
                   AND l.account_id NOT IN ({ph})
                   AND l.journal_entry_id IN (
                       SELECT journal_entry_id FROM journal_entry_lines
@@ -471,7 +484,7 @@ def cash_flow_statement(db: sqlite3.Connection, start: str, end: str):
                   )
                 GROUP BY a.id
                 ORDER BY a.code""",
-            (start[:10], end[:10], *cash_ids, *cash_ids),
+            (start[:10], end[:10], *bp, *cash_ids, *cash_ids),
         ).fetchall()
         for r in rows:
             # Cash effect of this account = −(debit − credit) on its non-cash
@@ -505,26 +518,28 @@ def cash_flow_statement(db: sqlite3.Connection, start: str, end: str):
     }
 
 
-def general_ledger(db: sqlite3.Connection, account_id: int, start: str = None, end: str = None):
+def general_ledger(db: sqlite3.Connection, account_id: int, start: str = None,
+                   end: str = None, branch_id=None):
     """Transactions for one account with a running balance, plus the opening
-    balance carried in from before `start`."""
+    balance carried in from before `start`. `branch_id` scopes to one branch."""
     acct = db.execute("SELECT * FROM chart_of_accounts WHERE id=?", (account_id,)).fetchone()
     if not acct:
         return None
     sign = 1 if acct["type"] in _DEBIT_NORMAL else -1
+    bc = " AND je.branch_id = ?" if branch_id is not None else ""
 
     opening = 0.0
     if start:
         o = db.execute(
             "SELECT COALESCE(SUM(l.debit),0) d, COALESCE(SUM(l.credit),0) c "
             "FROM journal_entry_lines l JOIN journal_entries je ON je.id=l.journal_entry_id "
-            "WHERE l.account_id=? AND je.status != 'draft' AND je.entry_date < ?",
-            (account_id, start[:10]),
+            "WHERE l.account_id=? AND je.status != 'draft' AND je.entry_date < ?" + bc,
+            (account_id, start[:10], *( [branch_id] if branch_id is not None else [] )),
         ).fetchone()
         opening = round((float(o["d"]) - float(o["c"])) * sign, 2)
 
-    where = "l.account_id=? AND je.status != 'draft'"
-    params = [account_id]
+    where = "l.account_id=? AND je.status != 'draft'" + bc
+    params = [account_id] + ([branch_id] if branch_id is not None else [])
     if start:
         where += " AND je.entry_date >= ?"; params.append(start[:10])
     if end:
