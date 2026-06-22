@@ -3,11 +3,12 @@ import { useState, useEffect, useCallback } from 'react';
 import {
   createInventoryItem, updateInventoryItem,
   archiveInventoryItem, unarchiveInventoryItem, updateStock, getStockMovements,
-  getLots, getLot, getInventoryByWarehouse,
+  getLots, getLot, getInventoryByWarehouse, getSuppliers,
 } from '../api/client';
 import {
   LoadingSpinner, ErrorAlert, EmptyState, Modal, ConfirmModal,
-  ExportButton, toast, SortableTh, Pagination, NumberInput} from '../components/shared';
+  ExportButton, toast, SortableTh, Pagination, NumberInput, SupplierCombobox,
+} from '../components/shared';
 import { useSortPaginate } from '../hooks/useSortPaginate';
 import { useLocale } from '../hooks/useLocale.jsx';
 import { useWarehouses } from '../hooks/useWarehouses';
@@ -44,7 +45,7 @@ function ProductTypeBadge({ type }) {
   );
 }
 
-function ItemForm({ initial = {}, knownCategories = [], onSave, onCancel, saving }) {
+function ItemForm({ initial = {}, knownCategories = [], suppliers = [], onSave, onCancel, saving }) {
   const { t } = useLocale();
   const isEdit = !!initial.id;
   const allCats = [...new Set([...knownCategories, ...DEFAULT_CATEGORIES])];
@@ -150,8 +151,10 @@ function ItemForm({ initial = {}, knownCategories = [], onSave, onCancel, saving
 
           <div className="form-group form-full">
             <label className="form-label">{t('inventory.supplierLabel')}</label>
-            <input className="form-control" value={form.supplier}
-              onChange={e => set('supplier', e.target.value)} />
+            <SupplierCombobox
+              value={form.supplier}
+              suppliers={suppliers}
+              onChange={v => set('supplier', v)} />
           </div>
 
           <div className="form-group form-full">
@@ -482,8 +485,14 @@ export default function Inventory() {
 
   const [items,      setItems]      = useState([]);
   const [categories, setCategories] = useState([]);
+  const [suppliers,  setSuppliers]  = useState([]);
   const [loading,    setLoading]    = useState(true);
   const [fetchError, setFetchError] = useState(null);
+
+  // Suppliers power the item form's search-select; load once (filter-independent).
+  useEffect(() => {
+    getSuppliers().then(s => setSuppliers(Array.isArray(s) ? s : [])).catch(() => {});
+  }, []);
 
   const [modal,      setModal]      = useState(null);
   const [importing,  setImporting]  = useState(false);
@@ -735,12 +744,12 @@ export default function Inventory() {
 
       {modal === 'add' && (
         <Modal title={t('inventory.addInventoryItem')} onClose={() => setModal(null)}>
-          <ItemForm knownCategories={allKnownCats} onSave={handleAdd} onCancel={() => setModal(null)} saving={saving} />
+          <ItemForm knownCategories={allKnownCats} suppliers={suppliers} onSave={handleAdd} onCancel={() => setModal(null)} saving={saving} />
         </Modal>
       )}
       {modal === 'edit' && activeItem && (
         <Modal title={t('inventory.editItemTitle')} onClose={() => setModal(null)}>
-          <ItemForm initial={activeItem} knownCategories={allKnownCats} onSave={handleEdit} onCancel={() => setModal(null)} saving={saving} />
+          <ItemForm initial={activeItem} knownCategories={allKnownCats} suppliers={suppliers} onSave={handleEdit} onCancel={() => setModal(null)} saving={saving} />
         </Modal>
       )}
       {modal === 'stock' && activeItem && (
