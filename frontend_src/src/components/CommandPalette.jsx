@@ -140,7 +140,6 @@ const NAV_ITEMS = [
   { slug: 'announcements',     url: '/announcements',     icon: '📣', module: 'announcements', keywords: 'broadcast إعلان' },
   { slug: 'approvals',         url: '/approvals',         icon: '✅', keywords: 'approve requests موافقة' },
   { slug: 'approval_policies', url: '/approval-policies', icon: '🛡️', keywords: 'policy rules workflow سياسة' },
-  { slug: 'archives',          url: '/archives',          icon: '🗄️', keywords: 'archive deleted history أرشيف' },
   { slug: 'notifications',     url: '/notifications',     icon: '🔔', keywords: 'alerts إشعار' },
   { slug: 'settings',          url: '/settings',          icon: '⚙️', keywords: 'config preferences company إعدادات' },
   { slug: 'users',             url: '/users',             icon: '🧑‍💼', admin: true, keywords: 'users accounts مستخدمين' },

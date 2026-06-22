@@ -15,7 +15,7 @@ from fastapi.middleware.cors import CORSMiddleware
 import os
 
 from routers import clients, projects, quotations, inventory, invoices, finance, dashboard, auth
-from routers import purchases, settings, archives, documents, suppliers, audit, users, roles, search
+from routers import purchases, settings, documents, suppliers, audit, users, roles, search
 from routers import reports, crm, planning, notifications
 from routers import approval_policies, approval_requests, hr, hr_contracts, recruitment, hr_activities, tax_rates, pos, cash, manufacturing
 from routers import assets, recurring, announcements, attachments, accounting, warehouses, platform, imports
@@ -102,7 +102,6 @@ app.include_router(invoices.router,    prefix="/api/invoices",    tags=["invoice
 app.include_router(finance.router,     prefix="/api/finance",     tags=["finance"])
 app.include_router(purchases.router,     prefix="/api/purchases",     tags=["purchases"])
 app.include_router(settings.router,      prefix="/api/settings",      tags=["settings"])
-app.include_router(archives.router,      prefix="/api/archives",      tags=["archives"])
 app.include_router(documents.router,     prefix="/api/documents",     tags=["documents"])
 app.include_router(suppliers.router,     prefix="/api/suppliers",     tags=["suppliers"])
 app.include_router(audit.router,         prefix="/api/audit",         tags=["audit"])

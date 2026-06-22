@@ -240,6 +240,7 @@ const ar = {
     section_people:     'الموارد البشرية',
     erpPlatform: 'منصة ERP',
     signOut: 'تسجيل الخروج',
+    signedInAs: 'مسجّل الدخول باسم',
     administrator: 'مدير',
     staff: 'موظف',
     dashboard: 'لوحة التحكم',

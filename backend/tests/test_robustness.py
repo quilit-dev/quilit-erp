@@ -81,8 +81,6 @@ ID_ACTIONS = [
     ("delete", f"/api/users/{BAD}",                     None),
     ("delete", f"/api/roles/{BAD}",                     None),
     ("delete", f"/api/tax-rates/{BAD}",                 None),
-    ("patch",  f"/api/archives/clients/{BAD}/unarchive", None),
-    ("patch",  f"/api/archives/not_a_module/{BAD}/unarchive", None),
 ]
 
 
