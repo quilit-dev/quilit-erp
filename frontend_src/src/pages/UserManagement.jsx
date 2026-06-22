@@ -1,12 +1,12 @@
 import { useState, useEffect } from 'react';
 import {
   getUsers, createUser, updateUser, deleteUser,
-  toggleUserActive, resetUserPassword, getRoles,
+  toggleUserActive, resetUserPassword, getRoles, getBranchContext,
 } from '../api/client';
 import { Modal, ConfirmModal, LoadingSpinner, ErrorAlert, fmtDate, toast } from '../components/shared';
 import { useLocale } from '../hooks/useLocale.jsx';
 
-const EMPTY_CREATE = { username: '', password: '', full_name: '', email: '', role_id: '', is_superadmin: false };
+const EMPTY_CREATE = { username: '', password: '', full_name: '', email: '', role_id: '', branch_id: '', is_superadmin: false };
 
 function Avatar({ name, username }) {
   const parts = (name || '').trim().split(/\s+/).filter(Boolean);
@@ -25,6 +25,7 @@ function Avatar({ name, username }) {
 export default function UserManagement() {
   const [users,   setUsers]   = useState([]);
   const [roles,   setRoles]   = useState([]);
+  const [branches, setBranches] = useState([]);
   const [loading, setLoading] = useState(true);
   const [error,   setError]   = useState('');
   const [search,  setSearch]  = useState('');
@@ -42,6 +43,7 @@ export default function UserManagement() {
     setLoading(true); setError('');
     try {
       const [u, r] = await Promise.all([getUsers({ search }), getRoles()]);
+      getBranchContext().then(bc => setBranches((bc && bc.branches) || [])).catch(() => {});
       setUsers(u); setRoles(r);
     } catch (e) { setError(e.message); }
     finally { setLoading(false); }
@@ -56,7 +58,7 @@ export default function UserManagement() {
 
   function openEdit(u) {
     setEditUser(u);
-    setForm({ username: u.username || '', full_name: u.full_name || '', email: u.email || '', role_id: u.role_id || '', is_active: u.is_active, is_superadmin: Boolean(u.is_superadmin) });
+    setForm({ username: u.username || '', full_name: u.full_name || '', email: u.email || '', role_id: u.role_id || '', branch_id: u.branch_id || '', is_active: u.is_active, is_superadmin: Boolean(u.is_superadmin) });
     setModal('edit');
   }
 
@@ -71,7 +73,7 @@ export default function UserManagement() {
     if (!form.password || form.password.length < 8) return toast(t('users.passwordMinLength'), 'red');
     setSaving(true);
     try {
-      await createUser({ ...form, role_id: form.role_id || null });
+      await createUser({ ...form, role_id: form.role_id || null, branch_id: form.branch_id || null });
       toast(t('users.userCreated'));
       setModal(null); load();
     } catch (e) { toast(e.message, 'red'); }
@@ -82,7 +84,7 @@ export default function UserManagement() {
     if (!form.username || !form.username.trim()) return toast(t('users.usernameRequired'), 'red');
     setSaving(true);
     try {
-      await updateUser(editUser.id, { ...form, role_id: form.role_id || null });
+      await updateUser(editUser.id, { ...form, role_id: form.role_id || null, branch_id: form.branch_id || null });
       if (editUser.id === me.id) {
         const stored = JSON.parse(localStorage.getItem('user') || '{}');
         localStorage.setItem('user', JSON.stringify({ ...stored, username: form.username.trim(), full_name: form.full_name, email: form.email }));
@@ -142,6 +144,18 @@ export default function UserManagement() {
       </select>
     </div>
   );
+
+  // Home branch — the visibility boundary. Hidden for superadmins (always
+  // global) and when there's only one branch (nothing to choose).
+  const BranchSelect = () => (!form.is_superadmin && branches.length > 1) ? (
+    <div className="form-group">
+      <label className="form-label">{t('nav.branch')}</label>
+      <select className="form-control" value={form.branch_id || ''}
+        onChange={e => setForm(f => ({ ...f, branch_id: e.target.value ? Number(e.target.value) : '' }))}>
+        {branches.map(b => <option key={b.id} value={b.id}>{b.name}</option>)}
+      </select>
+    </div>
+  ) : null;
 
   const SuperadminToggle = () => me.is_superadmin && (
     <div className="form-group" style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
@@ -261,6 +275,7 @@ export default function UserManagement() {
             {F('full_name', t('users.fullName'))}
             {F('email',     'Email', 'email')}
             <RoleSelect />
+            <BranchSelect />
             <SuperadminToggle />
           </div>
           <div className="modal-footer">
@@ -280,6 +295,7 @@ export default function UserManagement() {
             {F('full_name', 'Full Name')}
             {F('email', 'Email', 'email')}
             <RoleSelect />
+            <BranchSelect />
             <div className="form-group" style={{ display: 'flex', gap: 16 }}>
               <label style={{ display: 'flex', alignItems: 'center', gap: 8, cursor: 'pointer', fontSize: 13 }}>
                 <input type="checkbox" checked={Boolean(form.is_active)} onChange={e => setForm(f => ({ ...f, is_active: e.target.checked }))} />

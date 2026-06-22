@@ -33,7 +33,7 @@ ACTIONS       = ['view', 'create', 'edit', 'delete', 'approve']
 def _resolve_user(user: dict, db: sqlite3.Connection) -> dict:
     """Re-validate user from DB: checks is_active, session revocation, and refreshes role."""
     row = db.execute(
-        "SELECT is_active, is_superadmin, role_id, role FROM users WHERE id=? AND deleted_at IS NULL",
+        "SELECT is_active, is_superadmin, role_id, role, branch_id FROM users WHERE id=? AND deleted_at IS NULL",
         (int(user["sub"]),)
     ).fetchone()
     if not row or not row["is_active"]:
@@ -87,6 +87,9 @@ def _resolve_user(user: dict, db: sqlite3.Connection) -> dict:
         "role_id":       row["role_id"],
         "role":          role_name or row["role"],
         "role_name":     role_name,
+        # Home branch for visibility scoping (branch_access). Global users
+        # (superadmin / admin-tier) ignore it; scoped users are pinned to it.
+        "branch_id":     row["branch_id"],
     }
 
 

@@ -265,6 +265,7 @@ def get_invoice(
     ).fetchone()
     if not row:
         raise HTTPException(404, "Invoice not found")
+    branch_access.assert_can_view_branch(user, db, row["branch_id"])
 
     payments = db.execute(
         "SELECT * FROM invoice_payments WHERE invoice_id = ? ORDER BY paid_at DESC",
@@ -528,6 +529,7 @@ def unvoid_invoice(
                 {"code": accounting.REVENUE, "credit": float(pay["amount"])},
             ],
             source_type="invoice_payment", source_id=pay["id"], created_by=user["id"],
+            branch_id=inv["branch_id"],
         )
     log_action(db, user, "unvoid", "invoice", invoice_id, inv["invoice_number"])
     db.commit()
@@ -641,6 +643,7 @@ def add_payment(
             {"code": accounting.REVENUE, "credit": usd_amount},
         ],
         source_type="invoice_payment", source_id=payment_id, created_by=user["id"],
+        branch_id=inv["branch_id"],
     )
     log_action(db, user, "payment", "invoice", invoice_id, inv["invoice_number"],
                {"amount": usd_amount, "method": data.method,

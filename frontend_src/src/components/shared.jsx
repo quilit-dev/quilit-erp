@@ -3,7 +3,7 @@ import * as XLSX from 'xlsx';
 import { useLocale } from '../hooks/useLocale.jsx';
 import { useSettings } from '../hooks/useSettings.jsx';
 import { useScrollLock } from '../hooks/useScrollLock';
-import { getMyWarehouses, getBranchFilter } from '../api/client';
+import { getBranchContext, getBranchFilter } from '../api/client';
 
 // ── Icon set ───────────────────────────────────────────────────
 // A small, consistent line-icon family (Lucide-style: 24-grid, currentColor
@@ -306,11 +306,11 @@ export function SelectOther({
 }
 
 // ── Branch picker (multi-branch) ───────────────────────────────
-// "Branch" == a warehouse/location. Renders a labelled select of the branches
-// the user can transact in, so a create form can target one explicitly. It
-// self-fetches the accessible branches and renders NOTHING when the user can
-// reach one branch or fewer — single-branch installs stay visually unchanged
-// and the backend resolves the default branch on its own.
+// "Branch" == a warehouse/location. Renders a labelled select of branches so a
+// create form can target one explicitly. It renders NOTHING for branch-scoped
+// users (they have a single home branch and the backend forces writes into it)
+// and only appears for GLOBAL users (superadmin / Business Owner) when more than
+// one branch exists — so the UI never offers a branch the backend would reject.
 //
 //   <BranchField value={form.branch_id}
 //     onChange={v => setForm(f => ({ ...f, branch_id: v }))} />
@@ -321,18 +321,21 @@ export function SelectOther({
 export function BranchField({ value, onChange, label }) {
   const { t } = useLocale();
   const [branches, setBranches] = useState([]);
+  const [isGlobal, setIsGlobal] = useState(false);
   useEffect(() => {
     let alive = true;
-    getMyWarehouses()
+    getBranchContext()
       .then(data => {
         if (!alive) return;
-        const list = (data && data.warehouses) || [];
+        const list = (data && data.branches) || [];
+        setIsGlobal(!!(data && data.is_global));
         setBranches(list);
-        // Seed an empty form with the focused branch, or the resolved default.
-        if ((value == null || value === '') && list.length > 1) {
+        // Seed an empty form with the focused branch, or the default branch.
+        if ((value == null || value === '') && data && data.is_global && list.length > 1) {
           const focused = getBranchFilter();
+          const def = list.find(b => b.is_default);
           const seed = focused && list.some(b => String(b.id) === String(focused))
-            ? focused : (data.default_id ?? '');
+            ? focused : (def ? def.id : '');
           if (seed !== '' && seed != null) onChange(seed);
         }
       })
@@ -340,7 +343,7 @@ export function BranchField({ value, onChange, label }) {
     return () => { alive = false; };
   }, []); // eslint-disable-line react-hooks/exhaustive-deps
 
-  if (branches.length <= 1) return null;   // single-branch → no picker
+  if (!isGlobal || branches.length <= 1) return null;   // scoped users → no picker
   return (
     <div className="form-group">
       <label className="form-label">{label || t('nav.branch')}</label>

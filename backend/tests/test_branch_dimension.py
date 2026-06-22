@@ -51,11 +51,10 @@ def test_branch_filter_admin_is_unrestricted(db):
     assert frag == "" and params == []
 
 
-def test_branch_filter_restricted_user_scoped_to_grants(db):
-    """A user with explicit warehouse grants is scoped to exactly those branch
-    ids, and cannot widen the view by selecting an un-granted branch."""
+def test_branch_filter_scoped_user_pinned_to_home_branch(db):
+    """A non-global user is pinned to their home branch (users.branch_id) and
+    cannot widen the view — selecting another branch is ignored."""
     now = _dt.datetime.utcnow().strftime("%Y-%m-%d %H:%M:%S")
-    # A second branch.
     db.execute(
         "INSERT INTO warehouses (code, name, type, is_active, is_default, created_at) "
         "VALUES ('BR2', 'Branch Two', 'Branch', 1, 0, ?)", (now,),
@@ -64,30 +63,27 @@ def test_branch_filter_restricted_user_scoped_to_grants(db):
     main_id = db.execute(
         "SELECT id FROM warehouses WHERE is_default=1 LIMIT 1"
     ).fetchone()["id"]
-    # A non-admin user granted access to branch2 only.
+    # A non-admin user whose HOME branch is branch2.
     db.execute(
-        "INSERT INTO users (username, password_hash, role, created_at) "
-        "VALUES ('branchmgr', 'x', 'Manager', ?)", (now,),
+        "INSERT INTO users (username, password_hash, role, branch_id, created_at) "
+        "VALUES ('branchmgr', 'x', 'Manager', ?, ?)", (branch2, now),
     )
     uid = db.execute("SELECT id FROM users WHERE username='branchmgr'").fetchone()["id"]
-    db.execute(
-        "INSERT INTO user_warehouse_access (user_id, warehouse_id, granted_at) "
-        "VALUES (?, ?, ?)", (uid, branch2, now),
-    )
     db.commit()
 
-    user = {"id": uid, "is_superadmin": False, "admin_access": False}
+    user = {"id": uid, "is_superadmin": False, "admin_access": False, "branch_id": branch2}
     frag, params = branch_access.branch_filter(user, db)
-    assert "branch_id IN" in frag
-    assert params == [branch2]
+    assert frag == " AND branch_id = ?" and params == [branch2]
 
-    # Selecting their own branch is allowed.
-    frag2, params2 = branch_access.branch_filter(user, db, selected=branch2)
+    # A scoped user cannot widen scope: selecting another branch is ignored —
+    # they stay pinned to their home branch.
+    frag2, params2 = branch_access.branch_filter(user, db, selected=main_id)
     assert frag2 == " AND branch_id = ?" and params2 == [branch2]
 
-    # Selecting a branch they don't have access to is rejected.
+    # Writes are forced into the home branch; targeting another branch is 403.
+    assert branch_access.resolve_branch_id(user, db) == branch2
     import pytest
     from fastapi import HTTPException
     with pytest.raises(HTTPException) as ei:
-        branch_access.branch_filter(user, db, selected=main_id)
+        branch_access.resolve_branch_id(user, db, main_id)
     assert ei.value.status_code == 403

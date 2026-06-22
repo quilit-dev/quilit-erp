@@ -1,72 +1,135 @@
 """
-Branch-level access control.
+Branch-level visibility control (the branch hierarchy).
 
-A *branch* is a location in the existing ``warehouses`` table (type='Branch' or
-'Main') — there is no separate branches table. Branch membership and isolation
-therefore reuse the warehouse machinery wholesale:
+A *branch* is a location in the ``warehouses`` table (type='Branch'/'Main') —
+there is no separate branches table. This module enforces WHO CAN SEE WHAT:
 
-  * ``user_warehouse_access`` is the per-user branch allow-list.
-  * Admins / superadmins bypass everything (all branches).
-  * A user with **zero rows** has access to all branches — the safe default that
-    keeps existing single-branch installs working unchanged.
+  * **Global** users — the vendor superadmin and the Business Owner / admin-tier
+    role (``admin_access``) — see every branch and may focus one via the sidebar
+    switcher (``?branch_id=``).
+  * **Everyone else** is locked to their single HOME branch (``users.branch_id``).
+    They cannot widen their view, and writes are forced into their home branch.
 
-These helpers add the read-side filter and the write-side resolver that the
-operational routers (expenses, invoices, quotations, cash, hr) use to scope a
-``branch_id`` column to the caller's accessible branches. ``branch_id`` is a FK
-to ``warehouses(id)``; "branch" and "warehouse" are the same row.
+Strict separation of concerns:
+
+  * ``branch_id`` (here) == what a user can SEE.
+  * ``user_warehouse_access`` / ``warehouse_access.py`` == which warehouses a user
+    may TRANSACT stock in. The two are independent layers.
+
+Every existing user is backfilled to the default branch by migration 131, so the
+switch to per-user isolation never produces an empty screen or a lockout.
 """
 import sqlite3
 from fastapi import HTTPException
-import warehouse_access
 
 
-def resolve_branch_id(user: dict, db: sqlite3.Connection, branch_id=None) -> int:
-    """Resolve the branch for a write.
+def is_global(user: dict) -> bool:
+    """True for users who see all branches: the vendor superadmin or any
+    admin-tier role (Business Owner). Everyone else is branch-scoped."""
+    return bool(user.get("is_superadmin") or user.get("admin_access"))
 
-    A supplied id is validated for existence, active state and caller access; an
-    omitted id falls back to the user's default branch. Delegates to the
-    warehouse resolver because branch == warehouse.
-    """
-    return warehouse_access.resolve_warehouse_id(user, db, branch_id)
+
+def _default_branch_id(db: sqlite3.Connection):
+    row = db.execute(
+        "SELECT id FROM warehouses WHERE is_default=1 LIMIT 1"
+    ).fetchone()
+    return row["id"] if row else None
+
+
+def home_branch_id(user: dict, db: sqlite3.Connection):
+    """The caller's home branch id. Prefers the value already resolved onto the
+    user dict (permissions._resolve_user), else reads ``users.branch_id``, and
+    falls back to the company default branch so a freshly-seeded account is never
+    stranded with no branch."""
+    bid = user.get("branch_id")
+    if bid:
+        return bid
+    uid = user.get("id")
+    if uid:
+        row = db.execute("SELECT branch_id FROM users WHERE id=?", (uid,)).fetchone()
+        if row and row["branch_id"]:
+            return row["branch_id"]
+    return _default_branch_id(db)
 
 
 def accessible_branch_ids(user: dict, db: sqlite3.Connection):
-    """Branch ids the caller may see, or ``None`` for "no restriction" (an admin,
-    or a user with no explicit grants). Mirrors ``warehouse_access.accessible_ids``."""
-    return warehouse_access.accessible_ids(user, db)
+    """Branch ids the caller may see: ``None`` (no restriction) for global users,
+    otherwise the single-element set of their home branch."""
+    if is_global(user):
+        return None
+    bid = home_branch_id(user, db)
+    return {bid} if bid is not None else set()
+
+
+def resolve_branch_id(user: dict, db: sqlite3.Connection, branch_id=None) -> int:
+    """Resolve the branch a write lands in.
+
+    * Global users may target any active branch (the supplied id, validated), or
+      fall back to the focused/default branch when none is given.
+    * Non-global users are always forced into their home branch; a supplied id
+      that isn't their home branch is rejected (403) rather than silently moved.
+    """
+    if not is_global(user):
+        home = home_branch_id(user, db)
+        if home is None:
+            raise HTTPException(
+                400, "Your account has no branch assigned. Contact your administrator."
+            )
+        if branch_id is not None and int(branch_id) != int(home):
+            raise HTTPException(403, "You can only create records in your own branch.")
+        return int(home)
+
+    # Global caller.
+    if branch_id is None:
+        bid = _default_branch_id(db)
+        if bid is None:
+            raise HTTPException(400, "No branch is configured.")
+        return int(bid)
+    row = db.execute(
+        "SELECT id, is_active, archived_at FROM warehouses WHERE id=?", (branch_id,)
+    ).fetchone()
+    if not row:
+        raise HTTPException(404, "Branch not found")
+    if not row["is_active"] or row["archived_at"]:
+        raise HTTPException(400, "Branch is inactive or archived.")
+    return int(branch_id)
 
 
 def branch_filter(user: dict, db: sqlite3.Connection, *, column: str = "branch_id",
                   selected=None):
-    """Return ``(sql_fragment, params)`` to AND into a list query so rows are
-    scoped to the branches the caller may see.
+    """Return ``(sql_fragment, params)`` to AND into a list/aggregate query so
+    rows are scoped to the branches the caller may see.
 
-    * ``selected`` — an optional branch_id the caller asked to view (the branch
-      switcher). It is intersected with the caller's accessible set, so a
-      restricted user can never widen their view by passing another branch's id.
-    * Admins / unrestricted users with no ``selected`` get an empty filter
-      (all branches). Passing ``selected`` narrows even an admin to one branch.
+    * Global users get an empty filter (all branches), or a single-branch filter
+      when they pass ``selected`` (the switcher) — validated against access.
+    * Non-global users are always pinned to their home branch; ``selected`` is
+      ignored for them (they cannot widen or change their scope).
     * ``column`` lets callers point the filter at an aliased column
-      (e.g. ``"e.branch_id"``).
-
-    The backfill migration guarantees existing rows carry a non-NULL branch_id,
-    so the ``IN (...)`` form used for restricted callers needs no NULL handling.
+      (e.g. ``"e.branch_id"`` or ``"p.warehouse_id"``).
     """
-    allowed = warehouse_access.accessible_ids(user, db)  # None == unrestricted
+    if not is_global(user):
+        home = home_branch_id(user, db)
+        if home is None:
+            return " AND 1=0", []          # no branch → see nothing (safety)
+        return f" AND {column} = ?", [home]
 
+    # Global caller.
     if selected is not None and str(selected) != "":
         try:
             sel = int(selected)
         except (TypeError, ValueError):
             raise HTTPException(400, "Invalid branch filter.")
-        if allowed is not None and sel not in allowed:
-            raise HTTPException(403, "You don't have access to that branch.")
         return f" AND {column} = ?", [sel]
+    return "", []
 
-    if allowed is None:
-        return "", []
-    if not allowed:
-        # Authenticated but granted nothing accessible — return no rows.
-        return " AND 1=0", []
-    placeholders = ",".join("?" for _ in allowed)
-    return f" AND {column} IN ({placeholders})", list(allowed)
+
+def assert_can_view_branch(user: dict, db: sqlite3.Connection, row_branch_id) -> None:
+    """Row-level guard for detail-by-id endpoints: raise 404 if the caller may
+    not see a record belonging to ``row_branch_id``. 404 (not 403) so a scoped
+    user cannot probe which ids exist in other branches."""
+    if is_global(user):
+        return
+    if row_branch_id is None:
+        return  # legacy/global record — backfill assigns one, so this is rare
+    if int(row_branch_id) != int(home_branch_id(user, db) or -1):
+        raise HTTPException(404, "Not found")
