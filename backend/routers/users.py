@@ -20,6 +20,7 @@ class UserCreate(BaseModel):
     full_name:    Optional[str] = None
     email:        Optional[str] = None
     role_id:      Optional[int] = None
+    branch_id:    Optional[int] = None   # home branch (visibility); defaults to default branch
     is_superadmin: bool = False
 
 
@@ -28,6 +29,7 @@ class UserUpdate(BaseModel):
     full_name:    Optional[str] = None
     email:        Optional[str] = None
     role_id:      Optional[int] = None
+    branch_id:    Optional[int] = None
     is_active:    Optional[bool] = None
     is_superadmin: Optional[bool] = None
 
@@ -181,11 +183,17 @@ def create_user(
     # (e.g. Business Owner) can manage staff but can never escalate anyone to
     # superadmin — that would unlock the module marketplace.
     make_super = 1 if (data.is_superadmin and caller.get("is_superadmin")) else 0
+    # Home branch: explicit, or the company default so the account is never
+    # stranded with no branch (which would hide all branch-scoped data).
+    branch_id = data.branch_id
+    if branch_id is None:
+        drow = db.execute("SELECT id FROM warehouses WHERE is_default=1 LIMIT 1").fetchone()
+        branch_id = drow["id"] if drow else None
     cur = db.execute(
         "INSERT INTO users (username, password_hash, full_name, email, role, role_id, "
-        "is_active, is_superadmin, created_at) VALUES (?,?,?,?,?,?,1,?,datetime('now'))",
+        "branch_id, is_active, is_superadmin, created_at) VALUES (?,?,?,?,?,?,?,1,?,datetime('now'))",
         (data.username, hash_password(data.password), data.full_name, data.email,
-         role_name, data.role_id, make_super)
+         role_name, data.role_id, branch_id, make_super)
     )
     log_action(db, caller, "create", "user", cur.lastrowid, data.username)
     db.commit()
@@ -247,6 +255,7 @@ def update_user(
         data.email,
         data.role_id,
         role_name,
+        data.branch_id,
         (1 if data.is_active else 0)     if data.is_active     is not None else None,
         (1 if effective_super else 0)    if effective_super    is not None else None,
     ]
@@ -255,7 +264,7 @@ def update_user(
             "UPDATE users SET "
             "username=COALESCE(?,username), full_name=COALESCE(?,full_name), "
             "email=COALESCE(?,email), role_id=COALESCE(?,role_id), "
-            "role=COALESCE(?,role), is_active=COALESCE(?,is_active), "
+            "role=COALESCE(?,role), branch_id=COALESCE(?,branch_id), is_active=COALESCE(?,is_active), "
             "is_superadmin=COALESCE(?,is_superadmin) WHERE id=?",
             values + [user_id],
         )

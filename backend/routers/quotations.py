@@ -150,6 +150,7 @@ def get_quotation(
     ).fetchone()
     if not row:
         raise HTTPException(404, "Quotation not found")
+    branch_access.assert_can_view_branch(user, db, row["branch_id"])
 
     items = db.execute(
         "SELECT * FROM quotation_items WHERE quotation_id = ? ORDER BY id",

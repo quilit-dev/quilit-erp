@@ -3,7 +3,7 @@ import { useState, useEffect, useRef } from 'react';
 import { useSettings } from '../hooks/useSettings.jsx';
 import { usePermissions } from '../hooks/usePermissions.js';
 import { useLocale } from '../hooks/useLocale.jsx';
-import { logout as apiLogout, getAnnouncementsUnread, getMyWarehouses, getBranchFilter, setBranchFilter } from '../api/client';
+import { logout as apiLogout, getAnnouncementsUnread, getBranchContext, getBranchFilter, setBranchFilter } from '../api/client';
 
 const Icons = {
   dashboard: <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><rect x="3" y="3" width="7" height="7" rx="1"/><rect x="14" y="3" width="7" height="7" rx="1"/><rect x="3" y="14" width="7" height="7" rx="1"/><rect x="14" y="14" width="7" height="7" rx="1"/></svg>,
@@ -126,18 +126,23 @@ export default function Sidebar() {
     setLogoKey(Date.now());
   }, [settings]);
 
-  // Branch context — "branch" == a warehouse/location. The switcher only
-  // appears for users who can reach more than one branch (typically admins /
-  // multi-branch managers); single-branch users keep the unchanged UI. Choosing
-  // a branch focuses every read on it (?branch_id= via the API client); "All
-  // branches" clears the focus. A reload re-fetches all pages under the new
-  // scope — the simplest reliable way to re-scope data the pages already loaded.
+  // Branch context — "branch" == a warehouse/location. The switcher appears
+  // ONLY for global users (superadmin / Business Owner), who can see all
+  // branches and focus one; branch-scoped staff have a single home branch and
+  // see no switcher. Choosing a branch focuses every read on it (?branch_id=
+  // via the API client); "All branches" clears the focus. A reload re-fetches
+  // all pages under the new scope.
   const [branches, setBranches] = useState([]);
+  const [isGlobalBranch, setIsGlobalBranch] = useState(false);
   const [branchSel, setBranchSel] = useState(getBranchFilter() || 'all');
   useEffect(() => {
     let alive = true;
-    getMyWarehouses()
-      .then(data => { if (alive) setBranches((data && data.warehouses) || []); })
+    getBranchContext()
+      .then(data => {
+        if (!alive) return;
+        setIsGlobalBranch(!!(data && data.is_global));
+        setBranches((data && data.branches) || []);
+      })
       .catch(() => { /* silent — non-critical chrome */ });
     return () => { alive = false; };
   }, []);
@@ -292,8 +297,9 @@ export default function Sidebar() {
         )}
       </nav>
 
-      {/* Branch switcher — only when the user can reach more than one branch. */}
-      {branches.length > 1 && (
+      {/* Branch switcher — only for global users (superadmin / Business Owner)
+          with more than one branch. Scoped staff see no switcher. */}
+      {isGlobalBranch && branches.length > 1 && (
         <div style={{ padding: '0 10px 8px' }}>
           <label style={{ display: 'flex', alignItems: 'center', gap: 7, padding: '7px 10px',
             border: '1px solid var(--border)', borderRadius: 'var(--r-sm)', background: 'var(--surface)' }}>

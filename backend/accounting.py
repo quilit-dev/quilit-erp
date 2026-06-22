@@ -128,11 +128,21 @@ def source_entry(db: sqlite3.Connection, source_type: str, source_id: int):
     ).fetchone()
 
 
+def _default_branch_id(db: sqlite3.Connection):
+    row = db.execute("SELECT id FROM warehouses WHERE is_default=1 LIMIT 1").fetchone()
+    return row["id"] if row else None
+
+
 def post_entry(db: sqlite3.Connection, *, entry_date: str, memo: str, lines: list,
-               source_type=None, source_id=None, created_by=None, status="posted"):
+               source_type=None, source_id=None, created_by=None, status="posted",
+               branch_id=None):
     """Create one balanced journal entry. `lines` is a list of dicts, each with
     an account (`code` or `account_id`), and a `debit` or `credit` amount, plus
     an optional `memo`.
+
+    `branch_id` tags the entry with the branch it belongs to (branch ==
+    warehouse) so the GL can be made branch-aware. When omitted it falls back to
+    the company default branch, so an entry is never left untagged.
 
     Idempotent for source-backed events: if a live entry already exists for
     (source_type, source_id) it is returned unchanged. Returns the entry id.
@@ -172,13 +182,15 @@ def post_entry(db: sqlite3.Connection, *, entry_date: str, memo: str, lines: lis
         )
 
     now = _now()
+    if branch_id is None:
+        branch_id = _default_branch_id(db)
     cur = db.execute(
         "INSERT INTO journal_entries "
         "(entry_number, entry_date, memo, source_type, source_id, status, "
-        " total_debit, total_credit, created_by, created_at) "
-        "VALUES (?,?,?,?,?,?,?,?,?,?)",
+        " total_debit, total_credit, created_by, created_at, branch_id) "
+        "VALUES (?,?,?,?,?,?,?,?,?,?,?)",
         (None, entry_date[:10], memo, source_type, source_id, status,
-         total_debit, total_credit, created_by, now),
+         total_debit, total_credit, created_by, now, branch_id),
     )
     je_id = cur.lastrowid
     db.execute("UPDATE journal_entries SET entry_number=? WHERE id=?",

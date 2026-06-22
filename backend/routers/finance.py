@@ -91,33 +91,33 @@ class ExpenseCreate(BaseModel):
 
 
 # ── Helpers ────────────────────────────────────────────────────────────────
-def _income_in_range(db, start: str, end: str) -> float:
+def _income_in_range(db, start: str, end: str, bf: str = "", bp=()) -> float:
     return db.execute(
         """SELECT COALESCE(SUM(ip.amount), 0)
            FROM invoice_payments ip
            JOIN invoices i ON ip.invoice_id = i.id
            WHERE DATE(ip.paid_at) >= ? AND DATE(ip.paid_at) <= ?
-             AND i.voided_at IS NULL AND i.archived_at IS NULL""",
-        (start, end),
+             AND i.voided_at IS NULL AND i.archived_at IS NULL""" + bf,
+        (start, end, *bp),
     ).fetchone()[0]
 
 
-def _expenses_in_range(db, start: str, end: str) -> float:
+def _expenses_in_range(db, start: str, end: str, bf: str = "", bp=()) -> float:
     return db.execute(
         """SELECT COALESCE(SUM(amount), 0) FROM expenses
            WHERE archived_at IS NULL AND voided_at IS NULL
-             AND DATE(date) >= ? AND DATE(date) <= ?""",
-        (start, end),
+             AND DATE(date) >= ? AND DATE(date) <= ?""" + bf,
+        (start, end, *bp),
     ).fetchone()[0]
 
 
-def _categories_in_range(db, start: str, end: str):
+def _categories_in_range(db, start: str, end: str, bf: str = "", bp=()):
     return db.execute(
         """SELECT category, COALESCE(SUM(amount), 0) AS total FROM expenses
            WHERE archived_at IS NULL AND voided_at IS NULL
-             AND DATE(date) >= ? AND DATE(date) <= ?
-           GROUP BY category ORDER BY total DESC""",
-        (start, end),
+             AND DATE(date) >= ? AND DATE(date) <= ?""" + bf +
+        " GROUP BY category ORDER BY total DESC",
+        (start, end, *bp),
     ).fetchall()
 
 
@@ -128,37 +128,29 @@ def finance_summary(
     user=Depends(require_perm("finance", "view")),
     db: sqlite3.Connection = Depends(get_db),
 ):
-    if month:
-        income = db.execute(
-            """SELECT COALESCE(SUM(ip.amount), 0) AS total
-               FROM invoice_payments ip
-               WHERE strftime('%Y-%m', ip.paid_at) = ?""",
-            (month,),
-        ).fetchone()[0]
-        expenses = db.execute(
-            "SELECT COALESCE(SUM(amount), 0) AS total FROM expenses "
-            "WHERE archived_at IS NULL AND voided_at IS NULL AND strftime('%Y-%m', date) = ?",
-            (month,),
-        ).fetchone()[0]
-        by_cat = db.execute(
-            "SELECT category, COALESCE(SUM(amount), 0) AS total FROM expenses "
-            "WHERE archived_at IS NULL AND voided_at IS NULL AND strftime('%Y-%m', date) = ? GROUP BY category",
-            (month,),
-        ).fetchall()
-    else:
-        income = db.execute(
-            """SELECT COALESCE(SUM(ip.amount), 0) AS total
-               FROM invoice_payments ip
-               WHERE strftime('%Y-%m', ip.paid_at) = strftime('%Y-%m', 'now')"""
-        ).fetchone()[0]
-        expenses = db.execute(
-            "SELECT COALESCE(SUM(amount), 0) AS total FROM expenses "
-            "WHERE archived_at IS NULL AND voided_at IS NULL AND strftime('%Y-%m', date) = strftime('%Y-%m', 'now')"
-        ).fetchone()[0]
-        by_cat = db.execute(
-            "SELECT category, COALESCE(SUM(amount), 0) AS total FROM expenses "
-            "WHERE archived_at IS NULL AND voided_at IS NULL AND strftime('%Y-%m', date) = strftime('%Y-%m', 'now') GROUP BY category"
-        ).fetchall()
+    # Branch scoping (income joins invoices to reach the branch dimension).
+    bf_i, bp_i = branch_access.branch_filter(user, db, column="i.branch_id")
+    bf_e, bp_e = branch_access.branch_filter(user, db, column="branch_id")
+    period = month if month else None
+    mexpr = "?" if period else "strftime('%Y-%m', 'now')"
+    mparam = (period,) if period else ()
+    income = db.execute(
+        "SELECT COALESCE(SUM(ip.amount), 0) AS total "
+        "FROM invoice_payments ip JOIN invoices i ON ip.invoice_id = i.id "
+        f"WHERE strftime('%Y-%m', ip.paid_at) = {mexpr}" + bf_i,
+        (*mparam, *bp_i),
+    ).fetchone()[0]
+    expenses = db.execute(
+        "SELECT COALESCE(SUM(amount), 0) AS total FROM expenses "
+        f"WHERE archived_at IS NULL AND voided_at IS NULL AND strftime('%Y-%m', date) = {mexpr}" + bf_e,
+        (*mparam, *bp_e),
+    ).fetchone()[0]
+    by_cat = db.execute(
+        "SELECT category, COALESCE(SUM(amount), 0) AS total FROM expenses "
+        f"WHERE archived_at IS NULL AND voided_at IS NULL AND strftime('%Y-%m', date) = {mexpr}" + bf_e +
+        " GROUP BY category",
+        (*mparam, *bp_e),
+    ).fetchall()
 
     return {
         "income":      float(income),
@@ -178,17 +170,19 @@ def range_summary(
     user=Depends(require_perm("finance", "view")),
     db: sqlite3.Connection = Depends(get_db),
 ):
-    income   = float(_income_in_range(db, start, end))
-    expenses = float(_expenses_in_range(db, start, end))
+    bf_i, bp_i = branch_access.branch_filter(user, db, column="i.branch_id")
+    bf_e, bp_e = branch_access.branch_filter(user, db, column="branch_id")
+    income   = float(_income_in_range(db, start, end, bf_i, bp_i))
+    expenses = float(_expenses_in_range(db, start, end, bf_e, bp_e))
     profit   = income - expenses
     margin   = (profit / income * 100) if income > 0 else 0
 
-    by_cat = [dict(r) for r in _categories_in_range(db, start, end)]
+    by_cat = [dict(r) for r in _categories_in_range(db, start, end, bf_e, bp_e)]
 
     prev = {}
     if prev_start and prev_end:
-        p_income   = float(_income_in_range(db, prev_start, prev_end))
-        p_expenses = float(_expenses_in_range(db, prev_start, prev_end))
+        p_income   = float(_income_in_range(db, prev_start, prev_end, bf_i, bp_i))
+        p_expenses = float(_expenses_in_range(db, prev_start, prev_end, bf_e, bp_e))
         p_profit   = p_income - p_expenses
         p_margin   = (p_profit / p_income * 100) if p_income > 0 else 0
 
@@ -226,6 +220,8 @@ def range_monthly(
     user=Depends(require_perm("finance", "view")),
     db: sqlite3.Connection = Depends(get_db),
 ):
+    bf_i, bp_i = branch_access.branch_filter(user, db, column="i.branch_id")
+    bf_e, bp_e = branch_access.branch_filter(user, db, column="branch_id")
     rows = db.execute(
         """SELECT month, SUM(income) AS income, SUM(expenses) AS expenses
            FROM (
@@ -234,19 +230,19 @@ def range_monthly(
              FROM invoice_payments ip
              JOIN invoices i ON ip.invoice_id = i.id
              WHERE DATE(ip.paid_at) >= ? AND DATE(ip.paid_at) <= ?
-               AND i.voided_at IS NULL AND i.archived_at IS NULL
+               AND i.voided_at IS NULL AND i.archived_at IS NULL""" + bf_i + """
              GROUP BY month
              UNION ALL
              SELECT strftime('%Y-%m', date) AS month,
                     0 AS income, SUM(amount) AS expenses
              FROM expenses
              WHERE archived_at IS NULL
-               AND DATE(date) >= ? AND DATE(date) <= ?
+               AND DATE(date) >= ? AND DATE(date) <= ?""" + bf_e + """
              GROUP BY month
            ) combined
            GROUP BY month
            ORDER BY month ASC""",
-        (start, end, start, end),
+        (start, end, *bp_i, start, end, *bp_e),
     ).fetchall()
 
     result = []
@@ -290,6 +286,8 @@ def range_detail(
     user=Depends(require_perm("finance", "view")),
     db: sqlite3.Connection = Depends(get_db),
 ):
+    bf_i, bp_i = branch_access.branch_filter(user, db, column="i.branch_id")
+    bf_e, bp_e = branch_access.branch_filter(user, db, column="e.branch_id")
     payments = db.execute(
         """SELECT ip.paid_at AS date, ip.amount, ip.method,
                   i.invoice_number, ip.note,
@@ -299,9 +297,9 @@ def range_detail(
            JOIN invoices i ON ip.invoice_id = i.id
            LEFT JOIN clients c ON i.client_id = c.id
            LEFT JOIN projects p ON i.project_id = p.id
-           WHERE DATE(ip.paid_at) >= ? AND DATE(ip.paid_at) <= ?
-           ORDER BY ip.paid_at DESC""",
-        (start, end),
+           WHERE DATE(ip.paid_at) >= ? AND DATE(ip.paid_at) <= ?""" + bf_i +
+        " ORDER BY ip.paid_at DESC",
+        (start, end, *bp_i),
     ).fetchall()
 
     expenses = db.execute(
@@ -310,9 +308,9 @@ def range_detail(
            FROM expenses e
            LEFT JOIN projects p ON e.project_id = p.id
            WHERE e.archived_at IS NULL AND e.voided_at IS NULL
-             AND DATE(e.date) >= ? AND DATE(e.date) <= ?
-           ORDER BY e.date DESC""",
-        (start, end),
+             AND DATE(e.date) >= ? AND DATE(e.date) <= ?""" + bf_e +
+        " ORDER BY e.date DESC",
+        (start, end, *bp_e),
     ).fetchall()
 
     return {
@@ -327,23 +325,28 @@ def monthly_report(
     user=Depends(require_perm("finance", "view")),
     db: sqlite3.Connection = Depends(get_db),
 ):
+    bf_i, bp_i = branch_access.branch_filter(user, db, column="i.branch_id")
+    bf_e, bp_e = branch_access.branch_filter(user, db, column="branch_id")
     rows = db.execute(
         """SELECT month, SUM(income) AS income, SUM(expenses) AS expenses
            FROM (
              SELECT strftime('%Y-%m', ip.paid_at) AS month,
                     SUM(ip.amount) AS income, 0 AS expenses
              FROM invoice_payments ip
+             JOIN invoices i ON ip.invoice_id = i.id
+             WHERE 1=1""" + bf_i + """
              GROUP BY month
              UNION ALL
              SELECT strftime('%Y-%m', date) AS month,
                     0 AS income, SUM(amount) AS expenses
              FROM expenses
-             WHERE archived_at IS NULL AND voided_at IS NULL
+             WHERE archived_at IS NULL AND voided_at IS NULL""" + bf_e + """
              GROUP BY month
            ) combined
            GROUP BY month
            ORDER BY month DESC
-           LIMIT 12"""
+           LIMIT 12""",
+        (*bp_i, *bp_e),
     ).fetchall()
 
     result = []
@@ -505,6 +508,7 @@ def create_expense(
                 {"code": accounting.CASH, "credit": gross},
             ],
             source_type="expense", source_id=expense_id, created_by=user["id"],
+            branch_id=branch_id,
         )
 
     log_action(db, user, "create", "expense", expense_id,

@@ -663,6 +663,7 @@ export const getAnnouncementUsersMeta   = ()             => api.get('/api/announ
 // Warehouses — multi-location stock
 export const getWarehouses            = (params = {})  => api.get(`/api/warehouses/${_qs(params)}`);
 export const getMyWarehouses          = ()             => api.get('/api/warehouses/me/accessible');
+export const getBranchContext         = ()             => api.get('/api/warehouses/me/branch-context');
 export const getWarehouse             = (id)           => api.get(`/api/warehouses/${id}`);
 export const createWarehouse          = (d)            => api.post('/api/warehouses/', d);
 export const updateWarehouse          = (id, d)        => api.put(`/api/warehouses/${id}`, d);

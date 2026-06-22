@@ -3,7 +3,7 @@ import { Link } from 'react-router-dom';
 import {
   getReportFinancial, getReportProjects, getReportClients,
   getReportInvoiceAging, getReportExpenses, getReportPipeline, getReportVAT,
-  getInventoryByWarehouseReport, getBranchComparison, getMyWarehouses,
+  getInventoryByWarehouseReport, getBranchComparison, getBranchContext,
 } from '../api/client';
 import { LoadingSpinner, ErrorAlert, Badge, fmt, fmtDate } from '../components/shared';
 import { useLocale } from '../hooks/useLocale.jsx';
@@ -1378,12 +1378,13 @@ function BranchComparisonReport({ params, t }) {
 export default function Reports() {
   const { t } = useLocale();
   const [activeReport, setActiveReport] = usePersistedState('reports_active', 'financial');
-  // Branch comparison tab appears only for users who can reach >1 branch.
+  // Branch comparison tab appears only for global users (superadmin / owner)
+  // who can actually see more than one branch.
   const [multiBranch, setMultiBranch] = useState(false);
   useEffect(() => {
     let alive = true;
-    getMyWarehouses()
-      .then(d => { if (alive) setMultiBranch(((d && d.warehouses) || []).length > 1); })
+    getBranchContext()
+      .then(d => { if (alive) setMultiBranch(!!(d && d.is_global) && ((d && d.branches) || []).length > 1); })
       .catch(() => {});
     return () => { alive = false; };
   }, []);

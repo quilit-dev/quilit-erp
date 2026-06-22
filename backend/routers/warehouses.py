@@ -418,6 +418,39 @@ def revoke_access(
     return {"message": "Access revoked"}
 
 
+@router.get("/me/branch-context")
+def my_branch_context(
+    user=Depends(require_auth),
+    db: sqlite3.Connection = Depends(get_db),
+):
+    """Branch VISIBILITY context for the UI (distinct from stock access above).
+
+    * Global users (superadmin / Business Owner): every branch + a switcher.
+    * Scoped users: only their single home branch, no switcher.
+
+    Drives the sidebar branch switcher, the create-form branch picker and the
+    Reports → Branch Comparison tab so the UI never offers a branch the backend
+    would reject (avoids the "see options you can't use" mismatch)."""
+    import branch_access
+    is_global = branch_access.is_global(user)
+    if is_global:
+        rows = db.execute(
+            "SELECT id, code, name, is_default FROM warehouses "
+            "WHERE is_active=1 AND archived_at IS NULL ORDER BY is_default DESC, code"
+        ).fetchall()
+        home = None
+    else:
+        home = branch_access.home_branch_id(user, db)
+        rows = db.execute(
+            "SELECT id, code, name, is_default FROM warehouses WHERE id=?", (home,)
+        ).fetchall() if home is not None else []
+    return {
+        "is_global":      is_global,
+        "home_branch_id": home,
+        "branches":       [dict(r) for r in rows],
+    }
+
+
 @router.get("/me/accessible")
 def my_warehouses(
     user=Depends(require_auth),

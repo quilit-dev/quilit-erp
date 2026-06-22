@@ -2679,6 +2679,32 @@ def _run_migrations(conn, c):
                 )
         done("130h_branch_indexes")
 
+    # ── 131: branch hierarchy — per-user home branch + GL branch tag ────────
+    # Each user gets a single HOME branch (users.branch_id) that is the
+    # authoritative visibility boundary: a non-admin user sees only their home
+    # branch; the Business Owner (admin-tier) and superadmin stay global. Every
+    # existing user is backfilled to the default branch so nobody loses access or
+    # sees an empty screen on upgrade (with one branch, behaviour is unchanged).
+    # Journal entries also gain a branch_id so the GL can be made branch-aware
+    # without a painful backfill later.
+    add_col("131a_users_branch", "users", "branch_id",
+            "ALTER TABLE users ADD COLUMN branch_id INTEGER REFERENCES warehouses(id)")
+    add_col("131b_journal_branch", "journal_entries", "branch_id",
+            "ALTER TABLE journal_entries ADD COLUMN branch_id INTEGER REFERENCES warehouses(id)")
+    if need("131c_branch_hierarchy_backfill"):
+        drow = c.execute(
+            "SELECT id FROM warehouses WHERE is_default=1 LIMIT 1"
+        ).fetchone()
+        if drow:
+            did = drow[0]
+            if "users" in all_tables() and "branch_id" in cols("users"):
+                c.execute("UPDATE users SET branch_id=? WHERE branch_id IS NULL", (did,))
+            if "journal_entries" in all_tables() and "branch_id" in cols("journal_entries"):
+                c.execute("UPDATE journal_entries SET branch_id=? WHERE branch_id IS NULL", (did,))
+        c.execute("CREATE INDEX IF NOT EXISTS idx_users_branch ON users(branch_id)")
+        c.execute("CREATE INDEX IF NOT EXISTS idx_journal_entries_branch ON journal_entries(branch_id)")
+        done("131c_branch_hierarchy_backfill")
+
     conn.commit()
 
 
@@ -2799,6 +2825,20 @@ def _ensure_pg_post_baseline(raw):
                 f"(SELECT id FROM warehouses WHERE is_default=1 LIMIT 1) "
                 f"WHERE branch_id IS NULL"
             )
+        # 131_branch_hierarchy — per-user home branch + GL branch tag.
+        cur.execute("ALTER TABLE users ADD COLUMN IF NOT EXISTS branch_id "
+                    "INTEGER REFERENCES warehouses(id)")
+        cur.execute("ALTER TABLE journal_entries ADD COLUMN IF NOT EXISTS branch_id "
+                    "INTEGER REFERENCES warehouses(id)")
+        cur.execute("CREATE INDEX IF NOT EXISTS idx_users_branch ON users(branch_id)")
+        cur.execute("CREATE INDEX IF NOT EXISTS idx_journal_entries_branch "
+                    "ON journal_entries(branch_id)")
+        cur.execute("UPDATE users SET branch_id="
+                    "(SELECT id FROM warehouses WHERE is_default=1 LIMIT 1) "
+                    "WHERE branch_id IS NULL")
+        cur.execute("UPDATE journal_entries SET branch_id="
+                    "(SELECT id FROM warehouses WHERE is_default=1 LIMIT 1) "
+                    "WHERE branch_id IS NULL")
     raw.commit()
 
 

@@ -29,6 +29,7 @@ from utils import _now, _today, notify, get_tax_context, resolve_inclusive_tax, 
 import costing
 import lots
 import accounting
+import branch_access
 import sqlite3
 
 router = APIRouter()
@@ -436,10 +437,10 @@ def checkout(
     from routers.invoices import _placeholder_invoice_number, _finalize_invoice_number
     cur = db.execute(
         "INSERT INTO invoices "
-        "(invoice_number, client_id, amount, subtotal, tax_total, due_date, notes, created_at, version) "
-        "VALUES (?,?,?,?,?,?,?,?,1)",
+        "(invoice_number, client_id, amount, subtotal, tax_total, due_date, notes, created_at, version, branch_id) "
+        "VALUES (?,?,?,?,?,?,?,?,1,?)",
         (_placeholder_invoice_number(), data.client_id, grand_total, subtotal, tax_total, today,
-         data.note or "POS sale", now),
+         data.note or "POS sale", now, session["warehouse_id"]),
     )
     invoice_id = cur.lastrowid
     inv_no = _finalize_invoice_number(db, invoice_id, _pos_invoice_prefix(db))
@@ -490,6 +491,7 @@ def checkout(
             {"code": accounting.REVENUE, "credit": grand_total},
         ],
         source_type="invoice_payment", source_id=payment_id, created_by=user["id"],
+        branch_id=session["warehouse_id"],
     )
 
     # 12. Real-time stock deduction. COGS for each item is drawn here so it
@@ -553,6 +555,7 @@ def checkout(
                 {"code": accounting.INVENTORY, "credit": cogs_total},
             ],
             source_type="pos_cogs", source_id=invoice_id, created_by=user["id"],
+            branch_id=session["warehouse_id"],
         )
 
     # 13. POS sale record (carries the sale's discount + cost-of-goods-sold).
@@ -623,6 +626,9 @@ def list_sales(
     if status:
         query += " AND ps.status=?"
         params.append(status)
+    # Branch scoping: a POS sale's branch is its invoice's branch.
+    bf, bp = branch_access.branch_filter(user, db, column="i.branch_id")
+    query += bf; params += bp
     query += " ORDER BY ps.id DESC LIMIT 200"
     return [dict(r) for r in db.execute(query, params).fetchall()]
 
@@ -635,7 +641,7 @@ def get_sale(
 ):
     row = db.execute(
         "SELECT ps.*, i.invoice_number, i.amount, i.subtotal, i.tax_total, "
-        "       i.voided_at, c.name AS client_name "
+        "       i.voided_at, i.branch_id, c.name AS client_name "
         "FROM pos_sales ps "
         "JOIN invoices i ON ps.invoice_id = i.id "
         "LEFT JOIN clients c ON i.client_id = c.id "
@@ -644,6 +650,7 @@ def get_sale(
     ).fetchone()
     if not row:
         raise HTTPException(404, "Sale not found")
+    branch_access.assert_can_view_branch(user, db, row["branch_id"])
     d = dict(row)
     # POS-native line view: VAT-inclusive unit price, discount and cost.
     d["items"] = [dict(x) for x in db.execute(

@@ -6,6 +6,7 @@ from permissions import require_perm
 from routers.audit import log_action
 from utils import _now, notify, get_tax_context, resolve_purchase_tax, money, validate_int_qty
 from approval_engine import evaluate_and_apply
+import branch_access
 import costing
 import lots
 import accounting
@@ -81,6 +82,9 @@ def list_purchases(status: Optional[str] = None, supplier: Optional[str] = None,
     if supplier:
         query += " AND p.supplier LIKE ?"
         params.append(f"%{supplier}%")
+    # Branch scoping: a purchase's branch is its destination warehouse.
+    bf, bp = branch_access.branch_filter(user, db, column="p.warehouse_id")
+    query += bf; params += bp
     query += " ORDER BY p.ordered_at DESC"
     rows = db.execute(query, params).fetchall()
     result = []
@@ -93,10 +97,15 @@ def list_purchases(status: Optional[str] = None, supplier: Optional[str] = None,
 
 @router.get("/stats")
 def purchase_stats(user=Depends(require_perm("purchases", "view")), db: sqlite3.Connection = Depends(get_db)):
-    rows = db.execute("SELECT status, COUNT(*) as count FROM purchases WHERE deleted_at IS NULL GROUP BY status").fetchall()
+    bf, bp = branch_access.branch_filter(user, db, column="warehouse_id")
+    rows = db.execute(
+        "SELECT status, COUNT(*) as count FROM purchases "
+        "WHERE deleted_at IS NULL" + bf + " GROUP BY status", bp
+    ).fetchall()
     stats = {r["status"]: r["count"] for r in rows}
     paid_rows = db.execute(
-        "SELECT quantity, unit_cost, additional_costs, tax_amount FROM purchases WHERE status='Paid' AND archived_at IS NULL"
+        "SELECT quantity, unit_cost, additional_costs, tax_amount FROM purchases "
+        "WHERE status='Paid' AND archived_at IS NULL" + bf, bp
     ).fetchall()
     total_spent = money(sum(
         _total_cost(r["quantity"], r["unit_cost"], r["additional_costs"]) + float(r["tax_amount"] or 0)
@@ -118,6 +127,7 @@ def get_purchase(purchase_id: int, user=Depends(require_perm("purchases", "view"
     ).fetchone()
     if not row:
         raise HTTPException(404, "Purchase not found")
+    branch_access.assert_can_view_branch(user, db, row["warehouse_id"])
     d = dict(row)
     d["total_cost"]  = _total_cost(d["quantity"], d["unit_cost"], d["additional_costs"])
     d["grand_total"] = money(d["total_cost"] + float(d.get("tax_amount") or 0))
@@ -400,6 +410,7 @@ def _record_expense(purchase_id: int, db: sqlite3.Connection):
         memo=f"Purchase {row['po_number']} — {row['product_name']}",
         lines=lines,
         source_type="purchase", source_id=purchase_id, created_by=None,
+        branch_id=row["warehouse_id"],
     )
 
 @router.patch("/{purchase_id}/archive")
