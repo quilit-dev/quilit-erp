@@ -211,10 +211,6 @@ export const getAuditFilters = () => api.get('/api/audit/filters');
 export const purgeAuditLog = (olderThanDays) =>
   api.delete(`/api/audit/purge?older_than_days=${olderThanDays}`);
 
-// Archives
-export const getArchives    = (params = {}) => api.get(`/api/archives/${_qs(params)}`);
-export const unarchiveItem = (module, id) => api.patch(`/api/archives/${module}/${id}/unarchive`);
-
 // Documents — only the writers are used at the moment; list/read/delete
 // helpers exist server-side but are wired up per-feature elsewhere.
 export const saveDocument       = (d)         => api.post('/api/documents/', d);

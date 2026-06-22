@@ -241,6 +241,7 @@ const en = {
     section_people:     'People',
     erpPlatform: 'ERP Platform',
     signOut: 'Sign out',
+    signedInAs: 'Signed in as',
     administrator: 'Administrator',
     staff: 'Staff',
     dashboard: 'Dashboard',

@@ -1,5 +1,5 @@
 import { NavLink, useNavigate } from 'react-router-dom';
-import { useState, useEffect } from 'react';
+import { useState, useEffect, useRef } from 'react';
 import { useSettings } from '../hooks/useSettings.jsx';
 import { usePermissions } from '../hooks/usePermissions.js';
 import { useLocale } from '../hooks/useLocale.jsx';
@@ -28,7 +28,6 @@ const Icons = {
   hr:        <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M16 21v-2a4 4 0 00-4-4H6a4 4 0 00-4 4v2"/><circle cx="9" cy="7" r="4"/><path d="M22 21v-2a4 4 0 00-3-3.87"/><path d="M16 3.13a4 4 0 010 7.75"/></svg>,
   recruitment: <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M20 21v-2a4 4 0 00-4-4H8a4 4 0 00-4 4v2"/><path d="M12 11a4 4 0 100-8 4 4 0 000 8z"/><path d="M19 8v6M16 11h6"/></svg>,
   hrActivities: <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><circle cx="12" cy="12" r="10"/><polyline points="12 6 12 12 16 14"/></svg>,
-  archives:  <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><polyline points="21 8 21 21 3 21 3 8"/><rect x="1" y="3" width="22" height="5"/><line x1="10" y1="12" x2="14" y2="12"/></svg>,
   approvals: <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M9 11l3 3L22 4"/><path d="M21 12v7a2 2 0 01-2 2H5a2 2 0 01-2-2V5a2 2 0 012-2h11"/></svg>,
   policies:  <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M12 22s8-4 8-10V5l-8-3-8 3v7c0 6 8 10 8 10z"/><polyline points="9 12 11 14 15 10"/></svg>,
   settings:  <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><circle cx="12" cy="12" r="3"/><path d="M19.4 15a1.65 1.65 0 00.33 1.82l.06.06a2 2 0 010 2.83 2 2 0 01-2.83 0l-.06-.06a1.65 1.65 0 00-1.82-.33 1.65 1.65 0 00-1 1.51V21a2 2 0 01-4 0v-.09A1.65 1.65 0 009 19.4a1.65 1.65 0 00-1.82.33l-.06.06a2 2 0 01-2.83-2.83l.06-.06A1.65 1.65 0 004.68 15a1.65 1.65 0 00-1.51-1H3a2 2 0 010-4h.09A1.65 1.65 0 004.6 9a1.65 1.65 0 00-.33-1.82l-.06-.06a2 2 0 012.83-2.83l.06.06A1.65 1.65 0 009 4.68a1.65 1.65 0 001-1.51V3a2 2 0 014 0v.09a1.65 1.65 0 001 1.51 1.65 1.65 0 001.82-.33l.06-.06a2 2 0 012.83 2.83l-.06.06A1.65 1.65 0 0019.4 9a1.65 1.65 0 001.51 1H21a2 2 0 010 4h-.09a1.65 1.65 0 00-1.51 1z"/></svg>,
@@ -85,7 +84,6 @@ const systemLinkDefs = [
   { to: '/announcements',      navKey: 'announcements',      icon: Icons.announce,  badge: 'announcements' },
   { to: '/approvals',          navKey: 'approvals',          icon: Icons.approvals },
   { to: '/approval-policies',  navKey: 'approvalPolicies',   icon: Icons.policies  },
-  { to: '/archives',           navKey: 'archives',           icon: Icons.archives  },
   { to: '/settings',           navKey: 'settings',           icon: Icons.settings  },
 ];
 
@@ -137,7 +135,23 @@ export default function Sidebar() {
     return (user.username || 'U').charAt(0).toUpperCase();
   })();
 
+  // Account menu — Sign Out now lives in a popover anchored to the user card,
+  // the conventional "proper place" for it, instead of a permanent nav row.
+  const [accountOpen, setAccountOpen] = useState(false);
+  const accountRef = useRef(null);
+  useEffect(() => {
+    if (!accountOpen) return undefined;
+    function onDown(e) {
+      if (accountRef.current && !accountRef.current.contains(e.target)) setAccountOpen(false);
+    }
+    function onKey(e) { if (e.key === 'Escape') setAccountOpen(false); }
+    document.addEventListener('mousedown', onDown);
+    document.addEventListener('keydown', onKey);
+    return () => { document.removeEventListener('mousedown', onDown); document.removeEventListener('keydown', onKey); };
+  }, [accountOpen]);
+
   async function handleLogout() {
+    setAccountOpen(false);
     try { await apiLogout(); } catch {}
     localStorage.removeItem('user');
     navigate('/login');
@@ -256,24 +270,69 @@ export default function Sidebar() {
         )}
       </nav>
 
-      {/* Footer */}
-      <div className="sidebar-footer">
-        <div className="sidebar-user">
-          <div className="sidebar-avatar">{userInitials}</div>
-          <div style={{ minWidth: 0 }}>
+      {/* Footer — the account card is the trigger for a sign-out popover. */}
+      <div className="sidebar-footer" ref={accountRef} style={{ position: 'relative' }}>
+        {accountOpen && (
+          <div role="menu" style={{
+            position: 'absolute', bottom: '100%', insetInlineStart: 0, insetInlineEnd: 0,
+            marginBottom: 8, background: 'var(--surface)', border: '1px solid var(--border)',
+            borderRadius: 14, boxShadow: '0 6px 24px rgba(0,0,0,0.12), 0 1px 3px rgba(0,0,0,0.08)',
+            overflow: 'hidden', zIndex: 1000,
+            animation: 'fadeSlideUp .16s ease', transformOrigin: 'bottom center',
+          }}>
+            <div style={{ display: 'flex', alignItems: 'center', gap: 10, padding: '13px 14px 12px' }}>
+              <div className="sidebar-avatar" style={{ flexShrink: 0 }}>{userInitials}</div>
+              <div style={{ minWidth: 0 }}>
+                <div style={{ fontSize: 9.5, fontWeight: 700, letterSpacing: '.06em', textTransform: 'uppercase', color: 'var(--text-3)', marginBottom: 1 }}>
+                  {t('nav.signedInAs')}
+                </div>
+                <div className="sidebar-username">{user.full_name || user.username || 'Admin'}</div>
+                <div style={{ fontSize: 11, color: 'var(--text-3)', fontWeight: 500, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
+                  {user.email || user.role_name || (isSuperadmin ? t('nav.administrator') : t('nav.staff'))}
+                </div>
+              </div>
+            </div>
+            <div style={{ height: 1, background: 'var(--rule)' }} />
+            <button type="button" role="menuitem" onClick={handleLogout}
+              style={{
+                display: 'flex', alignItems: 'center', gap: 10, width: '100%',
+                padding: '12px 14px', background: 'transparent', border: 'none', cursor: 'pointer',
+                font: 'inherit', fontSize: 13, fontWeight: 500, color: 'var(--red)',
+                textAlign: 'start', transition: 'background .12s',
+              }}
+              onMouseEnter={e => { e.currentTarget.style.background = 'var(--red-light, rgba(220,38,38,0.10))'; }}
+              onMouseLeave={e => { e.currentTarget.style.background = 'transparent'; }}
+            >
+              <span className="nav-link-icon" style={{ color: 'inherit', display: 'inline-flex' }}>{Icons.logout}</span>
+              {t('nav.signOut')}
+            </button>
+          </div>
+        )}
+
+        <button type="button" aria-haspopup="menu" aria-expanded={accountOpen}
+          onClick={() => setAccountOpen(o => !o)}
+          style={{
+            display: 'flex', alignItems: 'center', gap: 10, width: '100%',
+            padding: '8px 10px', borderRadius: 'var(--r-sm)', cursor: 'pointer', font: 'inherit', textAlign: 'start',
+            background: accountOpen ? 'var(--surface)' : 'transparent',
+            border: '1px solid', borderColor: accountOpen ? 'var(--border)' : 'transparent',
+            transition: 'background .12s, border-color .12s',
+          }}
+          onMouseEnter={e => { if (!accountOpen) e.currentTarget.style.background = 'var(--surface)'; }}
+          onMouseLeave={e => { if (!accountOpen) e.currentTarget.style.background = 'transparent'; }}
+        >
+          <div className="sidebar-avatar" style={{ flexShrink: 0 }}>{userInitials}</div>
+          <div style={{ minWidth: 0, flex: 1 }}>
             <div className="sidebar-username">{user.full_name || user.username || 'Admin'}</div>
-            <div style={{ fontSize: 11, color: 'var(--text-3)', fontWeight: 500 }}>
+            <div style={{ fontSize: 11, color: 'var(--text-3)', fontWeight: 500, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
               {user.role_name || (isSuperadmin ? t('nav.administrator') : t('nav.staff'))}
             </div>
           </div>
-        </div>
-        <button
-          className="nav-link"
-          style={{ background: 'none', border: 'none', cursor: 'pointer', width: '100%', marginTop: 2 }}
-          onClick={handleLogout}
-        >
-          <span className="nav-link-icon">{Icons.logout}</span>
-          {t('nav.signOut')}
+          <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"
+            strokeLinecap="round" strokeLinejoin="round" aria-hidden="true"
+            style={{ color: 'var(--text-3)', flexShrink: 0, transition: 'transform .18s ease', transform: accountOpen ? 'rotate(180deg)' : 'none' }}>
+            <polyline points="18 15 12 9 6 15" />
+          </svg>
         </button>
       </div>
     </div>

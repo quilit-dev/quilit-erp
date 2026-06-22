@@ -31,7 +31,6 @@ const Expenses       = lazy(() => import('./pages/Expenses'));
 const FixedAssets    = lazy(() => import('./pages/FixedAssets'));
 const Cash           = lazy(() => import('./pages/Cash'));
 const Settings       = lazy(() => import('./pages/Settings'));
-const Archives       = lazy(() => import('./pages/Archives'));
 const Notifications   = lazy(() => import('./pages/Notifications'));
 const Suppliers      = lazy(() => import('./pages/Suppliers'));
 const UserManagement = lazy(() => import('./pages/UserManagement'));
@@ -169,7 +168,7 @@ function Layout({ children }) {
 
   const pageKeys = [
     '/', '/clients', '/projects', '/quotations', '/invoices', '/inventory', '/pos',
-    '/purchases', '/suppliers', '/manufacturing', '/expenses', '/fixed-assets', '/finance', '/cash', '/reports', '/crm', '/planning', '/hr', '/recruitment', '/hr-activities', '/archives',
+    '/purchases', '/suppliers', '/manufacturing', '/expenses', '/fixed-assets', '/finance', '/cash', '/reports', '/crm', '/planning', '/hr', '/recruitment', '/hr-activities',
     '/notifications', '/approvals', '/approval-policies', '/settings', '/users', '/roles', '/admin',
   ];
   const path = location.pathname;
@@ -285,7 +284,6 @@ export default function App() {
             <Route path="/hr-activities" element={Auth(<HRActivities />)} />
             <Route path="/expenses"     element={Auth(<Expenses />)} />
             <Route path="/fixed-assets" element={Auth(<FixedAssets />)} />
-            <Route path="/archives"     element={Auth(<Archives />)} />
             <Route path="/notifications"  element={Auth(<Notifications />)} />
             <Route path="/approvals"          element={Auth(<ApprovalRequests />)} />
             <Route path="/approval-policies" element={Auth(<ApprovalPolicies />)} />
