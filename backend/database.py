@@ -2636,6 +2636,49 @@ def _run_migrations(conn, c):
     add_col("129_invoice_approval_status", "invoices", "approval_status",
             "ALTER TABLE invoices ADD COLUMN approval_status TEXT")
 
+    # ── 130: branch dimension (branch == warehouse/location) ────────────────
+    # Multi-branch support reuses the existing `warehouses` table as the branch
+    # entity (type='Branch'); there is no separate branches table. Operational
+    # tables that previously had no location link gain a nullable `branch_id`
+    # FK → warehouses(id). Stock-bearing tables (purchases, pos_sessions,
+    # production_orders, stock_movements) already carry warehouse_id and are
+    # left untouched. Every existing row is backfilled to the default warehouse
+    # so single-branch installs behave exactly as before this migration.
+    add_col("130a_warehouse_phone", "warehouses", "phone",
+            "ALTER TABLE warehouses ADD COLUMN phone TEXT")
+    add_col("130b_expenses_branch", "expenses", "branch_id",
+            "ALTER TABLE expenses ADD COLUMN branch_id INTEGER REFERENCES warehouses(id)")
+    add_col("130c_invoices_branch", "invoices", "branch_id",
+            "ALTER TABLE invoices ADD COLUMN branch_id INTEGER REFERENCES warehouses(id)")
+    add_col("130d_quotations_branch", "quotations", "branch_id",
+            "ALTER TABLE quotations ADD COLUMN branch_id INTEGER REFERENCES warehouses(id)")
+    add_col("130e_cash_drawers_branch", "cash_drawers", "branch_id",
+            "ALTER TABLE cash_drawers ADD COLUMN branch_id INTEGER REFERENCES warehouses(id)")
+    add_col("130f_hr_employees_branch", "hr_employees", "branch_id",
+            "ALTER TABLE hr_employees ADD COLUMN branch_id INTEGER REFERENCES warehouses(id)")
+
+    _BRANCH_TABLES = ("expenses", "invoices", "quotations", "cash_drawers", "hr_employees")
+    if need("130g_branch_backfill"):
+        drow = c.execute(
+            "SELECT id FROM warehouses WHERE is_default=1 LIMIT 1"
+        ).fetchone()
+        if drow:
+            did = drow[0]
+            for tbl in _BRANCH_TABLES:
+                if tbl in all_tables() and "branch_id" in cols(tbl):
+                    c.execute(
+                        f"UPDATE {tbl} SET branch_id=? WHERE branch_id IS NULL",
+                        (did,),
+                    )
+        done("130g_branch_backfill")
+    if need("130h_branch_indexes"):
+        for tbl in _BRANCH_TABLES:
+            if tbl in all_tables() and "branch_id" in cols(tbl):
+                c.execute(
+                    f"CREATE INDEX IF NOT EXISTS idx_{tbl}_branch ON {tbl}(branch_id)"
+                )
+        done("130h_branch_indexes")
+
     conn.commit()
 
 
@@ -2739,6 +2782,23 @@ def _ensure_pg_post_baseline(raw):
         # 129_invoice_approval_status — the approval gate for invoices (which have
         # no stored status column of their own).
         cur.execute("ALTER TABLE invoices ADD COLUMN IF NOT EXISTS approval_status TEXT")
+        # 130_branch_dimension — branch == warehouse. Add the location link to
+        # operational tables that lacked it, then backfill existing rows to the
+        # default warehouse so single-branch installs are unaffected.
+        cur.execute("ALTER TABLE warehouses ADD COLUMN IF NOT EXISTS phone TEXT")
+        for _tbl in ("expenses", "invoices", "quotations", "cash_drawers", "hr_employees"):
+            cur.execute(
+                f"ALTER TABLE {_tbl} ADD COLUMN IF NOT EXISTS branch_id "
+                f"INTEGER REFERENCES warehouses(id)"
+            )
+            cur.execute(
+                f"CREATE INDEX IF NOT EXISTS idx_{_tbl}_branch ON {_tbl}(branch_id)"
+            )
+            cur.execute(
+                f"UPDATE {_tbl} SET branch_id="
+                f"(SELECT id FROM warehouses WHERE is_default=1 LIMIT 1) "
+                f"WHERE branch_id IS NULL"
+            )
     raw.commit()
 
 
