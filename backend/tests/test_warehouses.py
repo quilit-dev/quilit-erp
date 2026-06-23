@@ -132,35 +132,37 @@ def _je_count(db):
     return db.execute("SELECT COUNT(*) FROM journal_entries").fetchone()[0]
 
 
-def test_branch_manager_can_run_transfers_but_not_create_warehouses(make_client, db):
-    """Stock transfers are gated on `inventory` (not `warehouses`), so a Branch
-    Manager can run the inter-branch transfer workflow yet still cannot create a
-    branch/warehouse (that stays with the Business Owner)."""
+def test_branch_manager_transfers_only_into_own_branch_from_central(make_client, db):
+    """A Branch Manager may only REPLENISH their own branch: destination = their
+    home branch, source = a non-branch (central) warehouse. They cannot move
+    stock out of, or between, branches — and still cannot create a warehouse."""
     from helpers.seeding import TEST_PASSWORD
     from auth_utils import hash_password
 
     admin = make_client("superadmin")
     main_id = _wid(admin, "MAIN")
-    dst_id = admin.post("/api/warehouses/",
-                        json={"code": "BR-TR", "name": "Branch TR", "type": "Branch"}).json()["id"]
-    item_id = _seed_item(admin, db, qty=50)
+    my_branch = admin.post("/api/warehouses/",
+                           json={"code": "BR-MINE", "name": "My Branch", "type": "Branch"}).json()["id"]
+    other_branch = admin.post("/api/warehouses/",
+                              json={"code": "BR-OTHER", "name": "Other Branch", "type": "Branch"}).json()["id"]
+    item_id = _seed_item(admin, db, qty=50)   # stock sits in MAIN (central)
 
-    # A Branch Manager (full inventory, view-only warehouses).
+    # A Branch Manager whose home branch is BR-MINE.
     role_id = db.execute("SELECT id FROM roles WHERE name='Branch Manager'").fetchone()["id"]
     db.execute(
         "INSERT INTO users (username, password_hash, full_name, role, role_id, "
         " is_active, is_superadmin, must_change_password, branch_id, created_at) "
         "VALUES (?,?,?,?,?,1,0,0,?,datetime('now'))",
-        ("u_bm_tr", hash_password(TEST_PASSWORD), "BM", "Branch Manager", role_id, main_id),
+        ("u_bm_tr", hash_password(TEST_PASSWORD), "BM", "Branch Manager", role_id, my_branch),
     )
     db.commit()
     bm = make_client()
     assert bm.post("/api/auth/login",
                    json={"username": "u_bm_tr", "password": TEST_PASSWORD}).status_code == 200
 
-    # Can run the full transfer workflow.
+    # ALLOWED: pull from the central warehouse INTO their own branch.
     r = bm.post("/api/warehouses/transfers/", json={
-        "from_warehouse_id": main_id, "to_warehouse_id": dst_id,
+        "from_warehouse_id": main_id, "to_warehouse_id": my_branch,
         "items": [{"inventory_id": item_id, "quantity": 10}],
     })
     assert r.status_code == 200, r.text
@@ -168,10 +170,21 @@ def test_branch_manager_can_run_transfers_but_not_create_warehouses(make_client,
     assert bm.post(f"/api/warehouses/transfers/{tid}/dispatch").status_code == 200
     assert bm.post(f"/api/warehouses/transfers/{tid}/receive", json={}).status_code == 200
 
-    # But cannot create a branch/warehouse — that stays owner-only.
-    blocked = bm.post("/api/warehouses/",
-                      json={"code": "NOPE", "name": "Nope", "type": "Branch"})
-    assert blocked.status_code == 403
+    # BLOCKED: destination is not their branch (central → another branch).
+    assert bm.post("/api/warehouses/transfers/", json={
+        "from_warehouse_id": main_id, "to_warehouse_id": other_branch,
+        "items": [{"inventory_id": item_id, "quantity": 1}],
+    }).status_code == 403
+
+    # BLOCKED: source is another branch (branch → my branch).
+    assert bm.post("/api/warehouses/transfers/", json={
+        "from_warehouse_id": other_branch, "to_warehouse_id": my_branch,
+        "items": [{"inventory_id": item_id, "quantity": 1}],
+    }).status_code == 403
+
+    # BLOCKED: still cannot create a branch/warehouse — owner-only.
+    assert bm.post("/api/warehouses/",
+                   json={"code": "NOPE", "name": "Nope", "type": "Branch"}).status_code == 403
 
 
 def test_transfer_full_workflow_moves_stock_no_gl(make_client, db):
