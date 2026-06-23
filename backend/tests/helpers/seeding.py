@@ -18,7 +18,7 @@ TEST_PASSWORD = "Test1234!"
 # role name (as seeded by database.init_db) -> canonical test username
 ROLE_USERS = {
     "superadmin":          "admin",
-    "Admin":               "u_admin",
+    "Branch Manager":      "u_branch_mgr",
     "Manager":             "u_manager",
     "Finance Manager":     "u_finance_mgr",
     "Accountant":          "u_accountant",
