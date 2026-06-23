@@ -23,7 +23,7 @@ import {
   getUsers,
   getStockTransfers, createStockTransfer, dispatchStockTransfer,
   receiveStockTransfer, cancelStockTransfer, getStockTransfer,
-  getInventory,
+  getInventory, getBranchContext,
 } from '../api/client';
 
 const WAREHOUSE_TYPES = ['Main', 'Branch', 'Production', 'Damaged', 'Transit', 'Returns'];
@@ -585,20 +585,30 @@ function TransfersTab({ canEdit, t }) {
   const [items, setItems]     = useState([]);
   const [form, setForm]       = useState({ from_warehouse_id: '', to_warehouse_id: '', notes: '', items: [{ inventory_id: '', quantity: 1 }] });
   const [busy, setBusy]       = useState(false);
+  // Branch-scoped users (Branch Managers) may only REPLENISH their own branch
+  // from a central (non-branch) warehouse — mirror that in the form so they
+  // never pick a combo the backend would reject.
+  const [branchCtx, setBranchCtx] = useState({ is_global: true, home_branch_id: null });
 
   const load = useCallback(async () => {
     setLoading(true); setError('');
     try {
-      const [tx, w] = await Promise.all([getStockTransfers({ limit: 200 }), getWarehouses({})]);
+      const [tx, w, bc] = await Promise.all([
+        getStockTransfers({ limit: 200 }), getWarehouses({}),
+        getBranchContext().catch(() => ({ is_global: true, home_branch_id: null })),
+      ]);
       setRows(tx);
       setWarehouses(w.filter(x => !x.archived_at && x.is_active));
+      setBranchCtx(bc || { is_global: true, home_branch_id: null });
     } catch (e) { setError(e.message); }
     finally { setLoading(false); }
   }, []);
   useEffect(() => { load(); }, [load]);
 
   async function openCreate() {
-    setForm({ from_warehouse_id: '', to_warehouse_id: '', notes: '', items: [{ inventory_id: '', quantity: 1 }] });
+    // Scoped users can only transfer INTO their own branch — lock the destination.
+    const lockedTo = branchCtx.is_global ? '' : (branchCtx.home_branch_id ?? '');
+    setForm({ from_warehouse_id: '', to_warehouse_id: lockedTo, notes: '', items: [{ inventory_id: '', quantity: 1 }] });
     if (!items.length) {
       try { setItems(await getInventory()); } catch { /* ignore */ }
     }
@@ -700,15 +710,23 @@ function TransfersTab({ canEdit, t }) {
                 <select className="form-control" value={form.from_warehouse_id}
                   onChange={e => setForm(f => ({ ...f, from_warehouse_id: e.target.value }))}>
                   <option value="">{t('warehouses.pickSource')}</option>
-                  {warehouses.map(w => <option key={w.id} value={w.id}>{w.code} · {w.name}</option>)}
+                  {warehouses
+                    // Scoped users may only pull from a central (non-branch) warehouse.
+                    .filter(w => branchCtx.is_global || (w.type || '').toLowerCase() !== 'branch')
+                    .map(w => <option key={w.id} value={w.id}>{w.code} · {w.name}</option>)}
                 </select>
               </div>
               <div className="form-group" style={{ margin: 0 }}>
                 <label className="form-label">{t('warehouses.toLabel')}</label>
                 <select className="form-control" value={form.to_warehouse_id}
+                  disabled={!branchCtx.is_global}
                   onChange={e => setForm(f => ({ ...f, to_warehouse_id: e.target.value }))}>
                   <option value="">{t('warehouses.pickDestination')}</option>
-                  {warehouses.filter(w => Number(w.id) !== Number(form.from_warehouse_id)).map(w => (
+                  {warehouses
+                    // Scoped users can only transfer INTO their own branch.
+                    .filter(w => (branchCtx.is_global || Number(w.id) === Number(branchCtx.home_branch_id))
+                                 && Number(w.id) !== Number(form.from_warehouse_id))
+                    .map(w => (
                     <option key={w.id} value={w.id}>{w.code} · {w.name}</option>
                   ))}
                 </select>

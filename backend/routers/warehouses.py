@@ -26,6 +26,7 @@ from permissions import require_perm, require_auth
 from routers.audit import log_action
 from utils import _now, notify
 import warehouse_access as wha
+import branch_access
 
 
 # ── Notification helpers ─────────────────────────────────────────────────────
@@ -599,6 +600,17 @@ def create_transfer(
         raise HTTPException(400, "Source warehouse is inactive or archived.")
     if dst["archived_at"] or not dst["is_active"]:
         raise HTTPException(400, "Destination warehouse is inactive or archived.")
+    # Branch managers (and any branch-scoped user) may only REPLENISH their own
+    # branch: the destination must be their home branch and the source must be a
+    # non-branch (central) warehouse — they can never move stock OUT of, or
+    # BETWEEN, branches. The Business Owner / superadmin is global and transfers
+    # freely between any locations.
+    if not branch_access.is_global(user):
+        home = branch_access.home_branch_id(user, db)
+        if dst["id"] != home:
+            raise HTTPException(403, "You can only transfer stock into your own branch.")
+        if (src["type"] or "").lower() == "branch":
+            raise HTTPException(403, "You can only pull stock from a central warehouse, not from another branch.")
     for it in data.items:
         if it.quantity <= 0:
             raise HTTPException(400, "Item quantities must be positive.")
