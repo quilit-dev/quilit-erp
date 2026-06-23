@@ -3212,7 +3212,6 @@ def _seed_roles_and_admin(c):
     _FULL  = (1, 1, 1, 1, 1)   # everything
 
     default_roles = [
-        ('Admin',               'Full access to every module and administration', '#DC2626', 1),
         ('Business Owner',      'Highest rank — full administration across ALL branches: staff, roles, settings and consolidated reports; cannot change which modules are installed', '#0F766E', 1),
         ('Branch Manager',      'Runs one branch — full control of sales, operations, finance, HR and reports for their own branch only', '#4F46E5', 1),
         ('Manager',             'Oversee all business operations with approvals',  '#7C3AED', 1),
@@ -3277,6 +3276,10 @@ def _seed_roles_and_admin(c):
             'finance': _FULL, 'expenses': _FULL, 'accounting': _FULL, 'reports': _V,
             'hr': _FULL, 'hr_contracts': _FULL, 'recruitment': _FULL, 'hr_activities': _FULL,
             'announcements': _V,
+            # Manage their OWN branch's staff accounts: view/create/edit (no
+            # delete). Strictly scoped in routers/users.py — they can never see
+            # or touch users in another branch, nor create owners/superadmins.
+            'users': _VCE,
         },
         'Manager': {
             'dashboard': _V, 'clients': _VCEA, 'projects': _VCEA, 'quotations': _VCEA,
@@ -3343,9 +3346,8 @@ def _seed_roles_and_admin(c):
         },
     }
 
-    # Admin, Business Owner, Viewer & Auditor span every module uniformly.
+    # Business Owner spans every module uniformly; Viewer & Auditor read-only.
     for mod in MODULES:
-        _set_perm('Admin',          mod, *_FULL)
         _set_perm('Business Owner', mod, *_FULL)
         _set_perm('Viewer',         mod, *_V)
         _set_perm('Auditor',        mod, *_V)
@@ -3366,7 +3368,6 @@ def _seed_roles_and_admin(c):
     # touchpoints) — granted explicitly rather than via the blanket Viewer
     # loop, so general read-only roles do not see it.
     for hr_mod in ('hr', 'hr_contracts', 'recruitment', 'hr_activities'):
-        _set_perm('Admin',          hr_mod, *_FULL)
         _set_perm('Business Owner', hr_mod, *_FULL)
         _set_perm('Manager',        hr_mod, *_V)
         _set_perm('Auditor',        hr_mod, *_V)
@@ -3438,6 +3439,27 @@ def _seed_roles_and_admin(c):
             "VALUES ('081_role_dep_view', datetime('now'))"
         )
 
+    # ── Retire the legacy 'Admin' role ───────────────────────────────────
+    # Superseded by Business Owner (the real admin-tier, global) + Branch
+    # Manager (scoped full-ops). It was a confusing leftover: branch-scoped yet
+    # could create branches, and named like an administrator without any
+    # user/role/settings access. Reassign anyone still on it — superadmins to
+    # Business Owner (they're global anyway), everyone else to Branch Manager
+    # (no privilege escalation) — then drop it. Idempotent: a no-op once gone.
+    admin_role_row = c.execute("SELECT id FROM roles WHERE name='Admin'").fetchone()
+    if admin_role_row:
+        admin_rid = admin_role_row[0]
+        bm_row = c.execute("SELECT id FROM roles WHERE name='Branch Manager'").fetchone()
+        bo_row = c.execute("SELECT id FROM roles WHERE name='Business Owner'").fetchone()
+        if bm_row and bo_row:   # only migrate when both targets exist
+            c.execute("UPDATE users SET role_id=?, role='Business Owner' "
+                      "WHERE role_id=? AND is_superadmin=1", (bo_row[0], admin_rid))
+            c.execute("UPDATE users SET role_id=?, role='Branch Manager' "
+                      "WHERE role_id=? AND (is_superadmin=0 OR is_superadmin IS NULL)",
+                      (bm_row[0], admin_rid))
+            c.execute("DELETE FROM role_permissions WHERE role_id=?", (admin_rid,))
+            c.execute("DELETE FROM roles WHERE id=?", (admin_rid,))
+
     # ── Seed admin user ───────────────────────────────────────────────────
     existing_admin = c.execute(
         "SELECT id FROM users WHERE is_superadmin=1 AND deleted_at IS NULL"
@@ -3447,7 +3469,7 @@ def _seed_roles_and_admin(c):
         from auth_utils import hash_password
         _alpha = string.ascii_letters + string.digits + "!@#$%^&*"
         admin_password = ''.join(secrets.choice(_alpha) for _ in range(20))
-        admin_role = c.execute("SELECT id FROM roles WHERE name='Admin'").fetchone()
+        admin_role = c.execute("SELECT id FROM roles WHERE name='Business Owner'").fetchone()
         c.execute(
             "INSERT INTO users "
             "(username, password_hash, full_name, role, role_id, is_active, is_superadmin, must_change_password, created_at) "

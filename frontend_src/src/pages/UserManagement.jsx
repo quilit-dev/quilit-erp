@@ -135,12 +135,16 @@ export default function UserManagement() {
     </div>
   );
 
+  // A non-admin manager (Branch Manager) can't assign admin-tier roles — hide
+  // them from the picker (the backend enforces this too).
+  const meIsGlobal = Boolean(me.is_superadmin || me.admin_access);
+  const assignableRoles = meIsGlobal ? roles : roles.filter(r => !r.is_admin);
   const RoleSelect = () => (
     <div className="form-group">
       <label className="form-label">{t('users.role')}</label>
       <select className="form-control" value={form.role_id || ''} onChange={e => setForm(f => ({ ...f, role_id: e.target.value ? Number(e.target.value) : '' }))}>
         <option value="">{t('common.noRole')}</option>
-        {roles.map(r => <option key={r.id} value={r.id}>{r.name}</option>)}
+        {assignableRoles.map(r => <option key={r.id} value={r.id}>{r.name}</option>)}
       </select>
     </div>
   );

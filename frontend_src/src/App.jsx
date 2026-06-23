@@ -91,6 +91,18 @@ function RequireAdmin({ children }) {
   return children;
 }
 
+// User management is reachable by admins OR a branch manager with the `users`
+// permission (who can manage only their own branch's staff). Roles/settings/
+// audit stay admin-only via RequireAdmin.
+function RequireUserManager({ children }) {
+  let user = {};
+  try { user = JSON.parse(localStorage.getItem('user') || '{}'); } catch {}
+  const allowed = user.is_superadmin || user.admin_access
+    || Boolean(user.permissions?.users?.view);
+  if (!allowed) return <Navigate to="/" replace />;
+  return children;
+}
+
 function RequirePasswordChange({ children }) {
   let user = null;
   try { user = JSON.parse(localStorage.getItem('user') || 'null'); } catch {}
@@ -249,6 +261,10 @@ function Admin(element) {
   return <RequireAuth><RequirePasswordChange><RequireAdmin><Layout><Page>{element}</Page></Layout></RequireAdmin></RequirePasswordChange></RequireAuth>;
 }
 
+function UsersAdmin(element) {
+  return <RequireAuth><RequirePasswordChange><RequireUserManager><Layout><Page>{element}</Page></Layout></RequireUserManager></RequirePasswordChange></RequireAuth>;
+}
+
 export default function App() {
   return (
     <ServerGate>
@@ -289,7 +305,7 @@ export default function App() {
             <Route path="/approval-policies" element={Auth(<ApprovalPolicies />)} />
             <Route path="/announcements"     element={Auth(<Announcements />)} />
             <Route path="/settings"          element={Auth(<Settings />)} />
-            <Route path="/users"        element={Admin(<UserManagement />)} />
+            <Route path="/users"        element={UsersAdmin(<UserManagement />)} />
             <Route path="/roles"        element={Admin(<RoleManagement />)} />
             <Route path="/admin"                  element={Admin(<AdminDashboard />)} />
             <Route path="*"             element={<Navigate to="/" replace />} />

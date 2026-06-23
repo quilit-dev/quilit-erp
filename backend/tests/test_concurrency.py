@@ -95,7 +95,7 @@ def test_concurrent_invoice_creation_all_succeed(db, make_client):
     the single-active-session rule and 401 five of them, hiding the race.
     """
     # Roles that all carry invoices.create in the seeded permission matrix.
-    roles = ["superadmin", "Admin", "Manager", "Finance Manager",
+    roles = ["superadmin", "Branch Manager", "Manager", "Finance Manager",
              "Accountant", "Sales Manager"]
     clients = [make_client(r) for r in roles]
 

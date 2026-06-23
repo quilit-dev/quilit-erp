@@ -63,7 +63,7 @@ def test_s3_upload_download_delete_via_api(make_client, db, s3_mode):
     with mock_aws():
         boto3.client("s3", region_name="us-east-1").create_bucket(Bucket=BUCKET)
 
-        c = make_client("Admin")
+        c = make_client("Branch Manager")
         cid = c.post("/api/clients/", json={"name": "Attach Co"}).json()["id"]
 
         # Upload — routed to object storage.
@@ -129,7 +129,7 @@ def test_backfill_migrates_db_rows_to_s3(make_client, db, s3_mode):
         boto3.client("s3", region_name="us-east-1").create_bucket(Bucket=BUCKET)
 
         # Seed a legacy DB-stored attachment directly (storage_backend='db').
-        c = make_client("Admin")
+        c = make_client("Branch Manager")
         cid = c.post("/api/clients/", json={"name": "Legacy Co"}).json()["id"]
         db.execute(
             "INSERT INTO attachments (entity_type, entity_id, filename, content_type, "

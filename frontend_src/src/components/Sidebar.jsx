@@ -295,6 +295,19 @@ export default function Sidebar() {
             ))}
           </>
         )}
+
+        {/* A branch manager (not admin-tier) who can manage their branch's
+            staff gets just the Users link — not the full admin section. */}
+        {!isAdmin && can('users', 'view') && (
+          <>
+            <div className="nav-section-label" style={{ marginTop: 8 }}>{t('nav.admin')}</div>
+            <NavLink to="/users"
+              className={({ isActive }) => `nav-link${isActive ? ' active' : ''}`}>
+              <span className="nav-link-icon">{Icons.users}</span>
+              {t('nav.users')}
+            </NavLink>
+          </>
+        )}
       </nav>
 
       {/* Branch switcher — only for global users (superadmin / Business Owner)
