@@ -5,7 +5,7 @@ from fastapi import APIRouter, Depends, HTTPException
 from pydantic import BaseModel
 from typing import Optional, Dict
 from database import get_db
-from permissions import require_admin, ALL_MODULES, ACTIONS
+from permissions import require_admin, require_perm, ALL_MODULES, ACTIONS
 from routers.audit import log_action
 import sqlite3
 
@@ -49,7 +49,11 @@ def _role_with_perms(role_row, db) -> dict:
 # ── List ──────────────────────────────────────────────────────────────────────
 @router.get("/")
 def list_roles(
-    caller=Depends(require_admin),
+    # Listing roles is read-only and needed by anyone who manages users (so they
+    # can assign a role) — gate it on the `users` permission, not admin-tier, so
+    # a Branch Manager can populate the role picker. Editing role DEFINITIONS
+    # below stays admin-only.
+    caller=Depends(require_perm("users", "view")),
     db: sqlite3.Connection = Depends(get_db),
 ):
     rows = db.execute("SELECT * FROM roles ORDER BY is_system DESC, name ASC").fetchall()

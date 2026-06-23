@@ -7,11 +7,39 @@ from pydantic import BaseModel
 from typing import Optional
 from database import get_db
 from auth_utils import hash_password
-from permissions import require_admin
+from permissions import require_admin, require_perm
 from routers.audit import log_action
+import branch_access
 import sqlite3
 
 router = APIRouter()
+
+
+# ── Branch-scoped user management ────────────────────────────────────────────
+# Admins (Business Owner / superadmin) manage every user. A non-global user with
+# the `users` permission (a Branch Manager) may manage ONLY their own branch's
+# staff: never users in another branch, never an admin-tier or superadmin
+# account, and they can neither grant superadmin nor assign an admin-tier role.
+def _assert_can_manage(caller: dict, db: sqlite3.Connection, target: dict) -> None:
+    if branch_access.is_global(caller):
+        return
+    home = branch_access.home_branch_id(caller, db)
+    if target["branch_id"] != home:
+        raise HTTPException(404, "User not found")          # hide cross-branch existence
+    if target["is_superadmin"]:
+        raise HTTPException(403, "You cannot manage an administrator account.")
+    if target["role_id"]:
+        r = db.execute("SELECT is_admin FROM roles WHERE id=?", (target["role_id"],)).fetchone()
+        if r and r["is_admin"]:
+            raise HTTPException(403, "You cannot manage an administrator account.")
+
+
+def _assert_can_assign_role(caller: dict, db: sqlite3.Connection, role_id) -> None:
+    if branch_access.is_global(caller) or not role_id:
+        return
+    r = db.execute("SELECT is_admin FROM roles WHERE id=?", (role_id,)).fetchone()
+    if r and r["is_admin"]:
+        raise HTTPException(403, "You cannot assign an administrator-tier role.")
 
 
 class UserCreate(BaseModel):
@@ -55,16 +83,24 @@ def _user_row(row, db) -> dict:
 @router.get("/")
 def list_users(
     search: Optional[str] = None,
-    user=Depends(require_admin),
+    user=Depends(require_perm("users", "view")),
     db: sqlite3.Connection = Depends(get_db),
 ):
-    q = "SELECT * FROM users WHERE deleted_at IS NULL"
+    q = ("SELECT u.* FROM users u "
+         "LEFT JOIN roles r ON r.id = u.role_id "
+         "WHERE u.deleted_at IS NULL")
     params = []
     if search:
-        q += " AND (username LIKE ? OR full_name LIKE ? OR email LIKE ?)"
+        q += " AND (u.username LIKE ? OR u.full_name LIKE ? OR u.email LIKE ?)"
         s = f"%{search}%"
         params.extend([s, s, s])
-    q += " ORDER BY created_at DESC"
+    # A branch user-manager sees only their own branch's staff — never users in
+    # another branch, nor admin-tier / superadmin accounts.
+    if not branch_access.is_global(user):
+        home = branch_access.home_branch_id(user, db)
+        q += " AND u.branch_id = ? AND u.is_superadmin = 0 AND COALESCE(r.is_admin,0) = 0"
+        params.append(home)
+    q += " ORDER BY u.created_at DESC"
     rows = db.execute(q, params).fetchall()
     return [_user_row(r, db) for r in rows]
 
@@ -150,12 +186,13 @@ def revoke_session(
 @router.get("/{user_id}")
 def get_user(
     user_id: int,
-    caller=Depends(require_admin),
+    caller=Depends(require_perm("users", "view")),
     db: sqlite3.Connection = Depends(get_db),
 ):
     row = db.execute("SELECT * FROM users WHERE id=? AND deleted_at IS NULL", (user_id,)).fetchone()
     if not row:
         raise HTTPException(404, "User not found")
+    _assert_can_manage(caller, db, row)
     return _user_row(row, db)
 
 
@@ -163,7 +200,7 @@ def get_user(
 @router.post("/")
 def create_user(
     data: UserCreate,
-    caller=Depends(require_admin),
+    caller=Depends(require_perm("users", "create")),
     db: sqlite3.Connection = Depends(get_db),
 ):
     if len(data.password) < 8:
@@ -178,14 +215,19 @@ def create_user(
         if not rrow:
             raise HTTPException(400, "Role not found.")
         role_name = rrow["name"]
+    # A branch manager may not assign an admin-tier role.
+    _assert_can_assign_role(caller, db, data.role_id)
 
     # Only a true superadmin may mint another superadmin. An admin-tier caller
     # (e.g. Business Owner) can manage staff but can never escalate anyone to
     # superadmin — that would unlock the module marketplace.
     make_super = 1 if (data.is_superadmin and caller.get("is_superadmin")) else 0
-    # Home branch: explicit, or the company default so the account is never
-    # stranded with no branch (which would hide all branch-scoped data).
+    # Home branch. A non-global manager can only create INTO their own branch —
+    # force it. Admins use the supplied branch, or the company default so the
+    # account is never stranded with no branch (which hides all branch data).
     branch_id = data.branch_id
+    if not branch_access.is_global(caller):
+        branch_id = branch_access.home_branch_id(caller, db)
     if branch_id is None:
         drow = db.execute("SELECT id FROM warehouses WHERE is_default=1 LIMIT 1").fetchone()
         branch_id = drow["id"] if drow else None
@@ -205,12 +247,19 @@ def create_user(
 def update_user(
     user_id: int,
     data: UserUpdate,
-    caller=Depends(require_admin),
+    caller=Depends(require_perm("users", "edit")),
     db: sqlite3.Connection = Depends(get_db),
 ):
     row = db.execute("SELECT * FROM users WHERE id=? AND deleted_at IS NULL", (user_id,)).fetchone()
     if not row:
         raise HTTPException(404, "User not found")
+    # Branch managers may only edit their own branch's non-admin staff, may not
+    # assign an admin-tier role, and may not move a user to another branch.
+    _assert_can_manage(caller, db, row)
+    _assert_can_assign_role(caller, db, data.role_id)
+    if not branch_access.is_global(caller) and data.branch_id is not None:
+        if data.branch_id != branch_access.home_branch_id(caller, db):
+            raise HTTPException(403, "You can only assign users to your own branch.")
     # Escalation guard: an admin-tier caller (non-superadmin) may not touch a
     # superadmin account, nor grant/revoke superadmin on anyone.
     caller_is_super = bool(caller.get("is_superadmin"))
@@ -278,12 +327,15 @@ def update_user(
 def reset_password(
     user_id: int,
     data: ResetPasswordRequest,
-    caller=Depends(require_admin),
+    caller=Depends(require_perm("users", "edit")),
     db: sqlite3.Connection = Depends(get_db),
 ):
-    row = db.execute("SELECT username, is_superadmin FROM users WHERE id=? AND deleted_at IS NULL", (user_id,)).fetchone()
+    row = db.execute(
+        "SELECT username, is_superadmin, branch_id, role_id FROM users "
+        "WHERE id=? AND deleted_at IS NULL", (user_id,)).fetchone()
     if not row:
         raise HTTPException(404, "User not found")
+    _assert_can_manage(caller, db, row)
     # Block an admin-tier caller from resetting a superadmin's password (which
     # would let them log in as the vendor and reach the module marketplace).
     if not caller.get("is_superadmin") and row["is_superadmin"]:
@@ -302,12 +354,15 @@ def reset_password(
 @router.patch("/{user_id}/toggle-active")
 def toggle_active(
     user_id: int,
-    caller=Depends(require_admin),
+    caller=Depends(require_perm("users", "edit")),
     db: sqlite3.Connection = Depends(get_db),
 ):
-    row = db.execute("SELECT username, is_active, is_superadmin FROM users WHERE id=? AND deleted_at IS NULL", (user_id,)).fetchone()
+    row = db.execute(
+        "SELECT username, is_active, is_superadmin, branch_id, role_id FROM users "
+        "WHERE id=? AND deleted_at IS NULL", (user_id,)).fetchone()
     if not row:
         raise HTTPException(404, "User not found")
+    _assert_can_manage(caller, db, row)
     if not caller.get("is_superadmin") and row["is_superadmin"]:
         raise HTTPException(403, "Only a superadmin can enable or disable a superadmin account.")
     if row["is_superadmin"] and row["is_active"]:

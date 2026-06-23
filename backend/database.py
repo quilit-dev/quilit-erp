@@ -3276,6 +3276,10 @@ def _seed_roles_and_admin(c):
             'finance': _FULL, 'expenses': _FULL, 'accounting': _FULL, 'reports': _V,
             'hr': _FULL, 'hr_contracts': _FULL, 'recruitment': _FULL, 'hr_activities': _FULL,
             'announcements': _V,
+            # Manage their OWN branch's staff accounts: view/create/edit (no
+            # delete). Strictly scoped in routers/users.py — they can never see
+            # or touch users in another branch, nor create owners/superadmins.
+            'users': _VCE,
         },
         'Manager': {
             'dashboard': _V, 'clients': _VCEA, 'projects': _VCEA, 'quotations': _VCEA,
