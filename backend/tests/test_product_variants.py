@@ -192,6 +192,32 @@ def test_plain_inventory_import_has_no_product(make_client, db):
     assert row["product_id"] is None and row["variant_label"] is None
 
 
+def test_attribute_def_crud(make_client):
+    """The owner-defined Inventory Fields manager rides on this CRUD: create a
+    global field, see it listed, update it, delete it."""
+    c = make_client("superadmin")
+    r = c.post("/api/products/attribute-defs", json={
+        "scope_type": "global", "name": "Warranty", "input_type": "enum",
+        "options": ["6mo", "1yr", "2yr"], "is_variant_axis": False, "sort_order": 1,
+    })
+    assert r.status_code in (200, 201), r.text
+    def_id = r.json()["id"]
+
+    listed = c.get("/api/products/attribute-defs?scope_type=global").json()
+    warranty = next((d for d in listed if d["name"] == "Warranty"), None)
+    assert warranty is not None
+    assert warranty["options"] == ["6mo", "1yr", "2yr"]
+    assert warranty["is_variant_axis"] is False
+
+    assert c.put(f"/api/products/attribute-defs/{def_id}", json={
+        "scope_type": "global", "name": "Warranty", "input_type": "enum",
+        "options": ["1yr", "2yr"], "is_variant_axis": False, "sort_order": 2,
+    }).status_code == 200
+    assert c.delete(f"/api/products/attribute-defs/{def_id}").status_code == 200
+    after = c.get("/api/products/attribute-defs?scope_type=global").json()
+    assert all(d["name"] != "Warranty" for d in after)
+
+
 def test_setting_business_type_seeds_presets(make_client, db):
     """Choosing a business type (the path the Setup wizard also uses) seeds that
     vertical's attribute presets."""

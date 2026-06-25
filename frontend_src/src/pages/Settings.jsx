@@ -4,6 +4,7 @@ import { api as API, getBackupStatus, runBackupNow, exportBackup, runIntegrityCh
          getTaxRates, createTaxRate, updateTaxRate, deleteTaxRate } from '../api/client';
 import { useSettings } from '../hooks/useSettings.jsx';
 import { useLocale } from '../hooks/useLocale.jsx';
+import InventoryFieldsManager from '../components/InventoryFieldsManager.jsx';
 
 const Section = ({ title, icon, children }) => (
   <div className="card" style={{ marginBottom: 24, overflow: 'hidden' }}>
@@ -533,6 +534,11 @@ export default function Settings() {
               {t('settings.costingSwitchNote')}
             </div>
           </div>
+        </Section>
+
+        {/* 3·5. Inventory Fields — owner-defined custom attributes (variants etc.) */}
+        <Section title={t('settings.inventoryFields')} icon="🧩">
+          <InventoryFieldsManager canEdit={isAdmin} />
         </Section>
 
         {/* 3a. Tax Rates — used for per-line tax on documents */}
