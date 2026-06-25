@@ -52,6 +52,10 @@ DEFAULTS = {
     # Inventory cost-flow assumption: weighted_avg (default) / fifo / lifo.
     # Drives how cost-of-goods-sold is valued on every stock-OUT.
     "inventory_costing_method": "weighted_avg",
+    # Vertical the shop operates in (Apparel / Electronics / Food & Beverage /
+    # General). Drives which product-attribute presets are offered. Empty = not
+    # chosen yet (General behaviour — no preset attributes).
+    "business_type": "",
     # Manufacturing: electricity price per kWh, multiplied by a work center's
     # power draw (kW) × actual run hours to cost the electricity of a job.
     "electricity_tariff_per_kwh": "0",
@@ -92,6 +96,7 @@ class SettingsUpdate(BaseModel):
     quotation_prefix:   Optional[str] = None
     contract_prefix:    Optional[str] = None
     inventory_costing_method: Optional[str] = None
+    business_type:      Optional[str] = None
     electricity_tariff_per_kwh: Optional[str] = None
     payroll_tax_pct:             Optional[str] = None
     payroll_nssf_employee_pct:   Optional[str] = None
@@ -200,6 +205,13 @@ def update_settings(
         return _get_all(db)
 
     _set_keys(db, updates)
+    # Choosing/confirming a business type seeds its attribute presets so the
+    # product builder immediately offers the right fields (idempotent).
+    bt = updates.get("business_type")
+    if bt:
+        from routers.products import seed_attribute_presets, BUSINESS_TYPES
+        if bt in BUSINESS_TYPES:
+            seed_attribute_presets(db, bt)
     log_action(db, user, "update", "settings", None, "Settings",
                {"keys": sorted(updates)})
     db.commit()

@@ -96,7 +96,21 @@ def list_inventory(search: Optional[str] = None, category: Optional[str] = None,
         query += " AND quantity <= min_stock AND min_stock > 0"
     query += " ORDER BY name"
     rows = db.execute(query, params).fetchall()
-    return [dict(r) for r in rows]
+    out = [dict(r) for r in rows]
+    # Attach resolved variant attributes (Size=M, Color=Red…) so the UI can
+    # group by product and filter by attribute. One query, mapped in-process.
+    ids = [r["id"] for r in out]
+    if ids:
+        attrs: dict = {}
+        ph = ",".join("?" * len(ids))
+        for a in db.execute(
+            f"SELECT inventory_id, name, value FROM item_attributes WHERE inventory_id IN ({ph})",
+            ids,
+        ).fetchall():
+            attrs.setdefault(a["inventory_id"], {})[a["name"]] = a["value"]
+        for r in out:
+            r["attributes"] = attrs.get(r["id"], {})
+    return out
 
 @router.get("/categories")
 def get_categories(user=Depends(require_auth), db: sqlite3.Connection = Depends(get_db)):
@@ -232,6 +246,48 @@ def _expiry_status(expiry_date, today, soon_days=30):
     return "ok"
 
 
+def insert_inventory_row(db, user, *, name, category=None, product_type=None,
+                         quantity=0, min_stock=0, unit_cost=0, sale_price=0,
+                         price_currency="USD", supplier=None, unit="pcs",
+                         barcode=None, lot_tracked=False, shelf_life_days=None,
+                         product_id=None, variant_label=None, now=None):
+    """Create one inventory (SKU) row + its opening stock, movement and cost
+    lot/layer. Shared by the inventory create endpoint and the products router's
+    variant generator so every SKU — simple item or variant — is seeded
+    identically. `unit_cost` must already be USD; callers convert LBP first.
+    Returns the new inventory id. Does NOT commit."""
+    now = now or _now()
+    c = db.execute(
+        "INSERT INTO inventory (name, category, product_type, quantity, min_stock, "
+        "unit_cost, sale_price, price_currency, supplier, unit, barcode, lot_tracked, "
+        "shelf_life_days, product_id, variant_label, created_at) "
+        "VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)",
+        (name, category, product_type, quantity, min_stock, unit_cost, sale_price,
+         price_currency, supplier, unit, barcode, 1 if lot_tracked else 0,
+         shelf_life_days, product_id, variant_label, now),
+    )
+    item_id = c.lastrowid
+    if quantity and quantity != 0:
+        # Opening stock lands at the user's default warehouse so the per-
+        # warehouse breakdown is correct from day one.
+        import warehouse_access as wha
+        wid = wha.resolve_warehouse_id(user, db, None)
+        db.execute(
+            "INSERT OR IGNORE INTO inventory_stock "
+            "(inventory_id, warehouse_id, quantity, reserved_quantity, quarantine_quantity) "
+            "VALUES (?, ?, ?, 0, 0)",
+            (item_id, wid, quantity),
+        )
+        db.execute(
+            "INSERT INTO stock_movements (inventory_id, type, delta, qty_before, qty_after, note, warehouse_id, created_at) VALUES (?,?,?,?,?,?,?,?)",
+            (item_id, "adjustment", quantity, 0, quantity, "Initial stock", wid, now),
+        )
+        # Opening stock: a lot for lot-tracked items, else a FIFO/LIFO cost layer.
+        lots.record_stock_in(db, item_id, quantity, unit_cost,
+                             source_type="opening", source_ref="Initial stock", now=now)
+    return item_id
+
+
 @router.post("/")
 def create_item(data: InventoryCreate, user=Depends(require_perm("inventory", "create")),
                 db: sqlite3.Connection = Depends(get_db)):
@@ -248,31 +304,13 @@ def create_item(data: InventoryCreate, user=Depends(require_perm("inventory", "c
     if ptype and ptype not in _PRODUCT_TYPES:
         raise HTTPException(400, "Invalid product type.")
     price_currency, unit_cost = _resolve_item_currencies(data, db)
-    c = db.execute(
-        "INSERT INTO inventory (name, category, product_type, quantity, min_stock, unit_cost, sale_price, price_currency, supplier, unit, barcode, lot_tracked, shelf_life_days, created_at) VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?)",
-        (data.name, data.category, ptype, data.quantity, data.min_stock, unit_cost, data.sale_price, price_currency, data.supplier, data.unit, barcode,
-         1 if data.lot_tracked else 0, data.shelf_life_days, now)
+    item_id = insert_inventory_row(
+        db, user, name=data.name, category=data.category, product_type=ptype,
+        quantity=data.quantity, min_stock=data.min_stock, unit_cost=unit_cost,
+        sale_price=data.sale_price, price_currency=price_currency, supplier=data.supplier,
+        unit=data.unit, barcode=barcode, lot_tracked=data.lot_tracked,
+        shelf_life_days=data.shelf_life_days, now=now,
     )
-    item_id = c.lastrowid
-    if data.quantity and data.quantity != 0:
-        # Opening stock lands at the user's default warehouse so the per-
-        # warehouse breakdown is correct from day one.
-        import warehouse_access as wha
-        wid = wha.resolve_warehouse_id(user, db, None)
-        db.execute(
-            "INSERT OR IGNORE INTO inventory_stock "
-            "(inventory_id, warehouse_id, quantity, reserved_quantity, quarantine_quantity) "
-            "VALUES (?, ?, ?, 0, 0)",
-            (item_id, wid, data.quantity),
-        )
-        db.execute(
-            "INSERT INTO stock_movements (inventory_id, type, delta, qty_before, qty_after, note, warehouse_id, created_at) VALUES (?,?,?,?,?,?,?,?)",
-            (item_id, "adjustment", data.quantity, 0, data.quantity, "Initial stock", wid, now)
-        )
-        # Opening stock: a lot for lot-tracked items, else a FIFO/LIFO cost layer.
-        # Seed at the USD-converted cost so the lot carries historical USD cost.
-        lots.record_stock_in(db, item_id, data.quantity, unit_cost,
-                             source_type="opening", source_ref="Initial stock", now=now)
     log_action(db, user, "create", "inventory", item_id, data.name,
                {"quantity": data.quantity, "unit_cost": unit_cost})
     db.commit()
