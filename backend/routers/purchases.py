@@ -8,6 +8,7 @@ from utils import _now, notify, get_tax_context, resolve_purchase_tax, money, va
 from approval_engine import evaluate_and_apply
 import branch_access
 import costing
+import currency
 import lots
 import accounting
 import sqlite3
@@ -26,6 +27,12 @@ class PurchaseCreate(BaseModel):
     tax_rate_id: Optional[int] = None
     status: Optional[str] = "Ordered"
     notes: Optional[str] = None
+    # Supplier cost may be entered in LBP. Inventory is carried at historical USD
+    # cost, so the cost is converted to USD at entry (using exchange_rate, or the
+    # latest stored rate) and stored in USD; cost_currency + the rate are kept on
+    # the PO purely as provenance for the audit trail. Default USD = no change.
+    cost_currency: Optional[str] = "USD"
+    exchange_rate: Optional[float] = None
     # Destination warehouse — defaults to the user's default if omitted so
     # existing API callers keep working. The receipt lands here at status
     # transition to 'Received'.
@@ -40,6 +47,9 @@ class PurchaseUpdate(BaseModel):
     additional_costs: Optional[float] = None
     tax_rate_id: Optional[int] = None
     notes: Optional[str] = None
+    # See PurchaseCreate: LBP cost is converted to USD at entry.
+    cost_currency: Optional[str] = "USD"
+    exchange_rate: Optional[float] = None
     # Allow re-routing a not-yet-received PO to a different warehouse —
     # rejected on the server if the purchase has already credited stock.
     warehouse_id: Optional[int] = None
@@ -140,6 +150,14 @@ def create_purchase(data: PurchaseCreate, user=Depends(require_perm("purchases",
     validate_int_qty(data.quantity, "Purchase quantity")
     po = next_po_number(db)
     now = _now()
+    # Lock LBP-entered cost to USD now (inventory = historical USD cost). Keep
+    # the entry currency + the rate used as provenance on the PO row.
+    cost_currency = (data.cost_currency or "USD").upper()
+    if cost_currency not in ("USD", "LBP"):
+        raise HTTPException(400, "Unsupported cost currency.")
+    cost_rate = currency.resolve_rate(db, data.exchange_rate) if cost_currency == "LBP" else None
+    unit_cost = currency.to_usd(data.unit_cost or 0, cost_currency, db, cost_rate)
+    additional_costs = currency.to_usd(data.additional_costs or 0, cost_currency, db, cost_rate)
     # Resolve the destination warehouse — falls back to the user's default
     # so existing API callers keep working. Validates row-level access.
     import warehouse_access as wha
@@ -162,15 +180,17 @@ def create_purchase(data: PurchaseCreate, user=Depends(require_perm("purchases",
         inventory_id = cur.lastrowid
 
     tax_rate_id, tax_rate, tax_amount = _compute_purchase_tax(
-        db, data.quantity, data.unit_cost, data.tax_rate_id)
+        db, data.quantity, unit_cost, data.tax_rate_id)
     c = db.execute(
         """INSERT INTO purchases
            (po_number, supplier, inventory_id, product_name, category, quantity, unit_cost,
-            additional_costs, tax_rate_id, tax_rate, tax_amount, status, notes, warehouse_id, ordered_at)
-           VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)""",
+            additional_costs, tax_rate_id, tax_rate, tax_amount, status, notes, warehouse_id,
+            cost_currency, cost_exchange_rate, ordered_at)
+           VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)""",
         (po, data.supplier, inventory_id, data.product_name, (data.category or 'Other'),
-         data.quantity, data.unit_cost, data.additional_costs,
-         tax_rate_id, tax_rate, tax_amount, data.status, data.notes, warehouse_id, now)
+         data.quantity, unit_cost, additional_costs,
+         tax_rate_id, tax_rate, tax_amount, data.status, data.notes, warehouse_id,
+         cost_currency, cost_rate, now)
     )
     purchase_id = c.lastrowid
 
@@ -180,7 +200,7 @@ def create_purchase(data: PurchaseCreate, user=Depends(require_perm("purchases",
         _record_expense(purchase_id, db)
 
     # Evaluate approval policies before commit
-    total_cost = _total_cost(data.quantity, data.unit_cost, data.additional_costs)
+    total_cost = _total_cost(data.quantity, unit_cost, additional_costs)
     entity_data = {
         "total_cost": total_cost,
         "quantity":   data.quantity,
@@ -217,6 +237,16 @@ def update_purchase(purchase_id: int, data: PurchaseUpdate,
     if data.quantity is not None:
         validate_int_qty(data.quantity, "Purchase quantity")
 
+    # Lock any LBP-entered cost to USD before storing (see PurchaseCreate).
+    cost_currency = (data.cost_currency or "USD").upper()
+    if cost_currency not in ("USD", "LBP"):
+        raise HTTPException(400, "Unsupported cost currency.")
+    cost_rate = currency.resolve_rate(db, data.exchange_rate) if cost_currency == "LBP" else None
+    new_unit_cost = (currency.to_usd(data.unit_cost, cost_currency, db, cost_rate)
+                     if data.unit_cost is not None else None)
+    new_additional = (currency.to_usd(data.additional_costs, cost_currency, db, cost_rate)
+                      if data.additional_costs is not None else None)
+
     fields, params = [], []
     if data.supplier is not None:
         fields.append("supplier=?");         params.append(data.supplier)
@@ -226,10 +256,12 @@ def update_purchase(purchase_id: int, data: PurchaseUpdate,
         fields.append("category=?");         params.append(data.category)
     if data.quantity is not None:
         fields.append("quantity=?");          params.append(data.quantity)
-    if data.unit_cost is not None:
-        fields.append("unit_cost=?");         params.append(data.unit_cost)
-    if data.additional_costs is not None:
-        fields.append("additional_costs=?");  params.append(data.additional_costs)
+    if new_unit_cost is not None:
+        fields.append("unit_cost=?");         params.append(new_unit_cost)
+        fields.append("cost_currency=?");     params.append(cost_currency)
+        fields.append("cost_exchange_rate=?"); params.append(cost_rate)
+    if new_additional is not None:
+        fields.append("additional_costs=?");  params.append(new_additional)
     if data.notes is not None:
         fields.append("notes=?");             params.append(data.notes)
     if data.warehouse_id is not None:
@@ -243,7 +275,7 @@ def update_purchase(purchase_id: int, data: PurchaseUpdate,
     if fields:
         # Recompute tax from the effective (new or unchanged) values.
         eff_qty  = data.quantity    if data.quantity    is not None else row["quantity"]
-        eff_cost = data.unit_cost   if data.unit_cost   is not None else row["unit_cost"]
+        eff_cost = new_unit_cost    if new_unit_cost    is not None else row["unit_cost"]
         eff_trid = data.tax_rate_id if data.tax_rate_id is not None else row["tax_rate_id"]
         t_rid, t_rate, t_amt = _compute_purchase_tax(db, eff_qty, eff_cost, eff_trid)
         fields += ["tax_rate_id=?", "tax_rate=?", "tax_amount=?"]

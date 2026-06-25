@@ -2723,6 +2723,18 @@ def _run_migrations(conn, c):
                     c.execute(f"CREATE INDEX IF NOT EXISTS idx_{tbl}_branch ON {tbl}(branch_id)")
         done("132c_recruitment_branch_backfill")
 
+    # ── 133: per-item currency for sale price + supplier cost ───────────────
+    # Sale price may be quoted natively in LBP (it floats — converted to USD at
+    # sale time). Supplier cost may be typed in LBP but is locked to USD at
+    # receive time (inventory is carried at historical USD cost). Defaults keep
+    # every existing item/PO behaving exactly as before (USD).
+    add_col("133a_inventory_price_currency", "inventory", "price_currency",
+            "ALTER TABLE inventory ADD COLUMN price_currency TEXT DEFAULT 'USD'")
+    add_col("133b_purchases_cost_currency", "purchases", "cost_currency",
+            "ALTER TABLE purchases ADD COLUMN cost_currency TEXT DEFAULT 'USD'")
+    add_col("133c_purchases_cost_rate", "purchases", "cost_exchange_rate",
+            "ALTER TABLE purchases ADD COLUMN cost_exchange_rate REAL")
+
     conn.commit()
 
 
@@ -2869,6 +2881,11 @@ def _ensure_pg_post_baseline(raw):
                 f"(SELECT id FROM warehouses WHERE is_default=1 LIMIT 1) "
                 f"WHERE branch_id IS NULL"
             )
+        # 133_item_currency — native currency for sale price (floats) + supplier
+        # cost entry (locked to USD at receive). Defaults keep existing rows USD.
+        cur.execute("ALTER TABLE inventory ADD COLUMN IF NOT EXISTS price_currency TEXT DEFAULT 'USD'")
+        cur.execute("ALTER TABLE purchases ADD COLUMN IF NOT EXISTS cost_currency TEXT DEFAULT 'USD'")
+        cur.execute("ALTER TABLE purchases ADD COLUMN IF NOT EXISTS cost_exchange_rate DOUBLE PRECISION")
     raw.commit()
 
 

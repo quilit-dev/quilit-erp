@@ -614,7 +614,8 @@ CREATE TABLE IF NOT EXISTS inventory (
     reserved_quantity DOUBLE PRECISION NOT NULL DEFAULT 0,
     quarantine_quantity DOUBLE PRECISION NOT NULL DEFAULT 0,
     lot_tracked INTEGER NOT NULL DEFAULT 0,
-    shelf_life_days INTEGER
+    shelf_life_days INTEGER,
+    price_currency TEXT DEFAULT 'USD'
 );
 
 CREATE TABLE IF NOT EXISTS inventory_cost_layers (
@@ -1061,6 +1062,8 @@ CREATE TABLE IF NOT EXISTS purchases (
     tax_rate DOUBLE PRECISION NOT NULL DEFAULT 0,
     tax_amount DOUBLE PRECISION NOT NULL DEFAULT 0,
     warehouse_id INTEGER,
+    cost_currency TEXT DEFAULT 'USD',
+    cost_exchange_rate DOUBLE PRECISION,
     UNIQUE (po_number)
 );
 

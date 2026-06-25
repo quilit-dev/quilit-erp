@@ -28,7 +28,10 @@ const fmtNum = (n) =>
 
 function PurchaseForm({ initial = {}, inventoryItems = [], inventoryCategories = [], suppliers = [], onSave, onCancel, saving }) {
   const { t, tStatus } = useLocale();
-  const { settings, taxRates } = useSettings();
+  const { settings, taxRates, exchangeRate } = useSettings();
+  const fxRate = Number(exchangeRate?.rate) || 0;
+  const hasRate = fxRate > 0;
+  const secondary = exchangeRate?.secondary || 'LBP';
   const isEdit = !!initial.id;
 
   const taxEnabled     = settings?.tax_enabled === '1';
@@ -50,6 +53,9 @@ function PurchaseForm({ initial = {}, inventoryItems = [], inventoryCategories =
     inventory_id:     initial.inventory_id     || '',
     quantity:         initial.quantity         || '',
     unit_cost:        initial.unit_cost        || '',
+    // Cost may be typed in LBP; it converts to USD on the server at save. Edits
+    // always start in USD (the stored PO cost is already USD).
+    cost_currency:    'USD',
     additional_costs: initial.additional_costs || 0,
     tax_rate_id:      initial.tax_rate_id      ?? null,
     status:           initial.status           || 'Ordered',
@@ -93,6 +99,8 @@ function PurchaseForm({ initial = {}, inventoryItems = [], inventoryCategories =
       quantity:         parseFloat(form.quantity),
       unit_cost:        parseFloat(form.unit_cost)        || 0,
       additional_costs: parseFloat(form.additional_costs) || 0,
+      cost_currency:    form.cost_currency,
+      exchange_rate:    form.cost_currency === 'LBP' ? fxRate : undefined,
       tax_rate_id:      taxEnabled ? (form.tax_rate_id ?? null) : null,
       status:           form.status,
       notes:            form.notes,
@@ -178,8 +186,20 @@ function PurchaseForm({ initial = {}, inventoryItems = [], inventoryCategories =
 
           <div className="form-group">
             <label className="form-label">{t('purchases.unitCostDollar')}</label>
-            <NumberInput className="form-control" step="any" min="0"
-              value={form.unit_cost} onChange={e => set('unit_cost', e.target.value)} />
+            <div style={{ display: 'flex', gap: 6 }}>
+              <NumberInput className="form-control" step="any" min="0" style={{ flex: 1 }}
+                value={form.unit_cost} onChange={e => set('unit_cost', e.target.value)} />
+              <select className="form-control" style={{ width: 86 }}
+                value={form.cost_currency} onChange={e => set('cost_currency', e.target.value)}>
+                <option value="USD">USD</option>
+                <option value={secondary} disabled={!hasRate}>{secondary}</option>
+              </select>
+            </div>
+            {form.cost_currency === 'LBP' && hasRate && (
+              <div style={{ fontSize: 12, color: 'var(--text-3)', marginTop: 4 }}>
+                {t('inventory.costLockedToUsd')} ≈ ${fmtNum((parseFloat(form.unit_cost) || 0) / fxRate)}
+              </div>
+            )}
           </div>
 
           <div className="form-group">
