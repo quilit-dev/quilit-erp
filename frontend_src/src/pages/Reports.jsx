@@ -589,9 +589,9 @@ function FinancialReport({ params, t }) {
             {data.by_category.length === 0
               ? <div style={{ color: 'var(--text-3)', fontSize: 13, padding: '20px 0' }}>{t('reports.noData')}</div>
               : <>
-                  <DonutChart data={data.by_category} size={180} />
+                  <DonutChart data={data.by_category} labelKey="category" size={180} />
                   <div style={{ flex: 1, minWidth: 0 }}>
-                    <HBarChart data={data.by_category} />
+                    <HBarChart data={data.by_category} labelKey="category" />
                   </div>
                 </>
             }
