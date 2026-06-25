@@ -2309,6 +2309,9 @@ const en = {
 
     total: 'Total',
     whValuation: 'Inventory by Warehouse',
+    byAttribute: 'Inventory by Attribute',
+    byAttributeSub: 'Stock units and value across product variants.',
+    noAttributes: 'No product attributes yet. Create a product with variants (e.g. Size, Color) to use this report.',
 
     // Inventory by Warehouse report — full section labels
     whTitle: 'Inventory Value by Warehouse',
@@ -2693,6 +2696,12 @@ const en = {
     companyNameLabel: 'Company Name',
     companyEmailLabel: 'Company Email',
     defaultCurrency: 'Default Currency',
+    businessTypeLabel: 'Business Type',
+    businessTypeHint: 'Pre-loads product attributes for your industry. You can change this later in Settings.',
+    businessTypeGeneral: 'General',
+    businessTypeApparel: 'Apparel / Clothing',
+    businessTypeElectronics: 'Electronics',
+    businessTypeFnb: 'Food & Beverage',
     reviewConfirm: 'Review & Confirm',
     launchERP: 'Launch ERP',
     settingUp: 'Setting up…',

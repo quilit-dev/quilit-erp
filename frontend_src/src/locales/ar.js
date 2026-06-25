@@ -2300,6 +2300,9 @@ const ar = {
 
     total: 'الإجمالي',
     whValuation: 'المخزون حسب المستودع',
+    byAttribute: 'المخزون حسب السمة',
+    byAttributeSub: 'وحدات وقيمة المخزون عبر متغيّرات المنتج.',
+    noAttributes: 'لا توجد سمات منتجات بعد. أنشئ منتجًا بمتغيّرات (مثل المقاس واللون) لاستخدام هذا التقرير.',
 
     // تقرير المخزون حسب المستودع — تسميات القسم الكاملة
     whTitle: 'قيمة المخزون حسب المستودع',
@@ -2678,6 +2681,12 @@ const ar = {
     companyNameLabel: 'اسم الشركة',
     companyEmailLabel: 'البريد الإلكتروني للشركة',
     defaultCurrency: 'العملة الافتراضية',
+    businessTypeLabel: 'نوع النشاط التجاري',
+    businessTypeHint: 'يُحمّل سمات المنتجات الخاصة بمجال عملك. يمكنك تغييره لاحقًا في الإعدادات.',
+    businessTypeGeneral: 'عام',
+    businessTypeApparel: 'ملابس / أزياء',
+    businessTypeElectronics: 'إلكترونيات',
+    businessTypeFnb: 'أطعمة ومشروبات',
     reviewConfirm: 'مراجعة وتأكيد',
     launchERP: 'إطلاق النظام',
     settingUp: 'جار الإعداد…',

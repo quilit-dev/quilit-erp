@@ -161,6 +161,7 @@ export const deleteInvoicePayment = (invId, payId) => api.delete(`/api/invoices/
 export const getInventory           = (params = {}, s) => api.get(`/api/inventory/${_qs(params)}`, s);
 export const getInventoryByWarehouse = (itemId) => api.get(`/api/inventory/${itemId}/by-warehouse`);
 export const getInventoryByWarehouseReport = () => api.get('/api/reports/inventory-by-warehouse');
+export const getInventoryByAttributeReport = (attribute) => api.get(`/api/reports/inventory-by-attribute${attribute ? `?attribute=${encodeURIComponent(attribute)}` : ''}`);
 export const createInventoryItem    = (d)    => api.post('/api/inventory/', d);
 export const updateInventoryItem    = (id, d) => api.put(`/api/inventory/${id}`, d);
 export const archiveInventoryItem   = (id)   => api.patch(`/api/inventory/${id}/archive`);

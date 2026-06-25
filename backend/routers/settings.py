@@ -479,6 +479,7 @@ class CompleteSetupRequest(BaseModel):
     company_name:    Optional[str] = "My Company"
     company_email:   Optional[str] = ""
     default_currency: Optional[str] = "USD"
+    business_type:   Optional[str] = ""
 
 
 @router.post("/complete-setup")
@@ -520,8 +521,15 @@ def complete_setup(body: CompleteSetupRequest, db: sqlite3.Connection = Depends(
         "company_name":     body.company_name or "My Company",
         "company_email":    body.company_email or "",
         "default_currency": body.default_currency or "USD",
+        "business_type":    body.business_type or "",
         "setup_complete":   "1",
     })
+    # Seed the chosen vertical's product-attribute presets so the inventory
+    # builder is ready on first login (idempotent; unknown/empty = no-op).
+    if body.business_type:
+        from routers.products import seed_attribute_presets, BUSINESS_TYPES
+        if body.business_type in BUSINESS_TYPES:
+            seed_attribute_presets(db, body.business_type)
     # Pre-auth one-time event — recorded under the admin account it configures.
     log_action(db, {"id": None, "username": "admin"}, "complete_setup", "settings",
                None, "Initial setup wizard completed",

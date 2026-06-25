@@ -134,3 +134,72 @@ def test_too_many_variants_rejected(make_client):
     r = c.post("/api/products/", json={"name": "Huge", "axes": [axis]})
     assert r.status_code == 400
     assert "limit" in r.text.lower()
+
+
+# ── Slice 3: report, import, setup ──────────────────────────────────────────
+def test_inventory_by_attribute_report(make_client):
+    c = make_client("superadmin")
+    c.post("/api/products/", json={
+        "name": "Tee", "sale_price": 10, "unit_cost": 4, "initial_quantity": 3,
+        "axes": [{"name": "Size", "values": ["S", "M"]}],
+    })
+    r = c.get("/api/reports/inventory-by-attribute?attribute=Size")
+    assert r.status_code == 200, r.text
+    body = r.json()
+    assert "Size" in body["attributes"]
+    assert body["selected"] == "Size"
+    vals = {row["attr_value"]: row for row in body["rows"]}
+    assert set(vals) == {"S", "M"}
+    assert vals["S"]["qty_total"] == 3
+    # Value = qty × unit_cost (3 × 4) per size.
+    assert vals["S"]["value_usd"] == pytest.approx(12)
+
+
+def test_variant_aware_import_groups_products(make_client, db):
+    c = make_client("superadmin")
+    rows = [
+        {"name": "Polo Red S",  "product": "Polo Shirt", "Size": "S", "Color": "Red",  "sale_price": 15, "quantity": 2},
+        {"name": "Polo Red M",  "product": "Polo Shirt", "Size": "M", "Color": "Red",  "sale_price": 15, "quantity": 4},
+        {"name": "Polo Blue M", "product": "Polo Shirt", "Size": "M", "Color": "Blue", "sale_price": 15, "quantity": 1},
+    ]
+    res = c.post("/api/imports/inventory/commit", json={"rows": rows})
+    assert res.status_code == 200, res.text
+    assert res.json()["created"] == 3
+
+    prod = db.execute("SELECT id FROM products WHERE name='Polo Shirt'").fetchone()
+    assert prod is not None
+    # All three rows linked to the one product, each carrying its own attributes.
+    n = db.execute("SELECT COUNT(*) AS n FROM inventory WHERE product_id=?", (prod["id"],)).fetchone()["n"]
+    assert n == 3
+    first = db.execute(
+        "SELECT id, variant_label FROM inventory WHERE product_id=? ORDER BY id", (prod["id"],)
+    ).fetchone()
+    assert first["variant_label"] == "S / Red"
+    attrs = {a["name"]: a["value"] for a in db.execute(
+        "SELECT name, value FROM item_attributes WHERE inventory_id=?", (first["id"],)
+    ).fetchall()}
+    assert attrs == {"Size": "S", "Color": "Red"}
+
+
+def test_plain_inventory_import_has_no_product(make_client, db):
+    """A row with no product/attribute columns stays a simple item."""
+    c = make_client("superadmin")
+    res = c.post("/api/imports/inventory/commit", json={"rows": [
+        {"name": "Plain Nail", "sale_price": 1, "quantity": 100},
+    ]})
+    assert res.status_code == 200, res.text
+    row = db.execute("SELECT product_id, variant_label FROM inventory WHERE name='Plain Nail'").fetchone()
+    assert row["product_id"] is None and row["variant_label"] is None
+
+
+def test_setting_business_type_seeds_presets(make_client, db):
+    """Choosing a business type (the path the Setup wizard also uses) seeds that
+    vertical's attribute presets."""
+    c = make_client("superadmin")
+    r = c.put("/api/settings/", json={"business_type": "Electronics"})
+    assert r.status_code == 200, r.text
+    assert r.json().get("business_type") == "Electronics"
+    n = db.execute(
+        "SELECT COUNT(*) AS n FROM attribute_defs WHERE scope_type='business' AND scope_value='Electronics'"
+    ).fetchone()["n"]
+    assert n > 0

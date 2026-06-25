@@ -31,11 +31,56 @@ from routers.inventory import InventoryCreate, create_item
 from routers.accounting import AccountCreate, create_account
 from routers.crm import LeadCreate, create_lead
 from routers.hr import EmployeeBody, create_employee
+from utils import _now
 
 router = APIRouter()
 
 # A single import call is capped so a stray huge file can't tie up a worker.
 MAX_ROWS = 5000
+
+# Inventory import can carry variant data: a "product" column groups rows under
+# one product, and these attribute columns become per-SKU attributes. The axis
+# subset also builds the variant label ("M / Red").
+_INV_AXIS_ATTRS = ["Size", "Color", "Storage", "Model", "Pack Size"]
+_INV_ALL_ATTRS  = _INV_AXIS_ATTRS + ["Brand", "Material"]
+
+
+def _inventory_post_create(db, user, raw: Dict[str, Any], item_id):
+    """After a row's inventory item is created, apply any variant columns:
+    link/create the parent product, set the variant label, and record the
+    item's attributes. A row with no product/attribute columns is a plain item
+    and is left untouched (back-compat)."""
+    def col(name):
+        for k, v in (raw or {}).items():
+            if str(k).strip().lower() == name.lower() and v not in (None, ""):
+                return str(v).strip()
+        return None
+
+    product_name = col("product")
+    attrs = [(n, col(n)) for n in _INV_ALL_ATTRS]
+    attrs = [(n, v) for n, v in attrs if v]
+    if not product_name and not attrs:
+        return
+
+    product_id = None
+    if product_name:
+        row = db.execute(
+            "SELECT id FROM products WHERE name=? AND archived_at IS NULL", (product_name,)
+        ).fetchone()
+        product_id = row["id"] if row else db.execute(
+            "INSERT INTO products (name, product_kind, created_at) VALUES (?, 'variant', ?)",
+            (product_name, _now()),
+        ).lastrowid
+
+    label_parts = [v for n, v in attrs if n in _INV_AXIS_ATTRS]
+    label = " / ".join(label_parts) if label_parts else None
+    db.execute("UPDATE inventory SET product_id=?, variant_label=? WHERE id=?",
+               (product_id, label, item_id))
+    for n, v in attrs:
+        db.execute(
+            "INSERT OR IGNORE INTO item_attributes (inventory_id, name, value) VALUES (?,?,?)",
+            (item_id, n, v),
+        )
 
 
 # ── Duplicate detectors ──────────────────────────────────────────────────────
@@ -95,7 +140,7 @@ ENTITIES: Dict[str, dict] = {
     },
     "inventory": {
         "module": "inventory", "model": InventoryCreate, "create": create_item,
-        "dup": _dup_inventory, "dup_key": "barcode",
+        "dup": _dup_inventory, "dup_key": "barcode", "post_create": _inventory_post_create,
         "fields": [
             {"key": "name",            "label": "Name", "required": True},
             {"key": "category",        "label": "Category"},
@@ -110,6 +155,15 @@ ENTITIES: Dict[str, dict] = {
             {"key": "barcode",         "label": "Barcode"},
             {"key": "lot_tracked",     "label": "Lot tracked", "type": "bool"},
             {"key": "shelf_life_days", "label": "Shelf life (days)", "type": "int"},
+            # Variant columns (optional): same-named "product" rows group into one
+            # product; the attribute columns build the variant + its attributes.
+            {"key": "product",         "label": "Product (groups variants)"},
+            {"key": "Size",            "label": "Size"},
+            {"key": "Color",           "label": "Color"},
+            {"key": "Storage",         "label": "Storage"},
+            {"key": "Model",           "label": "Model"},
+            {"key": "Brand",           "label": "Brand"},
+            {"key": "Material",        "label": "Material"},
         ],
     },
     "accounts": {
@@ -287,6 +341,12 @@ def import_commit(entity: str, payload: ImportPayload, user=Depends(require_auth
             continue
         try:
             res = cfg["create"](data=model, user=user, db=db)
+            post = cfg.get("post_create")
+            if post:
+                # Apply variant/attribute columns, then commit so a later row's
+                # rollback can't undo this row's (already-created) item.
+                post(db, user, raw, res.get("id"))
+                db.commit()
             created += 1
             details.append({"index": i, "status": "created", "id": res.get("id")})
         except HTTPException as he:
