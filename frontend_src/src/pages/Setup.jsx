@@ -16,6 +16,7 @@ export default function Setup() {
   const [company, setCompany]     = useState('');
   const [email, setEmail]         = useState('');
   const [currency, setCurrency]   = useState('USD');
+  const [businessType, setBusinessType] = useState('');
   const [error, setError]         = useState('');
   const [submitting, setSubmitting] = useState(false);
 
@@ -38,7 +39,7 @@ export default function Setup() {
     setSubmitting(true);
     setError('');
     try {
-      await completeSetup({ admin_password: password, company_name: company, company_email: email, default_currency: currency });
+      await completeSetup({ admin_password: password, company_name: company, company_email: email, default_currency: currency, business_type: businessType });
       window.location.href = '/login';
     } catch (err) {
       setError(err.message);
@@ -185,6 +186,16 @@ export default function Setup() {
                 <select className="form-control" value={currency} onChange={e => setCurrency(e.target.value)}>
                   {CURRENCIES.map(c => <option key={c}>{c}</option>)}
                 </select>
+              </div>
+              <div className="form-group">
+                <label className="form-label">{t('setup.businessTypeLabel')} <span style={{ fontSize: 11, color: 'var(--text-3)' }}>{t('common.optional')}</span></label>
+                <select className="form-control" value={businessType} onChange={e => setBusinessType(e.target.value)}>
+                  <option value="">{t('setup.businessTypeGeneral')}</option>
+                  <option value="Apparel">{t('setup.businessTypeApparel')}</option>
+                  <option value="Electronics">{t('setup.businessTypeElectronics')}</option>
+                  <option value="Food & Beverage">{t('setup.businessTypeFnb')}</option>
+                </select>
+                <div style={{ fontSize: 11, color: 'var(--text-3)', marginTop: 4 }}>{t('setup.businessTypeHint')}</div>
               </div>
               <div style={{ display: 'flex', gap: 10, marginTop: 8 }}>
                 <button type="button" className="btn btn-secondary" style={{ flex: 1, padding: '11px 16px', display: 'flex', alignItems: 'center', justifyContent: 'center' }} onClick={() => setStep(1)}>
