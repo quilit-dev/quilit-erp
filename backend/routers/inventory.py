@@ -81,20 +81,21 @@ class StockUpdate(BaseModel):
 def list_inventory(search: Optional[str] = None, category: Optional[str] = None,
                    low_stock: Optional[bool] = None, include_archived: bool = False,
                    user=Depends(require_perm("inventory", "view")), db: sqlite3.Connection = Depends(get_db)):
-    query = "SELECT * FROM inventory WHERE 1=1"
+    query = ("SELECT i.*, p.name AS product_name FROM inventory i "
+             "LEFT JOIN products p ON i.product_id = p.id WHERE 1=1")
     params = []
     if not include_archived:
-        query += " AND archived_at IS NULL"
+        query += " AND i.archived_at IS NULL"
     if search:
-        query += " AND (name LIKE ? OR supplier LIKE ? OR barcode = ?)"
+        query += " AND (i.name LIKE ? OR i.supplier LIKE ? OR i.barcode = ?)"
         s = f"%{search}%"
         params.extend([s, s, search])
     if category:
-        query += " AND category = ?"
+        query += " AND i.category = ?"
         params.append(category)
     if low_stock:
-        query += " AND quantity <= min_stock AND min_stock > 0"
-    query += " ORDER BY name"
+        query += " AND i.quantity <= i.min_stock AND i.min_stock > 0"
+    query += " ORDER BY COALESCE(p.name, i.name), i.id"
     rows = db.execute(query, params).fetchall()
     out = [dict(r) for r in rows]
     # Attach resolved variant attributes (Size=M, Color=Red…) so the UI can

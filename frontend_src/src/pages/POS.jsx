@@ -710,6 +710,7 @@ function RegisterView({ session, onClose, onSold }) {
   const [browsePool, setBrowsePool] = useState([]);
   const [results, setResults] = useState([]);
   const [category, setCategory] = useState('');     // '' = All
+  const [variantPicker, setVariantPicker] = useState(null);  // open product group
   const [cart, setCart] = useState([]);
   const [orderDiscount, setOrderDiscount] = useState('');
   const [checkout, setCheckout] = useState(false);
@@ -757,6 +758,33 @@ function RegisterView({ session, onClose, onSold }) {
     : (category
         ? browsePool.filter(p => (p.category || '') === category)
         : browsePool);
+
+  // Group variant SKUs under one tile per product; simple items (no product_id)
+  // stay as their own tile. Preserves first-seen order.
+  const displayTiles = (() => {
+    const byProduct = new Map();
+    const tiles = [];
+    for (const p of visibleProducts) {
+      if (p.product_id == null) { tiles.push({ kind: 'item', item: p }); continue; }
+      let g = byProduct.get(p.product_id);
+      if (!g) {
+        g = { kind: 'group', product_id: p.product_id,
+              name: p.product_name || p.name, category: p.category, variants: [] };
+        byProduct.set(p.product_id, g);
+        tiles.push(g);
+      }
+      g.variants.push(p);
+    }
+    return tiles;
+  })();
+
+  // Tapping a tile: a simple item or single-variant product adds straight to the
+  // cart; a multi-variant product opens the size/colour picker first.
+  function openTile(tile) {
+    if (tile.kind === 'item') { addProduct(tile.item); return; }
+    if (tile.variants.length === 1) { addProduct(tile.variants[0]); return; }
+    setVariantPicker(tile);
+  }
 
   // Distinct categories derived from the browse pool, sorted by frequency
   // so the most-used categories appear first.
@@ -813,9 +841,16 @@ function RegisterView({ session, onClose, onSold }) {
   };
 
   function onSearchKeyDown(e) {
-    if (e.key === 'Enter' && visibleProducts.length > 0) {
+    if (e.key === 'Enter' && displayTiles.length > 0) {
       e.preventDefault();
-      addProduct(visibleProducts[0]);
+      // A barcode scan resolves to a single variant row → add it directly even
+      // when it belongs to a product group; otherwise act on the top tile.
+      if (displayTiles.length === 1 && displayTiles[0].kind === 'group'
+          && displayTiles[0].variants.length === 1) {
+        addProduct(displayTiles[0].variants[0]);
+      } else {
+        openTile(displayTiles[0]);
+      }
       setSearch('');
       setResults([]);
     }
@@ -854,6 +889,32 @@ function RegisterView({ session, onClose, onSold }) {
           onClose={() => setCheckout(false)}
           onDone={(res) => { setCheckout(false); setCart([]); setOrderDiscount(''); onSold(res); }}
         />
+      )}
+      {variantPicker && (
+        <Modal title={variantPicker.name} onClose={() => setVariantPicker(null)}>
+          <div className="modal-body">
+            <p style={{ fontSize: 12.5, color: 'var(--text-3)', margin: '0 0 12px' }}>
+              {t('pos.pickVariant')}
+            </p>
+            <div style={{ display: 'flex', flexWrap: 'wrap', gap: 8 }}>
+              {variantPicker.variants.map(v => {
+                const stock = Number(v.quantity) || 0;
+                const out = stock <= 0;
+                return (
+                  <button key={v.id} type="button" disabled={out}
+                    className={`btn ${out ? 'btn-secondary' : 'btn-primary'}`}
+                    style={{ flexDirection: 'column', alignItems: 'flex-start', gap: 2, opacity: out ? 0.5 : 1 }}
+                    onClick={() => { addProduct(v); setVariantPicker(null); }}>
+                    <span style={{ fontWeight: 600 }}>{v.variant_label || v.name}</span>
+                    <span style={{ fontSize: 11, fontWeight: 400 }}>
+                      {formatProductPrice(v, exchangeRate?.secondary)} · {t('pos.inStock', { count: stock })}
+                    </span>
+                  </button>
+                );
+              })}
+            </div>
+          </div>
+        </Modal>
       )}
 
       {/* ── Session bar ──────────────────────────────────────────── */}
@@ -943,7 +1004,29 @@ function RegisterView({ session, onClose, onSold }) {
                 <p>{t('pos.searchProducts')}</p>
               </div>
             ) : (
-              visibleProducts.map(p => {
+              displayTiles.map(tile => {
+                if (tile.kind === 'group') {
+                  const stock = tile.variants.reduce((s, v) => s + (Number(v.quantity) || 0), 0);
+                  const stockClass = stock <= 0 ? 'out' : (stock < 5 ? 'low' : '');
+                  const monogram = (tile.name || '?').trim().charAt(0).toUpperCase();
+                  const rep = tile.variants[0];
+                  return (
+                    <button key={`p${tile.product_id}`} className="pos-product-tile" onClick={() => openTile(tile)}>
+                      <span className="pos-product-tile-monogram" aria-hidden>{monogram}</span>
+                      <span className="pos-product-tile-name">{tile.name}</span>
+                      <span className="pos-product-tile-foot">
+                        <span className="pos-product-tile-price">
+                          {t('pos.variantCount', { count: tile.variants.length })}
+                        </span>
+                        <span className={`pos-product-tile-stock ${stockClass}`}>
+                          <span className="pos-product-tile-stock-dot" />
+                          {num(stock)}
+                        </span>
+                      </span>
+                    </button>
+                  );
+                }
+                const p = tile.item;
                 const stock = Number(p.quantity) || 0;
                 const stockClass = stock <= 0 ? 'out' : (stock < 5 ? 'low' : '');
                 const monogram = (p.name || '?').trim().charAt(0).toUpperCase();

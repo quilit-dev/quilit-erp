@@ -244,15 +244,17 @@ def search_products(
     db: sqlite3.Connection = Depends(get_db),
 ):
     """Fast item lookup for the cashier — matches name, category or exact barcode."""
-    query  = ("SELECT id, name, category, quantity, unit, unit_cost, sale_price, "
-              "price_currency, barcode "
-              "FROM inventory WHERE archived_at IS NULL")
+    query  = ("SELECT i.id, i.name, i.category, i.quantity, i.unit, i.unit_cost, i.sale_price, "
+              "i.price_currency, i.barcode, i.product_id, i.variant_label, "
+              "p.name AS product_name "
+              "FROM inventory i LEFT JOIN products p ON i.product_id = p.id "
+              "WHERE i.archived_at IS NULL")
     params = []
     if search:
-        query += " AND (name LIKE ? OR category LIKE ? OR barcode = ?)"
+        query += " AND (i.name LIKE ? OR i.category LIKE ? OR i.barcode = ? OR p.name LIKE ?)"
         like = f"%{search}%"
-        params += [like, like, search]
-    query += " ORDER BY name LIMIT 50"
+        params += [like, like, search, like]
+    query += " ORDER BY COALESCE(p.name, i.name), i.id LIMIT 100"
     return [dict(r) for r in db.execute(query, params).fetchall()]
 
 
