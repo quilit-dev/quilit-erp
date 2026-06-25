@@ -168,6 +168,16 @@ export const unarchiveInventoryItem = (id)   => api.patch(`/api/inventory/${id}/
 export const updateStock            = (id, d) => api.patch(`/api/inventory/${id}/stock`, d);
 export const getStockMovements      = (id)   => api.get(`/api/inventory/${id}/movements`);
 export const deductToProject        = (id, d) => api.post(`/api/inventory/${id}/deduct-to-project`, d);
+// Products & variants
+export const getProducts            = (params = {}, s) => api.get(`/api/products/${_qs(params)}`, s);
+export const getProduct             = (id)   => api.get(`/api/products/${id}`);
+export const createProduct          = (d)    => api.post('/api/products/', d);
+export const updateProduct          = (id, d) => api.put(`/api/products/${id}`, d);
+export const archiveProduct         = (id)   => api.patch(`/api/products/${id}/archive`);
+export const getAttributeDefs       = (params = {}) => api.get(`/api/products/attribute-defs${_qs(params)}`);
+export const createAttributeDef     = (d)    => api.post('/api/products/attribute-defs', d);
+export const updateAttributeDef     = (id, d) => api.put(`/api/products/attribute-defs/${id}`, d);
+export const deleteAttributeDef     = (id)   => api.delete(`/api/products/attribute-defs/${id}`);
 // Batch / lot tracking
 export const getLots                = (params = {}) => api.get(`/api/inventory/lots${_qs(params)}`);
 export const getLot                 = (id)   => api.get(`/api/inventory/lots/${id}`);

@@ -4,6 +4,7 @@ import {
   createInventoryItem, updateInventoryItem,
   archiveInventoryItem, unarchiveInventoryItem, updateStock, getStockMovements,
   getLots, getLot, getInventoryByWarehouse, getSuppliers,
+  getAttributeDefs, createProduct,
 } from '../api/client';
 import {
   LoadingSpinner, ErrorAlert, EmptyState, Modal, ConfirmModal,
@@ -521,6 +522,198 @@ function LotsBrowser() {
   );
 }
 
+// ── Product + variant builder ──────────────────────────────────────────────
+// Creates a parent product and the cross-product of its variant axes (Size ×
+// Color …). Each combination becomes its own inventory SKU on the server.
+function ProductBuilder({ knownCategories = [], onSave, onCancel, saving }) {
+  const { t } = useLocale();
+  const { settings, exchangeRate } = useSettings();
+  const rate = Number(exchangeRate?.rate) || 0;
+  const hasRate = rate > 0;
+  const secondary = exchangeRate?.secondary || 'LBP';
+  const businessType = settings?.business_type || '';
+  const allCats = [...new Set([...knownCategories, ...DEFAULT_CATEGORIES])];
+
+  const [defs, setDefs] = useState([]);
+  const [form, setForm] = useState({
+    name: '', category: '', brand: '', barcode_prefix: '',
+    unit: 'pcs', unit_cost: 0, cost_currency: 'USD',
+    sale_price: 0, price_currency: 'USD', min_stock: 0,
+  });
+  // axisSel[name] = Set of chosen values; descriptors[name] = string
+  const [axisSel, setAxisSel] = useState({});
+  const [descriptors, setDescriptors] = useState({});
+  const set = (k, v) => setForm(f => ({ ...f, [k]: v }));
+
+  useEffect(() => {
+    // Pull both the business-type presets and any global attributes.
+    Promise.all([
+      businessType ? getAttributeDefs({ scope_type: 'business', scope_value: businessType }) : Promise.resolve([]),
+      getAttributeDefs({ scope_type: 'global' }),
+    ]).then(([a, b]) => setDefs([...(a || []), ...(b || [])])).catch(() => setDefs([]));
+  }, [businessType]);
+
+  const axes = defs.filter(d => d.is_variant_axis);
+  const descs = defs.filter(d => !d.is_variant_axis);
+
+  function toggleAxis(name, val) {
+    setAxisSel(s => {
+      const next = new Set(s[name] || []);
+      next.has(val) ? next.delete(val) : next.add(val);
+      return { ...s, [name]: next };
+    });
+  }
+
+  // Live preview: how many variants will be generated.
+  const chosenAxes = axes
+    .map(a => ({ name: a.name, values: [...(axisSel[a.name] || [])] }))
+    .filter(a => a.values.length > 0);
+  const variantCount = chosenAxes.reduce((n, a) => n * a.values.length, chosenAxes.length ? 1 : 1);
+
+  function equiv(value, cur) {
+    if (!hasRate || !value) return null;
+    const n = Number(value) || 0;
+    return cur === 'LBP' ? `≈ $${fmtNum(n / rate)}`
+      : `≈ ${new Intl.NumberFormat('en-US', { maximumFractionDigits: 0 }).format(n * rate)} ${secondary}`;
+  }
+
+  function submit(e) {
+    e.preventDefault();
+    if (!form.name.trim()) { toast(t('inventory.productNameRequired'), 'red'); return; }
+    const cleanDesc = {};
+    descs.forEach(d => { if (descriptors[d.name]) cleanDesc[d.name] = descriptors[d.name]; });
+    if (form.brand) cleanDesc.Brand = form.brand;
+    onSave({
+      name: form.name.trim(), category: form.category || null, brand: form.brand || null,
+      barcode_prefix: form.barcode_prefix || null, unit: form.unit,
+      min_stock: Number(form.min_stock) || 0,
+      unit_cost: Number(form.unit_cost) || 0, cost_currency: form.cost_currency,
+      exchange_rate: form.cost_currency === 'LBP' ? rate : undefined,
+      sale_price: Number(form.sale_price) || 0, price_currency: form.price_currency,
+      axes: chosenAxes, descriptors: cleanDesc,
+    });
+  }
+
+  return (
+    <form onSubmit={submit}>
+      <div className="modal-body">
+        {!businessType && (
+          <div style={{ fontSize: 12, color: 'var(--text-3)', marginBottom: 12 }}>
+            {t('inventory.noBusinessTypeHint')}
+          </div>
+        )}
+        <div className="form-grid">
+          <div className="form-group form-full">
+            <label className="form-label">{t('inventory.productNameLabel')}</label>
+            <input className="form-control" required value={form.name} onChange={e => set('name', e.target.value)} />
+          </div>
+          <div className="form-group">
+            <label className="form-label">{t('common.category')}</label>
+            <select className="form-control" value={form.category} onChange={e => set('category', e.target.value)}>
+              <option value="">{t('inventory.noCategory')}</option>
+              {allCats.map(c => <option key={c} value={c}>{c}</option>)}
+            </select>
+          </div>
+          <div className="form-group">
+            <label className="form-label">{t('inventory.brandLabel')}</label>
+            <input className="form-control" value={form.brand} onChange={e => set('brand', e.target.value)} />
+          </div>
+        </div>
+
+        {/* Variant axes */}
+        {axes.length > 0 && (
+          <div style={{ marginTop: 8 }}>
+            <div className="form-label" style={{ marginBottom: 6 }}>{t('inventory.variantOptionsLabel')}</div>
+            {axes.map(a => (
+              <div key={a.id} style={{ marginBottom: 10 }}>
+                <div style={{ fontSize: 12, fontWeight: 600, marginBottom: 4 }}>{a.name}</div>
+                <div style={{ display: 'flex', flexWrap: 'wrap', gap: 6 }}>
+                  {(a.options || []).map(opt => {
+                    const on = (axisSel[a.name] || new Set()).has(opt);
+                    return (
+                      <button type="button" key={opt} onClick={() => toggleAxis(a.name, opt)}
+                        className={`btn btn-sm ${on ? 'btn-primary' : 'btn-secondary'}`}>
+                        {opt}
+                      </button>
+                    );
+                  })}
+                  {(!a.options || a.options.length === 0) && (
+                    <input className="form-control" style={{ height: 30, fontSize: 12 }}
+                      placeholder={t('inventory.commaSeparatedValues')}
+                      onBlur={e => {
+                        const vals = e.target.value.split(',').map(v => v.trim()).filter(Boolean);
+                        setAxisSel(s => ({ ...s, [a.name]: new Set(vals) }));
+                      }} />
+                  )}
+                </div>
+              </div>
+            ))}
+          </div>
+        )}
+
+        {/* Descriptors (non-varying) */}
+        {descs.length > 0 && (
+          <div className="form-grid" style={{ marginTop: 8 }}>
+            {descs.map(d => (
+              <div key={d.id} className="form-group">
+                <label className="form-label">{d.name}</label>
+                <input className="form-control" value={descriptors[d.name] || ''}
+                  onChange={e => setDescriptors(s => ({ ...s, [d.name]: e.target.value }))} />
+              </div>
+            ))}
+          </div>
+        )}
+
+        {/* Base price/cost — inherited by every variant */}
+        <div className="form-grid" style={{ marginTop: 8 }}>
+          <div className="form-group">
+            <label className="form-label">{t('inventory.unitCostLabel')}</label>
+            <div style={{ display: 'flex', gap: 6 }}>
+              <NumberInput className="form-control" step="any" min="0" style={{ flex: 1 }}
+                value={form.unit_cost} onChange={e => set('unit_cost', e.target.value)} />
+              <select className="form-control" style={{ width: 80 }} value={form.cost_currency}
+                onChange={e => set('cost_currency', e.target.value)}>
+                <option value="USD">USD</option>
+                <option value={secondary} disabled={!hasRate}>{secondary}</option>
+              </select>
+            </div>
+            {form.cost_currency === 'LBP' && <div style={{ fontSize: 11, color: 'var(--text-3)', marginTop: 3 }}>{t('inventory.costLockedToUsd')} {equiv(form.unit_cost, 'LBP')}</div>}
+          </div>
+          <div className="form-group">
+            <label className="form-label">{t('inventory.salePriceLabel')}</label>
+            <div style={{ display: 'flex', gap: 6 }}>
+              <NumberInput className="form-control" step="any" min="0" style={{ flex: 1 }}
+                value={form.sale_price} onChange={e => set('sale_price', e.target.value)} />
+              <select className="form-control" style={{ width: 80 }} value={form.price_currency}
+                onChange={e => set('price_currency', e.target.value)}>
+                <option value="USD">USD</option>
+                <option value={secondary} disabled={!hasRate}>{secondary}</option>
+              </select>
+            </div>
+            {form.price_currency === 'LBP' && <div style={{ fontSize: 11, color: 'var(--text-3)', marginTop: 3 }}>{t('inventory.salePriceFloatsHint')} {equiv(form.sale_price, 'LBP')}</div>}
+          </div>
+          <div className="form-group">
+            <label className="form-label">{t('inventory.barcodePrefixLabel')}</label>
+            <input className="form-control" value={form.barcode_prefix}
+              onChange={e => set('barcode_prefix', e.target.value)} placeholder="e.g. TSHIRT-" />
+          </div>
+        </div>
+      </div>
+      <div className="modal-footer" style={{ justifyContent: 'space-between' }}>
+        <span style={{ fontSize: 13, color: 'var(--text-2)' }}>
+          {t('inventory.variantsToCreate', { count: variantCount })}
+        </span>
+        <div style={{ display: 'flex', gap: 8 }}>
+          <button type="button" className="btn btn-secondary" onClick={onCancel}>{t('common.cancel')}</button>
+          <button type="submit" className="btn btn-primary" disabled={saving}>
+            {saving ? t('common.saving') : t('inventory.createProductBtn')}
+          </button>
+        </div>
+      </div>
+    </form>
+  );
+}
+
 export default function Inventory() {
   const { t } = useLocale();
   const [view, setView] = useState('items');   // 'items' | 'lots'
@@ -603,6 +796,17 @@ export default function Inventory() {
     finally { setSaving(false); }
   }
 
+  async function handleAddProduct(data) {
+    setSaving(true);
+    try {
+      const res = await createProduct(data);
+      toast(t('inventory.productCreated', { count: res.variant_count }));
+      setModal(null);
+      load();
+    } catch (err) { toast(err.message, 'red'); }
+    finally { setSaving(false); }
+  }
+
   async function handleArchive() {
     try {
       await archiveInventoryItem(activeItem.id);
@@ -659,6 +863,7 @@ export default function Inventory() {
           </div>
           {view === 'items' && <ExportButton data={exportData} filename="Inventory" sheetName="Inventory" />}
           {view === 'items' && <button className="btn btn-secondary" onClick={() => setImporting(true)}>⬆ {t('imports.importBtn')}</button>}
+          {view === 'items' && <button className="btn btn-secondary" onClick={() => setModal('product')}>{t('inventory.newProductBtn')}</button>}
           {view === 'items' && <button className="btn btn-primary" onClick={() => setModal('add')}>{t('inventory.addItem')}</button>}
         </div>
       </div>
@@ -744,6 +949,13 @@ export default function Inventory() {
                         {item.name}
                         {isLow && !isArchived && <span className="badge badge-red" style={{ marginLeft: 6 }}>{t('inventory.lowStock')}</span>}
                         {isArchived && <span className="badge badge-gray" style={{ marginInlineStart: 8 }}>{t('common.archivedBadge')}</span>}
+                        {item.attributes && Object.keys(item.attributes).length > 0 && (
+                          <div style={{ display: 'flex', flexWrap: 'wrap', gap: 4, marginTop: 3 }}>
+                            {Object.entries(item.attributes).map(([k, v]) => (
+                              <span key={k} className="badge badge-accent" style={{ fontSize: 10 }}>{k}: {v}</span>
+                            ))}
+                          </div>
+                        )}
                       </td>
                       <td><CategoryBadge category={item.category} /></td>
                       <td><ProductTypeBadge type={item.product_type} /></td>
@@ -792,6 +1004,11 @@ export default function Inventory() {
       {modal === 'add' && (
         <Modal title={t('inventory.addInventoryItem')} onClose={() => setModal(null)}>
           <ItemForm knownCategories={allKnownCats} suppliers={suppliers} onSave={handleAdd} onCancel={() => setModal(null)} saving={saving} />
+        </Modal>
+      )}
+      {modal === 'product' && (
+        <Modal title={t('inventory.newProductTitle')} onClose={() => setModal(null)} size="lg">
+          <ProductBuilder knownCategories={allKnownCats} onSave={handleAddProduct} onCancel={() => setModal(null)} saving={saving} />
         </Modal>
       )}
       {modal === 'edit' && activeItem && (

@@ -261,6 +261,7 @@ export default function Settings() {
     'bank_name', 'bank_account', 'bank_iban', 'bank_swift',
     'default_tax_rate', 'tax_enabled', 'payment_terms_days',
     'invoice_prefix', 'quotation_prefix', 'inventory_costing_method',
+    'business_type',
     'footer_text', 'show_discount_col', 'show_tax_col',
   ]);
 
@@ -495,6 +496,20 @@ export default function Settings() {
           <p style={{ fontSize: 12, color: 'var(--text-3)', margin: '0 0 14px' }}>
             {t('settings.inventoryCostingDesc')}
           </p>
+          <Field label={t('settings.businessType')} hint={t('settings.businessTypeHint')}>
+            <select
+              className="form-control"
+              style={{ maxWidth: 360, opacity: isAdmin ? 1 : 0.6, cursor: isAdmin ? 'pointer' : 'not-allowed' }}
+              value={form.business_type || ''}
+              onChange={e => isAdmin && set('business_type')(e.target.value)}
+              disabled={!isAdmin}
+            >
+              <option value="">{t('settings.businessTypeGeneral')}</option>
+              <option value="Apparel">{t('settings.businessTypeApparel')}</option>
+              <option value="Electronics">{t('settings.businessTypeElectronics')}</option>
+              <option value="Food & Beverage">{t('settings.businessTypeFnb')}</option>
+            </select>
+          </Field>
           <Field label={t('settings.inventoryCostingMethod')} hint={t('settings.inventoryCostingMethodHint')}>
             <select
               className="form-control"
