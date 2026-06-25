@@ -10,6 +10,7 @@ import {
   getPlanningMilestones,
   getPlanningSummary, getPlanningDropdownClients, getPlanningDropdownUsers,
   getPlanningEvents, createPlanningEvent, updatePlanningEvent, deletePlanningEvent,
+  getProjects,
 } from '../api/client';
 
 // ─── Constants ───────────────────────────────────────────────────────────────
@@ -131,7 +132,7 @@ function SummaryCards({ summary }) {
 
 // ─── Project Form ─────────────────────────────────────────────────────────────
 
-function ProjectForm({ initial, clients, onSave, onClose }) {
+function ProjectForm({ initial, clients, srcProjects = [], onSave, onClose }) {
   const { t } = useLocale();
   const [form, setForm] = useState({
     name: '', description: '', color: '#4f8ef7',
@@ -141,9 +142,34 @@ function ProjectForm({ initial, clients, onSave, onClose }) {
       : { client_id: '' }),
   });
   const [saving, setSaving] = useState(false);
+  // Creation source: type a brand-new project ('new') or pull the details from
+  // an existing record in the operational Projects module ('import'). Only
+  // offered when creating (not editing) and when source projects are available.
+  const canImport = !initial?.id && srcProjects.length > 0;
+  const [mode, setMode] = useState('new');
+  const [srcId, setSrcId] = useState('');
+
+  // Prefill the form from a chosen Projects-module record. Statuses differ
+  // between the two modules, so status/color keep their planning defaults.
+  function pickSource(id) {
+    setSrcId(id);
+    const p = srcProjects.find(x => String(x.id) === String(id));
+    if (!p) return;
+    setForm(f => ({
+      ...f,
+      name:        p.name || '',
+      description: p.description || '',
+      client_id:   p.client_id || '',
+      start_date:  p.start_date || '',
+      end_date:    p.end_date || '',
+    }));
+  }
 
   async function handleSubmit(e) {
     e.preventDefault();
+    if (canImport && mode === 'import' && !srcId) {
+      toast(t('planning.importProjectRequired'), 'error'); return;
+    }
     if (!form.name.trim()) { toast(t('planning.projectNameRequired'), 'error'); return; }
     setSaving(true);
     try {
@@ -168,6 +194,30 @@ function ProjectForm({ initial, clients, onSave, onClose }) {
   return (
     <form onSubmit={handleSubmit}>
       <div className="modal-body">
+        {canImport && (
+          <div className="form-group form-full">
+            <div className="tabs" style={{ marginBottom: 4 }}>
+              <button type="button" className={`tab-btn${mode === 'new' ? ' active' : ''}`}
+                      onClick={() => { setMode('new'); setSrcId(''); }}>
+                {t('planning.projModeNew')}
+              </button>
+              <button type="button" className={`tab-btn${mode === 'import' ? ' active' : ''}`}
+                      onClick={() => setMode('import')}>
+                {t('planning.projModeImport')}
+              </button>
+            </div>
+          </div>
+        )}
+        {canImport && mode === 'import' && (
+          <div className="form-group form-full">
+            <label className="form-label">{t('planning.importProjectLabel')}</label>
+            <select className="form-control" value={srcId} onChange={e => pickSource(e.target.value)}>
+              <option value="">{t('planning.importProjectOption')}</option>
+              {srcProjects.map(p => <option key={p.id} value={p.id}>{p.name}</option>)}
+            </select>
+            <div style={{ fontSize: 12, color: 'var(--text-3)', marginTop: 4 }}>{t('planning.importProjectHint')}</div>
+          </div>
+        )}
         <div className="form-group form-full">
           <label className="form-label">{t('planning.projectName')} *</label>
           <input className="form-control" value={form.name} onChange={e => set('name', e.target.value)} required />
@@ -1607,10 +1657,15 @@ export default function Planning() {
 
   const [clients, setClients] = useState([]);
   const [users,   setUsers]   = useState([]);
+  // Projects from the operational Projects module (separate table from planning
+  // projects) — offered in the New Project form so a planning project can be
+  // started from an existing one instead of retyping its details.
+  const [srcProjects, setSrcProjects] = useState([]);
 
   useEffect(() => {
     getPlanningDropdownClients().then(setClients).catch(() => {});
     getPlanningDropdownUsers().then(setUsers).catch(() => {});
+    getProjects({}).then(r => setSrcProjects(Array.isArray(r) ? r : (r?.items || []))).catch(() => {});
   }, []);
 
   function reloadAll() {
@@ -1758,6 +1813,7 @@ export default function Planning() {
           <ProjectForm
             initial={editProj}
             clients={clients}
+            srcProjects={srcProjects}
             onSave={() => { setProjModal(false); reloadAll(); }}
             onClose={() => setProjModal(false)}
           />
