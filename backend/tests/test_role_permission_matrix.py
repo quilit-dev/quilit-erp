@@ -50,13 +50,26 @@ def test_module_view_enforcement(role, module, db, make_client):
 @pytest.mark.rbac
 @pytest.mark.parametrize("role", RBAC_ROLES)
 @pytest.mark.parametrize("path", sorted(ADMIN_VIEW_ENDPOINTS.values()))
-def test_admin_endpoints_reject_non_superadmin(role, path, make_client):
-    """User/role administration must be superadmin-only."""
+def test_admin_endpoints_enforce_users_view(role, path, db, make_client):
+    """User/role administration is gated by `users.view`.
+
+    Listing users and roles is no longer superadmin-only: Branch Managers
+    manage their own branch's staff (and need the role list to populate the
+    assignment dropdown), so any role granted `users.view` may read these
+    endpoints. Every role WITHOUT `users.view` must still be refused — that's
+    the privilege-leak guard. The grant is read from the DB so this tracks the
+    seeded matrix, not a hard-coded role list."""
+    granted = _can_view(db, role, "users")
     r = make_client(role).get(path)
     assert r.status_code < 500, f"{role} -> {path} crashed ({r.status_code})"
-    assert r.status_code == 403, (
-        f"PRIVILEGE LEAK: non-superadmin {role} reached admin endpoint {path} "
-        f"-> {r.status_code} (expected 403)")
+    if granted:
+        assert r.status_code != 403, (
+            f"INCORRECT 403: {role} has 'users.view' but admin endpoint {path} "
+            f"returned 403")
+    else:
+        assert r.status_code == 403, (
+            f"PRIVILEGE LEAK: {role} lacks 'users.view' but reached admin endpoint "
+            f"{path} -> {r.status_code} (expected 403)")
 
 
 @pytest.mark.rbac
