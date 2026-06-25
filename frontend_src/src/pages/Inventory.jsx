@@ -737,6 +737,13 @@ export default function Inventory() {
   const [importing,  setImporting]  = useState(false);
   const [activeItem, setActiveItem] = useState(null);
   const [saving,     setSaving]     = useState(false);
+  // Product ids the user has collapsed in the list (variants expanded by default).
+  const [collapsed,  setCollapsed]  = useState(() => new Set());
+  const toggleCollapsed = (pid) => setCollapsed(prev => {
+    const next = new Set(prev);
+    next.has(pid) ? next.delete(pid) : next.add(pid);
+    return next;
+  });
 
   // Global-search deep link (?focus=<id>) → open that item's edit modal.
   const [focusId, clearFocus] = useFocusId();
@@ -831,6 +838,79 @@ export default function Inventory() {
   const hasFilters   = search || categoryFilter || lowStockOnly;
 
   const { sorted: pagedItems, page, pageSize, totalPages, setPage, setPageSize, sortKey, sortDir, requestSort, PAGE_SIZES } = useSortPaginate(items);
+
+  // Per-product roll-up (across ALL variants, not just the current page) so a
+  // product header can show its variant count, total stock and total value.
+  const productAgg = (() => {
+    const m = new Map();
+    for (const it of items) {
+      if (it.product_id == null) continue;
+      const a = m.get(it.product_id) || { name: it.product_name || it.name, count: 0, stock: 0, value: 0 };
+      a.count += 1;
+      a.stock += Number(it.quantity) || 0;
+      a.value += (Number(it.quantity) || 0) * (Number(it.unit_cost) || 0);
+      if (it.product_name) a.name = it.product_name;
+      m.set(it.product_id, a);
+    }
+    return m;
+  })();
+
+  function renderItemRow(item, indent = false) {
+    const isLow = item.min_stock > 0 && item.quantity <= item.min_stock;
+    const isArchived = !!item.archived_at;
+    // For a variant, show its short label ("M / Red") rather than the long
+    // "Product — M / Red" name, since the product header already names it.
+    const display = indent && item.variant_label ? item.variant_label : item.name;
+    return (
+      <tr key={item.id} className={isArchived ? 'row-archived' : undefined}>
+        <td className="td-primary" style={indent ? { paddingInlineStart: 28 } : undefined}>
+          {display}
+          {isLow && !isArchived && <span className="badge badge-red" style={{ marginLeft: 6 }}>{t('inventory.lowStock')}</span>}
+          {isArchived && <span className="badge badge-gray" style={{ marginInlineStart: 8 }}>{t('common.archivedBadge')}</span>}
+          {item.attributes && Object.keys(item.attributes).length > 0 && (
+            <div style={{ display: 'flex', flexWrap: 'wrap', gap: 4, marginTop: 3 }}>
+              {Object.entries(item.attributes).map(([k, v]) => (
+                <span key={k} className="badge badge-accent" style={{ fontSize: 10 }}>{k}: {v}</span>
+              ))}
+            </div>
+          )}
+        </td>
+        <td><CategoryBadge category={item.category} /></td>
+        <td><ProductTypeBadge type={item.product_type} /></td>
+        <td style={{ color: isLow ? 'var(--red)' : undefined, fontWeight: isLow ? 600 : undefined }}>
+          {item.quantity} {item.unit}
+          {item.reserved_quantity > 0 && (
+            <div style={{ fontSize: 10, color: 'var(--text-3)', fontWeight: 400 }}>
+              {t('inventory.reservedQty', { qty: item.reserved_quantity })}
+            </div>
+          )}
+        </td>
+        <td>{item.min_stock} {item.unit}</td>
+        <td>${fmtNum(item.unit_cost)}</td>
+        <td style={{ fontWeight: 600 }}>${fmtNum(item.quantity * item.unit_cost)}</td>
+        <td>{item.supplier || <span style={{ color: 'var(--text-3)' }}>—</span>}</td>
+        <td>
+          <div style={{ display: 'flex', gap: 6 }}>
+            {isArchived ? (
+              <button className="btn btn-sm btn-secondary" style={{ color: '#166534', whiteSpace: 'nowrap' }}
+                onClick={() => { setActiveItem(item); setModal('restore'); }}><svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true"><polyline points="1 4 1 10 7 10"/><path d="M3.51 15a9 9 0 1 0 2.13-9.36L1 10"/></svg>{t('common.restore')}</button>
+            ) : (
+              <>
+                <button className="btn btn-sm btn-secondary"
+                  onClick={() => { setActiveItem(item); setModal('stock'); }}>{t('inventory.adjustStock')}</button>
+                <button className="btn btn-sm btn-secondary"
+                  onClick={() => { setActiveItem(item); setModal('history'); }}>{t('common.history')}</button>
+                <button className="btn btn-sm btn-secondary"
+                  onClick={() => { setActiveItem(item); setModal('edit'); }}>{t('common.edit')}</button>
+                <button className="btn btn-sm btn-danger"
+                  onClick={() => { setActiveItem(item); setModal('delete'); }}>{t('common.archive')}</button>
+              </>
+            )}
+          </div>
+        </td>
+      </tr>
+    );
+  }
 
   const exportData = items.map(i => ({
     Name: i.name, Category: i.category || '', Type: i.product_type || '',
@@ -940,59 +1020,42 @@ export default function Inventory() {
                 </tr>
               </thead>
               <tbody>
-                {pagedItems.map(item => {
-                  const isLow = item.min_stock > 0 && item.quantity <= item.min_stock;
-                  const isArchived = !!item.archived_at;
-                  return (
-                    <tr key={item.id} className={isArchived ? 'row-archived' : undefined}>
-                      <td className="td-primary">
-                        {item.name}
-                        {isLow && !isArchived && <span className="badge badge-red" style={{ marginLeft: 6 }}>{t('inventory.lowStock')}</span>}
-                        {isArchived && <span className="badge badge-gray" style={{ marginInlineStart: 8 }}>{t('common.archivedBadge')}</span>}
-                        {item.attributes && Object.keys(item.attributes).length > 0 && (
-                          <div style={{ display: 'flex', flexWrap: 'wrap', gap: 4, marginTop: 3 }}>
-                            {Object.entries(item.attributes).map(([k, v]) => (
-                              <span key={k} className="badge badge-accent" style={{ fontSize: 10 }}>{k}: {v}</span>
-                            ))}
-                          </div>
-                        )}
-                      </td>
-                      <td><CategoryBadge category={item.category} /></td>
-                      <td><ProductTypeBadge type={item.product_type} /></td>
-                      <td style={{ color: isLow ? 'var(--red)' : undefined, fontWeight: isLow ? 600 : undefined }}>
-                        {item.quantity} {item.unit}
-                        {item.reserved_quantity > 0 && (
-                          <div style={{ fontSize: 10, color: 'var(--text-3)', fontWeight: 400 }}>
-                            {t('inventory.reservedQty', { qty: item.reserved_quantity })}
-                          </div>
-                        )}
-                      </td>
-                      <td>{item.min_stock} {item.unit}</td>
-                      <td>${fmtNum(item.unit_cost)}</td>
-                      <td style={{ fontWeight: 600 }}>${fmtNum(item.quantity * item.unit_cost)}</td>
-                      <td>{item.supplier || <span style={{ color: 'var(--text-3)' }}>—</span>}</td>
-                      <td>
-                        <div style={{ display: 'flex', gap: 6 }}>
-                          {isArchived ? (
-                            <button className="btn btn-sm btn-secondary" style={{ color: '#166534', whiteSpace: 'nowrap' }}
-                              onClick={() => { setActiveItem(item); setModal('restore'); }}><svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true"><polyline points="1 4 1 10 7 10"/><path d="M3.51 15a9 9 0 1 0 2.13-9.36L1 10"/></svg>{t('common.restore')}</button>
-                          ) : (
-                            <>
-                              <button className="btn btn-sm btn-secondary"
-                                onClick={() => { setActiveItem(item); setModal('stock'); }}>{t('inventory.adjustStock')}</button>
-                              <button className="btn btn-sm btn-secondary"
-                                onClick={() => { setActiveItem(item); setModal('history'); }}>{t('common.history')}</button>
-                              <button className="btn btn-sm btn-secondary"
-                                onClick={() => { setActiveItem(item); setModal('edit'); }}>{t('common.edit')}</button>
-                              <button className="btn btn-sm btn-danger"
-                                onClick={() => { setActiveItem(item); setModal('delete'); }}>{t('common.archive')}</button>
-                            </>
-                          )}
-                        </div>
-                      </td>
-                    </tr>
-                  );
-                })}
+                {(() => {
+                  // Group contiguous variants of the same product under a
+                  // collapsible header row. Standalone items render flat.
+                  const rows = [];
+                  let prevPid;
+                  pagedItems.forEach(item => {
+                    const pid = item.product_id;
+                    if (pid != null && pid !== prevPid) {
+                      const agg = productAgg.get(pid) || { name: item.product_name || item.name, count: 0, stock: 0, value: 0 };
+                      const isOpen = !collapsed.has(pid);
+                      rows.push(
+                        <tr key={`ph-${pid}`} style={{ background: 'var(--bg-2, var(--bg))', cursor: 'pointer' }}
+                          onClick={() => toggleCollapsed(pid)}>
+                          <td className="td-primary" colSpan={3}>
+                            <span style={{ display: 'inline-block', width: 12, transition: 'transform .15s',
+                              transform: isOpen ? 'rotate(90deg)' : 'none' }}>▸</span>
+                            {' '}<strong>{agg.name}</strong>
+                            <span className="badge badge-accent" style={{ marginInlineStart: 8, fontSize: 10 }}>
+                              {t('inventory.variantCountBadge', { count: agg.count })}
+                            </span>
+                          </td>
+                          <td style={{ fontWeight: 600 }}>{agg.stock}</td>
+                          <td />
+                          <td />
+                          <td style={{ fontWeight: 600 }}>${fmtNum(agg.value)}</td>
+                          <td />
+                          <td />
+                        </tr>
+                      );
+                    }
+                    prevPid = pid;
+                    if (pid != null && collapsed.has(pid)) return;  // hidden when collapsed
+                    rows.push(renderItemRow(item, pid != null));
+                  });
+                  return rows;
+                })()}
               </tbody>
             </table>
             <Pagination page={page} totalPages={totalPages} pageSize={pageSize} pageSizes={PAGE_SIZES}
