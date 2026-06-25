@@ -6,12 +6,32 @@ from permissions import require_perm, require_auth
 from routers.audit import log_action
 from utils import _now, notify, validate_int_qty
 import costing
+import currency
 import lots
 import sqlite3
 
 router = APIRouter()
 
 _PRODUCT_TYPES = {"raw_material", "semi_finished", "finished", "consumable"}
+_CURRENCIES = {"USD", "LBP"}
+
+
+def _resolve_item_currencies(data, db):
+    """Validate the item's currencies and lock cost to USD.
+
+    Returns (price_currency, unit_cost_usd):
+      - price_currency: validated native currency for sale_price (stays native).
+      - unit_cost_usd: the cost to STORE — always USD. When cost_currency is LBP
+        the entered unit_cost is converted now (inventory = historical USD cost).
+    """
+    price_currency = (data.price_currency or "USD").upper()
+    if price_currency not in _CURRENCIES:
+        raise HTTPException(400, "Unsupported price currency.")
+    cost_currency = (data.cost_currency or "USD").upper()
+    if cost_currency not in _CURRENCIES:
+        raise HTTPException(400, "Unsupported cost currency.")
+    unit_cost_usd = currency.to_usd(data.unit_cost or 0, cost_currency, db, data.exchange_rate)
+    return price_currency, unit_cost_usd
 
 
 class InventoryCreate(BaseModel):
@@ -26,7 +46,17 @@ class InventoryCreate(BaseModel):
     # Used for stock valuation and POS cost-of-goods-sold.
     unit_cost: Optional[float] = 0
     # sale_price = retail price the POS rings the item up at (VAT-inclusive).
+    # Held in `price_currency` (USD or LBP). An LBP price is *native* — it floats:
+    # POS converts it to USD at the sale-time rate, so its USD value tracks the
+    # exchange rate. Default USD keeps every existing item unchanged.
     sale_price: Optional[float] = 0
+    price_currency: Optional[str] = "USD"
+    # Cost may be *entered* in LBP for convenience, but unlike the sale price it
+    # is locked to USD at entry (inventory is carried at historical USD cost and
+    # the costing engine owns unit_cost). When cost_currency='LBP', unit_cost is
+    # converted to USD via exchange_rate (or the latest stored rate) before save.
+    cost_currency: Optional[str] = None
+    exchange_rate: Optional[float] = None
     supplier: Optional[str] = None
     unit: Optional[str] = "pcs"
     barcode: Optional[str] = None
@@ -217,9 +247,10 @@ def create_item(data: InventoryCreate, user=Depends(require_perm("inventory", "c
     ptype = (data.product_type or None)
     if ptype and ptype not in _PRODUCT_TYPES:
         raise HTTPException(400, "Invalid product type.")
+    price_currency, unit_cost = _resolve_item_currencies(data, db)
     c = db.execute(
-        "INSERT INTO inventory (name, category, product_type, quantity, min_stock, unit_cost, sale_price, supplier, unit, barcode, lot_tracked, shelf_life_days, created_at) VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?)",
-        (data.name, data.category, ptype, data.quantity, data.min_stock, data.unit_cost, data.sale_price, data.supplier, data.unit, barcode,
+        "INSERT INTO inventory (name, category, product_type, quantity, min_stock, unit_cost, sale_price, price_currency, supplier, unit, barcode, lot_tracked, shelf_life_days, created_at) VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?)",
+        (data.name, data.category, ptype, data.quantity, data.min_stock, unit_cost, data.sale_price, price_currency, data.supplier, data.unit, barcode,
          1 if data.lot_tracked else 0, data.shelf_life_days, now)
     )
     item_id = c.lastrowid
@@ -239,10 +270,11 @@ def create_item(data: InventoryCreate, user=Depends(require_perm("inventory", "c
             (item_id, "adjustment", data.quantity, 0, data.quantity, "Initial stock", wid, now)
         )
         # Opening stock: a lot for lot-tracked items, else a FIFO/LIFO cost layer.
-        lots.record_stock_in(db, item_id, data.quantity, data.unit_cost or 0,
+        # Seed at the USD-converted cost so the lot carries historical USD cost.
+        lots.record_stock_in(db, item_id, data.quantity, unit_cost,
                              source_type="opening", source_ref="Initial stock", now=now)
     log_action(db, user, "create", "inventory", item_id, data.name,
-               {"quantity": data.quantity, "unit_cost": data.unit_cost})
+               {"quantity": data.quantity, "unit_cost": unit_cost})
     db.commit()
     return {"id": item_id, "message": "Item created"}
 
@@ -263,10 +295,11 @@ def update_item(item_id: int, data: InventoryCreate, user=Depends(require_perm("
     ptype = (data.product_type or None)
     if ptype and ptype not in _PRODUCT_TYPES:
         raise HTTPException(400, "Invalid product type.")
+    price_currency, unit_cost = _resolve_item_currencies(data, db)
     # quantity is managed exclusively via /stock — never overwritten by edit
     db.execute(
-        "UPDATE inventory SET name=?, category=?, product_type=?, min_stock=?, unit_cost=?, sale_price=?, supplier=?, unit=?, barcode=?, lot_tracked=?, shelf_life_days=? WHERE id=?",
-        (data.name, data.category, ptype, data.min_stock, data.unit_cost, data.sale_price, data.supplier, data.unit, barcode,
+        "UPDATE inventory SET name=?, category=?, product_type=?, min_stock=?, unit_cost=?, sale_price=?, price_currency=?, supplier=?, unit=?, barcode=?, lot_tracked=?, shelf_life_days=? WHERE id=?",
+        (data.name, data.category, ptype, data.min_stock, unit_cost, data.sale_price, price_currency, data.supplier, data.unit, barcode,
          1 if data.lot_tracked else 0, data.shelf_life_days, item_id)
     )
     log_action(db, user, "update", "inventory", item_id, data.name)

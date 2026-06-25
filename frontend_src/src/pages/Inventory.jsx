@@ -11,6 +11,7 @@ import {
 } from '../components/shared';
 import { useSortPaginate } from '../hooks/useSortPaginate';
 import { useLocale } from '../hooks/useLocale.jsx';
+import { useSettings } from '../hooks/useSettings.jsx';
 import { useWarehouses } from '../hooks/useWarehouses';
 import { useFocusId } from '../hooks/useFocusId';
 import ImportWizard from '../components/ImportWizard';
@@ -47,6 +48,10 @@ function ProductTypeBadge({ type }) {
 
 function ItemForm({ initial = {}, knownCategories = [], suppliers = [], onSave, onCancel, saving }) {
   const { t } = useLocale();
+  const { exchangeRate } = useSettings();
+  const rate = Number(exchangeRate?.rate) || 0;
+  const hasRate = rate > 0;
+  const secondary = exchangeRate?.secondary || 'LBP';
   const isEdit = !!initial.id;
   const allCats = [...new Set([...knownCategories, ...DEFAULT_CATEGORIES])];
 
@@ -58,7 +63,11 @@ function ItemForm({ initial = {}, knownCategories = [], suppliers = [], onSave, 
     quantity:       initial.quantity   ?? 0,
     min_stock:      initial.min_stock  ?? 0,
     unit_cost:      initial.unit_cost ?? 0,
+    // Cost is always stored in USD, so editing always starts in USD even if it
+    // was originally typed in LBP. Sale price keeps its native currency.
+    cost_currency:  'USD',
     sale_price:     initial.sale_price ?? 0,
+    price_currency: (initial.price_currency || 'USD'),
     supplier:       initial.supplier   || '',
     unit:           initial.unit       || 'pcs',
     barcode:        initial.barcode    || '',
@@ -69,12 +78,23 @@ function ItemForm({ initial = {}, knownCategories = [], suppliers = [], onSave, 
   const useCustom = form.category === '__custom__';
   const set = (k, v) => setForm(f => ({ ...f, [k]: v }));
 
+  // Live equivalent in the *other* currency for a field entered in `cur`.
+  function equiv(value, cur) {
+    if (!hasRate || !value) return null;
+    const n = Number(value) || 0;
+    return cur === 'LBP'
+      ? `≈ $${fmtNum(n / rate)}`
+      : `≈ ${new Intl.NumberFormat('en-US', { maximumFractionDigits: 0 }).format(n * rate)} ${secondary}`;
+  }
+
   function submit(e) {
     e.preventDefault();
     const category = useCustom ? form.customCategory.trim() : form.category.trim();
     onSave({
       ...form, category: category || null, product_type: form.product_type || null,
       lot_tracked: !!form.lot_tracked,
+      // Cost typed in LBP converts to USD server-side at this rate.
+      exchange_rate: form.cost_currency === 'LBP' ? rate : undefined,
       shelf_life_days: form.shelf_life_days === '' || form.shelf_life_days == null
         ? null : Number(form.shelf_life_days),
     });
@@ -131,14 +151,40 @@ function ItemForm({ initial = {}, knownCategories = [], suppliers = [], onSave, 
 
           <div className="form-group">
             <label className="form-label">{t('inventory.unitCostLabel')}</label>
-            <NumberInput className="form-control" step="any" min="0"
-              value={form.unit_cost} onChange={e => set('unit_cost', e.target.value)} />
+            <div style={{ display: 'flex', gap: 6 }}>
+              <NumberInput className="form-control" step="any" min="0" style={{ flex: 1 }}
+                value={form.unit_cost} onChange={e => set('unit_cost', e.target.value)} />
+              <select className="form-control" style={{ width: 86 }}
+                value={form.cost_currency} onChange={e => set('cost_currency', e.target.value)}>
+                <option value="USD">USD</option>
+                <option value={secondary} disabled={!hasRate}>{secondary}</option>
+              </select>
+            </div>
+            {form.cost_currency === 'USD'
+              ? null
+              : <div className="form-help" style={{ fontSize: 12, color: 'var(--text-3)', marginTop: 4 }}>
+                  {t('inventory.costLockedToUsd')} {equiv(form.unit_cost, form.cost_currency)}
+                </div>}
           </div>
 
           <div className="form-group">
             <label className="form-label">{t('inventory.salePriceLabel')}</label>
-            <NumberInput className="form-control" step="any" min="0"
-              value={form.sale_price} onChange={e => set('sale_price', e.target.value)} />
+            <div style={{ display: 'flex', gap: 6 }}>
+              <NumberInput className="form-control" step="any" min="0" style={{ flex: 1 }}
+                value={form.sale_price} onChange={e => set('sale_price', e.target.value)} />
+              <select className="form-control" style={{ width: 86 }}
+                value={form.price_currency} onChange={e => set('price_currency', e.target.value)}>
+                <option value="USD">USD</option>
+                <option value={secondary} disabled={!hasRate}>{secondary}</option>
+              </select>
+            </div>
+            {equiv(form.sale_price, form.price_currency) && (
+              <div className="form-help" style={{ fontSize: 12, color: 'var(--text-3)', marginTop: 4 }}>
+                {form.price_currency === 'USD'
+                  ? equiv(form.sale_price, 'USD')
+                  : `${t('inventory.salePriceFloatsHint')} ${equiv(form.sale_price, form.price_currency)}`}
+              </div>
+            )}
           </div>
 
           <div className="form-group">
@@ -585,8 +631,9 @@ export default function Inventory() {
   const exportData = items.map(i => ({
     Name: i.name, Category: i.category || '', Type: i.product_type || '',
     Quantity: i.quantity, Reserved: i.reserved_quantity || 0, Unit: i.unit,
-    'Min Stock': i.min_stock, 'Unit Cost (Landed)': i.unit_cost,
+    'Min Stock': i.min_stock, 'Unit Cost (Landed, USD)': i.unit_cost,
     'Sale Price': i.sale_price || 0,
+    'Price Currency': i.price_currency || 'USD',
     'Total Value': fmtNum(i.quantity * i.unit_cost),
     Barcode: i.barcode || '',
     Supplier: i.supplier || '',

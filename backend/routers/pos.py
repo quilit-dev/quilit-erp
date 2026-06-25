@@ -244,7 +244,8 @@ def search_products(
     db: sqlite3.Connection = Depends(get_db),
 ):
     """Fast item lookup for the cashier — matches name, category or exact barcode."""
-    query  = ("SELECT id, name, category, quantity, unit, unit_cost, sale_price, barcode "
+    query  = ("SELECT id, name, category, quantity, unit, unit_cost, sale_price, "
+              "price_currency, barcode "
               "FROM inventory WHERE archived_at IS NULL")
     params = []
     if search:

@@ -17,6 +17,29 @@ const num = (v) => new Intl.NumberFormat('en-US', { maximumFractionDigits: 2 }).
 // avoids binary-float cases like 2.675 rounding down.
 const r2 = (v) => Math.round((Number(v) + Number.EPSILON) * 100) / 100;
 
+// A product may be priced natively in LBP (price_currency='LBP'). The cart and
+// the books are USD-functional, so convert the LBP list price to USD at the
+// current rate when it enters the cart — that's where the "float" is realised:
+// today's rate sets today's USD price. USD-priced items pass through unchanged.
+function productUsdUnitPrice(p, rate) {
+  const price = Number(p.sale_price) || 0;
+  if (String(p.price_currency || 'USD').toUpperCase() === 'LBP') {
+    return rate > 0 ? r2(price / rate) : 0;
+  }
+  return price;
+}
+
+// Shelf price as the cashier should see it: native LBP for LBP-priced items
+// (so it matches the price tag), USD otherwise.
+const _lbpGrp = new Intl.NumberFormat('en-US', { maximumFractionDigits: 0 });
+function formatProductPrice(p, secondary = 'LBP') {
+  const v = Number(p.sale_price) || 0;
+  if (String(p.price_currency || 'USD').toUpperCase() === 'LBP') {
+    return `${_lbpGrp.format(v)} ${secondary}`;
+  }
+  return `$${v.toFixed(2)}`;
+}
+
 // Compute a sale's pricing the same way the backend does: prices are
 // VAT-INCLUSIVE, line + order discounts come off the gross, tax is extracted,
 // and every line is rounded to cents BEFORE summing (so the subtotal / VAT
@@ -566,6 +589,9 @@ function CheckoutModal({ pricing, clients, drawers, onClose, onDone }) {
 //     inventory_id, unit_price (sale_price), stock, line_type and keeps the
 //     existing tax_rate_id only if the cashier hadn't overridden it
 function CustomLineNameCombobox({ line, taxEnabled, defaultRate, onPatch, placeholder }) {
+  const { t } = useLocale();
+  const { exchangeRate } = useSettings();
+  const fxRate = Number(exchangeRate?.rate) || 0;
   const [open,     setOpen]     = useState(false);
   const [matches,  setMatches]  = useState([]);
   const [active,   setActive]   = useState(0);
@@ -597,10 +623,14 @@ function CustomLineNameCombobox({ line, taxEnabled, defaultRate, onPatch, placeh
   useEffect(() => { setActive(0); }, [matches]);
 
   function pick(p) {
+    if (String(p.price_currency || 'USD').toUpperCase() === 'LBP' && fxRate <= 0) {
+      toast(t('pos.exchangeRate'), 'red');
+      return;
+    }
     onPatch({
       name:         p.name,
       inventory_id: p.id,
-      unit_price:   Number(p.sale_price) || Number(line.unit_price) || 0,
+      unit_price:   productUsdUnitPrice(p, fxRate) || Number(line.unit_price) || 0,
       stock:        Number(p.quantity) || 0,
       line_type:    'product',
       // Preserve the cashier's tax-rate choice if they already changed it;
@@ -657,7 +687,7 @@ function CustomLineNameCombobox({ line, taxEnabled, defaultRate, onPatch, placeh
                 </span>
               </span>
               <span style={{ fontWeight: 600, fontSize: 12 }}>
-                ${Number(m.sale_price || 0).toFixed(2)}
+                {formatProductPrice(m, exchangeRate?.secondary)}
               </span>
             </div>
           ))}
@@ -671,7 +701,8 @@ function CustomLineNameCombobox({ line, taxEnabled, defaultRate, onPatch, placeh
 // ── Register view (search + cart) ───────────────────────────────────────────
 function RegisterView({ session, onClose, onSold }) {
   const { t, fmt } = useLocale();
-  const { settings, taxRates } = useSettings();
+  const { settings, taxRates, exchangeRate } = useSettings();
+  const fxRate = Number(exchangeRate?.rate) || 0;
   const [search, setSearch] = useState('');
   // Two product pools — browse (loaded once on mount, used when search
   // is empty) and results (debounced search). Keeping them separate lets
@@ -742,12 +773,17 @@ function RegisterView({ session, onClose, onSold }) {
   })();
 
   function addProduct(p) {
+    // LBP-priced items need a configured rate to convert to the USD cart line.
+    if (String(p.price_currency || 'USD').toUpperCase() === 'LBP' && fxRate <= 0) {
+      toast(t('pos.exchangeRate'), 'red');
+      return;
+    }
     setCart(prev => {
       const ex = prev.find(l => l.inventory_id === p.id);
       if (ex) return prev.map(l => l === ex ? { ...l, quantity: l.quantity + 1 } : l);
       return [...prev, {
         key: ++keyRef.current, name: p.name, inventory_id: p.id,
-        quantity: 1, unit_price: Number(p.sale_price) || 0, discount: 0,
+        quantity: 1, unit_price: productUsdUnitPrice(p, fxRate), discount: 0,
         tax_rate_id: posDefaultRate ? posDefaultRate.id : null,
         line_type: 'product', stock: Number(p.quantity) || 0,
       }];
@@ -916,7 +952,7 @@ function RegisterView({ session, onClose, onSold }) {
                     <span className="pos-product-tile-monogram" aria-hidden>{monogram}</span>
                     <span className="pos-product-tile-name">{p.name}</span>
                     <span className="pos-product-tile-foot">
-                      <span className="pos-product-tile-price">{fmt(p.sale_price)}</span>
+                      <span className="pos-product-tile-price">{formatProductPrice(p, exchangeRate?.secondary)}</span>
                       <span className={`pos-product-tile-stock ${stockClass}`}>
                         <span className="pos-product-tile-stock-dot" />
                         {num(stock)}
