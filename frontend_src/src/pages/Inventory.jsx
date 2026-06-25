@@ -546,11 +546,22 @@ function ProductBuilder({ knownCategories = [], onSave, onCancel, saving }) {
   const set = (k, v) => setForm(f => ({ ...f, [k]: v }));
 
   useEffect(() => {
-    // Pull both the business-type presets and any global attributes.
+    // Pull owner-defined global fields plus the business-type presets, then
+    // de-dupe by name (a custom "Size" shouldn't show twice next to a preset).
     Promise.all([
-      businessType ? getAttributeDefs({ scope_type: 'business', scope_value: businessType }) : Promise.resolve([]),
       getAttributeDefs({ scope_type: 'global' }),
-    ]).then(([a, b]) => setDefs([...(a || []), ...(b || [])])).catch(() => setDefs([]));
+      businessType ? getAttributeDefs({ scope_type: 'business', scope_value: businessType }) : Promise.resolve([]),
+    ]).then(([global, biz]) => {
+      const seen = new Set();
+      const merged = [];
+      for (const d of [...(global || []), ...(biz || [])]) {
+        const key = (d.name || '').toLowerCase();
+        if (seen.has(key)) continue;
+        seen.add(key);
+        merged.push(d);
+      }
+      setDefs(merged);
+    }).catch(() => setDefs([]));
   }, [businessType]);
 
   const axes = defs.filter(d => d.is_variant_axis);
@@ -597,9 +608,10 @@ function ProductBuilder({ knownCategories = [], onSave, onCancel, saving }) {
   return (
     <form onSubmit={submit}>
       <div className="modal-body">
-        {!businessType && (
-          <div style={{ fontSize: 12, color: 'var(--text-3)', marginBottom: 12 }}>
-            {t('inventory.noBusinessTypeHint')}
+        {axes.length === 0 && (
+          <div style={{ fontSize: 12, color: 'var(--text-3)', marginBottom: 12,
+            padding: '8px 10px', background: 'var(--bg)', borderRadius: 6 }}>
+            {t('inventory.noVariantFieldsHint')}
           </div>
         )}
         <div className="form-grid">
