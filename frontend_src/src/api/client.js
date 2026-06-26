@@ -187,6 +187,7 @@ export const getLot                 = (id)   => api.get(`/api/inventory/lots/${i
 export const getPurchases         = (qs)   => api.get(`/api/purchases/${qs || ''}`);
 export const getPurchaseStats     = ()     => api.get('/api/purchases/stats');
 export const createPurchase       = (d)    => api.post('/api/purchases/', d);
+export const createBulkPurchase   = (d)    => api.post('/api/purchases/bulk', d);
 export const updatePurchase       = (id, d) => api.put(`/api/purchases/${id}`, d);
 export const updatePurchaseStatus = (id, status) => api.patch(`/api/purchases/${id}/status`, { status });
 export const archivePurchase      = (id)   => api.patch(`/api/purchases/${id}/archive`);
