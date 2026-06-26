@@ -82,7 +82,7 @@ a = Analysis(
         'approval_engine',
         # Shared helpers routers import dynamically (function-level imports
         # PyInstaller's static analyser can miss):
-        'warehouse_access', 'accounting', 'costing', 'lots',
+        'warehouse_access', 'accounting', 'costing', 'lots', 'currency',
         # SaaS infra wrappers (default backends are no-ops; redis/rq/boto3 stay
         # lazy so they are NOT pulled into the desktop bundle):
         'storage', 'cache', 'jobs', 'mailer', 'email_templates',
@@ -117,6 +117,7 @@ a = Analysis(
         'routers.warehouses',
         'routers.platform',
         'routers.imports',
+        'routers.products',
     ] + uvicorn_hiddenimports + fastapi_hiddenimports + anyio_hiddenimports
       + collect_submodules('starlette')
       + collect_submodules('pydantic'),
