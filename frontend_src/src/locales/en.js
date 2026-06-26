@@ -1261,6 +1261,8 @@ const en = {
     cart: 'Cart',
     cartEmpty: 'Cart is empty. Scan or search to add items.',
     customLine: '+ Custom line',
+    customItem: 'Custom item',
+    customLineHint: 'Sell an item that is not in inventory yet — type its name and price.',
     customLineName: 'Item / service name',
     customPricePlaceholder: 'Price',
     qty: 'Qty',
