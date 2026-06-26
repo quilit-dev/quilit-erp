@@ -154,6 +154,37 @@ def test_bulk_purchase_rejects_empty_order(make_client):
     assert r.status_code == 400
 
 
+def test_explicit_variants_list_creates_only_those(make_client, db):
+    """The builder sends the exact combos the user kept (after removing some);
+    the backend creates those verbatim and ignores the full cross-product."""
+    c = make_client("superadmin")
+    # 2 storages × 2 colors would be 4, but the user dropped "256GB / Red".
+    r = c.post("/api/products/", json={
+        "name": "iPhone 15", "sale_price": 1000,
+        "variants": [
+            {"label": "128GB / Black", "attributes": {"Storage": "128GB", "Color": "Black"}},
+            {"label": "128GB / Red",   "attributes": {"Storage": "128GB", "Color": "Red"}},
+            {"label": "256GB / Black", "attributes": {"Storage": "256GB", "Color": "Black"}},
+        ],
+    })
+    assert r.status_code in (200, 201), r.text
+    assert r.json()["variant_count"] == 3
+    prod = c.get(f"/api/products/{r.json()['id']}").json()
+    labels = sorted(v["variant_label"] for v in prod["variants"])
+    assert labels == ["128GB / Black", "128GB / Red", "256GB / Black"]
+    # Dropped combo is absent.
+    assert "256GB / Red" not in labels
+    # Attributes were recorded per kept variant.
+    one = next(v for v in prod["variants"] if v["variant_label"] == "128GB / Black")
+    assert one["attributes"] == {"Storage": "128GB", "Color": "Black"}
+
+
+def test_empty_variants_list_rejected(make_client):
+    c = make_client("superadmin")
+    r = c.post("/api/products/", json={"name": "Nothing", "variants": []})
+    assert r.status_code == 400
+
+
 def test_attribute_presets_seed_idempotently(make_client, db):
     c = make_client("superadmin")
     r1 = c.post("/api/products/seed-presets?business_type=Apparel")
