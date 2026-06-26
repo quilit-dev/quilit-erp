@@ -22,6 +22,7 @@ const ProjectDetail  = lazy(() => import('./pages/ProjectDetail'));
 const Quotations     = lazy(() => import('./pages/Quotations'));
 const Invoices       = lazy(() => import('./pages/Invoices'));
 const Inventory      = lazy(() => import('./pages/Inventory'));
+const Promotions     = lazy(() => import('./pages/Promotions'));
 const POS            = lazy(() => import('./pages/POS'));
 const Manufacturing  = lazy(() => import('./pages/Manufacturing'));
 const Purchases      = lazy(() => import('./pages/Purchases'));
@@ -284,6 +285,7 @@ export default function App() {
             <Route path="/quotations"   element={Auth(<Quotations />)} />
             <Route path="/invoices"     element={Auth(<Invoices />)} />
             <Route path="/inventory"    element={Auth(<Inventory />)} />
+            <Route path="/promotions"   element={Auth(<Promotions />)} />
             <Route path="/warehouses"   element={Auth(<Warehouses />)} />
             <Route path="/pos"          element={Auth(<POS />)} />
             <Route path="/manufacturing" element={Auth(<Manufacturing />)} />

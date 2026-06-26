@@ -8,7 +8,7 @@ import { LoadingSpinner, ErrorAlert, EmptyState, Modal, ConfirmModal, Badge, Exp
 import {
   getPosSession, openPosSession, closePosSession, getPosSessions,
   posCheckout, getPosSales, getPosSale, returnPosSale, getPosProducts, getClients,
-  getPosCashDrawers,
+  getPosCashDrawers, getActivePromotions,
 } from '../api/client';
 
 const num = (v) => new Intl.NumberFormat('en-US', { maximumFractionDigits: 2 }).format(Number(v) || 0);
@@ -45,10 +45,19 @@ function formatProductPrice(p, secondary = 'LBP') {
 // VAT-INCLUSIVE, line + order discounts come off the gross, tax is extracted,
 // and every line is rounded to cents BEFORE summing (so the subtotal / VAT
 // split shown here equals what checkout stores).
-function priceCart(cart, orderDiscount, taxEnabled, rateOf, defaultRate) {
+function priceCart(cart, orderDiscount, taxEnabled, rateOf, defaultRate, promoOf = () => 0) {
+  // Automatic promo discount for a line = qty × unit × promo% (display only;
+  // the server is authoritative on the quantity cap). Added to any manual
+  // markdown, capped to the line gross.
+  const lineDiscOf = (l) => {
+    const g = r2((Number(l.quantity) || 0) * (Number(l.unit_price) || 0));
+    const pct = Number(promoOf(l)) || 0;
+    const promo = pct > 0 ? r2(g * pct / 100) : 0;
+    return Math.min(g, r2((Number(l.discount) || 0) + promo));
+  };
   const grossAfterLine = cart.map(l => {
     const g = r2((Number(l.quantity) || 0) * (Number(l.unit_price) || 0));
-    return Math.max(0, r2(g - (Number(l.discount) || 0)));
+    return Math.max(0, r2(g - lineDiscOf(l)));
   });
   const grossSum = r2(grossAfterLine.reduce((a, b) => a + b, 0));
   const od = Math.min(Math.max(0, Number(orderDiscount) || 0), grossSum);
@@ -74,7 +83,7 @@ function priceCart(cart, orderDiscount, taxEnabled, rateOf, defaultRate) {
     taxTotal  += tax;
     total     += finalGross;
   });
-  const discountTotal = r2(cart.reduce((a, l) => a + (Number(l.discount) || 0), 0) + od);
+  const discountTotal = r2(cart.reduce((a, l) => a + lineDiscOf(l), 0) + od);
   return { subtotal: r2(subtotal), taxTotal: r2(taxTotal), total: r2(total), discountTotal, orderDiscount: od };
 }
 
@@ -752,9 +761,26 @@ function RegisterView({ session, onClose, onSold }) {
     ? `${_lbpGrp.format(Math.round(productUsdUnitPrice(p, fxRate) * fxRate))} ${secondary}`
     : formatProductPrice(p, secondary);
 
+  // Live promotions the register auto-applies (display only — checkout is the
+  // authority on the quantity cap). Matched per cart line by item or category.
+  const [activePromos, setActivePromos] = useState([]);
+  const promoFor = (l) => {
+    if (!l || l.inventory_id == null) return null;
+    let best = null;
+    for (const p of activePromos) {
+      const hit = p.scope_type === 'all'
+        || (p.scope_type === 'item' && String(p.scope_value) === String(l.inventory_id))
+        || (p.scope_type === 'category' && l.category && p.scope_value === l.category);
+      if (hit && (!best || p.discount_value > best.discount_value)) best = p;
+    }
+    return best;
+  };
+  const promoOf = (l) => promoFor(l)?.discount_value || 0;
+
   useEffect(() => {
     getClients().then(setClients).catch(() => {});
     getPosCashDrawers().then(setDrawers).catch(() => {});
+    getActivePromotions().then(p => setActivePromos(Array.isArray(p) ? p : [])).catch(() => {});
     // Prime the browse grid with the first page of products so the
     // cashier sees something to tap without having to type anything.
     getPosProducts('').then(setBrowsePool).catch(() => setBrowsePool([]));
@@ -833,6 +859,7 @@ function RegisterView({ session, onClose, onSold }) {
         quantity: 1, unit_price: productUsdUnitPrice(p, fxRate), discount: 0,
         tax_rate_id: posDefaultRate ? posDefaultRate.id : null,
         line_type: 'product', stock: Number(p.quantity) || 0,
+        category: p.category || null,   // for category-scoped promo matching
       }];
     });
   }
@@ -875,7 +902,7 @@ function RegisterView({ session, onClose, onSold }) {
     }
   }
 
-  const pricing = priceCart(cart, orderDiscount, taxEnabled, rateOf, posDefaultRate);
+  const pricing = priceCart(cart, orderDiscount, taxEnabled, rateOf, posDefaultRate, promoOf);
 
   const checkoutItems = cart.map(l => ({
     name: l.name || t('pos.customLineName'),
@@ -1130,13 +1157,24 @@ function RegisterView({ session, onClose, onSold }) {
                 const qty   = Number(l.quantity) || 0;
                 const unit  = Number(l.unit_price) || 0;
                 const disc  = Number(l.discount) || 0;
-                const gross = Math.max(0, qty * unit - disc);
+                const promo = promoFor(l);
+                const promoDisc = promo ? r2(qty * unit * promo.discount_value / 100) : 0;
+                const gross = Math.max(0, qty * unit - disc - promoDisc);
                 const overstock = l.stock != null && qty > l.stock;
                 return (
                   <div key={l.key} className="pos-cart-line">
                     <div className="pos-cart-line-body">
                       {l.inventory_id ? (
-                        <div className="pos-cart-line-name">{l.name}</div>
+                        <div className="pos-cart-line-name">
+                          {l.name}
+                          {promo && (
+                            <span style={{ display: 'inline-block', marginInlineStart: 6, padding: '1px 6px',
+                              borderRadius: 10, fontSize: 10, fontWeight: 700,
+                              background: '#ECFDF5', color: '#059669' }}>
+                              {promo.name} −{promo.discount_value}%
+                            </span>
+                          )}
+                        </div>
                       ) : (
                         <>
                           <CustomLineNameCombobox
