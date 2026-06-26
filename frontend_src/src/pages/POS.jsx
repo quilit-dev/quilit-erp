@@ -1093,13 +1093,24 @@ function RegisterView({ session, onClose, onSold }) {
                       {l.inventory_id ? (
                         <div className="pos-cart-line-name">{l.name}</div>
                       ) : (
-                        <CustomLineNameCombobox
-                          line={l}
-                          taxEnabled={taxEnabled}
-                          defaultRate={posDefaultRate}
-                          placeholder={t('pos.customLineName')}
-                          onPatch={(patch) => setLine(l.key, patch)}
-                        />
+                        <>
+                          <CustomLineNameCombobox
+                            line={l}
+                            taxEnabled={taxEnabled}
+                            defaultRate={posDefaultRate}
+                            placeholder={t('pos.customLineName')}
+                            onPatch={(patch) => setLine(l.key, patch)}
+                          />
+                          {/* Unregistered item → cashier types the price. */}
+                          <NumberInput
+                            className="form-control"
+                            style={{ height: 30, marginTop: 4, maxWidth: 130 }}
+                            min="0" step="0.01"
+                            placeholder={t('pos.customPricePlaceholder')}
+                            value={l.unit_price}
+                            onChange={e => setLine(l.key, { unit_price: e.target.value })}
+                            onFocus={e => e.target.select()} />
+                        </>
                       )}
                       <div className="pos-cart-line-meta">
                         {num(qty)} × {fmt(unit)}
