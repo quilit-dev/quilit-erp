@@ -1469,6 +1469,7 @@ const en = {
     productCreated: 'Product created with {{count}} variant(s)',
     noBusinessTypeHint: 'Tip: pick a Business Type in Settings to get ready-made attributes (Size, Color, Storage…).',
     noVariantFieldsHint: 'No variant fields yet. Add fields like Size or Color in Settings → Inventory Fields, then they appear here to tick.',
+    noVariantFieldsHint: 'No variant fields yet. Add fields like Size or Color in Settings → Inventory Fields, then they appear here to tick.',
     unitLabel: 'Unit',
     supplierLabel: 'Supplier',
     barcodeLabel: 'Barcode / SKU',
