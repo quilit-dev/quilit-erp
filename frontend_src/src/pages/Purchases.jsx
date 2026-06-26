@@ -389,7 +389,7 @@ function OrderVariantsModal({ suppliers = [], onDone, onCancel }) {
           <div style={{ fontSize: 13, color: 'var(--text-3)', padding: '12px 0' }}>{t('purchases.noVariantsForProduct')}</div>
         )}
         {variants.length > 0 && (
-          <div className="table-wrap" style={{ marginTop: 8 }}>
+          <div className="table-wrap" style={{ marginTop: 8, maxHeight: '45vh', overflowY: 'auto' }}>
             <table>
               <thead>
                 <tr>

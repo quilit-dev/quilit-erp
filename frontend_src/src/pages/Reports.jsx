@@ -159,7 +159,7 @@ function LineChart({ data, label1, label2, color1 = '#1B4F72', color2 = '#DC2626
 
   return (
     <div ref={containerRef} style={{ width: '100%' }}>
-      <svg viewBox={`0 0 ${W} ${H}`} width={W} height={H}
+      <svg viewBox={`0 0 ${W} ${H}`} width="100%" height={H}
         style={{ display: 'block', fontFamily: 'inherit', overflow: 'visible', cursor: 'crosshair', direction: 'ltr' }}>
         <defs>
           <linearGradient id={`lg1_${key1}`} x1="0" y1="0" x2="0" y2="1">
@@ -306,7 +306,7 @@ function VBarChart({ data, color = '#1B4F72', labelKey = 'month', valueKey = 'va
 
   return (
     <div ref={containerRef} style={{ width: '100%' }}>
-      <svg viewBox={`0 0 ${W} ${H}`} width={W} height={H} style={{ display: 'block', fontFamily: 'inherit', overflow: 'visible', direction: 'ltr' }}>
+      <svg viewBox={`0 0 ${W} ${H}`} width="100%" height={H} style={{ display: 'block', fontFamily: 'inherit', overflow: 'visible', direction: 'ltr' }}>
         {yTicks.map((v, i) => {
           const y = PT + yScale(v);
           return (
@@ -567,7 +567,7 @@ function FinancialReport({ params, t }) {
         <StatCard label={t('reports.outstanding')}   value={fmt(data.outstanding)}    color={data.outstanding > 0 ? 'red' : undefined} />
       </div>
 
-      <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 16, marginBottom: 16 }}>
+      <div style={{ display: 'grid', gridTemplateColumns: 'minmax(0, 1fr) minmax(0, 1fr)', gap: 16, marginBottom: 16 }}>
         <div className="card">
           <div className="card-header">
             <span className="card-title">{t('reports.incomeVsExpenses')}</span>
@@ -1113,7 +1113,7 @@ function ExpensesReport({ params, t }) {
         <StatCard label={t('reports.avgExpense')}         value={fmt(data.average)} />
       </div>
 
-      <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 16, marginBottom: 16 }}>
+      <div style={{ display: 'grid', gridTemplateColumns: 'minmax(0, 1fr) minmax(0, 1fr)', gap: 16, marginBottom: 16 }}>
         <div className="card">
           <div className="card-header">
             <span className="card-title">{t('reports.expenseBreakdown')}</span>
@@ -1233,7 +1233,7 @@ function PipelineReport({ params, t }) {
           color={data.conversion_rate >= 50 ? 'green' : data.conversion_rate >= 25 ? undefined : 'red'} />
       </div>
 
-      <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 16, marginBottom: 16 }}>
+      <div style={{ display: 'grid', gridTemplateColumns: 'minmax(0, 1fr) minmax(0, 1fr)', gap: 16, marginBottom: 16 }}>
         <div className="card">
           <div className="card-header">
             <span className="card-title">{t('reports.byStatusCount')}</span>
@@ -1262,7 +1262,7 @@ function PipelineReport({ params, t }) {
       </div>
 
       {data.by_status.length > 0 && (
-        <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 16, marginBottom: 16 }}>
+        <div style={{ display: 'grid', gridTemplateColumns: 'minmax(0, 1fr) minmax(0, 1fr)', gap: 16, marginBottom: 16 }}>
           <div className="card">
             <div className="card-header"><span className="card-title">{t('reports.byStatus')} — Value</span></div>
             <div className="table-wrap">
