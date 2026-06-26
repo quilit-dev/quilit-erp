@@ -442,12 +442,14 @@ function Row({ label, value, bold, hint, size = 12 }) {
 }
 
 // ── Checkout modal ──────────────────────────────────────────────────────────
-function CheckoutModal({ pricing, clients, drawers, onClose, onDone }) {
+function CheckoutModal({ pricing, clients, drawers, defaultCurrency = 'USD', onClose, onDone }) {
   const { t, fmt } = useLocale();
   const { exchangeRate } = useSettings();
   const [clientId, setClientId] = useState('');
   const [method, setMethod] = useState('Cash');
-  const [currency, setCurrency] = useState('USD');
+  // Default the tender currency to whatever the register is showing, so a
+  // cashier viewing LBP prices lands straight on LBP cash entry.
+  const [currency, setCurrency] = useState(defaultCurrency === 'LBP' ? 'LBP' : 'USD');
   const [rate, setRate] = useState(exchangeRate?.rate ? String(exchangeRate.rate) : '');
   const [tendered, setTendered] = useState('');
   const [busy, setBusy] = useState(false);
@@ -733,6 +735,22 @@ function RegisterView({ session, onClose, onSold }) {
   // zero-rated rate is configured.
   const posDefaultRate = taxRates.find(r => r.tax_type === 'zero') || defaultRate;
 
+  // Display-currency toggle: the books stay in USD, but the cashier can flip the
+  // whole register to show LBP (USD × rate) so they can read a price to a
+  // Lebanese customer and take LBP cash without doing the maths in their head.
+  // Display-only — the sale is still recorded in USD; LBP tender is handled at
+  // checkout. Only offered once an exchange rate exists.
+  const secondary = exchangeRate?.secondary || 'LBP';
+  const showCurrencyToggle = fxRate > 0;
+  const [posDisplay, setPosDisplay] = useState('USD');
+  const inLbp = posDisplay === 'LBP' && fxRate > 0;
+  const posMoney = (usd) => inLbp
+    ? `${_lbpGrp.format(Math.round((Number(usd) || 0) * fxRate))} ${secondary}`
+    : fmt(usd);
+  const tilePrice = (p) => inLbp
+    ? `${_lbpGrp.format(Math.round(productUsdUnitPrice(p, fxRate) * fxRate))} ${secondary}`
+    : formatProductPrice(p, secondary);
+
   useEffect(() => {
     getClients().then(setClients).catch(() => {});
     getPosCashDrawers().then(setDrawers).catch(() => {});
@@ -886,6 +904,7 @@ function RegisterView({ session, onClose, onSold }) {
           pricing={{ ...pricing, items: checkoutItems }}
           clients={clients}
           drawers={drawers}
+          defaultCurrency={inLbp ? 'LBP' : 'USD'}
           onClose={() => setCheckout(false)}
           onDone={(res) => { setCheckout(false); setCart([]); setOrderDiscount(''); onSold(res); }}
         />
@@ -907,7 +926,7 @@ function RegisterView({ session, onClose, onSold }) {
                     onClick={() => { addProduct(v); setVariantPicker(null); }}>
                     <span style={{ fontWeight: 600 }}>{v.variant_label || v.name}</span>
                     <span style={{ fontSize: 11, fontWeight: 400 }}>
-                      {formatProductPrice(v, exchangeRate?.secondary)} · {t('pos.inStock', { count: stock })}
+                      {tilePrice(v)} · {t('pos.inStock', { count: stock })}
                     </span>
                   </button>
                 );
@@ -936,9 +955,27 @@ function RegisterView({ session, onClose, onSold }) {
             <span className="pos-session-stat-value">{fmt(session.sales_total ?? 0)}</span>
           </div>
         </div>
-        <button className="btn btn-secondary btn-sm" onClick={() => setClosing(true)}>
-          {t('pos.closeRegister')}
-        </button>
+        <div style={{ display: 'flex', gap: 10, alignItems: 'center' }}>
+          {showCurrencyToggle && (
+            <div role="group" aria-label={t('common.displayCurrency')}
+              style={{ display: 'inline-flex', border: '1px solid var(--border)', borderRadius: 8, overflow: 'hidden' }}>
+              {['USD', secondary].map(cur => {
+                const on = (cur === 'USD') === (posDisplay === 'USD');
+                return (
+                  <button key={cur} type="button"
+                    onClick={() => setPosDisplay(cur === 'USD' ? 'USD' : 'LBP')}
+                    style={{ border: 'none', cursor: 'pointer', padding: '6px 12px', fontSize: 13, fontWeight: 700,
+                      background: on ? 'var(--accent)' : 'transparent', color: on ? '#fff' : 'var(--text-2)' }}>
+                    {cur}
+                  </button>
+                );
+              })}
+            </div>
+          )}
+          <button className="btn btn-secondary btn-sm" onClick={() => setClosing(true)}>
+            {t('pos.closeRegister')}
+          </button>
+        </div>
       </div>
 
       {/* ── Workspace grid ───────────────────────────────────────── */}
@@ -1047,7 +1084,7 @@ function RegisterView({ session, onClose, onSold }) {
                     <span className="pos-product-tile-monogram" aria-hidden>{monogram}</span>
                     <span className="pos-product-tile-name">{p.name}</span>
                     <span className="pos-product-tile-foot">
-                      <span className="pos-product-tile-price">{formatProductPrice(p, exchangeRate?.secondary)}</span>
+                      <span className="pos-product-tile-price">{tilePrice(p)}</span>
                       <span className={`pos-product-tile-stock ${stockClass}`}>
                         <span className="pos-product-tile-stock-dot" />
                         {num(stock)}
@@ -1120,7 +1157,7 @@ function RegisterView({ session, onClose, onSold }) {
                         </>
                       )}
                       <div className="pos-cart-line-meta">
-                        {num(qty)} × {fmt(unit)}
+                        {num(qty)} × {posMoney(unit)}
                         {disc > 0 && (
                           <span style={{ color: 'var(--affirm)', marginInlineStart: 8 }}>
                             − {fmt(disc)}
@@ -1156,7 +1193,7 @@ function RegisterView({ session, onClose, onSold }) {
                           onChange={e => setLine(l.key, { discount: e.target.value })}
                           onFocus={e => e.target.select()} />
                       )}
-                      <div className="pos-cart-line-total">{fmt(gross)}</div>
+                      <div className="pos-cart-line-total">{posMoney(gross)}</div>
                       <button type="button" className="pos-cart-line-remove"
                         onClick={() => removeLine(l.key)}
                         aria-label={t('common.delete')}>
@@ -1187,23 +1224,26 @@ function RegisterView({ session, onClose, onSold }) {
             </div>
             <div className="pos-cart-summary-row">
               <span>{t('pos.subtotal')}</span>
-              <span>{fmt(pricing.subtotal)}</span>
+              <span>{posMoney(pricing.subtotal)}</span>
             </div>
             {taxEnabled && (
               <div className="pos-cart-summary-row tax">
                 <span>{t('pos.taxTotal')}</span>
-                <span>{fmt(pricing.taxTotal)}</span>
+                <span>{posMoney(pricing.taxTotal)}</span>
               </div>
             )}
             {pricing.discountTotal > 0 && (
               <div className="pos-cart-summary-row savings">
                 <span>{t('pos.savings')}</span>
-                <span>−{fmt(pricing.discountTotal)}</span>
+                <span>−{posMoney(pricing.discountTotal)}</span>
               </div>
             )}
             <div className="pos-cart-summary-total">
               <span className="pos-cart-summary-total-label">{t('pos.total')}</span>
-              <span className="pos-cart-summary-total-value">{fmt(pricing.total)}</span>
+              <span className="pos-cart-summary-total-value">
+                {posMoney(pricing.total)}
+                {inLbp && <span style={{ display: 'block', fontSize: 11, fontWeight: 400, color: 'var(--text-3)' }}>≈ {fmt(pricing.total)}</span>}
+              </span>
             </div>
             <button className="pos-charge-btn"
               disabled={!cartValid}
@@ -1215,7 +1255,7 @@ function RegisterView({ session, onClose, onSold }) {
                 <line x1="2" y1="10" x2="22" y2="10"/>
               </svg>
               {t('pos.checkout')}
-              <span className="pos-charge-btn-amount">· {fmt(pricing.total)}</span>
+              <span className="pos-charge-btn-amount">· {posMoney(pricing.total)}</span>
             </button>
           </div>
         </div>
