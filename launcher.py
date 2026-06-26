@@ -185,6 +185,7 @@ try:
     import accounting       as _acct   # noqa: F401 — double-entry posting engine
     import costing          as _cost   # noqa: F401 — FIFO/LIFO/weighted-average
     import lots             as _lots   # noqa: F401 — lot-tracked stock IO
+    import currency         as _curr   # noqa: F401 — USD/LBP conversion + rate lookup
     import backup_manager
     backup_manager.init(DB_PATH)
 
