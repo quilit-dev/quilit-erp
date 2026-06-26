@@ -1262,6 +1262,7 @@ const en = {
     cartEmpty: 'Cart is empty. Scan or search to add items.',
     customLine: '+ Custom line',
     customLineName: 'Item / service name',
+    customPricePlaceholder: 'Price',
     qty: 'Qty',
     price: 'Price',
     lineTax: 'Tax',

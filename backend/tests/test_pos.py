@@ -78,6 +78,34 @@ def test_checkout_creates_invoice_and_payment(make_client):
     assert inv["invoice_number"].startswith("POS-")
 
 
+def test_custom_priced_unregistered_item_sells(make_client, db):
+    """A custom line (no inventory_id) with a cashier-typed price checks out as
+    a service line — no stock touched, the typed price is what's charged."""
+    c = make_client("superadmin")
+    _open_session(c)
+    r = c.post("/api/pos/checkout", json={
+        "items": [{"name": "Unlisted gadget", "inventory_id": None,
+                    "quantity": 2, "unit_price": 7.5, "line_type": "service"}],
+        "payment_method": "Cash", "amount_tendered": 20, "idempotency_key": _key(),
+    })
+    assert r.status_code == 200, r.text
+    body = r.json()
+    assert body["total"] == pytest.approx(15)        # 2 × 7.5 at the custom price
+    assert body["cogs_total"] == pytest.approx(0)    # nothing relieved from stock
+
+
+def test_pos_products_list_unbarcoded_first(make_client):
+    """The cashier grid leads with items that have no barcode (quick-sell goods
+    you can't scan), then barcoded items."""
+    c = make_client("superadmin")
+    _make_item(c, name="Zzz Barcoded", barcode="999111", qty=5)
+    _make_item(c, name="Apple (loose)", qty=5)        # no barcode
+    rows = c.get("/api/pos/products").json()
+    names = [r["name"] for r in rows]
+    # The loose (no-barcode) item precedes the barcoded one despite 'Z' > 'A'.
+    assert names.index("Apple (loose)") < names.index("Zzz Barcoded")
+
+
 def test_checkout_deducts_stock(make_client, db):
     """Checkout decrements inventory and writes a `sale` stock movement."""
     c = make_client("superadmin")

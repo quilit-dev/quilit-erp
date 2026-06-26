@@ -254,7 +254,11 @@ def search_products(
         query += " AND (i.name LIKE ? OR i.category LIKE ? OR i.barcode = ? OR p.name LIKE ?)"
         like = f"%{search}%"
         params += [like, like, search, like]
-    query += " ORDER BY COALESCE(p.name, i.name), i.id LIMIT 100"
+    # No-barcode items lead the grid: they're the loose/quick-sell goods a
+    # cashier can't scan, so they need to be tap-ready up front. Barcoded items
+    # (which a scanner finds instantly) follow, alphabetical within each group.
+    query += (" ORDER BY (i.barcode IS NULL OR i.barcode = '') DESC, "
+              "COALESCE(p.name, i.name), i.id LIMIT 100")
     return [dict(r) for r in db.execute(query, params).fetchall()]
 
 

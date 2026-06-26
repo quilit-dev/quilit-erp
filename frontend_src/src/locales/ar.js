@@ -1261,6 +1261,7 @@ const ar = {
     cartEmpty: 'السلة فارغة. امسح أو ابحث لإضافة أصناف.',
     customLine: '+ بند مخصص',
     customLineName: 'اسم الصنف / الخدمة',
+    customPricePlaceholder: 'السعر',
     qty: 'الكمية',
     price: 'السعر',
     lineTax: 'الضريبة',
