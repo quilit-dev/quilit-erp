@@ -179,6 +179,13 @@ export const getAttributeDefs       = (params = {}) => api.get(`/api/products/at
 export const createAttributeDef     = (d)    => api.post('/api/products/attribute-defs', d);
 export const updateAttributeDef     = (id, d) => api.put(`/api/products/attribute-defs/${id}`, d);
 export const deleteAttributeDef     = (id)   => api.delete(`/api/products/attribute-defs/${id}`);
+// Promotions (automatic POS discounts)
+export const getPromotions          = (params = {}) => api.get(`/api/promotions/${_qs(params)}`);
+export const getActivePromotions    = ()     => api.get('/api/promotions/active');
+export const createPromotion        = (d)    => api.post('/api/promotions/', d);
+export const updatePromotion        = (id, d) => api.put(`/api/promotions/${id}`, d);
+export const togglePromotion        = (id)   => api.patch(`/api/promotions/${id}/toggle`);
+export const archivePromotion       = (id)   => api.patch(`/api/promotions/${id}/archive`);
 // Batch / lot tracking
 export const getLots                = (params = {}) => api.get(`/api/inventory/lots${_qs(params)}`);
 export const getLot                 = (id)   => api.get(`/api/inventory/lots/${id}`);

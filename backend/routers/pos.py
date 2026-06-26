@@ -30,6 +30,7 @@ import costing
 import lots
 import accounting
 import branch_access
+from routers.promotions import best_promo_for
 import sqlite3
 
 router = APIRouter()
@@ -352,14 +353,51 @@ def checkout(
     #    markdown, distribute any order-level discount proportionally, then
     #    EXTRACT the tax from the resulting gross (retail standard).
     ctx = get_tax_context(db)
+
+    # 7a. Automatic promotions (server-authoritative). For each stock-backed
+    #     line, find the best live promo and discount its *eligible* units —
+    #     respecting the quantity cap, which is shared across lines hitting the
+    #     same promo in this one sale. The client only displays these; the cap
+    #     and the recorded discount are decided here so "first N units" can't be
+    #     over-spent. Promo discount is added on top of any manual markdown.
+    today = _now()[:10]
+    promo_disc   = [0.0] * len(data.items)   # promo currency-off per line
+    promo_id_for = [None] * len(data.items)  # which promo hit each line
+    promo_units  = {}                        # promo_id -> eligible units this sale
+    _promo_left  = {}                        # promo_id -> remaining cap (None = unlimited)
+    for idx, it in enumerate(data.items):
+        if it.inventory_id is None:
+            continue
+        srow  = stock_rows.get(it.inventory_id)
+        promo = best_promo_for(db, it.inventory_id, srow["category"] if srow else None, today)
+        if not promo:
+            continue
+        pid = promo["id"]
+        if pid not in _promo_left:
+            _promo_left[pid] = (None if promo["max_quantity"] is None
+                                else max(0, int(promo["max_quantity"]) - int(promo["used_quantity"] or 0)))
+        rem   = _promo_left[pid]
+        units = int(float(it.quantity))
+        eligible = units if rem is None else min(units, rem)
+        if eligible <= 0:
+            continue
+        promo_disc[idx]   = round(eligible * float(it.unit_price) * float(promo["discount_value"]) / 100.0, 4)
+        promo_id_for[idx] = pid
+        promo_units[pid]  = promo_units.get(pid, 0) + eligible
+        if rem is not None:
+            _promo_left[pid] = rem - eligible
+
     gross_after_line = []                       # line gross after its own markdown
-    for it in data.items:
+    eff_line_disc    = []                        # manual + promo, capped to gross
+    for idx, it in enumerate(data.items):
         line_gross = round(float(it.quantity) * float(it.unit_price), 4)
-        line_disc  = round(float(it.discount or 0), 4)
-        if line_disc < 0:
+        manual     = round(float(it.discount or 0), 4)
+        if manual < 0:
             raise HTTPException(400, f"Discount for '{it.name}' cannot be negative.")
-        if line_disc > line_gross + 0.001:
+        if manual > line_gross + 0.001:
             raise HTTPException(400, f"Discount for '{it.name}' exceeds the line total.")
+        line_disc = min(round(manual + promo_disc[idx], 4), line_gross)
+        eff_line_disc.append(line_disc)
         gross_after_line.append(round(line_gross - line_disc, 4))
 
     order_discount = round(float(data.order_discount or 0), 4)
@@ -395,7 +433,7 @@ def checkout(
         # Net unit price stays at 6 dp so a unit-priced item can round-trip
         # without losing precision on small qty * unit_price = small total.
         net_unit = round(net / qty, 6) if qty else 0.0
-        line_disc_total = money(float(it.discount or 0) + order_shares[idx])
+        line_disc_total = money(eff_line_disc[idx] + order_shares[idx])
         unit_cost = (float(stock_rows[it.inventory_id]["unit_cost"] or 0)
                      if it.inventory_id is not None else 0.0)
         lines.append({
@@ -589,11 +627,19 @@ def checkout(
         db.execute(
             "INSERT INTO pos_sale_items "
             "(pos_sale_id, invoice_item_id, inventory_id, name, quantity, unit_price, "
-            " line_type, discount, unit_cost) "
-            "VALUES (?,?,?,?,?,?,?,?,?)",
+            " line_type, discount, unit_cost, promotion_id) "
+            "VALUES (?,?,?,?,?,?,?,?,?,?)",
             (pos_sale_id, invoice_item_ids[idx], it.inventory_id, it.name,
-             it.quantity, it.unit_price, line_type, ln["discount"], line_unit_cost),
+             it.quantity, it.unit_price, line_type, ln["discount"], line_unit_cost,
+             promo_id_for[idx]),
         )
+
+    # 14a. Record promotion usage so the quantity cap holds across sales. Done
+    #      in the same transaction as the sale, so a rolled-back checkout never
+    #      consumes cap.
+    for pid, used in promo_units.items():
+        db.execute("UPDATE promotions SET used_quantity = used_quantity + ? WHERE id = ?",
+                   (used, pid))
 
     # 15. Audit + single commit.
     log_action(db, user, "create", "pos", pos_sale_id, inv_no,
@@ -758,6 +804,13 @@ def return_sale(
             (it["inventory_id"], "return", float(it["quantity"]), qty_before, qty_after,
              inv["invoice_number"], "POS return", return_wid, now),
         )
+        # Hand the promo's quantity-cap allowance back when a discounted line is
+        # returned, so the campaign reflects reality (clamped at 0).
+        if it["promotion_id"]:
+            db.execute(
+                "UPDATE promotions SET used_quantity = MAX(0, used_quantity - ?) WHERE id = ?",
+                (int(float(it["quantity"])), it["promotion_id"]),
+            )
 
     refund_amount = float(sale["total_usd"])
     db.execute(
