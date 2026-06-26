@@ -543,6 +543,7 @@ function ProductBuilder({ knownCategories = [], onSave, onCancel, saving }) {
   // axisSel[name] = Set of chosen values; descriptors[name] = string
   const [axisSel, setAxisSel] = useState({});
   const [descriptors, setDescriptors] = useState({});
+  const [removed, setRemoved] = useState(() => new Set());   // combo keys dropped from the preview
   const set = (k, v) => setForm(f => ({ ...f, [k]: v }));
 
   useEffect(() => {
@@ -575,11 +576,33 @@ function ProductBuilder({ knownCategories = [], onSave, onCancel, saving }) {
     });
   }
 
-  // Live preview: how many variants will be generated.
+  // Live preview: the actual combinations that will be generated, each
+  // removable so the owner can drop combos they don't sell (e.g. 256GB / Red).
   const chosenAxes = axes
     .map(a => ({ name: a.name, values: [...(axisSel[a.name] || [])] }))
     .filter(a => a.values.length > 0);
-  const variantCount = chosenAxes.reduce((n, a) => n * a.values.length, chosenAxes.length ? 1 : 1);
+
+  const allCombos = (() => {
+    if (chosenAxes.length === 0) return [{ key: '__base__', label: null, attributes: {} }];
+    let acc = [[]];
+    for (const ax of chosenAxes) {
+      const next = [];
+      for (const combo of acc) for (const v of ax.values) next.push([...combo, v]);
+      acc = next;
+    }
+    return acc.map(vals => ({
+      key: vals.join(' / '),
+      label: vals.join(' / '),
+      attributes: Object.fromEntries(chosenAxes.map((ax, i) => [ax.name, vals[i]])),
+    }));
+  })();
+
+  // Drop any stale removals whenever the axis selection changes.
+  const comboSig = allCombos.map(c => c.key).join('|');
+  useEffect(() => { setRemoved(new Set()); }, [comboSig]);
+
+  const keptCombos = allCombos.filter(c => !removed.has(c.key));
+  const variantCount = keptCombos.length;
 
   function equiv(value, cur) {
     if (!hasRate || !value) return null;
@@ -591,6 +614,7 @@ function ProductBuilder({ knownCategories = [], onSave, onCancel, saving }) {
   function submit(e) {
     e.preventDefault();
     if (!form.name.trim()) { toast(t('inventory.productNameRequired'), 'red'); return; }
+    if (keptCombos.length === 0) { toast(t('inventory.keepOneVariant'), 'red'); return; }
     const cleanDesc = {};
     descs.forEach(d => { if (descriptors[d.name]) cleanDesc[d.name] = descriptors[d.name]; });
     if (form.brand) cleanDesc.Brand = form.brand;
@@ -601,7 +625,9 @@ function ProductBuilder({ knownCategories = [], onSave, onCancel, saving }) {
       unit_cost: Number(form.unit_cost) || 0, cost_currency: form.cost_currency,
       exchange_rate: form.cost_currency === 'LBP' ? rate : undefined,
       sale_price: Number(form.sale_price) || 0, price_currency: form.price_currency,
-      axes: chosenAxes, descriptors: cleanDesc,
+      // The exact (kept) combinations to create; backend creates these verbatim.
+      variants: keptCombos.map(c => ({ label: c.label, attributes: c.attributes })),
+      descriptors: cleanDesc,
     });
   }
 
@@ -675,6 +701,36 @@ function ProductBuilder({ knownCategories = [], onSave, onCancel, saving }) {
             ))}
           </div>
         )}
+
+        {/* Variant preview — each combo removable before creating */}
+        <div style={{ marginTop: 12 }}>
+          <div className="form-label" style={{ marginBottom: 6 }}>
+            {t('inventory.variantsPreviewLabel')} ({variantCount})
+          </div>
+          <div style={{ display: 'flex', flexWrap: 'wrap', gap: 6, maxHeight: 150, overflowY: 'auto',
+            padding: keptCombos.length ? 8 : 0, border: '1px solid var(--border)', borderRadius: 6 }}>
+            {keptCombos.length === 0 ? (
+              <div style={{ fontSize: 12, color: 'var(--red)', padding: 8 }}>{t('inventory.keepOneVariant')}</div>
+            ) : keptCombos.map(c => (
+              <span key={c.key} style={{ display: 'inline-flex', alignItems: 'center', gap: 6,
+                padding: '4px 6px 4px 10px', borderRadius: 16, background: 'var(--bg)', fontSize: 12.5 }}>
+                {c.label || t('inventory.baseVariant')}
+                <button type="button" title={t('common.remove')}
+                  onClick={() => setRemoved(s => new Set(s).add(c.key))}
+                  style={{ border: 'none', background: 'var(--border)', color: 'var(--text-2)',
+                    width: 18, height: 18, borderRadius: '50%', cursor: 'pointer', lineHeight: 1, fontSize: 13 }}>
+                  ×
+                </button>
+              </span>
+            ))}
+          </div>
+          {removed.size > 0 && (
+            <button type="button" className="btn btn-sm btn-link" style={{ marginTop: 4, fontSize: 12 }}
+              onClick={() => setRemoved(new Set())}>
+              {t('inventory.restoreRemovedVariants', { count: removed.size })}
+            </button>
+          )}
+        </div>
 
         {/* Base price/cost — inherited by every variant */}
         <div className="form-grid" style={{ marginTop: 8 }}>

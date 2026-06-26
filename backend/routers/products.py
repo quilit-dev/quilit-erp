@@ -189,6 +189,10 @@ class ProductCreate(BaseModel):
     supplier:     Optional[str] = None
     initial_quantity: Optional[float] = 0      # opening stock PER variant (usually 0)
     axes:         list[VariantAxis] = []       # variant-defining attributes
+    # Optional explicit variant list. When provided it wins over `axes` — the
+    # builder sends the exact combinations to create after the user has removed
+    # any unwanted ones from the preview (so e.g. "256GB / Red" can be dropped).
+    variants:     Optional[list[dict]] = None  # [{label, attributes:{name:value}}]
     descriptors:  dict = {}                    # product-level non-varying attributes
 
 
@@ -263,18 +267,35 @@ def create_product(data: ProductCreate, user=Depends(require_perm("inventory", "
         raise HTTPException(400, "Unsupported currency.")
     unit_cost = currency.to_usd(data.unit_cost or 0, cost_currency, db, data.exchange_rate)
 
-    # Build the cross-product of variant axes. No axes → a single variant.
-    axes = [a for a in data.axes if a.values]
-    combos = list(itertools.product(*[a.values for a in axes])) if axes else [()]
-    if len(combos) > _MAX_VARIANTS:
-        raise HTTPException(400, f"That would create {len(combos)} variants (limit {_MAX_VARIANTS}). Reduce the options.")
+    # Resolve the variants to create as a list of (label, attributes) pairs.
+    # An explicit `variants` list (from the builder's editable preview, after
+    # the user removed any combos) wins; otherwise build the axes cross-product.
+    specs = []   # [(label_or_None, {name: value})]
+    if data.variants is not None:
+        for v in data.variants:
+            attrs = {str(k): str(val) for k, val in (v.get("attributes") or {}).items()}
+            label = v.get("label") or (" / ".join(attrs.values()) if attrs else None)
+            specs.append((label, attrs))
+    else:
+        axes = [a for a in data.axes if a.values]
+        combos = list(itertools.product(*[a.values for a in axes])) if axes else [()]
+        for combo in combos:
+            label = " / ".join(combo) if combo else None
+            attrs = {ax.name: val for ax, val in zip(axes, combo)}
+            specs.append((label, attrs))
+
+    if not specs:
+        raise HTTPException(400, "Add at least one variant.")
+    if len(specs) > _MAX_VARIANTS:
+        raise HTTPException(400, f"That would create {len(specs)} variants (limit {_MAX_VARIANTS}). Reduce the options.")
+    has_attrs = any(attrs for _, attrs in specs)
 
     now = _now()
     pc = db.execute(
         "INSERT INTO products (name, category, brand, description, product_kind, barcode, created_at) "
         "VALUES (?,?,?,?,?,?,?)",
         (data.name.strip(), data.category, data.brand, data.description,
-         "variant" if axes else "simple", (data.barcode_prefix or None), now),
+         "variant" if has_attrs else "simple", (data.barcode_prefix or None), now),
     )
     product_id = pc.lastrowid
 
@@ -288,8 +309,7 @@ def create_product(data: ProductCreate, user=Depends(require_perm("inventory", "
         )
 
     variant_ids = []
-    for i, combo in enumerate(combos, start=1):
-        label = " / ".join(combo) if combo else None
+    for i, (label, attrs) in enumerate(specs, start=1):
         barcode = f"{data.barcode_prefix}{i:03d}" if data.barcode_prefix else None
         item_id = insert_inventory_row(
             db, user,
@@ -301,11 +321,11 @@ def create_product(data: ProductCreate, user=Depends(require_perm("inventory", "
             barcode=barcode, lot_tracked=data.lot_tracked,
             product_id=product_id, variant_label=label, now=now,
         )
-        # Record each axis value as an item attribute for filtering/reporting.
-        for ax, val in zip(axes, combo):
+        # Record each attribute value for filtering/reporting.
+        for name, val in attrs.items():
             db.execute(
                 "INSERT OR IGNORE INTO item_attributes (inventory_id, name, value) VALUES (?,?,?)",
-                (item_id, ax.name, val),
+                (item_id, name, val),
             )
         variant_ids.append(item_id)
 
