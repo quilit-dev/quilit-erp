@@ -1260,6 +1260,8 @@ const ar = {
     cart: 'السلة',
     cartEmpty: 'السلة فارغة. امسح أو ابحث لإضافة أصناف.',
     customLine: '+ بند مخصص',
+    customItem: 'صنف مخصص',
+    customLineHint: 'بِع صنفًا غير مسجّل في المخزون بعد — اكتب اسمه وسعره.',
     customLineName: 'اسم الصنف / الخدمة',
     customPricePlaceholder: 'السعر',
     qty: 'الكمية',

@@ -946,24 +946,36 @@ function RegisterView({ session, onClose, onSold }) {
 
         {/* Products column */}
         <div className="pos-products-section">
-          {/* Search */}
-          <div className="pos-search-row">
-            <span className="pos-search-icon" aria-hidden>
-              <svg width="16" height="16" viewBox="0 0 24 24" fill="none"
-                stroke="currentColor" strokeWidth="2"
-                strokeLinecap="round" strokeLinejoin="round">
-                <circle cx="11" cy="11" r="8"/>
-                <line x1="21" y1="21" x2="16.65" y2="16.65"/>
+          {/* Search + a prominent always-visible custom-item action */}
+          <div className="pos-search-row" style={{ display: 'flex', gap: 8, alignItems: 'stretch' }}>
+            <div style={{ position: 'relative', flex: 1, display: 'flex', alignItems: 'center' }}>
+              <span className="pos-search-icon" aria-hidden>
+                <svg width="16" height="16" viewBox="0 0 24 24" fill="none"
+                  stroke="currentColor" strokeWidth="2"
+                  strokeLinecap="round" strokeLinejoin="round">
+                  <circle cx="11" cy="11" r="8"/>
+                  <line x1="21" y1="21" x2="16.65" y2="16.65"/>
+                </svg>
+              </span>
+              <input
+                className="pos-search-input"
+                autoFocus
+                value={search}
+                placeholder={t('pos.searchProducts')}
+                onChange={e => setSearch(e.target.value)}
+                onKeyDown={onSearchKeyDown}
+              />
+            </div>
+            <button type="button" className="btn btn-primary"
+              onClick={addCustomLine}
+              style={{ whiteSpace: 'nowrap', flexShrink: 0, display: 'flex', alignItems: 'center', gap: 6 }}
+              title={t('pos.customLineHint')}>
+              <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor"
+                strokeWidth="2.4" strokeLinecap="round" strokeLinejoin="round" aria-hidden>
+                <line x1="12" y1="5" x2="12" y2="19"/><line x1="5" y1="12" x2="19" y2="12"/>
               </svg>
-            </span>
-            <input
-              className="pos-search-input"
-              autoFocus
-              value={search}
-              placeholder={t('pos.searchProducts')}
-              onChange={e => setSearch(e.target.value)}
-              onKeyDown={onSearchKeyDown}
-            />
+              {t('pos.customItem')}
+            </button>
           </div>
 
           {/* Category pills — only shown when not searching, and only if
@@ -1047,13 +1059,8 @@ function RegisterView({ session, onClose, onSold }) {
             )}
           </div>
 
-          {/* Custom-line trigger sits as a quiet ghost action at the
-              bottom of the products column. */}
-          <div className="pos-products-foot">
-            <button className="btn btn-ghost btn-sm" onClick={addCustomLine}>
-              {t('pos.customLine')}
-            </button>
-          </div>
+          {/* The custom-item action now lives prominently next to the search
+              bar (see above), so no quiet ghost trigger is needed here. */}
         </div>
 
         {/* Cart column */}
