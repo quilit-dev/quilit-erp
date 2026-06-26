@@ -1,4 +1,5 @@
 import { useState, useEffect, useRef, useCallback } from 'react';
+import { usePersistedState } from '../hooks/usePersistedState';
 import { useLocale } from '../hooks/useLocale.jsx';
 import { usePermissions } from '../hooks/usePermissions.js';
 import { useSettings } from '../hooks/useSettings.jsx';
@@ -742,7 +743,7 @@ function RegisterView({ session, onClose, onSold }) {
   // checkout. Only offered once an exchange rate exists.
   const secondary = exchangeRate?.secondary || 'LBP';
   const showCurrencyToggle = fxRate > 0;
-  const [posDisplay, setPosDisplay] = useState('USD');
+  const [posDisplay, setPosDisplay] = usePersistedState('pos.displayCurrency', 'USD');
   const inLbp = posDisplay === 'LBP' && fxRate > 0;
   const posMoney = (usd) => inLbp
     ? `${_lbpGrp.format(Math.round((Number(usd) || 0) * fxRate))} ${secondary}`
