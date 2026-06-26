@@ -1,9 +1,9 @@
 import { usePersistedState } from '../hooks/usePersistedState';
 import { useState, useCallback, useEffect, useRef } from 'react';
 import {
-  getPurchases, getPurchaseStats, createPurchase,
+  getPurchases, getPurchaseStats, createPurchase, createBulkPurchase,
   updatePurchase, updatePurchaseStatus, archivePurchase, unarchivePurchase,
-  getInventory, getCategories, getSuppliers,
+  getInventory, getCategories, getSuppliers, getProducts, getProduct,
 } from '../api/client';
 import {
   LoadingSpinner, ErrorAlert, EmptyState, Modal, ConfirmModal,
@@ -149,9 +149,30 @@ function PurchaseForm({ initial = {}, inventoryItems = [], inventoryCategories =
               <label className="form-label">{t('purchases.linkInventory')}</label>
               <select className="form-control" value={form.inventory_id} onChange={handleInventorySelect}>
                 <option value="">{t('purchases.newNotLinked')}</option>
-                {inventoryItems.map(i => (
-                  <option key={i.id} value={i.id}>{i.name}{i.category ? ` (${i.category})` : ''}</option>
-                ))}
+                {(() => {
+                  // Group variant SKUs under their product so the list isn't a
+                  // flat wall of "iPhone 15 — 256GB/Black" rows.
+                  const groups = new Map();   // product_name -> variants
+                  const loose = [];
+                  inventoryItems.forEach(i => {
+                    if (i.product_id) {
+                      const k = i.product_name || i.name;
+                      (groups.get(k) || groups.set(k, []).get(k)).push(i);
+                    } else loose.push(i);
+                  });
+                  return [
+                    ...[...groups.entries()].map(([name, vs]) => (
+                      <optgroup key={`g-${name}`} label={name}>
+                        {vs.map(i => (
+                          <option key={i.id} value={i.id}>{i.variant_label || i.name}</option>
+                        ))}
+                      </optgroup>
+                    )),
+                    ...loose.map(i => (
+                      <option key={i.id} value={i.id}>{i.name}{i.category ? ` (${i.category})` : ''}</option>
+                    )),
+                  ];
+                })()}
               </select>
             </div>
           )}
@@ -267,6 +288,151 @@ function StatusBadge({ status }) {
 }
 
 // ── Main page ────────────────────────────────────────────────────────────────
+
+// ── Order Variants — raise one PO per variant of a product in a single grid ──
+function OrderVariantsModal({ suppliers = [], onDone, onCancel }) {
+  const { t } = useLocale();
+  const { warehouses, defaultId } = useWarehouses();
+  const { exchangeRate } = useSettings();
+  const fxRate = Number(exchangeRate?.rate) || 0;
+  const hasRate = fxRate > 0;
+  const secondary = exchangeRate?.secondary || 'LBP';
+
+  const [products, setProducts] = useState([]);
+  const [productId, setProductId] = useState('');
+  const [variants, setVariants] = useState([]);   // [{id, variant_label, quantity, unit_cost, _qty, _cost}]
+  const [supplier, setSupplier] = useState('');
+  const [warehouseId, setWarehouseId] = useState('');
+  const [costCurrency, setCostCurrency] = useState('USD');
+  const [status, setStatus] = useState('Ordered');
+  const [saving, setSaving] = useState(false);
+
+  useEffect(() => {
+    getProducts().then(p => setProducts(Array.isArray(p) ? p : [])).catch(() => setProducts([]));
+  }, []);
+  useEffect(() => { if (defaultId) setWarehouseId(String(defaultId)); }, [defaultId]);
+
+  async function pickProduct(id) {
+    setProductId(id);
+    setVariants([]);
+    if (!id) return;
+    try {
+      const p = await getProduct(id);
+      setVariants((p.variants || []).map(v => ({
+        ...v, _qty: '', _cost: v.unit_cost ?? 0,
+      })));
+    } catch (err) { toast(err.message, 'red'); }
+  }
+
+  const setRow = (id, k, val) => setVariants(vs => vs.map(v => v.id === id ? { ...v, [k]: val } : v));
+  const lines = variants.filter(v => Number(v._qty) > 0);
+  const totalQty = lines.reduce((s, v) => s + (Number(v._qty) || 0), 0);
+
+  async function submit() {
+    if (!supplier.trim()) { toast(t('purchases.supplierRequired'), 'red'); return; }
+    if (lines.length === 0) { toast(t('purchases.addQtyToVariant'), 'red'); return; }
+    setSaving(true);
+    try {
+      const res = await createBulkPurchase({
+        supplier: supplier.trim(),
+        warehouse_id: warehouseId ? Number(warehouseId) : null,
+        cost_currency: costCurrency,
+        exchange_rate: costCurrency === 'LBP' ? fxRate : undefined,
+        status,
+        lines: lines.map(v => ({
+          inventory_id: v.id,
+          quantity: Number(v._qty) || 0,
+          unit_cost: Number(v._cost) || 0,
+        })),
+      });
+      toast(t('purchases.bulkCreated', { count: res.created }));
+      onDone();
+    } catch (err) { toast(err.message, 'red'); }
+    finally { setSaving(false); }
+  }
+
+  return (
+    <div>
+      <div className="modal-body">
+        <div className="form-grid">
+          <div className="form-group">
+            <label className="form-label">{t('purchases.supplierLabel')}</label>
+            <SupplierCombobox value={supplier} suppliers={suppliers} onChange={setSupplier} required />
+          </div>
+          <div className="form-group">
+            <label className="form-label">{t('purchases.productLabel')}</label>
+            <select className="form-control" value={productId} onChange={e => pickProduct(e.target.value)}>
+              <option value="">{t('purchases.selectProduct')}</option>
+              {products.map(p => (
+                <option key={p.id} value={p.id}>{p.name} ({t('inventory.variantCountBadge', { count: p.variant_count })})</option>
+              ))}
+            </select>
+          </div>
+          {warehouses.length > 0 && (
+            <div className="form-group">
+              <label className="form-label">{t('warehouses.receiveAt')}</label>
+              <select className="form-control" value={warehouseId} onChange={e => setWarehouseId(e.target.value)}>
+                {warehouses.map(w => <option key={w.id} value={w.id}>{w.code} · {w.name}</option>)}
+              </select>
+            </div>
+          )}
+          <div className="form-group">
+            <label className="form-label">{t('purchases.costCurrency')}</label>
+            <select className="form-control" value={costCurrency} onChange={e => setCostCurrency(e.target.value)}>
+              <option value="USD">USD</option>
+              <option value={secondary} disabled={!hasRate}>{secondary}</option>
+            </select>
+          </div>
+        </div>
+
+        {productId && variants.length === 0 && (
+          <div style={{ fontSize: 13, color: 'var(--text-3)', padding: '12px 0' }}>{t('purchases.noVariantsForProduct')}</div>
+        )}
+        {variants.length > 0 && (
+          <div className="table-wrap" style={{ marginTop: 8 }}>
+            <table>
+              <thead>
+                <tr>
+                  <th>{t('purchases.variant')}</th>
+                  <th>{t('inventory.stockHeader')}</th>
+                  <th style={{ width: 110 }}>{t('purchases.quantityLabel')}</th>
+                  <th style={{ width: 150 }}>{t('purchases.unitCost')} ({costCurrency})</th>
+                </tr>
+              </thead>
+              <tbody>
+                {variants.map(v => (
+                  <tr key={v.id}>
+                    <td className="td-primary">{v.variant_label || v.name}</td>
+                    <td>{v.quantity} {v.unit}</td>
+                    <td>
+                      <NumberInput className="form-control" step="1" min="0" placeholder="0"
+                        value={v._qty} onChange={e => setRow(v.id, '_qty', e.target.value)} />
+                    </td>
+                    <td>
+                      <NumberInput className="form-control" step="any" min="0"
+                        value={v._cost} onChange={e => setRow(v.id, '_cost', e.target.value)} />
+                    </td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          </div>
+        )}
+      </div>
+      <div className="modal-footer" style={{ justifyContent: 'space-between' }}>
+        <span style={{ fontSize: 13, color: 'var(--text-2)' }}>
+          {t('purchases.bulkSummary', { lines: lines.length, qty: totalQty })}
+        </span>
+        <div style={{ display: 'flex', gap: 8 }}>
+          <button type="button" className="btn btn-secondary" onClick={onCancel}>{t('common.cancel')}</button>
+          <button type="button" className="btn btn-primary" disabled={saving || lines.length === 0} onClick={submit}>
+            {saving ? t('common.saving') : t('purchases.createOrders')}
+          </button>
+        </div>
+      </div>
+    </div>
+  );
+}
 
 export default function Purchases() {
   const { t, tStatus } = useLocale();
@@ -410,6 +576,7 @@ export default function Purchases() {
         </div>
         <div style={{ display: 'flex', gap: 8 }}>
           <ExportButton data={exportData} filename="Purchases" sheetName="Purchases" />
+          <button className="btn btn-secondary" onClick={() => setModal('orderVariants')}>{t('purchases.orderVariants')}</button>
           <button className="btn btn-primary" onClick={() => setModal('add')}>{t('purchases.addPurchase')}</button>
         </div>
       </div>
@@ -565,6 +732,15 @@ export default function Purchases() {
             onSave={handleAdd}
             onCancel={() => setModal(null)}
             saving={saving}
+          />
+        </Modal>
+      )}
+      {modal === 'orderVariants' && (
+        <Modal title={t('purchases.orderVariantsTitle')} onClose={() => setModal(null)} size="modal-lg">
+          <OrderVariantsModal
+            suppliers={supplierList}
+            onDone={() => { setModal(null); load(); }}
+            onCancel={() => setModal(null)}
           />
         </Modal>
       )}
