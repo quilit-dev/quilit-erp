@@ -4,13 +4,16 @@ import { api as API, getBackupStatus, runBackupNow, exportBackup, runIntegrityCh
          getTaxRates, createTaxRate, updateTaxRate, deleteTaxRate } from '../api/client';
 import { useSettings } from '../hooks/useSettings.jsx';
 import { useLocale } from '../hooks/useLocale.jsx';
+import { Icon } from '../components/shared';
 import InventoryFieldsManager from '../components/InventoryFieldsManager.jsx';
 
 const Section = ({ title, icon, children }) => (
   <div className="card" style={{ marginBottom: 24, overflow: 'hidden' }}>
     <div className="card-header">
       <div style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
-        <span style={{ fontSize: 18 }}>{icon}</span>
+        <span style={{ display: 'inline-flex', color: 'var(--accent)' }}>
+          <Icon name={icon} size={17} strokeWidth={1.9} />
+        </span>
         <h3 className="card-title" style={{ fontSize: 15 }}>{title}</h3>
       </div>
     </div>
@@ -116,7 +119,7 @@ function TaxRatesSection({ isAdmin, t }) {
   const setF = k => v => setForm(f => ({ ...f, [k]: v }));
 
   return (
-    <Section title={t('settings.taxRates')} icon="🧾">
+    <Section title={t('settings.taxRates')} icon="receipt">
       <p style={{ fontSize: 12.5, color: 'var(--text-3)', marginTop: -4, marginBottom: 12 }}>
         {t('settings.taxRatesHint')}
       </p>
@@ -361,7 +364,8 @@ export default function Settings() {
     <div style={{ maxWidth: 760, margin: '0 auto', padding: '24px 16px' }}>
       {msg ? (
         <div className={`alert alert-${msg.type === 'ok' ? 'green' : 'red'}`}>
-          {msg.type === 'ok' ? '✓ ' : '✕ '}{msg.text}
+          <Icon name={msg.type === 'ok' ? 'check-circle' : 'alert-circle'} size={14}
+            style={{ verticalAlign: '-2px', marginInlineEnd: 6 }} />{msg.text}
         </div>
       ) : (
         <div className="empty-state"><p>{t('common.loading')}</p></div>
@@ -373,14 +377,17 @@ export default function Settings() {
     <div style={{ maxWidth: 760, margin: '0 auto', padding: '24px 16px' }}>
       <div className="page-header" style={{ marginBottom: 16 }}>
         <div>
-          <h2 className="page-title">⚙️ {t('settings.title')}</h2>
+          <h2 className="page-title" style={{ display: 'flex', alignItems: 'center', gap: 9 }}>
+            <Icon name="settings" size={20} strokeWidth={1.9} style={{ color: 'var(--accent)' }} />
+            {t('settings.title')}
+          </h2>
           <p className="page-subtitle">{t('settings.subtitle')}</p>
         </div>
       </div>
 
       {!isAdmin && (
         <div style={{ display: 'flex', alignItems: 'center', gap: 10, padding: '10px 16px', background: 'var(--yellow-light)', border: '1px solid var(--yellow)', borderRadius: 8, marginBottom: 20 }}>
-          <span style={{ fontSize: 16 }}>👁</span>
+          <span style={{ display: 'inline-flex', color: 'var(--yellow)' }}><Icon name="eye" size={16} /></span>
           <span style={{ fontSize: 13, color: 'var(--yellow)', fontWeight: 500 }}>{t('settings.viewOnly')}</span>
         </div>
       )}
@@ -388,12 +395,13 @@ export default function Settings() {
       {form && (<>
         {msg && (
           <div className={`alert alert-${msg.type === 'ok' ? 'green' : 'red'}`} style={{ marginBottom: 20 }}>
-            {msg.type === 'ok' ? '✓ ' : '✕ '}{msg.text}
+            <Icon name={msg.type === 'ok' ? 'check-circle' : 'alert-circle'} size={14}
+            style={{ verticalAlign: '-2px', marginInlineEnd: 6 }} />{msg.text}
           </div>
         )}
 
         {/* 1. Company Settings */}
-        <Section title={t('settings.companySectionTitle')} icon="🏢">
+        <Section title={t('settings.companySectionTitle')} icon="building">
           <div className="form-grid">
             <Field label={t('settings.companyName')}>
               <Input disabled={!isAdmin} value={form.company_name || ''} onChange={set('company_name')} placeholder="My Company Ltd." />
@@ -412,7 +420,7 @@ export default function Settings() {
               {isAdmin && (
                 <>
                   <button onClick={() => fileRef.current.click()} className="btn btn-secondary" style={{ borderStyle: 'dashed' }}>
-                    {logoFile ? `📎 ${logoFile.name}` : t('settings.uploadLogo')}
+                    {logoFile ? <><Icon name="paperclip" size={14} style={{ verticalAlign: '-2px', marginInlineEnd: 6 }} />{logoFile.name}</> : t('settings.uploadLogo')}
                   </button>
                   <input ref={fileRef} type="file" accept="image/*" style={{ display: 'none' }}
                     onChange={e => { const f = e.target.files[0]; if (!f) return; setLogoFile(f); setLogoPreview(URL.createObjectURL(f)); }} />
@@ -456,7 +464,7 @@ export default function Settings() {
         </Section>
 
         {/* 2. Bank Details */}
-        <Section title={t('settings.bankDetails')} icon="🏦">
+        <Section title={t('settings.bankDetails')} icon="landmark">
           <p style={{ fontSize: 12, color: 'var(--text-3)', margin: '0 0 12px' }}>
             {t('settings.bankHint')}
           </p>
@@ -477,7 +485,7 @@ export default function Settings() {
         </Section>
 
         {/* 3. Financial Settings */}
-        <Section title={t('settings.financialSettings')} icon="💰">
+        <Section title={t('settings.financialSettings')} icon="banknote">
           <div className="form-grid">
             <Field label={t('settings.invoicePrefix')}>
               <Input disabled={!isAdmin} value={form.invoice_prefix || ''} onChange={set('invoice_prefix')} placeholder="INV-" />
@@ -493,7 +501,7 @@ export default function Settings() {
         </Section>
 
         {/* 3c. Inventory & Costing */}
-        <Section title={t('settings.inventorySettings')} icon="📦">
+        <Section title={t('settings.inventorySettings')} icon="package">
           <p style={{ fontSize: 12, color: 'var(--text-3)', margin: '0 0 14px' }}>
             {t('settings.inventoryCostingDesc')}
           </p>
@@ -537,7 +545,7 @@ export default function Settings() {
         </Section>
 
         {/* 3·5. Inventory Fields — owner-defined custom attributes (variants etc.) */}
-        <Section title={t('settings.inventoryFields')} icon="🧩">
+        <Section title={t('settings.inventoryFields')} icon="sliders">
           <InventoryFieldsManager canEdit={isAdmin} />
         </Section>
 
@@ -545,7 +553,7 @@ export default function Settings() {
         <TaxRatesSection isAdmin={isAdmin} t={t} />
 
         {/* 3b. Exchange Rate — dual-currency foundation */}
-        <Section title={t('settings.exchangeRate')} icon="💱">
+        <Section title={t('settings.exchangeRate')} icon="arrow-left-right">
           <p style={{ fontSize: 12, color: 'var(--text-3)', margin: '0 0 14px' }}>
             {t('settings.exchangeRateDesc')}
           </p>
@@ -579,7 +587,7 @@ export default function Settings() {
           )}
           {isAdmin && (
             <button onClick={saveRate} disabled={savingRate} className="btn btn-primary" style={{ marginTop: 4 }}>
-              {savingRate ? t('common.saving') : `💱 ${t('settings.saveRate')}`}
+              {savingRate ? t('common.saving') : t('settings.saveRate')}
             </button>
           )}
 
@@ -606,7 +614,7 @@ export default function Settings() {
         </Section>
 
         {/* 4. Document Settings */}
-        <Section title={t('settings.documentSettings')} icon="📄">
+        <Section title={t('settings.documentSettings')} icon="file-text">
           <Field label={t('settings.footerText')}>
             <Input disabled={!isAdmin} value={form.footer_text || ''} onChange={set('footer_text')} />
           </Field>
@@ -621,13 +629,13 @@ export default function Settings() {
             (SQLite) edition. A cloud (Postgres) deployment is backed up
             server-side, so this whole section (incl. the "works offline" pitch
             and USB/local backup) is hidden when form.local_backup is false. */}
-        {isAdmin && form.local_backup && <Section title={t('settings.backupIntegrity')} icon="🗄️">
+        {isAdmin && form.local_backup && <Section title={t('settings.backupIntegrity')} icon="database">
           <div style={{
             display: 'flex', gap: 10, alignItems: 'flex-start',
             background: 'var(--green-light)', border: '1px solid var(--green)',
             borderRadius: 8, padding: '10px 14px', marginBottom: 18,
           }}>
-            <span style={{ fontSize: 18, lineHeight: 1.2 }}>🛡️</span>
+            <span style={{ display: 'inline-flex', color: 'var(--green)', flexShrink: 0 }}><Icon name="shield" size={18} /></span>
             <div style={{ fontSize: 12.5, color: 'var(--text-2)', lineHeight: 1.5 }}>
               <strong style={{ color: 'var(--green)' }}>{t('settings.offlineTitle')}</strong><br />
               {t('settings.offlinePitch')}
@@ -636,10 +644,10 @@ export default function Settings() {
 
           <div style={{ display: 'flex', gap: 10, flexWrap: 'wrap', marginBottom: 20 }}>
             <button onClick={handleRunBackup} disabled={runningBackup} className="btn btn-primary">
-              {runningBackup ? `⏳ ${t('settings.backingUp')}` : `🔄 ${t('settings.runBackup')}`}
+              {runningBackup ? t('settings.backingUp') : <><Icon name="refresh-cw" size={14} style={{ verticalAlign: '-2px', marginInlineEnd: 6 }} />{t('settings.runBackup')}</>}
             </button>
             <button onClick={handleIntegrityCheck} disabled={checkingIntegrity} className="btn btn-secondary">
-              {checkingIntegrity ? `⏳ ${t('settings.checking')}` : `🔬 ${t('settings.runIntegrity')}`}
+              {checkingIntegrity ? t('settings.checking') : <><Icon name="shield" size={14} style={{ verticalAlign: '-2px', marginInlineEnd: 6 }} />{t('settings.runIntegrity')}</>}
             </button>
           </div>
 
@@ -659,7 +667,7 @@ export default function Settings() {
               />
               <button onClick={handleExportBackup} disabled={exporting || !usbPath.trim()}
                 className="btn btn-primary" style={{ whiteSpace: 'nowrap' }}>
-                {exporting ? `⏳ ${t('settings.backingUp')}` : `💾 ${t('settings.usbBackupBtn')}`}
+                {exporting ? t('settings.backingUp') : t('settings.usbBackupBtn')}
               </button>
             </div>
             {exportResult && (
@@ -667,7 +675,7 @@ export default function Settings() {
                 marginTop: 10, padding: '8px 12px', borderRadius: 8, fontSize: 12,
                 background: 'var(--green-light)', border: '1px solid var(--green)', color: 'var(--text-2)',
               }}>
-                ✓ {t('settings.usbBackupSavedTo')} <strong style={{ fontFamily: 'monospace' }}>{exportResult.path}</strong>
+                <Icon name="check-circle" size={14} style={{ verticalAlign: '-2px', marginInlineEnd: 6, color: 'var(--green)' }} />{t('settings.usbBackupSavedTo')} <strong style={{ fontFamily: 'monospace' }}>{exportResult.path}</strong>
                 {' '}({exportResult.size_kb} KB)
                 {exportResult.verified && <span style={{ color: 'var(--green)' }}> · {t('settings.usbBackupVerified')}</span>}
               </div>
@@ -703,7 +711,7 @@ export default function Settings() {
             </p>
             <div style={{ display: 'flex', gap: 10, alignItems: 'center', flexWrap: 'wrap' }}>
               <button onClick={() => restoreRef.current.click()} className="btn btn-secondary" style={{ borderStyle: 'dashed' }}>
-                {restoreFile ? `📎 ${restoreFile.name}` : t('settings.selectBackupFile')}
+                {restoreFile ? <><Icon name="paperclip" size={14} style={{ verticalAlign: '-2px', marginInlineEnd: 6 }} />{restoreFile.name}</> : t('settings.selectBackupFile')}
               </button>
               <input ref={restoreRef} type="file" accept=".db" style={{ display: 'none' }}
                 onChange={e => { const f = e.target.files[0]; if (f) { setRestoreFile(f); setConfirmRestore(false); } }} />
@@ -769,7 +777,10 @@ export default function Settings() {
                         background: f.checksum_ok ? 'var(--green-light)' : 'var(--yellow-light)',
                         color: f.checksum_ok ? 'var(--green)' : 'var(--yellow)',
                       }}>
-                        {f.checksum_ok ? `✓ ${f.checksum_short}` : f.checksum_short === 'no_sidecar' ? '— no checksum' : `✕ ${f.checksum_short}`}
+                        {f.checksum_ok
+                          ? <><Icon name="check-circle" size={12} style={{ verticalAlign: '-1px', marginInlineEnd: 4, color: 'var(--green)' }} />{f.checksum_short}</>
+                          : f.checksum_short === 'no_sidecar' ? '— no checksum'
+                          : <><Icon name="alert-circle" size={12} style={{ verticalAlign: '-1px', marginInlineEnd: 4, color: 'var(--red)' }} />{f.checksum_short}</>}
                       </span>
                     </div>
                   ))}
@@ -801,7 +812,10 @@ export default function Settings() {
                         background: f.checksum_ok ? 'var(--green-light)' : 'var(--yellow-light)',
                         color: f.checksum_ok ? 'var(--green)' : 'var(--yellow)',
                       }}>
-                        {f.checksum_ok ? `✓ ${f.checksum_short}` : f.checksum_short === 'no_sidecar' ? '— no checksum' : `✕ ${f.checksum_short}`}
+                        {f.checksum_ok
+                          ? <><Icon name="check-circle" size={12} style={{ verticalAlign: '-1px', marginInlineEnd: 4, color: 'var(--green)' }} />{f.checksum_short}</>
+                          : f.checksum_short === 'no_sidecar' ? '— no checksum'
+                          : <><Icon name="alert-circle" size={12} style={{ verticalAlign: '-1px', marginInlineEnd: 4, color: 'var(--red)' }} />{f.checksum_short}</>}
                       </span>
                     </div>
                   ))}
@@ -814,7 +828,7 @@ export default function Settings() {
         {isAdmin && (
           <div style={{ display: 'flex', justifyContent: 'flex-end' }}>
             <button onClick={save} disabled={saving} className="btn btn-primary" style={{ padding: '10px 32px', fontSize: 15 }}>
-              {saving ? t('common.saving') : `💾 ${t('settings.save')}`}
+              {saving ? t('common.saving') : t('settings.save')}
             </button>
           </div>
         )}
