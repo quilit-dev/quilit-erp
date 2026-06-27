@@ -50,7 +50,7 @@ export default function FixedAssets() {
   const { data: assets, loading, error, reload } = useData(getAssets);
   const { data: summary, reload: reloadSummary } = useData(getAssetsSummary);
   const { data: suppliers } = useData(getSuppliers);
-  const { t } = useLocale();
+  const { t, tCategory } = useLocale();
   const { can } = usePermissions();
 
   const [search, setSearch]         = usePersistedState('assets.search', '');
@@ -280,7 +280,7 @@ export default function FixedAssets() {
                   <tr key={a.id} style={{ cursor: 'pointer' }} onClick={() => openDetail(a.id)}>
                     <td style={{ color: 'var(--text-2)', fontFamily: 'monospace', fontSize: 12 }}>{a.asset_code}</td>
                     <td className="td-primary">{a.name}</td>
-                    <td style={{ color: 'var(--text-2)' }}>{a.category || <span style={{ color: 'var(--text-3)' }}>—</span>}</td>
+                    <td style={{ color: 'var(--text-2)' }}>{a.category ? tCategory(a.category) : <span style={{ color: 'var(--text-3)' }}>—</span>}</td>
                     <td style={{ textAlign: 'right', whiteSpace: 'nowrap' }}>{fmt(a.acquisition_cost)}</td>
                     <td style={{ textAlign: 'right', whiteSpace: 'nowrap' }}>
                       <span style={{ color: 'var(--red)' }}>{fmt(a.accumulated_depreciation)}</span>
@@ -322,7 +322,7 @@ export default function FixedAssets() {
                   <select className="form-control" value={form.category}
                     onChange={e => setForm(f => ({ ...f, category: e.target.value }))}>
                     <option value="">—</option>
-                    {ASSET_CATEGORIES.map(c => <option key={c} value={c}>{c}</option>)}
+                    {ASSET_CATEGORIES.map(c => <option key={c} value={c}>{tCategory(c)}</option>)}
                   </select>
                 </div>
                 <div className="form-group">

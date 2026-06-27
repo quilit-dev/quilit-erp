@@ -27,7 +27,7 @@ const fmtNum = (n) =>
 // ── Purchase form ────────────────────────────────────────────────────────────
 
 function PurchaseForm({ initial = {}, inventoryItems = [], inventoryCategories = [], suppliers = [], onSave, onCancel, saving }) {
-  const { t, tStatus } = useLocale();
+  const { t, tStatus, tCategory } = useLocale();
   const { settings, taxRates, exchangeRate } = useSettings();
   const fxRate = Number(exchangeRate?.rate) || 0;
   const hasRate = fxRate > 0;
@@ -188,7 +188,7 @@ function PurchaseForm({ initial = {}, inventoryItems = [], inventoryCategories =
             <select className="form-control" value={form.category}
               onChange={e => set('category', e.target.value)}>
               <option value="">{t('purchases.selectCategory')}</option>
-              {allCats.map(c => <option key={c} value={c}>{c}</option>)}
+              {allCats.map(c => <option key={c} value={c}>{tCategory(c)}</option>)}
               <option value="__custom__">{t('purchases.addCategoryOption')}</option>
             </select>
             {useCustom && (
@@ -435,7 +435,7 @@ function OrderVariantsModal({ suppliers = [], onDone, onCancel }) {
 }
 
 export default function Purchases() {
-  const { t, tStatus } = useLocale();
+  const { t, tStatus, tCategory } = useLocale();
   const { can } = usePermissions();
   const [purchases,           setPurchases]           = useState([]);
   const [stats,               setStats]               = useState({});
@@ -620,7 +620,7 @@ export default function Purchases() {
           <select className="form-control" style={{ width: 180, height: 34, fontSize: 13 }}
             value={categoryFilter} onChange={e => setCategoryFilter(e.target.value)}>
             <option value="">{t('purchases.allCategories')}</option>
-            {purchaseCategories.map(c => <option key={c} value={c}>{c}</option>)}
+            {purchaseCategories.map(c => <option key={c} value={c}>{tCategory(c)}</option>)}
           </select>
 
           {hasFilters && (
@@ -676,7 +676,7 @@ export default function Purchases() {
                     <td>{p.product_name}</td>
                     <td>
                       {p.category
-                        ? <span className="badge badge-blue">{p.category}</span>
+                        ? <span className="badge badge-blue">{tCategory(p.category)}</span>
                         : <span style={{ color: 'var(--text-3)' }}>—</span>}
                     </td>
                     <td>{p.quantity}</td>

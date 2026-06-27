@@ -31,12 +31,13 @@ const fmtNum = (n) =>
   Number(n || 0).toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 });
 
 function CategoryBadge({ category }) {
+  const { tCategory } = useLocale();
   if (!category) return <span style={{ color: 'var(--text-3)' }}>—</span>;
-  return <span className="badge badge-accent">{category}</span>;
+  return <span className="badge badge-accent">{tCategory(category)}</span>;
 }
 
 function ProductTypeBadge({ type }) {
-  const { t } = useLocale();
+  const { t, tCategory } = useLocale();
   if (!type) return <span style={{ color: 'var(--text-3)' }}>—</span>;
   const s = PRODUCT_TYPE_COLORS[type] || { bg: '#F3F4F6', color: '#6B7280' };
   return (
@@ -48,7 +49,7 @@ function ProductTypeBadge({ type }) {
 }
 
 function ItemForm({ initial = {}, knownCategories = [], suppliers = [], onSave, onCancel, saving }) {
-  const { t } = useLocale();
+  const { t, tCategory } = useLocale();
   const { exchangeRate } = useSettings();
   const rate = Number(exchangeRate?.rate) || 0;
   const hasRate = rate > 0;
@@ -116,7 +117,7 @@ function ItemForm({ initial = {}, knownCategories = [], suppliers = [], onSave, 
             <select className="form-control" value={form.category}
               onChange={e => set('category', e.target.value)}>
               <option value="">{t('inventory.noCategory')}</option>
-              {allCats.map(c => <option key={c} value={c}>{c}</option>)}
+              {allCats.map(c => <option key={c} value={c}>{tCategory(c)}</option>)}
               <option value="__custom__">{t('inventory.addCategoryOption')}</option>
             </select>
             {useCustom && (
@@ -240,7 +241,7 @@ function ItemForm({ initial = {}, knownCategories = [], suppliers = [], onSave, 
 }
 
 function StockForm({ item, onDone, onCancel }) {
-  const { t } = useLocale();
+  const { t, tCategory } = useLocale();
   const [delta,  setDelta]  = useState('');
   const [type,   setType]   = useState('adjustment');
   const [note,   setNote]   = useState('');
@@ -344,7 +345,7 @@ function StockForm({ item, onDone, onCancel }) {
 }
 
 function MovementsModal({ item, onClose }) {
-  const { t } = useLocale();
+  const { t, tCategory } = useLocale();
   const [movements, setMovements] = useState([]);
   const [loading,   setLoading]   = useState(true);
 
@@ -402,7 +403,7 @@ const LOT_STATUS_BADGE = {
 };
 
 function LotTraceModal({ lotId, onClose }) {
-  const { t } = useLocale();
+  const { t, tCategory } = useLocale();
   const [lot, setLot] = useState(null);
   useEffect(() => { getLot(lotId).then(setLot).catch(e => toast(e.message, 'red')); }, [lotId]);
   return (
@@ -466,7 +467,7 @@ function LotTraceModal({ lotId, onClose }) {
 }
 
 function LotsBrowser() {
-  const { t } = useLocale();
+  const { t, tCategory } = useLocale();
   const [rows, setRows] = useState(null);
   const [expiringOnly, setExpiringOnly] = useState(false);
   const [detailId, setDetailId] = useState(null);
@@ -526,7 +527,7 @@ function LotsBrowser() {
 // Creates a parent product and the cross-product of its variant axes (Size ×
 // Color …). Each combination becomes its own inventory SKU on the server.
 function ProductBuilder({ knownCategories = [], onSave, onCancel, saving }) {
-  const { t } = useLocale();
+  const { t, tCategory } = useLocale();
   const { settings, exchangeRate } = useSettings();
   const rate = Number(exchangeRate?.rate) || 0;
   const hasRate = rate > 0;
@@ -649,7 +650,7 @@ function ProductBuilder({ knownCategories = [], onSave, onCancel, saving }) {
             <label className="form-label">{t('common.category')}</label>
             <select className="form-control" value={form.category} onChange={e => set('category', e.target.value)}>
               <option value="">{t('inventory.noCategory')}</option>
-              {allCats.map(c => <option key={c} value={c}>{c}</option>)}
+              {allCats.map(c => <option key={c} value={c}>{tCategory(c)}</option>)}
             </select>
           </div>
           <div className="form-group">
@@ -783,7 +784,7 @@ function ProductBuilder({ knownCategories = [], onSave, onCancel, saving }) {
 }
 
 export default function Inventory() {
-  const { t } = useLocale();
+  const { t, tCategory } = useLocale();
   const [view, setView] = useState('items');   // 'items' | 'lots'
   const [search, setSearch] = usePersistedState('inventory.search', '');
   const [categoryFilter, setCategoryFilter] = usePersistedState('inventory.categoryFilter', '');
@@ -1039,7 +1040,7 @@ export default function Inventory() {
           <select className="form-control" style={{ width: 180, height: 34, fontSize: 13 }}
             value={categoryFilter} onChange={e => setCategoryFilter(e.target.value)}>
             <option value="">{t('inventory.allCategories')}</option>
-            {allKnownCats.map(c => <option key={c} value={c}>{c}</option>)}
+            {allKnownCats.map(c => <option key={c} value={c}>{tCategory(c)}</option>)}
           </select>
 
           <label style={{ display: 'flex', alignItems: 'center', gap: 6, fontSize: 13, cursor: 'pointer', userSelect: 'none' }}>

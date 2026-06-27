@@ -551,6 +551,17 @@ const en = {
     contractStatusTerminated:'Terminated',
   },
 
+  // Preset category values are stored canonically in English; these are the
+  // display labels (identity in EN). User-typed categories fall back to raw text.
+  categories: {
+    Equipment: 'Equipment', Materials: 'Materials', Safety: 'Safety',
+    Tools: 'Tools', Consumables: 'Consumables', Other: 'Other',
+    Labour: 'Labour', Transport: 'Transport', Subcontractor: 'Subcontractor',
+    Permits: 'Permits', Rent: 'Rent', Utilities: 'Utilities', Salary: 'Salary',
+    Subscription: 'Subscription', Insurance: 'Insurance',
+    Vehicles: 'Vehicles', Computers: 'Computers', Machinery: 'Machinery',
+    Furniture: 'Furniture', Buildings: 'Buildings', 'Office Equipment': 'Office Equipment',
+  },
   status: {
     Draft: 'Draft',
     Sent: 'Sent',

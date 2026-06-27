@@ -196,7 +196,7 @@ function OpenRegisterPanel({ onOpened }) {
 
 // ── Close-register modal ────────────────────────────────────────────────────
 function CloseRegisterModal({ session, onClose, onClosed }) {
-  const { t, fmt } = useLocale();
+  const { t, fmt, tCategory } = useLocale();
   const [countUsd, setCountUsd] = useState('');
   const [countLbp, setCountLbp] = useState('');
   const [busy, setBusy] = useState(false);
@@ -258,7 +258,7 @@ function CloseRegisterModal({ session, onClose, onClosed }) {
 // strip — no app chrome, no nav, no buttons.
 
 function ReceiptModal({ sale, onClose }) {
-  const { t, fmt } = useLocale();
+  const { t, fmt, tCategory } = useLocale();
   const { settings } = useSettings();
   const co = settings || {};
 
@@ -453,7 +453,7 @@ function Row({ label, value, bold, hint, size = 12 }) {
 
 // ── Checkout modal ──────────────────────────────────────────────────────────
 function CheckoutModal({ pricing, clients, drawers, defaultCurrency = 'USD', onClose, onDone }) {
-  const { t, fmt } = useLocale();
+  const { t, fmt, tCategory } = useLocale();
   const { exchangeRate } = useSettings();
   const [clientId, setClientId] = useState('');
   const [method, setMethod] = useState('Cash');
@@ -712,7 +712,7 @@ function CustomLineNameCombobox({ line, taxEnabled, defaultRate, onPatch, placeh
 
 // ── Register view (search + cart) ───────────────────────────────────────────
 function RegisterView({ session, onClose, onSold }) {
-  const { t, fmt } = useLocale();
+  const { t, fmt, tCategory } = useLocale();
   const { settings, taxRates, exchangeRate } = useSettings();
   const fxRate = Number(exchangeRate?.rate) || 0;
   const [search, setSearch] = useState('');
@@ -1057,7 +1057,7 @@ function RegisterView({ session, onClose, onSold }) {
                 <button key={c.name}
                   className={`pos-category-pill${category === c.name ? ' active' : ''}`}
                   onClick={() => setCategory(c.name)}>
-                  {c.name}
+                  {tCategory(c.name)}
                   <span className="pos-category-pill-count">{c.count}</span>
                 </button>
               ))}
