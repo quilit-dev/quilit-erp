@@ -264,9 +264,12 @@ export function SelectOther({
   includeNone = false, noneLabel = '—',
   otherValue = '__other__', otherLabel, placeholder,
   className = 'form-control', required = false,
+  labelFn,
 }) {
   const { t } = useLocale();
-  const norm = (o) => (o && typeof o === 'object' ? o : { value: o, label: o });
+  // labelFn lets callers localise the display label (e.g. categories) while the
+  // stored value stays canonical English.
+  const norm = (o) => (o && typeof o === 'object' ? o : { value: o, label: labelFn ? labelFn(o) : o });
   const opts = options.map(norm);
   const inList = (v) => opts.some(o => o.value === v);
   const isCustom = value != null && value !== '' && !inList(value);
@@ -390,6 +393,7 @@ export const EXPENSE_CATEGORIES = [
 ];
 
 export function CategoryBadge({ category }) {
+  const { tCategory } = useLocale();
   const style = CATEGORY_COLORS[category] || CATEGORY_COLORS.Other;
   return (
     <span style={{
@@ -397,7 +401,7 @@ export function CategoryBadge({ category }) {
       borderRadius: 20, fontSize: 11, fontWeight: 600, whiteSpace: 'nowrap',
       background: style.bg, color: style.color,
     }}>
-      {category}
+      {tCategory(category)}
     </span>
   );
 }

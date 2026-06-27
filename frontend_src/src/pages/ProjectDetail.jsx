@@ -23,7 +23,7 @@ function StatCard({ label, value, sub, color }) {
 }
 
 function SectionTable({ columns, rows, emptyMsg }) {
-  const { t } = useLocale();
+  const { t, tCategory } = useLocale();
   if (!rows || rows.length === 0) {
     return (
       <div style={{ padding: '28px', textAlign: 'center', color: 'var(--text-3)', fontSize: 13 }}>
@@ -54,7 +54,7 @@ function SectionTable({ columns, rows, emptyMsg }) {
 }
 
 export default function ProjectDetail() {
-  const { t } = useLocale();
+  const { t, tCategory } = useLocale();
   const { can } = usePermissions();
   const { id }    = useParams();
   const navigate  = useNavigate();
@@ -507,7 +507,7 @@ export default function ProjectDetail() {
                   .map(item => (
                   <tr key={item.id} style={{ opacity: item.quantity <= 0 ? 0.45 : 1 }}>
                     <td className="td-primary">{item.name}</td>
-                    <td>{item.category || '—'}</td>
+                    <td>{item.category ? tCategory(item.category) : '—'}</td>
                     <td style={{ fontWeight: 600, color: item.quantity <= item.min_stock && item.min_stock > 0 ? 'var(--red)' : item.quantity <= 0 ? 'var(--text-3)' : 'var(--text)' }}>
                       {item.quantity}
                     </td>
@@ -774,6 +774,7 @@ export default function ProjectDetail() {
                     value={expenseForm.category}
                     onChange={v => setExpenseForm(f => ({ ...f, category: v }))}
                     options={CATEGORIES}
+                    labelFn={tCategory}
                     otherLabel={t('common.addCategoryOption')}
                     required
                   />

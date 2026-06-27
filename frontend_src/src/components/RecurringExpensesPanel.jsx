@@ -25,7 +25,7 @@ export default function RecurringExpensesPanel() {
   const { data: templates, loading, error, reload } =
     useData((s) => getRecurringExpenses({ include_archived: showArchived }, s), [showArchived]);
   const { data: projects } = useData((s) => getProjects({}, s));
-  const { t } = useLocale();
+  const { t, tCategory } = useLocale();
   const { settings, taxRates } = useSettings();
   const { can } = usePermissions();
   const taxEnabled     = settings?.tax_enabled === '1';
@@ -287,6 +287,7 @@ export default function RecurringExpensesPanel() {
                     value={form.category}
                     onChange={v => setForm(f => ({ ...f, category: v }))}
                     options={EXPENSE_CATEGORIES}
+                    labelFn={tCategory}
                     otherLabel={t('common.addCategoryOption')}
                     required
                   />

@@ -550,6 +550,15 @@ const ar = {
     contractStatusTerminated:'مُنهى',
   },
 
+  categories: {
+    Equipment: 'معدات', Materials: 'مواد', Safety: 'سلامة',
+    Tools: 'أدوات', Consumables: 'مستهلكات', Other: 'أخرى',
+    Labour: 'عمالة', Transport: 'نقل', Subcontractor: 'مقاول من الباطن',
+    Permits: 'تصاريح', Rent: 'إيجار', Utilities: 'مرافق', Salary: 'راتب',
+    Subscription: 'اشتراك', Insurance: 'تأمين',
+    Vehicles: 'مركبات', Computers: 'حواسيب', Machinery: 'آلات',
+    Furniture: 'أثاث', Buildings: 'مبانٍ', 'Office Equipment': 'معدات مكتبية',
+  },
   status: {
     Draft: 'مسودة',
     Sent: 'مُرسل',

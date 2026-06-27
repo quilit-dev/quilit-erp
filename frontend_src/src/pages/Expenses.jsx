@@ -30,7 +30,7 @@ function TransactionsPanel() {
       if (exp) { openEdit(exp); clearFocus(); }
     }
   }, [focusId, expenses]);   // eslint-disable-line react-hooks/exhaustive-deps
-  const { t } = useLocale();
+  const { t, tCategory } = useLocale();
   const { can } = usePermissions();
   const { settings, taxRates } = useSettings();
   const taxEnabled     = settings?.tax_enabled === '1';
@@ -206,7 +206,7 @@ function TransactionsPanel() {
           <select className="form-control" style={{ width: 150, height: 34, fontSize: 13 }}
             value={catFilter} onChange={e => setCatFilter(e.target.value)}>
             <option value="">{t('expenses.allCategories')}</option>
-            {CATEGORIES.map(c => <option key={c} value={c}>{c}</option>)}
+            {CATEGORIES.map(c => <option key={c} value={c}>{tCategory(c)}</option>)}
           </select>
 
           <select className="form-control" style={{ width: 160, height: 34, fontSize: 13 }}
@@ -314,7 +314,7 @@ function TransactionsPanel() {
                 {byCategory.slice(0, 3).map(b => (
                   <span key={b.category} style={{ color: 'var(--text-2)', fontSize: 12 }}>
                     <span style={{ color: CATEGORY_COLORS[b.category]?.color || 'var(--text-3)', fontWeight: 600 }}>
-                      {b.category}
+                      {tCategory(b.category)}
                     </span>
                     {' '}{fmt(b.amount)}
                   </span>
@@ -340,6 +340,7 @@ function TransactionsPanel() {
                     value={form.category}
                     onChange={v => setForm(f => ({ ...f, category: v }))}
                     options={CATEGORIES}
+                    labelFn={tCategory}
                     otherLabel={t('common.addCategoryOption')}
                     required
                   />
@@ -454,7 +455,7 @@ function TransactionsPanel() {
 }
 
 export default function Expenses() {
-  const { t } = useLocale();
+  const { t, tCategory } = useLocale();
   const [tab, setTab] = usePersistedState('expenses.tab', 'transactions');
   const tabs = [
     { key: 'transactions', label: t('expenses.tabTransactions') },

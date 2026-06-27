@@ -43,6 +43,14 @@ export function LocaleProvider({ children }) {
     return locale.status?.[status] ?? status;
   }, [locale]);
 
+  // Translate a category value. Preset categories (Materials, Equipment…) are
+  // stored canonically in English; user-typed custom categories aren't in the
+  // dict and fall back to their original text unchanged.
+  const tCategory = useCallback((category) => {
+    if (!category) return category;
+    return locale.categories?.[category] ?? category;
+  }, [locale]);
+
   // Locale-aware currency formatter — uses settings currency if available
   const fmt = useCallback((val, currency) => {
     const cur = currency || localStorage.getItem('erp_currency') || 'USD';
@@ -60,7 +68,7 @@ export function LocaleProvider({ children }) {
   }, [isRTL]);
 
   return (
-    <LocaleContext.Provider value={{ lang, setLang, isRTL, t, tStatus, fmt, fmtDate }}>
+    <LocaleContext.Provider value={{ lang, setLang, isRTL, t, tStatus, tCategory, fmt, fmtDate }}>
       {children}
     </LocaleContext.Provider>
   );
