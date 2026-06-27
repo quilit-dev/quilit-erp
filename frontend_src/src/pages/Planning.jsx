@@ -484,7 +484,9 @@ function GanttView({ tasks, projects, milestones, onRefresh }) {
     if (!rightGridRef.current) return;
     function measure() {
       const w = rightGridRef.current?.getBoundingClientRect().width;
-      if (w && w > 0) setDayW(Math.floor(w / DAYS));
+      // Float (not floored) so the absolutely-positioned bars line up exactly
+      // with the flex-filled day columns below.
+      if (w && w > 0) setDayW(w / DAYS);
     }
     measure();
     const ro = new ResizeObserver(measure);
@@ -638,7 +640,7 @@ function GanttView({ tasks, projects, milestones, onRefresh }) {
               <div style={{ display: 'flex', height: MONTH_HDR_H, borderBottom: '1px solid var(--border)', background: 'var(--surface-2)' }}>
                 {months.map(m => (
                   <div key={m.key} style={{
-                    width: m.days * dayW, flexShrink: 0,
+                    flex: `${m.days} 1 0`, minWidth: 0,
                     borderRight: '1px solid var(--border)',
                     display: 'flex', alignItems: 'center', paddingLeft: 10,
                     fontSize: 11, fontWeight: 700, color: 'var(--text-2)',
@@ -656,7 +658,7 @@ function GanttView({ tasks, projects, milestones, onRefresh }) {
                   const isToday = daysBetween(today, d) === 0;
                   return (
                     <div key={i} style={{
-                      width: dayW, flexShrink: 0,
+                      flex: '1 1 0', minWidth: 0,
                       borderRight: '1px solid var(--border)',
                       display: 'flex', flexDirection: 'column',
                       alignItems: 'center', justifyContent: 'center', gap: 2,
