@@ -3,6 +3,7 @@ import { useData } from '../hooks/useData';
 import { usePersistedState } from '../hooks/usePersistedState';
 import { useSortPaginate } from '../hooks/useSortPaginate';
 import { useLocale } from '../hooks/useLocale.jsx';
+import { useCategories } from '../hooks/useCategories';
 import { usePermissions } from '../hooks/usePermissions.js';
 import Attachments from '../components/Attachments.jsx';
 import {
@@ -51,6 +52,8 @@ export default function FixedAssets() {
   const { data: summary, reload: reloadSummary } = useData(getAssetsSummary);
   const { data: suppliers } = useData(getSuppliers);
   const { t, tCategory } = useLocale();
+  const assetCats = useCategories('asset');
+  const catOptions = assetCats.length ? assetCats : ASSET_CATEGORIES;
   const { can } = usePermissions();
 
   const [search, setSearch]         = usePersistedState('assets.search', '');
@@ -322,7 +325,7 @@ export default function FixedAssets() {
                   <select className="form-control" value={form.category}
                     onChange={e => setForm(f => ({ ...f, category: e.target.value }))}>
                     <option value="">—</option>
-                    {ASSET_CATEGORIES.map(c => <option key={c} value={c}>{tCategory(c)}</option>)}
+                    {catOptions.map(c => <option key={c} value={c}>{tCategory(c)}</option>)}
                   </select>
                 </div>
                 <div className="form-group">

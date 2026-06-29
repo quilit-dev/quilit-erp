@@ -12,6 +12,7 @@ import {
 } from '../components/shared';
 import { useSortPaginate } from '../hooks/useSortPaginate';
 import { useLocale } from '../hooks/useLocale.jsx';
+import { useCategories } from '../hooks/useCategories';
 import { useSettings } from '../hooks/useSettings.jsx';
 import { useWarehouses } from '../hooks/useWarehouses';
 import { useFocusId } from '../hooks/useFocusId';
@@ -55,7 +56,8 @@ function ItemForm({ initial = {}, knownCategories = [], suppliers = [], onSave, 
   const hasRate = rate > 0;
   const secondary = exchangeRate?.secondary || 'LBP';
   const isEdit = !!initial.id;
-  const allCats = [...new Set([...knownCategories, ...DEFAULT_CATEGORIES])];
+  const regCats = useCategories('inventory');
+  const allCats = [...new Set([...knownCategories, ...regCats, ...DEFAULT_CATEGORIES])];
 
   const [form, setForm] = useState({
     name:           initial.name       || '',
@@ -533,7 +535,8 @@ function ProductBuilder({ knownCategories = [], onSave, onCancel, saving }) {
   const hasRate = rate > 0;
   const secondary = exchangeRate?.secondary || 'LBP';
   const businessType = settings?.business_type || '';
-  const allCats = [...new Set([...knownCategories, ...DEFAULT_CATEGORIES])];
+  const regCats = useCategories('inventory');
+  const allCats = [...new Set([...knownCategories, ...regCats, ...DEFAULT_CATEGORIES])];
 
   const [defs, setDefs] = useState([]);
   const [form, setForm] = useState({
@@ -901,7 +904,8 @@ export default function Inventory() {
     } catch (err) { toast(err.message, 'red'); }
   }
 
-  const allKnownCats = [...new Set([...categories, ...items.map(i => i.category).filter(Boolean)])].sort();
+  const regInvCats = useCategories('inventory');
+  const allKnownCats = [...new Set([...regInvCats, ...categories, ...items.map(i => i.category).filter(Boolean)])];
   const totalValue   = items.reduce((s, i) => s + (i.quantity * i.unit_cost), 0);
   const lowCount     = items.filter(i => i.min_stock > 0 && i.quantity <= i.min_stock).length;
   const hasFilters   = search || categoryFilter || lowStockOnly;

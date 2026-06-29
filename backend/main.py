@@ -19,7 +19,8 @@ from routers import purchases, settings, documents, suppliers, audit, users, rol
 from routers import reports, crm, planning, notifications
 from routers import approval_policies, approval_requests, hr, hr_contracts, recruitment, hr_activities, tax_rates, pos, cash, manufacturing
 from routers import assets, recurring, announcements, attachments, accounting, warehouses, platform, imports
-from routers import products, promotions
+from routers import products
+from routers import categories as categories_router, promotions
 
 app = FastAPI(title="ERP System", version="2.0.0")
 
@@ -132,6 +133,7 @@ app.include_router(warehouses.router,         prefix="/api/warehouses",         
 app.include_router(platform.router,           prefix="/api/platform",           tags=["platform"])
 app.include_router(imports.router,            prefix="/api/imports",            tags=["imports"])
 app.include_router(products.router,           prefix="/api/products",           tags=["products"])
+app.include_router(categories_router.router,  prefix="/api/categories",         tags=["categories"])
 app.include_router(promotions.router,         prefix="/api/promotions",         tags=["promotions"])
 
 @app.get("/api/health")

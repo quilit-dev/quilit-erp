@@ -3,12 +3,13 @@ import { useState, useCallback, useEffect, useRef } from 'react';
 import {
   getPurchases, getPurchaseStats, createPurchase, createBulkPurchase,
   updatePurchase, updatePurchaseStatus, archivePurchase, unarchivePurchase,
-  getInventory, getCategories, getSuppliers, getProducts, getProduct,
+  getInventory, getUsedCategories, getSuppliers, getProducts, getProduct,
 } from '../api/client';
 import {
   LoadingSpinner, ErrorAlert, EmptyState, Modal, ConfirmModal,
   ExportButton, fmt, fmtDate, toast, SortableTh, Pagination, NumberInput, SupplierCombobox,
 } from '../components/shared';
+import { useCategories } from '../hooks/useCategories';
 import { useSortPaginate } from '../hooks/useSortPaginate';
 import { useLocale } from '../hooks/useLocale.jsx';
 import { useSettings } from '../hooks/useSettings.jsx';
@@ -38,7 +39,10 @@ function PurchaseForm({ initial = {}, inventoryItems = [], inventoryCategories =
   const activeTaxRates = (taxRates || []).filter(r => r.is_active);
   const defaultTaxRate = (taxRates || []).find(r => r.is_default) || null;
 
-  const allCats = [...new Set([...inventoryCategories, ...PURCHASE_CATEGORIES])].sort();
+  // Owner-defined inventory categories (registry) lead; merge in any used +
+  // the built-in preset as a fallback so the picker is never empty.
+  const regCats = useCategories('inventory');
+  const allCats = [...new Set([...regCats, ...inventoryCategories, ...PURCHASE_CATEGORIES])];
 
   // Warehouse selector — the receipt will land here when the PO transitions
   // to 'Received'. Defaults to the user's default warehouse so existing
@@ -476,7 +480,7 @@ export default function Purchases() {
       const [purch, st, cats] = await Promise.all([
         getPurchases(qs ? `?${qs}` : ''),
         getPurchaseStats(),
-        getCategories(),
+        getUsedCategories(),
       ]);
       setPurchases(Array.isArray(purch) ? purch : []);
       setStats(st || {});

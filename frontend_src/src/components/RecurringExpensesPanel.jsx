@@ -3,6 +3,7 @@ import { useData } from '../hooks/useData';
 import { useLocale } from '../hooks/useLocale.jsx';
 import { useSettings } from '../hooks/useSettings.jsx';
 import { usePermissions } from '../hooks/usePermissions.js';
+import { useCategories } from '../hooks/useCategories';
 import {
   LoadingSpinner, ErrorAlert, EmptyState, Modal, ConfirmModal,
   fmt, fmtDate, toast, CategoryBadge, EXPENSE_CATEGORIES, SelectOther, NumberInput} from './shared';
@@ -26,6 +27,8 @@ export default function RecurringExpensesPanel() {
     useData((s) => getRecurringExpenses({ include_archived: showArchived }, s), [showArchived]);
   const { data: projects } = useData((s) => getProjects({}, s));
   const { t, tCategory } = useLocale();
+  const expenseCats = useCategories('expense');
+  const catOptions = expenseCats.length ? expenseCats : EXPENSE_CATEGORIES;
   const { settings, taxRates } = useSettings();
   const { can } = usePermissions();
   const taxEnabled     = settings?.tax_enabled === '1';
@@ -286,7 +289,7 @@ export default function RecurringExpensesPanel() {
                   <SelectOther
                     value={form.category}
                     onChange={v => setForm(f => ({ ...f, category: v }))}
-                    options={EXPENSE_CATEGORIES}
+                    options={catOptions}
                     labelFn={tCategory}
                     otherLabel={t('common.addCategoryOption')}
                     required

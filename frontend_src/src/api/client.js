@@ -175,6 +175,11 @@ export const getProduct             = (id)   => api.get(`/api/products/${id}`);
 export const createProduct          = (d)    => api.post('/api/products/', d);
 export const updateProduct          = (id, d) => api.put(`/api/products/${id}`, d);
 export const archiveProduct         = (id)   => api.patch(`/api/products/${id}/archive`);
+// Owner-defined category registry (per domain: inventory/expense/asset/project)
+export const getCategories          = (domain) => api.get(`/api/categories${domain ? `?domain=${encodeURIComponent(domain)}` : ''}`);
+export const createCategory         = (d)     => api.post('/api/categories', d);
+export const updateCategory         = (id, d) => api.put(`/api/categories/${id}`, d);
+export const archiveCategory        = (id)    => api.patch(`/api/categories/${id}/archive`);
 export const getAttributeDefs       = (params = {}) => api.get(`/api/products/attribute-defs${_qs(params)}`);
 export const createAttributeDef     = (d)    => api.post('/api/products/attribute-defs', d);
 export const updateAttributeDef     = (id, d) => api.put(`/api/products/attribute-defs/${id}`, d);
@@ -212,8 +217,9 @@ export const getFinanceRangeSummary = (params = {}, s) => api.get(`/api/finance/
 export const getFinanceRangeMonthly = (params = {}, s) => api.get(`/api/finance/range-monthly${_qs(params)}`, s);
 export const getFinanceRangeDetail  = (params = {}, s) => api.get(`/api/finance/range-detail${_qs(params)}`, s);
 
-// Fetch existing categories from inventory table (already supported by your backend)
-export async function getCategories() {
+// Distinct category values actually used on inventory rows (not the registry).
+// Kept for back-compat where a "categories in use" list is wanted.
+export async function getUsedCategories() {
   const res = await fetch('/api/inventory/categories', { credentials: 'include' });
   if (!res.ok) throw new Error('Failed to load categories');
   return res.json();
