@@ -6,6 +6,7 @@ import { useSettings } from '../hooks/useSettings.jsx';
 import { useLocale } from '../hooks/useLocale.jsx';
 import { Icon } from '../components/shared';
 import InventoryFieldsManager from '../components/InventoryFieldsManager.jsx';
+import CategoriesManager from '../components/CategoriesManager.jsx';
 
 const Section = ({ title, icon, children }) => (
   <div className="card" style={{ marginBottom: 24, overflow: 'hidden' }}>
@@ -547,6 +548,11 @@ export default function Settings() {
         {/* 3·5. Inventory Fields — owner-defined custom attributes (variants etc.) */}
         <Section title={t('settings.inventoryFields')} icon="sliders">
           <InventoryFieldsManager canEdit={isAdmin} />
+        </Section>
+
+        {/* 3·6. Categories — owner-defined per-domain category registry */}
+        <Section title={t('settings.categories')} icon="tag">
+          <CategoriesManager canEdit={isAdmin} />
         </Section>
 
         {/* 3a. Tax Rates — used for per-line tax on documents */}

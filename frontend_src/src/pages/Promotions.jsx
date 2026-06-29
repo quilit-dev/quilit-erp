@@ -1,7 +1,7 @@
 import { useState, useEffect, useCallback } from 'react';
 import {
   getPromotions, createPromotion, updatePromotion, togglePromotion, archivePromotion,
-  getCategories, getInventory,
+  getUsedCategories, getInventory,
 } from '../api/client';
 import {
   LoadingSpinner, ErrorAlert, EmptyState, Modal, ConfirmModal, toast, NumberInput,
@@ -44,7 +44,7 @@ export default function Promotions() {
   }, [showArchived]);
   useEffect(() => { load(); }, [load]);
   useEffect(() => {
-    getCategories().then(c => setCategories(Array.isArray(c) ? c : [])).catch(() => {});
+    getUsedCategories().then(c => setCategories(Array.isArray(c) ? c : [])).catch(() => {});
     getInventory().then(i => setItems(Array.isArray(i) ? i : [])).catch(() => {});
   }, []);
 

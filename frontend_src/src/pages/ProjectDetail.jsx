@@ -5,6 +5,7 @@ import {
   LoadingSpinner, ErrorAlert, Badge, fmt, fmtDate, toast, Modal, CategoryBadge, NumberInput, SelectOther,
 } from '../components/shared';
 import { useLocale } from '../hooks/useLocale.jsx';
+import { useCategories } from '../hooks/useCategories';
 import { usePermissions } from '../hooks/usePermissions';
 import { useWarehouses } from '../hooks/useWarehouses';
 import Attachments from '../components/Attachments.jsx';
@@ -24,6 +25,8 @@ function StatCard({ label, value, sub, color }) {
 
 function SectionTable({ columns, rows, emptyMsg }) {
   const { t, tCategory } = useLocale();
+  const projExpenseCats = useCategories('expense');
+  const catProjOptions = projExpenseCats.length ? projExpenseCats : CATEGORIES;
   if (!rows || rows.length === 0) {
     return (
       <div style={{ padding: '28px', textAlign: 'center', color: 'var(--text-3)', fontSize: 13 }}>
@@ -55,6 +58,8 @@ function SectionTable({ columns, rows, emptyMsg }) {
 
 export default function ProjectDetail() {
   const { t, tCategory } = useLocale();
+  const projExpenseCats = useCategories('expense');
+  const catProjOptions = projExpenseCats.length ? projExpenseCats : CATEGORIES;
   const { can } = usePermissions();
   const { id }    = useParams();
   const navigate  = useNavigate();
@@ -773,7 +778,7 @@ export default function ProjectDetail() {
                   <SelectOther
                     value={expenseForm.category}
                     onChange={v => setExpenseForm(f => ({ ...f, category: v }))}
-                    options={CATEGORIES}
+                    options={catProjOptions}
                     labelFn={tCategory}
                     otherLabel={t('common.addCategoryOption')}
                     required

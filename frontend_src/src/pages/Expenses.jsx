@@ -9,6 +9,7 @@ import {
   CATEGORY_COLORS, CategoryBadge, EXPENSE_CATEGORIES, SelectOther, NumberInput, BranchField} from '../components/shared';
 import { useSortPaginate } from '../hooks/useSortPaginate';
 import { useLocale } from '../hooks/useLocale.jsx';
+import { useCategories } from '../hooks/useCategories';
 import { useSettings } from '../hooks/useSettings.jsx';
 import { usePermissions } from '../hooks/usePermissions';
 import Attachments from '../components/Attachments.jsx';
@@ -31,6 +32,8 @@ function TransactionsPanel() {
     }
   }, [focusId, expenses]);   // eslint-disable-line react-hooks/exhaustive-deps
   const { t, tCategory } = useLocale();
+  const expenseCats = useCategories('expense');
+  const catOptions = expenseCats.length ? expenseCats : CATEGORIES;
   const { can } = usePermissions();
   const { settings, taxRates } = useSettings();
   const taxEnabled     = settings?.tax_enabled === '1';
@@ -206,7 +209,7 @@ function TransactionsPanel() {
           <select className="form-control" style={{ width: 150, height: 34, fontSize: 13 }}
             value={catFilter} onChange={e => setCatFilter(e.target.value)}>
             <option value="">{t('expenses.allCategories')}</option>
-            {CATEGORIES.map(c => <option key={c} value={c}>{tCategory(c)}</option>)}
+            {catOptions.map(c => <option key={c} value={c}>{tCategory(c)}</option>)}
           </select>
 
           <select className="form-control" style={{ width: 160, height: 34, fontSize: 13 }}
@@ -339,7 +342,7 @@ function TransactionsPanel() {
                   <SelectOther
                     value={form.category}
                     onChange={v => setForm(f => ({ ...f, category: v }))}
-                    options={CATEGORIES}
+                    options={catOptions}
                     labelFn={tCategory}
                     otherLabel={t('common.addCategoryOption')}
                     required
@@ -456,6 +459,8 @@ function TransactionsPanel() {
 
 export default function Expenses() {
   const { t, tCategory } = useLocale();
+  const expenseCats = useCategories('expense');
+  const catOptions = expenseCats.length ? expenseCats : CATEGORIES;
   const [tab, setTab] = usePersistedState('expenses.tab', 'transactions');
   const tabs = [
     { key: 'transactions', label: t('expenses.tabTransactions') },

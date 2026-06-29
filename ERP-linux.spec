@@ -118,6 +118,7 @@ a = Analysis(
         'routers.platform',
         'routers.imports',
         'routers.products',
+        'routers.categories',
         'routers.promotions',
     ] + uvicorn_hiddenimports + fastapi_hiddenimports + anyio_hiddenimports
       + collect_submodules('starlette')
