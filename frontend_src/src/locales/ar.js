@@ -187,6 +187,7 @@ const ar = {
     optional: 'اختياري',
     days: 'أيام',
     none: 'لا شيء',
+    insteadOfClient: '(بدلاً من عميل)',
     error: 'خطأ',
   },
 
@@ -953,6 +954,8 @@ const ar = {
     convertInvoiceConfirm: 'هل تريد تحويل {{quote_number}} إلى فاتورة؟ سيتم تسجيل المدفوعات على الفاتورة.',
     showingFiltered: 'عرض {{count}} من {{total}} عرض',
     clientLabel: 'العميل',
+    leadLabel: 'العميل المحتمل',
+    leadNone: '— لا شيء —',
     projectLabel: 'المشروع',
     statusLabel: 'الحالة',
     notesLabel: 'ملاحظات',

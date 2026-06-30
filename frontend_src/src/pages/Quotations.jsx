@@ -425,7 +425,7 @@ export default function Quotations() {
                           ? q.client_name
                           : q.lead_name
                             ? <span>{q.lead_name}
-                                <span className="badge badge-yellow" style={{ marginInlineStart: 6, fontSize: 10 }}>Lead</span>
+                                <span className="badge badge-yellow" style={{ marginInlineStart: 6, fontSize: 10 }}>{t('quotations.leadLabel')}</span>
                                 {q.lead_company && (
                                   <span style={{ display: 'block', fontSize: 11, color: 'var(--text-3)' }}>{q.lead_company}</span>
                                 )}
@@ -519,14 +519,14 @@ export default function Quotations() {
                   </div>
                   <div className="form-group">
                     <label className="form-label">
-                      Lead
+                      {t('quotations.leadLabel')}
                       <span style={{ color:'var(--text-3)', marginLeft:6, fontSize:11, fontStyle:'italic' }}>
-                        (instead of a client)
+                        {t('common.insteadOfClient')}
                       </span>
                     </label>
                     <select className="form-control" value={form.lead_id}
                       onChange={e => setForm(f => ({ ...f, lead_id: e.target.value, client_id: e.target.value ? '' : f.client_id }))}>
-                      <option value="">— None —</option>
+                      <option value="">{t('quotations.leadNone')}</option>
                       {(leads||[]).map(l => (
                         <option key={l.id} value={l.id}>
                           {l.name}{l.company ? ` — ${l.company}` : ''}

@@ -187,6 +187,7 @@ const en = {
     optional: 'optional',
     days: 'days',
     none: 'none',
+    insteadOfClient: '(instead of a client)',
     error: 'Error',
   },
 
@@ -956,6 +957,8 @@ const en = {
     convertInvoiceConfirm: 'Convert {{quote_number}} to an Invoice? Payments will be recorded on the invoice.',
     showingFiltered: 'Showing {{count}} of {{total}} quotations',
     clientLabel: 'Client',
+    leadLabel: 'Lead',
+    leadNone: '— None —',
     projectLabel: 'Project',
     statusLabel: 'Status',
     notesLabel: 'Notes',
