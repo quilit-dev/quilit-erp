@@ -265,8 +265,10 @@ export default function Settings() {
     'default_currency', 'secondary_currency',
     'bank_name', 'bank_account', 'bank_iban', 'bank_swift',
     'default_tax_rate', 'tax_enabled', 'payment_terms_days',
-    'invoice_prefix', 'quotation_prefix', 'inventory_costing_method',
-    'business_type',
+    'invoice_prefix', 'quotation_prefix', 'contract_prefix',
+    'inventory_costing_method', 'business_type',
+    'payroll_tax_pct', 'payroll_nssf_employee_pct',
+    'payroll_nssf_employer_pct', 'payroll_overtime_multiplier',
     'footer_text', 'show_discount_col', 'show_tax_col',
   ]);
 
@@ -494,11 +496,35 @@ export default function Settings() {
             <Field label={t('settings.quotationPrefix')}>
               <Input disabled={!isAdmin} value={form.quotation_prefix || ''} onChange={set('quotation_prefix')} placeholder="QTN-" />
             </Field>
+            <Field label={t('settings.contractPrefix')}>
+              <Input disabled={!isAdmin} value={form.contract_prefix || ''} onChange={set('contract_prefix')} placeholder="CTR-" />
+            </Field>
             <Field label={t('settings.defaultPaymentTerms')} hint={t('common.days')}>
               <Input disabled={!isAdmin} value={form.payment_terms_days || ''} onChange={set('payment_terms_days')} type="number" placeholder="15" />
             </Field>
           </div>
           <Toggle disabled={!isAdmin} label={t('settings.enableTax')} checked={isOn('tax_enabled')} onChange={bool('tax_enabled')} />
+        </Section>
+
+        {/* 3·2. Payroll Defaults — feed the payroll engine (tax, NSSF, overtime) */}
+        <Section title={t('settings.payrollSettings')} icon="users">
+          <p style={{ fontSize: 12, color: 'var(--text-3)', margin: '0 0 14px' }}>
+            {t('settings.payrollDefaultsDesc')}
+          </p>
+          <div className="form-grid">
+            <Field label={t('settings.payrollTaxPct')} hint="%">
+              <Input disabled={!isAdmin} type="number" value={form.payroll_tax_pct ?? ''} onChange={set('payroll_tax_pct')} placeholder="0" />
+            </Field>
+            <Field label={t('settings.payrollNssfEmployeePct')} hint="%">
+              <Input disabled={!isAdmin} type="number" value={form.payroll_nssf_employee_pct ?? ''} onChange={set('payroll_nssf_employee_pct')} placeholder="0" />
+            </Field>
+            <Field label={t('settings.payrollNssfEmployerPct')} hint="%">
+              <Input disabled={!isAdmin} type="number" value={form.payroll_nssf_employer_pct ?? ''} onChange={set('payroll_nssf_employer_pct')} placeholder="0" />
+            </Field>
+            <Field label={t('settings.payrollOvertimeMultiplier')} hint="×">
+              <Input disabled={!isAdmin} type="number" value={form.payroll_overtime_multiplier ?? ''} onChange={set('payroll_overtime_multiplier')} placeholder="1.5" />
+            </Field>
+          </div>
         </Section>
 
         {/* 3c. Inventory & Costing */}

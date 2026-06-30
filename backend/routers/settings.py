@@ -56,9 +56,6 @@ DEFAULTS = {
     # General). Drives which product-attribute presets are offered. Empty = not
     # chosen yet (General behaviour — no preset attributes).
     "business_type": "",
-    # Manufacturing: electricity price per kWh, multiplied by a work center's
-    # power draw (kW) × actual run hours to cost the electricity of a job.
-    "electricity_tariff_per_kwh": "0",
     # Payroll defaults — all 0 = no tax / no NSSF (opt-in per install).
     "payroll_tax_pct":              "0",
     "payroll_nssf_employee_pct":    "0",
@@ -97,7 +94,6 @@ class SettingsUpdate(BaseModel):
     contract_prefix:    Optional[str] = None
     inventory_costing_method: Optional[str] = None
     business_type:      Optional[str] = None
-    electricity_tariff_per_kwh: Optional[str] = None
     payroll_tax_pct:             Optional[str] = None
     payroll_nssf_employee_pct:   Optional[str] = None
     payroll_nssf_employer_pct:   Optional[str] = None
