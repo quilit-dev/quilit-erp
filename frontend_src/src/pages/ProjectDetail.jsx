@@ -11,7 +11,6 @@ import { useWarehouses } from '../hooks/useWarehouses';
 import Attachments from '../components/Attachments.jsx';
 import { openSafeHtmlDocument } from '../utils/exportUtils';
 
-const CATEGORIES = ['Labour', 'Materials', 'Equipment', 'Transport', 'Subcontractor', 'Permits', 'Other'];
 
 function StatCard({ label, value, sub, color }) {
   return (
@@ -26,7 +25,7 @@ function StatCard({ label, value, sub, color }) {
 function SectionTable({ columns, rows, emptyMsg }) {
   const { t, tCategory } = useLocale();
   const projExpenseCats = useCategories('expense');
-  const catProjOptions = projExpenseCats.length ? projExpenseCats : CATEGORIES;
+  const catProjOptions = projExpenseCats;
   if (!rows || rows.length === 0) {
     return (
       <div style={{ padding: '28px', textAlign: 'center', color: 'var(--text-3)', fontSize: 13 }}>
@@ -59,7 +58,7 @@ function SectionTable({ columns, rows, emptyMsg }) {
 export default function ProjectDetail() {
   const { t, tCategory } = useLocale();
   const projExpenseCats = useCategories('expense');
-  const catProjOptions = projExpenseCats.length ? projExpenseCats : CATEGORIES;
+  const catProjOptions = projExpenseCats;
   const { can } = usePermissions();
   const { id }    = useParams();
   const navigate  = useNavigate();

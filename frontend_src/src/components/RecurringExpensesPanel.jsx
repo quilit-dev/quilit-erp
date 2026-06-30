@@ -6,7 +6,7 @@ import { usePermissions } from '../hooks/usePermissions.js';
 import { useCategories } from '../hooks/useCategories';
 import {
   LoadingSpinner, ErrorAlert, EmptyState, Modal, ConfirmModal,
-  fmt, fmtDate, toast, CategoryBadge, EXPENSE_CATEGORIES, SelectOther, NumberInput} from './shared';
+  fmt, fmtDate, toast, CategoryBadge, SelectOther, NumberInput} from './shared';
 import {
   getRecurringExpenses, createRecurringExpense, updateRecurringExpense,
   toggleRecurringExpense, runRecurringExpense, runDueRecurringExpenses,
@@ -28,7 +28,7 @@ export default function RecurringExpensesPanel() {
   const { data: projects } = useData((s) => getProjects({}, s));
   const { t, tCategory } = useLocale();
   const expenseCats = useCategories('expense');
-  const catOptions = expenseCats.length ? expenseCats : EXPENSE_CATEGORIES;
+  const catOptions = expenseCats;
   const { settings, taxRates } = useSettings();
   const { can } = usePermissions();
   const taxEnabled     = settings?.tax_enabled === '1';
