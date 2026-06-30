@@ -93,14 +93,14 @@ function typeConfig(type) {
 }
 
 // ── Relative time ─────────────────────────────────────────────────────────────
-function timeAgo(ts) {
+function timeAgo(ts, t) {
   if (!ts) return '';
   try {
     const diff = Math.floor((Date.now() - new Date(ts + 'Z').getTime()) / 1000);
-    if (diff < 60)   return 'Just now';
-    if (diff < 3600) return `${Math.floor(diff / 60)}m ago`;
-    if (diff < 86400) return `${Math.floor(diff / 3600)}h ago`;
-    if (diff < 604800) return `${Math.floor(diff / 86400)}d ago`;
+    if (diff < 60)   return t('notifications.justNow');
+    if (diff < 3600) return t('notifications.minAgo',  { n: Math.floor(diff / 60) });
+    if (diff < 86400) return t('notifications.hrAgo',   { n: Math.floor(diff / 3600) });
+    if (diff < 604800) return t('notifications.daysAgo', { n: Math.floor(diff / 86400) });
     return new Date(ts + 'Z').toLocaleDateString();
   } catch { return ''; }
 }
@@ -245,7 +245,7 @@ export default function NotificationBell() {
                     <div className="notif-content">
                       <div className="notif-item-title">{n.title}</div>
                       {n.body && <div className="notif-item-body">{n.body}</div>}
-                      <div className="notif-item-time">{timeAgo(n.created_at)}</div>
+                      <div className="notif-item-time">{timeAgo(n.created_at, t)}</div>
                     </div>
                     {!n.is_read && <div className="notif-unread-dot" />}
                     <button className="notif-item-del" onClick={e => handleDelete(n, e)} title={t('common.delete')}>

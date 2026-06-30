@@ -80,38 +80,44 @@ const ICONS = {
 };
 
 const TABS = [
-  { key: 'all',         label: 'All' },
-  { key: 'unread',      label: 'Unread' },
-  { key: 'finance',     label: 'Finance',     types: [
+  { key: 'all',         labelKey: 'notifications.tabAll' },
+  { key: 'unread',      labelKey: 'notifications.tabUnread' },
+  { key: 'finance',     labelKey: 'notifications.tabFinance',    types: [
       'invoice_paid','payment_received','invoice_overdue','cash_variance',
       'asset_depreciated','recurring_generated','period_unlocked','fx_rate_stale',
   ] },
-  { key: 'stock',       label: 'Inventory',   types: [
+  { key: 'stock',       labelKey: 'notifications.tabInventory',  types: [
       'low_stock','low_stock_warehouse','purchase_received','production_completed',
       'transfer_dispatched','transfer_received','transfer_cancelled',
   ] },
-  { key: 'crm',         label: 'CRM',         types: ['deal_won','deal_lost','lead_converted','quotation_accepted'] },
-  { key: 'hr',          label: 'HR',          types: [
+  { key: 'crm',         labelKey: 'notifications.tabCrm',        types: ['deal_won','deal_lost','lead_converted','quotation_accepted'] },
+  { key: 'hr',          labelKey: 'notifications.tabHr',         types: [
       'leave_requested','leave_approved','leave_rejected',
       'payroll_approved','payroll_paid','contract_expiring','hr_activity_reminder',
       'recruitment_status','recruitment_hired',
   ] },
-  { key: 'approvals',   label: 'Approvals',   types: ['approval_request','approval_approved','approval_rejected'] },
-  { key: 'tasks',       label: 'Tasks',       types: ['task_due_soon','planning_event'] },
+  { key: 'approvals',   labelKey: 'notifications.tabApprovals',  types: ['approval_request','approval_approved','approval_rejected'] },
+  { key: 'tasks',       labelKey: 'notifications.tabTasks',      types: ['task_due_soon','planning_event'] },
 ];
 
 function typeConf(type) {
   return TYPE_CONFIG[type] || TYPE_CONFIG.system;
 }
 
-function timeAgo(ts) {
+// Localised badge label for a notification type (falls back to the generic
+// "system" label for any type without its own entry).
+function typeLabel(t, type) {
+  return t(`notifications.types.${TYPE_CONFIG[type] ? type : 'system'}`);
+}
+
+function timeAgo(ts, t) {
   if (!ts) return '';
   try {
     const diff = Math.floor((Date.now() - new Date(ts + 'Z').getTime()) / 1000);
-    if (diff < 60)    return 'Just now';
-    if (diff < 3600)  return `${Math.floor(diff / 60)} min ago`;
-    if (diff < 86400) return `${Math.floor(diff / 3600)} hr ago`;
-    if (diff < 604800) return `${Math.floor(diff / 86400)} days ago`;
+    if (diff < 60)    return t('notifications.justNow');
+    if (diff < 3600)  return t('notifications.minAgo',  { n: Math.floor(diff / 60) });
+    if (diff < 86400) return t('notifications.hrAgo',   { n: Math.floor(diff / 3600) });
+    if (diff < 604800) return t('notifications.daysAgo', { n: Math.floor(diff / 86400) });
     return new Date(ts + 'Z').toLocaleDateString();
   } catch { return ''; }
 }
@@ -219,7 +225,7 @@ export default function Notifications() {
               className={`notif-page-tab${tab === tb.key ? ' active' : ''}`}
               onClick={() => setTab(tb.key)}
             >
-              {tb.label}
+              {t(tb.labelKey)}
               {tb.key === 'unread' && unread > 0 && (
                 <span style={{ marginLeft: 6, background: 'var(--red)', color: '#fff', borderRadius: 99, fontSize: 10, fontWeight: 700, padding: '1px 5px' }}>
                   {unread}
@@ -258,10 +264,10 @@ export default function Notifications() {
                   {n.body && <div className="notif-page-body">{n.body}</div>}
                   <div className="notif-page-meta">
                     <span style={{ fontSize: 11, fontWeight: 600, padding: '1px 7px', borderRadius: 99, background: cfg.bg, color: cfg.color }}>
-                      {cfg.label}
+                      {typeLabel(t, n.type)}
                     </span>
                     <span className="notif-page-time" title={fmtDate(n.created_at)}>
-                      {timeAgo(n.created_at)}
+                      {timeAgo(n.created_at, t)}
                     </span>
                   </div>
                 </div>
