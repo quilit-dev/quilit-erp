@@ -565,7 +565,7 @@ export function WhatsAppShareButton({ phone, message, label, title, disabledTitl
       href={href}
       target={disabled ? undefined : '_blank'}
       rel="noopener noreferrer"
-      className={`btn btn-sm ${disabled ? 'btn-secondary' : 'btn-whatsapp'}`}
+      className="btn btn-sm btn-secondary"
       aria-disabled={disabled}
       title={disabled
         ? (disabledTitle || t('common.whatsappNoPhone') || 'No phone number on file')
@@ -574,14 +574,13 @@ export function WhatsAppShareButton({ phone, message, label, title, disabledTitl
       style={{
         opacity: disabled ? 0.55 : 1,
         cursor:  disabled ? 'not-allowed' : 'pointer',
-        background: disabled ? undefined : '#25D366',
-        borderColor: disabled ? undefined : '#1FAE54',
-        color: disabled ? undefined : '#fff',
-        display: 'inline-flex', alignItems: 'center', gap: 6,
+        display: 'inline-flex', alignItems: 'center', gap: 5,
+        padding: '3px 9px', fontSize: 12, lineHeight: 1.4,
         textDecoration: 'none',
       }}
     >
-      <svg width="14" height="14" viewBox="0 0 24 24" fill="currentColor" aria-hidden="true">
+      <svg width="13" height="13" viewBox="0 0 24 24"
+        fill={disabled ? 'currentColor' : '#25D366'} aria-hidden="true">
         <path d="M20.52 3.48A11.84 11.84 0 0012.04 0C5.5 0 .2 5.3.2 11.86c0 2.09.55 4.13 1.6 5.93L0 24l6.36-1.67a11.84 11.84 0 005.67 1.45h.01c6.55 0 11.85-5.31 11.85-11.85 0-3.17-1.23-6.15-3.37-8.45zM12.04 21.5h-.01a9.66 9.66 0 01-4.92-1.35l-.35-.21-3.78.99 1.01-3.68-.23-.38a9.7 9.7 0 1117.99-5.01c0 5.36-4.36 9.64-9.71 9.64zm5.32-7.21c-.29-.15-1.72-.85-1.99-.94-.27-.1-.46-.15-.66.14-.2.3-.76.94-.93 1.13-.17.2-.35.22-.64.07-.29-.15-1.23-.45-2.34-1.45-.86-.77-1.45-1.71-1.62-2-.17-.3-.02-.45.13-.6.13-.13.29-.34.43-.5.15-.17.2-.3.3-.5.1-.2.05-.37-.02-.52-.07-.15-.66-1.6-.9-2.18-.24-.57-.48-.5-.66-.51l-.56-.01c-.2 0-.5.07-.77.36-.27.3-1.03 1-1.03 2.44s1.06 2.84 1.2 3.04c.15.2 2.07 3.17 5.03 4.45.7.3 1.25.48 1.68.62.71.23 1.35.2 1.86.12.57-.08 1.72-.7 1.96-1.38.24-.68.24-1.26.17-1.38-.07-.12-.27-.2-.56-.34z"/>
       </svg>
       {txt}
