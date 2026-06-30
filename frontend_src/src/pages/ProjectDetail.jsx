@@ -24,8 +24,6 @@ function StatCard({ label, value, sub, color }) {
 
 function SectionTable({ columns, rows, emptyMsg }) {
   const { t, tCategory } = useLocale();
-  const projExpenseCats = useCategories('expense');
-  const catProjOptions = projExpenseCats;
   if (!rows || rows.length === 0) {
     return (
       <div style={{ padding: '28px', textAlign: 'center', color: 'var(--text-3)', fontSize: 13 }}>
@@ -57,7 +55,7 @@ function SectionTable({ columns, rows, emptyMsg }) {
 
 export default function ProjectDetail() {
   const { t, tCategory } = useLocale();
-  const projExpenseCats = useCategories('expense');
+  const projExpenseCats = useCategories('project');
   const catProjOptions = projExpenseCats;
   const { can } = usePermissions();
   const { id }    = useParams();
