@@ -2861,6 +2861,15 @@ def _run_migrations(conn, c):
     add_col("136b_categories_gl", "categories", "account_code",
             "ALTER TABLE categories ADD COLUMN account_code TEXT")
 
+    # 137 — notification message i18n. Backend-generated notifications store a
+    # stable msg_key + JSON params so the list endpoint can re-render title/body
+    # in the viewer's language. The plain title/body columns stay populated in
+    # English as the canonical fallback (legacy rows, dedup, any non-UI reader).
+    add_col("137a_notif_msg_key", "notifications", "msg_key",
+            "ALTER TABLE notifications ADD COLUMN msg_key TEXT")
+    add_col("137b_notif_params", "notifications", "params",
+            "ALTER TABLE notifications ADD COLUMN params TEXT")
+
     conn.commit()
 
 
@@ -3101,6 +3110,9 @@ def _ensure_pg_post_baseline(raw):
         """)
         cur.execute("CREATE INDEX IF NOT EXISTS idx_categories_domain ON categories(domain, active)")
         cur.execute("ALTER TABLE categories ADD COLUMN IF NOT EXISTS account_code TEXT")
+        # 137 — notification message i18n (re-render title/body per viewer language).
+        cur.execute("ALTER TABLE notifications ADD COLUMN IF NOT EXISTS msg_key TEXT")
+        cur.execute("ALTER TABLE notifications ADD COLUMN IF NOT EXISTS params TEXT")
     raw.commit()
 
 

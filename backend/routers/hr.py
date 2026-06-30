@@ -828,6 +828,9 @@ def create_leave(
         notify(
             db, user_id=uid, type="leave_requested",
             title=title, body=body, link="/hr",
+            msg="leave_requested",
+            params={"name": emp["full_name"], "leave_type": data.leave_type, "days": days,
+                    "start": data.start_date[:10], "end": data.end_date[:10]},
             entity_type="hr_leave", entity_id=leave_id, dedup_hours=24,
         )
 
@@ -901,6 +904,9 @@ def _review_leave(db, leave_id, user, decision: str, note):
             db, user_id=emp_uid, type=kind,
             title=f"Your leave request was {verb}",
             body=body, link="/hr",
+            msg=kind,
+            params={"leave_type": row["leave_type"], "start": row["start_date"],
+                    "end": row["end_date"], "note": (f" — {note}" if note else "")},
             entity_type="hr_leave", entity_id=leave_id,
         )
 
@@ -1391,6 +1397,8 @@ def approve_payroll_run(
         db, type="payroll_approved",
         title=f"Payroll run approved — {run['period_start']} → {run['period_end']}",
         body=f"{line_count} employee{'s' if line_count != 1 else ''} · ready to mark paid.",
+        msg="payroll_approved",
+        params={"start": run["period_start"], "end": run["period_end"], "count": line_count},
         link="/hr", entity_type="hr_payroll_run", entity_id=run_id,
     )
 
@@ -1537,6 +1545,9 @@ def mark_payroll_run_paid(
             title="You have been paid",
             body=f"{run['period_start']} → {run['period_end']} · "
                  f"{float(line['net_amount']):,.2f} {line['salary_currency'] or 'USD'}",
+            msg="payroll_paid_employee",
+            params={"start": run["period_start"], "end": run["period_end"],
+                    "amount": float(line["net_amount"]), "currency": line["salary_currency"] or "USD"},
             link="/hr",
             entity_type="hr_payroll_run", entity_id=run_id,
         )
@@ -1546,6 +1557,9 @@ def mark_payroll_run_paid(
         title=f"Payroll paid — {run['period_start']} → {run['period_end']}",
         body=f"${total_usd:,.2f} disbursed across {len(paid_lines)} "
              f"employee{'s' if len(paid_lines) != 1 else ''}.",
+        msg="payroll_paid_manager",
+        params={"start": run["period_start"], "end": run["period_end"],
+                "total": float(total_usd), "count": len(paid_lines)},
         link="/hr", entity_type="hr_payroll_run", entity_id=run_id,
     )
 

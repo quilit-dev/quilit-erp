@@ -51,14 +51,15 @@ def _warehouse_user_ids(db, warehouse_id: int) -> list:
 
 
 def _notify_transfer_endpoint(db, *, warehouse_id: int, exclude_user: "Optional[int]",
-                              type: str, title: str, body: str, transfer_id: int) -> None:
+                              type: str, title: str, body: str, transfer_id: int,
+                              msg: str = None, params: dict = None) -> None:
     """Fan out a transfer event to every active user with access to one of
     its endpoints. When nobody is explicitly authorised (warehouse open to
     admins only), we still emit one global row so the admin bell rings."""
     recipients = _warehouse_user_ids(db, warehouse_id)
     if not recipients:
         notify(
-            db, type=type, title=title, body=body,
+            db, type=type, title=title, body=body, msg=msg, params=params,
             link="/warehouses", entity_type="stock_transfer", entity_id=transfer_id,
         )
         return
@@ -66,7 +67,7 @@ def _notify_transfer_endpoint(db, *, warehouse_id: int, exclude_user: "Optional[
         if uid == exclude_user:
             continue
         notify(
-            db, user_id=uid, type=type, title=title, body=body,
+            db, user_id=uid, type=type, title=title, body=body, msg=msg, params=params,
             link="/warehouses", entity_type="stock_transfer", entity_id=transfer_id,
         )
 
@@ -697,6 +698,9 @@ def dispatch_transfer(
         type="transfer_dispatched",
         title=f"Incoming transfer {head['transfer_number']}",
         body=f"{ends['from_code']} → {ends['to_code']} · {len(items)} item(s) in transit",
+        msg="transfer_dispatched", params={"number": head["transfer_number"],
+                                           "from_code": ends["from_code"], "to_code": ends["to_code"],
+                                           "count": len(items)},
         transfer_id=tid,
     )
 
@@ -784,6 +788,7 @@ def receive_transfer(
         type="transfer_received",
         title=f"Transfer {head['transfer_number']} received",
         body=f"{ends['from_code']} → {ends['to_code']} · arrived at destination{loss_note}",
+        msg="transfer_received", params={"number": head["transfer_number"]},
         transfer_id=tid,
     )
 
@@ -857,6 +862,7 @@ def cancel_transfer(
         type="transfer_cancelled",
         title=f"Transfer {head['transfer_number']} cancelled",
         body=f"{ends['from_code']} → {ends['to_code']} · {reason}",
+        msg="transfer_cancelled", params={"number": head["transfer_number"]},
         transfer_id=tid,
     )
     if rolled_back:
@@ -865,6 +871,7 @@ def cancel_transfer(
             type="transfer_cancelled",
             title=f"Transfer {head['transfer_number']} rolled back",
             body=f"Stock re-credited to {ends['from_code']} · {reason}",
+            msg="transfer_rolled_back", params={"number": head["transfer_number"]},
             transfer_id=tid,
         )
 

@@ -423,6 +423,7 @@ def _notify_step(db: sqlite3.Connection, req_id: int, policy_name: str,
                 type="approval_request",
                 title=f"Approval required: {label}",
                 body=f'"{policy_name}" — step {step_num} awaits your review.',
+                msg="approval_request", params={"label": label, "policy": policy_name, "step": step_num},
                 link="/approvals",
                 entity_type="approval_request",
                 entity_id=req_id,
@@ -437,6 +438,7 @@ def _notify_requester(db: sqlite3.Connection, req, status: str, comment) -> None
             db, user_id=req["requested_by"], type="approval_approved",
             title=f"Approved: {label}",
             body=f'Your request "{req["policy_name"]}" has been approved.',
+            msg="approval_approved", params={"label": label, "policy": req["policy_name"]},
             link="/approvals", entity_type="approval_request", entity_id=req["id"],
         )
     elif status == "rejected":
@@ -444,6 +446,8 @@ def _notify_requester(db: sqlite3.Connection, req, status: str, comment) -> None
             db, user_id=req["requested_by"], type="approval_rejected",
             title=f"Rejected: {label}",
             body=f'Your request "{req["policy_name"]}" was rejected. {comment or ""}'.strip(),
+            msg="approval_rejected",
+            params={"label": label, "policy": req["policy_name"], "comment": comment or ""},
             link="/approvals", entity_type="approval_request", entity_id=req["id"],
         )
 

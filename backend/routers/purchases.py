@@ -382,6 +382,9 @@ def update_status(purchase_id: int, data: StatusUpdate,
         notify(db, type="purchase_received",
                title=f"Purchase order {row['po_number']} received",
                body=f"{row['product_name']} from {row['supplier']} — {row['quantity']} units, ${total_val:,.2f}",
+               msg="purchase_received", params={"po": row["po_number"], "product": row["product_name"],
+                                                "supplier": row["supplier"], "qty": row["quantity"],
+                                                "total": float(total_val)},
                link=f"/purchases", entity_type="purchase", entity_id=purchase_id)
     log_action(db, user, "status_change", "purchase", purchase_id,
                row["po_number"], {"status": data.status})

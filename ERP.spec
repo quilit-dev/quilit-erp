@@ -62,6 +62,7 @@ a = Analysis(
         # Shared helpers that routers import dynamically (function-level
         # imports that PyInstaller's static analyser can miss):
         'warehouse_access', 'accounting', 'costing', 'lots', 'currency',
+        'notif_messages',
         # SaaS infra wrappers (default backends are no-ops; redis/rq/boto3 stay
         # lazy so they are NOT pulled into the desktop bundle):
         'storage', 'cache', 'jobs', 'mailer', 'email_templates',

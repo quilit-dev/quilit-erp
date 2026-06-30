@@ -1083,6 +1083,8 @@ def complete_order(
             notify(db, type="low_stock",
                    title=f"Low stock alert: {inv['name']}",
                    body=f"Only {qty_after} {inv['unit'] or 'units'} remaining (minimum: {min_stock})",
+                   msg="low_stock", params={"name": inv["name"], "qty": qty_after,
+                                            "unit": inv["unit"] or "units", "min": min_stock},
                    link="/inventory", entity_type="inventory", entity_id=cid, dedup_hours=24)
     materials_cost = _c(materials_cost)
 
@@ -1241,6 +1243,7 @@ def complete_order(
                body=(f"{new_completed} × {out_inv['name']} at ${unit_cost:.2f}/unit "
                      + ("→ awaiting quality control" if qc_required
                         else f"(total ${total_cost:.2f})")),
+               msg="production_completed", params={"order": order["order_number"]},
                link="/manufacturing", entity_type="production_order", entity_id=order_id)
     db.commit()
     _msg = ("Production order completed — batch is in quarantine awaiting QC"

@@ -326,6 +326,8 @@ def update_quotation(
         notify(db, type="quotation_accepted",
                title=f"Quotation accepted: {existing['quote_number']}",
                body=f"Total ${invoice_amount:,.2f} — ready to invoice.",
+               msg="quotation_accepted", params={"number": existing["quote_number"],
+                                                 "amount": float(invoice_amount)},
                link="/quotations", entity_type="quotation", entity_id=quote_id)
     db.commit()
     return {"message": "Quotation updated"}

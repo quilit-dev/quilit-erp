@@ -484,6 +484,7 @@ def close_reconciliation(
         notify(db, type="cash_variance",
                title=f"Cash variance on {rec['business_date']}",
                body=" · ".join(bits) or "Variance detected at close.",
+               msg="cash_variance", params={"date": rec["business_date"]},
                link="/cash", entity_type="cash_reconciliation",
                entity_id=rec_id, dedup_hours=24)
     db.commit()

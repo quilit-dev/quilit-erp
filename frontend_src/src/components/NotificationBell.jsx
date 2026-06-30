@@ -108,7 +108,7 @@ function timeAgo(ts, t) {
 // ── Bell button + dropdown ────────────────────────────────────────────────────
 export default function NotificationBell() {
   const navigate    = useNavigate();
-  const { t }       = useLocale();
+  const { t, lang } = useLocale();
   const [open, setOpen]           = useState(false);
   const [notifs, setNotifs]       = useState([]);
   const [unread, setUnread]       = useState(0);
@@ -129,13 +129,13 @@ export default function NotificationBell() {
   const fetchNotifs = useCallback(async () => {
     setLoading(true);
     try {
-      const d = await getNotifications({ limit: 20 });
+      const d = await getNotifications({ limit: 20, lang });
       setNotifs(d.notifications ?? []);
       setUnread(d.unread_count ?? 0);
     } catch {} finally {
       setLoading(false);
     }
-  }, []);
+  }, [lang]);
 
   // Poll for count every 30s
   useEffect(() => {

@@ -500,6 +500,7 @@ def create_comment(
             type="announcement_comment",
             title="💬 New comment on your announcement",
             body=text[:120],
+            msg="announcement_comment",
             link=f"/announcements?open={aid}",
             entity_type="announcement",
             entity_id=aid,

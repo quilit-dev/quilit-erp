@@ -180,6 +180,7 @@ def _schedule_reminder(
         type="hr_activity_reminder",
         title=f"⏰ Reminder: {subject}",
         body=body,
+        msg="hr_activity_reminder", params={"subject": subject},
         link="/hr-activities",
         entity_type="hr_activity",
         entity_id=activity_id,
