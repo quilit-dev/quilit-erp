@@ -723,6 +723,7 @@ def _notify_invitees(db, *, event_id, title, date, owner_name, invitee_ids):
             type="planning_event",
             title=f"📅 {title}",
             body=snippet,
+            msg="planning_event", params={"title": title},
             link="/planning",
             entity_type="planning_event",
             entity_id=event_id,

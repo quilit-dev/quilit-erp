@@ -416,6 +416,8 @@ def update_stock(item_id: int, data: StockUpdate, user=Depends(require_perm("inv
             notify(db, type="low_stock",
                    title=f"Low stock alert: {row['name']}",
                    body=f"Only {qty_after} {row['unit'] or 'units'} remaining (minimum: {min_stock})",
+                   msg="low_stock", params={"name": row["name"], "qty": qty_after,
+                                            "unit": row["unit"] or "units", "min": min_stock},
                    link=f"/inventory", entity_type="inventory", entity_id=item_id,
                    dedup_hours=24)
         # Per-warehouse alert — fires when this specific warehouse drops below
@@ -427,6 +429,9 @@ def update_stock(item_id: int, data: StockUpdate, user=Depends(require_perm("inv
             notify(db, type="low_stock_warehouse",
                    title=f"Low stock at {wh_code['code']}: {row['name']}",
                    body=f"Only {wh_after} {row['unit'] or 'units'} at {wh_code['name']} (minimum: {min_stock})",
+                   msg="low_stock_warehouse", params={"code": wh_code["code"], "name": row["name"],
+                                                      "qty": wh_after, "unit": row["unit"] or "units",
+                                                      "wh": wh_code["name"], "min": min_stock},
                    link=f"/inventory", entity_type="inventory", entity_id=item_id,
                    dedup_hours=24)
     log_action(db, user, "stock_adjust", "inventory", item_id, row["name"],

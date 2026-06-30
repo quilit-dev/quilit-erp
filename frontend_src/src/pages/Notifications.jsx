@@ -130,7 +130,7 @@ function fmtDate(ts) {
 
 export default function Notifications() {
   const navigate    = useNavigate();
-  const { t }       = useLocale();
+  const { t, lang } = useLocale();
   const [tab, setTab]         = useState('all');
   const [notifs, setNotifs]   = useState([]);
   const [loading, setLoading] = useState(true);
@@ -145,7 +145,7 @@ export default function Notifications() {
       if (tab === 'unread') params.unread_only = true;
       const tabDef = TABS.find(t => t.key === tab);
       // type_filter: for category tabs we load all and filter client-side
-      const d = await getNotifications({ ...params, limit: 100 });
+      const d = await getNotifications({ ...params, limit: 100, lang });
       let list = d.notifications ?? [];
       if (tabDef?.types) list = list.filter(n => tabDef.types.includes(n.type));
       setNotifs(list);
@@ -154,7 +154,7 @@ export default function Notifications() {
     } catch {} finally {
       setLoading(false);
     }
-  }, [tab]);
+  }, [tab, lang]);
 
   useEffect(() => { load(); }, [load]);
 

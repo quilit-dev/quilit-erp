@@ -491,6 +491,8 @@ def run_depreciation(
                title=f"Depreciation posted for {target}",
                body=(f"${round(total_amount, 2):,.2f} across {len(asset_results)} "
                      f"asset(s), {total_periods} period(s) caught up."),
+               msg="asset_depreciated", params={"target": target, "amount": round(float(total_amount), 2),
+                                                 "assets": len(asset_results), "periods": total_periods},
                link="/fixed-assets", entity_type="depreciation_run",
                entity_id=None)
     db.commit()

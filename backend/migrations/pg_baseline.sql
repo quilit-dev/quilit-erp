@@ -818,7 +818,9 @@ CREATE TABLE IF NOT EXISTS notifications (
     is_read INTEGER NOT NULL DEFAULT 0,
     read_at TEXT,
     created_at TEXT NOT NULL,
-    deliver_at TEXT DEFAULT NULL
+    deliver_at TEXT DEFAULT NULL,
+    msg_key TEXT,
+    params TEXT
 );
 
 CREATE TABLE IF NOT EXISTS period_snapshots (

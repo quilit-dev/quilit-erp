@@ -295,6 +295,8 @@ def run_recurring(
             title=f"Recurring expense generated: {tpl['name']}",
             body=f"{len(generated)} occurrence{'s' if len(generated) != 1 else ''} "
                  f"· ${total:,.2f} posted to Expenses",
+            msg="recurring_generated_one",
+            params={"name": tpl["name"], "count": len(generated), "total": float(total)},
             link="/expenses",
             entity_type="recurring_expense", entity_id=tpl_id, dedup_hours=1,
         )
@@ -339,6 +341,8 @@ def run_due(
             db, type="recurring_generated",
             title=f"Recurring expenses posted ({total} occurrence{'s' if total != 1 else ''})",
             body=f"{len(results)} template{'s' if len(results) != 1 else ''} processed for due dates ≤ {today}.",
+            msg="recurring_generated_batch",
+            params={"count": total, "templates": len(results), "date": today},
             link="/expenses",
             entity_type="recurring_expense", entity_id=None, dedup_hours=1,
         )

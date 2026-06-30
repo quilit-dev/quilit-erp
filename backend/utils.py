@@ -2,6 +2,7 @@
 from datetime import datetime, timedelta
 from decimal import Decimal, ROUND_HALF_UP
 from fastapi import HTTPException
+import json
 import math
 import sqlite3
 
@@ -175,6 +176,8 @@ def notify(
     entity_id: int = None,
     dedup_hours: int = 0,
     deliver_at: str = None,
+    msg: str = None,
+    params: dict = None,
 ) -> "Optional[int]":
     """
     Insert a notification row. Call BEFORE db.commit() to include in the same transaction.
@@ -182,6 +185,11 @@ def notify(
     dedup_hours > 0
         Skip insertion if an identical (type, entity_id) notification was already
         created within that many hours (prevents repeat alerts).
+    msg / params
+        Optional message key + interpolation params. Stored alongside the English
+        title/body so the notifications list endpoint can re-render the text in the
+        viewer's language (see notif_messages.py). The plain title/body remain the
+        canonical English fallback for legacy rows and any non-UI reader.
     deliver_at
         Optional 'YYYY-MM-DD HH:MM:SS' timestamp. The row is inserted now but the
         notifications list endpoint hides it until the wall-clock catches up.
@@ -206,10 +214,11 @@ def notify(
         cur = db.execute(
             """INSERT INTO notifications
                    (user_id, type, title, body, link, entity_type, entity_id,
-                    is_read, created_at, deliver_at)
-               VALUES (?, ?, ?, ?, ?, ?, ?, 0, ?, ?)""",
+                    is_read, created_at, deliver_at, msg_key, params)
+               VALUES (?, ?, ?, ?, ?, ?, ?, 0, ?, ?, ?, ?)""",
             (user_id, type, title, body, link, entity_type, entity_id,
-             _now(), deliver_at),
+             _now(), deliver_at, msg,
+             json.dumps(params, ensure_ascii=False) if params else None),
         )
         return cur.lastrowid
     except Exception:

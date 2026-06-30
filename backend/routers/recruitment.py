@@ -557,6 +557,7 @@ def change_applicant_status(
     notify(db, type="recruitment_status",
            title=f"Applicant moved: {row['full_name']}",
            body=f"{old} → {data.new_status}",
+           msg="recruitment_status", params={"name": row["full_name"], "old": old, "new": data.new_status},
            link=f"/recruitment", entity_type="recruitment_applicant",
            entity_id=app_id, dedup_hours=1)
     log_action(db, user, "status_change", "recruitment_applicant", app_id,
@@ -1221,6 +1222,7 @@ def convert_to_employee(
     notify(db, type="recruitment_hired",
            title=f"New hire: {applicant['full_name']}",
            body=f"Welcome aboard! Onboarding starts on {hire_date}.",
+           msg="recruitment_hired", params={"name": applicant["full_name"], "date": hire_date},
            link=f"/hr", entity_type="hr_employee", entity_id=emp_id)
     db.commit()
     return {

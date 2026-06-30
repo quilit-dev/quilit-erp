@@ -577,6 +577,8 @@ def checkout(
             notify(db, type="low_stock",
                    title=f"Low stock alert: {row['name']}",
                    body=f"Only {qty_after} {row['unit'] or 'units'} remaining (minimum: {min_stock})",
+                   msg="low_stock", params={"name": row["name"], "qty": qty_after,
+                                            "unit": row["unit"] or "units", "min": min_stock},
                    link="/inventory", entity_type="inventory", entity_id=inv_id,
                    dedup_hours=24)
 

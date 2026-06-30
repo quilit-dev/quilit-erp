@@ -311,6 +311,7 @@ def convert_lead(
     notify(db, type="lead_converted",
            title=f"Lead converted: {lead['name']}",
            body=f"Successfully converted to client #{client_id}",
+           msg="lead_converted", params={"name": lead["name"], "client_id": client_id},
            link=f"/clients/{client_id}", entity_type="client", entity_id=client_id)
     db.commit()
     log_action(db, user, "convert", "crm_leads", lead_id, f"{lead['name']} → client #{client_id}")
@@ -590,11 +591,13 @@ def update_deal_stage(
         notify(db, type="deal_won",
                title=f"Deal won: {row['title']}",
                body="Congratulations! The deal has been marked as won.",
+               msg="deal_won", params={"title": row["title"]},
                link="/crm", entity_type="deal", entity_id=deal_id)
     elif body.stage == "Lost":
         notify(db, type="deal_lost",
                title=f"Deal lost: {row['title']}",
                body=f"Reason: {body.lost_reason or 'Not specified'}",
+               msg="deal_lost", params={"title": row["title"], "reason": body.lost_reason or "Not specified"},
                link="/crm", entity_type="deal", entity_id=deal_id)
     db.commit()
     log_action(db, user, f"stage:{body.stage}", "crm_deals", deal_id, row["title"])

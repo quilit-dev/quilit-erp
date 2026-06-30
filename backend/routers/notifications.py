@@ -18,6 +18,7 @@ from typing import Optional
 from database import get_db
 from permissions import require_auth
 from utils import _now, _today, notify
+from notif_messages import localize
 import sqlite3
 
 router = APIRouter()
@@ -149,6 +150,9 @@ def _generate_system_notifications(db: sqlite3.Connection) -> None:
             type="invoice_overdue",
             title=f"Invoice {inv['invoice_number']} is overdue",
             body=f"{inv['client_name'] or 'Unknown client'} — ${remaining:,.2f} outstanding, {days_overdue}d overdue",
+            msg="invoice_overdue",
+            params={"number": inv["invoice_number"], "client": inv["client_name"] or "Unknown client",
+                    "amount": remaining, "days": days_overdue},
             link=f"/invoices/{inv['id']}",
             entity_type="invoice",
             entity_id=inv["id"],
@@ -179,6 +183,8 @@ def _generate_system_notifications(db: sqlite3.Connection) -> None:
             type="task_due_soon",
             title=f"Task due soon: {task['name']}",
             body=f"{task['project_name'] or 'No project'} — {label}",
+            msg="task_due_soon",
+            params={"name": task["name"], "project": task["project_name"] or "No project", "label": label},
             link="/planning",
             entity_type="task",
             entity_id=task["id"],
@@ -210,6 +216,9 @@ def _generate_system_notifications(db: sqlite3.Connection) -> None:
             type="contract_expiring",
             title=f"Contract expiring: {c['emp']}",
             body=f"{c['contract_number'] or 'No #'} — ends in {days_left}d ({c['end_date'][:10]})",
+            msg="contract_expiring",
+            params={"emp": c["emp"], "number": c["contract_number"] or "No #",
+                    "days": days_left, "date": c["end_date"][:10]},
             link="/hr",
             entity_type="hr_contract",
             entity_id=c["id"],
@@ -236,6 +245,8 @@ def _generate_system_notifications(db: sqlite3.Connection) -> None:
                     title="USD ↔ LBP rate is stale",
                     body=f"Latest spot is {age} days old "
                          f"(1 USD = {rate_row['rate']:,.0f} LBP). Set a new rate in Settings.",
+                    msg="fx_rate_stale",
+                    params={"age": age, "rate": float(rate_row["rate"])},
                     link="/settings",
                     entity_type="exchange_rate",
                     entity_id=rate_row["id"],
@@ -261,6 +272,8 @@ def _generate_system_notifications(db: sqlite3.Connection) -> None:
             type="period_unlocked",
             title=f"Period {p['year']:04d}-{p['month']:02d} is not locked",
             body="Lock the month from Accounting → Period Locks to prevent backdated entries.",
+            msg="period_unlocked",
+            params={"period": f"{p['year']:04d}-{p['month']:02d}"},
             link="/accounting",
             entity_type="accounting_period",
             entity_id=p["id"],
@@ -323,6 +336,7 @@ def list_notifications(
     offset: int = Query(0, ge=0),
     unread_only: bool = Query(False),
     type_filter: Optional[str] = Query(None),
+    lang: Optional[str] = Query(None),
     user=Depends(require_auth),
     db: sqlite3.Connection = Depends(get_db),
 ):
@@ -360,8 +374,14 @@ def list_notifications(
         base_params + gated + [limit, offset],
     ).fetchall()
 
+    out = []
+    for r in rows:
+        d = dict(r)
+        d["title"], d["body"] = localize(d, lang)
+        out.append(d)
+
     return {
-        "notifications": [dict(r) for r in rows],
+        "notifications": out,
         "unread_count":  unread_count,
         "total":         total,
     }

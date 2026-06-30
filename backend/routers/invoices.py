@@ -660,11 +660,16 @@ def add_payment(
         notify(db, type="invoice_paid",
                title=f"Invoice {inv['invoice_number']} fully paid",
                body=f"{client_name} — ${float(inv['amount']):,.2f} received via {data.method}",
+               msg="invoice_paid", params={"number": inv["invoice_number"], "client": client_name,
+                                           "amount": float(inv["amount"]), "method": data.method},
                link=f"/invoices/{invoice_id}", entity_type="invoice", entity_id=invoice_id)
     else:
         notify(db, type="payment_received",
                title=f"Payment received on {inv['invoice_number']}",
                body=f"{client_name} — ${usd_amount:,.2f} via {data.method} · ${new_remain:,.2f} remaining",
+               msg="payment_received", params={"number": inv["invoice_number"], "client": client_name,
+                                               "amount": float(usd_amount), "method": data.method,
+                                               "remaining": float(new_remain)},
                link=f"/invoices/{invoice_id}", entity_type="invoice", entity_id=invoice_id)
 
     db.commit()
