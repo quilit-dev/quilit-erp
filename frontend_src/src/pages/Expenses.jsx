@@ -6,7 +6,7 @@ import { getExpenses, getProjects, createExpense, updateExpense, voidExpense, ge
 import {
   LoadingSpinner, ErrorAlert, EmptyState, Modal,
   ExportButton, fmt, fmtDate, toast, SortableTh, Pagination,
-  CATEGORY_COLORS, CategoryBadge, EXPENSE_CATEGORIES, SelectOther, NumberInput, BranchField} from '../components/shared';
+  CATEGORY_COLORS, CategoryBadge, SelectOther, NumberInput, BranchField} from '../components/shared';
 import { useSortPaginate } from '../hooks/useSortPaginate';
 import { useLocale } from '../hooks/useLocale.jsx';
 import { useCategories } from '../hooks/useCategories';
@@ -14,8 +14,6 @@ import { useSettings } from '../hooks/useSettings.jsx';
 import { usePermissions } from '../hooks/usePermissions';
 import Attachments from '../components/Attachments.jsx';
 import RecurringExpensesPanel from '../components/RecurringExpensesPanel';
-
-const CATEGORIES = EXPENSE_CATEGORIES;
 
 function TransactionsPanel() {
   const { data: expenses, loading, error, reload } = useData(getExpenses);
@@ -33,7 +31,7 @@ function TransactionsPanel() {
   }, [focusId, expenses]);   // eslint-disable-line react-hooks/exhaustive-deps
   const { t, tCategory } = useLocale();
   const expenseCats = useCategories('expense');
-  const catOptions = expenseCats.length ? expenseCats : CATEGORIES;
+  const catOptions = expenseCats;
   const { can } = usePermissions();
   const { settings, taxRates } = useSettings();
   const taxEnabled     = settings?.tax_enabled === '1';
@@ -460,7 +458,7 @@ function TransactionsPanel() {
 export default function Expenses() {
   const { t, tCategory } = useLocale();
   const expenseCats = useCategories('expense');
-  const catOptions = expenseCats.length ? expenseCats : CATEGORIES;
+  const catOptions = expenseCats;
   const [tab, setTab] = usePersistedState('expenses.tab', 'transactions');
   const tabs = [
     { key: 'transactions', label: t('expenses.tabTransactions') },

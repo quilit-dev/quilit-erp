@@ -19,7 +19,6 @@ import { useFocusId } from '../hooks/useFocusId';
 import ImportWizard from '../components/ImportWizard';
 
 const UNITS = ['pcs', 'kg', 'g', 'l', 'ml', 'm', 'm²', 'm³', 'box', 'roll', 'set', 'pair'];
-const DEFAULT_CATEGORIES = ['Equipment', 'Materials', 'Safety', 'Tools', 'Consumables', 'Other'];
 const PRODUCT_TYPES = ['raw_material', 'semi_finished', 'finished', 'consumable'];
 const PRODUCT_TYPE_COLORS = {
   raw_material:  { bg: '#EFF6FF', color: '#2563EB' },
@@ -57,7 +56,7 @@ function ItemForm({ initial = {}, knownCategories = [], suppliers = [], onSave, 
   const secondary = exchangeRate?.secondary || 'LBP';
   const isEdit = !!initial.id;
   const regCats = useCategories('inventory');
-  const allCats = [...new Set([...knownCategories, ...regCats, ...DEFAULT_CATEGORIES])];
+  const allCats = [...new Set([...knownCategories, ...regCats])];
 
   const [form, setForm] = useState({
     name:           initial.name       || '',
@@ -536,7 +535,7 @@ function ProductBuilder({ knownCategories = [], onSave, onCancel, saving }) {
   const secondary = exchangeRate?.secondary || 'LBP';
   const businessType = settings?.business_type || '';
   const regCats = useCategories('inventory');
-  const allCats = [...new Set([...knownCategories, ...regCats, ...DEFAULT_CATEGORIES])];
+  const allCats = [...new Set([...knownCategories, ...regCats])];
 
   const [defs, setDefs] = useState([]);
   const [form, setForm] = useState({

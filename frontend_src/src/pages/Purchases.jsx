@@ -18,10 +18,6 @@ import { useWarehouses } from '../hooks/useWarehouses';
 import { useFocusId } from '../hooks/useFocusId';
 import Attachments from '../components/Attachments.jsx';
 
-const PURCHASE_CATEGORIES = [
-  'Equipment', 'Materials', 'Safety', 'Tools', 'Consumables', 'Other'
-];
-
 const fmtNum = (n) =>
   Number(n || 0).toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 });
 
@@ -42,7 +38,7 @@ function PurchaseForm({ initial = {}, inventoryItems = [], inventoryCategories =
   // Owner-defined inventory categories (registry) lead; merge in any used +
   // the built-in preset as a fallback so the picker is never empty.
   const regCats = useCategories('inventory');
-  const allCats = [...new Set([...regCats, ...inventoryCategories, ...PURCHASE_CATEGORIES])];
+  const allCats = [...new Set([...regCats, ...inventoryCategories])];
 
   // Warehouse selector — the receipt will land here when the PO transitions
   // to 'Received'. Defaults to the user's default warehouse so existing

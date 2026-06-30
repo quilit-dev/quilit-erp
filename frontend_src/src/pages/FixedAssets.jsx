@@ -34,11 +34,6 @@ function StatusBadge({ status }) {
 
 const currentPeriod = () => new Date().toISOString().slice(0, 7);
 
-const ASSET_CATEGORIES = [
-  'Vehicles', 'Computers', 'Machinery', 'Furniture',
-  'Buildings', 'Office Equipment', 'Other',
-];
-
 const EMPTY_FORM = {
   name: '', category: '', description: '',
   acquisition_cost: '', acquisition_date: new Date().toISOString().slice(0, 10),
@@ -53,7 +48,7 @@ export default function FixedAssets() {
   const { data: suppliers } = useData(getSuppliers);
   const { t, tCategory } = useLocale();
   const assetCats = useCategories('asset');
-  const catOptions = assetCats.length ? assetCats : ASSET_CATEGORIES;
+  const catOptions = assetCats;
   const { can } = usePermissions();
 
   const [search, setSearch]         = usePersistedState('assets.search', '');
