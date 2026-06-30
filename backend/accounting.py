@@ -113,8 +113,26 @@ def account_id_for(db: sqlite3.Connection, code: str) -> int:
     return row["id"]
 
 
-def expense_account_code(category: str) -> str:
-    """Resolve an expense category to its ledger account, defaulting sensibly."""
+def expense_account_code(category: str, db: sqlite3.Connection = None) -> str:
+    """Resolve an expense category to its ledger account.
+
+    Precedence: the owner's per-category mapping (categories.account_code, set in
+    Settings → Categories) → the built-in default map → Other Expense. The DB
+    lookup is optional and best-effort so callers without a connection — or
+    running against a pre-136b schema — fall back to the static map unchanged.
+    """
+    if db is not None and category:
+        try:
+            row = db.execute(
+                "SELECT account_code FROM categories "
+                "WHERE domain='expense' AND name=? AND archived_at IS NULL "
+                "AND account_code IS NOT NULL AND account_code <> '' LIMIT 1",
+                (category,),
+            ).fetchone()
+            if row and row["account_code"]:
+                return row["account_code"]
+        except Exception:
+            pass
     return CATEGORY_ACCOUNTS.get(category, OTHER_EXPENSE)
 
 

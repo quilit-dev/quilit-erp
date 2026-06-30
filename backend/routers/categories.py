@@ -26,16 +26,35 @@ DOMAINS = {"inventory", "expense", "asset", "project"}
 
 
 class CategoryBody(BaseModel):
-    domain:     Optional[str] = None
-    name:       str
-    sort_order: Optional[int] = 0
-    active:     Optional[bool] = True
+    domain:       Optional[str] = None
+    name:         str
+    sort_order:   Optional[int] = 0
+    active:       Optional[bool] = True
+    account_code: Optional[str] = None
 
 
 def _row(r):
     d = dict(r)
     d["active"] = bool(d.get("active"))
     return d
+
+
+def _validate_account_code(db: sqlite3.Connection, code: Optional[str]) -> Optional[str]:
+    """An owner may pin an expense category to a specific ledger account. The
+    code must exist in the chart of accounts and be an Expense account, else the
+    journal entry would fail or land on the wrong statement. Blank → None (the
+    resolver then uses the built-in default → Other Expense)."""
+    code = (code or "").strip()
+    if not code:
+        return None
+    row = db.execute(
+        "SELECT type FROM chart_of_accounts WHERE code=?", (code,)
+    ).fetchone()
+    if not row:
+        raise HTTPException(400, f"Ledger account {code} does not exist.")
+    if row["type"] != "Expense":
+        raise HTTPException(400, "The ledger account must be an Expense account.")
+    return code
 
 
 @router.get("")
@@ -66,10 +85,14 @@ def create_category(data: CategoryBody, user=Depends(require_admin),
     name = (data.name or "").strip()
     if not name:
         raise HTTPException(400, "Category name is required.")
+    # GL mapping only applies to expense categories; ignored for other domains.
+    acct = _validate_account_code(db, data.account_code) if domain == "expense" else None
     try:
         c = db.execute(
-            "INSERT INTO categories (domain, name, sort_order, active, created_at) VALUES (?,?,?,?,?)",
-            (domain, name, data.sort_order or 0, 1 if (data.active is None or data.active) else 0, _now()),
+            "INSERT INTO categories (domain, name, sort_order, active, created_at, account_code) "
+            "VALUES (?,?,?,?,?,?)",
+            (domain, name, data.sort_order or 0,
+             1 if (data.active is None or data.active) else 0, _now(), acct),
         )
     except sqlite3.IntegrityError:
         raise HTTPException(400, "That category already exists in this domain.")
@@ -87,12 +110,20 @@ def update_category(cat_id: int, data: CategoryBody, user=Depends(require_admin)
     name = (data.name or "").strip()
     if not name:
         raise HTTPException(400, "Category name is required.")
+    sets = ["name=?", "sort_order=?", "active=?"]
+    params: list = [
+        name,
+        data.sort_order if data.sort_order is not None else row["sort_order"],
+        1 if (data.active is None or data.active) else 0,
+    ]
+    # Only touch account_code when the client explicitly sends it, so renaming a
+    # category doesn't silently clear its ledger mapping. Expense-domain only.
+    if "account_code" in data.model_fields_set:
+        acct = _validate_account_code(db, data.account_code) if row["domain"] == "expense" else None
+        sets.append("account_code=?"); params.append(acct)
+    params.append(cat_id)
     try:
-        db.execute(
-            "UPDATE categories SET name=?, sort_order=?, active=? WHERE id=?",
-            (name, data.sort_order if data.sort_order is not None else row["sort_order"],
-             1 if (data.active is None or data.active) else 0, cat_id),
-        )
+        db.execute(f"UPDATE categories SET {', '.join(sets)} WHERE id=?", params)
     except sqlite3.IntegrityError:
         raise HTTPException(400, "Another category in this domain already uses that name.")
     log_action(db, user, "update", "category", cat_id, f"{row['domain']}:{name}")

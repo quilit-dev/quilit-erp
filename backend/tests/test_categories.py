@@ -73,3 +73,46 @@ def test_owner_category_still_posts_an_expense(make_client, db):
         "SELECT category FROM expenses WHERE description='Parade' ORDER BY id DESC LIMIT 1"
     ).fetchone()
     assert row["category"] == "Mascot Costumes"
+
+
+def test_owner_can_map_expense_category_to_ledger_account(make_client):
+    """An owner pins an expense category to a specific Expense account; expenses
+    in that category then post to it instead of the Other Expense default."""
+    c = make_client("superadmin")
+    cid = c.post("/api/categories", json={"domain": "expense", "name": "Marketing"}).json()["id"]
+    # Map it to Rent (6100) — an existing Expense account, not the 6900 default.
+    assert c.put(f"/api/categories/{cid}",
+                 json={"name": "Marketing", "account_code": "6100"}).status_code == 200
+    row = next(r for r in c.get("/api/categories?domain=expense").json() if r["id"] == cid)
+    assert row["account_code"] == "6100"
+
+    r = c.post("/api/finance/expenses",
+               json={"category": "Marketing", "amount": 75, "description": "AdRun"})
+    assert r.status_code in (200, 201), r.text
+    rows = c.get("/api/accounting/journal-entries?source_type=expense").json()["rows"]
+    full = c.get(f"/api/accounting/journal-entries/{rows[0]['id']}").json()
+    debits = [l["account_code"] for l in full["lines"] if l["debit"]]
+    assert "6100" in debits and "6900" not in debits
+
+
+def test_invalid_ledger_account_rejected(make_client):
+    c = make_client("superadmin")
+    cid = c.post("/api/categories", json={"domain": "expense", "name": "Promo"}).json()["id"]
+    # A code that doesn't exist in the chart of accounts.
+    assert c.put(f"/api/categories/{cid}",
+                 json={"name": "Promo", "account_code": "9999"}).status_code == 400
+    # A real account that isn't an Expense account (1000 = Cash, an Asset).
+    assert c.put(f"/api/categories/{cid}",
+                 json={"name": "Promo", "account_code": "1000"}).status_code == 400
+
+
+def test_rename_preserves_gl_mapping(make_client):
+    """Renaming a category (a payload without account_code) must not silently
+    clear an existing ledger mapping."""
+    c = make_client("superadmin")
+    cid = c.post("/api/categories", json={"domain": "expense", "name": "Ads"}).json()["id"]
+    assert c.put(f"/api/categories/{cid}",
+                 json={"name": "Ads", "account_code": "6100"}).status_code == 200
+    assert c.put(f"/api/categories/{cid}", json={"name": "Campaigns"}).status_code == 200
+    row = next(r for r in c.get("/api/categories?domain=expense").json() if r["id"] == cid)
+    assert row["name"] == "Campaigns" and row["account_code"] == "6100"
