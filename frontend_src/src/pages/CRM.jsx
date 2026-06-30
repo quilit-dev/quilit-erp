@@ -478,7 +478,7 @@ function ContactForm({ initial, clients, leads, onSave, onClose, t }) {
             <label className="form-label">
               {t('crm.linkedLead')}
               <span style={{ color:'var(--text-3)', marginLeft:6, fontSize:11, fontStyle:'italic' }}>
-                (instead of a client)
+                {t('common.insteadOfClient')}
               </span>
             </label>
             <select className="form-control" value={form.lead_id || ''}
@@ -682,7 +682,7 @@ function ActivityForm({ initial, clients, leads, onSave, onClose, t }) {
             <label className="form-label">
               {t('crm.linkedLead')}
               <span style={{ color:'var(--text-3)', marginLeft:6, fontSize:11, fontStyle:'italic' }}>
-                (instead of a client)
+                {t('common.insteadOfClient')}
               </span>
             </label>
             <select className="form-control" value={form.lead_id || ''}
@@ -889,7 +889,7 @@ function DealForm({ initial, clients, quotations, users, leads, onSave, onClose,
             <label className="form-label">
               {t('crm.linkedLead')}
               <span style={{ color:'var(--text-3)', marginLeft:6, fontSize:11, fontStyle:'italic' }}>
-                (instead of a client)
+                {t('common.insteadOfClient')}
               </span>
             </label>
             <select className="form-control" value={form.lead_id || ''}
