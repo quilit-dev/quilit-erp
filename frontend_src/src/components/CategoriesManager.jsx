@@ -1,5 +1,5 @@
 import { useState, useEffect, useCallback } from 'react';
-import { getCategories, createCategory, updateCategory, archiveCategory } from '../api/client';
+import { getCategories, createCategory, updateCategory, archiveCategory, getAccounts } from '../api/client';
 import { invalidateCategories } from '../hooks/useCategories';
 import { Modal, ConfirmModal, toast } from './shared';
 import { useLocale } from '../hooks/useLocale.jsx';
@@ -25,6 +25,8 @@ export default function CategoriesManager({ canEdit }) {
   const [editName, setEditName] = useState('');
   const [removeTarget, setRemoveTarget] = useState(null);
   const [busy, setBusy] = useState(false);
+  const [accounts, setAccounts] = useState([]);
+  const isExpense = domain === 'expense';
 
   const load = useCallback(() => {
     setLoading(true);
@@ -34,6 +36,25 @@ export default function CategoriesManager({ canEdit }) {
       .finally(() => setLoading(false));
   }, [domain]);
   useEffect(() => { load(); }, [load]);
+
+  // Expense categories can be pinned to a specific ledger account; load the
+  // Expense accounts for the picker only when that domain is selected.
+  useEffect(() => {
+    if (!isExpense) { setAccounts([]); return; }
+    getAccounts({ type: 'Expense', active: true })
+      .then(r => setAccounts(Array.isArray(r) ? r : []))
+      .catch(() => setAccounts([]));
+  }, [isExpense]);
+
+  async function setGl(r, code) {
+    setBusy(true);
+    try {
+      await updateCategory(r.id, { name: r.name, account_code: code });
+      invalidateCategories(); load();
+      toast(t('settings.catGlUpdated'));
+    } catch (err) { toast(err.message, 'red'); }
+    finally { setBusy(false); }
+  }
 
   async function add(e) {
     e.preventDefault();
@@ -103,6 +124,52 @@ export default function CategoriesManager({ canEdit }) {
           border: '1px dashed var(--border)', borderRadius: 6 }}>
           {t('settings.catNoneYet')}
         </div>
+      ) : isExpense ? (
+        <>
+          <p style={{ fontSize: 12, color: 'var(--text-3)', margin: '0 0 8px' }}>
+            {t('settings.catGlHint')}
+          </p>
+          <div style={{ display: 'flex', flexDirection: 'column', gap: 6 }}>
+            {rows.map(r => (
+              <div key={r.id} style={{ display: 'flex', alignItems: 'center', gap: 8,
+                padding: '6px 10px', borderRadius: 8, background: 'var(--bg)' }}>
+                <span style={{ flex: 1, fontSize: 13 }}>{tCategory(r.name)}</span>
+                {canEdit ? (
+                  <select className="form-control" style={{ maxWidth: 260, fontSize: 12, padding: '4px 8px' }}
+                    value={r.account_code || ''} disabled={busy}
+                    onChange={e => setGl(r, e.target.value)}>
+                    <option value="">{t('settings.catGlDefault')}</option>
+                    {accounts.map(a => (
+                      <option key={a.code} value={a.code}>{a.code} — {a.name}</option>
+                    ))}
+                  </select>
+                ) : (
+                  <span style={{ fontSize: 12, color: 'var(--text-3)' }}>
+                    {r.account_code
+                      ? (() => { const a = accounts.find(x => x.code === r.account_code);
+                                 return a ? `${a.code} — ${a.name}` : r.account_code; })()
+                      : t('settings.catGlDefault')}
+                  </span>
+                )}
+                {canEdit && (
+                  <>
+                    <button type="button" title={t('common.edit')}
+                      onClick={() => { setEditId(r.id); setEditName(r.name); }}
+                      style={{ border: 'none', background: 'transparent', color: 'var(--text-3)', cursor: 'pointer', padding: 2 }}>
+                      ✎
+                    </button>
+                    <button type="button" title={t('common.remove')}
+                      onClick={() => setRemoveTarget(r)}
+                      style={{ border: 'none', background: 'var(--border)', color: 'var(--text-2)',
+                        width: 18, height: 18, borderRadius: '50%', cursor: 'pointer', lineHeight: 1 }}>
+                      ×
+                    </button>
+                  </>
+                )}
+              </div>
+            ))}
+          </div>
+        </>
       ) : (
         <div style={{ display: 'flex', flexWrap: 'wrap', gap: 8 }}>
           {rows.map(r => (

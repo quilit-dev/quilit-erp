@@ -504,7 +504,7 @@ def create_expense(
             entry_date=(data.date or datetime.utcnow().strftime("%Y-%m-%d"))[:10],
             memo=f"{data.category}" + (f" — {data.description}" if data.description else ""),
             lines=[
-                {"code": accounting.expense_account_code(data.category), "debit": gross},
+                {"code": accounting.expense_account_code(data.category, db), "debit": gross},
                 {"code": accounting.CASH, "credit": gross},
             ],
             source_type="expense", source_id=expense_id, created_by=user["id"],

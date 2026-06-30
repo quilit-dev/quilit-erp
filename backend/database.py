@@ -2855,6 +2855,12 @@ def _run_migrations(conn, c):
         c.execute("CREATE INDEX IF NOT EXISTS idx_categories_domain ON categories(domain, active)")
         done("136a_categories")
 
+    # 136b — owner-defined GL account per expense category. NULL/blank means
+    # "use the built-in default map, falling back to Other Expense" so existing
+    # categories keep their current ledger behaviour until explicitly mapped.
+    add_col("136b_categories_gl", "categories", "account_code",
+            "ALTER TABLE categories ADD COLUMN account_code TEXT")
+
     conn.commit()
 
 
@@ -3094,6 +3100,7 @@ def _ensure_pg_post_baseline(raw):
             )
         """)
         cur.execute("CREATE INDEX IF NOT EXISTS idx_categories_domain ON categories(domain, active)")
+        cur.execute("ALTER TABLE categories ADD COLUMN IF NOT EXISTS account_code TEXT")
     raw.commit()
 
 

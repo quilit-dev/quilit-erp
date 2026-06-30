@@ -950,6 +950,7 @@ CREATE TABLE IF NOT EXISTS categories (
     active INTEGER NOT NULL DEFAULT 1,
     created_at TEXT,
     archived_at TEXT,
+    account_code TEXT,
     UNIQUE(domain, name)
 );
 CREATE INDEX IF NOT EXISTS idx_categories_domain ON categories(domain, active);
