@@ -22,6 +22,11 @@ from routers import assets, recurring, announcements, attachments, accounting, w
 from routers import products
 from routers import categories as categories_router, promotions
 
+# Structured logging (JSON when LOG_FORMAT=json) + per-request correlation ids.
+# Configured before the app so startup logs are formatted too.
+from logging_setup import configure_logging, RequestContextMiddleware
+configure_logging()
+
 app = FastAPI(title="ERP System", version="2.0.0")
 
 # Turn known bad-input failures (bad FKs, absurd amounts) into clean 4xx
@@ -93,6 +98,10 @@ class SecurityHeadersMiddleware:
 
 from auth_utils import COOKIE_SECURE
 app.add_middleware(SecurityHeadersMiddleware, hsts=COOKIE_SECURE)
+
+# Added last → outermost: it assigns the request id before any other middleware
+# or handler runs, so every log line for the request is correlated.
+app.add_middleware(RequestContextMiddleware)
 
 app.include_router(auth.router,        prefix="/api/auth",        tags=["auth"])
 app.include_router(dashboard.router,   prefix="/api/dashboard",   tags=["dashboard"])

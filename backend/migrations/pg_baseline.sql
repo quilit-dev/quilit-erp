@@ -142,7 +142,9 @@ CREATE TABLE IF NOT EXISTS audit_log (
     record_id INTEGER,
     record_ref TEXT,
     detail TEXT,
-    created_at TEXT NOT NULL
+    created_at TEXT NOT NULL,
+    prev_hash TEXT,
+    row_hash TEXT
 );
 
 CREATE TABLE IF NOT EXISTS bom_components (

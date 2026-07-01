@@ -9,9 +9,31 @@ from typing import Optional
 from database import get_db
 from permissions import require_admin
 from utils import _now
-import sqlite3, json
+import sqlite3, json, hashlib
 
 router = APIRouter()
+
+# ── Tamper-evident hash chain ─────────────────────────────────────────────────
+# Each row stores row_hash = SHA-256(prev_hash + canonical-content). Because every
+# row commits to its predecessor's hash, editing or deleting any row breaks the
+# chain from that point onward — which GET /api/audit/verify detects and locates.
+# It doesn't PREVENT tampering (the row lives in the same DB), but it makes silent
+# tampering impossible to hide. Rows written before this feature have NULL hashes;
+# verification starts the chain at the first hashed row.
+_GENESIS = "0" * 64
+
+def _content_payload(user_id, username, action, module, record_id, record_ref, detail_json, created_at):
+    """The immutable fields a row commits to, order-independent (sorted keys)."""
+    return {
+        "user_id": user_id, "username": username, "action": action, "module": module,
+        "record_id": record_id, "record_ref": record_ref, "detail": detail_json,
+        "created_at": created_at,
+    }
+
+def _chain_hash(prev_hash: str, payload: dict) -> str:
+    canonical = json.dumps(payload, sort_keys=True, ensure_ascii=False, separators=(",", ":"))
+    return hashlib.sha256((prev_hash + "|" + canonical).encode("utf-8")).hexdigest()
+
 
 # ── Public helper used by all routers ─────────────────────────────────────────
 def log_action(
@@ -25,20 +47,27 @@ def log_action(
 ):
     """Insert one audit row. Never raises — a logging failure must not crash requests."""
     try:
+        uid         = user.get("id") or user.get("sub")
+        username    = user.get("username", "unknown")
+        ref         = record_ref or ""
+        detail_json = json.dumps(detail) if detail else None
+        created_at  = _now()
+
+        # Link to the current tip of the chain (genesis if empty / all-legacy).
+        prev = db.execute(
+            "SELECT row_hash FROM audit_log ORDER BY id DESC LIMIT 1"
+        ).fetchone()
+        prev_hash = (prev["row_hash"] if prev and prev["row_hash"] else _GENESIS)
+        row_hash  = _chain_hash(prev_hash, _content_payload(
+            uid, username, action, module, record_id, ref, detail_json, created_at))
+
         db.execute(
             "INSERT INTO audit_log "
-            "(user_id, username, action, module, record_id, record_ref, detail, created_at) "
-            "VALUES (?,?,?,?,?,?,?,?)",
-            (
-                user.get("id") or user.get("sub"),
-                user.get("username", "unknown"),
-                action,
-                module,
-                record_id,
-                record_ref or "",
-                json.dumps(detail) if detail else None,
-                _now(),
-            ),
+            "(user_id, username, action, module, record_id, record_ref, detail, created_at, "
+            " prev_hash, row_hash) "
+            "VALUES (?,?,?,?,?,?,?,?,?,?)",
+            (uid, username, action, module, record_id, ref, detail_json, created_at,
+             prev_hash, row_hash),
         )
     except Exception:
         pass  # Never crash the calling request due to audit failure
@@ -98,6 +127,58 @@ def list_audit_log(
     total = db.execute(_AUDIT_COUNT_SQL, params).fetchone()[0]
 
     return {"total": total, "offset": offset, "limit": limit, "rows": [dict(r) for r in rows]}
+
+
+@router.get("/verify")
+def verify_audit_chain(
+    user=Depends(require_admin),
+    db: sqlite3.Connection = Depends(get_db),
+):
+    """Re-walk the hash chain and report whether it is intact.
+
+    Detects a **content edit** (a row's hash no longer matches its content) and a
+    **mid-chain deletion / reorder** (a row's prev_hash no longer matches the row
+    before it). A legitimately trimmed prefix (the `/purge` endpoint) is accepted:
+    the earliest remaining hashed row is taken as the anchor. Legacy rows written
+    before the feature (NULL hash) are skipped and re-anchor the chain.
+
+    `tip_hash` is the hash of the newest row — an operator can record it off-box
+    (the "external anchor") and re-run verify later; a change to `tip_hash` for an
+    equal-or-longer history means the chain was rewritten.
+    """
+    rows = db.execute(
+        "SELECT id, user_id, username, action, module, record_id, record_ref, "
+        "       detail, created_at, prev_hash, row_hash "
+        "FROM audit_log ORDER BY id ASC"
+    ).fetchall()
+
+    checked = 0
+    tip_hash = None
+    need_anchor = True          # accept the next hashed row's stored prev_hash
+    prev_row_hash = None
+    for r in rows:
+        d = dict(r)
+        if not d["row_hash"]:               # legacy / unhashed → skip, re-anchor
+            need_anchor = True
+            continue
+        payload = _content_payload(
+            d["user_id"], d["username"], d["action"], d["module"],
+            d["record_id"], d["record_ref"], d["detail"], d["created_at"])
+        # Content integrity: the stored hash must match a recompute.
+        if d["row_hash"] != _chain_hash(d["prev_hash"] or _GENESIS, payload):
+            return {"ok": False, "broken_at_id": d["id"], "reason": "content_modified",
+                    "checked": checked, "total": len(rows)}
+        # Linkage: every row after the anchor must point at its predecessor.
+        if need_anchor:
+            need_anchor = False
+        elif d["prev_hash"] != prev_row_hash:
+            return {"ok": False, "broken_at_id": d["id"], "reason": "row_deleted_or_reordered",
+                    "checked": checked, "total": len(rows)}
+        prev_row_hash = d["row_hash"]
+        tip_hash = d["row_hash"]
+        checked += 1
+
+    return {"ok": True, "checked": checked, "total": len(rows), "tip_hash": tip_hash}
 
 
 @router.get("/filters")

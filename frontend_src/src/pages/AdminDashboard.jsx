@@ -1,6 +1,6 @@
 import { useState, useEffect } from 'react';
 import * as XLSX from 'xlsx';
-import { getUserSessions, getOnlineUsers, getAuditLog, getAuditFilters, purgeAuditLog, getUsers, getRoles, revokeSession } from '../api/client';
+import { getUserSessions, getOnlineUsers, getAuditLog, getAuditFilters, verifyAuditChain, purgeAuditLog, getUsers, getRoles, revokeSession } from '../api/client';
 import { LoadingSpinner, ErrorAlert, toast } from '../components/shared';
 import { useLocale } from '../hooks/useLocale.jsx';
 
@@ -79,6 +79,8 @@ export default function AdminDashboard() {
   const [sessions, setSessions] = useState([]);
   const [online,   setOnline]   = useState({ count: 0, users: [], window_minutes: 5 });
   const [audit,    setAudit]    = useState({ rows: [], total: 0 });
+  const [chain,    setChain]    = useState(null);   // audit-integrity result
+  const [verifying, setVerifying] = useState(false);
   const [users,    setUsers]    = useState([]);
   const [roles,    setRoles]    = useState([]);
   const [loading,  setLoading]  = useState(true);
@@ -329,6 +331,25 @@ export default function AdminDashboard() {
             <button className="btn btn-secondary btn-sm" onClick={exportAudit} title={t('admin.exportExcel')}>
               {t('admin.exportExcel')}
             </button>
+            <button className="btn btn-secondary btn-sm" disabled={verifying} title={t('admin.verifyIntegrityHint')}
+              onClick={async () => {
+                setVerifying(true); setChain(null);
+                try { setChain(await verifyAuditChain()); }
+                catch (e) { setChain({ ok: false, error: e.message }); }
+                finally { setVerifying(false); }
+              }}>
+              {verifying ? t('admin.verifying') : t('admin.verifyIntegrity')}
+            </button>
+            {chain && (
+              <span style={{ display: 'inline-flex', alignItems: 'center', gap: 5, padding: '2px 10px',
+                borderRadius: 20, fontSize: 12, fontWeight: 600,
+                background: chain.ok ? 'var(--green-light)' : 'var(--red-light)',
+                color: chain.ok ? 'var(--green)' : 'var(--red)' }}>
+                {chain.ok
+                  ? t('admin.chainIntact', { n: chain.checked })
+                  : t('admin.chainBroken', { id: chain.broken_at_id ?? '?' })}
+              </span>
+            )}
             <div style={{ marginLeft: 'auto', display: 'flex', alignItems: 'center', gap: 6 }}>
               <span style={{ fontSize: 12, color: 'var(--text-3)', whiteSpace: 'nowrap' }}>{t('admin.purgeOlderThan')}</span>
               <select

@@ -2870,6 +2870,13 @@ def _run_migrations(conn, c):
     add_col("137b_notif_params", "notifications", "params",
             "ALTER TABLE notifications ADD COLUMN params TEXT")
 
+    # 138 — tamper-evident audit-log hash chain (row_hash + prev_hash). Existing
+    # rows stay NULL (legacy); verification chains from the first hashed row.
+    add_col("138a_audit_prev_hash", "audit_log", "prev_hash",
+            "ALTER TABLE audit_log ADD COLUMN prev_hash TEXT")
+    add_col("138b_audit_row_hash", "audit_log", "row_hash",
+            "ALTER TABLE audit_log ADD COLUMN row_hash TEXT")
+
     conn.commit()
 
 
@@ -3113,6 +3120,9 @@ def _ensure_pg_post_baseline(raw):
         # 137 — notification message i18n (re-render title/body per viewer language).
         cur.execute("ALTER TABLE notifications ADD COLUMN IF NOT EXISTS msg_key TEXT")
         cur.execute("ALTER TABLE notifications ADD COLUMN IF NOT EXISTS params TEXT")
+        # 138 — tamper-evident audit-log hash chain.
+        cur.execute("ALTER TABLE audit_log ADD COLUMN IF NOT EXISTS prev_hash TEXT")
+        cur.execute("ALTER TABLE audit_log ADD COLUMN IF NOT EXISTS row_hash TEXT")
     raw.commit()
 
 
@@ -3319,7 +3329,13 @@ def init_db():
             record_id  INTEGER,
             record_ref TEXT,
             detail     TEXT,
-            created_at TEXT NOT NULL
+            created_at TEXT NOT NULL,
+            -- Tamper-evident hash chain: row_hash = SHA-256(prev_hash + content).
+            -- Editing or deleting any row breaks the chain from that point, which
+            -- GET /api/audit/verify detects and pinpoints. NULL on legacy rows
+            -- created before the feature.
+            prev_hash  TEXT,
+            row_hash   TEXT
         );
 
         CREATE TABLE IF NOT EXISTS login_attempts (

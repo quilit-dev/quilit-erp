@@ -194,9 +194,18 @@ def list_invoices(
     status: Optional[str] = None,
     include_archived: bool = False,
     branch_id: Optional[int] = None,
+    limit: Optional[int] = None,
+    offset: int = 0,
     user=Depends(require_perm("invoices", "view")),
     db: sqlite3.Connection = Depends(get_db),
 ):
+    """List invoices.
+
+    Backward-compatible pagination: with no `limit` the response is the full
+    array exactly as before (the current UI and the finance aggregators rely on
+    that). Pass `limit` (capped at 500) to get a `{items, total, limit, offset}`
+    envelope instead — for scale-aware / programmatic consumers.
+    """
     # `include_archived=1` returns archived invoices too (for the in-module
     # "Show archived" filter); the default view still hides them.
     conditions, params = [], []
@@ -209,8 +218,7 @@ def list_invoices(
         conditions.append(bf[len(" AND "):])   # branch_filter returns a leading " AND "
         params += bp
     where_clause = ("WHERE " + " AND ".join(conditions)) if conditions else ""
-    rows = db.execute(
-        f"""SELECT i.*,
+    select_sql = f"""SELECT i.*,
                   p.name AS project_name,
                   c.name AS client_name, c.phone AS client_phone,
                   q.quote_number,
@@ -222,12 +230,9 @@ def list_invoices(
            LEFT JOIN clients    c ON i.client_id    = c.id
            LEFT JOIN quotations q ON i.quotation_id = q.id
            {where_clause}
-           ORDER BY i.created_at DESC""",
-        params,
-    ).fetchall()
+           ORDER BY i.created_at DESC"""
 
-    result = []
-    for r in rows:
+    def _derive(r):
         d          = dict(r)
         total_paid = float(d["total_paid"])
         d["total_paid"]     = round(total_paid, 4)
@@ -235,14 +240,34 @@ def list_invoices(
         d["payment_status"] = _derive_status(float(d["amount"]), total_paid, d.get("voided_at"))
         d["is_overdue"]     = _is_overdue(d.get("due_date"), d["payment_status"])
         _apply_pending(d)
-        result.append(d)
+        return d
 
+    # Fast path: no `status` filter means the sort key + row set are plain
+    # columns, so pagination pushes straight down to SQL (no full-table load).
+    if limit is not None and not status:
+        cap   = max(1, min(limit, 500))
+        total = db.execute(
+            f"SELECT COUNT(*) FROM invoices i {where_clause}", params
+        ).fetchone()[0]
+        rows = db.execute(select_sql + " LIMIT ? OFFSET ?", params + [cap, offset]).fetchall()
+        return {"items": [_derive(r) for r in rows], "total": total,
+                "limit": cap, "offset": offset}
+
+    # `status` (Overdue / Void / a payment state) is derived AFTER the query, so
+    # it can't be a SQL predicate — fetch, derive, then filter. When paginating,
+    # slice the filtered set so `total` is the true post-filter count.
+    result = [_derive(r) for r in db.execute(select_sql, params).fetchall()]
     if status == "Overdue":
         result = [r for r in result if r["is_overdue"]]
     elif status == "Void":
         result = [r for r in result if r["payment_status"] == "Void"]
     elif status:
         result = [r for r in result if r["payment_status"] == status and r["payment_status"] != "Void"]
+
+    if limit is not None:
+        cap = max(1, min(limit, 500))
+        return {"items": result[offset:offset + cap], "total": len(result),
+                "limit": cap, "offset": offset}
     return result
 
 # ── Single ────────────────────────────────────────────────────────────────
