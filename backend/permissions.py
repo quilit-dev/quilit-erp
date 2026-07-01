@@ -97,8 +97,18 @@ def check_perm(user: dict, db: sqlite3.Connection, module: str, action: str = "v
     """Imperative permission check for handlers whose target module is only
     known at runtime (e.g. a generic endpoint keyed by a path parameter, like
     the attachments router). `user` must already be resolved via `_resolve_user`
-    (i.e. obtained through require_auth / require_perm). Superadmin bypasses;
+    (i.e. obtained through require_auth / require_perm). Superadmin bypasses RBAC;
     otherwise raises 403 exactly like the require_perm dependency."""
+    # Module paywall (defence in depth): a module the customer didn't purchase
+    # is unreachable via its API too, not just hidden from the sidebar — and
+    # this runs BEFORE the superadmin bypass, so the vendor build/instance is
+    # the source of truth even for the owner. No-op on unrestricted builds.
+    import vendor_config
+    if not vendor_config.module_allowed(module):
+        raise HTTPException(
+            status_code=403,
+            detail=f"The '{module}' module is not included in this plan.",
+        )
     if user.get("is_superadmin"):
         return
     role_id = user.get("role_id")
