@@ -1,6 +1,6 @@
 # ERP System — Technical Documentation
 
-> **Version:** 2.1 &nbsp;|&nbsp; **Last Updated:** 2026-05-20 &nbsp;|&nbsp; **Stack:** Python · FastAPI · React 18 · SQLite
+> **Version:** 2.2 &nbsp;|&nbsp; **Last Updated:** 2026-07-01 &nbsp;|&nbsp; **Stack:** Python · FastAPI · React 18 · SQLite / PostgreSQL
 
 ---
 
@@ -52,6 +52,10 @@
 13. [Localization](#13-localization)
 14. [Testing & QA](#14-testing--qa)
 15. [Notifications](#15-notifications)
+16. [Product Variants & Attributes](#16-product-variants--attributes)
+17. [Category Registry](#17-category-registry)
+18. [Multi-Branch & Multi-Warehouse](#18-multi-branch--multi-warehouse)
+19. [Module Licensing & Per-Instance Hosting](#19-module-licensing--per-instance-hosting)
 
 ---
 
@@ -66,7 +70,11 @@ This ERP (Enterprise Resource Planning) system is a full-stack business manageme
 | **Sales** | Quotations → invoices → payments, partial / multi-currency payment tracking, aging reports, WhatsApp share |
 | **POS** | Cash-drawer sessions, USD/LBP checkout, refunds that void invoices + restock, inventory autocomplete on custom lines |
 | **Manufacturing** | Versioned BOMs with scrap %, multi-level sub-assemblies, resource-based overhead costing (per-hour resources × actual production hours), quality control with quarantine + defects + rework, scheduling/priority/partial completion, analytics & cost-variance reports, production-order lifecycle |
-| **Inventory** | Raw / semi-finished / finished / consumable items, weighted-average / FIFO / LIFO costing, batch/lot tracking with expiry + FEFO + full traceability, low-stock alerts, stock movements |
+| **Inventory** | Raw / semi-finished / finished / consumable items, **product variants** (owner-defined attribute axes — e.g. Size / Color / Storage), per-item **USD or LBP** unit-cost & sale-price, weighted-average / FIFO / LIFO costing, batch/lot tracking with expiry + FEFO + full traceability, low-stock alerts, stock movements |
+| **Variants & Attributes** | Owner-defined attribute fields (global + per-business-type presets seeded from the chosen vertical); a parent "product" fans out into variant SKUs across selected axes. See §16 |
+| **Categories** | Owner-managed per-domain category registry (Inventory / Expense / Asset / Project) edited in Settings; expense categories map to a GL account. See §17 |
+| **Promotions** | Time- or quantity-bound automatic discounts (per item / category / store) applied at POS |
+| **Multi-branch** | Optional per-branch scoping of records and reporting; branch = warehouse. See §18 |
 | **Procurement** | Suppliers, PO lifecycle (Ordered → Received → Paid) that auto-posts expense + adjusts landed cost |
 | **Finance** | Revenue / expense tracking, accrual + cash views, period locking, smart insights, recurring expense templates |
 | **Accounting** | Double-entry general ledger: Chart of Accounts, journal entries (auto-posted from invoices/expenses/payroll/depreciation/purchases + manual), Trial Balance, Income Statement, Balance Sheet |
@@ -78,11 +86,11 @@ This ERP (Enterprise Resource Planning) system is a full-stack business manageme
 | **CRM** | Leads → deals → conversion to clients, contact directory, activity log |
 | **HR** | Employee directory, departments, salary/role history, leave requests (auto-status flip while on leave), monthly payroll runs (with NSSF/tax breakdown, auto-posted to Finance), employee file attachments, formal contracts, recruitment pipeline, personal activity log with reminders |
 | **Approvals** | Rule-based multi-step approval chains; expenses, invoices, purchases, projects, fixed-asset purchases |
-| **Access Control** | RBAC across 19+ modules, JWT sessions with revocation, audit trail, recycle bin |
-| **Localization** | Full English and Arabic (RTL) |
+| **Access Control** | RBAC across 20+ modules, **server-side module licensing** (a module a customer didn't buy is blocked at its API, not just hidden), JWT sessions with revocation, audit trail, recycle bin |
+| **Localization** | Full English and Arabic (RTL), including backend-generated notification text (rendered per viewer's language). See §13 |
 | **Resilience** | Automatic + manual backups, one-click backup to USB / network folder |
 | **Attachments** | File attachments on any record — invoices, purchases, projects, expenses, fixed assets, suppliers, clients, quotations, inventory — stored as DB BLOBs |
-| **Per-customer builds** | Module visibility baked in via `backend/vendor_config.py` (immutable at runtime). The vendor edits the constant before building each customer's installer |
+| **Licensing / white-label** | Per-customer module set via `backend/vendor_config.py` (immutable at runtime) **or** an `ENABLED_MODULES` env var, so one codebase can run as several branded instances. See §19 |
 
 ### Technology Stack
 
@@ -430,15 +438,23 @@ The `is_superadmin` flag bypasses all RBAC checks. The initial admin created dur
 Navigation links are hidden by **two independent gates**:
 
 1. **`vendor_config.ENABLED_MODULES`** — a vendor-level whitelist
-   (comma-separated module keys) baked into each customer's build. Empty
-   string means every module is visible (the dev + demo default). When
-   set, only modules in the whitelist appear in the sidebar. The value is
-   immutable at runtime — even a vendor superadmin cannot change it via
-   the API; the source must be edited and the installer rebuilt. This
-   closes the "delete `erp.db` + relaunch to get a fresh superadmin"
-   attack against module gating.
+   (comma-separated module keys). Its value comes from the `ENABLED_MODULES`
+   **environment variable** when set (cloud / multi-instance hosting),
+   otherwise from the build-time constant in `backend/vendor_config.py`
+   (desktop / per-customer installer). Empty string means every module is
+   visible (the dev + demo default). The value is immutable *from within the
+   running app* — even a vendor superadmin cannot change it via the API; this
+   closes the "delete `erp.db` + relaunch to get a fresh superadmin" attack.
 2. **RBAC `view` permission** — the per-user check. The sidebar reflects
    the logged-in user's permissions in real time.
+
+> **Server-side enforcement (not just the sidebar).** `vendor_config.module_allowed()`
+> is checked inside `permissions.check_perm` **before** the superadmin bypass, so
+> a module the customer didn't purchase returns **403** at its API — unreachable
+> even by the owner or by guessing the URL. Sub-features that have their own
+> sidebar entry (`warehouses`, `accounting`, `recruitment`, `hr_activities`) must
+> be listed explicitly; a childless guard key (`hr_contracts`) rides along with
+> its parent (`hr`). An empty whitelist is a complete no-op. Full details in §19.
 
 ---
 
@@ -1043,12 +1059,24 @@ Complete, tamper-evident activity log of all mutations performed in the system.
 
 System configuration panel.
 
-**Tabs:**
-- **Company** — Name, tagline, address, contact info, tax/reg numbers, logo upload (PNG/JPG/GIF/WebP, max 2 MB)
-- **Finance** — Base & secondary currency, payment terms, invoice/quotation number prefixes; the **Tax Rates** table (§7.21) and the **exchange-rate** entry + history
+**Sections:**
+- **Company** — Name, tagline, address, contact info, tax/reg numbers, default currency, logo upload (PNG/JPG/GIF/WebP, max 2 MB)
+- **Bank Details** — Bank name, account number, IBAN, SWIFT code (printed on invoice documents)
+- **Financial** — Invoice / quotation / **contract** number prefixes, default payment terms, "enable tax" master switch
+- **Payroll Defaults** — Income-tax %, NSSF employee %, NSSF employer %, overtime multiplier — read by the payroll engine (§7.13). All 0 = no tax / no NSSF
+- **Inventory & Costing** — Business type (seeds variant-attribute presets, §16) and inventory costing method (weighted-avg / FIFO / LIFO); switching to a lot method rebases cost layers
+- **Inventory Fields** — Owner-defined custom product attributes / variant axes (§16)
+- **Categories** — Owner-managed per-domain category registry (§17)
+- **Tax Rates** — The named tax-rate table (§7.21)
+- **Exchange Rate** — Manual USD↔LBP rate entry + change history (§8.2)
 - **Documents** — Footer text, show/hide discount and tax columns on documents
-- **Bank** — Bank name, account number, IBAN, SWIFT code
-- **Backup** — Manual backup download, backup history list, backup-to-USB/folder export, restore from file, database integrity check
+- **Backup & Integrity** — (self-hosted / SQLite only) manual backup download, backup history, backup-to-USB/folder export, restore from file, integrity check
+
+**Storage model.** All scalar settings live in a single-row `settings`
+key/value table with server-side defaults ([`routers/settings.py`](backend/routers/settings.py) `DEFAULTS`).
+The write endpoint accepts a fixed field list (unknown keys → 422); the frontend
+only sends keys in its `WRITABLE_SETTINGS` allow-list. `enabled_modules` is **not**
+a settings-table field (see §6 / §19).
 
 **Logo** is displayed in the sidebar and on generated documents (invoices, quotations).
 
@@ -3116,7 +3144,182 @@ without polling. They render in two places:
 
 All notification types are styled with theme tokens (icon + colour) in
 both `Notifications.jsx` (full page) and `NotificationBell.jsx`
-(dropdown), so dark mode is supported without extra rules.
+(dropdown), so dark mode is supported without extra rules. The filter tabs,
+type badges, and relative-time strings are localized on the client.
+
+### Localized notification text (Arabic)
+
+Notification `title` / `body` are generated on the backend and stored in
+English, but re-render in the viewer's language:
+
+- Each row stores a stable **`msg_key`** + JSON **`params`** alongside the
+  English `title` / `body` (the canonical fallback). `notify(..., msg=, params=)`
+  writes them (`backend/utils.py`).
+- `GET /api/notifications/?lang=ar` calls `notif_messages.localize(row, lang)`
+  ([`backend/notif_messages.py`](backend/notif_messages.py)), which renders the
+  Arabic template with the row's params. Anything missing (unknown key/lang, or
+  a param the template needs but the row lacks) falls back to the stored English,
+  so a row can never render blank.
+- The bell and page pass the current language automatically. Only notifications
+  created **after** this feature shipped carry a `msg_key`; older rows keep their
+  stored English. Announcement titles/bodies stay as authored (free user content).
+
+---
+
+## 16. Product Variants & Attributes
+
+A single physical product (e.g. an iPhone 15) is sold in many **variants**
+(128 GB Black, 256 GB Blue, …). The system models this without hard-coding any
+industry's fields — the **owner defines the attributes**.
+
+### Concepts
+
+| Concept | Meaning |
+|---------|---------|
+| **Attribute def** | A named field an item can carry — e.g. `Size`, `Color`, `Storage`. Has an `input_type` and an `is_variant_axis` flag. Stored in `attribute_defs`. |
+| **Variant axis** | An attribute flagged as a variant axis. The product builder fans out one SKU per combination of the selected axis values. |
+| **Descriptor** | A non-axis attribute (metadata that doesn't multiply SKUs, e.g. `Material`). |
+| **Scope** | `global` — attributes the owner defines for the whole shop (Settings → **Inventory Fields**). `business` — presets seeded for the chosen **Business type**. |
+| **Parent product** | A `products` row grouping its variant SKUs. A simple item has `product_id = NULL`. Each variant SKU is an ordinary `inventory` row + its `item_attributes`. |
+
+### How the owner sets it up
+
+1. **Pick a Business type** in Settings → *Inventory & Costing* (Apparel /
+   Electronics / Food & Beverage / General). Choosing one **seeds preset
+   attribute defs** for that vertical (Apparel → Size / Color / Brand, etc.),
+   scoped `business`. Idempotent, additive — switching type never deletes
+   anything. Leaving it "General" seeds nothing.
+2. Optionally add **custom attributes** in Settings → *Inventory Fields*
+   (scope `global`). These always load, regardless of business type.
+3. In **Inventory → New Product**, the builder loads `global` + current
+   `business` attributes (de-duped by name), you tick the axis values, and it
+   generates the SKU grid. An unwanted combination can be removed from the
+   preview before saving.
+
+> The relationship between the two systems is deliberate: **Business type** is a
+> convenience starter-pack; **Inventory Fields** is the general mechanism. A shop
+> that defines its own fields can leave Business type on "General" and lose nothing.
+
+### Purchasing variants
+
+Purchases are variant-aware: the **Order Variants** flow on a parent product
+creates one purchase line per selected variant SKU (each PO row is still
+single-item), reusing the standard create path so tax, currency-lock, approval
+and stock all behave identically.
+
+### Currency on items
+
+Each inventory item carries its **unit cost** and **sale price** in USD *or* LBP.
+Cost is locked to USD at entry (inventory is carried at historical USD cost); an
+LBP **sale price** stays native and is converted at the sale-time rate by POS.
+See §8.2.
+
+---
+
+## 17. Category Registry
+
+Categories (for inventory items, expenses, fixed assets, project costs) are
+**owner-managed**, not hard-coded. One place to edit them: Settings → **Categories**.
+
+### Model
+
+- Table `categories`: `(domain, name, sort_order, active, archived_at, account_code)`,
+  `UNIQUE(domain, name)`. **Domains:** `inventory`, `expense`, `asset`, `project`.
+- Seeded on first install with sensible starters per domain (idempotent
+  `_seed_categories`), so a new business isn't empty; the owner then adds /
+  renames / archives freely.
+- Archiving removes a category from the pickers **without** rewriting any
+  existing record — stored values are just names, and old data keeps displaying.
+
+### Consumption
+
+- Router `backend/routers/categories.py` — `GET` (any signed-in user, for the
+  dropdowns) and admin-only `POST` / `PUT` / `PATCH …/archive`.
+- Frontend hook `useCategories(domain)` (module-cached) feeds every category
+  dropdown. Inventory & Purchases also merge in categories already present on
+  existing records so nothing disappears from those pickers.
+- **Expense → GL account.** An expense category may carry an `account_code`
+  (edited in Settings → Categories for the Expense domain). The posting resolver
+  `accounting.expense_account_code(category, db)` prefers that mapping, then a
+  built-in default map, then falls back to **Other Expense** — so an owner-added
+  category always posts and the books always balance.
+
+Translation: preset category names are shown via `tCategory` (English stored,
+Arabic looked up); owner-typed custom names show as entered.
+
+---
+
+## 18. Multi-Branch & Multi-Warehouse
+
+### Warehouses & stock transfers
+
+Stock lives in **warehouses** (types: Main / Branch / Production / Damaged /
+Transit / Returns). Inventory quantity is tracked per warehouse, and a low-stock
+alert can fire either company-wide or for a specific warehouse.
+
+**Transfers** move stock between warehouses with a lifecycle:
+
+| Step | Effect |
+|------|--------|
+| Dispatch | Stock leaves the source into *Transit*; users at the destination are notified (`transfer_dispatched`). |
+| Receive | Stock lands at the destination; any shortfall is recorded as loss (`transfer_received`). |
+| Cancel / roll back | In-transit stock is re-credited to the source (`transfer_cancelled`). |
+
+### Branches
+
+A **branch is a warehouse**. When multi-branch is in use, records that carry a
+`branch_id` (invoices, quotations, purchases, expenses, POS sales, cash, …) are
+**scoped** so a branch-restricted user sees and reports only their own branch,
+while global (admin-tier) users see everything and can consolidate. The scoping
+is centralized in `backend/branch_access.py` (`branch_filter`,
+`assert_can_view_branch`, `resolve_branch_id`); the **Branch Manager** role is
+the built-in single-branch operator.
+
+---
+
+## 19. Module Licensing & Per-Instance Hosting
+
+The same codebase serves different customers with different module sets — the
+foundation for selling the ERP as separate, optionally-branded instances.
+
+### The whitelist
+
+`vendor_config.ENABLED_MODULES` is a comma-separated list of module keys.
+
+- **Source:** the `ENABLED_MODULES` **environment variable** if set, otherwise
+  the build-time constant in `backend/vendor_config.py`.
+- **Empty string = all modules** (dev / demo / full build) — and a complete
+  no-op, so unrestricted deployments behave exactly as before.
+- Sub-features that have their own sidebar entry (`warehouses`, `accounting`,
+  `recruitment`, `hr_activities`) are listed explicitly. The one route-guard key
+  with no sidebar entry, `hr_contracts`, rides along with its parent `hr`. System
+  keys (`dashboard`, `users`, `roles`) are never paywalled.
+
+### Two-layer enforcement
+
+1. **Sidebar** hides modules not in the whitelist (cosmetic).
+2. **API** — `vendor_config.module_allowed(module)` is checked in
+   `permissions.check_perm` **before** the superadmin bypass, so an unpurchased
+   module's endpoints return **403** even to the owner. This is the real paywall;
+   the sidebar alone is not.
+
+### Hosting two customers
+
+**Desktop / self-hosted (SQLite):** set the constant in `vendor_config.py`,
+run `.\build.ps1`, ship the installer. Each install has its own `erp.db`.
+
+**Cloud (Render / PostgreSQL):** run the same repo as two services that differ
+only by environment:
+
+| Env var | Owner A | Owner B |
+|---------|---------|---------|
+| `ENABLED_MODULES` | `crm,clients,quotations,invoices,inventory,pos,reports` | `inventory,warehouses,purchases,suppliers,manufacturing,finance,accounting,hr,recruitment` |
+| `DATABASE_URL` | Owner A's Postgres | Owner B's Postgres |
+
+No per-customer branch or rebuild is needed to change a module set — edit the env
+var and redeploy. Within each instance, RBAC still governs per-user access.
+
+See also `docs/DEPLOYMENT.md` and `docs/SAAS_ARCHITECTURE.md`.
 
 ---
 
