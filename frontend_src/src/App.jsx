@@ -1,6 +1,7 @@
 import { lazy, Suspense, useEffect, useState, useCallback } from 'react';
 import { BrowserRouter, Routes, Route, Navigate, useLocation, useNavigate } from 'react-router-dom';
 import ServerGate from './components/ServerGate';
+import ErrorBoundary from './components/ErrorBoundary';
 import Sidebar from './components/Sidebar';
 import ToastContainer from './components/ToastContainer';
 import CommandPalette from './components/CommandPalette';
@@ -247,9 +248,15 @@ function Layout({ children }) {
 }
 
 function Page({ children }) {
+  const { t } = useLocale();
+  const location = useLocation();
   return (
     <Suspense fallback={<div className="page-content"><LoadingSpinner /></div>}>
-      {children}
+      {/* Keyed by path: a crash is contained to the page area, and simply
+          navigating to another page resets the boundary. */}
+      <ErrorBoundary key={location.pathname} t={t}>
+        {children}
+      </ErrorBoundary>
     </Suspense>
   );
 }
