@@ -7,7 +7,7 @@ import { TERMINAL, FILE_KINDS, APP_BADGE, PIPELINE_KEY, INT_TYPE_KEY, INT_STATUS
          INT_DECISION_KEY, FILE_KIND_KEY, OFFER_STATUS_TEXT_KEY, OFFER_CT_KEY, OFFER_STATUS_BADGE , tEnum } from './constants';
 import { InterviewForm } from './InterviewForm';
 import { ConvertForm } from './ConvertForm';
-import { OfferForm } from './OfferForm';
+import { OfferForm, mailtoOffer, printOfferHTML } from './OfferForm';
 import { Field, Section, FileSlot } from './primitives';
 
 function ApplicantDetail({ appId, canEdit, canDelete, positions, onClose, onChanged }) {

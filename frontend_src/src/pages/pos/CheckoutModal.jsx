@@ -2,6 +2,7 @@ import { useState } from 'react';
 import { useLocale } from '../../hooks/useLocale.jsx';
 import { useSettings } from '../../hooks/useSettings.jsx';
 import { Modal, toast, NumberInput } from '../../components/shared';
+import { posCheckout } from '../../api/client';
 import { num } from './pricing';
 
 function CheckoutModal({ pricing, clients, drawers, defaultCurrency = 'USD', onClose, onDone }) {

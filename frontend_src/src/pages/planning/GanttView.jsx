@@ -2,7 +2,7 @@ import { useState, useEffect, useRef, useMemo } from 'react';
 import { useLocale } from '../../hooks/useLocale.jsx';
 import { EmptyState, toast } from '../../components/shared';
 import { updateTaskDates } from '../../api/client';
-import { LEFT_W, toDate, toIso, addDays, daysBetween, isWeekend } from './constants';
+import { LEFT_W, toDate, toIso, addDays, daysBetween, isWeekend , DAY_W, ROW_H } from './constants';
 
 function GanttView({ tasks, projects, milestones, onRefresh }) {
   const { t, lang } = useLocale();

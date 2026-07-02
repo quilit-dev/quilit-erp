@@ -590,4 +590,4 @@ function printOfferHTML(offer, company, lebanon) {
 
 
 
-export { OfferForm };
+export { OfferForm, mailtoOffer, printOfferHTML };

@@ -14,7 +14,7 @@ import { PositionForm } from './recruitment/PositionForm';
 import { ApplicantForm } from './recruitment/ApplicantForm';
 import { ApplicantDetail } from './recruitment/ApplicantDetail';
 import {
-  PIPELINE, POS_BADGE, APP_BADGE, POS_STATUS_KEY, PIPELINE_KEY, EMP_TYPE_KEY,
+  PIPELINE, POS_BADGE, APP_BADGE, POS_STATUS_KEY, PIPELINE_KEY, EMP_TYPE_KEY, tEnum,
 } from './recruitment/constants';
 
 function Kpi({ label, value, color = 'var(--text)' }) {
