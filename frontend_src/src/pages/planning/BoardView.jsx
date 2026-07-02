@@ -3,7 +3,7 @@ import { useLocale } from '../../hooks/useLocale.jsx';
 import { toast } from '../../components/shared';
 import { updateTaskStatus } from '../../api/client';
 import { Badge, ProgressBar } from './ui';
-import { STATUS_BADGE, PRIORITY_BADGE, STATUS_KEY, PRIORITY_KEY, tEnum } from './constants';
+import { STATUS_BADGE, PRIORITY_BADGE, STATUS_KEY, PRIORITY_KEY, tEnum, STATUSES } from './constants';
 
 function BoardView({ tasks, projects, onRefresh, onEdit }) {
   const { t } = useLocale();

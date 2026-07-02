@@ -2,7 +2,7 @@ import { useState } from 'react';
 import { useLocale } from '../../hooks/useLocale.jsx';
 import { toast } from '../../components/shared';
 import { createPlanningProject, createPlanningTask, updatePlanningTask } from '../../api/client';
-import { PRIORITIES, STATUS_KEY, PRIORITY_KEY } from './constants';
+import { PRIORITIES, STATUS_KEY, PRIORITY_KEY, STATUSES } from './constants';
 
 function TaskForm({ initial, projects, users, milestones, tasks, onSave, onClose }) {
   const { t } = useLocale();

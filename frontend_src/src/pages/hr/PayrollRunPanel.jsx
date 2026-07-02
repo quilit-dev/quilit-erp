@@ -4,6 +4,7 @@ import { LoadingSpinner, ErrorAlert, Modal, fmt, fmtDate, toast, NumberInput } f
 import { getPayrollRun, createPayrollRun, updatePayrollLine,
          approvePayrollRun, markPayrollRunPaid, cancelPayrollRun } from '../../api/client';
 import { PAYROLL_BADGE, payrollStatusLabel } from './constants';
+import { Field } from './primitives';
 
 // ════════════════════════════════════════════════════════════════════════════
 // PayrollRunPanel — create OR view+edit a payroll run

@@ -4,6 +4,7 @@
 
 export const PRIORITIES = ['Low', 'Medium', 'High', 'Critical'];
 export const PROJ_STATUSES = ['Active', 'On Hold', 'Completed', 'Cancelled'];
+export const STATUSES       = ['To Do', 'In Progress', 'Review', 'Done', 'Blocked'];
 
 export const STATUS_BADGE = {
   'To Do':       'blue',

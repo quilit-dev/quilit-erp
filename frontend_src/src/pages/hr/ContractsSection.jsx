@@ -4,8 +4,10 @@ import { LoadingSpinner, EmptyState, Modal, fmt, fmtDate, toast, NumberInput } f
 import { getContracts, createContract, updateContract,
          setContractStatus, getContractPrintData } from '../../api/client';
 import { contractStatusLabel } from './constants';
+import { Section } from './primitives';
 
 const CONTRACT_TYPES = ['Permanent', 'Fixed-term', 'Probation', 'Internship', 'Consultant'];
+const CONTRACT_BADGE = { Draft: 'gray', Active: 'green', Expired: 'yellow', Terminated: 'red' };
 
 function ContractsSection({ empId, canEdit }) {
   const { t } = useLocale();

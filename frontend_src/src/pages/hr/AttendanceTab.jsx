@@ -2,6 +2,12 @@ import { useState, useCallback, useEffect } from 'react';
 import { LoadingSpinner, EmptyState, ExportButton, toast, NumberInput } from '../../components/shared';
 import { getAttendance, saveAttendanceBulk, getAttendanceSummary } from '../../api/client';
 
+const ATT_STATUSES = ['Present', 'Absent', 'Late', 'Half-day', 'Leave'];
+const ATT_LABEL_KEY = {
+  'Present': 'hr.attPresent', 'Absent': 'hr.attAbsent', 'Late': 'hr.attLate',
+  'Half-day': 'hr.attHalfday', 'Leave': 'hr.attLeave',
+};
+
 function AttendanceTab({ t, canEdit }) {
   const [view, setView]       = useState('day');     // 'day' | 'month'
   const [date, setDate]       = useState(() => new Date().toISOString().slice(0, 10));
