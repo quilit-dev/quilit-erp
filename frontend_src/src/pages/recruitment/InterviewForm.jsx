@@ -2,7 +2,7 @@ import { useState } from 'react';
 import { useLocale } from '../../hooks/useLocale.jsx';
 import { Modal, toast, NumberInput } from '../../components/shared';
 import { scheduleInterview, updateInterview } from '../../api/client';
-import { INT_TYPES, INT_STATUS, INT_DECISIONS, INT_TYPE_KEY, INT_STATUS_KEY, INT_DECISION_KEY } from './constants';
+import { INT_TYPES, INT_STATUS, INT_DECISIONS, INT_TYPE_KEY, INT_STATUS_KEY, INT_DECISION_KEY , tEnum } from './constants';
 
 function InterviewForm({ appId, existing, onClose, onSaved }) {
   const { t } = useLocale();

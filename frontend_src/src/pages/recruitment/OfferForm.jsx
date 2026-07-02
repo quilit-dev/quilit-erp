@@ -3,7 +3,7 @@ import { useLocale } from '../../hooks/useLocale.jsx';
 import { Modal, toast, NumberInput } from '../../components/shared';
 import { createApplicantOffer, updateOffer } from '../../api/client';
 import { OFFER_CT_KEY, PAY_SCHED_KEY, OFFER_CONTRACT_TYPES, OFFER_CURRENCIES,
-         OFFER_PAY_SCHEDULES, LB_MAX_PROBATION_MONTHS, LB_MAX_WEEKLY_HOURS, EMPTY_OFFER } from './constants';
+         OFFER_PAY_SCHEDULES, LB_MAX_PROBATION_MONTHS, LB_MAX_WEEKLY_HOURS, EMPTY_OFFER , tEnum } from './constants';
 
 function OfferForm({ appId, applicant, existing, onClose, onSaved }) {
   const { t } = useLocale();

@@ -4,7 +4,7 @@ import { LoadingSpinner, ErrorAlert, EmptyState, Modal, ConfirmModal, fmt, fmtDa
 import { getApplicant, changeApplicantStatus, uploadApplicantFile, deleteApplicantFile,
          applicantFileURL, getApplicantOffers, changeOfferStatus, archiveOffer, getOfferPrintData } from '../../api/client';
 import { TERMINAL, FILE_KINDS, APP_BADGE, PIPELINE_KEY, INT_TYPE_KEY, INT_STATUS_KEY,
-         INT_DECISION_KEY, FILE_KIND_KEY, OFFER_STATUS_TEXT_KEY, OFFER_CT_KEY, OFFER_STATUS_BADGE } from './constants';
+         INT_DECISION_KEY, FILE_KIND_KEY, OFFER_STATUS_TEXT_KEY, OFFER_CT_KEY, OFFER_STATUS_BADGE , tEnum } from './constants';
 import { InterviewForm } from './InterviewForm';
 import { ConvertForm } from './ConvertForm';
 import { OfferForm } from './OfferForm';

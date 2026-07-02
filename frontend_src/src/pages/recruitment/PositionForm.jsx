@@ -2,7 +2,7 @@ import { useState } from 'react';
 import { useLocale } from '../../hooks/useLocale.jsx';
 import { Modal, toast, NumberInput, BranchField } from '../../components/shared';
 import { createPosition, updatePosition } from '../../api/client';
-import { EMP_TYPES, POS_STATUS_KEY, EMP_TYPE_KEY, EMPTY_POSITION } from './constants';
+import { EMP_TYPES, POS_STATUS_KEY, EMP_TYPE_KEY, EMPTY_POSITION , tEnum } from './constants';
 
 function PositionForm({ posId, initial, departments, onClose, onSaved }) {
   const { t } = useLocale();

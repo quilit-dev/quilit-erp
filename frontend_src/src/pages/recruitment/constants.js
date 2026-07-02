@@ -78,7 +78,7 @@ export const PAY_SCHED_KEY = {
 };
 
 /** Translate via lookup map; fall back to the raw value if the key is unknown. */
-function tEnum(t, map, val) {
+export function tEnum(t, map, val) {
   return map[val] ? t(map[val]) : (val ?? '');
 }
 

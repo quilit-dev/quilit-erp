@@ -2,7 +2,7 @@ import { useState, useEffect } from 'react';
 import { useLocale } from '../../hooks/useLocale.jsx';
 import { Modal, toast, NumberInput } from '../../components/shared';
 import { convertApplicant, getApplicantOffers } from '../../api/client';
-import { EMP_TYPES, EMP_TYPE_KEY } from './constants';
+import { EMP_TYPES, EMP_TYPE_KEY , tEnum } from './constants';
 
 function ConvertForm({ applicant, positions, onClose, onConverted }) {
   const { t } = useLocale();
