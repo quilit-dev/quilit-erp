@@ -71,10 +71,10 @@ function DashboardTab({ t }) {
             <span style={{ fontWeight: 700, fontSize: 13 }}>{t('crm.recentActivities')}</span>
           </div>
           <div style={{ padding: '12px 18px', display: 'flex', flexDirection: 'column', gap: 10 }}>
-            {!data.recent_activities.length && (
+            {!(data.recent_activities || []).length && (
               <p style={{ fontSize: 13, color: 'var(--text-3)', margin: 0 }}>{t('crm.noActivities')}</p>
             )}
-            {data.recent_activities.map(a => (
+            {(data.recent_activities || []).map(a => (
               <div key={a.id} style={{ display: 'flex', alignItems: 'flex-start', gap: 10 }}>
                 <span style={{ fontSize: 16, lineHeight: 1 }}>{ACT_ICON[a.type] || '📌'}</span>
                 <div style={{ flex: 1, minWidth: 0 }}>

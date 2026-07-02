@@ -3,6 +3,12 @@ import react from '@vitejs/plugin-react'
 
 export default defineConfig({
   plugins: [react()],
+  // Vitest — page render smoke suite (src/test/). `npm test`.
+  test: {
+    environment: 'jsdom',
+    setupFiles: ['src/test/setup.js'],
+    css: false,
+  },
   build: {
     outDir: '../static',
     emptyOutDir: true,

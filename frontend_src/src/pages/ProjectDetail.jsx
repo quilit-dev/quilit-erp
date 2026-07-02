@@ -232,7 +232,7 @@ export default function ProjectDetail() {
   if (error)   return <ErrorAlert message={error} onRetry={() => { setError(null); setLoading(true); Promise.all([getProject(id), getInventory()]).then(([proj,inv]) => { setProject(proj); setInventory(inv); }).catch(e => setError(e.message)).finally(() => setLoading(false)); }} />;
   if (!project) return null;
 
-  const { stats } = project;
+  const stats = project.stats || {};  // defensive: never crash on a partial payload
 
   const quotDocMap = Object.fromEntries(
     (project.documents || []).filter(d => d.record_type === 'quotation').map(d => [d.record_id, d])

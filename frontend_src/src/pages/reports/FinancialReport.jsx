@@ -24,7 +24,10 @@ function FinancialReport({ params, t }) {
   if (error)   return <ErrorAlert message={error} />;
   if (!data)   return null;
 
-  const noData = data.monthly.length === 0;
+  // Normalize once — a partial payload must degrade to "no data", not crash.
+  const monthly    = data.monthly || [];
+  const byCategory = data.by_category || [];
+  const noData = monthly.length === 0;
 
   const financialCols = [
     { label: 'Month',    value: r => r.month,    align: 'left'  },
@@ -49,26 +52,26 @@ function FinancialReport({ params, t }) {
           <div className="card-header">
             <span className="card-title">{t('reports.incomeVsExpenses')}</span>
             <ExportButtons
-              rows={data.monthly} columns={financialCols}
+              rows={monthly} columns={financialCols}
               baseName="financial_report" pdfTitle={t('reports.financial')} t={t} />
 
           </div>
           <div className="card-body">
             {noData
               ? <div style={{ padding: '40px 0', textAlign: 'center', color: 'var(--text-3)', fontSize: 13 }}>{t('reports.noData')}</div>
-              : <LineChart data={data.monthly} label1={t('reports.income')} label2={t('reports.expenses')} key1="income" key2="expenses" />
+              : <LineChart data={monthly} label1={t('reports.income')} label2={t('reports.expenses')} key1="income" key2="expenses" />
             }
           </div>
         </div>
         <div className="card">
           <div className="card-header"><span className="card-title">{t('reports.expensesByCategory')}</span></div>
           <div className="card-body" style={{ display: 'flex', gap: 20, alignItems: 'flex-start' }}>
-            {data.by_category.length === 0
+            {byCategory.length === 0
               ? <div style={{ color: 'var(--text-3)', fontSize: 13, padding: '20px 0' }}>{t('reports.noData')}</div>
               : <>
-                  <DonutChart data={data.by_category} labelKey="category" size={180} />
+                  <DonutChart data={byCategory} labelKey="category" size={180} />
                   <div style={{ flex: 1, minWidth: 0 }}>
-                    <HBarChart data={data.by_category} labelKey="category" />
+                    <HBarChart data={byCategory} labelKey="category" />
                   </div>
                 </>
             }
@@ -76,7 +79,7 @@ function FinancialReport({ params, t }) {
         </div>
       </div>
 
-      {data.monthly.length > 0 && (
+      {monthly.length > 0 && (
         <div className="card">
           <div className="card-header"><span className="card-title">{t('reports.monthlyBreakdown')}</span></div>
           <div className="table-wrap">
@@ -91,7 +94,7 @@ function FinancialReport({ params, t }) {
                 </tr>
               </thead>
               <tbody>
-                {data.monthly.map(row => {
+                {monthly.map(row => {
                   const margin = row.income > 0 ? Math.round(row.profit / row.income * 100) : 0;
                   return (
                     <tr key={row.month}>

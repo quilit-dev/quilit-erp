@@ -92,7 +92,10 @@ export default function ClientDetail() {
   if (error)   return <ErrorAlert message={error} onRetry={() => { setError(null); setLoading(true); getClient(id).then(setClient).catch(e => setError(e.message)).finally(() => setLoading(false)); }} />;
   if (!client) return null;
 
-  const { stats } = client;
+  const stats = client.stats || {};   // defensive: never crash on a partial payload
+  const projects   = client.projects   || [];
+  const quotations = client.quotations || [];
+  const invoices   = client.invoices   || [];
 
   const quotDocMap = Object.fromEntries(
     (client.documents || []).filter(d => d.record_type === 'quotation').map(d => [d.record_id, d])
@@ -137,9 +140,9 @@ export default function ClientDetail() {
         {TABS.map(tb => (
           <button key={tb.key} className={`tab-btn${tab === tb.key ? ' active' : ''}`} onClick={() => setTab(tb.key)}>
             {tb.label}
-            {tb.key === 'projects'   && client.projects.length   > 0 && <span className="badge badge-gray" style={{ marginLeft: 6 }}>{client.projects.length}</span>}
-            {tb.key === 'quotations' && client.quotations.length > 0 && <span className="badge badge-gray" style={{ marginLeft: 6 }}>{client.quotations.length}</span>}
-            {tb.key === 'invoices'   && client.invoices.length   > 0 && <span className="badge badge-gray" style={{ marginLeft: 6 }}>{client.invoices.length}</span>}
+            {tb.key === 'projects'   && projects.length   > 0 && <span className="badge badge-gray" style={{ marginLeft: 6 }}>{projects.length}</span>}
+            {tb.key === 'quotations' && quotations.length > 0 && <span className="badge badge-gray" style={{ marginLeft: 6 }}>{quotations.length}</span>}
+            {tb.key === 'invoices'   && invoices.length   > 0 && <span className="badge badge-gray" style={{ marginLeft: 6 }}>{invoices.length}</span>}
           </button>
         ))}
       </div>
@@ -179,8 +182,8 @@ export default function ClientDetail() {
             <div className="card-header"><span className="card-title">{t('clients.recentActivity')}</span></div>
             <div className="card-body" style={{ padding: 0 }}>
               {[
-                ...client.invoices.slice(0, 3).map(i => ({ date: i.created_at, label: t('clients.invoiceLabel', { number: i.invoice_number }), value: fmt(i.amount), color: 'blue' })),
-                ...client.quotations.slice(0, 3).map(q => ({ date: q.created_at, label: t('clients.quotationLabel', { number: q.quote_number }), value: fmt(q.total), color: 'accent' })),
+                ...invoices.slice(0, 3).map(i => ({ date: i.created_at, label: t('clients.invoiceLabel', { number: i.invoice_number }), value: fmt(i.amount), color: 'blue' })),
+                ...quotations.slice(0, 3).map(q => ({ date: q.created_at, label: t('clients.quotationLabel', { number: q.quote_number }), value: fmt(q.total), color: 'accent' })),
               ]
                 .sort((a, b) => new Date(b.date) - new Date(a.date))
                 .slice(0, 6)
@@ -194,7 +197,7 @@ export default function ClientDetail() {
                   </div>
                 ))
               }
-              {client.invoices.length === 0 && client.quotations.length === 0 && (
+              {invoices.length === 0 && quotations.length === 0 && (
                 <div style={{ padding: 24, textAlign: 'center', color: 'var(--text-3)', fontSize: 13 }}>{t('clients.noActivity')}</div>
               )}
             </div>
@@ -205,7 +208,7 @@ export default function ClientDetail() {
       {/* Projects */}
       {tab === 'projects' && (
         <div className="card">
-          <div className="card-header"><span className="card-title">{t('clients.projectsCount', { count: client.projects.length })}</span></div>
+          <div className="card-header"><span className="card-title">{t('clients.projectsCount', { count: projects.length })}</span></div>
           <SectionTable
             emptyMsg={t('clients.noProjectsForClient')}
             columns={[
@@ -217,7 +220,7 @@ export default function ClientDetail() {
               { key: 'start_date',     label: t('clients.start'),      render: p => fmtDate(p.start_date) },
               { key: 'end_date',       label: t('clients.end'),        render: p => fmtDate(p.end_date) },
             ]}
-            rows={client.projects}
+            rows={projects}
           />
         </div>
       )}
@@ -225,7 +228,7 @@ export default function ClientDetail() {
       {/* Quotations */}
       {tab === 'quotations' && (
         <div className="card">
-          <div className="card-header"><span className="card-title">{t('clients.quotationsCount', { count: client.quotations.length })}</span></div>
+          <div className="card-header"><span className="card-title">{t('clients.quotationsCount', { count: quotations.length })}</span></div>
           <SectionTable
             emptyMsg={t('clients.noQuotationsForClient')}
             columns={[
@@ -238,7 +241,7 @@ export default function ClientDetail() {
                   ? <button className="btn btn-sm btn-secondary" onClick={() => openDocument(quotDocMap[q.id].id)}>View PDF</button>
                   : null },
             ]}
-            rows={client.quotations}
+            rows={quotations}
           />
         </div>
       )}
@@ -246,7 +249,7 @@ export default function ClientDetail() {
       {/* Invoices — paid_amount is now computed by backend via invoice_payments JOIN */}
       {tab === 'invoices' && (
         <div className="card">
-          <div className="card-header"><span className="card-title">{t('clients.invoicesCount', { count: client.invoices.length })}</span></div>
+          <div className="card-header"><span className="card-title">{t('clients.invoicesCount', { count: invoices.length })}</span></div>
           <SectionTable
             emptyMsg={t('clients.noInvoicesForClient')}
             columns={[
@@ -260,7 +263,7 @@ export default function ClientDetail() {
                   ? <button className="btn btn-sm btn-secondary" onClick={() => openDocument(invDocMap[i.id].id)}>View PDF</button>
                   : null },
             ]}
-            rows={client.invoices}
+            rows={invoices}
           />
         </div>
       )}

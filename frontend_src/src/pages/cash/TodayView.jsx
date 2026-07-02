@@ -24,7 +24,7 @@ function TodayView({ canCreate, onOpenDay, openDetail, refreshKey }) {
 
   if (error) return <ErrorAlert message={error} onRetry={load} />;
   if (!data) return <LoadingSpinner />;
-  if (data.drawers.length === 0) {
+  if ((data.drawers || []).length === 0) {
     return (
       <div className="cash-empty-hero">
         <div className="cash-empty-hero-icon" aria-hidden>
