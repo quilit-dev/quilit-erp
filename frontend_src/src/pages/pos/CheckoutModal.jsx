@@ -1,0 +1,155 @@
+import { useState } from 'react';
+import { useLocale } from '../../hooks/useLocale.jsx';
+import { useSettings } from '../../hooks/useSettings.jsx';
+import { Modal, toast, NumberInput } from '../../components/shared';
+import { num } from './pricing';
+
+function CheckoutModal({ pricing, clients, drawers, defaultCurrency = 'USD', onClose, onDone }) {
+  const { t, fmt, tCategory } = useLocale();
+  const { exchangeRate } = useSettings();
+  const [clientId, setClientId] = useState('');
+  const [method, setMethod] = useState('Cash');
+  // Default the tender currency to whatever the register is showing, so a
+  // cashier viewing LBP prices lands straight on LBP cash entry.
+  const [currency, setCurrency] = useState(defaultCurrency === 'LBP' ? 'LBP' : 'USD');
+  const [rate, setRate] = useState(exchangeRate?.rate ? String(exchangeRate.rate) : '');
+  const [tendered, setTendered] = useState('');
+  const [busy, setBusy] = useState(false);
+  const _defDrawer = drawers.find(d => d.auto_capture) || drawers[0];
+  const [drawerId, setDrawerId] = useState(_defDrawer ? String(_defDrawer.id) : '');
+
+  const fxRate = parseFloat(rate) || 0;
+  const totalInCurrency = currency === 'LBP' ? pricing.total * (fxRate || 0) : pricing.total;
+  const tenderedNum = parseFloat(tendered) || 0;
+  const change = method === 'Cash' ? tenderedNum - totalInCurrency : 0;
+
+  async function confirm() {
+    if (currency === 'LBP' && fxRate <= 0) { toast(t('pos.exchangeRate'), 'red'); return; }
+    if (method === 'Cash' && tenderedNum + 0.01 < totalInCurrency) {
+      toast(t('pos.amountTendered'), 'red'); return;
+    }
+    setBusy(true);
+    try {
+      const res = await posCheckout({
+        client_id: clientId ? Number(clientId) : null,
+        items: pricing.items,
+        order_discount: pricing.orderDiscount,
+        payment_method: method,
+        currency,
+        exchange_rate: currency === 'LBP' ? fxRate : null,
+        amount_tendered: method === 'Cash' ? tenderedNum : totalInCurrency,
+        cash_drawer_id: method === 'Cash' && drawerId ? Number(drawerId) : null,
+        idempotency_key: crypto.randomUUID(),
+      });
+      // The checkout endpoint returns only totals + ids. Stitch in the
+      // presentation data the receipt needs (line items, client name,
+      // payment method, amount tendered) so the receipt doesn't have to
+      // make a second roundtrip for what we already know.
+      const clientName = clientId
+        ? (clients.find(c => String(c.id) === String(clientId))?.name || '')
+        : '';
+      onDone({
+        ...res,
+        items:           pricing.items,
+        client_name:     clientName,
+        payment_method:  method,
+        currency,
+        exchange_rate:   currency === 'LBP' ? fxRate : null,
+        amount_tendered: method === 'Cash' ? tenderedNum : totalInCurrency,
+      });
+    } catch (e) {
+      toast(e.message, 'red');
+      setBusy(false);
+    }
+  }
+
+  return (
+    <Modal title={t('pos.checkout')} onClose={onClose}>
+      <div className="modal-body">
+        <table className="table" style={{ fontSize: 13, marginBottom: 12 }}>
+          <tbody>
+            <tr><td>{t('pos.subtotal')}</td><td style={{ textAlign: 'end' }}>{fmt(pricing.subtotal)}</td></tr>
+            <tr><td>{t('pos.taxTotal')}</td><td style={{ textAlign: 'end' }}>{fmt(pricing.taxTotal)}</td></tr>
+            {pricing.discountTotal > 0 && (
+              <tr><td>{t('pos.savings')}</td>
+                  <td style={{ textAlign: 'end', color: 'var(--green)' }}>−{fmt(pricing.discountTotal)}</td></tr>
+            )}
+            <tr><td><strong>{t('pos.total')}</strong></td>
+                <td style={{ textAlign: 'end' }}><strong>{fmt(pricing.total)}</strong></td></tr>
+          </tbody>
+        </table>
+        <div className="form-grid">
+          <div className="form-group form-full">
+            <label className="form-label">{t('pos.customer')}</label>
+            <select className="form-control" value={clientId} onChange={e => setClientId(e.target.value)}>
+              <option value="">{t('pos.walkIn')}</option>
+              {clients.map(c => <option key={c.id} value={c.id}>{c.name}</option>)}
+            </select>
+          </div>
+          <div className="form-group">
+            <label className="form-label">{t('pos.paymentMethod')}</label>
+            <select className="form-control" value={method} onChange={e => setMethod(e.target.value)}>
+              <option value="Cash">{t('pos.cash')}</option>
+              <option value="Card">{t('pos.card')}</option>
+            </select>
+          </div>
+          <div className="form-group">
+            <label className="form-label">{t('pos.currency')}</label>
+            <select className="form-control" value={currency} onChange={e => setCurrency(e.target.value)}>
+              <option value="USD">{exchangeRate?.base || 'USD'}</option>
+              {exchangeRate?.rate ? <option value="LBP">{exchangeRate.secondary || 'LBP'}</option> : null}
+            </select>
+          </div>
+          {method === 'Cash' && drawers.length > 0 && (
+            <div className="form-group form-full">
+              <label className="form-label">{t('pos.cashDrawer')}</label>
+              <select className="form-control" value={drawerId}
+                onChange={e => setDrawerId(e.target.value)}>
+                {drawers.map(d => <option key={d.id} value={d.id}>{d.name}</option>)}
+              </select>
+            </div>
+          )}
+          {currency === 'LBP' && (
+            <div className="form-group form-full">
+              <label className="form-label">{t('pos.exchangeRate')}</label>
+              <NumberInput className="form-control" step="any" min="0" value={rate}
+                onChange={e => setRate(e.target.value)} />
+            </div>
+          )}
+          {method === 'Cash' && (
+            <div className="form-group form-full">
+              <label className="form-label">
+                {t('pos.amountTendered')} ({currency}) — {t('pos.total')}: {num(totalInCurrency)}
+              </label>
+              <NumberInput className="form-control" step="any" min="0" value={tendered}
+                onChange={e => setTendered(e.target.value)} autoFocus />
+            </div>
+          )}
+        </div>
+        {method === 'Cash' && tendered !== '' && (
+          <div style={{ marginTop: 8, fontSize: 14, fontWeight: 600,
+                        color: change < 0 ? 'var(--red)' : 'var(--green)' }}>
+            {t('pos.change')}: {num(change)} {currency}
+          </div>
+        )}
+      </div>
+      <div className="modal-footer">
+        <button className="btn btn-secondary" onClick={onClose}>{t('common.cancel')}</button>
+        <button className="btn btn-primary" disabled={busy} onClick={confirm}>
+          {busy ? t('common.saving') : t('pos.completeSale')}
+        </button>
+      </div>
+    </Modal>
+  );
+}
+
+// ── Custom-line name input with inventory autocomplete ─────────────────────
+// A custom line is normally a free-text service entry, but cashiers often
+// type the first letters of an *existing* inventory item before remembering
+// to add it from the product list. This combobox:
+//   • debounces a server-side product search as the user types
+//   • lets them pick a match with ↑/↓/Enter (mouse also works)
+//   • on pick, mutates the line into a proper inventory-backed line — sets
+//     inventory_id, unit_price (sale_price), stock, line_type and keeps the
+
+export { CheckoutModal };
