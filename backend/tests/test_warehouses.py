@@ -514,3 +514,23 @@ def test_warehouse_archive_unarchive_roundtrip(make_client):
 
     # Restoring something that isn't archived is a 400, not a silent no-op.
     assert c.patch(f"/api/warehouses/{wid}/unarchive").status_code == 400
+
+
+# ── Per-warehouse stock breakdown (the "View stock" modal) ────────────────
+
+def test_warehouse_stock_breakdown(make_client, db):
+    """GET /{wid}/stock returns the items held at the warehouse with a
+    rounded valuation. Regression: the old query used ROUND(expr, 2) in SQL,
+    which SQLite accepts but PostgreSQL rejects (no round(double precision,
+    int) overload) — the endpoint 500'd on the PG deployment. Value is now
+    rounded in Python, so this asserts the rounding contract itself."""
+    c = make_client("superadmin")
+    item_id = _seed_item(c, db, qty=3)
+    main_id = _wid(c, "MAIN")
+
+    r = c.get(f"/api/warehouses/{main_id}/stock")
+    assert r.status_code == 200, r.text
+    rows = r.json()
+    mine = next(x for x in rows if x["id"] == item_id)
+    assert mine["quantity"] == 3
+    assert mine["value"] == round(3 * 5, 2)  # qty × unit_cost, 2dp

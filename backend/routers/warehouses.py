@@ -895,14 +895,22 @@ def warehouse_stock(
     _wh_row(db, wid)
     if not wha.can_access(user, db, wid):
         raise HTTPException(403, "You don't have access to this warehouse.")
+    # NB: value is rounded in Python, not SQL — PostgreSQL has no
+    # round(double precision, int) overload, so ROUND(expr, 2) works on
+    # SQLite but 500s on the PG deployment.
     rows = db.execute(
         "SELECT i.id, i.name, i.unit, i.category, i.unit_cost, "
         "       s.quantity, s.reserved_quantity, s.quarantine_quantity, "
-        "       ROUND(s.quantity * COALESCE(i.unit_cost,0), 2) AS value "
+        "       s.quantity * COALESCE(i.unit_cost,0) AS value "
         "FROM inventory_stock s "
         "JOIN inventory i ON i.id = s.inventory_id "
         "WHERE s.warehouse_id=? AND i.deleted_at IS NULL AND i.archived_at IS NULL "
         "ORDER BY i.name",
         (wid,),
     ).fetchall()
-    return [dict(r) for r in rows]
+    out = []
+    for r in rows:
+        d = dict(r)
+        d["value"] = round(d["value"] or 0, 2)
+        out.append(d)
+    return out
