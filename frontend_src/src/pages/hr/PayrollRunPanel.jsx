@@ -20,12 +20,13 @@ function PayrollRunPanel({ runId, canEdit, canApprove, canDelete, onClose, onCha
   const [periodEnd,   setPeriodEnd]   = useState('');
   const [notes,       setNotes]       = useState('');
 
-  const load = useCallback(async () => {
+  const load = useCallback(async (silent = false) => {
     if (isNew) return;
-    setLoading(true); setError(null);
+    if (!silent) setLoading(true);
+    setError(null);
     try { setRun(await getPayrollRun(runId)); }
     catch (err) { setError(err.message); }
-    finally { setLoading(false); }
+    finally { if (!silent) setLoading(false); }
   }, [runId, isNew]);
   useEffect(() => { load(); }, [load]);
 
@@ -45,7 +46,7 @@ function PayrollRunPanel({ runId, canEdit, canApprove, canDelete, onClose, onCha
   async function patchLine(line, patch) {
     try {
       await updatePayrollLine(line.id, patch);
-      await load(); onChanged();
+      await load(true); onChanged();   // silent refresh — no spinner flash while editing
     } catch (err) { toast(err.message, 'error'); }
   }
   async function doAction(action) {
@@ -172,15 +173,34 @@ function PayrollRunPanel({ runId, canEdit, canApprove, canDelete, onClose, onCha
 
 function PayrollLineRow({ line, editable, onPatch }) {
   const { t } = useLocale();
-  const [base,    setBase]    = useState(String(line.base_salary || 0));
-  const [bonus,   setBonus]   = useState(String(line.bonuses || 0));
-  const [deduct,  setDeduct]  = useState(String(line.deductions || 0));
-  const [otHours, setOtHours] = useState(String(line.overtime_hours || 0));
-  const [otAmt,   setOtAmt]   = useState(String(line.overtime_amount || 0));
+  // Zero → empty string so the field reads as a "0" placeholder, not a literal 0
+  // the cashier has to clear before typing.
+  const numStr = (v) => (v ? String(v) : '');
+  const [base,    setBase]    = useState(numStr(line.base_salary));
+  const [bonus,   setBonus]   = useState(numStr(line.bonuses));
+  const [deduct,  setDeduct]  = useState(numStr(line.deductions));
+  const [otHours, setOtHours] = useState(numStr(line.overtime_hours));
+  const [otAmt,   setOtAmt]   = useState(numStr(line.overtime_amount));
+  const [dirty,   setDirty]   = useState(false);
 
-  // Autosave-on-blur — sends the four user-editable fields and lets the API
-  // recompute the full breakdown (gross / tax / NSSF / net) atomically.
-  function commit(patch) {
+  // Re-sync from the server after an autosave (the panel refetches silently) —
+  // e.g. overtime amount the API computed from hours. Runs only when the stored
+  // values actually change, so it never interrupts typing.
+  useEffect(() => {
+    setBase(numStr(line.base_salary));
+    setBonus(numStr(line.bonuses));
+    setDeduct(numStr(line.deductions));
+    setOtHours(numStr(line.overtime_hours));
+    setOtAmt(numStr(line.overtime_amount));
+    setDirty(false);
+  }, [line.base_salary, line.bonuses, line.deductions, line.overtime_hours, line.overtime_amount]);
+
+  const edit = (setter) => (e) => { setter(e.target.value); setDirty(true); };
+
+  // Autosave-on-blur — but only when a field actually changed, so tabbing or
+  // clicking through the row never triggers a needless recompute + refetch.
+  function commit(patch = {}) {
+    if (!dirty) return;
     onPatch({
       base_salary:     Number(base)   || 0,
       bonuses:         Number(bonus)  || 0,
@@ -189,6 +209,7 @@ function PayrollLineRow({ line, editable, onPatch }) {
       overtime_amount: Number(otAmt) || 0,
       ...patch,
     });
+    setDirty(false);
   }
   return (
     <tr>
@@ -198,14 +219,14 @@ function PayrollLineRow({ line, editable, onPatch }) {
       </td>
       <td>
         {editable
-          ? <NumberInput step="0.01" min="0" className="form-control" style={{ textAlign: 'right', padding: '4px 6px' }}
-                   value={base} onChange={e => setBase(e.target.value)} onBlur={() => commit()} />
+          ? <NumberInput step="0.01" min="0" placeholder="0" className="form-control" style={{ textAlign: 'right', padding: '4px 6px' }}
+                   value={base} onChange={edit(setBase)} onBlur={() => commit()} />
           : <div style={{ textAlign: 'right' }}>{fmt(line.base_salary || 0)}</div>}
       </td>
       <td>
         {editable
-          ? <NumberInput step="0.01" min="0" className="form-control" style={{ textAlign: 'right', padding: '4px 6px' }}
-                   value={bonus} onChange={e => setBonus(e.target.value)} onBlur={() => commit()} />
+          ? <NumberInput step="0.01" min="0" placeholder="0" className="form-control" style={{ textAlign: 'right', padding: '4px 6px' }}
+                   value={bonus} onChange={edit(setBonus)} onBlur={() => commit()} />
           : <div style={{ textAlign: 'right' }}>{fmt(line.bonuses || 0)}</div>}
       </td>
       <td>
@@ -214,11 +235,11 @@ function PayrollLineRow({ line, editable, onPatch }) {
             <NumberInput step="0.01" min="0" className="form-control"
                    style={{ textAlign: 'right', padding: '4px 6px', width: 50 }}
                    placeholder={t('hr.hoursPh')} value={otHours}
-                   onChange={e => setOtHours(e.target.value)} onBlur={() => commit({ overtime_amount: null })} />
+                   onChange={edit(setOtHours)} onBlur={() => commit({ overtime_amount: null })} />
             <NumberInput step="0.01" min="0" className="form-control"
                    style={{ textAlign: 'right', padding: '4px 6px', width: 60 }}
                    placeholder={t('hr.amountPh')} value={otAmt}
-                   onChange={e => setOtAmt(e.target.value)} onBlur={() => commit()} />
+                   onChange={edit(setOtAmt)} onBlur={() => commit()} />
           </div>
         ) : (
           <div style={{ textAlign: 'right' }}>
@@ -229,8 +250,8 @@ function PayrollLineRow({ line, editable, onPatch }) {
       </td>
       <td>
         {editable
-          ? <NumberInput step="0.01" min="0" className="form-control" style={{ textAlign: 'right', padding: '4px 6px' }}
-                   value={deduct} onChange={e => setDeduct(e.target.value)} onBlur={() => commit()} />
+          ? <NumberInput step="0.01" min="0" placeholder="0" className="form-control" style={{ textAlign: 'right', padding: '4px 6px' }}
+                   value={deduct} onChange={edit(setDeduct)} onBlur={() => commit()} />
           : <div style={{ textAlign: 'right' }}>{fmt(line.deductions || 0)}</div>}
       </td>
       <td style={{ textAlign: 'right', color: 'var(--text-3)' }}>{fmt(line.tax_amount || 0)}</td>
