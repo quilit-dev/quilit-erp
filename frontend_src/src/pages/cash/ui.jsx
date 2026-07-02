@@ -4,13 +4,8 @@ import { useLocale } from '../../hooks/useLocale.jsx';
 
 export const today = () => new Date().toISOString().slice(0, 10);
 
-// USD and LBP are formatted — and shown — strictly separately. They are never
-// added together: a drawer holds two independent physical cash balances.
-export const _usd = new Intl.NumberFormat('en-US', { style: 'currency', currency: 'USD', minimumFractionDigits: 0 });
-export const _lbp = new Intl.NumberFormat('en-US', { maximumFractionDigits: 0 });
-export const money = (v, ccy) => ccy === 'LBP'
-  ? `${_lbp.format(Number(v) || 0)} LBP`
-  : _usd.format(Number(v) || 0);
+import { money } from '../../utils/format';
+export { money };
 
 export function VarianceTag({ value, currency }) {
   const { t } = useLocale();

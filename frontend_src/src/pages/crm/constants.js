@@ -1,9 +1,6 @@
 // ─── Helpers ────────────────────────────────────────────────────────────────
 
-export function fmtCurr(n) {
-  if (n == null || n === '') return '—';
-  return '$' + Number(n).toLocaleString(undefined, { minimumFractionDigits: 0, maximumFractionDigits: 0 });
-}
+export { fmtCurr } from '../../utils/format';
 
 export function isOverdue(due) {
   if (!due) return false;

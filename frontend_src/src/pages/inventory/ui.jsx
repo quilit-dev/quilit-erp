@@ -11,8 +11,7 @@ export const PRODUCT_TYPE_COLORS = {
   consumable:    { bg: '#F5F3FF', color: '#7C3AED' },
 };
 
-export const fmtNum = (n) =>
-  Number(n || 0).toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 });
+export { fmtNum } from '../../utils/format';
 
 export function CategoryBadge({ category }) {
   const { tCategory } = useLocale();

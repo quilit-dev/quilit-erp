@@ -1,66 +1,36 @@
-// Reusable table controls shared by the Accounting tabs: click-to-sort
-// headers, the client/server page navigator, and the preset date-range row.
+// Reusable table controls shared by the Accounting tabs. The sort header
+// and pager are thin adapters over the app-wide kit in components/shared —
+// one rendering implementation, accounting's prop names preserved so the
+// tab files don't change.
+import {
+  SortableTh as SharedSortableTh,
+  Pagination,
+} from '../../components/shared';
 import { PAGE_SIZES, todayISO, monthStartISO, yearStartISO, lastMonthRange } from './constants';
 
 // Click-to-sort header: shows the active arrow and toggles direction.
 function SortableTh({ label, sortKey, sort, dir, onSort, align = 'start' }) {
-  const active = sort === sortKey;
   return (
-    <th
-      onClick={() => onSort(sortKey)}
-      style={{ cursor: 'pointer', userSelect: 'none', textAlign: align, whiteSpace: 'nowrap' }}
-      title="Click to sort"
-    >
-      <span style={{ display: 'inline-flex', alignItems: 'center', gap: 4 }}>
-        {label}
-        <span style={{ opacity: active ? 0.9 : 0.25, fontSize: 10 }}>
-          {active ? (dir === 'asc' ? '▲' : '▼') : '↕'}
-        </span>
-      </span>
-    </th>
+    <SharedSortableTh
+      label={label} sortKey={sortKey}
+      currentKey={sort} currentDir={dir} onSort={onSort}
+      style={{ textAlign: align }}
+    />
   );
 }
 
 // Page navigator — works for both client- and server-paged tables.
+// (`t` is accepted for call-site compatibility; Pagination translates itself.)
 function Pager({ page, pageSize, total, onPage, onSize, t, sizes = PAGE_SIZES }) {
   const totalPages = Math.max(1, Math.ceil(total / pageSize));
   const safePage   = Math.min(page, totalPages);
-  const from = total === 0 ? 0 : (safePage - 1) * pageSize + 1;
-  const to   = Math.min(safePage * pageSize, total);
   return (
-    <div style={{
-      display: 'flex', alignItems: 'center', justifyContent: 'space-between',
-      gap: 12, padding: '10px 14px', borderTop: '1px solid var(--border)',
-      fontSize: 12, color: 'var(--text-3)', flexWrap: 'wrap',
-    }}>
-      <div>
-        {t('common.showing') /* fallback handled below */ || 'Showing'} <strong style={{ color: 'var(--text)' }}>{from}</strong>–<strong style={{ color: 'var(--text)' }}>{to}</strong>
-        {' '}{t('common.of') || 'of'} <strong style={{ color: 'var(--text)' }}>{total.toLocaleString()}</strong>
-      </div>
-      <div style={{ display: 'flex', gap: 6, alignItems: 'center' }}>
-        {onSize && (
-          <>
-            <span>{t('common.perPage') || 'Per page'}</span>
-            <select className="form-control" style={{ width: 70, padding: '2px 6px', fontSize: 12 }}
-              value={pageSize} onChange={e => onSize(Number(e.target.value))}>
-              {sizes.map(n => <option key={n} value={n}>{n}</option>)}
-            </select>
-            <span style={{ margin: '0 8px', color: 'var(--border)' }}>|</span>
-          </>
-        )}
-        <button className="btn btn-sm btn-secondary" disabled={safePage <= 1}
-          onClick={() => onPage(1)}>«</button>
-        <button className="btn btn-sm btn-secondary" disabled={safePage <= 1}
-          onClick={() => onPage(safePage - 1)}>‹</button>
-        <span style={{ minWidth: 70, textAlign: 'center' }}>
-          {safePage} / {totalPages}
-        </span>
-        <button className="btn btn-sm btn-secondary" disabled={safePage >= totalPages}
-          onClick={() => onPage(safePage + 1)}>›</button>
-        <button className="btn btn-sm btn-secondary" disabled={safePage >= totalPages}
-          onClick={() => onPage(totalPages)}>»</button>
-      </div>
-    </div>
+    <Pagination
+      page={safePage} totalPages={totalPages}
+      pageSize={pageSize} pageSizes={sizes} totalRows={total}
+      setPage={(v) => onPage(typeof v === 'function' ? v(safePage) : v)}
+      setPageSize={(n) => onSize && onSize(n)}
+    />
   );
 }
 
