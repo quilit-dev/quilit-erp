@@ -134,7 +134,8 @@ export default function Finance() {
     : PRESETS.find(p => p.key === preset)?.label;
 
   return (
-    <div style={{ maxWidth: 1200 }}>
+    <div>{/* full width — every other page fills the content area; the old
+            maxWidth:1200 left a dead right margin on large screens */}
       <style>{`
         @media print { .no-print { display: none !important; } body { background: #fff; } }
         @keyframes fadeSlideUp { from { opacity: 0; transform: translateY(12px); } to { opacity: 1; transform: translateY(0); } }
