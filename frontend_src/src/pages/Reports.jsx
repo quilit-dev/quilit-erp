@@ -86,8 +86,9 @@ export default function Reports() {
         </div>
       </div>
 
-      {/* Tabs — same pattern as ProjectDetail */}
-      <div className="tabs">
+      {/* Tabs — wrap so all report tabs fit the page instead of scrolling
+          horizontally off-screen (there are up to 10, with long labels). */}
+      <div className="tabs" style={{ flexWrap: 'wrap', overflowX: 'visible' }}>
         {REPORTS.map(r => (
           <button
             key={r.key}
