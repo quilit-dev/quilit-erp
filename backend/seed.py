@@ -41,6 +41,11 @@ What you get (richer than the minimal version)
     Notifications  fired by inventory low_stock, POS sales, production
                    completion, depreciation run, cash variance, approval
                    creation — the bell will show ~8 unread on first login
+    History        12 months of collected revenue + operating costs so every
+                   trend chart reads like a real, growing SMB (~$380k/yr
+                   revenue, ~18% net margin) instead of a current-month spike.
+                   See section 32 for how the cash-basis revenue is back-dated
+                   while keeping the ledger balanced.
 
 Design notes
 ------------
@@ -1373,6 +1378,183 @@ _att += _attach("invoices",  inv_paid["id"], "signed-invoice.pdf", _PDF, "applic
 _att += _attach("suppliers", SUP_CEDAR, "price-list.txt",
                 b"Pine plank 4.00/pcs\nNails 0.05/pcs\nVarnish 12.00/L\n", "text/plain")
 print(f"  +{_att} attachments across clients / projects / invoices / suppliers")
+
+
+# ════════════════════════════════════════════════════════════════════════════
+# 32. Historical financial backfill — 12 months of realistic, collected
+#     revenue + operating costs so every trend chart (Dashboard, Finance,
+#     Reports, Income Statement) reads like a real, modestly-growing SMB
+#     instead of a single current-month spike.
+#
+# WHY a post-seed SQL date-shift is needed (and safe):
+#   • Payments stamp `paid_at = now()` server-side (invoices.py) — the API
+#     gives no way to back-date the cash-basis revenue that drives the
+#     revenue trend. Expenses DO accept an explicit `date` (and auto-date
+#     their own GL entry from it), so historical COSTS need no SQL at all.
+#   • For revenue we therefore create the invoices+payments through the API
+#     (so every ledger/stock/tax side-effect is real), then move three date
+#     columns in lockstep per payment: invoice_payments.paid_at, the
+#     invoice's created_at, and the payment's revenue journal entry
+#     (source_type='invoice_payment', source_id=payment_id).
+#   • Only DATES change — never amounts — so the Trial Balance stays balanced
+#     and the accrual Income Statement (JE dates) matches the cash-basis
+#     Finance view (paid_at) month by month.
+#
+# The model targets a healthy net margin (~12–22%, expanding with scale) so
+# revenue exceeds cost every month: materials float as the balancing COGS
+# line, payroll/rent/utilities are the fixed opex.
+header("Historical backfill (12-month trend)")
+import math       # noqa: E402
+import random     # noqa: E402
+from calendar import monthrange  # noqa: E402
+random.seed(42)   # reproducible — re-running the seed yields the same history
+
+ALL_CLIENTS = client_ids + more_client_ids
+BUSINESS_CLIENTS = [CL_BEIRUT_CAFE, CL_CEDAR_LOG, CL_ATLAS, CL_PHOENICIA,
+                    CL_ROASTERS, CL_LEVANT, CL_BYBLOS, CL_TRIPOLI, CL_ZAHLE]
+
+# Sale line-items for a furniture workshop + café-supply business (name, lo, hi).
+SALE_LINES = [
+    ("Dining table — oak",        650, 1200),
+    ("Chairs (set of 4)",         180,  340),
+    ("Bar counter — custom",     1400, 2600),
+    ("Office desk",               260,  520),
+    ("Bookshelf unit",            300,  780),
+    ("Reception desk",           1500, 2800),
+    ("Display shelving",          900, 1800),
+    ("Café furniture package",   1800, 3400),
+    ("Coffee beans — bulk 25kg",  380,  520),
+    ("Repair & refinish",         150,  480),
+    ("Delivery & installation",    80,  260),
+]
+
+def _recent_months(n):
+    """Oldest→current list of (year, month) for the trailing n months."""
+    today = datetime.utcnow()
+    out, y, m = [], today.year, today.month
+    for i in range(n - 1, -1, -1):
+        mm, yy = m - i, y
+        while mm <= 0:
+            mm += 12; yy -= 1
+        out.append((yy, mm))
+    return out
+
+def _dstr(y, m, day):
+    return f"{y:04d}-{m:02d}-{min(day, monthrange(y, m)[1]):02d}"
+
+_now_ym = (datetime.utcnow().year, datetime.utcnow().month)
+months  = _recent_months(12)
+n_span  = len(months)
+hist_payments = []   # (invoice_id, "YYYY-MM-DD") for the SQL shift — each
+                     # historical invoice carries exactly one full payment
+
+# The seeded "expense > $1,000 → Finance approval" policy would trap every
+# historical Materials / Salary / Rent line (all > $1k) in pending-approval so
+# it never posts to the ledger — leaving the Income Statement showing revenue
+# with almost no cost. Suspend active policies for the backfill, then restore
+# them (current-month pending-approval demo requests are unaffected).
+_suspended_policies = [p["id"] for p in GET("/api/approval-policies/") if p.get("is_active")]
+for _pid in _suspended_policies:
+    PATCH(f"/api/approval-policies/{_pid}/toggle")
+
+def _make_invoice(y, m, inv_target):
+    """Create one fully-paid invoice worth ≈ inv_target (pre-tax) and return
+    its (id, gross_amount_collected)."""
+    items, remaining = [], inv_target
+    n_lines = random.randint(1, 3)
+    for li in range(n_lines):
+        name, lo, hi = random.choice(SALE_LINES)
+        if li == n_lines - 1:
+            unit, qty = max(50, round(remaining)), 1
+        else:
+            unit = round(random.uniform(lo, hi)); qty = random.randint(1, 2)
+            remaining -= unit * qty
+        items.append({"name": name, "quantity": qty, "unit_price": unit,
+                      "tax_rate_id": TAX_DEFAULT})
+    cid = random.choice(BUSINESS_CLIENTS if random.random() < 0.7 else ALL_CLIENTS)
+    iv  = POST("/api/invoices/", {"client_id": cid, "items": items})
+    amt = GET(f"/api/invoices/{iv['id']}")["amount"]
+    POST(f"/api/invoices/{iv['id']}/payments",
+         {"amount": amt, "method": random.choice(["Bank Transfer", "Cash", "Card"]),
+          "idempotency_key": str(uuid.uuid4())})
+    return iv["id"], amt
+
+_rev_total = _cost_total = 0.0
+for idx, (y, m) in enumerate(months):
+    is_current = (y, m) == _now_ym
+    progress   = idx / max(1, n_span - 1)               # 0 … 1 across the window
+    # Revenue: grows ~$21k → ~$32k, mild summer bump, small monthly noise. The
+    # current month is deliberately PARTIAL (collections still coming in) so a
+    # cash-basis dashboard shows the natural in-progress dip, not a full month.
+    season     = 1.0 + 0.07 * math.sin((m / 12.0) * 2 * math.pi)
+    target_rev = (21000 + 11000 * progress) * season * random.uniform(0.95, 1.05)
+    if is_current:
+        target_rev *= 0.55
+
+    # ── Revenue: several fully-paid invoices summing ≈ target_rev ───────────
+    n_inv   = random.randint(4, 6) if is_current else random.randint(6, 9)
+    weights = [random.uniform(0.6, 1.6) for _ in range(n_inv)]
+    wsum    = sum(weights)
+    month_gross = 0.0
+    for k in range(n_inv):
+        inv_id, amt = _make_invoice(y, m, target_rev * weights[k] / wsum)
+        month_gross += amt
+        _rev_total  += amt
+        if not is_current:      # current month is already "now" — no shift needed
+            hist_payments.append((inv_id, _dstr(y, m, random.randint(3, 27))))
+
+    # ── Costs: PAST months only (the current month's opex is already seeded as
+    #    one-off state). Sized off the month's GROSS revenue so the charted net
+    #    margin lands in a realistic 14–20% band; Materials is the balancing
+    #    COGS line, payroll/rent/utilities the fixed opex. ────────────────────
+    if is_current:
+        continue
+    margin = random.uniform(0.14, 0.18) + 0.02 * progress      # widens slightly with scale
+    costs  = month_gross * (1 - margin)
+    util, transport, subs = (random.uniform(360, 520),
+                             random.uniform(150, 300),
+                             random.uniform(200, 380))
+    materials = max(month_gross * 0.32, costs - (7700 + 1100 + util + transport + subs))
+
+    def _exp(cat, amount, desc, day, tax=False):
+        POST("/api/finance/expenses", {
+            "category": cat, "amount": round(amount, 2), "description": desc,
+            "date": _dstr(y, m, day), "payment_method": "Bank Transfer",
+            **({"tax_rate_id": TAX_DEFAULT} if tax else {})})
+
+    _exp("Materials",  materials, "Timber, hardware & finishing supplies", 6, tax=True)
+    _exp("Salary",     7700,      "Monthly payroll",                       28)
+    _exp("Rent",       1100,      "Workshop + showroom rent",               1, tax=True)
+    _exp("Utilities",  util,      "Electricity, water & generator fuel",    9, tax=True)
+    _exp("Transport",  transport, "Delivery fuel & logistics",             12)
+    _exp("Subscription", subs,    "Software & marketing",                  15, tax=True)
+    _cost_total += materials + 7700 + 1100 + util + transport + subs
+
+# ── The lockstep SQL date-shift (dates only — books stay balanced) ──────────
+# Each historical invoice has exactly one full payment, so the payment and its
+# revenue journal entry are located by invoice_id — no payment id needed.
+with sqlite3.connect(DB_PATH) as _con:
+    for inv_id, pay_date in hist_payments:
+        issued = (datetime.strptime(pay_date, "%Y-%m-%d")
+                  - timedelta(days=random.randint(2, 10))).strftime("%Y-%m-%d %H:%M:%S")
+        _con.execute("UPDATE invoice_payments SET paid_at=? WHERE invoice_id=?",
+                     (pay_date + " 12:00:00", inv_id))
+        _con.execute("UPDATE invoices SET created_at=? WHERE id=?", (issued, inv_id))
+        _con.execute(
+            "UPDATE journal_entries SET entry_date=? "
+            "WHERE source_type='invoice_payment' AND source_id IN "
+            "(SELECT id FROM invoice_payments WHERE invoice_id=?)",
+            (pay_date, inv_id))
+    _con.commit()
+
+# Restore the approval policies suspended for the backfill.
+for _pid in _suspended_policies:
+    PATCH(f"/api/approval-policies/{_pid}/toggle")
+
+print(f"  +{len(hist_payments)} back-dated paid invoices + monthly costs across "
+      f"{n_span - 1} prior months")
+print(f"  ≈ ${_rev_total:,.0f} collected vs ${_cost_total:,.0f} historical costs "
+      f"(net ≈ ${_rev_total - _cost_total:,.0f})")
 
 
 # ════════════════════════════════════════════════════════════════════════════
