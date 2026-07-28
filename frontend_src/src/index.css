@@ -2720,7 +2720,11 @@ textarea.form-control {
 }
 .pos-search-input {
   width: 100%;
-  padding: 11px 14px 11px 42px;
+  /* Logical padding: the icon sits on the inline-start edge, so the reserved
+     space has to follow it when the app mirrors to RTL (a physical
+     padding-left would stay on the wrong side in Arabic). */
+  padding: 11px 14px;
+  padding-inline-start: 42px;
   font-size: 14.5px;
   font-weight: 500;
   background: var(--surface-2);
@@ -2741,7 +2745,10 @@ textarea.form-control {
 }
 .pos-search-icon {
   position: absolute;
-  inset-inline-start: 30px;
+  /* 14px + the 16px glyph = 30px, clearing the input's 42px text inset with a
+     12px gap. At the old 30px the glyph ran to 46px and collided with the
+     placeholder ("Scan barcode or search items…"). */
+  inset-inline-start: 14px;
   top: 50%;
   transform: translateY(-50%);
   color: var(--text-3);
