@@ -336,14 +336,17 @@ print(f"  +{len(supplier_ids)} suppliers with varied payment terms")
 header("Inventory")
 inv = {}
 INV_NAME: dict[str, str] = {}          # key → display name (create response omits it)
+# Every item carries a selling price. Finished goods run the fattest margin
+# (~130%); materials and components are also sold over the counter as spares,
+# at the thinner ~45-50% markup that trade counters typically charge.
 inventory_seed = [
     # key,        name,               category,         type,            qty,  cost,  sale, min, supplier
-    ("mat_a",  "Material Alpha",   "Materials",      "raw_material",   1400,  4.00,    0,  200, "Supplier Alpha"),
-    ("mat_b",  "Material Beta",    "Materials",      "raw_material",   6000,  0.05,    0,  500, "Supplier Alpha"),
-    ("mat_c",  "Material Gamma",   "Materials",      "raw_material",    240, 12.00,    0,   40, "Supplier Beta"),
-    ("mat_d",  "Material Delta",   "Materials",      "raw_material",     18,  9.50,    0,   30, "Supplier Beta"),   # low
-    ("cmp_a",  "Component Alpha",  "Components",     "semi_finished",    60, 35.00,    0,   10, None),
-    ("cmp_b",  "Component Beta",   "Components",     "semi_finished",    26, 22.00,    0,   10, None),
+    ("mat_a",  "Material Alpha",   "Materials",      "raw_material",   1400,  4.00,  5.80,  200, "Supplier Alpha"),
+    ("mat_b",  "Material Beta",    "Materials",      "raw_material",   6000,  0.05,  0.10,  500, "Supplier Alpha"),
+    ("mat_c",  "Material Gamma",   "Materials",      "raw_material",    240, 12.00, 17.50,   40, "Supplier Beta"),
+    ("mat_d",  "Material Delta",   "Materials",      "raw_material",     18,  9.50, 13.75,   30, "Supplier Beta"),   # low
+    ("cmp_a",  "Component Alpha",  "Components",     "semi_finished",    60, 35.00, 52.00,   10, None),
+    ("cmp_b",  "Component Beta",   "Components",     "semi_finished",    26, 22.00, 33.00,   10, None),
     ("prd_a",  "Product Alpha",    "Finished Goods", "finished",         42, 96.00,  220,   10, None),
     ("prd_b",  "Product Beta",     "Finished Goods", "finished",        130, 18.00,   55,   25, None),
     ("prd_c",  "Product Gamma",    "Finished Goods", "finished",        260,  8.00,   18,   40, "Supplier Gamma"),
@@ -367,10 +370,10 @@ for key, name, cat, ptype, qty, cost, sale, mn, sup in inventory_seed:
 inv["lot_raw"] = POST("/api/inventory/", {
     "name": "Material Epsilon (lot-tracked)", "category": "Materials",
     "product_type": "raw_material", "quantity": 900, "unit_cost": 2.0,
-    "unit": "kg", "lot_tracked": True, "shelf_life_days": 365})
+    "sale_price": 3.20, "unit": "kg", "lot_tracked": True, "shelf_life_days": 365})
 inv["lot_fg"] = POST("/api/inventory/", {
     "name": "Product Eta (lot-tracked)", "category": "Finished Goods",
-    "product_type": "finished", "quantity": 0, "unit_cost": 0, "sale_price": 40,
+    "product_type": "finished", "quantity": 0, "unit_cost": 17.50, "sale_price": 40,
     "min_stock": 10, "unit": "pcs", "lot_tracked": True, "shelf_life_days": 730})
 INV_NAME["lot_raw"], INV_NAME["lot_fg"] = "Material Epsilon (lot-tracked)", "Product Eta (lot-tracked)"
 print(f"  +{len(inv)} items — 1 out of stock, 3 below minimum → low-stock alerts")
