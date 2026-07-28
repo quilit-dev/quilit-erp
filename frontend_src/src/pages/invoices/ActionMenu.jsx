@@ -1,7 +1,7 @@
 // Per-row action dropdown (edit / pay / export / WhatsApp / void).
 import { useState, useRef, useEffect } from 'react';
 import { useLocale } from '../../hooks/useLocale.jsx';
-import { WhatsAppShareButton } from '../../components/shared';
+import { WhatsAppShareButton, Icon } from '../../components/shared';
 
 // Pre-built WhatsApp message for an invoice — bilingual short form so the
 // client immediately sees what they're being sent before opening the file.
@@ -46,8 +46,11 @@ function ActionMenu({ inv, exporting, onEdit, onPay, onExport, onVoid, onUnvoid 
       {isVoided ? (
         <span style={{ fontSize: 11, color: 'var(--text-3)', fontStyle: 'italic' }}>{t('invoices.voidedLabel')}</span>
       ) : !isPaid ? (
-        <button className="btn btn-sm btn-success" style={{ whiteSpace: 'nowrap' }} onClick={onPay}>
-          💵 {t('invoices.recordPayment')}
+        <button className="btn btn-sm btn-success"
+          style={{ whiteSpace: 'nowrap', display: 'inline-flex', alignItems: 'center', gap: 6 }}
+          onClick={onPay}>
+          <Icon name="banknote" size={14} />
+          {t('invoices.recordPayment')}
         </button>
       ) : (
         <button className="btn btn-sm btn-secondary" style={{ whiteSpace: 'nowrap' }} onClick={onPay}>
@@ -100,7 +103,8 @@ function ActionMenu({ inv, exporting, onEdit, onPay, onExport, onVoid, onUnvoid 
               style={{ ...menuItemStyle, opacity: isVoided ? 0.4 : 1, cursor: isVoided ? 'not-allowed' : 'pointer' }}
               disabled={isVoided}
             >
-              ✏️ {t('common.edit')} {isVoided ? `(${t('invoices.voidedLabel')})` : ''}
+              <Icon name="pencil" size={14} />
+              <span>{t('common.edit')}{isVoided ? ` (${t('invoices.voidedLabel')})` : ''}</span>
             </button>
 
             <div style={{ height: 1, background: 'var(--border)', margin: '4px 0' }} />
@@ -110,7 +114,9 @@ function ActionMenu({ inv, exporting, onEdit, onPay, onExport, onVoid, onUnvoid 
               onClick={() => { setOpen(false); onExport('excel'); }}
               style={{ ...menuItemStyle, color: '#166534', opacity: (isExporting || isVoided) ? 0.4 : 1 }}
             >
-              {exporting === 'excel' ? '⏳ Exporting…' : '📊 Export XLS'}
+              {exporting === 'excel'
+                ? <><Icon name="loader" size={14} style={SPIN} /><span>Exporting…</span></>
+                : <><Icon name="file-spreadsheet" size={14} /><span>Export XLS</span></>}
             </button>
 
             <button
@@ -118,7 +124,9 @@ function ActionMenu({ inv, exporting, onEdit, onPay, onExport, onVoid, onUnvoid 
               onClick={() => { setOpen(false); onExport('pdf'); }}
               style={{ ...menuItemStyle, color: '#991b1b', opacity: (isExporting || isVoided) ? 0.4 : 1 }}
             >
-              {exporting === 'pdf' ? '⏳ Exporting…' : '📄 Export PDF'}
+              {exporting === 'pdf'
+                ? <><Icon name="loader" size={14} style={SPIN} /><span>Exporting…</span></>
+                : <><Icon name="file-text" size={14} /><span>Export PDF</span></>}
             </button>
 
             <div style={{ height: 1, background: 'var(--border)', margin: '4px 0' }} />
@@ -128,14 +136,16 @@ function ActionMenu({ inv, exporting, onEdit, onPay, onExport, onVoid, onUnvoid 
                 onClick={() => { setOpen(false); onUnvoid(); }}
                 style={{ ...menuItemStyle, color: '#166534' }}
               >
-                <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true" style={{ verticalAlign: '-2px', marginInlineEnd: 6 }}><polyline points="1 4 1 10 7 10"/><path d="M3.51 15a9 9 0 1 0 2.13-9.36L1 10"/></svg>{t('invoices.unvoidInvoiceTitle')}
+                <Icon name="rotate-ccw" size={14} />
+                <span>{t('invoices.unvoidInvoiceTitle')}</span>
               </button>
             ) : (
               <button
                 onClick={() => { setOpen(false); onVoid(); }}
                 style={{ ...menuItemStyle, color: '#92400e' }}
               >
-                🚫 {t('invoices.voidInvoiceTitle')}
+                <Icon name="ban" size={14} />
+                <span>{t('invoices.voidInvoiceTitle')}</span>
               </button>
             )}
           </div>
@@ -145,10 +155,16 @@ function ActionMenu({ inv, exporting, onEdit, onPay, onExport, onVoid, onUnvoid 
   );
 }
 
+// Flex + gap keeps the leading icon and its label on one baseline, and mirrors
+// correctly in RTL (a physical `textAlign: left` would not).
 const menuItemStyle = {
-  display: 'block', width: '100%', padding: '7px 14px',
-  background: 'none', border: 'none', textAlign: 'left',
+  display: 'flex', alignItems: 'center', gap: 8,
+  width: '100%', padding: '7px 14px',
+  background: 'none', border: 'none', textAlign: 'start',
   fontSize: 13, cursor: 'pointer', color: 'var(--text)',
 };
+
+// Spin the loader arc while an export is running (keyframes live in index.css).
+const SPIN = { animation: 'spin .7s linear infinite' };
 
 export { ActionMenu };

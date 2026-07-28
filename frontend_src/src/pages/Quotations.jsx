@@ -11,7 +11,8 @@ import {
 import {
   LoadingSpinner, ErrorAlert, EmptyState, Modal, ConfirmModal,
   Badge, ExportButton, fmt, fmtDate, toast, SortableTh, Pagination,
-  DualMoney, ExchangeRateBadge, DisplayCurrencyToggle, WhatsAppShareButton, NumberInput, BranchField} from '../components/shared';
+  DualMoney, ExchangeRateBadge, DisplayCurrencyToggle, WhatsAppShareButton, NumberInput, BranchField,
+  Icon} from '../components/shared';
 import { exportQuotationPDF, exportQuotationExcel } from '../utils/exportUtils';
 import { useLocale } from '../hooks/useLocale.jsx';
 import { usePermissions } from '../hooks/usePermissions';
@@ -30,9 +31,12 @@ const makeEmpty  = () => ({ client_id: '', lead_id: '', project_id: '', project_
 
 const menuItemStyle = {
   display: 'flex', alignItems: 'center', gap: 8, width: '100%', padding: '8px 14px',
-  background: 'none', border: 'none', textAlign: 'left',
+  background: 'none', border: 'none', textAlign: 'start',
   fontSize: 13, cursor: 'pointer', color: 'var(--text)',
 };
+
+// Spin the loader arc while an export is running (keyframes live in index.css).
+const SPIN = { animation: 'spin .7s linear infinite' };
 
 // ── Per-row action dropdown (Edit / exports / Void / Unvoid) ──────────────
 function QuoteActionMenu({ exporting, isVoided, onEdit, onExport, onVoid, onUnvoid }) {
@@ -95,7 +99,8 @@ function QuoteActionMenu({ exporting, isVoided, onEdit, onExport, onVoid, onUnvo
             disabled={isVoided}
             onClick={() => { setOpen(false); onEdit(); }}
           >
-            ✏️ {t('common.edit')} {isVoided ? `(${t('invoices.voidedLabel')})` : ''}
+            <Icon name="pencil" size={14} />
+            <span>{t('common.edit')}{isVoided ? ` (${t('invoices.voidedLabel')})` : ''}</span>
           </button>
 
           {divider}
@@ -105,25 +110,31 @@ function QuoteActionMenu({ exporting, isVoided, onEdit, onExport, onVoid, onUnvo
             disabled={isExporting || isVoided}
             onClick={() => { setOpen(false); onExport('excel'); }}
           >
-            {exporting === 'excel' ? '⏳ ' + t('common.exporting') : '📊 ' + t('quotations.exportXls')}
+            {exporting === 'excel'
+              ? <><Icon name="loader" size={14} style={SPIN} /><span>{t('common.exporting')}</span></>
+              : <><Icon name="file-spreadsheet" size={14} /><span>{t('quotations.exportXls')}</span></>}
           </button>
           <button
             style={{ ...menuItemStyle, color: '#991b1b', opacity: (isExporting || isVoided) ? 0.4 : 1 }}
             disabled={isExporting || isVoided}
             onClick={() => { setOpen(false); onExport('pdf'); }}
           >
-            {exporting === 'pdf' ? '⏳ ' + t('common.exporting') : '📄 ' + t('quotations.exportPdf')}
+            {exporting === 'pdf'
+              ? <><Icon name="loader" size={14} style={SPIN} /><span>{t('common.exporting')}</span></>
+              : <><Icon name="file-text" size={14} /><span>{t('quotations.exportPdf')}</span></>}
           </button>
 
           {divider}
 
           {isVoided ? (
             <button style={{ ...menuItemStyle, color: '#166534' }} onClick={() => { setOpen(false); onUnvoid(); }}>
-              <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true"><polyline points="1 4 1 10 7 10"/><path d="M3.51 15a9 9 0 1 0 2.13-9.36L1 10"/></svg>{t('quotations.unvoidQuote')}
+              <Icon name="rotate-ccw" size={14} />
+              <span>{t('quotations.unvoidQuote')}</span>
             </button>
           ) : (
             <button style={{ ...menuItemStyle, color: '#92400e' }} onClick={() => { setOpen(false); onVoid(); }}>
-              🚫 {t('quotations.voidQuote')}
+              <Icon name="ban" size={14} />
+              <span>{t('quotations.voidQuote')}</span>
             </button>
           )}
         </div>
