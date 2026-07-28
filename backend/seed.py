@@ -1,60 +1,55 @@
 #!/usr/bin/env python3
 """
-seed.py — populate a fresh ERP database with rich, varied demo data
-that exercises every screen, state, and KPI in the system.
+seed.py — populate a fresh ERP database with rich, generically-named demo data
+that exercises every screen, state, KPI and report in the system.
 
-What you get (richer than the minimal version)
-----------------------------------------------
+Naming convention
+-----------------
+Every entity uses a neutral placeholder name so the dataset is presentable to
+any audience and carries no real-world branding:
+
+    Clients      Client Alpha … Client Sigma
+    Suppliers    Supplier Alpha … Supplier Zeta
+    Inventory    Material Alpha, Component Beta, Product Gamma, Consumable Delta
+    Projects     Project Alpha … Project Mu
+    Leads/Deals  Lead A … Lead H  /  Deal Alpha … Deal Epsilon
+    Employees    Employee A … Employee J
+    Assets       Equipment A, Vehicle B, Facility C …
+    Warehouses   Warehouse Alpha / Beta
+
+Descriptive words that are already generic (Materials, Rent, Utilities,
+Technician, Full-time…) are kept as-is — they are categories, not names.
+
+What you get
+------------
     Login          admin / Admin123!  (superadmin)
-    Tax            VAT 11% (default) + Reduced 5% + Zero-rated; engine ON
-    Clients        8 — mix of business + private, each with a phone so the
-                       WhatsApp share button is usable everywhere
-    Suppliers      4 — different payment terms + contacts
-    Inventory      12 — raw / semi-finished / finished / consumable, with
-                       several low-stock and out-of-stock states
-    Projects       4 — Inquiry / Active / Completed / On Hold
-    Quotations     4 — Draft / Sent / Accepted (converted) / Rejected
-    Invoices       6 — Paid / Partial / Unpaid / Overdue / Voided
-                       plus the one materialised from the accepted quote
-    Purchases      5 — Ordered / Received / Paid; tax recorded; the Paid
-                       ones automatically posted matching expenses
-    Expenses       10 — Materials / Labour / Utilities / Rent / Salary /
-                       Subscription / Transport / Insurance / Permits /
-                       Other; some VAT-tagged, some project-linked
-    Recurring      3 — Office Rent (monthly), Internet (quarterly),
-                       Software (annual); each back-posted
-    POS            open session + 5 sales (cash USD, cash LBP, card, mixed),
-                   1 returned sale (re-stocks + voids invoice)
-    Manufacturing  2 BOMs (one versioned twice) + 3 production orders
-                   across Draft / In Progress / Completed states
-    Fixed Assets   4 — Van / Computers / Furniture / Building; one already
-                   depreciated to current period, one disposed
-    Cash           Main Till + 1 secondary drawer; 2 closed reconciliations
-                   (one with a deliberate variance to demo the notification)
-    CRM            6 leads (New / Contacted / Qualified / Won / Lost),
-                   4 deals (across all stages), 5 contacts, 3 activities
-    Planning       2 projects + 8 tasks spread across statuses
-    HR             3 departments, 6 employees, 1 active leave, 1 past leave
-    Approvals      2 policies (Expense > $1k → Finance, Fixed Asset > $5k
-                   → Finance); plus 1 pending request triggered by a
-                   large expense
-    Notifications  fired by inventory low_stock, POS sales, production
-                   completion, depreciation run, cash variance, approval
-                   creation — the bell will show ~8 unread on first login
-    History        12 months of collected revenue + operating costs so every
-                   trend chart reads like a real, growing SMB (~$380k/yr
-                   revenue, ~18% net margin) instead of a current-month spike.
-                   See section 32 for how the cash-basis revenue is back-dated
-                   while keeping the ledger balanced.
+                   plus one user per RBAC role — u_<role> / Test1234!
+    Financials     18 months of history: ~$600k revenue, growing month over
+                   month, profitable every month at a realistic net margin.
+                   Every trend chart, P&L, balance sheet, cash-flow and aging
+                   report is populated across the whole window.
+    Accounting     Custom GL accounts, ~15 manual journal entries (capital,
+                   loan drawdown + repayments, prepaid amortisation, accruals
+                   and their reversals, FX, bank charges, owner drawings),
+                   auto-posted revenue/expense/payroll/depreciation entries,
+                   and two locked historical periods.
+    Every module   Clients, suppliers, inventory (all product types + stock
+                   states), warehouses + stock transfers, promotions,
+                   projects, quotations, invoices (every payment state),
+                   purchases, expenses, recurring expenses, POS, manufacturing
+                   (BOMs, resources, QC, lots, partial completion), fixed
+                   assets + depreciation, cash reconciliation, CRM, planning,
+                   HR (contracts, payroll, leave, attendance), recruitment,
+                   approvals, announcements and attachments.
 
 Design notes
 ------------
 The script drives the **real HTTP routers** via FastAPI's TestClient — no
-direct SQL except for the one-line admin-password reset. Going through
-the API guarantees every seeded row carries the same side-effects a real
-user would produce (audit logs, notifications, tax snapshots, stock
-movements, approval workflow triggers), so the seeded DB is a faithful
-preview of normal operation.
+direct SQL except (a) the one-line admin-password reset and (b) the historical
+date-shift described in the "Historical backfill" section. Going through the
+API guarantees every seeded row carries the same side-effects a real user would
+produce (audit logs, notifications, tax snapshots, stock movements, ledger
+postings), so the seeded DB is a faithful preview of normal operation.
 
 Run
 ---
@@ -65,10 +60,13 @@ from __future__ import annotations
 
 import argparse
 import io
+import math
 import os
+import random
 import sqlite3
 import sys
 import uuid
+from calendar import monthrange
 from datetime import datetime, timedelta
 from pathlib import Path
 
@@ -81,6 +79,9 @@ except Exception:
     sys.stdout = io.TextIOWrapper(sys.stdout.buffer, encoding="utf-8",
                                   line_buffering=True)
 
+# Reproducible: re-running the seed produces the same figures every time.
+random.seed(20250101)
+
 
 # ── Bootstrap — env must be set BEFORE importing the backend ────────────────
 _BACKEND_DIR = Path(__file__).resolve().parent
@@ -91,22 +92,20 @@ sys.path.insert(0, str(_BACKEND_DIR))
 
 
 # ── CLI ─────────────────────────────────────────────────────────────────────
-_parser = argparse.ArgumentParser(description="Seed the ERP with demo data.")
-_parser.add_argument(
-    "--reset", action="store_true",
-    help="Delete the existing database file before seeding (DESTRUCTIVE).",
-)
-_args = _parser.parse_args()
+_ap = argparse.ArgumentParser(description="Seed the ERP database with demo data.")
+_ap.add_argument("--reset", action="store_true",
+                 help="delete the target database file before seeding")
+_args = _ap.parse_args()
 
 DB_PATH = os.environ.get("DB_PATH") or str(_BACKEND_DIR.parent / "erp.db")
+os.environ["DB_PATH"] = DB_PATH
 
 if _args.reset:
-    for suffix in ("", "-wal", "-shm", "-journal"):
+    for suffix in ("", "-wal", "-shm"):
         p = Path(DB_PATH + suffix)
         if p.exists():
             p.unlink()
-    print(f"⚠  wiped {DB_PATH}")
-os.environ["DB_PATH"] = DB_PATH
+    print(f"✗  removed existing database at {DB_PATH}")
 
 
 # ── Schema + system seed (roles, tax rates, Main Till, admin user) ──────────
@@ -134,8 +133,7 @@ with sqlite3.connect(DB_PATH) as _con:
 
 
 # ── Per-role logins — one active user per RBAC role so every permission set can
-#    be exercised end-to-end. All share Test1234! with must_change_password=0.
-#    seed_users reads DB_PATH from the env we just set above. ─────────────────
+#    be exercised end-to-end. All share Test1234! with must_change_password=0. ─
 import seed_users  # noqa: E402
 
 ROLE_PASSWORD = seed_users.TEST_PASSWORD
@@ -180,7 +178,7 @@ def PATCH(path: str, body=None, *, expect=(200,)) -> dict:
     return r.json() if r.content else {}
 
 
-def GET(path: str) -> dict:
+def GET(path: str):
     r = client.get(path)
     if r.status_code != 200:
         raise RuntimeError(f"GET {path} → {r.status_code}: {r.text}")
@@ -191,693 +189,1010 @@ def header(title: str):
     print(f"\n── {title} {'─' * max(2, 62 - len(title))}")
 
 
+_TODAY = datetime.utcnow()
+
+
 def days_ago(n: int) -> str:
-    return (datetime.utcnow() - timedelta(days=n)).strftime("%Y-%m-%d")
+    return (_TODAY - timedelta(days=n)).strftime("%Y-%m-%d")
 
 
 def days_ahead(n: int) -> str:
-    return (datetime.utcnow() + timedelta(days=n)).strftime("%Y-%m-%d")
+    return (_TODAY + timedelta(days=n)).strftime("%Y-%m-%d")
 
 
-_today = datetime.utcnow().strftime("%Y-%m-%d")
-_month = datetime.utcnow().strftime("%Y-%m")
+def months_back(n: int):
+    """(year, month) n whole months before the current month."""
+    y, m = _TODAY.year, _TODAY.month - n
+    while m <= 0:
+        m += 12
+        y -= 1
+    return y, m
+
+
+def dstr(y: int, m: int, day: int) -> str:
+    """Safe YYYY-MM-DD — clamps the day to the month's length."""
+    return f"{y:04d}-{m:02d}-{min(day, monthrange(y, m)[1]):02d}"
+
+
+_month = _TODAY.strftime("%Y-%m")
+
+# How much history to build. 18 months gives every chart a full window plus a
+# prior calendar year for year-over-year comparisons and year-end closing.
+HISTORY_MONTHS = 18
+# The company "starts" at the beginning of that window (the capital injection
+# below is dated there). Nothing — assets, hires, contracts — predates it, so
+# depreciation and payroll never appear in months that have no revenue.
+COMPANY_START_DAYS = 30 * HISTORY_MONTHS - 20          # ≈ the window's first month
 
 
 # ════════════════════════════════════════════════════════════════════════════
-# 1. Tax — enable the engine, add a reduced 5% rate for variety
+# 1. Settings + tax engine
 # ════════════════════════════════════════════════════════════════════════════
-header("Tax engine")
-PUT("/api/settings/", {"tax_enabled": "1"})
-# Add a reduced rate so the VAT report has more than one taxable bucket to
-# break down — the per-rate chart only really sings with ≥ 2 active rates.
+header("Settings & tax")
+PUT("/api/settings/", {
+    "tax_enabled":      "1",
+    "company_name":     "Demo Company",
+    "show_discount_col": "1",
+})
+# A reduced rate so the VAT report has more than one taxable bucket to break
+# down — the per-rate chart only really sings with ≥ 2 active rates.
 POST("/api/tax-rates/", {"name": "Reduced VAT 5%", "rate": 5,
-                          "tax_type": "standard", "is_default": False})
+                         "tax_type": "standard", "is_default": False})
 _rates = GET("/api/tax-rates/")
 default_rate = next(r for r in _rates if r["is_default"])
 zero_rate    = next(r for r in _rates if r["rate"] == 0 and r["tax_type"] == "zero")
 reduced_rate = next(r for r in _rates if abs(r["rate"] - 5) < 0.01)
 TAX_DEFAULT, TAX_REDUCED, TAX_ZERO = default_rate["id"], reduced_rate["id"], zero_rate["id"]
-print(f"  rates active: {default_rate['name']}, {reduced_rate['name']}, {zero_rate['name']}")
+print(f"  tax on; rates: {default_rate['name']} / {reduced_rate['name']} / {zero_rate['name']}")
 
 
 # ════════════════════════════════════════════════════════════════════════════
-# 2. Clients — 8 with a mix of business + private and varied profiles
+# 2. Category registry — owner-defined lists that feed every picker
+# ════════════════════════════════════════════════════════════════════════════
+header("Categories")
+_cat_added = 0
+for domain, names in [
+    ("inventory", ["Components", "Finished Goods"]),
+    ("expense",   ["Maintenance", "Marketing"]),
+    ("asset",     ["Machinery", "Fixtures"]),
+    ("project",   ["Installation", "Consulting"]),
+]:
+    for n in names:
+        r = client.post("/api/categories/", json={"domain": domain, "name": n})
+        _cat_added += 1 if r.status_code in (200, 201) else 0
+print(f"  +{_cat_added} owner-defined categories across 4 domains")
+
+
+# ════════════════════════════════════════════════════════════════════════════
+# 3. Warehouses — a second + third location so transfers and the
+#    per-warehouse valuation report have something to show
+# ════════════════════════════════════════════════════════════════════════════
+header("Warehouses")
+_wh_existing = {w["code"]: w for w in GET("/api/warehouses/")}
+_wh_main = _wh_existing["MAIN"]
+
+
+def _warehouse(code, **body):
+    """Create the warehouse, or reuse it when re-seeding without --reset."""
+    if code in _wh_existing:
+        return _wh_existing[code]
+    return POST("/api/warehouses/", {"code": code, **body})
+
+
+wh_beta = _warehouse("WHB", name="Warehouse Beta", type="Branch",
+                     address="Secondary site", notes="Overflow + branch stock")
+wh_gamma = _warehouse("WHG", name="Warehouse Gamma", type="Production",
+                      address="Production floor", notes="Work-in-progress staging")
+WH_MAIN, WH_BETA, WH_GAMMA = _wh_main["id"], wh_beta["id"], wh_gamma["id"]
+print(f"  +2 warehouses (Warehouse Beta / Gamma) alongside {_wh_main['name']}")
+
+
+# ════════════════════════════════════════════════════════════════════════════
+# 4. Clients — 16, mixed business + private
 # ════════════════════════════════════════════════════════════════════════════
 header("Clients")
-clients = [
-    {"name": "Beirut Café",      "company": "Beirut Café SAL",
-     "phone": "70 123 456", "email": "hello@beirutcafe.lb",
-     "address": "Hamra St 14, Beirut",        "type": "business"},
-    {"name": "Cedar Logistics",  "company": "Cedar Logistics SARL",
-     "phone": "01 555 200", "email": "ops@cedarlogistics.lb",
-     "address": "Sin El Fil Industrial Zone", "type": "business"},
-    {"name": "Atlas Architects", "company": "Atlas Architects & Co",
-     "phone": "01 332 800", "email": "studio@atlas-arch.com",
-     "address": "Achrafieh, Beirut",          "type": "business"},
-    {"name": "Phoenicia Retail", "company": "Phoenicia Retail Group",
-     "phone": "01 700 900", "email": "purchase@phoenicia.com.lb",
-     "address": "Verdun Mall, Beirut",        "type": "business"},
-    {"name": "Sara Khoury",      "phone": "03 555 777",
-     "email": "sara.k@example.com",                                "type": "private"},
-    {"name": "Jad Saliba",       "phone": "76 222 888",
-     "email": "jad.saliba@example.com",                            "type": "private"},
-    {"name": "Layla Najjar",     "phone": "71 404 909",
-     "email": "layla.najjar@example.com",                          "type": "private"},
-    {"name": "Walid Younes",     "phone": "03 818 818",
-     "email": "walid.younes@example.com",                          "type": "private"},
-]
-client_ids = [POST("/api/clients/", c)["id"] for c in clients]
-(CL_BEIRUT_CAFE, CL_CEDAR_LOG, CL_ATLAS, CL_PHOENICIA,
- CL_SARA, CL_JAD, CL_LAYLA, CL_WALID) = client_ids
-print(f"  +{len(client_ids)} clients (4 business + 4 private)")
+_GREEK = ["Alpha", "Beta", "Gamma", "Delta", "Epsilon", "Zeta", "Eta", "Theta",
+          "Iota", "Kappa", "Lambda", "Mu", "Nu", "Xi", "Omicron", "Sigma"]
+
+clients_seed = []
+for i, g in enumerate(_GREEK):
+    business = i < 10
+    clients_seed.append({
+        "name":    f"Client {g}",
+        "company": f"Client {g} Ltd" if business else None,
+        "phone":   f"+1 555 01{i:02d}",
+        "email":   f"contact@client-{g.lower()}.example",
+        "address": f"{100 + i} Example Street, Unit {i + 1}",
+        "type":    "business" if business else "private",
+    })
+CLIENT_IDS = [POST("/api/clients/", {k: v for k, v in c.items() if v is not None})["id"]
+              for c in clients_seed]
+CL = dict(zip(_GREEK, CLIENT_IDS))          # CL["Alpha"] → id
+BUSINESS_CLIENTS = CLIENT_IDS[:10]
+print(f"  +{len(CLIENT_IDS)} clients (10 business + 6 private)")
 
 
 # ════════════════════════════════════════════════════════════════════════════
-# 3. Suppliers
+# 5. Suppliers
 # ════════════════════════════════════════════════════════════════════════════
 header("Suppliers")
-suppliers = [
-    {"name": "Cedar Wholesale",   "contact_name": "Rami Hannoun",
-     "phone": "01 200 300", "email": "sales@cedarwh.lb",
-     "payment_terms_days": 30,
-     "notes": "Wood + raw materials"},
-    {"name": "ProTools Lebanon",  "contact_name": "Lina Saadeh",
-     "phone": "01 444 555", "email": "orders@protools.lb",
-     "payment_terms_days": 15},
-    {"name": "Med Beverages",     "contact_name": "Ziad Khoury",
-     "phone": "01 911 911", "email": "ziad@medbev.lb",
-     "payment_terms_days": 60,
-     "notes": "Coffee + beverage imports"},
-    {"name": "OfficeMax Lebanon", "contact_name": "Nour Daher",
-     "phone": "01 660 661", "email": "nour@officemax.lb",
-     "payment_terms_days": 30},
-]
-supplier_ids = [POST("/api/suppliers/", s)["id"] for s in suppliers]
-SUP_CEDAR, SUP_PROTOOLS, SUP_MEDBEV, SUP_OFFICEMAX = supplier_ids
-print(f"  +{len(supplier_ids)} suppliers")
+supplier_ids = []
+for i, g in enumerate(["Alpha", "Beta", "Gamma", "Delta", "Epsilon", "Zeta"]):
+    supplier_ids.append(POST("/api/suppliers/", {
+        "name":         f"Supplier {g}",
+        "contact_name": f"Contact {chr(65 + i)}",
+        "phone":        f"+1 555 02{i:02d}",
+        "email":        f"sales@supplier-{g.lower()}.example",
+        "payment_terms_days": [30, 15, 60, 30, 45, 30][i],
+        "notes":        f"Supplies group {g}",
+    })["id"])
+SUP_A, SUP_B, SUP_C, SUP_D, SUP_E, SUP_F = supplier_ids
+print(f"  +{len(supplier_ids)} suppliers with varied payment terms")
 
 
 # ════════════════════════════════════════════════════════════════════════════
-# 4. Inventory — 12 items spanning every product_type + stock state
+# 6. Inventory — every product type + every stock state
 # ════════════════════════════════════════════════════════════════════════════
 header("Inventory")
 inv = {}
+INV_NAME: dict[str, str] = {}          # key → display name (create response omits it)
 inventory_seed = [
-    # name, category, ptype, qty, cost, sale, min_stock, supplier, barcode, unit
-    ("wood",      "Pine Wood Plank",   "Wood",        "raw_material", 200,  4.00,    0,  20, "Cedar Wholesale", None, "pcs"),
-    ("nails",     "Iron Nails 50mm",   "Hardware",    "raw_material", 1000, 0.05,    0, 100, "Cedar Wholesale", None, "pcs"),
-    ("varnish",   "Wood Varnish 1L",   "Chemicals",   "raw_material", 30,   12.00,   0,  10, "Cedar Wholesale", None, "L"),
-    ("subframe",  "Table Sub-frame",   "Furniture",   "semi_finished", 8,  35.00,    0,   3, None,              None, "pcs"),
-    ("table",     "Dining Table",      "Furniture",   "finished",      0,   0.00,  220,   2, None,              None, "pcs"),
-    ("chair",     "Wooden Chair",      "Furniture",   "finished",     12,  18.00,   55,   4, None,              None, "pcs"),
-    ("coffee",    "Coffee Beans 1kg",  "Beverage",    "finished",     50,   8.00,   18,  10, "Med Beverages",   "5901234123457", "kg"),
-    ("tea",       "Premium Tea 250g",  "Beverage",    "finished",     0,    4.00,   12,   5, "Med Beverages",   "5901234123464", "pack"),
-    ("milk",      "Milk Powder 500g",  "Beverage",    "finished",     2,    3.50,    9,  10, "Med Beverages",   None,   "pack"),
-    ("napkins",   "Paper Napkins",     "Consumables", "consumable",    3,    2.00,    4,  20, "OfficeMax Lebanon", None, "pack"),
-    ("cups",      "Disposable Cups",   "Consumables", "consumable",  500,   0.10,    0, 200, "OfficeMax Lebanon", None, "pcs"),
-    ("printer_p", "Printer Paper A4",  "Office",      "consumable",   80,   3.20,    0,  20, "OfficeMax Lebanon", None, "ream"),
+    # key,        name,               category,         type,            qty,  cost,  sale, min, supplier
+    ("mat_a",  "Material Alpha",   "Materials",      "raw_material",   1400,  4.00,    0,  200, "Supplier Alpha"),
+    ("mat_b",  "Material Beta",    "Materials",      "raw_material",   6000,  0.05,    0,  500, "Supplier Alpha"),
+    ("mat_c",  "Material Gamma",   "Materials",      "raw_material",    240, 12.00,    0,   40, "Supplier Beta"),
+    ("mat_d",  "Material Delta",   "Materials",      "raw_material",     18,  9.50,    0,   30, "Supplier Beta"),   # low
+    ("cmp_a",  "Component Alpha",  "Components",     "semi_finished",    60, 35.00,    0,   10, None),
+    ("cmp_b",  "Component Beta",   "Components",     "semi_finished",    26, 22.00,    0,   10, None),
+    ("prd_a",  "Product Alpha",    "Finished Goods", "finished",         42, 96.00,  220,   10, None),
+    ("prd_b",  "Product Beta",     "Finished Goods", "finished",        130, 18.00,   55,   25, None),
+    ("prd_c",  "Product Gamma",    "Finished Goods", "finished",        260,  8.00,   18,   40, "Supplier Gamma"),
+    ("prd_d",  "Product Delta",    "Finished Goods", "finished",          0,  4.00,   12,   15, "Supplier Gamma"),  # out
+    ("prd_e",  "Product Epsilon",  "Finished Goods", "finished",          6,  3.50,    9,   20, "Supplier Gamma"),  # low
+    ("prd_f",  "Product Zeta",     "Finished Goods", "finished",         85, 26.00,   62,   15, None),
+    ("con_a",  "Consumable Alpha", "Consumables",    "consumable",        9,  2.00,    4,   30, "Supplier Delta"),  # low
+    ("con_b",  "Consumable Beta",  "Consumables",    "consumable",     2200,  0.10,    1,  400, "Supplier Delta"),
+    ("con_c",  "Consumable Gamma", "Consumables",    "consumable",      320,  3.20,    7,   60, "Supplier Delta"),
 ]
-for key, name, cat, ptype, qty, cost, sale, mn, sup, barcode, unit in inventory_seed:
+for key, name, cat, ptype, qty, cost, sale, mn, sup in inventory_seed:
     body = {"name": name, "category": cat, "product_type": ptype,
             "quantity": qty, "unit_cost": cost, "sale_price": sale,
-            "min_stock": mn, "unit": unit}
-    if sup:     body["supplier"] = sup
-    if barcode: body["barcode"]  = barcode
+            "min_stock": mn, "unit": "pcs"}
+    if sup:
+        body["supplier"] = sup
     inv[key] = POST("/api/inventory/", body)
+    INV_NAME[key] = name
 
-print(f"  +{len(inv)} inventory items "
-      "(napkins/milk below min_stock, tea at 0 → low-stock notifs)")
+# Lot-tracked pair used by the QC / traceability production run below.
+inv["lot_raw"] = POST("/api/inventory/", {
+    "name": "Material Epsilon (lot-tracked)", "category": "Materials",
+    "product_type": "raw_material", "quantity": 900, "unit_cost": 2.0,
+    "unit": "kg", "lot_tracked": True, "shelf_life_days": 365})
+inv["lot_fg"] = POST("/api/inventory/", {
+    "name": "Product Eta (lot-tracked)", "category": "Finished Goods",
+    "product_type": "finished", "quantity": 0, "unit_cost": 0, "sale_price": 40,
+    "min_stock": 10, "unit": "pcs", "lot_tracked": True, "shelf_life_days": 730})
+INV_NAME["lot_raw"], INV_NAME["lot_fg"] = "Material Epsilon (lot-tracked)", "Product Eta (lot-tracked)"
+print(f"  +{len(inv)} items — 1 out of stock, 3 below minimum → low-stock alerts")
 
 
 # ════════════════════════════════════════════════════════════════════════════
-# 5. Operational projects
+# 7. Promotions — POS discount rules
+# ════════════════════════════════════════════════════════════════════════════
+header("Promotions")
+POST("/api/promotions/", {
+    "name": "Promotion Alpha — 10% off Finished Goods", "scope_type": "category",
+    "scope_value": "Finished Goods", "discount_value": 10,
+    "start_date": days_ago(20), "end_date": days_ahead(20), "active": True})
+POST("/api/promotions/", {
+    "name": "Promotion Beta — 15% off Product Gamma", "scope_type": "item",
+    "scope_value": str(inv["prd_c"]["id"]), "discount_value": 15,
+    "start_date": days_ago(5), "end_date": days_ahead(30),
+    "max_quantity": 100, "active": True})
+POST("/api/promotions/", {
+    "name": "Promotion Gamma — expired storewide", "scope_type": "all",
+    "discount_value": 5, "start_date": days_ago(90), "end_date": days_ago(60),
+    "active": False})
+print("  +3 promotions (2 live, 1 expired)")
+
+
+# ════════════════════════════════════════════════════════════════════════════
+# 8. Projects — 12 across the full status spectrum
 # ════════════════════════════════════════════════════════════════════════════
 header("Projects")
-projects = [
-    POST("/api/projects/", {
-        "name": "Café fit-out",              "client_id": CL_BEIRUT_CAFE,
-        "location": "Hamra", "status": "Active",
-        "start_date": days_ago(30), "estimated_cost": 5000,
-        "expected_revenue": 8000, "description": "New seating + bar refit"}),
-    POST("/api/projects/", {
-        "name": "Custom dining set",         "client_id": CL_SARA,
-        "status": "Completed",
-        "start_date": days_ago(45), "end_date": days_ago(5),
-        "estimated_cost": 1500, "expected_revenue": 2400}),
-    POST("/api/projects/", {
-        "name": "Office furniture refresh",  "client_id": CL_ATLAS,
-        "status": "Inquiry",
-        "start_date": days_ahead(15), "estimated_cost": 4000,
-        "expected_revenue": 6500,
-        "description": "Replacing legacy desks and chairs"}),
-    POST("/api/projects/", {
-        "name": "Phoenicia branch — phase 1", "client_id": CL_PHOENICIA,
-        "status": "On Hold",
-        "start_date": days_ago(60), "estimated_cost": 12000,
-        "expected_revenue": 18000,
-        "description": "Paused while client finalises lease"}),
+projects_seed = [
+    ("Project Alpha",   "Alpha",   "Active",    -40,  None,  9000, 14000, "Fit-out and installation"),
+    ("Project Beta",    "Beta",    "Completed", -150,  -35,  7000, 11000, "Delivered and signed off"),
+    ("Project Gamma",   "Gamma",   "Inquiry",     10,  None,  4000,  6500, "Awaiting client approval"),
+    ("Project Delta",   "Delta",   "On Hold",    -70,  None, 12000, 18000, "Paused pending client decision"),
+    ("Project Epsilon", "Epsilon", "Active",     -25,  None,  3500,  5500, "Phase 1 of 3"),
+    ("Project Zeta",    "Zeta",    "Active",     -55,  None,  5500,  8500, "Multi-site rollout"),
+    ("Project Eta",     "Eta",     "Completed", -220, -120,  6200,  9800, "Closed last quarter"),
+    ("Project Theta",   "Theta",   "Inquiry",     20,  None,  6000,  9000, "Scoping in progress"),
+    ("Project Iota",    "Iota",    "Active",     -15,  None,  4200,  6800, "On schedule"),
+    ("Project Kappa",   "Kappa",   "On Hold",    -95,  None,  2000,  3200, "Awaiting material selection"),
+    ("Project Lambda",  "Lambda",  "Completed", -300, -210,  8000, 12500, "Prior-year delivery"),
+    ("Project Mu",      "Mu",      "Active",     -10,  None,  5000,  7600, "Recently started"),
 ]
-PRJ_CAFE, PRJ_DINING, PRJ_OFFICE, PRJ_PHOENICIA = (p["id"] for p in projects)
-print(f"  +{len(projects)} projects (Active / Completed / Inquiry / On Hold)")
+PRJ = {}
+for name, cl_key, status, start_off, end_off, est, rev, desc in projects_seed:
+    body = {"name": name, "client_id": CL[cl_key], "status": status,
+            "start_date": days_ago(-start_off) if start_off < 0 else days_ahead(start_off),
+            "estimated_cost": est, "expected_revenue": rev, "description": desc,
+            "location": "Site " + name.split()[-1]}
+    if end_off is not None:
+        body["end_date"] = days_ago(-end_off)
+    PRJ[name.split()[-1]] = POST("/api/projects/", body)["id"]
+print(f"  +{len(PRJ)} projects (Active / Completed / Inquiry / On Hold)")
 
 
 # ════════════════════════════════════════════════════════════════════════════
-# 6. Quotations — covering Draft, Sent, Accepted (→ invoice), Rejected
+# 9. Quotations — every status, several converted to invoices
 # ════════════════════════════════════════════════════════════════════════════
 header("Quotations")
-q_draft = POST("/api/quotations/", {
-    "client_id": CL_BEIRUT_CAFE, "project_id": PRJ_CAFE,
-    "items": [
-        {"name": "Bar counter (custom)", "quantity": 1, "unit_price": 1800,
-         "tax_rate_id": TAX_DEFAULT},
-        {"name": "Bar stools",           "quantity": 6, "unit_price":  120,
-         "tax_rate_id": TAX_DEFAULT},
-    ],
-    "notes": "Includes delivery + installation",
-})
-
-q_sent = POST("/api/quotations/", {
-    "client_id": CL_ATLAS, "project_id": PRJ_OFFICE,
-    "items": [
-        {"name": "Office desks (×8)",  "quantity": 8, "unit_price": 320, "tax_rate_id": TAX_DEFAULT},
-        {"name": "Ergonomic chairs",   "quantity": 8, "unit_price": 180, "tax_rate_id": TAX_DEFAULT},
-        {"name": "Cable management",   "quantity": 1, "unit_price":  90, "tax_rate_id": TAX_REDUCED},
-    ],
-})
-PUT(f"/api/quotations/{q_sent['id']}", {
-    "client_id": CL_ATLAS, "project_id": PRJ_OFFICE, "status": "Sent",
-    "items": [
-        {"name": "Office desks (×8)",  "quantity": 8, "unit_price": 320, "tax_rate_id": TAX_DEFAULT},
-        {"name": "Ergonomic chairs",   "quantity": 8, "unit_price": 180, "tax_rate_id": TAX_DEFAULT},
-        {"name": "Cable management",   "quantity": 1, "unit_price":  90, "tax_rate_id": TAX_REDUCED},
-    ],
-})
-
-q_accept = POST("/api/quotations/", {
-    "client_id": CL_SARA, "project_id": PRJ_DINING,
-    "items": [{"name": "Dining set (table + 4 chairs)", "quantity": 1,
-               "unit_price": 1400, "tax_rate_id": TAX_DEFAULT}],
-})
-PUT(f"/api/quotations/{q_accept['id']}", {
-    "client_id": CL_SARA, "project_id": PRJ_DINING, "status": "Accepted",
-    "items": [{"name": "Dining set (table + 4 chairs)", "quantity": 1,
-               "unit_price": 1400, "tax_rate_id": TAX_DEFAULT}],
-})
-conv = POST(f"/api/quotations/{q_accept['id']}/convert-to-invoice")
-
-q_rejected = POST("/api/quotations/", {
-    "client_id": CL_WALID,
-    "items": [{"name": "Custom shelving unit", "quantity": 1, "unit_price": 750,
-               "tax_rate_id": TAX_DEFAULT}],
-})
-PUT(f"/api/quotations/{q_rejected['id']}", {
-    "client_id": CL_WALID, "status": "Rejected",
-    "items": [{"name": "Custom shelving unit", "quantity": 1, "unit_price": 750,
-               "tax_rate_id": TAX_DEFAULT}],
-})
-print(f"  +4 quotations (Draft / Sent / Accepted → {conv.get('invoice_number')} / Rejected)")
+quotes_seed = [
+    ("Alpha",   "Alpha",   "Draft",    [("Service package A", 1, 1800, TAX_DEFAULT),
+                                        ("Product Beta",      6,  120, TAX_DEFAULT)]),
+    ("Gamma",   "Gamma",   "Sent",     [("Product Alpha",     8,  320, TAX_DEFAULT),
+                                        ("Product Beta",      8,  180, TAX_DEFAULT),
+                                        ("Installation",      1,   90, TAX_REDUCED)]),
+    ("Epsilon", "Epsilon", "Accepted", [("Service package B", 1, 1900, TAX_DEFAULT),
+                                        ("Product Zeta",      4,  130, TAX_DEFAULT)]),
+    ("Zeta",    "Zeta",    "Accepted", [("Fixtures set",      1, 3400, TAX_DEFAULT)]),
+    ("Theta",   "Theta",   "Sent",     [("Product Gamma",     3,  520, TAX_REDUCED)]),
+    ("Iota",    "Iota",    "Rejected", [("Custom unit",       1, 1250, TAX_DEFAULT)]),
+    ("Delta",   "Delta",   "Sent",     [("Product Alpha",     5,  260, TAX_DEFAULT)]),
+    ("Nu",      None,      "Draft",    [("Repair service",    1,  480, TAX_DEFAULT)]),
+    ("Xi",      None,      "Rejected", [("Product Delta",     2,  310, TAX_DEFAULT)]),
+    ("Mu",      "Mu",      "Accepted", [("Product Zeta",      6,  180, TAX_DEFAULT)]),
+]
+_converted = 0
+for cl_key, prj_key, status, lines in quotes_seed:
+    items = [{"name": n, "quantity": q, "unit_price": p, "tax_rate_id": t}
+             for n, q, p, t in lines]
+    body = {"client_id": CL[cl_key], "items": items,
+            "notes": f"Quotation for Client {cl_key}"}
+    if prj_key:
+        body["project_id"] = PRJ[prj_key]
+    q = POST("/api/quotations/", body)
+    if status != "Draft":
+        upd = {"client_id": CL[cl_key], "status": status, "items": items}
+        if prj_key:
+            upd["project_id"] = PRJ[prj_key]
+        PUT(f"/api/quotations/{q['id']}", upd)
+    if status == "Accepted":
+        POST(f"/api/quotations/{q['id']}/convert-to-invoice")
+        _converted += 1
+print(f"  +{len(quotes_seed)} quotations ({_converted} accepted → invoices)")
 
 
 # ════════════════════════════════════════════════════════════════════════════
-# 7. Invoices — full payment-state matrix
+# 10. Invoices — the current-state payment matrix (history comes later)
 # ════════════════════════════════════════════════════════════════════════════
 header("Invoices")
-# Fully paid
-inv_paid = POST("/api/invoices/", {
-    "client_id": CL_CEDAR_LOG,
-    "items": [{"name": "Consulting hours", "quantity": 5, "unit_price": 80,
-               "tax_rate_id": TAX_DEFAULT}],
-    "notes": "April advisory",
-})
-amt = GET(f"/api/invoices/{inv_paid['id']}")["amount"]
-POST(f"/api/invoices/{inv_paid['id']}/payments",
-     {"amount": amt, "method": "Bank Transfer", "idempotency_key": str(uuid.uuid4())})
 
-# Partially paid
-inv_partial = POST("/api/invoices/", {
-    "client_id": CL_BEIRUT_CAFE,
-    "items": [{"name": "Maintenance retainer", "quantity": 1, "unit_price": 600,
-               "tax_rate_id": TAX_DEFAULT}],
-})
-POST(f"/api/invoices/{inv_partial['id']}/payments",
-     {"amount": 300, "method": "Cash", "idempotency_key": str(uuid.uuid4())})
 
-# Unpaid (not yet overdue) — open invoice for someone we know
-POST("/api/invoices/", {
-    "client_id": CL_LAYLA,
-    "items": [{"name": "Custom bookshelf",  "quantity": 1, "unit_price": 880,
-               "tax_rate_id": TAX_DEFAULT}],
-    "due_date": days_ahead(10),
-})
+def _invoice(cl_key, lines, *, due_in=None, pay=None, project=None, notes=None):
+    """Create an invoice; `pay` in {None,'full','partial'}. Returns (id, amount)."""
+    body = {"client_id": CL[cl_key],
+            "items": [{"name": n, "quantity": q, "unit_price": p, "tax_rate_id": t}
+                      for n, q, p, t in lines]}
+    if due_in is not None:
+        body["due_date"] = days_ahead(due_in) if due_in >= 0 else days_ago(-due_in)
+    if project:
+        body["project_id"] = PRJ[project]
+    if notes:
+        body["notes"] = notes
+    iv  = POST("/api/invoices/", body)
+    amt = GET(f"/api/invoices/{iv['id']}")["amount"]
+    if pay == "full":
+        POST(f"/api/invoices/{iv['id']}/payments",
+             {"amount": amt, "method": "Bank Transfer",
+              "idempotency_key": str(uuid.uuid4())})
+    elif pay == "partial":
+        POST(f"/api/invoices/{iv['id']}/payments",
+             {"amount": round(amt * 0.4, 2), "method": "Cash",
+              "idempotency_key": str(uuid.uuid4())})
+    return iv["id"], amt
 
-# Overdue
-POST("/api/invoices/", {
-    "client_id": CL_JAD,
-    "items": [{"name": "Delivery fees", "quantity": 1, "unit_price": 250,
-               "tax_rate_id": TAX_DEFAULT}],
-    "due_date": days_ago(20),
-})
 
+inv_paid_id, _ = _invoice("Beta", [("Consulting hours", 5, 80, TAX_DEFAULT)],
+                          pay="full", notes="Settled in full")
+_invoice("Alpha", [("Maintenance retainer", 1, 600, TAX_DEFAULT)], pay="partial")
+_invoice("Kappa", [("Product Alpha", 1, 880, TAX_DEFAULT)], due_in=10)
+_invoice("Nu",    [("Delivery service", 1, 250, TAX_DEFAULT)], due_in=-20)
+_invoice("Xi",    [("Product Beta", 2, 210, TAX_DEFAULT)], due_in=-45)
+# Mixed-rate invoice so the VAT-by-rate report has real variety.
+_invoice("Delta", [("Standard goods", 2, 500, TAX_DEFAULT),
+                   ("Reduced-rate goods", 1, 300, TAX_REDUCED),
+                   ("Zero-rated item", 1, 50, TAX_ZERO)], due_in=14)
 # Voided
-inv_void = POST("/api/invoices/", {
-    "client_id": CL_WALID,
-    "items": [{"name": "Cancelled order", "quantity": 1, "unit_price": 410,
-               "tax_rate_id": TAX_DEFAULT}],
-})
-PATCH(f"/api/invoices/{inv_void['id']}/void",
-      {"reason": "Customer cancelled before delivery"})
-
-# Multi-line invoice with mixed tax rates (so the VAT-by-rate report has variety)
-POST("/api/invoices/", {
-    "client_id": CL_PHOENICIA,
-    "items": [
-        {"name": "Standard services", "quantity": 2, "unit_price": 500, "tax_rate_id": TAX_DEFAULT},
-        {"name": "Reduced rate goods", "quantity": 1, "unit_price": 300, "tax_rate_id": TAX_REDUCED},
-        {"name": "Exempt postage",     "quantity": 1, "unit_price":  50, "tax_rate_id": TAX_ZERO},
-    ],
-})
-print("  +6 invoices: Paid / Partial / Unpaid / Overdue / Voided / Mixed-rate")
+_void_id, _ = _invoice("Omicron", [("Cancelled order", 1, 410, TAX_DEFAULT)])
+PATCH(f"/api/invoices/{_void_id}/void", {"reason": "Customer cancelled before delivery"})
+print("  +7 invoices: paid / partial / open / overdue / mixed-rate / voided")
 
 
 # ════════════════════════════════════════════════════════════════════════════
-# 8. Purchases — across every status with side-effects
+# 11. Purchases — every status; paid ones post expenses + input VAT
 # ════════════════════════════════════════════════════════════════════════════
 header("Purchases")
 purchases = [
-    # Ordered (not yet received) — just opens stock pipeline
-    {"supplier": "Cedar Wholesale", "product_name": "Pine Wood Plank",
-     "inventory_id": inv["wood"]["id"], "quantity": 50, "unit_cost": 4,
-     "additional_costs": 25, "tax_rate_id": TAX_DEFAULT, "status": "Ordered"},
-    # Received → stock credited but no expense yet
-    {"supplier": "Cedar Wholesale", "product_name": "Iron Nails 50mm",
-     "inventory_id": inv["nails"]["id"], "quantity": 800, "unit_cost": 0.05,
-     "additional_costs": 0, "tax_rate_id": TAX_DEFAULT, "status": "Received"},
-    # Paid → expense + landed-cost update + input VAT in the report
-    {"supplier": "ProTools Lebanon", "product_name": "Wood Varnish 1L",
-     "inventory_id": inv["varnish"]["id"], "quantity": 20, "unit_cost": 11,
-     "additional_costs": 5, "tax_rate_id": TAX_DEFAULT, "status": "Paid"},
-    # Paid + tax (large) — bumps Finance input VAT and feeds the dashboard
-    {"supplier": "Med Beverages", "product_name": "Coffee Beans 1kg",
-     "inventory_id": inv["coffee"]["id"], "quantity": 100, "unit_cost": 7.50,
-     "additional_costs": 30, "tax_rate_id": TAX_DEFAULT, "status": "Paid"},
-    # Paid with reduced VAT
-    {"supplier": "OfficeMax Lebanon", "product_name": "Printer Paper A4",
-     "inventory_id": inv["printer_p"]["id"], "quantity": 50, "unit_cost": 2.80,
-     "additional_costs": 8, "tax_rate_id": TAX_REDUCED, "status": "Paid"},
+    ("Supplier Alpha", "Material Alpha",  inv["mat_a"]["id"], 300, 4.00,  25, TAX_DEFAULT, "Ordered"),
+    ("Supplier Alpha", "Material Beta",   inv["mat_b"]["id"], 2000, 0.05,  0, TAX_DEFAULT, "Received"),
+    ("Supplier Beta",  "Material Gamma",  inv["mat_c"]["id"], 120, 11.00,  5, TAX_DEFAULT, "Paid"),
+    ("Supplier Gamma", "Product Gamma",   inv["prd_c"]["id"], 200,  7.50, 30, TAX_DEFAULT, "Paid"),
+    ("Supplier Delta", "Consumable Gamma", inv["con_c"]["id"], 150, 2.80,  8, TAX_REDUCED, "Paid"),
+    ("Supplier Beta",  "Material Delta",  inv["mat_d"]["id"], 100,  9.00, 12, TAX_DEFAULT, "Ordered"),
+    ("Supplier Delta", "Consumable Alpha", inv["con_a"]["id"], 200, 1.90,  6, TAX_DEFAULT, "Received"),
 ]
-for po in purchases:
-    POST("/api/purchases/", po)
-print(f"  +{len(purchases)} purchases (1 Ordered, 1 Received, 3 Paid → expenses)")
+for sup, pname, iid, qty, cost, extra, tax, status in purchases:
+    POST("/api/purchases/", {
+        "supplier": sup, "product_name": pname, "inventory_id": iid,
+        "quantity": qty, "unit_cost": cost, "additional_costs": extra,
+        "tax_rate_id": tax, "status": status})
+print(f"  +{len(purchases)} purchases (2 Ordered, 2 Received, 3 Paid → expenses)")
 
 
 # ════════════════════════════════════════════════════════════════════════════
-# 9. Expenses — 10 across every realistic SME category
-# ════════════════════════════════════════════════════════════════════════════
-header("Expenses")
-expense_seed = [
-    {"category": "Utilities",     "amount": 222, "tax_rate_id": TAX_DEFAULT,
-     "description": "Electricity – April",         "payment_method": "Bank Transfer"},
-    {"category": "Subcontractor", "amount": 750, "project_id": PRJ_CAFE,
-     "description": "Plumbing crew",               "payment_method": "Cash"},
-    {"category": "Materials",     "amount": 520, "project_id": PRJ_DINING,
-     "description": "Hardware for dining set",     "tax_rate_id": TAX_DEFAULT},
-    {"category": "Transport",     "amount":  60,
-     "description": "Fuel reimbursement"},
-    {"category": "Subscription",  "amount": 199, "tax_rate_id": TAX_DEFAULT,
-     "description": "Accounting software – annual","payment_method": "Card"},
-    {"category": "Insurance",     "amount": 850,
-     "description": "Workshop insurance — Q2",     "payment_method": "Bank Transfer"},
-    {"category": "Permits",       "amount": 180,
-     "description": "Trade permit renewal"},
-    {"category": "Salary",        "amount": 1200,
-     "description": "April payroll — Omar",        "payment_method": "Bank Transfer"},
-    {"category": "Other",         "amount":  45,
-     "description": "Office snacks",               "payment_method": "Cash"},
-    # Large one — should TRIGGER the approval policy seeded below.
-    {"category": "Materials",     "amount": 1800, "project_id": PRJ_PHOENICIA,
-     "description": "Large hardware order",        "tax_rate_id": TAX_DEFAULT,
-     "payment_method": "Bank Transfer"},
-]
-for e in expense_seed:
-    POST("/api/finance/expenses", e)
-print(f"  +{len(expense_seed)} expenses (1 large → triggers approval workflow)")
-
-
-# ════════════════════════════════════════════════════════════════════════════
-# 10. Recurring expense templates — 3 frequencies for variety
+# 12. Recurring expense templates — 3 frequencies, each back-posted
 # ════════════════════════════════════════════════════════════════════════════
 header("Recurring expenses")
 recurring_seed = [
-    {"name": "Office Rent",      "category": "Rent",         "amount": 1110,
-     "frequency": "monthly",  "start_date": days_ago(120),
-     "tax_rate_id": TAX_DEFAULT, "description": "HQ rent — Hamra"},
-    {"name": "Internet & Phone", "category": "Utilities",    "amount":  333,
-     "frequency": "quarterly","start_date": days_ago(120),
-     "tax_rate_id": TAX_DEFAULT, "description": "Fibre + landlines"},
-    {"name": "Accounting SaaS",  "category": "Subscription", "amount":  444,
-     "frequency": "annual",   "start_date": days_ago(60),
-     "tax_rate_id": TAX_DEFAULT, "description": "Bookkeeping software seat"},
+    {"name": "Recurring — Facility Rent", "category": "Rent", "amount": 1100,
+     "frequency": "monthly", "start_date": days_ago(120),
+     "tax_rate_id": TAX_DEFAULT, "description": "Monthly facility rent"},
+    {"name": "Recurring — Connectivity", "category": "Utilities", "amount": 330,
+     "frequency": "quarterly", "start_date": days_ago(120),
+     "tax_rate_id": TAX_DEFAULT, "description": "Network and phone lines"},
+    {"name": "Recurring — Software Licence", "category": "Subscription", "amount": 440,
+     "frequency": "annual", "start_date": days_ago(60),
+     "tax_rate_id": TAX_DEFAULT, "description": "Annual software seat"},
 ]
 for tpl_body in recurring_seed:
     tpl = POST("/api/recurring-expenses", tpl_body)
     POST(f"/api/recurring-expenses/{tpl['id']}/run")
-print(f"  +{len(recurring_seed)} templates back-posted onto the P&L")
+print(f"  +{len(recurring_seed)} templates, each posted onto the P&L")
 
 
 # ════════════════════════════════════════════════════════════════════════════
-# 11. POS — open session + 5 sales + 1 returned sale
+# 13. POS — open session, varied tenders, one refund
 # ════════════════════════════════════════════════════════════════════════════
 header("POS")
-POST("/api/pos/session/open", json := {"opening_float": 100})
+POST("/api/pos/session/open", {"opening_float": 200})
 
-def _checkout(items, method="Cash", tendered=None, currency="USD"):
+
+def _checkout(items, method="Cash", tendered=None):
     body = {"items": items, "payment_method": method,
             "idempotency_key": str(uuid.uuid4())}
     if method.lower() == "cash":
         body["amount_tendered"] = tendered if tendered is not None else \
-                                   sum(i["quantity"] * i["unit_price"] for i in items) + 5
+            sum(i["quantity"] * i["unit_price"] for i in items) + 10
     else:
         body["amount_tendered"] = 0
     return POST("/api/pos/checkout", body)
 
-# Sale 1 — straightforward cash sale (2 lines)
-_checkout([
-    {"inventory_id": inv["coffee"]["id"],  "name": "Coffee Beans 1kg",
-     "quantity": 2, "unit_price": 18, "tax_rate_id": TAX_DEFAULT},
-    {"inventory_id": inv["napkins"]["id"], "name": "Paper Napkins",
-     "quantity": 1, "unit_price":  4, "tax_rate_id": TAX_DEFAULT},
-])
-# Sale 2 — coffee + chair (mixed, decent ticket)
-_checkout([
-    {"inventory_id": inv["chair"]["id"],   "name": "Wooden Chair",
-     "quantity": 1, "unit_price": 55, "tax_rate_id": TAX_DEFAULT},
-    {"inventory_id": inv["coffee"]["id"],  "name": "Coffee Beans 1kg",
-     "quantity": 3, "unit_price": 18, "tax_rate_id": TAX_DEFAULT},
-])
-# Sale 3 — card sale, single line
-_checkout(
-    [{"inventory_id": inv["chair"]["id"], "name": "Wooden Chair",
-      "quantity": 2, "unit_price": 55, "tax_rate_id": TAX_DEFAULT}],
-    method="Card",
-)
-# Sale 4 — service / custom line (no inventory id)
-_checkout([
-    {"inventory_id": None, "name": "Custom engraving service",
-     "quantity": 1, "unit_price": 35, "tax_rate_id": TAX_DEFAULT},
-])
-# Sale 5 — to be RETURNED below
-sale_to_return = _checkout([
-    {"inventory_id": inv["coffee"]["id"], "name": "Coffee Beans 1kg",
-     "quantity": 4, "unit_price": 18, "tax_rate_id": TAX_DEFAULT},
-])
-# Refund — voids invoice, restocks
-POST(f"/api/pos/sales/{sale_to_return['id']}/return",
-     {"reason": "customer changed their mind"})
 
-print("  open session + 5 sales (1 card, 1 service) + 1 refunded sale")
+def _line(key, qty, price):
+    return {"inventory_id": inv[key]["id"], "name": INV_NAME[key],
+            "quantity": qty, "unit_price": price, "tax_rate_id": TAX_DEFAULT}
+
+
+_checkout([_line("prd_c", 2, 18), _line("con_a", 1, 4)])
+_checkout([_line("prd_b", 1, 55), _line("prd_c", 3, 18)])
+_checkout([_line("prd_b", 2, 55)], method="Card")
+_checkout([{"inventory_id": None, "name": "Custom service line",
+            "quantity": 1, "unit_price": 35, "tax_rate_id": TAX_DEFAULT}])
+_checkout([_line("prd_f", 1, 62), _line("con_b", 10, 1)], method="Card")
+_checkout([_line("prd_c", 4, 18)])
+_checkout([_line("con_c", 6, 7)], method="Cash")
+_sale_return = _checkout([_line("prd_c", 4, 18)])
+POST(f"/api/pos/sales/{_sale_return['id']}/return", {"reason": "Customer changed their mind"})
+print("  open session + 8 sales (cash / card / service line) + 1 refund")
 
 
 # ════════════════════════════════════════════════════════════════════════════
-# 12. Manufacturing — 2 BOMs (one versioned) + 3 production orders
+# 14. Manufacturing — BOMs, versions, resources, QC + lots, partial completion
 # ════════════════════════════════════════════════════════════════════════════
 header("Manufacturing")
-bom_table_v1 = POST("/api/manufacturing/boms", {
-    "name":                "Dining Table BOM",
-    "output_inventory_id": inv["table"]["id"],
-    "output_quantity":     1, "labor_cost": 30, "overhead_cost": 10,
+res_labor = POST("/api/manufacturing/resources", {"name": "Resource Labour",     "hourly_rate": 12})["id"]
+res_power = POST("/api/manufacturing/resources", {"name": "Resource Power",      "hourly_rate": 3})["id"]
+res_mach  = POST("/api/manufacturing/resources", {"name": "Resource Machine A",  "hourly_rate": 20})["id"]
+res_oven  = POST("/api/manufacturing/resources", {"name": "Resource Machine B",  "hourly_rate": 8})["id"]
+
+bom_a_v1 = POST("/api/manufacturing/boms", {
+    "name": "BOM — Product Alpha", "output_inventory_id": inv["prd_a"]["id"],
+    "output_quantity": 1, "labor_cost": 30, "overhead_cost": 10,
     "components": [
-        {"component_inventory_id": inv["wood"]["id"],     "quantity": 4, "scrap_pct": 5},
-        {"component_inventory_id": inv["nails"]["id"],    "quantity": 20},
-        {"component_inventory_id": inv["varnish"]["id"],  "quantity": 1},
-    ],
-})
-# Bump to v2 — production manager refined the recipe
-POST(f"/api/manufacturing/boms/{bom_table_v1['id']}/new-version", {
-    "name":                "Dining Table BOM",
-    "output_inventory_id": inv["table"]["id"],
-    "output_quantity":     1, "labor_cost": 35, "overhead_cost": 10,
-    "revision_note":       "Reduced varnish per table, added sub-frame component",
+        {"component_inventory_id": inv["mat_a"]["id"], "quantity": 4, "scrap_pct": 5},
+        {"component_inventory_id": inv["mat_b"]["id"], "quantity": 20},
+        {"component_inventory_id": inv["mat_c"]["id"], "quantity": 1},
+    ]})
+POST(f"/api/manufacturing/boms/{bom_a_v1['id']}/new-version", {
+    "name": "BOM — Product Alpha", "output_inventory_id": inv["prd_a"]["id"],
+    "output_quantity": 1, "labor_cost": 35, "overhead_cost": 10,
+    "revision_note": "Added Component Alpha; reduced Material Gamma per unit",
     "components": [
-        {"component_inventory_id": inv["wood"]["id"],     "quantity": 4, "scrap_pct": 5},
-        {"component_inventory_id": inv["nails"]["id"],    "quantity": 18},
-        {"component_inventory_id": inv["varnish"]["id"],  "quantity": 1},
-        {"component_inventory_id": inv["subframe"]["id"], "quantity": 1},
-    ],
-})
+        {"component_inventory_id": inv["mat_a"]["id"], "quantity": 4, "scrap_pct": 5},
+        {"component_inventory_id": inv["mat_b"]["id"], "quantity": 18},
+        {"component_inventory_id": inv["mat_c"]["id"], "quantity": 1},
+        {"component_inventory_id": inv["cmp_a"]["id"], "quantity": 1},
+    ]})
 
-bom_chair = POST("/api/manufacturing/boms", {
-    "name":                "Wooden Chair BOM",
-    "output_inventory_id": inv["chair"]["id"],
-    "output_quantity":     1, "labor_cost": 8, "overhead_cost": 3,
+bom_b = POST("/api/manufacturing/boms", {
+    "name": "BOM — Product Beta", "output_inventory_id": inv["prd_b"]["id"],
+    "output_quantity": 1, "labor_cost": 8, "overhead_cost": 3,
     "components": [
-        {"component_inventory_id": inv["wood"]["id"],    "quantity": 2},
-        {"component_inventory_id": inv["nails"]["id"],   "quantity": 12},
-        {"component_inventory_id": inv["varnish"]["id"], "quantity": 1},
-    ],
-})
+        {"component_inventory_id": inv["mat_a"]["id"], "quantity": 2},
+        {"component_inventory_id": inv["mat_b"]["id"], "quantity": 12},
+        {"component_inventory_id": inv["mat_c"]["id"], "quantity": 1},
+    ]})
 
-# MO 1 — completed table batch (drives stock + cost)
-order_completed = POST("/api/manufacturing/orders",
-                       {"bom_id": bom_table_v1["id"], "quantity": 3,
-                        "notes": "First batch this quarter"})
-POST(f"/api/manufacturing/orders/{order_completed['id']}/confirm")
-POST(f"/api/manufacturing/orders/{order_completed['id']}/start")
-POST(f"/api/manufacturing/orders/{order_completed['id']}/complete")
+# Completed batch → stock + cost roll-up
+mo_done = POST("/api/manufacturing/orders", {"bom_id": bom_a_v1["id"], "quantity": 5,
+                                             "notes": "Batch 1", "priority": "Normal"})
+POST(f"/api/manufacturing/orders/{mo_done['id']}/confirm")
+POST(f"/api/manufacturing/orders/{mo_done['id']}/start")
+POST(f"/api/manufacturing/orders/{mo_done['id']}/complete")
 
-# MO 2 — chairs, in progress (materials reserved, not yet completed)
-order_progress = POST("/api/manufacturing/orders",
-                      {"bom_id": bom_chair["id"], "quantity": 6,
-                       "notes": "Café restock"})
-POST(f"/api/manufacturing/orders/{order_progress['id']}/confirm")
-POST(f"/api/manufacturing/orders/{order_progress['id']}/start")
+# In progress
+mo_wip = POST("/api/manufacturing/orders", {"bom_id": bom_b["id"], "quantity": 10,
+                                            "notes": "Restock run", "priority": "High",
+                                            "due_date": days_ahead(6)})
+POST(f"/api/manufacturing/orders/{mo_wip['id']}/confirm")
+POST(f"/api/manufacturing/orders/{mo_wip['id']}/start")
 
-# MO 3 — draft (still being planned)
-POST("/api/manufacturing/orders",
-     {"bom_id": bom_chair["id"], "quantity": 12,
-      "notes": "Q3 planning — to be confirmed once wood lands"})
+# Draft
+POST("/api/manufacturing/orders", {"bom_id": bom_b["id"], "quantity": 15,
+                                   "notes": "Planned — awaiting materials"})
 
-print("  +2 BOMs (1 versioned) + 3 orders: Completed / In Progress / Draft")
+# QC + lot traceability
+bom_lot = POST("/api/manufacturing/boms", {
+    "name": "BOM — Product Eta", "output_inventory_id": inv["lot_fg"]["id"],
+    "output_quantity": 10, "standard_hours": 2, "qc_required": True,
+    "components": [{"component_inventory_id": inv["lot_raw"]["id"], "quantity": 5}],
+    "resources": [{"resource_id": res_labor}, {"resource_id": res_power},
+                  {"resource_id": res_mach}, {"name": "Inspection", "hourly_rate": 5}]})
+mo_qc = POST("/api/manufacturing/orders", {"bom_id": bom_lot["id"], "quantity": 10,
+                                           "priority": "High", "due_date": days_ahead(7),
+                                           "notes": "QC + lot-tracked batch"})
+POST(f"/api/manufacturing/orders/{mo_qc['id']}/confirm")
+POST(f"/api/manufacturing/orders/{mo_qc['id']}/start")
+_done = POST(f"/api/manufacturing/orders/{mo_qc['id']}/complete", {"production_hours": 2.5})
+if _done.get("qc_id"):
+    POST(f"/api/manufacturing/qc/{_done['qc_id']}/resolve", {
+        "passed_qty": 7, "rejected_qty": 3, "rework_qty": 2,
+        "defects": [{"reason": "Surface defect", "quantity": 2},
+                    {"reason": "Dimensional variance", "quantity": 1}],
+        "notes": "Two reworkable, one scrapped."})
+
+# Resource-costed BOM completed across two partial runs (auto-closes)
+bom_partial = POST("/api/manufacturing/boms", {
+    "name": "BOM — Component Beta", "output_inventory_id": inv["cmp_b"]["id"],
+    "output_quantity": 1, "standard_hours": 0.5,
+    "components": [{"component_inventory_id": inv["mat_a"]["id"], "quantity": 1}],
+    "resources": [{"resource_id": res_labor}, {"resource_id": res_oven}]})
+mo_partial = POST("/api/manufacturing/orders", {
+    "bom_id": bom_partial["id"], "quantity": 10, "priority": "Normal",
+    "planned_start_date": days_ago(2), "due_date": days_ahead(5)})
+POST(f"/api/manufacturing/orders/{mo_partial['id']}/confirm")
+POST(f"/api/manufacturing/orders/{mo_partial['id']}/complete",
+     {"quantity_produced": 6, "production_hours": 3, "close": False})
+POST(f"/api/manufacturing/orders/{mo_partial['id']}/complete",
+     {"quantity_produced": 4, "production_hours": 2})
+print("  +4 resources, 4 BOMs (1 versioned), 6 orders incl. QC batch + partial runs")
 
 
 # ════════════════════════════════════════════════════════════════════════════
-# 13. Fixed Assets — varied register + run depreciation
+# 15. Stock transfers between warehouses
 # ════════════════════════════════════════════════════════════════════════════
-header("Fixed Assets")
+header("Stock transfers")
+# Completed: Main → Beta
+_t1 = POST("/api/warehouses/transfers/", {
+    "from_warehouse_id": WH_MAIN, "to_warehouse_id": WH_BETA,
+    "items": [{"inventory_id": inv["prd_c"]["id"], "quantity": 40},
+              {"inventory_id": inv["con_b"]["id"], "quantity": 300}],
+    "notes": "Branch replenishment"})
+POST(f"/api/warehouses/transfers/{_t1['id']}/dispatch")
+POST(f"/api/warehouses/transfers/{_t1['id']}/receive", {"note": "Received in full"})
+
+# In transit: Main → Gamma
+_t2 = POST("/api/warehouses/transfers/", {
+    "from_warehouse_id": WH_MAIN, "to_warehouse_id": WH_GAMMA,
+    "items": [{"inventory_id": inv["mat_a"]["id"], "quantity": 200}],
+    "notes": "Production floor staging"})
+POST(f"/api/warehouses/transfers/{_t2['id']}/dispatch")
+
+# Draft
+POST("/api/warehouses/transfers/", {
+    "from_warehouse_id": WH_MAIN, "to_warehouse_id": WH_BETA,
+    "items": [{"inventory_id": inv["prd_b"]["id"], "quantity": 15}],
+    "notes": "Planned — not yet dispatched"})
+
+# Cancelled
+_t4 = POST("/api/warehouses/transfers/", {
+    "from_warehouse_id": WH_MAIN, "to_warehouse_id": WH_GAMMA,
+    "items": [{"inventory_id": inv["mat_c"]["id"], "quantity": 20}],
+    "notes": "Raised in error"})
+POST(f"/api/warehouses/transfers/{_t4['id']}/cancel", {"reason": "Duplicate request"})
+print("  +4 transfers: Completed / In Transit / Draft / Cancelled")
+
+
+# ════════════════════════════════════════════════════════════════════════════
+# 16. Fixed assets + catch-up depreciation
+# ════════════════════════════════════════════════════════════════════════════
+header("Fixed assets")
 assets_seed = [
-    {"name": "Delivery Van",        "category": "Vehicles",
-     "supplier_id": SUP_PROTOOLS,   "acquisition_cost": 12000,
-     "acquisition_date": days_ago(400), "in_service_date": days_ago(400),
-     "depreciation_method": "straight_line", "useful_life_months": 60,
-     "salvage_value": 1500},
-    {"name": "Workstation PCs (×4)","category": "Computers",
-     "supplier_id": SUP_OFFICEMAX,  "acquisition_cost": 4800,
-     "acquisition_date": days_ago(200), "in_service_date": days_ago(200),
-     "depreciation_method": "straight_line", "useful_life_months": 36,
-     "salvage_value": 200},
-    {"name": "Showroom Furniture",  "category": "Furniture",
-     "acquisition_cost": 2200,
-     "acquisition_date": days_ago(60), "in_service_date": days_ago(60),
-     "depreciation_method": "straight_line", "useful_life_months": 60,
-     "salvage_value": 100},
+    {"name": "Vehicle A", "category": "Vehicles", "supplier_id": SUP_B,
+     "acquisition_cost": 12000, "acquisition_date": days_ago(COMPANY_START_DAYS),
+     "in_service_date": days_ago(COMPANY_START_DAYS - 5), "depreciation_method": "straight_line",
+     "useful_life_months": 60, "salvage_value": 1500},
+    {"name": "Equipment A", "category": "Computers", "supplier_id": SUP_D,
+     "acquisition_cost": 4800, "acquisition_date": days_ago(420),
+     "in_service_date": days_ago(420), "depreciation_method": "straight_line",
+     "useful_life_months": 36, "salvage_value": 200},
+    {"name": "Equipment B", "category": "Machinery", "supplier_id": SUP_B,
+     "acquisition_cost": 15500, "acquisition_date": days_ago(300),
+     "in_service_date": days_ago(300), "depreciation_method": "straight_line",
+     "useful_life_months": 84, "salvage_value": 1000},
+    {"name": "Equipment C", "category": "Machinery",
+     "acquisition_cost": 6400, "acquisition_date": days_ago(150),
+     "in_service_date": days_ago(150), "depreciation_method": "straight_line",
+     "useful_life_months": 60, "salvage_value": 400},
+    {"name": "Fixtures A", "category": "Furniture",
+     "acquisition_cost": 2200, "acquisition_date": days_ago(90),
+     "in_service_date": days_ago(90), "depreciation_method": "straight_line",
+     "useful_life_months": 60, "salvage_value": 100},
     # Land/building — depreciation_method=none means no monthly charge.
-    {"name": "Workshop Building",   "category": "Buildings",
-     "acquisition_cost": 80000,
-     "acquisition_date": days_ago(900), "in_service_date": days_ago(900),
-     "depreciation_method": "none", "useful_life_months": 0},
+    {"name": "Facility A", "category": "Buildings",
+     "acquisition_cost": 80000, "acquisition_date": days_ago(COMPANY_START_DAYS),
+     "in_service_date": days_ago(COMPANY_START_DAYS), "depreciation_method": "none",
+     "useful_life_months": 0},
 ]
+_asset_capex = []      # (date, name, cost) → capitalisation entries posted below
 for a in assets_seed:
     POST("/api/assets", a)
-# Catch-up depreciation runs every eligible asset for every un-booked month.
-res = POST("/api/assets/depreciation/run", {"period": _month})
-print(f"  +{len(assets_seed)} assets; ran depreciation → {res['total_periods']} period(s) posted")
+    _asset_capex.append((a["acquisition_date"], a["name"], a["acquisition_cost"]))
+_dep = POST("/api/assets/depreciation/run", {"period": _month})
+print(f"  +{len(assets_seed)} assets; depreciation posted for "
+      f"{_dep.get('total_periods', 0)} period(s)")
 
 
 # ════════════════════════════════════════════════════════════════════════════
-# 14. Cash — second drawer + two closed reconciliations (one with variance)
+# 17. Cash — second drawer + reconciliations (one with a variance)
 # ════════════════════════════════════════════════════════════════════════════
 header("Cash")
-POST("/api/cash/drawers", {"name": "Workshop Petty Cash",
-                            "is_active": True, "auto_capture": False})
-drawers = GET("/api/cash/drawers")
-main_till = next(d for d in drawers if d["auto_capture"])
+POST("/api/cash/drawers", {"name": "Drawer Beta — Back Office",
+                           "is_active": True, "auto_capture": False})
+_drawers  = GET("/api/cash/drawers")
+main_till = next(d for d in _drawers if d["auto_capture"])
 
-# Yesterday — balanced close
-rec_y = POST("/api/cash/reconciliations",
-             {"drawer_id": main_till["id"],
-              "business_date": days_ago(1), "opening_balance": 100})
-POST(f"/api/cash/reconciliations/{rec_y['id']}/close",
-     {"counted_cash": 100, "counted_cash_lbp": 0,
-      "note": "Quiet day, no surprises"})
-
-# Day before — closed WITH a deliberate variance so a cash_variance notification
-# fires (threshold: ≥ $5 in absolute terms).
-rec_v = POST("/api/cash/reconciliations",
-             {"drawer_id": main_till["id"],
-              "business_date": days_ago(2), "opening_balance": 100})
-POST(f"/api/cash/reconciliations/{rec_v['id']}/close",
-     {"counted_cash": 88, "counted_cash_lbp": 0,
-      "note": "$12 short — investigating"})
-
-print("  +1 secondary drawer; 2 reconciliations closed (1 balanced, 1 variance)")
+for day_off, counted, note in [
+    (1,  200, "Balanced close"),
+    (2,  188, "Short by 12 — under investigation"),
+    (3,  200, "Balanced close"),
+    (6,  205, "Over by 5 — rounding"),
+]:
+    rec = POST("/api/cash/reconciliations",
+               {"drawer_id": main_till["id"], "business_date": days_ago(day_off),
+                "opening_balance": 200})
+    POST(f"/api/cash/reconciliations/{rec['id']}/close",
+         {"counted_cash": counted, "counted_cash_lbp": 0, "note": note})
+print("  +1 drawer; 4 reconciliations closed (2 balanced, 1 short, 1 over)")
 
 
 # ════════════════════════════════════════════════════════════════════════════
-# 15. CRM — leads at every stage + deals + contacts + activities
+# 18. CRM — leads, deals, contacts, activities
 # ════════════════════════════════════════════════════════════════════════════
 header("CRM")
 leads_seed = [
-    {"name": "Maya Aoun",     "company": "Aoun Catering",   "phone": "70 333 222",
-     "email": "maya@aouncatering.lb",
-     "source": "referral",  "status": "Qualified",  "score": 70,
-     "estimated_value": 4500},
-    {"name": "Karim Daher",   "company": "Daher & Sons",    "phone": "76 999 111",
-     "source": "web",       "status": "New",        "score": 30,
-     "estimated_value": 1200},
-    {"name": "Nadia Geagea",  "company": "Geagea Imports",  "phone": "01 717 717",
-     "source": "cold_call", "status": "Contacted",  "score": 45,
-     "estimated_value": 3300},
-    {"name": "Ramzi Mansour", "company": "Mansour Holdings","phone": "71 808 808",
-     "source": "social",    "status": "Proposal",   "score": 80,
-     "estimated_value": 9500},
-    {"name": "Hala Saliba",   "company": "Saliba Studio",
-     "source": "referral",  "status": "Won",        "score": 95,
-     "estimated_value": 6000},
-    {"name": "Bilal Tarabay", "company": "BT Logistics",
-     "source": "web",       "status": "Lost",       "score": 15,
-     "estimated_value": 800, "notes": "Went with competitor"},
+    ("Lead A", "Prospect Alpha", "referral",  "Qualified",  70, 4500, None),
+    ("Lead B", "Prospect Beta",  "web",       "New",        30, 1200, None),
+    ("Lead C", "Prospect Gamma", "cold_call", "Contacted",  45, 3300, None),
+    ("Lead D", "Prospect Delta", "social",    "Proposal",   80, 9500, None),
+    ("Lead E", "Prospect Epsilon", "referral","Won",        95, 6000, None),
+    ("Lead F", "Prospect Zeta",  "web",       "Lost",       15,  800, "Chose another vendor"),
+    ("Lead G", "Prospect Eta",   "referral",  "Contacted",  55, 2600, None),
+    ("Lead H", "Prospect Theta", "web",       "Negotiation", 85, 12000, None),
 ]
-lead_ids = [POST("/api/crm/leads", l)["id"] for l in leads_seed]
+lead_ids = []
+for name, company, source, status, score, value, notes in leads_seed:
+    body = {"name": name, "company": company, "source": source, "status": status,
+            "score": score, "estimated_value": value,
+            "phone": f"+1 555 03{len(lead_ids):02d}",
+            "email": f"{name.replace(' ', '.').lower()}@prospect.example"}
+    if notes:
+        body["notes"] = notes
+    lead_ids.append(POST("/api/crm/leads", body)["id"])
 
 deals_seed = [
-    {"title": "Café fit-out — phase 2", "client_id": CL_BEIRUT_CAFE,
-     "stage": "Proposal",     "value": 6000, "probability": 60},
-    {"title": "Office furniture full refresh", "client_id": CL_ATLAS,
-     "stage": "Negotiation",  "value": 7500, "probability": 80},
-    {"title": "Annual cleaning supply contract", "client_id": CL_CEDAR_LOG,
-     "stage": "Qualification","value": 3200, "probability": 30},
-    {"title": "Phoenicia branch — phase 2", "client_id": CL_PHOENICIA,
-     "stage": "Won",          "value": 9000, "probability": 100},
+    ("Deal Alpha",   "Alpha",   "Proposal",      6000,  60),
+    ("Deal Beta",    "Gamma",   "Negotiation",   7500,  80),
+    ("Deal Gamma",   "Beta",    "Qualification", 3200,  30),
+    ("Deal Delta",   "Delta",   "Won",           9000, 100),
+    ("Deal Epsilon", "Epsilon", "Lost",          2400,   0),
 ]
-for d in deals_seed:
-    POST("/api/crm/deals", d)
+for title, cl_key, stage, value, prob in deals_seed:
+    POST("/api/crm/deals", {"title": title, "client_id": CL[cl_key],
+                            "stage": stage, "value": value, "probability": prob})
 
 contacts_seed = [
-    {"client_id": CL_BEIRUT_CAFE, "name": "Rita Saad",     "title": "Operations Manager",
-     "email": "rita@beirutcafe.lb",   "phone": "01 730 730", "is_primary": True},
-    {"client_id": CL_CEDAR_LOG,   "name": "Antoine Khoury","title": "Logistics Lead",
-     "email": "antoine@cedarlog.lb",  "phone": "01 555 201"},
-    {"client_id": CL_ATLAS,       "name": "Joëlle Atlas",  "title": "Founding Partner",
-     "email": "j.atlas@atlas-arch.com","phone": "01 332 801"},
-    {"client_id": CL_PHOENICIA,   "name": "Tony Saad",     "title": "Purchasing Director",
-     "email": "tony@phoenicia.com.lb", "phone": "01 700 901"},
-    {"lead_id":   lead_ids[0],    "name": "Sami Aoun",     "title": "Operations",
-     "email": "sami@aouncatering.lb"},
+    {"client_id": CL["Alpha"],  "name": "Contact Alpha", "title": "Operations Manager",
+     "email": "ops@client-alpha.example", "phone": "+1 555 0400", "is_primary": True},
+    {"client_id": CL["Beta"],   "name": "Contact Beta",  "title": "Logistics Lead",
+     "email": "logistics@client-beta.example", "phone": "+1 555 0401"},
+    {"client_id": CL["Gamma"],  "name": "Contact Gamma", "title": "Partner",
+     "email": "partner@client-gamma.example", "phone": "+1 555 0402"},
+    {"client_id": CL["Delta"],  "name": "Contact Delta", "title": "Purchasing Director",
+     "email": "purchasing@client-delta.example", "phone": "+1 555 0403"},
+    {"lead_id":   lead_ids[0],  "name": "Contact Epsilon", "title": "Operations",
+     "email": "ops@prospect-alpha.example"},
 ]
 for c in contacts_seed:
     POST("/api/crm/contacts", c)
 
 activities_seed = [
-    {"type": "call",    "subject": "Follow-up call",        "lead_id": lead_ids[1],
+    {"type": "call",    "subject": "Follow-up call",     "lead_id": lead_ids[1],
      "due_date": days_ahead(2)},
-    {"type": "meeting", "subject": "Site visit — Phoenicia","client_id": CL_PHOENICIA,
+    {"type": "meeting", "subject": "Site visit",         "client_id": CL["Delta"],
      "due_date": days_ahead(7)},
-    {"type": "email",   "subject": "Send revised quote",    "client_id": CL_ATLAS,
+    {"type": "email",   "subject": "Send revised quote", "client_id": CL["Gamma"],
      "due_date": days_ahead(1)},
+    {"type": "task",    "subject": "Prepare proposal",   "lead_id": lead_ids[3],
+     "due_date": days_ahead(4)},
+    {"type": "note",    "subject": "Budget confirmed",   "lead_id": lead_ids[7],
+     "due_date": days_ago(2)},
 ]
 for a in activities_seed:
     POST("/api/crm/activities", a)
-
 print(f"  +{len(leads_seed)} leads, +{len(deals_seed)} deals, "
       f"+{len(contacts_seed)} contacts, +{len(activities_seed)} activities")
 
 
 # ════════════════════════════════════════════════════════════════════════════
-# 16. Planning — 2 projects + 8 tasks across statuses
+# 19. Planning — plans, tasks, milestones, calendar events
 # ════════════════════════════════════════════════════════════════════════════
 header("Planning")
-plan_cafe = POST("/api/planning/projects", {
-    "name": "Café fit-out plan", "client_id": CL_BEIRUT_CAFE,
-    "start_date": days_ago(30), "end_date": days_ahead(15), "status": "Active",
-})
-plan_office = POST("/api/planning/projects", {
-    "name": "Office refresh schedule", "client_id": CL_ATLAS,
-    "start_date": days_ahead(7), "end_date": days_ahead(60), "status": "Active",
-})
+plan_a = POST("/api/planning/projects", {
+    "name": "Plan Alpha", "client_id": CL["Alpha"],
+    "start_date": days_ago(30), "end_date": days_ahead(15), "status": "Active"})
+plan_b = POST("/api/planning/projects", {
+    "name": "Plan Beta", "client_id": CL["Gamma"],
+    "start_date": days_ahead(7), "end_date": days_ahead(60), "status": "Active"})
+plan_c = POST("/api/planning/projects", {
+    "name": "Plan Gamma", "client_id": CL["Zeta"],
+    "start_date": days_ago(80), "end_date": days_ago(10), "status": "Completed"})
 
 task_seed = [
-    (plan_cafe["id"],   "Site survey",          "Done",        "High",   days_ago(30), days_ago(25), 100),
-    (plan_cafe["id"],   "Design sign-off",      "Done",        "High",   days_ago(24), days_ago(15), 100),
-    (plan_cafe["id"],   "Install bar counter",  "In Progress", "Medium", days_ago(5),  days_today := days_ahead(2),  40),
-    (plan_cafe["id"],   "Final paint + finish", "To Do",       "Medium", days_ahead(3), days_ahead(10),               0),
-    (plan_cafe["id"],   "Client walkthrough",   "To Do",       "Low",    days_ahead(12),days_ahead(14),               0),
-    (plan_office["id"], "Take measurements",    "To Do",       "Medium", days_ahead(7), days_ahead(9),                0),
-    (plan_office["id"], "Order desks + chairs", "To Do",       "High",   days_ahead(10),days_ahead(14),               0),
-    (plan_office["id"], "Installation week",    "To Do",       "High",   days_ahead(20),days_ahead(27),               0),
+    (plan_a, "Task A1 — Site survey",     "Done",        "High",   -30, -25, 100),
+    (plan_a, "Task A2 — Design sign-off", "Done",        "High",   -24, -15, 100),
+    (plan_a, "Task A3 — Installation",    "In Progress", "Medium",  -5,   2,  40),
+    (plan_a, "Task A4 — Finishing",       "To Do",       "Medium",   3,  10,   0),
+    (plan_a, "Task A5 — Walkthrough",     "To Do",       "Low",     12,  14,   0),
+    (plan_b, "Task B1 — Measurements",    "To Do",       "Medium",   7,   9,   0),
+    (plan_b, "Task B2 — Place orders",    "To Do",       "High",    10,  14,   0),
+    (plan_b, "Task B3 — Install week",    "To Do",       "High",    20,  27,   0),
+    (plan_c, "Task C1 — Delivery",        "Done",        "High",   -80, -60, 100),
+    (plan_c, "Task C2 — Handover",        "Done",        "Medium", -20, -10, 100),
 ]
-for pid, name, status, prio, sd, ed, prog in task_seed:
+for plan, name, status, prio, sd, ed, prog in task_seed:
     POST("/api/planning/tasks", {
-        "project_id": pid, "name": name, "status": status, "priority": prio,
-        "start_date": sd, "end_date": ed, "progress": prog,
-    })
+        "project_id": plan["id"], "name": name, "status": status, "priority": prio,
+        "start_date": days_ahead(sd) if sd >= 0 else days_ago(-sd),
+        "end_date":   days_ahead(ed) if ed >= 0 else days_ago(-ed),
+        "progress": prog})
 
-print(f"  +2 plans + {len(task_seed)} tasks across To Do / In Progress / Done")
+for pid, name, due in [
+    (plan_a["id"], "Milestone A1 — Design approved",  days_ago(15)),
+    (plan_a["id"], "Milestone A2 — Install complete", days_ahead(2)),
+    (plan_a["id"], "Milestone A3 — Handover",         days_ahead(14)),
+    (plan_b["id"], "Milestone B1 — Measurements done", days_ahead(9)),
+    (plan_b["id"], "Milestone B2 — Install complete",  days_ahead(27)),
+]:
+    POST("/api/planning/milestones", {"project_id": pid, "name": name, "due_date": due})
+
+for eb in [
+    {"title": "Weekly team standup", "start_date": days_ahead(1),
+     "all_day": 0, "start_time": "09:00", "end_time": "09:30"},
+    {"title": "Site walkthrough", "start_date": days_ahead(3), "all_day": 0,
+     "start_time": "14:00", "end_time": "15:30", "description": "Review progress"},
+    {"title": "Supplier review", "start_date": days_ahead(8), "all_day": 1,
+     "color": "#f5a623"},
+    {"title": "Quarterly planning", "start_date": days_ahead(21), "all_day": 1,
+     "color": "#4a90d9"},
+]:
+    POST("/api/planning/events", eb)
+print(f"  +3 plans, {len(task_seed)} tasks, 5 milestones, 4 events")
 
 
 # ════════════════════════════════════════════════════════════════════════════
-# 17. HR — 3 departments, 6 employees, leave history
+# 20. HR — departments, employees, leave, contracts, payroll, attendance
 # ════════════════════════════════════════════════════════════════════════════
 header("HR")
-dept_ops    = POST("/api/hr/departments", {"name": "Operations",  "description": "Shop floor + delivery"})
-dept_sales  = POST("/api/hr/departments", {"name": "Sales & CRM", "description": "Customer-facing team"})
-dept_admin  = POST("/api/hr/departments", {"name": "Admin & Finance","description": "Back office"})
+dept_ops   = POST("/api/hr/departments", {"name": "Department Alpha", "description": "Operations"})
+dept_sales = POST("/api/hr/departments", {"name": "Department Beta",  "description": "Sales & CRM"})
+dept_admin = POST("/api/hr/departments", {"name": "Department Gamma", "description": "Admin & Finance"})
 
 employees_seed = [
-    {"full_name": "Omar Haddad",   "job_title": "Carpenter",         "department_id": dept_ops["id"],
-     "employment_type": "Full-time", "hire_date": days_ago(700), "salary": 1200,
-     "email": "omar.h@workshop.lb"},
-    {"full_name": "Layal Nasr",    "job_title": "Cashier",           "department_id": dept_ops["id"],
-     "employment_type": "Part-time", "hire_date": days_ago(120), "salary": 700},
-    {"full_name": "Tarek Aoun",    "job_title": "Sales Manager",     "department_id": dept_sales["id"],
-     "employment_type": "Full-time", "hire_date": days_ago(450), "salary": 1800,
-     "email": "tarek.a@workshop.lb"},
-    {"full_name": "Rasha Khalil",  "job_title": "CRM Specialist",    "department_id": dept_sales["id"],
-     "employment_type": "Full-time", "hire_date": days_ago(180), "salary": 1100},
-    {"full_name": "Maher Tabet",   "job_title": "Bookkeeper",        "department_id": dept_admin["id"],
-     "employment_type": "Full-time", "hire_date": days_ago(900), "salary": 1500,
-     "email": "maher.t@workshop.lb"},
-    {"full_name": "Yara Diab",     "job_title": "HR & Office Lead",  "department_id": dept_admin["id"],
-     "employment_type": "Full-time", "hire_date": days_ago(540), "salary": 1400,
-     "email": "yara.d@workshop.lb"},
+    ("Employee A", "Technician",        dept_ops,   "Full-time", COMPANY_START_DAYS, 1200),
+    ("Employee B", "Assistant",         dept_ops,   "Part-time", 120,  700),
+    ("Employee C", "Sales Manager",     dept_sales, "Full-time", 450, 1800),
+    ("Employee D", "Account Executive", dept_sales, "Full-time", 180, 1100),
+    ("Employee E", "Bookkeeper",        dept_admin, "Full-time", COMPANY_START_DAYS, 1500),
+    ("Employee F", "Office Lead",       dept_admin, "Full-time", 540, 1400),
+    ("Employee G", "Technician",        dept_ops,   "Full-time", 260, 1150),
+    ("Employee H", "Coordinator",       dept_ops,   "Contract",   95,  950),
+    ("Employee I", "Analyst",           dept_admin, "Full-time", 330, 1300),
 ]
-emp_ids = [POST("/api/hr/employees", e)["id"] for e in employees_seed]
+emp_ids = []
+for name, title, dept, etype, hired_days, salary in employees_seed:
+    emp_ids.append(POST("/api/hr/employees", {
+        "full_name": name, "job_title": title, "department_id": dept["id"],
+        "employment_type": etype, "hire_date": days_ago(hired_days),
+        "salary": salary,
+        "email": f"{name.replace(' ', '.').lower()}@company.example"})["id"])
 
-# An already-approved leave that ended last week (so the auto-revert flips the
-# employee back to Active on first HR page load — covers the audit fix).
-past_leave = POST("/api/hr/leave", {
-    "employee_id": emp_ids[1], "leave_type": "Annual",
-    "start_date": days_ago(14), "end_date": days_ago(8), "reason": "Family trip",
-})
-POST(f"/api/hr/leave/{past_leave['id']}/approve", {"note": ""})
+# Leave: one finished, one active now, one pending
+_past = POST("/api/hr/leave", {"employee_id": emp_ids[1], "leave_type": "Annual",
+                               "start_date": days_ago(14), "end_date": days_ago(8),
+                               "reason": "Annual leave"})
+POST(f"/api/hr/leave/{_past['id']}/approve", {"note": ""})
+_active = POST("/api/hr/leave", {"employee_id": emp_ids[3], "leave_type": "Sick",
+                                 "start_date": days_ago(1), "end_date": days_ahead(4),
+                                 "reason": "Medical"})
+POST(f"/api/hr/leave/{_active['id']}/approve", {"note": "Approved"})
+POST("/api/hr/leave", {"employee_id": emp_ids[2], "leave_type": "Annual",
+                       "start_date": days_ahead(20), "end_date": days_ahead(27),
+                       "reason": "Planned holiday"})
 
-# An approved leave that's CURRENTLY active — Layal should show as "On Leave".
-active_leave = POST("/api/hr/leave", {
-    "employee_id": emp_ids[3], "leave_type": "Sick",
-    "start_date": days_ago(1), "end_date": days_ahead(4), "reason": "Flu",
-})
-POST(f"/api/hr/leave/{active_leave['id']}/approve", {"note": "Get well soon"})
+# Contracts
+for eid, ctype, title, start_days, salary in [
+    (emp_ids[0], "Permanent",  "Technician",    COMPANY_START_DAYS, 1200),
+    (emp_ids[2], "Permanent",  "Sales Manager", 450, 1800),
+    (emp_ids[4], "Permanent",  "Bookkeeper",    COMPANY_START_DAYS, 1500),
+    (emp_ids[1], "Fixed-term", "Assistant",     120,  700),
+    (emp_ids[6], "Permanent",  "Technician",    260, 1150),
+]:
+    c = POST("/api/hr/contracts/", {
+        "employee_id": eid, "contract_type": ctype, "status": "Draft",
+        "start_date": days_ago(start_days), "job_title": title, "salary": salary,
+        "weekly_hours": 40 if ctype == "Permanent" else 24,
+        "work_schedule": "Mon–Fri 09:00–17:00"})
+    POST(f"/api/hr/contracts/{c['id']}/status", {"status": "Active"})
 
-# A pending leave — shows in the Pending Leave KPI on the HR dashboard.
-POST("/api/hr/leave", {
-    "employee_id": emp_ids[2], "leave_type": "Annual",
-    "start_date": days_ahead(20), "end_date": days_ahead(27), "reason": "Summer holiday",
-})
+# Attendance — the last 12 working days for every employee
+_att_rows = 0
+for back in range(1, 17):
+    d = _TODAY - timedelta(days=back)
+    if d.weekday() >= 5:           # skip weekends
+        continue
+    for i, eid in enumerate(emp_ids):
+        roll = random.random()
+        if roll < 0.86:
+            status, hours = "Present", 8
+        elif roll < 0.92:
+            status, hours = "Late", 7.5
+        elif roll < 0.96:
+            status, hours = "Half-day", 4
+        else:
+            status, hours = "Absent", 0
+        POST("/api/hr/attendance", {
+            "employee_id": eid, "date": d.strftime("%Y-%m-%d"),
+            "status": status, "hours": hours})
+        _att_rows += 1
 
-print(f"  +3 departments, +{len(employees_seed)} employees, "
-      "3 leave records (1 past, 1 active, 1 pending)")
+# Payroll — one paid run, one draft
+_run = POST("/api/hr/payroll/runs", {"period_start": days_ago(31),
+                                     "period_end": days_ago(1),
+                                     "notes": "Current period"})
+POST(f"/api/hr/payroll/runs/{_run['id']}/approve")
+_paid = POST(f"/api/hr/payroll/runs/{_run['id']}/mark-paid")
+POST("/api/hr/payroll/runs", {"period_start": days_ago(61), "period_end": days_ago(32),
+                              "notes": "Prior period — draft"})
+
+for a in [
+    {"activity_type": "Meeting", "subject": "1:1 — Employee A",
+     "scheduled_at": days_ahead(2) + " 10:00", "duration_min": 30,
+     "employee_id": emp_ids[0], "reminder_minutes_before": 30},
+    {"activity_type": "Interview", "subject": "Panel — Position Beta",
+     "scheduled_at": days_ahead(4) + " 11:00", "duration_min": 60,
+     "reminder_minutes_before": 60},
+    {"activity_type": "Note", "subject": "Update handbook",
+     "scheduled_at": days_ahead(6) + " 09:00", "duration_min": 0,
+     "reminder_minutes_before": 0},
+]:
+    POST("/api/hr-activities", a)
+
+print(f"  +3 departments, {len(emp_ids)} employees, 5 contracts, 3 leave records")
+print(f"  +{_att_rows} attendance rows, 1 paid payroll run + 1 draft, 3 HR activities")
 
 
 # ════════════════════════════════════════════════════════════════════════════
-# 18. Approvals — 2 policies (one already triggered above by a $1,800 expense)
+# 21. Recruitment — positions → applicants → interviews → offer → hire
+# ════════════════════════════════════════════════════════════════════════════
+header("Recruitment")
+pos_a = POST("/api/recruitment/positions", {
+    "title": "Position Alpha — Technician", "department_id": dept_ops["id"],
+    "employment_type": "Full-time", "headcount": 2, "status": "Open",
+    "location": "Main site", "salary_min": 800, "salary_max": 1200,
+    "description": "Hands-on production role.",
+    "requirements": "1+ year relevant experience."})
+pos_b = POST("/api/recruitment/positions", {
+    "title": "Position Beta — Sales Associate", "department_id": dept_sales["id"],
+    "employment_type": "Full-time", "headcount": 1, "status": "Open",
+    "salary_min": 900, "salary_max": 1300})
+pos_c = POST("/api/recruitment/positions", {
+    "title": "Position Gamma — Junior Accountant", "department_id": dept_admin["id"],
+    "employment_type": "Full-time", "headcount": 1, "status": "On Hold",
+    "salary_min": 1000, "salary_max": 1400})
+POST("/api/recruitment/positions", {
+    "title": "Position Delta — Seasonal Support", "department_id": dept_ops["id"],
+    "employment_type": "Contract", "headcount": 3, "status": "Open"})
+
+
+def _applicant(name, pos_id, stages, *, rating=None, salary=None, source="Website"):
+    body = {"full_name": name, "position_id": pos_id, "source": source,
+            "email": f"{name.replace(' ', '.').lower()}@applicant.example",
+            "phone": "+1 555 05" + name[-1:].rjust(2, "0")}
+    if rating:
+        body["rating"] = rating
+    if salary:
+        body["expected_salary"] = salary
+    app = POST("/api/recruitment/applicants", body)
+    for st in stages:
+        POST(f"/api/recruitment/applicants/{app['id']}/status", {"new_status": st})
+    return app
+
+
+app_hire = _applicant("Applicant A", pos_a["id"], ["Screening", "Interview"],
+                      rating=5, salary=1050, source="Referral")
+POST(f"/api/recruitment/applicants/{app_hire['id']}/interviews", {
+    "interview_type": "Phone", "scheduled_at": days_ago(10) + " 10:00",
+    "duration_min": 45, "status": "Completed", "score": 8, "decision": "Hire",
+    "notes": "Strong background."})
+POST(f"/api/recruitment/applicants/{app_hire['id']}/interviews", {
+    "interview_type": "On-site", "scheduled_at": days_ago(6) + " 14:00",
+    "duration_min": 90, "status": "Completed", "score": 9, "decision": "Strong hire",
+    "notes": "Excellent practical test."})
+_offer = POST(f"/api/recruitment/applicants/{app_hire['id']}/offers", {
+    "contract_type": "Permanent", "job_title": "Technician",
+    "department_id": dept_ops["id"], "start_date": days_ahead(14),
+    "salary": 1050, "salary_currency": "USD", "payment_schedule": "Monthly",
+    "probation_months": 3, "weekly_hours": 40, "annual_leave_days": 15})
+POST(f"/api/recruitment/offers/{_offer['id']}/status", {"status": "Sent"})
+POST(f"/api/recruitment/offers/{_offer['id']}/status", {"status": "Accepted"})
+POST(f"/api/recruitment/applicants/{app_hire['id']}/status",
+     {"new_status": "Accepted", "reason": "Top candidate — offer accepted."})
+POST(f"/api/recruitment/applicants/{app_hire['id']}/convert", {
+    "accepted_offer_id": _offer["id"], "department_id": dept_ops["id"],
+    "job_title": "Technician", "salary": 1050, "hire_date": days_ahead(14)})
+
+_applicant("Applicant B", pos_a["id"], ["Screening"], rating=3, salary=950)
+_applicant("Applicant C", pos_b["id"], ["Screening", "Interview"], rating=4,
+           salary=1100, source="Referral")
+_applicant("Applicant D", pos_b["id"], ["Screening", "Interview", "Technical Test"],
+           rating=4, salary=1200)
+_applicant("Applicant E", pos_c["id"], ["Screening"], rating=2, salary=1000)
+_applicant("Applicant F", pos_a["id"], ["Screening", "Rejected"], rating=2,
+           source="Walk-in")
+print("  +4 positions, 6 applicants (1 hired → employee), interviews + offer")
+
+
+# ════════════════════════════════════════════════════════════════════════════
+# 22. Announcements
+# ════════════════════════════════════════════════════════════════════════════
+header("Announcements")
+POST("/api/announcements/", {
+    "title": "Welcome to the ERP system",
+    "body": "All teams are now live on the new system. Please review your module "
+            "access and report any issues to the administrator.",
+    "priority": "high", "audience_type": "all", "requires_ack": True, "pinned": True})
+POST("/api/announcements/", {
+    "title": "Quarterly inventory count",
+    "body": "A full stock count is scheduled for the first of next month. "
+            "Please freeze non-urgent stock movements the evening before.",
+    "priority": "medium", "audience_type": "all", "requires_ack": False})
+POST("/api/announcements/", {
+    "title": "Upcoming public holiday",
+    "body": "Offices will be closed for the public holiday. Point of sale and "
+            "online orders continue as normal.",
+    "priority": "low", "audience_type": "all", "expires_at": days_ahead(30)})
+print("  +3 announcements (1 pinned, acknowledgement required)")
+
+
+# ════════════════════════════════════════════════════════════════════════════
+# 23. Accounting — custom GL accounts + a set of manual journal entries
+#     spread across the whole history window
+# ════════════════════════════════════════════════════════════════════════════
+header("Accounting — accounts & manual entries")
+# Two extra accounts so financing and prepayments have a proper home.
+for code, name, atype, subtype in [
+    ("2300", "Bank Loan",        "Liability", "Long-term Liability"),
+    ("1300", "Prepaid Expenses", "Asset",     "Current Asset"),
+]:
+    r = client.post("/api/accounting/accounts",
+                    json={"code": code, "name": name, "type": atype, "subtype": subtype})
+    if r.status_code not in (200, 201):
+        print(f"  ! account {code} not created: {r.status_code} {r.text[:80]}")
+
+ACCT = {a["code"]: a["id"] for a in GET("/api/accounting/accounts")}
+
+
+def JE(date: str, memo: str, lines: list[tuple[str, float, float]]):
+    """lines = [(account_code, debit, credit)] — skipped if a code is missing."""
+    if any(c not in ACCT for c, _, _ in lines):
+        return None
+    body = {"entry_date": date, "memo": memo, "lines": [
+        {"account_id": ACCT[c], **({"debit": d} if d else {"credit": cr})}
+        for c, d, cr in lines]}
+    return POST("/api/accounting/journal-entries", body)
+
+
+_y0, _m0 = months_back(HISTORY_MONTHS - 1)          # oldest month in the window
+_je_count = 0
+
+# Capitalise the fixed assets. The assets module posts monthly depreciation but
+# not the original purchase, so without these the balance sheet would carry
+# accumulated depreciation with no gross asset behind it — and the cash-flow
+# statement would show no investing activity at all.
+for _d, _n, _c in _asset_capex:
+    _je_count += 1 if JE(_d, f"Purchase of {_n}",
+                         [("1500", _c, 0), ("1000", 0, _c)]) else 0
+
+# Opening capital + financing
+_je_count += 1 if JE(dstr(_y0, _m0, 2), "Owner capital injection",
+                     [("1000", 60000, 0), ("3000", 0, 60000)]) else 0
+_je_count += 1 if JE(dstr(_y0, _m0, 5), "Bank loan drawdown",
+                     [("1000", 40000, 0), ("2300", 0, 40000)]) else 0
+
+# Quarterly loan repayments (principal only, for a clean demo)
+for q in range(1, 6):
+    yq, mq = months_back(HISTORY_MONTHS - 1 - q * 3)
+    _je_count += 1 if JE(dstr(yq, mq, 5), f"Bank loan repayment {q}",
+                         [("2300", 2500, 0), ("1000", 0, 2500)]) else 0
+
+# Prepaid insurance paid up front, then amortised monthly
+_je_count += 1 if JE(dstr(_y0, _m0, 8), "Annual insurance paid in advance",
+                     [("1300", 3600, 0), ("1000", 0, 3600)]) else 0
+for k in range(1, 13):
+    yk, mk = months_back(HISTORY_MONTHS - 1 - k)
+    _je_count += 1 if JE(dstr(yk, mk, 28), "Insurance amortisation",
+                         [("6850", 300, 0), ("1300", 0, 300)]) else 0
+
+# Accrued utilities at a quarter end, reversed the following month
+_ya, _ma = months_back(6)
+_yb, _mb = months_back(5)
+_je_count += 1 if JE(dstr(_ya, _ma, 30), "Accrue unbilled utilities",
+                     [("6200", 480, 0), ("2000", 0, 480)]) else 0
+_je_count += 1 if JE(dstr(_yb, _mb, 1), "Reverse utilities accrual",
+                     [("2000", 480, 0), ("6200", 0, 480)]) else 0
+
+# Bank charges, other income and FX movements sprinkled through the window
+for k in (14, 11, 8, 5, 2):
+    yk, mk = months_back(k)
+    _je_count += 1 if JE(dstr(yk, mk, 26), "Bank charges",
+                         [("6900", 45, 0), ("1000", 0, 45)]) else 0
+for k, amt in ((12, 900), (7, 1250), (3, 640)):
+    yk, mk = months_back(k)
+    _je_count += 1 if JE(dstr(yk, mk, 18), "Other income — scrap and rebates",
+                         [("1000", amt, 0), ("4900", 0, amt)]) else 0
+_yf, _mf = months_back(9)
+_je_count += 1 if JE(dstr(_yf, _mf, 22), "Foreign exchange gain on settlement",
+                     [("1000", 380, 0), ("4910", 0, 380)]) else 0
+_yg, _mg = months_back(4)
+_je_count += 1 if JE(dstr(_yg, _mg, 22), "Foreign exchange loss on settlement",
+                     [("6920", 260, 0), ("1000", 0, 260)]) else 0
+
+# Owner drawings
+for k, amt in ((10, 3000), (4, 2500)):
+    yk, mk = months_back(k)
+    _je_count += 1 if JE(dstr(yk, mk, 27), "Owner drawings",
+                         [("3000", amt, 0), ("1000", 0, amt)]) else 0
+
+print(f"  +2 custom accounts; +{_je_count} manual journal entries across the window")
+
+
+# ════════════════════════════════════════════════════════════════════════════
+# 24. Approval policies (+ one live pending request)
 # ════════════════════════════════════════════════════════════════════════════
 header("Approvals")
 POST("/api/approval-policies/", {
@@ -886,657 +1201,261 @@ POST("/api/approval-policies/", {
     "module":          "expense", "trigger_action": "create",
     "condition_logic": "AND",
     "conditions":      [{"field": "amount", "op": ">", "value": "1000"}],
-    "approval_type":   "single",
-    "approver_roles":  ["Finance Manager"],
-    "priority":        10, "is_active": True,
-})
+    "approval_type":   "single", "approver_roles": ["Finance Manager"],
+    "priority":        10, "is_active": True})
 POST("/api/approval-policies/", {
-    "name":            "Capex over $5k",
+    "name":            "Capital expenditure over $5k",
     "description":     "Fixed asset purchases above $5k need Finance approval",
     "module":          "fixed_asset", "trigger_action": "create",
     "condition_logic": "AND",
     "conditions":      [{"field": "acquisition_cost", "op": ">", "value": "5000"}],
-    "approval_type":   "single",
-    "approver_roles":  ["Finance Manager"],
-    "priority":        10, "is_active": True,
-})
-# Trigger one fresh approval request so the bell + Approvals page have something
-# to show. (The $1,800 Materials expense seeded above pre-dated the policy.)
-POST("/api/finance/expenses", {
-    "category": "Materials", "amount": 2400, "project_id": PRJ_OFFICE,
-    "description": "Bulk hardware — pending Finance review",
-})
-print("  +2 policies (expense + fixed_asset); +1 pending request")
+    "approval_type":   "single", "approver_roles": ["Finance Manager"],
+    "priority":        10, "is_active": True})
+print("  +2 policies (expense + fixed asset)")
 
 
 # ════════════════════════════════════════════════════════════════════════════
-# 19. More clients — scale the book of business up to ~16
+# 24b. Remaining module coverage — dual currency, product attributes, cash
+#      movements, saved documents, announcement engagement, warehouse access
 # ════════════════════════════════════════════════════════════════════════════
-header("More clients")
-more_clients_seed = [
-    {"name": "Mountain Roasters",  "company": "Mountain Roasters SAL",
-     "phone": "03 121 314", "email": "buy@mountainroasters.lb",
-     "address": "Broumana Main Rd", "type": "business"},
-    {"name": "Levant Interiors",   "company": "Levant Interiors SARL",
-     "phone": "01 488 277", "email": "projects@levantinteriors.com",
-     "address": "Dbayeh Highway", "type": "business"},
-    {"name": "Byblos Resort",      "company": "Byblos Resort & Spa",
-     "phone": "09 540 540", "email": "procurement@byblosresort.lb",
-     "address": "Jbeil Seafront", "type": "business"},
-    {"name": "Tripoli Traders",    "company": "Tripoli Traders Co",
-     "phone": "06 430 430", "email": "info@tripolitraders.lb",
-     "address": "Tripoli Souks", "type": "business"},
-    {"name": "Zahle Vineyards",    "company": "Zahle Vineyards SAL",
-     "phone": "08 800 220", "email": "orders@zahlevineyards.lb",
-     "address": "Bekaa Valley", "type": "business"},
-    {"name": "Rami Fares",   "phone": "70 909 010",
-     "email": "rami.fares@example.com", "type": "private"},
-    {"name": "Nour Hamdan",  "phone": "76 313 414",
-     "email": "nour.hamdan@example.com", "type": "private"},
-    {"name": "Elie Karam",   "phone": "03 717 818",
-     "email": "elie.karam@example.com", "type": "private"},
-]
-more_client_ids = [POST("/api/clients/", c)["id"] for c in more_clients_seed]
-(CL_ROASTERS, CL_LEVANT, CL_BYBLOS, CL_TRIPOLI, CL_ZAHLE,
- CL_RAMI, CL_NOUR, CL_ELIE) = more_client_ids
-print(f"  +{len(more_client_ids)} clients (5 business + 3 private) → 16 total")
+header("Module coverage extras")
 
+# Dual-currency display: a manual USD→secondary rate powers <DualMoney> and the
+# LBP tender path in POS / payments.
+POST("/api/settings/exchange-rate", {"rate": 89500, "note": "Opening reference rate"})
 
-# ════════════════════════════════════════════════════════════════════════════
-# 20. More projects — push to ~12 across the full status spectrum
-# ════════════════════════════════════════════════════════════════════════════
-header("More projects")
-more_projects_seed = [
-    {"name": "Resort lobby refit", "client_id": CL_BYBLOS, "status": "Active",
-     "start_date": days_ago(20), "estimated_cost": 9000, "expected_revenue": 14000,
-     "description": "Reception desk + lounge seating"},
-    {"name": "Roastery counter build", "client_id": CL_ROASTERS, "status": "Active",
-     "start_date": days_ago(10), "estimated_cost": 3500, "expected_revenue": 5500},
-    {"name": "Levant showroom shelving", "client_id": CL_LEVANT, "status": "Inquiry",
-     "start_date": days_ahead(10), "estimated_cost": 6000, "expected_revenue": 9000},
-    {"name": "Vineyard tasting room", "client_id": CL_ZAHLE, "status": "Completed",
-     "start_date": days_ago(120), "end_date": days_ago(20),
-     "estimated_cost": 7000, "expected_revenue": 11000},
-    {"name": "Tripoli store fixtures", "client_id": CL_TRIPOLI, "status": "Active",
-     "start_date": days_ago(35), "estimated_cost": 4200, "expected_revenue": 6800},
-    {"name": "Private library — Karam", "client_id": CL_ELIE, "status": "On Hold",
-     "start_date": days_ago(50), "estimated_cost": 2000, "expected_revenue": 3200,
-     "description": "Awaiting client material choice"},
-    {"name": "Home office — Fares", "client_id": CL_RAMI, "status": "Completed",
-     "start_date": days_ago(80), "end_date": days_ago(30),
-     "estimated_cost": 1300, "expected_revenue": 2100},
-    {"name": "Cedar warehouse racking", "client_id": CL_CEDAR_LOG, "status": "Active",
-     "start_date": days_ago(15), "estimated_cost": 5500, "expected_revenue": 8500},
-]
-more_projects = [POST("/api/projects/", p) for p in more_projects_seed]
-(PRJ_RESORT, PRJ_ROASTERY, PRJ_LEVANT, PRJ_VINEYARD,
- PRJ_TRIPOLI, PRJ_LIBRARY, PRJ_HOMEOFFICE, PRJ_RACKING) = (p["id"] for p in more_projects)
-print(f"  +{len(more_projects)} projects → 12 total")
-
-
-# ════════════════════════════════════════════════════════════════════════════
-# 21. More quotations — varied statuses, two converted to invoices
-# ════════════════════════════════════════════════════════════════════════════
-header("More quotations")
-more_quotes_seed = [
-    (CL_BYBLOS, PRJ_RESORT, "Sent", [
-        {"name": "Reception desk", "quantity": 1, "unit_price": 2600, "tax_rate_id": TAX_DEFAULT},
-        {"name": "Lounge sofas",   "quantity": 4, "unit_price": 480,  "tax_rate_id": TAX_DEFAULT}]),
-    (CL_ROASTERS, PRJ_ROASTERY, "Accepted", [
-        {"name": "Service counter", "quantity": 1, "unit_price": 1900, "tax_rate_id": TAX_DEFAULT},
-        {"name": "Bar stools",      "quantity": 4, "unit_price": 130,  "tax_rate_id": TAX_DEFAULT}]),
-    (CL_LEVANT, PRJ_LEVANT, "Draft", [
-        {"name": "Display shelving (×10)", "quantity": 10, "unit_price": 220, "tax_rate_id": TAX_DEFAULT}]),
-    (CL_TRIPOLI, PRJ_TRIPOLI, "Accepted", [
-        {"name": "Store fixtures set", "quantity": 1, "unit_price": 3400, "tax_rate_id": TAX_DEFAULT}]),
-    (CL_ZAHLE, None, "Sent", [
-        {"name": "Tasting tables", "quantity": 3, "unit_price": 520, "tax_rate_id": TAX_REDUCED}]),
-    (CL_NOUR, None, "Rejected", [
-        {"name": "Custom wardrobe", "quantity": 1, "unit_price": 1250, "tax_rate_id": TAX_DEFAULT}]),
-]
-_converted = 0
-for cid, pid, status, items in more_quotes_seed:
-    body = {"client_id": cid, "items": items}
-    if pid:
-        body["project_id"] = pid
-    q = POST("/api/quotations/", body)
-    if status != "Draft":
-        upd = {"client_id": cid, "status": status, "items": items}
-        if pid:
-            upd["project_id"] = pid
-        PUT(f"/api/quotations/{q['id']}", upd)
-    if status == "Accepted":
-        POST(f"/api/quotations/{q['id']}/convert-to-invoice")
-        _converted += 1
-print(f"  +{len(more_quotes_seed)} quotations ({_converted} accepted → invoices)")
-
-
-# ════════════════════════════════════════════════════════════════════════════
-# 22. More invoices — broaden the AR ledger across payment states
-# ════════════════════════════════════════════════════════════════════════════
-header("More invoices")
-# (client_id, item_name, qty, price, due_offset_days, pay) where pay in
-# {"full","partial","none"} and due_offset<0 makes it overdue.
-more_inv_specs = [
-    (CL_BYBLOS,   "Lobby furniture deposit", 1, 4000, 15,  "partial"),
-    (CL_ROASTERS, "Counter build — final",   1, 1900, 30,  "full"),
-    (CL_LEVANT,   "Shelving advance",        1, 1100, 10,  "none"),
-    (CL_TRIPOLI,  "Fixtures milestone 1",    1, 1700, -15, "partial"),
-    (CL_ZAHLE,    "Tasting tables",          3, 520,  -25, "none"),
-    (CL_RAMI,     "Home office build",       1, 2100, 20,  "full"),
-    (CL_NOUR,     "Repair + refinish",       1, 340,  -10, "none"),
-    (CL_ELIE,     "Bookshelf deposit",       1, 900,  25,  "partial"),
-]
-for cid, name, qty, price, due_off, pay in more_inv_specs:
-    iv = POST("/api/invoices/", {
-        "client_id": cid,
-        "items": [{"name": name, "quantity": qty, "unit_price": price,
-                   "tax_rate_id": TAX_DEFAULT}],
-        "due_date": days_ahead(due_off) if due_off >= 0 else days_ago(-due_off),
-    })
-    amt = GET(f"/api/invoices/{iv['id']}")["amount"]
-    if pay == "full":
-        POST(f"/api/invoices/{iv['id']}/payments",
-             {"amount": amt, "method": "Bank Transfer", "idempotency_key": str(uuid.uuid4())})
-    elif pay == "partial":
-        POST(f"/api/invoices/{iv['id']}/payments",
-             {"amount": round(amt * 0.4, 2), "method": "Cash", "idempotency_key": str(uuid.uuid4())})
-print(f"  +{len(more_inv_specs)} invoices (full / partial / unpaid / overdue mix)")
-
-
-# ════════════════════════════════════════════════════════════════════════════
-# 23. More POS sales — keep the open session busy (high-stock items only)
-# ════════════════════════════════════════════════════════════════════════════
-header("More POS sales")
-_more_pos = [
-    ([{"inventory_id": inv["coffee"]["id"], "name": "Coffee Beans 1kg",
-       "quantity": 3, "unit_price": 18, "tax_rate_id": TAX_DEFAULT}], "Cash"),
-    ([{"inventory_id": inv["cups"]["id"], "name": "Disposable Cups",
-       "quantity": 10, "unit_price": 0.5, "tax_rate_id": TAX_DEFAULT}], "Cash"),
-    ([{"inventory_id": inv["coffee"]["id"], "name": "Coffee Beans 1kg",
-       "quantity": 2, "unit_price": 18, "tax_rate_id": TAX_DEFAULT},
-      {"inventory_id": inv["chair"]["id"], "name": "Wooden Chair",
-       "quantity": 1, "unit_price": 55, "tax_rate_id": TAX_DEFAULT}], "Card"),
-    ([{"inventory_id": None, "name": "Gift wrapping",
-       "quantity": 2, "unit_price": 5, "tax_rate_id": TAX_DEFAULT}], "Cash"),
-    ([{"inventory_id": inv["coffee"]["id"], "name": "Coffee Beans 1kg",
-       "quantity": 1, "unit_price": 18, "tax_rate_id": TAX_DEFAULT}], "Card"),
-    ([{"inventory_id": inv["cups"]["id"], "name": "Disposable Cups",
-       "quantity": 20, "unit_price": 0.5, "tax_rate_id": TAX_DEFAULT}], "Cash"),
-]
-for items, method in _more_pos:
-    _checkout(items, method=method)
-print(f"  +{len(_more_pos)} POS sales added to the open session")
-
-
-# ════════════════════════════════════════════════════════════════════════════
-# 24. More expenses — deepen the P&L
-# ════════════════════════════════════════════════════════════════════════════
-header("More expenses")
-more_expense_seed = [
-    {"category": "Utilities",    "amount": 198, "tax_rate_id": TAX_DEFAULT,
-     "description": "Water + generator — May", "payment_method": "Bank Transfer"},
-    {"category": "Transport",    "amount": 140,
-     "description": "Delivery fuel — May",     "payment_method": "Cash"},
-    {"category": "Materials",    "amount": 640, "project_id": PRJ_RESORT,
-     "description": "Upholstery fabric",       "tax_rate_id": TAX_DEFAULT},
-    {"category": "Subcontractor","amount": 900, "project_id": PRJ_TRIPOLI,
-     "description": "Electrician — fixtures",  "payment_method": "Cash"},
-    {"category": "Subscription", "amount": 320, "tax_rate_id": TAX_DEFAULT,
-     "description": "Social media ads — Q2",   "payment_method": "Card"},
-    {"category": "Equipment",    "amount": 210,
-     "description": "Workshop tool servicing", "payment_method": "Cash"},
-]
-for e in more_expense_seed:
-    POST("/api/finance/expenses", e)
-print(f"  +{len(more_expense_seed)} expenses")
-
-
-# ════════════════════════════════════════════════════════════════════════════
-# 25. Recruitment — positions → applicants → interviews → offers → one hire
-# ════════════════════════════════════════════════════════════════════════════
-header("Recruitment")
-pos_carpenter = POST("/api/recruitment/positions", {
-    "title": "Junior Carpenter", "department_id": dept_ops["id"],
-    "employment_type": "Full-time", "headcount": 2, "status": "Open",
-    "location": "Workshop — Hamra", "salary_min": 800, "salary_max": 1200,
-    "description": "Hands-on furniture build role.",
-    "requirements": "1+ yr carpentry; reads cut lists."})
-pos_sales = POST("/api/recruitment/positions", {
-    "title": "Sales Associate", "department_id": dept_sales["id"],
-    "employment_type": "Full-time", "headcount": 1, "status": "Open",
-    "salary_min": 900, "salary_max": 1300})
-pos_account = POST("/api/recruitment/positions", {
-    "title": "Junior Accountant", "department_id": dept_admin["id"],
-    "employment_type": "Full-time", "headcount": 1, "status": "On Hold",
-    "salary_min": 1000, "salary_max": 1400})
-POST("/api/recruitment/positions", {
-    "title": "Seasonal Helper", "department_id": dept_ops["id"],
-    "employment_type": "Contract", "headcount": 3, "status": "Open"})
-
-# Applicants spread across the pipeline.
-def _applicant(name, pos_id, stages, *, rating=None, salary=None, source="LinkedIn",
-               email=None, phone=None):
-    body = {"full_name": name, "position_id": pos_id, "source": source}
-    if rating: body["rating"] = rating
-    if salary: body["expected_salary"] = salary
-    if email:  body["email"] = email
-    if phone:  body["phone"] = phone
-    app = POST("/api/recruitment/applicants", body)
-    for st in stages:
-        POST(f"/api/recruitment/applicants/{app['id']}/status", {"new_status": st})
-    return app
-
-# Full hire chain — interviewed, offered, accepted, converted to employee.
-app_hire = _applicant("Ziad Murr", pos_carpenter["id"],
-                      ["Screening", "Interview"], rating=5, salary=1050,
-                      email="ziad.murr@example.com", phone="70 654 321")
-POST(f"/api/recruitment/applicants/{app_hire['id']}/interviews", {
-    "interview_type": "Phone", "scheduled_at": days_ago(10) + " 10:00",
-    "duration_min": 45, "status": "Completed", "score": 8, "decision": "Hire",
-    "notes": "Strong portfolio."})
-POST(f"/api/recruitment/applicants/{app_hire['id']}/interviews", {
-    "interview_type": "On-site", "scheduled_at": days_ago(6) + " 14:00",
-    "duration_min": 90, "status": "Completed", "score": 9, "decision": "Strong hire",
-    "notes": "Excellent bench test."})
-offer_hire = POST(f"/api/recruitment/applicants/{app_hire['id']}/offers", {
-    "contract_type": "Permanent", "job_title": "Junior Carpenter",
-    "department_id": dept_ops["id"], "start_date": days_ahead(14),
-    "salary": 1050, "salary_currency": "USD", "payment_schedule": "Monthly",
-    "probation_months": 3, "weekly_hours": 45, "annual_leave_days": 15})
-POST(f"/api/recruitment/offers/{offer_hire['id']}/status", {"status": "Sent"})
-POST(f"/api/recruitment/offers/{offer_hire['id']}/status", {"status": "Accepted"})
-POST(f"/api/recruitment/applicants/{app_hire['id']}/status",
-     {"new_status": "Accepted", "reason": "Top candidate — accepted offer."})
-hire = POST(f"/api/recruitment/applicants/{app_hire['id']}/convert", {
-    "accepted_offer_id": offer_hire["id"], "department_id": dept_ops["id"],
-    "job_title": "Junior Carpenter", "salary": 1050, "hire_date": days_ahead(14)})
-
-# Other applicants in mid-pipeline + one rejected.
-_applicant("Carla Rizk", pos_carpenter["id"], ["Screening"], rating=3,
-           salary=950, email="carla.rizk@example.com")
-_applicant("Hadi Salloum", pos_sales["id"], ["Screening", "Interview"],
-           rating=4, salary=1100, source="Referral",
-           email="hadi.salloum@example.com")
-_applicant("Maya Trad", pos_sales["id"], ["Screening", "Interview", "Technical Test"],
-           rating=4, salary=1200, source="Website")
-_applicant("Fadi Obeid", pos_account["id"], ["Screening"], rating=2, salary=1000)
-_applicant("Rita Daou", pos_carpenter["id"],
-           ["Screening", "Rejected"], rating=2, source="Walk-in")
-print("  +4 positions, 6 applicants (1 hired → employee), interviews + offers")
-
-
-# ════════════════════════════════════════════════════════════════════════════
-# 26. HR — contracts, a paid payroll run, and HR activities
-# ════════════════════════════════════════════════════════════════════════════
-header("HR contracts")
-# Formal contracts for the founding staff; activating syncs the salary timeline.
-contract_specs = [
-    (emp_ids[0], "Permanent", "Carpenter",      days_ago(700), 1200),
-    (emp_ids[2], "Permanent", "Sales Manager",  days_ago(450), 1800),
-    (emp_ids[4], "Permanent", "Bookkeeper",     days_ago(900), 1500),
-    (emp_ids[1], "Fixed-term", "Cashier",       days_ago(120), 700),
-]
-for eid, ctype, title, start, salary in contract_specs:
-    c = POST("/api/hr/contracts/", {
-        "employee_id": eid, "contract_type": ctype, "status": "Draft",
-        "start_date": start, "job_title": title, "salary": salary,
-        "weekly_hours": 48 if ctype == "Permanent" else 24,
-        "work_schedule": "Mon–Fri 9:00–18:00"})
-    POST(f"/api/hr/contracts/{c['id']}/status", {"status": "Active"})
-print(f"  +{len(contract_specs)} contracts activated")
-
-header("Payroll")
-run = POST("/api/hr/payroll/runs", {
-    "period_start": days_ago(31), "period_end": days_ago(1),
-    "notes": "Monthly payroll — current period"})
-POST(f"/api/hr/payroll/runs/{run['id']}/approve")
-paid = POST(f"/api/hr/payroll/runs/{run['id']}/mark-paid")
-# A second run left in Draft so the Payroll screen shows both states.
-POST("/api/hr/payroll/runs", {
-    "period_start": days_ago(61), "period_end": days_ago(32),
-    "notes": "Prior period — draft"})
-print(f"  1 paid run (expense {paid.get('expense_id')}) + 1 draft run")
-
-header("HR activities")
-hr_acts = [
-    {"activity_type": "Meeting", "subject": "1:1 with Omar",
-     "scheduled_at": days_ahead(2) + " 10:00", "duration_min": 30,
-     "employee_id": emp_ids[0], "reminder_minutes_before": 30},
-    {"activity_type": "Call", "subject": "Reference check — Ziad",
-     "scheduled_at": days_ahead(1) + " 15:00", "duration_min": 20,
-     "applicant_id": app_hire["id"], "reminder_minutes_before": 15},
-    {"activity_type": "Interview", "subject": "Panel — Sales Associate",
-     "scheduled_at": days_ahead(4) + " 11:00", "duration_min": 60,
-     "reminder_minutes_before": 60},
-    {"activity_type": "Note", "subject": "Update employee handbook",
-     "scheduled_at": days_ahead(6) + " 09:00", "duration_min": 0,
-     "reminder_minutes_before": 0},
-]
-for a in hr_acts:
-    POST("/api/hr-activities", a)
-print(f"  +{len(hr_acts)} HR activities (with reminders)")
-
-
-# ════════════════════════════════════════════════════════════════════════════
-# 27. Announcements — company-wide comms
-# ════════════════════════════════════════════════════════════════════════════
-header("Announcements")
-POST("/api/announcements/", {
-    "title": "Welcome to the new ERP",
-    "body": "We've migrated to the new system. Please review your module access "
-            "and report any issues to IT. Thanks for your patience during the rollout.",
-    "priority": "high", "audience_type": "all",
-    "requires_ack": True, "pinned": True})
-POST("/api/announcements/", {
-    "title": "Q2 inventory count — June 1",
-    "body": "A full stock count is scheduled for June 1. Operations team please "
-            "freeze non-urgent movements the evening before.",
-    "priority": "medium", "audience_type": "all", "requires_ack": False})
-POST("/api/announcements/", {
-    "title": "Office closed — public holiday",
-    "body": "The office will be closed for the upcoming public holiday. POS and "
-            "online orders continue as normal.",
-    "priority": "low", "audience_type": "all",
-    "expires_at": days_ahead(30)})
-print("  +3 announcements (1 pinned + ack-required)")
-
-
-# ════════════════════════════════════════════════════════════════════════════
-# 28. Planning — milestones + calendar events on the existing plans
-# ════════════════════════════════════════════════════════════════════════════
-header("Planning extras")
-for mb in [
-    {"project_id": plan_cafe["id"],   "name": "Design approved",   "due_date": days_ago(15)},
-    {"project_id": plan_cafe["id"],   "name": "Bar counter installed", "due_date": days_ahead(2)},
-    {"project_id": plan_cafe["id"],   "name": "Handover",          "due_date": days_ahead(14)},
-    {"project_id": plan_office["id"], "name": "Measurements done", "due_date": days_ahead(9)},
-    {"project_id": plan_office["id"], "name": "Install complete",  "due_date": days_ahead(27)},
+# Attribute definitions + one variant product, so the Product Builder and the
+# "Inventory by Attribute" report have real data behind them.
+for _d in [
+    {"scope_type": "global", "name": "Colour", "input_type": "enum",
+     "options": ["Black", "White", "Grey"], "is_variant_axis": True, "sort_order": 1},
+    {"scope_type": "global", "name": "Size", "input_type": "enum",
+     "options": ["Small", "Medium", "Large"], "is_variant_axis": True, "sort_order": 2},
+    {"scope_type": "global", "name": "Finish", "input_type": "text",
+     "is_variant_axis": False, "sort_order": 3},
 ]:
-    POST("/api/planning/milestones", mb)
+    r = client.post("/api/products/attribute-defs", json=_d)
+    if r.status_code not in (200, 201):
+        print(f"  ! attribute def {_d['name']}: {r.status_code} {r.text[:70]}")
 
-for eb in [
-    {"title": "Weekly team standup", "start_date": days_ahead(1),
-     "all_day": 0, "start_time": "09:00", "end_time": "09:30"},
-    {"title": "Café site walkthrough", "start_date": days_ahead(3),
-     "all_day": 0, "start_time": "14:00", "end_time": "15:30",
-     "description": "Review bar install progress"},
-    {"title": "Supplier review meeting", "start_date": days_ahead(8),
-     "all_day": 1, "color": "#f5a623"},
+_prod = client.post("/api/products/", json={
+    "name": "Product Theta", "category": "Finished Goods", "product_type": "finished",
+    "unit": "pcs", "unit_cost": 24, "sale_price": 68, "min_stock": 5,
+    "initial_quantity": 12,
+    "axes": [{"name": "Colour", "values": ["Black", "White"]},
+             {"name": "Size",   "values": ["Small", "Large"]}],
+    "descriptors": {"Finish": "Matte"}})
+_variants = 0
+if _prod.status_code in (200, 201):
+    _variants = _prod.json().get("variant_count") or len(_prod.json().get("variants") or [])
+else:
+    print(f"  ! product builder: {_prod.status_code} {_prod.text[:90]}")
+
+# Cash in/out movements on an open reconciliation (petty-cash style activity).
+_rec_open = POST("/api/cash/reconciliations",
+                 {"drawer_id": main_till["id"], "business_date": days_ago(0),
+                  "opening_balance": 200})
+for _mv in [
+    {"direction": "in",  "currency": "USD", "amount": 150, "category": "Sales",
+     "description": "Counter takings"},
+    {"direction": "out", "currency": "USD", "amount": 40,  "category": "Supplies",
+     "description": "Office supplies"},
+    {"direction": "out", "currency": "USD", "amount": 25,  "category": "Transport",
+     "description": "Courier"},
 ]:
-    POST("/api/planning/events", eb)
-print("  +5 milestones + 3 calendar events")
+    POST(f"/api/cash/reconciliations/{_rec_open['id']}/movements", _mv)
+
+# A saved/rendered document against an invoice.
+POST("/api/documents/", {
+    "record_type": "invoice", "record_id": inv_paid_id, "client_id": CL["Beta"],
+    "title": "Invoice — Client Beta", "html_content":
+        "<h1>Invoice</h1><p>Client Beta — consulting services.</p>"})
+
+# Announcement engagement: acknowledge the pinned notice and leave a comment.
+_anns = GET("/api/announcements/")
+_ann_rows = _anns if isinstance(_anns, list) else _anns.get("items", [])
+if _ann_rows:
+    _aid = _ann_rows[0]["id"]
+    client.post(f"/api/announcements/{_aid}/acknowledge", json={})
+    client.post(f"/api/announcements/{_aid}/comments",
+                json={"body": "Acknowledged — thanks for the update."})
+
+# Warehouse access grant, so the Warehouses → Access tab is not empty.
+_uid = next((u["id"] for u in GET("/api/users/")
+             if u.get("username") == "u_inventory"), None)
+if _uid:
+    client.post(f"/api/warehouses/{WH_BETA}/access", json={"user_id": _uid})
+
+print(f"  exchange rate set; 3 attribute defs (+{_variants} product variants); "
+      "3 cash movements; 1 document; announcement ack + comment; 1 access grant")
 
 
 # ════════════════════════════════════════════════════════════════════════════
-# 29. Manufacturing resources + advanced production (resources / QC / lots /
-#     partial completion) — the SME resource-based costing model
-# ════════════════════════════════════════════════════════════════════════════
-header("Manufacturing resources & advanced production")
-# Reusable per-hour cost resources (drive overhead = Σ rates × actual hours).
-res_labor = POST("/api/manufacturing/resources", {"name": "Labor",        "hourly_rate": 12})["id"]
-res_elec  = POST("/api/manufacturing/resources", {"name": "Electricity",  "hourly_rate": 3})["id"]
-res_cnc   = POST("/api/manufacturing/resources", {"name": "CNC Machine",  "hourly_rate": 20})["id"]
-res_oven  = POST("/api/manufacturing/resources", {"name": "Oven",         "hourly_rate": 8})["id"]
-
-# A lot-tracked raw input + a lot-tracked, QC-required finished product so the
-# completion drives lots, expiry, traceability AND quality control.
-raw_resin = POST("/api/inventory/", {
-    "name": "Resin Compound", "category": "Chemicals", "product_type": "raw_material",
-    "quantity": 500, "unit_cost": 2.0, "unit": "kg",
-    "lot_tracked": True, "shelf_life_days": 365})["id"]
-fg_widget = POST("/api/inventory/", {
-    "name": "Molded Widget", "category": "Finished", "product_type": "finished",
-    "quantity": 0, "sale_price": 40, "min_stock": 10, "unit": "pcs",
-    "lot_tracked": True, "shelf_life_days": 730})["id"]
-
-bom_widget = POST("/api/manufacturing/boms", {
-    "name": "Molded Widget BOM", "output_inventory_id": fg_widget,
-    "output_quantity": 10, "standard_hours": 2, "qc_required": True,
-    "components": [{"component_inventory_id": raw_resin, "quantity": 5}],
-    "resources": [{"resource_id": res_labor}, {"resource_id": res_elec},
-                  {"resource_id": res_cnc}, {"name": "Quality check", "hourly_rate": 5}],
-})
-
-# MO A — full run → finished batch goes to QC quarantine → inspector resolves
-# (7 pass to stock as a lot, 3 rejected, 2 of them spun into a rework order).
-mo_qc = POST("/api/manufacturing/orders", {
-    "bom_id": bom_widget["id"], "quantity": 10, "priority": "High",
-    "due_date": days_ahead(7), "notes": "QC + lot-tracked batch"})
-POST(f"/api/manufacturing/orders/{mo_qc['id']}/confirm")
-POST(f"/api/manufacturing/orders/{mo_qc['id']}/start")
-done = POST(f"/api/manufacturing/orders/{mo_qc['id']}/complete", {"production_hours": 2.5})
-if done.get("qc_id"):
-    POST(f"/api/manufacturing/qc/{done['qc_id']}/resolve", {
-        "passed_qty": 7, "rejected_qty": 3, "rework_qty": 2,
-        "defects": [{"reason": "Surface blemish", "quantity": 2},
-                    {"reason": "Short fill", "quantity": 1}],
-        "notes": "Two reworkable, one scrap."})
-
-# MO B — resource-based BOM completed across TWO PARTIAL runs (auto-closes when
-# the planned quantity is reached). No QC on this one.
-fg_panel = POST("/api/inventory/", {
-    "name": "Wood Panel", "category": "Furniture", "product_type": "finished",
-    "quantity": 0, "sale_price": 25, "min_stock": 4, "unit": "pcs"})["id"]
-bom_panel = POST("/api/manufacturing/boms", {
-    "name": "Wood Panel BOM", "output_inventory_id": fg_panel,
-    "output_quantity": 1, "standard_hours": 0.5,
-    "components": [{"component_inventory_id": inv["wood"]["id"], "quantity": 1}],
-    "resources": [{"resource_id": res_labor}, {"resource_id": res_oven}],
-})
-mo_partial = POST("/api/manufacturing/orders", {
-    "bom_id": bom_panel["id"], "quantity": 10, "priority": "Normal",
-    "planned_start_date": days_ago(2), "due_date": days_ahead(5)})
-POST(f"/api/manufacturing/orders/{mo_partial['id']}/confirm")
-POST(f"/api/manufacturing/orders/{mo_partial['id']}/complete",
-     {"quantity_produced": 6, "production_hours": 3, "close": False})   # first run
-POST(f"/api/manufacturing/orders/{mo_partial['id']}/complete",
-     {"quantity_produced": 4, "production_hours": 2})                    # finishes + closes
-print("  +4 resources, 2 resource BOMs; QC batch (pass/reject/rework + lots) "
-      "+ partial completion across 2 runs")
-
-
-# ════════════════════════════════════════════════════════════════════════════
-# 30. Accounting — one manual journal entry (the rest of the ledger is already
-#     auto-posted from invoice payments / expenses / payroll / depreciation /
-#     purchases seeded above)
-# ════════════════════════════════════════════════════════════════════════════
-header("Accounting")
-_acct = {a["code"]: a["id"] for a in GET("/api/accounting/accounts")}
-POST("/api/accounting/journal-entries", {
-    "entry_date": days_ago(90),
-    "memo": "Opening owner capital injection",
-    "lines": [
-        {"account_id": _acct["1000"], "debit": 20000},   # Cash & Bank
-        {"account_id": _acct["3000"], "credit": 20000},  # Owner's Equity
-    ],
-})
-_je = GET("/api/accounting/journal-entries")
-print(f"  +1 manual journal entry; ledger holds {len(_je)} posted entries "
-      "(payments/expenses/payroll/depreciation/purchases auto-posted)")
-
-
-# ════════════════════════════════════════════════════════════════════════════
-# 31. Attachments — files on clients / projects / invoices / suppliers
+# 25. Attachments — files on clients / projects / invoices / suppliers
 # ════════════════════════════════════════════════════════════════════════════
 header("Attachments")
+
+
 def _attach(entity_type, entity_id, fname, content, ctype):
     r = client.post(f"/api/attachments/{entity_type}/{entity_id}",
                     files={"file": (fname, content, ctype)})
-    return r.status_code in (200, 201)
+    return 1 if r.status_code in (200, 201) else 0
+
 
 _PDF = (b"%PDF-1.4\n1 0 obj<</Type/Catalog/Pages 2 0 R>>endobj\n"
         b"2 0 obj<</Type/Pages/Kids[3 0 R]/Count 1>>endobj\n"
         b"3 0 obj<</Type/Page/Parent 2 0 R/MediaBox[0 0 200 200]>>endobj\n"
         b"trailer<</Root 1 0 R>>\n%%EOF")
 _att = 0
-_att += _attach("clients",   CL_BEIRUT_CAFE, "onboarding-brief.txt",
-                b"Beirut Cafe onboarding brief.\nPreferred contact: WhatsApp.\n", "text/plain")
-_att += _attach("projects",  PRJ_CAFE, "site-measurements.csv",
-                b"area,width,length\nbar,3.2,1.1\nseating,6.0,4.5\n", "text/csv")
-_att += _attach("invoices",  inv_paid["id"], "signed-invoice.pdf", _PDF, "application/pdf")
-_att += _attach("suppliers", SUP_CEDAR, "price-list.txt",
-                b"Pine plank 4.00/pcs\nNails 0.05/pcs\nVarnish 12.00/L\n", "text/plain")
+_att += _attach("clients", CL["Alpha"], "onboarding-brief.txt",
+                b"Client Alpha onboarding brief.\nPreferred contact: email.\n", "text/plain")
+_att += _attach("projects", PRJ["Alpha"], "site-measurements.csv",
+                b"area,width,length\nzone-a,3.2,1.1\nzone-b,6.0,4.5\n", "text/csv")
+_att += _attach("invoices", inv_paid_id, "signed-invoice.pdf", _PDF, "application/pdf")
+_att += _attach("suppliers", SUP_A, "price-list.txt",
+                b"Material Alpha 4.00/pcs\nMaterial Beta 0.05/pcs\n", "text/plain")
 print(f"  +{_att} attachments across clients / projects / invoices / suppliers")
 
 
 # ════════════════════════════════════════════════════════════════════════════
-# 32. Historical financial backfill — 12 months of realistic, collected
-#     revenue + operating costs so every trend chart (Dashboard, Finance,
-#     Reports, Income Statement) reads like a real, modestly-growing SMB
-#     instead of a single current-month spike.
+# 26. HISTORICAL BACKFILL — 18 months of collected revenue + operating cost
 #
-# WHY a post-seed SQL date-shift is needed (and safe):
-#   • Payments stamp `paid_at = now()` server-side (invoices.py) — the API
-#     gives no way to back-date the cash-basis revenue that drives the
-#     revenue trend. Expenses DO accept an explicit `date` (and auto-date
-#     their own GL entry from it), so historical COSTS need no SQL at all.
-#   • For revenue we therefore create the invoices+payments through the API
-#     (so every ledger/stock/tax side-effect is real), then move three date
-#     columns in lockstep per payment: invoice_payments.paid_at, the
-#     invoice's created_at, and the payment's revenue journal entry
-#     (source_type='invoice_payment', source_id=payment_id).
-#   • Only DATES change — never amounts — so the Trial Balance stays balanced
-#     and the accrual Income Statement (JE dates) matches the cash-basis
-#     Finance view (paid_at) month by month.
+# WHY a post-seed SQL date-shift is needed (and why it is safe):
+#   • Payments stamp `paid_at = now()` server-side (routers/invoices.py), so the
+#     API offers no way to back-date the cash-basis revenue that drives every
+#     revenue trend. Expenses DO accept an explicit `date` (and auto-date their
+#     own GL entry from it), so historical COSTS need no SQL at all.
+#   • For revenue we therefore create the invoices + payments through the API —
+#     so every ledger, tax and audit side-effect is real — then move three date
+#     columns in lockstep per invoice: invoice_payments.paid_at, the invoice's
+#     created_at, and the payment's revenue journal entry (located by
+#     source_type='invoice_payment' + source_id).
+#   • Only DATES move, never amounts, so the trial balance stays balanced and
+#     the accrual income statement matches the cash-basis finance view month by
+#     month.
 #
-# The model targets a healthy net margin (~12–22%, expanding with scale) so
-# revenue exceeds cost every month: materials float as the balancing COGS
-# line, payroll/rent/utilities are the fixed opex.
-header("Historical backfill (12-month trend)")
-import math       # noqa: E402
-import random     # noqa: E402
-from calendar import monthrange  # noqa: E402
-random.seed(42)   # reproducible — re-running the seed yields the same history
+# The model targets a realistic small-business shape: revenue grows steadily
+# with a mild seasonal swing, costs are dominated by materials (COGS) plus a
+# fixed payroll/rent/utilities base, and every month lands in a believable
+# 12–20% net margin band. A few invoices are deliberately left unpaid so the
+# receivables aging report has real 30/60/90-day buckets.
+# ════════════════════════════════════════════════════════════════════════════
+header(f"Historical backfill ({HISTORY_MONTHS}-month trend)")
 
-ALL_CLIENTS = client_ids + more_client_ids
-BUSINESS_CLIENTS = [CL_BEIRUT_CAFE, CL_CEDAR_LOG, CL_ATLAS, CL_PHOENICIA,
-                    CL_ROASTERS, CL_LEVANT, CL_BYBLOS, CL_TRIPOLI, CL_ZAHLE]
-
-# Sale line-items for a furniture workshop + café-supply business (name, lo, hi).
-SALE_LINES = [
-    ("Dining table — oak",        650, 1200),
-    ("Chairs (set of 4)",         180,  340),
-    ("Bar counter — custom",     1400, 2600),
-    ("Office desk",               260,  520),
-    ("Bookshelf unit",            300,  780),
-    ("Reception desk",           1500, 2800),
-    ("Display shelving",          900, 1800),
-    ("Café furniture package",   1800, 3400),
-    ("Coffee beans — bulk 25kg",  380,  520),
-    ("Repair & refinish",         150,  480),
-    ("Delivery & installation",    80,  260),
-]
-
-def _recent_months(n):
-    """Oldest→current list of (year, month) for the trailing n months."""
-    today = datetime.utcnow()
-    out, y, m = [], today.year, today.month
-    for i in range(n - 1, -1, -1):
-        mm, yy = m - i, y
-        while mm <= 0:
-            mm += 12; yy -= 1
-        out.append((yy, mm))
-    return out
-
-def _dstr(y, m, day):
-    return f"{y:04d}-{m:02d}-{min(day, monthrange(y, m)[1]):02d}"
-
-_now_ym = (datetime.utcnow().year, datetime.utcnow().month)
-months  = _recent_months(12)
-n_span  = len(months)
-hist_payments = []   # (invoice_id, "YYYY-MM-DD") for the SQL shift — each
-                     # historical invoice carries exactly one full payment
-
-# The seeded "expense > $1,000 → Finance approval" policy would trap every
-# historical Materials / Salary / Rent line (all > $1k) in pending-approval so
-# it never posts to the ledger — leaving the Income Statement showing revenue
-# with almost no cost. Suspend active policies for the backfill, then restore
-# them (current-month pending-approval demo requests are unaffected).
-_suspended_policies = [p["id"] for p in GET("/api/approval-policies/") if p.get("is_active")]
-for _pid in _suspended_policies:
+# The "expense > $1,000" policy above would trap every historical Materials /
+# Salary / Rent line in pending-approval so it never reaches the ledger,
+# leaving the income statement showing revenue with almost no cost. Suspend
+# active policies for the backfill, then restore them afterwards.
+_suspended = [p["id"] for p in GET("/api/approval-policies/") if p.get("is_active")]
+for _pid in _suspended:
     PATCH(f"/api/approval-policies/{_pid}/toggle")
 
-def _make_invoice(y, m, inv_target):
-    """Create one fully-paid invoice worth ≈ inv_target (pre-tax) and return
-    its (id, gross_amount_collected)."""
-    items, remaining = [], inv_target
+SALE_LINES = [
+    ("Product Alpha",      650, 1200),
+    ("Product Beta",       180,  340),
+    ("Product Gamma",      120,  260),
+    ("Product Zeta",       300,  780),
+    ("Component Alpha",    260,  520),
+    ("Service package A", 1400, 2600),
+    ("Service package B",  900, 1800),
+    ("Installation",       150,  480),
+    ("Maintenance plan",   380,  520),
+    ("Delivery service",    80,  260),
+]
+
+_paid_hist:   list[tuple[int, str]] = []   # (invoice_id, paid date)
+_unpaid_hist: list[tuple[int, str]] = []   # (invoice_id, issue date)
+_rev_total = _cost_total = 0.0
+
+
+def _hist_invoice(target, tax=TAX_DEFAULT):
+    """One invoice worth ≈ target (pre-tax). Returns (invoice_id, gross)."""
+    items, remaining = [], target
     n_lines = random.randint(1, 3)
     for li in range(n_lines):
         name, lo, hi = random.choice(SALE_LINES)
         if li == n_lines - 1:
             unit, qty = max(50, round(remaining)), 1
         else:
-            unit = round(random.uniform(lo, hi)); qty = random.randint(1, 2)
+            unit = round(random.uniform(lo, hi))
+            qty  = random.randint(1, 2)
             remaining -= unit * qty
         items.append({"name": name, "quantity": qty, "unit_price": unit,
-                      "tax_rate_id": TAX_DEFAULT})
-    cid = random.choice(BUSINESS_CLIENTS if random.random() < 0.7 else ALL_CLIENTS)
+                      "tax_rate_id": tax})
+    cid = random.choice(BUSINESS_CLIENTS if random.random() < 0.75 else CLIENT_IDS)
     iv  = POST("/api/invoices/", {"client_id": cid, "items": items})
-    amt = GET(f"/api/invoices/{iv['id']}")["amount"]
-    POST(f"/api/invoices/{iv['id']}/payments",
-         {"amount": amt, "method": random.choice(["Bank Transfer", "Cash", "Card"]),
-          "idempotency_key": str(uuid.uuid4())})
-    return iv["id"], amt
+    return iv["id"], GET(f"/api/invoices/{iv['id']}")["amount"]
 
-_rev_total = _cost_total = 0.0
-for idx, (y, m) in enumerate(months):
-    is_current = (y, m) == _now_ym
-    progress   = idx / max(1, n_span - 1)               # 0 … 1 across the window
-    # Revenue: grows ~$21k → ~$32k, mild summer bump, small monthly noise. The
-    # current month is deliberately PARTIAL (collections still coming in) so a
-    # cash-basis dashboard shows the natural in-progress dip, not a full month.
+
+for back in range(HISTORY_MONTHS - 1, -1, -1):
+    y, m = months_back(back)
+    is_current = (back == 0)
+    progress   = (HISTORY_MONTHS - 1 - back) / max(1, HISTORY_MONTHS - 1)
+
+    # Revenue: ~$26k → ~$42k with a mild seasonal swing and month-to-month noise.
     season     = 1.0 + 0.07 * math.sin((m / 12.0) * 2 * math.pi)
-    target_rev = (21000 + 11000 * progress) * season * random.uniform(0.95, 1.05)
+    target_rev = (26000 + 16000 * progress) * season * random.uniform(0.95, 1.05)
+    # The current month is deliberately partial — collections are still coming in.
     if is_current:
-        target_rev *= 0.55
+        target_rev *= 0.5
 
-    # ── Revenue: several fully-paid invoices summing ≈ target_rev ───────────
-    n_inv   = random.randint(4, 6) if is_current else random.randint(6, 9)
+    n_inv   = random.randint(4, 6) if is_current else random.randint(7, 10)
     weights = [random.uniform(0.6, 1.6) for _ in range(n_inv)]
     wsum    = sum(weights)
     month_gross = 0.0
+
     for k in range(n_inv):
-        inv_id, amt = _make_invoice(y, m, target_rev * weights[k] / wsum)
+        inv_id, amt = _hist_invoice(target_rev * weights[k] / wsum,
+                                    tax=TAX_REDUCED if random.random() < 0.12 else TAX_DEFAULT)
+        POST(f"/api/invoices/{inv_id}/payments",
+             {"amount": amt,
+              "method": random.choice(["Bank Transfer", "Bank Transfer", "Cash", "Card"]),
+              "idempotency_key": str(uuid.uuid4())})
         month_gross += amt
         _rev_total  += amt
-        if not is_current:      # current month is already "now" — no shift needed
-            hist_payments.append((inv_id, _dstr(y, m, random.randint(3, 27))))
+        if not is_current:      # the current month already sits at "now"
+            _paid_hist.append((inv_id, dstr(y, m, random.randint(3, 27))))
 
-    # ── Costs: PAST months only (the current month's opex is already seeded as
-    #    one-off state). Sized off the month's GROSS revenue so the charted net
-    #    margin lands in a realistic 14–20% band; Materials is the balancing
-    #    COGS line, payroll/rent/utilities the fixed opex. ────────────────────
+    # A couple of unpaid invoices in the recent past → real aging buckets.
+    if 1 <= back <= 3:
+        u_id, u_amt = _hist_invoice(random.uniform(1200, 2600))
+        _unpaid_hist.append((u_id, dstr(y, m, random.randint(5, 20))))
+
     if is_current:
-        continue
-    margin = random.uniform(0.14, 0.18) + 0.02 * progress      # widens slightly with scale
+        continue    # current-month operating costs come from the sections above
+
+    # ── Operating costs, sized off this month's gross revenue ───────────────
+    margin = random.uniform(0.13, 0.17) + 0.02 * progress
     costs  = month_gross * (1 - margin)
-    util, transport, subs = (random.uniform(360, 520),
-                             random.uniform(150, 300),
-                             random.uniform(200, 380))
-    materials = max(month_gross * 0.32, costs - (7700 + 1100 + util + transport + subs))
+    util      = random.uniform(360, 520)
+    transport = random.uniform(150, 300)
+    subs      = random.uniform(200, 380)
+    maint     = random.uniform(120, 340)
+    payroll, rent = 7700, 1100
+    materials = max(month_gross * 0.30,
+                    costs - (payroll + rent + util + transport + subs + maint))
 
-    def _exp(cat, amount, desc, day, tax=False):
-        POST("/api/finance/expenses", {
-            "category": cat, "amount": round(amount, 2), "description": desc,
-            "date": _dstr(y, m, day), "payment_method": "Bank Transfer",
-            **({"tax_rate_id": TAX_DEFAULT} if tax else {})})
+    for cat, amount, desc, day, taxed in [
+        ("Materials",    materials, "Production materials and supplies",  6, True),
+        ("Salary",       payroll,   "Monthly payroll",                   28, False),
+        ("Rent",         rent,      "Facility rent",                      1, True),
+        ("Utilities",    util,      "Power, water and fuel",              9, True),
+        ("Transport",    transport, "Delivery and logistics",            12, False),
+        ("Subscription", subs,      "Software and marketing",            15, True),
+        ("Maintenance",  maint,     "Equipment servicing",               20, False),
+    ]:
+        body = {"category": cat, "amount": round(amount, 2), "description": desc,
+                "date": dstr(y, m, day), "payment_method": "Bank Transfer"}
+        if taxed:
+            body["tax_rate_id"] = TAX_DEFAULT
+        POST("/api/finance/expenses", body)
+    _cost_total += payroll + rent + util + transport + subs + maint + materials
 
-    _exp("Materials",  materials, "Timber, hardware & finishing supplies", 6, tax=True)
-    _exp("Salary",     7700,      "Monthly payroll",                       28)
-    _exp("Rent",       1100,      "Workshop + showroom rent",               1, tax=True)
-    _exp("Utilities",  util,      "Electricity, water & generator fuel",    9, tax=True)
-    _exp("Transport",  transport, "Delivery fuel & logistics",             12)
-    _exp("Subscription", subs,    "Software & marketing",                  15, tax=True)
-    _cost_total += materials + 7700 + 1100 + util + transport + subs
-
-# ── The lockstep SQL date-shift (dates only — books stay balanced) ──────────
-# Each historical invoice has exactly one full payment, so the payment and its
-# revenue journal entry are located by invoice_id — no payment id needed.
+# ── The lockstep date shift (dates only — the books stay balanced) ──────────
 with sqlite3.connect(DB_PATH) as _con:
-    for inv_id, pay_date in hist_payments:
+    for inv_id, pay_date in _paid_hist:
         issued = (datetime.strptime(pay_date, "%Y-%m-%d")
-                  - timedelta(days=random.randint(2, 10))).strftime("%Y-%m-%d %H:%M:%S")
+                  - timedelta(days=random.randint(2, 12))).strftime("%Y-%m-%d %H:%M:%S")
         _con.execute("UPDATE invoice_payments SET paid_at=? WHERE invoice_id=?",
                      (pay_date + " 12:00:00", inv_id))
         _con.execute("UPDATE invoices SET created_at=? WHERE id=?", (issued, inv_id))
@@ -1545,31 +1464,59 @@ with sqlite3.connect(DB_PATH) as _con:
             "WHERE source_type='invoice_payment' AND source_id IN "
             "(SELECT id FROM invoice_payments WHERE invoice_id=?)",
             (pay_date, inv_id))
+    # Unpaid historical invoices: shift the issue date and set a 30-day due date
+    # that has already passed, so they land in the aging buckets.
+    for inv_id, issue_date in _unpaid_hist:
+        due = (datetime.strptime(issue_date, "%Y-%m-%d")
+               + timedelta(days=30)).strftime("%Y-%m-%d")
+        _con.execute("UPDATE invoices SET created_at=?, due_date=? WHERE id=?",
+                     (issue_date + " 09:00:00", due, inv_id))
     _con.commit()
 
 # Restore the approval policies suspended for the backfill.
-for _pid in _suspended_policies:
+for _pid in _suspended:
     PATCH(f"/api/approval-policies/{_pid}/toggle")
 
-print(f"  +{len(hist_payments)} back-dated paid invoices + monthly costs across "
-      f"{n_span - 1} prior months")
-print(f"  ≈ ${_rev_total:,.0f} collected vs ${_cost_total:,.0f} historical costs "
+print(f"  +{len(_paid_hist)} back-dated paid invoices across {HISTORY_MONTHS - 1} prior months")
+print(f"  +{len(_unpaid_hist)} unpaid invoices feeding the receivables aging buckets")
+print(f"  ≈ ${_rev_total:,.0f} collected vs ${_cost_total:,.0f} operating cost "
       f"(net ≈ ${_rev_total - _cost_total:,.0f})")
 
 
 # ════════════════════════════════════════════════════════════════════════════
+# 27. One live pending approval + two locked historical periods
+# ════════════════════════════════════════════════════════════════════════════
+header("Period close & pending approval")
+# Now that the policies are active again, this expense raises a real request.
+POST("/api/finance/expenses", {
+    "category": "Materials", "amount": 2400, "project_id": PRJ["Gamma"],
+    "description": "Bulk order — pending finance review"})
+
+_locked = 0
+for back in (HISTORY_MONTHS - 1, HISTORY_MONTHS - 2):
+    ly, lm = months_back(back)
+    r = client.post(f"/api/finance/periods/{ly}/{lm}/lock", json={})
+    _locked += 1 if r.status_code in (200, 201) else 0
+print(f"  +1 pending approval request; {_locked} historical period(s) locked")
+
+
+# ════════════════════════════════════════════════════════════════════════════
+_summary = GET("/api/accounting/trial-balance")
+_bal = "balanced" if _summary.get("balanced") else "OUT OF BALANCE"
 print()
 print(f"✓  Database seeded at {DB_PATH}")
+print(f"   Ledger: {_bal}")
 print(f"   Admin login:     admin / {ADMIN_PASSWORD}  (superadmin)")
 print(f"   Per-role logins: u_<role> / {ROLE_PASSWORD}  (e.g. u_finance_manager)")
 print()
 print("   Try the UI tour:")
-print("   • Dashboard          — KPIs, revenue trend, recent activity")
-print("   • Notifications bell — low-stock / sales / variance / approvals")
-print("   • Invoices           — every payment state including the voided one")
-print("   • Manufacturing      — orders in Draft / In Progress / Completed")
-print("   • Reports → VAT      — per-rate breakdown across 11% / 5% / 0%")
-print("   • Recruitment        — pipeline from Applied → hired employee")
-print("   • HR → Payroll       — 1 paid run posted to Finance + 1 draft")
-print("   • Announcements      — pinned company-wide notice (ack required)")
-print("   • Approvals          — pending Finance review")
+print("   • Dashboard            — KPIs and an 18-month revenue trend")
+print("   • Finance / Reports    — P&L, VAT by rate, aging, expense mix")
+print("   • Accounting → Ledger  — manual entries, loan, prepayments, FX")
+print("   • Accounting → Closing — two locked historical periods")
+print("   • Invoices             — every payment state including voided")
+print("   • Warehouses           — transfers in every status")
+print("   • Manufacturing        — QC batch, lots, partial completion")
+print("   • HR                   — contracts, payroll, leave, attendance")
+print("   • Recruitment          — pipeline from applicant to hired employee")
+print("   • Approvals            — one request pending finance review")
