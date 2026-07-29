@@ -204,6 +204,51 @@
   /* Layout. */
   --sidebar-w:        236px;
   --header-h:         52px;
+
+  /* ── HeroUI v3 design language ────────────────────────────────────────
+     Ported from the HeroUI v3 token system, expressed in our own plum
+     palette. Three things this buys us over hand-picked values:
+
+       1. Elevation is LAYERED (contact + ambient + hairline) instead of a
+          single flat drop, so a card reads as a physical object.
+       2. Surfaces and overlays are separate materials — a modal casts an
+          upward layer a card never does, which is what makes floating
+          panels feel lifted rather than pasted on.
+       3. Interaction states are DERIVED with color-mix in oklab rather
+          than hand-picked, so they stay perceptually even and follow the
+          accent automatically if the brand colour ever changes.               */
+
+  /* Elevation — surface (cards, panels) vs overlay (modals, menus). */
+  --surface-shadow:   0 2px 4px 0 rgba(0, 0, 0, 0.04),
+                      0 1px 2px 0 rgba(0, 0, 0, 0.06),
+                      0 0 1px 0 rgba(0, 0, 0, 0.06);
+  --overlay-shadow:   0 2px 8px 0 rgba(0, 0, 0, 0.06),
+                      0 -6px 12px 0 rgba(0, 0, 0, 0.03),
+                      0 14px 28px 0 rgba(0, 0, 0, 0.08);
+  --field-shadow:     0 1px 2px 0 rgba(0, 0, 0, 0.04);
+
+  /* Focus — one ring for the entire app, offset from the control so it
+     reads clearly on both light and dark surfaces. */
+  --focus:            var(--accent);
+  --ring-offset-width: 2px;
+
+  /* Derived interaction states (oklab keeps the steps perceptually even). */
+  --accent-hover-mix: color-mix(in oklab, var(--accent) 90%, #000 10%);
+  --surface-hover:    color-mix(in oklab, var(--surface) 96%, var(--ink) 4%);
+  --danger-hover-mix: color-mix(in oklab, var(--negate) 90%, #000 10%);
+  --success-hover-mix: color-mix(in oklab, var(--affirm) 90%, #000 10%);
+
+  /* Soft (tinted) variants for chips, badges and subtle fills. */
+  --accent-soft:      color-mix(in oklab, var(--accent) 14%, transparent);
+  --success-soft:     color-mix(in oklab, var(--affirm) 14%, transparent);
+  --warning-soft:     color-mix(in oklab, var(--caution) 16%, transparent);
+  --danger-soft:      color-mix(in oklab, var(--negate) 14%, transparent);
+
+  /* Fields are ROUNDER than cards — a HeroUI signature that visually
+     separates "things you type into" from "things that contain". */
+  --field-radius:     10px;
+
+  --disabled-opacity: 0.5;
 }
 
 
@@ -287,6 +332,26 @@
                       0 4px 8px rgba(0, 0, 0, 0.40);
   --shadow-xl:        0 24px 48px -12px rgba(0, 0, 0, 0.80),
                       0 8px 16px rgba(0, 0, 0, 0.50);
+
+  /* HeroUI dark-mode elevation: on a dark ground a drop shadow reads as
+     mud, so depth comes from a luminous hairline instead. Overlays keep a
+     real drop (they float over content and need the separation). */
+  --surface-shadow:   0 0 0 1px rgba(255, 255, 255, 0.04) inset;
+  --overlay-shadow:   0 14px 28px 0 rgba(0, 0, 0, 0.55),
+                      0 0 1px 0 rgba(255, 255, 255, 0.22) inset;
+  --field-shadow:     0 0 0 0 transparent;
+
+  /* Derived states, re-mixed for the dark ground: lift toward white
+     rather than down toward black. */
+  --accent-hover-mix: color-mix(in oklab, var(--accent) 88%, #FFF 12%);
+  --surface-hover:    color-mix(in oklab, var(--surface) 92%, #FFF 8%);
+  --danger-hover-mix: color-mix(in oklab, var(--negate) 88%, #FFF 12%);
+  --success-hover-mix: color-mix(in oklab, var(--affirm) 88%, #FFF 12%);
+
+  --accent-soft:      color-mix(in oklab, var(--accent) 20%, transparent);
+  --success-soft:     color-mix(in oklab, var(--affirm) 20%, transparent);
+  --warning-soft:     color-mix(in oklab, var(--caution) 22%, transparent);
+  --danger-soft:      color-mix(in oklab, var(--negate) 20%, transparent);
 }
 
 
@@ -314,6 +379,19 @@ body {
   font-variant-numeric: lining-nums tabular-nums slashed-zero;
   font-feature-settings: 'cv11' 1, 'ss01' 1, 'ss03' 1;
   min-height: 100vh;
+}
+
+/* Baseline focus ring (HeroUI v3 model) — one visible, consistent ring for
+   every interactive element, keyboard-only via :focus-visible.
+   Wrapped in :where() so it carries ZERO specificity: any component that
+   defines its own focus treatment still wins, but nothing is ever left
+   with an invisible focus state. This is the single biggest accessibility
+   gap the previous system had — several controls set `outline: none` with
+   no replacement. */
+:where(a, button, select, textarea, input, summary, [tabindex]:not([tabindex="-1"])):focus-visible {
+  outline: 2px solid var(--focus);
+  outline-offset: var(--ring-offset-width);
+  border-radius: var(--r-xs);
 }
 
 /* Display type. Inter at heavy weights with tight tracking. Used for
@@ -717,7 +795,7 @@ html[lang="ar"], html[lang="ar"] body {
   background: var(--surface);
   border: 1px solid var(--rule);
   border-radius: var(--r);
-  box-shadow: var(--shadow-xs);
+  box-shadow: var(--surface-shadow);
   overflow: hidden;
   transition:
     border-color var(--motion-fast) var(--ease),
@@ -976,12 +1054,17 @@ html[lang="ar"], html[lang="ar"] body {
     box-shadow var(--motion-fast) var(--ease);
   white-space: nowrap;
 }
+/* Focus: an offset outline rather than a box-shadow ring. Outline draws
+   outside the border box and lets the real backdrop show through the gap,
+   so the ring stays correct on a card, on the page, or on a toolbar —
+   a shadow ring would need to know the colour behind it. */
 .btn:focus-visible {
-  outline: none;
-  box-shadow: var(--shadow-focus);
+  outline: 2px solid var(--focus);
+  outline-offset: var(--ring-offset-width);
+  box-shadow: none;
 }
 .btn[disabled], .btn:disabled {
-  opacity: 0.4;
+  opacity: var(--disabled-opacity);
   cursor: not-allowed;
 }
 
@@ -989,19 +1072,21 @@ html[lang="ar"], html[lang="ar"] body {
   background: var(--accent);
   color: #FFFFFF;
   border-color: var(--accent);
+  box-shadow: var(--field-shadow);
 }
 .btn-primary:hover:not(:disabled) {
-  background: var(--accent-2);
-  border-color: var(--accent-2);
+  background: var(--accent-hover-mix);
+  border-color: var(--accent-hover-mix);
 }
 
 .btn-secondary {
   background: var(--surface);
   color: var(--text);
   border-color: var(--rule);
+  box-shadow: var(--field-shadow);
 }
 .btn-secondary:hover:not(:disabled) {
-  background: var(--surface-2);
+  background: var(--surface-hover);
   border-color: var(--rule-strong);
 }
 
@@ -1028,20 +1113,24 @@ html[lang="ar"], html[lang="ar"] body {
   background: var(--negate);
   color: #FFFFFF;
   border-color: var(--negate);
+  box-shadow: var(--field-shadow);
 }
+/* Derived, not hardcoded: the old #6F1C1C jumped to near-black, which
+   inverted badly in dark mode where --negate is a LIGHT red. */
 .btn-danger:hover:not(:disabled) {
-  background: #6F1C1C;
-  border-color: #6F1C1C;
+  background: var(--danger-hover-mix);
+  border-color: var(--danger-hover-mix);
 }
 
 .btn-success {
   background: var(--affirm);
   color: #FFFFFF;
   border-color: var(--affirm);
+  box-shadow: var(--field-shadow);
 }
 .btn-success:hover:not(:disabled) {
-  background: #18482D;
-  border-color: #18482D;
+  background: var(--success-hover-mix);
+  border-color: var(--success-hover-mix);
 }
 
 .btn-warning {
@@ -1230,7 +1319,8 @@ table tfoot td {
   color: var(--text);
   background: var(--surface);
   border: 1px solid var(--rule);
-  border-radius: var(--r-sm);
+  border-radius: var(--field-radius);
+  box-shadow: var(--field-shadow);
   transition:
     border-color var(--motion-fast) var(--ease),
     box-shadow var(--motion-fast) var(--ease),
@@ -1240,9 +1330,10 @@ table tfoot td {
 .form-control::placeholder { color: var(--text-3); font-weight: 400; }
 .form-control:hover { border-color: var(--rule-strong); }
 .form-control:focus {
-  outline: none;
+  outline: 2px solid var(--focus);
+  outline-offset: var(--ring-offset-width);
   border-color: var(--accent);
-  box-shadow: 0 0 0 3px var(--accent-ring);
+  box-shadow: none;
   background: var(--surface);
 }
 .form-control:disabled {
@@ -1562,7 +1653,7 @@ textarea.form-control {
   border: 1px solid var(--rule);
   border-radius: var(--r-lg);
   overflow: hidden;
-  box-shadow: var(--shadow-xl);
+  box-shadow: var(--overlay-shadow);
   animation: modalIn var(--motion-med) var(--ease-spring);
 }
 .modal.modal-lg { width: min(820px, 100%); }
