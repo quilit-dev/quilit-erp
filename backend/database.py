@@ -2882,12 +2882,28 @@ def _run_migrations(conn, c):
 
 # ── Base schema ───────────────────────────────────────────────────────────────
 
+# Connection-string variables we accept, in priority order. Managed hosts do not
+# agree on a name: Railway exposes DATABASE_URL plus a private-network variant,
+# some templates use POSTGRES_URL. Accepting the common aliases means a working
+# deployment doesn't hinge on picking the right one.
+_DSN_ENV_NAMES = (
+    "DATABASE_URL",
+    "DATABASE_PRIVATE_URL",   # Railway internal network (*.railway.internal)
+    "POSTGRES_URL",
+    "POSTGRESQL_URL",
+)
+
+
 def _pg_dsn():
-    """PostgreSQL connection string. DATABASE_URL wins; otherwise assembled from
-    the standard libpq variables PGHOST/PGPORT/PGUSER/PGPASSWORD/PGDATABASE."""
-    dsn = (os.environ.get("DATABASE_URL") or "").strip()
-    if dsn:
-        return dsn
+    """PostgreSQL connection string. A connection-string variable wins (see
+    _DSN_ENV_NAMES); otherwise it is assembled from the standard libpq
+    variables PGHOST/PGPORT/PGUSER/PGPASSWORD/PGDATABASE."""
+    for _name in _DSN_ENV_NAMES:
+        dsn = (os.environ.get(_name) or "").strip()
+        # An unresolved Railway reference arrives literally as "${{...}}" rather
+        # than empty - treat that as unset so the error below explains it.
+        if dsn and not dsn.startswith("${"):
+            return dsn
     # Fail fast instead of silently dialling localhost. On a managed host
     # (Railway / Render / Fly) an empty DATABASE_URL means the service variable
     # was never set, or a ${{Service.VAR}} reference did not resolve because the
@@ -2896,14 +2912,31 @@ def _pg_dsn():
     # hides the real cause and looks like a networking fault.
     # PGHOST is still honoured, so the standard libpq variables keep working.
     if not os.environ.get("PGHOST"):
+        # Report what actually reached the container. Names only - never values,
+        # since these are credentials and this text lands in deploy logs.
+        seen = sorted(k for k in os.environ
+                      if k.startswith(("PG", "POSTGRES", "DATABASE", "DB_")))
+        unresolved = [n for n in _DSN_ENV_NAMES
+                      if (os.environ.get(n) or "").startswith("${")]
+        detail = (f"Unresolved reference in: {', '.join(unresolved)} - the "
+                  f"${{{{Service.VAR}}}} name did not match any service.\n"
+                  if unresolved else
+                  f"DB-related variables present in the container: "
+                  f"{', '.join(seen) if seen else 'NONE'}\n")
         raise RuntimeError(
-            "DB_BACKEND=postgres but DATABASE_URL is empty.\n"
-            "Set DATABASE_URL on the APPLICATION service (not just the database):\n"
-            "  - Railway: copy the connection string from the Postgres service's\n"
-            "    Variables tab, or use a ${{<Service>.DATABASE_URL}} reference in\n"
-            "    which <Service> exactly matches your Postgres service name.\n"
-            "  - Or supply the libpq variables instead: PGHOST/PGPORT/PGUSER/\n"
-            "    PGPASSWORD/PGDATABASE.\n"
+            "DB_BACKEND=postgres but no PostgreSQL connection string was found.\n"
+            f"Looked for: {', '.join(_DSN_ENV_NAMES)}, or PGHOST/PGPORT/PGUSER/"
+            "PGPASSWORD/PGDATABASE.\n"
+            + detail +
+            "Railway does NOT share variables between services automatically -\n"
+            "the database service having DATABASE_URL does not give it to the app.\n"
+            "On the APPLICATION service's Variables tab, either:\n"
+            "  - use Railway's variable picker to insert a reference (it writes\n"
+            "    the correct syntax for your service name, hyphens included), or\n"
+            "  - paste the literal connection string from the database service,\n"
+            "    preferring the internal *.railway.internal host, or\n"
+            "  - set PGHOST/PGPORT/PGUSER/PGPASSWORD/PGDATABASE as references.\n"
+            "Then redeploy - Railway applies variable changes on the next deploy.\n"
             "Set DB_BACKEND=sqlite to run on the file-based database instead."
         )
     host = os.environ.get("PGHOST", "localhost")
