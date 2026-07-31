@@ -28,6 +28,31 @@ def main():
             raw.close()
         print("bootstrap: schema-per-tenant catalog ready "
               "(provision tenants via /api/platform).", flush=True)
+
+        # Optional first-operator seeding. Without this the vendor console is
+        # unreachable on a fresh cloud deploy: nothing creates a platform admin,
+        # and the container is the only place that can talk to the private
+        # database, so there is no way in from outside.
+        #
+        # Set PLATFORM_ADMIN_USERNAME (and optionally PLATFORM_ADMIN_PASSWORD)
+        # to seed one. Idempotent: create_platform_admin upserts, so redeploys
+        # simply reset the password to whatever the variable holds. Leave the
+        # password unset and a strong one is generated and printed ONCE below —
+        # capture it from the deploy log, then remove the variables.
+        admin_user = (os.environ.get("PLATFORM_ADMIN_USERNAME") or "").strip()
+        if admin_user:
+            admin_pass = (os.environ.get("PLATFORM_ADMIN_PASSWORD") or "").strip()
+            result = tenancy.create_platform_admin(admin_user, admin_pass or None)
+            if admin_pass:
+                print(f"bootstrap: platform operator '{result['username']}' ready "
+                      "(password taken from PLATFORM_ADMIN_PASSWORD).", flush=True)
+            else:
+                # Printed once, to the deploy log only.
+                print("bootstrap: platform operator created — "
+                      f"username={result['username']} "
+                      f"password={result['password']}", flush=True)
+                print("bootstrap: capture that password now, then unset "
+                      "PLATFORM_ADMIN_USERNAME to stop reseeding.", flush=True)
     else:
         import database
         database.init_db()
