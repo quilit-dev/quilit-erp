@@ -2885,9 +2885,27 @@ def _run_migrations(conn, c):
 def _pg_dsn():
     """PostgreSQL connection string. DATABASE_URL wins; otherwise assembled from
     the standard libpq variables PGHOST/PGPORT/PGUSER/PGPASSWORD/PGDATABASE."""
-    dsn = os.environ.get("DATABASE_URL")
+    dsn = (os.environ.get("DATABASE_URL") or "").strip()
     if dsn:
         return dsn
+    # Fail fast instead of silently dialling localhost. On a managed host
+    # (Railway / Render / Fly) an empty DATABASE_URL means the service variable
+    # was never set, or a ${{Service.VAR}} reference did not resolve because the
+    # database service is named differently. Falling through to localhost turns
+    # that config mistake into "connection refused to 127.0.0.1:5432", which
+    # hides the real cause and looks like a networking fault.
+    # PGHOST is still honoured, so the standard libpq variables keep working.
+    if not os.environ.get("PGHOST"):
+        raise RuntimeError(
+            "DB_BACKEND=postgres but DATABASE_URL is empty.\n"
+            "Set DATABASE_URL on the APPLICATION service (not just the database):\n"
+            "  - Railway: copy the connection string from the Postgres service's\n"
+            "    Variables tab, or use a ${{<Service>.DATABASE_URL}} reference in\n"
+            "    which <Service> exactly matches your Postgres service name.\n"
+            "  - Or supply the libpq variables instead: PGHOST/PGPORT/PGUSER/\n"
+            "    PGPASSWORD/PGDATABASE.\n"
+            "Set DB_BACKEND=sqlite to run on the file-based database instead."
+        )
     host = os.environ.get("PGHOST", "localhost")
     port = os.environ.get("PGPORT", "5432")
     user = os.environ.get("PGUSER", "postgres")

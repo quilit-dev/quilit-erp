@@ -54,7 +54,7 @@ customers this line item is effectively zero.
    | Variable | Value |
    |---|---|
    | `DB_BACKEND` | `postgres` |
-   | `DATABASE_URL` | `${{Postgres.DATABASE_URL}}` |
+   | `DATABASE_URL` | `${{Postgres.DATABASE_URL}}` — see warning below |
    | `RUN_BOOTSTRAP` | `1` |
    | `SECRET_KEY` | `python -c "import secrets; print(secrets.token_hex(32))"` |
    | `COOKIE_SECURE` | `true` |
@@ -63,6 +63,14 @@ customers this line item is effectively zero.
    | `S3_BUCKET` / `S3_ENDPOINT_URL` / `S3_ACCESS_KEY_ID` / `S3_SECRET_ACCESS_KEY` | from step 1 |
    | `ALLOWED_ORIGINS` | `https://app.quilit.dev` |
    | `WEB_CONCURRENCY` | `2` |
+
+> **`DATABASE_URL` must be set on the *application* service.** The
+> `${{Postgres.DATABASE_URL}}` reference resolves only when your Postgres
+> service is named exactly `Postgres`; if it is named anything else the
+> variable arrives empty. Either match the name or paste the literal
+> connection string from the Postgres service's Variables tab, preferring the
+> internal `*.railway.internal` host over the public proxy. The app fails fast
+> with an explanatory error when this is missing.
 
 > **`SECRET_KEY` must be set explicitly and never rotated casually.** Without
 > it the app generates an ephemeral key, which silently invalidates every
