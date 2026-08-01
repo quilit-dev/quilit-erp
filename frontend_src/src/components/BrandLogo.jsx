@@ -13,7 +13,7 @@ export default function BrandLogo({ height = 28, showWordmark = true }) {
   return (
     <div style={{ display: 'flex', alignItems: 'center', gap: 9, color: 'var(--text)' }}>
       <svg
-        height={height} width={height} viewBox="2 12 112 112"
+        height={height} width={height} viewBox="-1 5.5 118 118"
         fill="none" aria-hidden="true" style={{ flexShrink: 0, display: 'block' }}
       >
         <defs>
@@ -22,8 +22,11 @@ export default function BrandLogo({ height = 28, showWordmark = true }) {
             <stop offset="100%" stopColor="#5E2472" />
           </linearGradient>
         </defs>
-        {/* viewBox is fitted to the artwork (content spans 18-98 x, 16-120 y)
-            so the mark is optically centred rather than sitting low-left. */}
+        {/* viewBox fitted to the artwork's VISUAL bounds, stroke included.
+            getBBox() reports geometry only, so the ring's 15-wide stroke adds
+            7.5 beyond it on every side: the true extent is x 10.5-105.5,
+            y 8.5-120, centred on (58, 64.3). Measuring without the stroke is
+            what clipped the top of the Q. */}
         {/* Q ring — currentColor so it survives a dark background */}
         <circle cx="58" cy="56" r="40" stroke="currentColor" strokeWidth="15" />
         {/* Ascending bars: the "growth" motif inside the Q */}
