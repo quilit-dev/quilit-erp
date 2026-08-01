@@ -537,45 +537,21 @@ html[lang="ar"], html[lang="ar"] body {
   overflow: hidden;
 }
 
+/* Sidebar header — the product mark and nothing else. It sits outside
+   .sidebar-nav (the only scrolling child), so it stays pinned while the
+   navigation scrolls beneath it. */
 .sidebar-logo {
   display: flex;
   align-items: center;
-  gap: 10px;
-  padding: 14px 18px;
+  padding: 16px 18px;
   border-bottom: 1px solid var(--rule);
-  background: var(--surface-2);
+  background: var(--surface);
   min-height: 60px;
-}
-
-.sidebar-logo-mark {
-  width: 34px; height: 34px;
-  display: flex; align-items: center; justify-content: center;
-  background: var(--accent);
-  color: #FFFFFF;
-  font-family: var(--font-display);
-  font-size: 13px; font-weight: 700;
-  letter-spacing: -0.025em;
-  border-radius: var(--r-sm);
   flex-shrink: 0;
 }
 
-.sidebar-logo-title {
-  font-family: var(--font-display);
-  font-weight: 700;
-  font-size: 14.5px;
-  letter-spacing: -0.018em;
-  color: var(--text);
-  line-height: 1.1;
-  margin-bottom: 1px;
-}
 
-.sidebar-logo-sub {
-  font-family: var(--font-mono);
-  font-size: 10px;
-  letter-spacing: 0.06em;
-  color: var(--text-3);
-  text-transform: uppercase;
-}
+
 
 .sidebar-nav {
   flex: 1;

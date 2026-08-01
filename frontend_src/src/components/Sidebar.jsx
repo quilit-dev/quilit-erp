@@ -4,6 +4,7 @@ import { useSettings } from '../hooks/useSettings.jsx';
 import { usePermissions } from '../hooks/usePermissions.js';
 import { useLocale } from '../hooks/useLocale.jsx';
 import { logout as apiLogout, getAnnouncementsUnread, getBranchContext, getBranchFilter, setBranchFilter } from '../api/client';
+import BrandLogo from './BrandLogo';
 
 const Icons = {
   dashboard: <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><rect x="3" y="3" width="7" height="7" rx="1"/><rect x="14" y="3" width="7" height="7" rx="1"/><rect x="3" y="14" width="7" height="7" rx="1"/><rect x="14" y="14" width="7" height="7" rx="1"/></svg>,
@@ -100,9 +101,6 @@ export default function Sidebar() {
   const { settings } = useSettings();
   const { user, isSuperadmin, isAdmin, can } = usePermissions();
   const { t } = useLocale();
-  const companyName = settings?.company_name || 'ERP System';
-  const [logoError, setLogoError] = useState(false);
-  const [logoKey, setLogoKey] = useState(Date.now());
 
   // Lightweight poll for the announcements badge. 60s feels right — fresh
   // enough that users see new broadcasts during a working session, slow
@@ -122,11 +120,6 @@ export default function Sidebar() {
     document.addEventListener('visibilitychange', refreshOnFocus);
     return () => { alive = false; clearInterval(id); document.removeEventListener('visibilitychange', refreshOnFocus); };
   }, []);
-
-  useEffect(() => {
-    setLogoError(false);
-    setLogoKey(Date.now());
-  }, [settings]);
 
   // Branch context — "branch" == a warehouse/location. The switcher appears
   // ONLY for global users (superadmin / Business Owner), who can see all
@@ -155,7 +148,6 @@ export default function Sidebar() {
     window.location.reload();
   }
 
-  const initials = companyName.split(' ').map(w => w[0]).filter(c => c && /[a-zA-Z]/.test(c)).slice(0, 2).join('').toUpperCase();
   const userInitials = (() => {
     const name = user.full_name || '';
     const parts = name.trim().split(/\s+/).filter(Boolean);
@@ -206,15 +198,11 @@ export default function Sidebar() {
   return (
     <div className="sidebar">
       {/* Logo */}
+      {/* Product brand only. The tenant's own name/logo still drive invoices,
+          quotations, contracts, POS receipts and the login screen — they are
+          deliberately absent from the app chrome. */}
       <div className="sidebar-logo">
-        {logoError
-          ? <div className="sidebar-logo-mark">{initials}</div>
-          : <img key={logoKey} src={`/api/settings/logo?t=${logoKey}`} alt="logo" onError={() => setLogoError(true)} style={{ height: 32, width: 'auto', maxWidth: 40, objectFit: 'contain' }} />
-        }
-        <div>
-          <div className="sidebar-logo-title">{companyName}</div>
-          <div className="sidebar-logo-sub">{t('nav.erpPlatform')}</div>
-        </div>
+        <BrandLogo height={28} />
       </div>
 
       {/* Main nav — split into workflow directories. The dashboard sits
