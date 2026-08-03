@@ -74,7 +74,14 @@ def enabled_modules_set():
     raw = ENABLED_MODULES
     if not raw:
         return None
-    return {m.strip() for m in raw.split(",") if m.strip()}
+    selected = {m.strip() for m in raw.split(",") if m.strip()}
+    # Expand to the dependency closure so a plan naming only the headline
+    # modules still yields a working system: selling `pos` implicitly licenses
+    # invoices, inventory, cash and clients. Without this the customer sees
+    # links into modules they hold no licence for and gets 403s — a broken
+    # product rather than an unbought one.
+    import capabilities
+    return capabilities.resolve(selected)
 
 
 def module_allowed(module: str) -> bool:

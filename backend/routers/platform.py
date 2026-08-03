@@ -22,6 +22,7 @@ import jwt
 from fastapi import APIRouter, Cookie, Depends, HTTPException, Response
 from pydantic import BaseModel
 
+import capabilities
 import tenancy
 from auth_utils import (
     SECRET_KEY, ALGORITHM, COOKIE_SECURE, TOKEN_EXPIRE_HOURS,
@@ -79,6 +80,10 @@ class DomainAdd(BaseModel):
     domain: str
 
 
+class ModuleSelection(BaseModel):
+    modules: list[str] = []
+
+
 # ── auth endpoints ───────────────────────────────────────────────────────────
 
 @router.get("/status")
@@ -114,6 +119,33 @@ def platform_me(admin=Depends(require_platform_admin)):
 
 
 # ── tenant lifecycle ─────────────────────────────────────────────────────────
+
+@router.get("/modules")
+def module_catalog(admin=Depends(require_platform_admin)):
+    """The licensable module list plus its dependency graph.
+
+    The console renders straight from this: `always_on` modules are shown
+    permanently on, and `requires` lets the UI resolve a selection locally so
+    ticking Point of Sale immediately locks Invoices, Inventory, Cash and
+    Clients — without a round trip per click."""
+    return {"modules": capabilities.catalog(),
+            "always_on": sorted(capabilities.ALWAYS_ON)}
+
+
+@router.post("/modules/resolve")
+def resolve_modules(data: ModuleSelection, admin=Depends(require_platform_admin)):
+    """Expand a proposed selection to what the customer would actually get.
+
+    Returns the resolved set plus, for each module the selection forces on,
+    which chosen modules require it — so the UI can explain a locked checkbox
+    ("required by Point of Sale") instead of just disabling it."""
+    selected = set(data.modules or [])
+    return {
+        "selected": sorted(selected),
+        "resolved": sorted(capabilities.resolve(selected)),
+        "locked_by": {k: v for k, v in capabilities.lock_reasons(selected).items()},
+    }
+
 
 @router.get("/tenants")
 def list_all_tenants(admin=Depends(require_platform_admin)):
