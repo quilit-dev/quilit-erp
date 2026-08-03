@@ -186,6 +186,9 @@ _PROFILE_FIELDS = (
 
 def _apply_profile(cur, slug: str, profile: dict) -> None:
     """UPDATE the catalog row from a profile dict. Caller owns the transaction."""
+    # `_now` is imported per-function throughout this module (utils imports
+    # database, so a module-level import would create a cycle).
+    from utils import _now
     sets, params = [], []
     for field in _PROFILE_FIELDS:
         if field in profile and profile[field] is not None:
