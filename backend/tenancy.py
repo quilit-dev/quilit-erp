@@ -58,6 +58,30 @@ def _connect():
     return psycopg.connect(_pg_dsn(), row_factory=dict_row)
 
 
+# Provisioning profile carried per tenant. Kept in the shared public catalog
+# (not inside the tenant schema) because the Control Center has to read across
+# every customer without connecting to each schema in turn.
+#
+# `modules` stores the SELECTED set only. The effective set is always the
+# dependency closure of this, computed at read time by capabilities.resolve(),
+# so a plan can never be stored in a state that does not work.
+_TENANT_COLUMNS = (
+    "industry        TEXT",
+    "language        TEXT DEFAULT 'en'",
+    "currency        TEXT DEFAULT 'USD'",
+    "contact_email   TEXT",
+    "contact_phone   TEXT",
+    "company_address TEXT",
+    "tax_number      TEXT",
+    "modules         TEXT",          # comma-separated selected module keys
+    "max_users       INTEGER",       # licensed seats; NULL = unlimited
+    "trial_ends_at   TEXT",          # ISO date; NULL = not a trial
+    "license_expires_at TEXT",       # ISO date; NULL = perpetual
+    "notes           TEXT",
+    "updated_at      TEXT",
+)
+
+
 def ensure_tenants_catalog(raw) -> None:
     with raw.cursor() as cur:
         cur.execute("""
@@ -71,6 +95,11 @@ def ensure_tenants_catalog(raw) -> None:
                 created_at  TEXT NOT NULL
             )
         """)
+        # Additive migration. New installs get these from the CREATE above on
+        # the next release; existing catalogs are upgraded in place. ADD COLUMN
+        # IF NOT EXISTS keeps this idempotent, so it runs safely on every boot.
+        for ddl in _TENANT_COLUMNS:
+            cur.execute(f"ALTER TABLE public.tenants ADD COLUMN IF NOT EXISTS {ddl}")
     raw.commit()
 
 
@@ -84,7 +113,7 @@ def _schema_initialized(raw, schema: str) -> bool:
 
 
 def provision_tenant(slug: str, name: str = None, plan: str = "standard",
-                     admin_password: str = None) -> dict:
+                     admin_password: str = None, profile: dict = None) -> dict:
     """Create and seed a new tenant schema, and register it in the catalog.
 
     Idempotent on the schema/catalog, but each call resets the tenant admin's
@@ -128,6 +157,11 @@ def provision_tenant(slug: str, name: str = None, plan: str = "standard",
                 "INSERT INTO public.tenants (slug, schema_name, name, status, plan, created_at) "
                 "VALUES (%s, %s, %s, 'active', %s, %s) ON CONFLICT (slug) DO NOTHING",
                 (slug, schema, name or slug, plan, _now()))
+            # Profile fields are written separately so provisioning stays
+            # backward compatible: an older caller that passes no profile
+            # provisions exactly as before.
+            if profile:
+                _apply_profile(cur, slug, profile)
             cur.execute("SELECT * FROM public.tenants WHERE slug=%s", (slug,))
             row = cur.fetchone()
         raw.commit()
@@ -136,7 +170,94 @@ def provision_tenant(slug: str, name: str = None, plan: str = "standard",
 
     _CACHE.pop(slug, None)               # refresh any cached lookup
     _SCHEMA_STATUS.pop(schema, None)
+    _MODULES_CACHE.pop(schema, None)
     return {**dict(row), "admin_username": "admin", "admin_password": admin_password}
+
+
+# Fields the Control Center may write. Anything not listed is ignored rather
+# than rejected, so an older console posting an unknown key cannot 500 a
+# provisioning run.
+_PROFILE_FIELDS = (
+    "name", "plan", "industry", "language", "currency", "contact_email",
+    "contact_phone", "company_address", "tax_number", "max_users",
+    "trial_ends_at", "license_expires_at", "notes",
+)
+
+
+def _apply_profile(cur, slug: str, profile: dict) -> None:
+    """UPDATE the catalog row from a profile dict. Caller owns the transaction."""
+    sets, params = [], []
+    for field in _PROFILE_FIELDS:
+        if field in profile and profile[field] is not None:
+            sets.append(f"{field} = %s")
+            params.append(profile[field])
+    # `modules` is normalised: store the SELECTED keys, deduplicated and
+    # ordered, so the row is stable and diffable. The effective set is always
+    # recomputed from this by capabilities.resolve().
+    if "modules" in profile and profile["modules"] is not None:
+        import capabilities
+        selected = sorted({m.strip() for m in profile["modules"] if str(m).strip()
+                           and capabilities.known_module(str(m).strip())})
+        sets.append("modules = %s")
+        params.append(",".join(selected))
+    if not sets:
+        return
+    sets.append("updated_at = %s")
+    params.append(_now())
+    params.append(slug)
+    cur.execute(f"UPDATE public.tenants SET {', '.join(sets)} WHERE slug = %s", params)
+
+
+def update_tenant(slug: str, profile: dict) -> dict:
+    """Edit a tenant's provisioning profile. Returns the updated catalog row."""
+    if not valid_slug(slug):
+        raise ValueError(f"Invalid tenant slug: {slug!r}")
+    raw = _connect()
+    try:
+        ensure_tenants_catalog(raw)
+        with raw.cursor() as cur:
+            _apply_profile(cur, slug, profile)
+            cur.execute("SELECT * FROM public.tenants WHERE slug=%s", (slug,))
+            row = cur.fetchone()
+        raw.commit()
+    finally:
+        raw.close()
+    _CACHE.pop(slug, None)
+    _MODULES_CACHE.pop(slug, None)
+    return dict(row) if row else None
+
+
+def tenant_modules(schema: str):
+    """Effective (dependency-closed) module set for a schema, or None when the
+    tenant has no explicit licence and should see everything.
+
+    Cached: this is consulted on every permission check, so an uncached lookup
+    would put a query in front of every request.
+    """
+    if schema in _MODULES_CACHE:
+        return _MODULES_CACHE[schema]
+    try:
+        raw = _connect()
+    except Exception:
+        return None                      # fail open rather than lock everyone out
+    try:
+        with raw.cursor() as cur:
+            cur.execute("SELECT modules FROM public.tenants WHERE schema_name=%s",
+                        (schema,))
+            row = cur.fetchone()
+    except Exception:
+        return None
+    finally:
+        raw.close()
+    raw_modules = (row or {}).get("modules") if row else None
+    if not raw_modules:
+        result = None                    # unlicensed == unrestricted (dev/demo)
+    else:
+        import capabilities
+        result = capabilities.resolve(
+            {m.strip() for m in raw_modules.split(",") if m.strip()})
+    _MODULES_CACHE[schema] = result
+    return result
 
 
 def list_tenants() -> list:
@@ -402,6 +523,7 @@ def get_platform_admin(admin_id: int):
 _CACHE = {}            # slug -> (schema, status)
 _SCHEMA_STATUS = {}    # schema -> status
 _HOST_CACHE = {}       # custom domain (host) -> (schema, status)
+_MODULES_CACHE = {}    # schema -> effective module set (or None)
 
 
 def _lookup_by_slug(slug: str):

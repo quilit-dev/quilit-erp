@@ -71,6 +71,25 @@ _ALWAYS_ON = {"dashboard", "users", "roles"}
 def enabled_modules_set():
     """The whitelist of enabled module keys, or None when unrestricted
     (empty constant / env — dev, demo, or a full build)."""
+    # Multi-tenant: the licence belongs to the TENANT, not the process. One
+    # deployment serves every customer, so a process-wide env var cannot
+    # express "Acme bought POS, Globex bought Manufacturing". When a tenant is
+    # in scope its stored set wins; the env/constant remains the fallback for
+    # single-tenant and desktop installs.
+    try:
+        from tenant_context import IS_SCHEMA_TENANCY, current_schema
+        if IS_SCHEMA_TENANCY:
+            schema = current_schema()
+            if schema:
+                import tenancy
+                per_tenant = tenancy.tenant_modules(schema)
+                if per_tenant is not None:
+                    return per_tenant
+    except Exception:
+        # Never let a licence lookup take the app down — fall through to the
+        # build-time configuration.
+        pass
+
     raw = ENABLED_MODULES
     if not raw:
         return None

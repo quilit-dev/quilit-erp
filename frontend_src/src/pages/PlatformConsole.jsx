@@ -8,6 +8,7 @@
 // Operator auth lives on its own cookie (platform_session) — completely
 // separate from tenant sessions.
 import { useEffect, useState, Fragment } from 'react';
+import ProvisionWizard from './platform/ProvisionWizard';
 import { useLocale } from '../hooks/useLocale';
 import { LoadingSpinner, toast } from '../components/shared';
 
@@ -122,10 +123,8 @@ function OperatorLogin({ onSuccess }) {
 function TenantManager({ t }) {
   const [tenants, setTenants] = useState(null);
   const [creds, setCreds]     = useState(null);   // one-time credentials from the last provision
-  const [slug, setSlug]       = useState('');
-  const [name, setName]       = useState('');
-  const [plan, setPlan]       = useState('standard');
   const [busy, setBusy]       = useState(false);
+  const [creating, setCreating] = useState(false);
   const [expanded, setExpanded] = useState(null);   // slug whose domains panel is open
 
   async function reload() {
@@ -133,19 +132,6 @@ function TenantManager({ t }) {
     catch (err) { toast(err.message, 'red'); }
   }
   useEffect(() => { reload(); }, []);
-
-  async function provision(e) {
-    e.preventDefault();
-    setBusy(true);
-    try {
-      const res = await pfetch('POST', '/api/platform/tenants', { slug: slug.trim(), name: name.trim() || null, plan });
-      setCreds(res);
-      setSlug(''); setName(''); setPlan('standard');
-      toast(t('platform.tenantCreated'));
-      reload();
-    } catch (err) { toast(err.message, 'red'); }
-    finally { setBusy(false); }
-  }
 
   async function setStatus(tenant, action) {
     try {
@@ -180,33 +166,27 @@ function TenantManager({ t }) {
         </div>
       )}
 
-      {/* Provision form */}
-      <form className="card" style={{ padding: 18, marginBottom: 16 }} onSubmit={provision}>
-        <strong style={{ display: 'block', marginBottom: 10 }}>{t('platform.newBusiness')}</strong>
-        <div style={{ display: 'flex', gap: 10, flexWrap: 'wrap', alignItems: 'end' }}>
-          <div className="form-group" style={{ margin: 0 }}>
-            <label className="form-label">{t('platform.slug')}</label>
-            <input className="form-control" style={{ width: 200 }} value={slug}
-              placeholder="beirut_traders"
-              onChange={e => setSlug(e.target.value.toLowerCase())} />
-          </div>
-          <div className="form-group" style={{ margin: 0 }}>
-            <label className="form-label">{t('platform.businessName')}</label>
-            <input className="form-control" style={{ width: 240 }} value={name}
-              onChange={e => setName(e.target.value)} />
-          </div>
-          <div className="form-group" style={{ margin: 0 }}>
-            <label className="form-label">{t('platform.plan')}</label>
-            <select className="form-control" style={{ width: 130 }} value={plan} onChange={e => setPlan(e.target.value)}>
-              {PLANS.map(p => <option key={p} value={p}>{p}</option>)}
-            </select>
-          </div>
-          <button className="btn btn-primary" disabled={busy || !slug.trim()}>
-            {busy ? '…' : t('platform.provision')}
+      {/* Provisioning — a wizard rather than an inline row: a business now
+          carries company, access, licensing and module decisions, which do not
+          fit one line and should not be entered as one. */}
+      {creating ? (
+        <ProvisionWizard
+          pfetch={pfetch}
+          onCancel={() => setCreating(false)}
+          onCreated={(res) => {
+            setCreating(false);
+            setCreds(res);
+            toast(t('platform.tenantCreated'));
+            reload();
+          }}
+        />
+      ) : (
+        <div style={{ display: 'flex', justifyContent: 'flex-end', marginBottom: 16 }}>
+          <button className="btn btn-primary" onClick={() => setCreating(true)}>
+            ＋ {t('platform.newBusiness')}
           </button>
         </div>
-        <div style={{ fontSize: 12, color: 'var(--text-3)', marginTop: 8 }}>{t('platform.slugHint')}</div>
-      </form>
+      )}
 
       {/* Tenant table */}
       <div className="card" style={{ padding: 0 }}>

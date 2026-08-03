@@ -70,9 +70,28 @@ class PlatformLogin(BaseModel):
     password: str
 
 
-class TenantCreate(BaseModel):
+class TenantProfile(BaseModel):
+    """The provisioning profile. Every field optional so the console can send a
+    partial update, and so an older client that knows nothing of these still
+    provisions successfully."""
+    name:               Optional[str]  = None
+    plan:               Optional[str]  = None
+    industry:           Optional[str]  = None
+    language:           Optional[str]  = None      # 'en' | 'ar'
+    currency:           Optional[str]  = None
+    contact_email:      Optional[str]  = None
+    contact_phone:      Optional[str]  = None
+    company_address:    Optional[str]  = None
+    tax_number:         Optional[str]  = None
+    modules:            Optional[list[str]] = None  # SELECTED keys; closure applied on save
+    max_users:          Optional[int]  = None
+    trial_ends_at:      Optional[str]  = None
+    license_expires_at: Optional[str]  = None
+    notes:              Optional[str]  = None
+
+
+class TenantCreate(TenantProfile):
     slug: str
-    name: Optional[str] = None
     plan: str = "standard"
 
 
@@ -157,10 +176,29 @@ def create_tenant(data: TenantCreate, admin=Depends(require_platform_admin)):
     if not tenancy.valid_slug(data.slug):
         raise HTTPException(status_code=400,
                             detail="Invalid slug — use lower-case letters, digits, underscore.")
+    profile = data.dict(exclude_none=True)
+    profile.pop("slug", None)
     try:
-        return tenancy.provision_tenant(data.slug, data.name, data.plan)
+        return tenancy.provision_tenant(data.slug, data.name, data.plan,
+                                        profile=profile)
     except ValueError as e:
         raise HTTPException(status_code=400, detail=str(e))
+
+
+@router.put("/tenants/{slug}")
+def update_tenant(slug: str, data: TenantProfile,
+                  admin=Depends(require_platform_admin)):
+    """Edit a tenant's provisioning profile (including its licensed modules).
+
+    Only the fields present in the request are written, so the console can
+    save one section of the wizard without resending the rest."""
+    try:
+        row = tenancy.update_tenant(slug, data.dict(exclude_none=True))
+    except ValueError as e:
+        raise HTTPException(status_code=400, detail=str(e))
+    if not row:
+        raise HTTPException(status_code=404, detail="Tenant not found.")
+    return row
 
 
 @router.get("/tenants/{slug}")
