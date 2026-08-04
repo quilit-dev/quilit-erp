@@ -124,7 +124,8 @@ def provision_tenant(slug: str, name: str = None, plan: str = "standard",
     from utils import _now
     from db_compat import CompatConn
     from dialect import get_dialect
-    from database import _apply_pg_baseline, _seed_roles_and_admin
+    from database import (_apply_pg_baseline, _ensure_pg_post_baseline,
+                          _seed_roles_and_admin)
 
     if not valid_slug(slug):
         raise ValueError(f"Invalid tenant slug: {slug!r} (use a-z, 0-9, _).")
@@ -144,6 +145,13 @@ def provision_tenant(slug: str, name: str = None, plan: str = "standard",
             cur.execute(f'SET search_path TO "{schema}", public')
         if not _schema_initialized(raw, schema):
             _apply_pg_baseline(raw)                 # tables/indexes/ledger → tenant schema
+        # The baseline is a SQUASHED snapshot; every migration added after it
+        # was generated still has to run. _init_db_postgres does both steps —
+        # provisioning previously did only the first, so each tenant schema was
+        # born missing every later column (branch_id and friends) and every
+        # query touching one returned a 500. Idempotent, so it is also the
+        # upgrade path for schemas provisioned before this fix.
+        _ensure_pg_post_baseline(raw)
         conn = CompatConn(raw, get_dialect("postgres"))
         _seed_roles_and_admin(conn)                 # roles/permissions/admin → tenant schema
         # Set a known initial admin password (the seeding's own random one is never
