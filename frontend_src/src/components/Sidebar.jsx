@@ -1,10 +1,10 @@
 import { NavLink, useNavigate } from 'react-router-dom';
 import { useState, useEffect, useRef } from 'react';
-import { useSettings } from '../hooks/useSettings.jsx';
 import { usePermissions } from '../hooks/usePermissions.js';
 import { useLocale } from '../hooks/useLocale.jsx';
 import { logout as apiLogout, getAnnouncementsUnread, getBranchContext, getBranchFilter, setBranchFilter } from '../api/client';
 import BrandLogo from './BrandLogo';
+import { useModules } from '../hooks/useModules';
 
 const Icons = {
   dashboard: <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><rect x="3" y="3" width="7" height="7" rx="1"/><rect x="14" y="3" width="7" height="7" rx="1"/><rect x="3" y="14" width="7" height="7" rx="1"/><rect x="14" y="14" width="7" height="7" rx="1"/></svg>,
@@ -98,7 +98,7 @@ const adminLinkDefs = [
 
 export default function Sidebar() {
   const navigate = useNavigate();
-  const { settings } = useSettings();
+  const { has: hasModule } = useModules();
   const { user, isSuperadmin, isAdmin, can } = usePermissions();
   const { t } = useLocale();
 
@@ -179,21 +179,12 @@ export default function Sidebar() {
   }
 
   // Two-stage visibility filter:
-  //   1. settings.enabled_modules — sourced from the immutable build-time
-  //      constant vendor_config.ENABLED_MODULES. Empty == every module
-  //      visible (dev + demo default). When set, it whitelists which
-  //      modules ship to this customer; everything else is hidden from
-  //      the sidebar.
+  //   1. the tenant's LICENCE (useModules) — what the customer bought.
+  //      Shared with the dashboard so the menu and the cards can never
+  //      disagree about which modules exist.
   //   2. RBAC view permission — the per-user check the rest of the app
   //      already runs.
-  const enabledRaw = (settings?.enabled_modules || '').trim();
-  const enabledSet = enabledRaw
-    ? new Set(enabledRaw.split(',').map(s => s.trim()).filter(Boolean))
-    : null;          // null = no whitelist → all modules visible
-  const visibleMain = mainLinkDefs.filter(l =>
-    (!enabledSet || enabledSet.has(l.module) || l.module === 'dashboard') &&
-    can(l.module, 'view')
-  );
+  const visibleMain = mainLinkDefs.filter(l => hasModule(l.module) && can(l.module, 'view'));
 
   return (
     <div className="sidebar">

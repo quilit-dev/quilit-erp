@@ -4,6 +4,7 @@ import { useData } from '../hooks/useData';
 import { getDashboard, getMonthlyReport, getFinanceRangeSummary } from '../api/client';
 import { LoadingSpinner, ErrorAlert, useMoney, DisplayCurrencyToggle, Icon } from '../components/shared';
 import { useLocale } from '../hooks/useLocale.jsx';
+import { useModules } from '../hooks/useModules';
 
 // Display primitives (charts, KPI cards, chips) live in ./dashboard/ui.jsx —
 // this file is the page itself.
@@ -20,6 +21,8 @@ export default function Dashboard() {
   const { t, isRTL } = useLocale();
   const money = useMoney();
   const navigate = useNavigate();
+  // Called before the early returns below — hooks cannot be conditional.
+  const { has } = useModules();
 
   // Period selector for the headline finance KPIs. Default 'month' uses the
   // dashboard payload (no extra request); other presets fetch a range summary.
@@ -39,22 +42,30 @@ export default function Dashboard() {
   if (error)   return <ErrorAlert message={error} onRetry={reload} />;
   if (!data)   return null;
 
-  // Permissions — the only safe way to know which sections to render.
+  // A card may render only if BOTH gates pass:
+  //   1. the tenant LICENSED the module (has) — what they bought;
+  //   2. this user has RBAC view rights (perm) — what they may see.
+  // Checking only #2 is why every card used to appear: an admin passes every
+  // permission check, so nothing filtered out unlicensed modules.
   const perm = data.permissions || {};
   const can = {
-    finance:      perm.finance      !== false,
-    invoices:     perm.invoices     !== false,
-    projects:     perm.projects     !== false,
-    quotes:       perm.quotes       !== false,
-    inventory:    perm.inventory    !== false,
-    pos:          perm.pos          === true,
-    cash:         perm.cash         === true,
-    manufacturing:perm.manufacturing=== true,
-    hr:           perm.hr           === true,
-    recruitment:  perm.recruitment  === true,
-    crm:          perm.crm          === true,
-    assets:       perm.assets       === true,
-    planning:     perm.planning     === true,
+    finance:      has('finance')       && perm.finance      !== false,
+    invoices:     has('invoices')      && perm.invoices     !== false,
+    projects:     has('projects')      && perm.projects     !== false,
+    quotes:       has('quotations')    && perm.quotes       !== false,
+    inventory:    has('inventory')     && perm.inventory    !== false,
+    pos:          has('pos')           && perm.pos          === true,
+    cash:         has('cash')          && perm.cash         === true,
+    manufacturing:has('manufacturing') && perm.manufacturing=== true,
+    hr:           has('hr')            && perm.hr           === true,
+    recruitment:  has('recruitment')   && perm.recruitment  === true,
+    crm:          has('crm')           && perm.crm          === true,
+    assets:       has('assets')        && perm.assets       === true,
+    planning:     has('planning')      && perm.planning     === true,
+    // Gated on the licence alone: the dashboard payload carries no
+    // `warehouses` permission key, and the card was previously shown
+    // whenever the payload happened to include the block.
+    warehouses:   has('warehouses'),
   };
 
   // Financial derivatives — 'month' uses the dashboard payload; other periods
@@ -144,7 +155,7 @@ export default function Dashboard() {
 
   // Which large sections to render?
   const showPrimaryFinance = can.finance || can.invoices;
-  const showOpsToday       = can.pos || can.cash || can.manufacturing || can.hr || can.planning;
+  const showOpsToday       = can.pos || can.cash || can.manufacturing || can.hr || can.planning || can.warehouses;
   const showPipeline       = can.crm || can.recruitment;
   const showSecondaryKpis  = can.projects || can.quotes || can.inventory || can.assets || can.finance;
   const noPermissions      = !showPrimaryFinance && !showOpsToday && !showPipeline && !showSecondaryKpis;
@@ -342,7 +353,7 @@ export default function Dashboard() {
                 icon="landmark" accentColor="var(--text-2)" accentBg="var(--surface-2)"
                 onClick={() => navigate('/fixed-assets')} />
             )}
-            {data.warehouses && (
+            {can.warehouses && data.warehouses && (
               /* Warehouse health — count of active locations + a single
                  "needs restock" call-out so the operator can see where to
                  act without filtering through Inventory. */
