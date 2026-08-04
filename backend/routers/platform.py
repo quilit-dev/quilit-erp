@@ -244,6 +244,74 @@ def delete_tenant(slug: str, confirm: str = "",
         raise HTTPException(status_code=400, detail=str(e))
 
 
+# ── support inbox ────────────────────────────────────────────────────────────
+# Every tenant's problem reports in one queue. Reports live in the shared
+# public schema precisely so this is a single query rather than a fan-out
+# across every customer schema.
+
+@router.get("/reports")
+def list_reports(status: str = None, tenant: str = None, severity: str = None,
+                 q: str = None, limit: int = 100, offset: int = 0,
+                 admin=Depends(require_platform_admin)):
+    return support.list_reports(status=status, tenant_slug=tenant,
+                                severity=severity, q=q, limit=limit, offset=offset)
+
+
+@router.get("/reports/stats")
+def report_stats(admin=Depends(require_platform_admin)):
+    """Per-tenant error counts - the signal for 'which customer needs help?'."""
+    return support.report_stats()
+
+
+class ReportUpdate(BaseModel):
+    status:   Optional[str] = None      # open | investigating | resolved
+    severity: Optional[str] = None      # low | medium | high | critical
+    assignee: Optional[str] = None
+    notes:    Optional[str] = None
+
+
+@router.patch("/reports/{report_id}")
+def update_report(report_id: int, data: ReportUpdate,
+                  admin=Depends(require_platform_admin)):
+    try:
+        return support.update_report(report_id, data.dict(exclude_none=True))
+    except ValueError as e:
+        raise HTTPException(status_code=400, detail=str(e))
+
+
+# ── tenant user administration ───────────────────────────────────────────────
+
+@router.get("/tenants/{slug}/users")
+def list_tenant_users(slug: str, admin=Depends(require_platform_admin)):
+    """The tenant's user accounts - so an operator can see who to reset."""
+    try:
+        return tenancy.list_tenant_users(slug)
+    except ValueError as e:
+        raise HTTPException(status_code=400, detail=str(e))
+
+
+class PasswordReset(BaseModel):
+    username: str
+    password: Optional[str] = None      # omit to generate a strong one
+
+
+@router.post("/tenants/{slug}/reset-password")
+def reset_tenant_password(slug: str, data: PasswordReset,
+                          admin=Depends(require_platform_admin)):
+    """Reset ANY user's password in a customer's ERP.
+
+    Support reality: the person who forgets the password is often the only
+    admin, so nobody inside the tenant can help them. The new password is
+    returned ONCE, the account is flagged to force a change on first login,
+    and that user's live sessions are revoked - so the vendor never holds a
+    working credential to a customer's books.
+    """
+    try:
+        return tenancy.reset_tenant_user_password(slug, data.username, data.password)
+    except ValueError as e:
+        raise HTTPException(status_code=400, detail=str(e))
+
+
 # ── custom domains ───────────────────────────────────────────────────────────
 
 @router.get("/tenants/{slug}/domains")
