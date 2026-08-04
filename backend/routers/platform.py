@@ -24,6 +24,7 @@ from pydantic import BaseModel
 
 import capabilities
 import tenancy
+import support
 from auth_utils import (
     SECRET_KEY, ALGORITHM, COOKIE_SECURE, TOKEN_EXPIRE_HOURS,
     PLATFORM_COOKIE_NAME, create_platform_token,

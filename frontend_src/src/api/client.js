@@ -707,3 +707,6 @@ export const createStockTransfer      = (d)            => api.post('/api/warehou
 export const dispatchStockTransfer    = (id)           => api.post(`/api/warehouses/transfers/${id}/dispatch`);
 export const receiveStockTransfer     = (id, d = {})   => api.post(`/api/warehouses/transfers/${id}/receive`, d);
 export const cancelStockTransfer      = (id, reason)   => api.post(`/api/warehouses/transfers/${id}/cancel`, { reason });
+
+// Support — file a problem report to the vendor's Control Center inbox.
+export const reportProblem = (body) => api.post('/api/support/report', body);

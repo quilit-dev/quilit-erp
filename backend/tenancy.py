@@ -284,6 +284,70 @@ def delete_tenant(slug: str) -> dict:
             "domains_removed": domains_removed, "deleted": True}
 
 
+def list_tenant_users(slug: str) -> list:
+    """User accounts inside a tenant, for the Control Center's admin tools."""
+    if not valid_slug(slug):
+        raise ValueError(f"Invalid tenant slug: {slug!r}")
+    schema = schema_for_slug(slug)
+    if not valid_schema_name(schema):
+        raise ValueError(f"Unsafe schema name: {schema!r}")
+    raw = _connect()
+    try:
+        with raw.cursor() as cur:
+            cur.execute(f'SET search_path TO "{schema}", public')
+            cur.execute("SELECT id, username, full_name, is_active, "
+                        "       must_change_password, last_login "
+                        "FROM users ORDER BY id")
+            return [dict(r) for r in cur.fetchall()]
+    except Exception as e:
+        raise ValueError(f"Could not read users for {slug!r}: {e}")
+    finally:
+        raw.close()
+
+
+def reset_tenant_user_password(slug: str, username: str,
+                               password: str = None) -> dict:
+    """Reset one user's password inside a tenant. Returns it ONCE.
+
+    Forces must_change_password, so the operator's temporary credential stops
+    working the moment the customer signs in — a vendor should never hold a
+    usable login to a customer's books.
+    """
+    from utils import _now
+    if not valid_slug(slug):
+        raise ValueError(f"Invalid tenant slug: {slug!r}")
+    schema = schema_for_slug(slug)
+    if not valid_schema_name(schema):
+        raise ValueError(f"Unsafe schema name: {schema!r}")
+    username = (username or "").strip()
+    if not username:
+        raise ValueError("Username is required.")
+    password = password or _gen_password()
+
+    raw = _connect()
+    try:
+        with raw.cursor() as cur:
+            cur.execute(f'SET search_path TO "{schema}", public')
+            cur.execute("UPDATE users SET password_hash=%s, must_change_password=1 "
+                        "WHERE username=%s RETURNING id, username",
+                        (hash_password(password), username))
+            row = cur.fetchone()
+            if not row:
+                raise ValueError(f"No user {username!r} in {slug!r}.")
+            # Kill any live session for that user so an attacker holding a
+            # stolen cookie cannot outlive the reset.
+            try:
+                cur.execute("UPDATE user_sessions SET revoked=1 WHERE user_id=%s",
+                            (row["id"],))
+            except Exception:
+                pass
+        raw.commit()
+    finally:
+        raw.close()
+    return {"slug": slug, "username": row["username"], "password": password,
+            "must_change_password": True}
+
+
 def tenant_modules(schema: str):
     """Effective (dependency-closed) module set for a schema, or None when the
     tenant has no explicit licence and should see everything.
