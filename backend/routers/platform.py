@@ -221,6 +221,28 @@ def activate_tenant(slug: str, admin=Depends(require_platform_admin)):
     return {"slug": slug, "status": "active"}
 
 
+@router.delete("/tenants/{slug}")
+def delete_tenant(slug: str, confirm: str = "",
+                  admin=Depends(require_platform_admin)):
+    """Permanently decommission a tenant. IRREVERSIBLE.
+
+    Requires ?confirm=<slug> so a stray DELETE - a mistyped URL, a rogue
+    click, a replayed request - cannot destroy a customer. Suspending is the
+    reversible option and should be preferred for anything short of a genuine
+    decommission.
+    """
+    if confirm != slug:
+        raise HTTPException(
+            status_code=400,
+            detail=("Deletion is irreversible and destroys this customer's "
+                    "entire schema. Repeat the slug as ?confirm=<slug> to "
+                    "proceed, or suspend the tenant instead to keep the data."))
+    try:
+        return tenancy.delete_tenant(slug)
+    except ValueError as e:
+        raise HTTPException(status_code=400, detail=str(e))
+
+
 # ── custom domains ───────────────────────────────────────────────────────────
 
 @router.get("/tenants/{slug}/domains")

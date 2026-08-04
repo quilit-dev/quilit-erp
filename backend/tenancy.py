@@ -230,6 +230,52 @@ def update_tenant(slug: str, profile: dict) -> dict:
     return dict(row) if row else None
 
 
+def delete_tenant(slug: str) -> dict:
+    """Permanently decommission a tenant: drop its schema and forget it.
+
+    IRREVERSIBLE. Everything the customer owns lives in their schema, so this
+    destroys their ledger, documents metadata, users and audit trail with no
+    undo. Suspending (`set_tenant_status`) is almost always what you want -
+    it blocks access, keeps the data, and can be reversed by flipping the
+    status back. Delete is for decommissioning a cancelled or mistaken
+    tenant, and the API requires an explicit confirmation to reach it.
+
+    Returns a summary of what was removed.
+    """
+    if not valid_slug(slug):
+        raise ValueError(f"Invalid tenant slug: {slug!r}")
+    schema = schema_for_slug(slug)
+    # Defence in depth: schema_for_slug is the only source of this identifier
+    # and valid_slug has already constrained it, but the name is interpolated
+    # into DDL (it cannot be a bind parameter), so re-check before use.
+    if not valid_schema_name(schema):
+        raise ValueError(f"Refusing to drop unsafe schema name: {schema!r}")
+
+    raw = _connect()
+    try:
+        ensure_tenants_catalog(raw)
+        ensure_tenant_domains_catalog(raw)
+        with raw.cursor() as cur:
+            cur.execute("SELECT slug, name FROM public.tenants WHERE slug=%s", (slug,))
+            row = cur.fetchone()
+            if not row:
+                raise ValueError(f"No such tenant: {slug!r}")
+            cur.execute(f'DROP SCHEMA IF EXISTS "{schema}" CASCADE')
+            cur.execute("DELETE FROM public.tenant_domains WHERE slug=%s", (slug,))
+            domains_removed = cur.rowcount or 0
+            cur.execute("DELETE FROM public.tenants WHERE slug=%s", (slug,))
+        raw.commit()
+    finally:
+        raw.close()
+
+    _CACHE.pop(slug, None)
+    _SCHEMA_STATUS.pop(schema, None)
+    _MODULES_CACHE.pop(schema, None)
+    _HOST_CACHE.clear()                  # any domain pointing here is now gone
+    return {"slug": slug, "name": row.get("name"), "schema": schema,
+            "domains_removed": domains_removed, "deleted": True}
+
+
 def tenant_modules(schema: str):
     """Effective (dependency-closed) module set for a schema, or None when the
     tenant has no explicit licence and should see everything.
