@@ -127,11 +127,21 @@ def _get_all(db: sqlite3.Connection) -> dict:
     data = {**DEFAULTS}
     for r in rows:
         data[r["key"]] = r["value"]
-    # `enabled_modules` is sourced from the immutable build-time constant,
-    # not the settings table. Any stale row in the DB (e.g. from a pre-080
-    # install) is overwritten here so the API only ever reports the value
-    # baked into this build.
-    data["enabled_modules"] = vendor_config.ENABLED_MODULES
+    # `enabled_modules` is never read from the settings table. Any stale row
+    # (e.g. from a pre-080 install) is overwritten here.
+    #
+    # Source of truth depends on the deployment:
+    #   * multi-tenant cloud — the customer's licence in public.tenants,
+    #     dependency-closed, so the sidebar hides exactly what they did not buy;
+    #   * single-tenant / desktop — the immutable build-time constant.
+    #
+    # enabled_modules_set() already encodes that precedence and is what the
+    # server-side paywall enforces, so sourcing the UI from it keeps the menu
+    # and the API in agreement. Returning the raw constant here was why a
+    # licensed tenant still saw every module in the sidebar.
+    _licensed = vendor_config.enabled_modules_set()
+    data["enabled_modules"] = ("" if _licensed is None
+                               else ",".join(sorted(_licensed)))
     # Read-only capability flag (never persisted — not in WRITABLE_SETTINGS).
     # Local file / USB backup and the "works offline" pitch only apply to the
     # SQLite (desktop / self-hosted) edition; a cloud (Postgres) deployment is
