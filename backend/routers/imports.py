@@ -45,6 +45,25 @@ _INV_AXIS_ATTRS = ["Size", "Color", "Storage", "Model", "Pack Size"]
 _INV_ALL_ATTRS  = _INV_AXIS_ATTRS + ["Brand", "Material"]
 
 
+def _attribute_names(db):
+    """(all attribute names, variant-axis names) for this tenant.
+
+    Falls back to the historical constants when attribute_defs is empty or
+    absent, so existing imports keep working unchanged.
+    """
+    try:
+        rows = db.execute(
+            "SELECT name, is_variant_axis FROM attribute_defs ORDER BY sort_order, name"
+        ).fetchall()
+    except Exception:
+        rows = []
+    names = [r["name"] for r in rows if r["name"]]
+    if not names:
+        return _INV_ALL_ATTRS, set(_INV_AXIS_ATTRS)
+    axis = {r["name"] for r in rows if r["name"] and r["is_variant_axis"]}
+    return names, axis
+
+
 def _inventory_post_create(db, user, raw: Dict[str, Any], item_id):
     """After a row's inventory item is created, apply any variant columns:
     link/create the parent product, set the variant label, and record the
@@ -57,7 +76,12 @@ def _inventory_post_create(db, user, raw: Dict[str, Any], item_id):
         return None
 
     product_name = col("product")
-    attrs = [(n, col(n)) for n in _INV_ALL_ATTRS]
+    # Read the tenant's OWN attribute definitions. The hardcoded list is only a
+    # fallback for installs with no attribute system: a customer who defines
+    # "Voltage" must be able to import it, and is_variant_axis is the authority
+    # on which attributes compose the variant label.
+    all_attrs, axis_attrs = _attribute_names(db)
+    attrs = [(n, col(n)) for n in all_attrs]
     attrs = [(n, v) for n, v in attrs if v]
     if not product_name and not attrs:
         return
@@ -72,7 +96,7 @@ def _inventory_post_create(db, user, raw: Dict[str, Any], item_id):
             (product_name, _now()),
         ).lastrowid
 
-    label_parts = [v for n, v in attrs if n in _INV_AXIS_ATTRS]
+    label_parts = [v for n, v in attrs if n in axis_attrs]
     label = " / ".join(label_parts) if label_parts else None
     db.execute("UPDATE inventory SET product_id=?, variant_label=? WHERE id=?",
                (product_id, label, item_id))
@@ -155,15 +179,16 @@ ENTITIES: Dict[str, dict] = {
             {"key": "barcode",         "label": "Barcode"},
             {"key": "lot_tracked",     "label": "Lot tracked", "type": "bool"},
             {"key": "shelf_life_days", "label": "Shelf life (days)", "type": "int"},
+            {"key": "price_currency",  "label": "Price currency",
+             "hint": "USD or the secondary currency; blank = USD"},
             # Variant columns (optional): same-named "product" rows group into one
             # product; the attribute columns build the variant + its attributes.
             {"key": "product",         "label": "Product (groups variants)"},
-            {"key": "Size",            "label": "Size"},
-            {"key": "Color",           "label": "Color"},
-            {"key": "Storage",         "label": "Storage"},
-            {"key": "Model",           "label": "Model"},
-            {"key": "Brand",           "label": "Brand"},
-            {"key": "Material",        "label": "Material"},
+            # Attribute columns are appended per tenant from attribute_defs -
+            # see _with_dynamic_attributes. They used to be a hardcoded six
+            # (Size/Color/Storage/Model/Brand/Material), which meant a customer
+            # who defined "Voltage" could configure it in the UI and then had no
+            # way to import it.
         ],
     },
     "accounts": {
@@ -275,11 +300,37 @@ def _guard(entity: str, payload: ImportPayload, user, db, action="create") -> di
     return cfg
 
 
+def _with_dynamic_attributes(entity: str, cfg: dict, db) -> dict:
+    """Append this tenant's OWN attribute names as importable columns.
+
+    Attributes are user-defined (attribute_defs), so the importable column set
+    cannot be a constant: it has to be read per tenant, or the wizard offers
+    columns nobody uses and hides the ones they do.
+    """
+    if entity != "inventory":
+        return cfg
+    try:
+        rows = db.execute(
+            "SELECT DISTINCT name FROM attribute_defs ORDER BY sort_order, name"
+        ).fetchall()
+    except Exception:
+        return cfg                       # no attribute system on this install
+    known = {f["key"] for f in cfg["fields"]}
+    extra = [{"key": r["name"], "label": r["name"], "attribute": True}
+             for r in rows if r["name"] and r["name"] not in known]
+    if not extra:
+        return cfg
+    merged = dict(cfg)
+    merged["fields"] = cfg["fields"] + extra
+    return merged
+
+
 @router.get("/{entity}/schema")
 def import_schema(entity: str, user=Depends(require_auth),
                   db: sqlite3.Connection = Depends(get_db)):
     cfg = _entity_or_404(entity)
     check_perm(user, db, cfg["module"], "create")
+    cfg = _with_dynamic_attributes(entity, cfg, db)
     return {"entity": entity, "fields": cfg["fields"]}
 
 

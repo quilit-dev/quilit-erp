@@ -1,6 +1,6 @@
 // Inventory — items list with stock ops, lots browser, and product builder.
 // Forms/modals live in ./inventory/ — this file is the main list + tabs.
-import { useState, useEffect, useCallback } from 'react';
+import { useState, useEffect, useCallback, useMemo } from 'react';
 import { usePersistedState } from '../hooks/usePersistedState';
 import { useSortPaginate } from '../hooks/useSortPaginate';
 import { useLocale } from '../hooks/useLocale.jsx';
@@ -222,17 +222,50 @@ export default function Inventory() {
     );
   }
 
-  const exportData = items.map(i => ({
-    Name: i.name, Category: i.category || '', Type: i.product_type || '',
-    Quantity: i.quantity, Reserved: i.reserved_quantity || 0, Unit: i.unit,
-    'Min Stock': i.min_stock, 'Unit Cost (Landed, USD)': i.unit_cost,
-    'Sale Price': i.sale_price || 0,
-    'Price Currency': i.price_currency || 'USD',
-    'Total Value': fmtNum(i.quantity * i.unit_cost),
-    Barcode: i.barcode || '',
-    Supplier: i.supplier || '',
-    Status: i.min_stock > 0 && i.quantity <= i.min_stock ? 'Low Stock' : 'OK',
-  }));
+  // Export is a ROUND TRIP, not a report: the headers match the import
+  // wizard's field labels exactly, so a sheet can be exported, edited in Excel
+  // and imported back. Anything that is derived or system-owned (values, stock
+  // reserved by orders, status) is appended after the importable block and
+  // ignored on the way back in.
+  //
+  // Attribute columns are whatever THIS tenant has defined, unioned across the
+  // visible rows — a fixed list would silently drop a customer's own fields.
+  const attributeColumns = useMemo(() => {
+    const seen = new Set();
+    items.forEach(i => Object.keys(i.attributes || {}).forEach(k => seen.add(k)));
+    return [...seen].sort();
+  }, [items]);
+
+  const exportData = items.map(i => {
+    const row = {
+      // ── importable: these headers match the import field labels ──
+      Name: i.name,
+      Category: i.category || '',
+      'Product type': i.product_type || '',
+      Quantity: i.quantity,
+      'Min stock': i.min_stock,
+      'Unit cost': i.unit_cost,
+      'Sale price': i.sale_price || 0,
+      'Price currency': i.price_currency || 'USD',
+      Supplier: i.supplier || '',
+      Unit: i.unit || '',
+      Barcode: i.barcode || '',
+      'Lot tracked': i.lot_tracked ? 'yes' : 'no',
+      'Shelf life (days)': i.shelf_life_days ?? '',
+      'Product (groups variants)': i.product_name || '',
+    };
+    // One column per tenant-defined attribute, blank where the item has none,
+    // so the sheet stays rectangular and Excel-friendly.
+    attributeColumns.forEach(name => { row[name] = (i.attributes || {})[name] || ''; });
+
+    // ── read-only: derived or system-managed ──
+    row['Variant'] = i.variant_label || '';
+    row['Reserved'] = i.reserved_quantity || 0;
+    row['Quarantine'] = i.quarantine_quantity || 0;
+    row['Total value'] = fmtNum((i.quantity || 0) * (i.unit_cost || 0));
+    row['Status'] = i.min_stock > 0 && i.quantity <= i.min_stock ? 'Low Stock' : 'OK';
+    return row;
+  });
 
   return (
     <div>
