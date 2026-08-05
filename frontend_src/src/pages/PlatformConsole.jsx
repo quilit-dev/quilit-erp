@@ -11,6 +11,7 @@ import { useEffect, useState, Fragment } from 'react';
 import { pfetch } from './platform/api';
 import ProvisionWizard from './platform/ProvisionWizard';
 import FleetHealth from './platform/FleetHealth';
+import BusinessAnalytics from './platform/BusinessAnalytics';
 import SupportInbox from './platform/SupportInbox';
 import { useLocale } from '../hooks/useLocale';
 import { LoadingSpinner, toast } from '../components/shared';
@@ -24,6 +25,7 @@ export default function PlatformConsole() {
   const [phase, setPhase]       = useState('probing');
   const [operator, setOperator] = useState(null);
   const [section, setSection]   = useState('businesses');
+  const [insights, setInsights] = useState(null);   // {slug,name} drill-down
 
   useEffect(() => {
     (async () => {
@@ -80,11 +82,14 @@ export default function PlatformConsole() {
                 ['inbox',      t('platform.navInbox')]].map(([key, label]) => (
                 <button key={key}
                   className={`tab-btn${section === key ? ' active' : ''}`}
-                  onClick={() => setSection(key)}>{label}</button>
+                  onClick={() => { setSection(key); setInsights(null); }}>{label}</button>
               ))}
             </div>
             {section === 'businesses' && <TenantManager t={t} />}
-            {section === 'health'     && <FleetHealth />}
+            {section === 'health' && (insights
+              ? <BusinessAnalytics slug={insights.slug} name={insights.name}
+                  onBack={() => setInsights(null)} />
+              : <FleetHealth onOpenAnalytics={setInsights} />)}
             {section === 'inbox'      && <SupportInbox />}
           </>
         )}

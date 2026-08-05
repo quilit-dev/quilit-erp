@@ -32,7 +32,7 @@ function Stat({ label, value, tone }) {
   );
 }
 
-export default function FleetHealth() {
+export default function FleetHealth({ onOpenAnalytics }) {
   const [data, setData] = useState(null);
   const [error, setError] = useState(null);
 
@@ -73,11 +73,12 @@ export default function FleetHealth() {
                 <th style={{ textAlign: 'right' }}>Database</th>
                 <th>Errors</th>
                 <th>Licence</th>
+                <th></th>
               </tr>
             </thead>
             <tbody>
               {data.tenants.length === 0 && (
-                <tr><td colSpan={8} style={{ textAlign: 'center', color: 'var(--text-3)', padding: 28 }}>
+                <tr><td colSpan={9} style={{ textAlign: 'center', color: 'var(--text-3)', padding: 28 }}>
                   No businesses yet.
                 </td></tr>
               )}
@@ -125,6 +126,12 @@ export default function FleetHealth() {
                           {r.trial_days_left < 0 ? 'trial expired' : `trial ${r.trial_days_left}d`}
                         </div>
                       )}
+                    </td>
+                    <td style={{ textAlign: 'right' }}>
+                      <button className="btn btn-sm btn-secondary"
+                        onClick={() => onOpenAnalytics?.({ slug: r.slug, name: r.name })}>
+                        Insights
+                      </button>
                     </td>
                   </tr>
                 );

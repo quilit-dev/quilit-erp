@@ -26,6 +26,7 @@ import capabilities
 import tenancy
 import support
 import health
+import analytics
 from auth_utils import (
     SECRET_KEY, ALGORITHM, COOKIE_SECURE, TOKEN_EXPIRE_HOURS,
     PLATFORM_COOKIE_NAME, create_platform_token,
@@ -241,6 +242,20 @@ def delete_tenant(slug: str, confirm: str = "",
                     "proceed, or suspend the tenant instead to keep the data."))
     try:
         return tenancy.delete_tenant(slug)
+    except ValueError as e:
+        raise HTTPException(status_code=400, detail=str(e))
+
+
+@router.get("/tenants/{slug}/analytics")
+def tenant_analytics(slug: str, admin=Depends(require_platform_admin)):
+    """How this customer actually uses the product.
+
+    Everything is derived from what the ERP already records. Signals nothing
+    instruments today (API usage, performance, storage history) come back
+    under `not_measured` with the reason, rather than as a fabricated zero.
+    """
+    try:
+        return analytics.for_tenant(slug)
     except ValueError as e:
         raise HTTPException(status_code=400, detail=str(e))
 
