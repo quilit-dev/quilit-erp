@@ -137,6 +137,7 @@ function TenantManager({ t }) {
   const [busy, setBusy]       = useState(false);
   const [creating, setCreating] = useState(false);
   const [expanded, setExpanded] = useState(null);   // slug whose domains panel is open
+  const [resetting, setResetting] = useState(null); // tenant awaiting reset confirmation
 
   async function reload() {
     try { setTenants(await pfetch('GET', '/api/platform/tenants')); }
@@ -199,6 +200,12 @@ function TenantManager({ t }) {
         </div>
       )}
 
+      {resetting && (
+        <FactoryResetDialog tenant={resetting} t={t}
+          onClose={() => setResetting(null)}
+          onDone={(creds) => { setResetting(null); setCreds(creds); reload(); }} />
+      )}
+
       {/* Tenant table */}
       <div className="card" style={{ padding: 0 }}>
         {tenants === null ? <div style={{ padding: 24 }}><LoadingSpinner /></div> : (
@@ -244,6 +251,9 @@ function TenantManager({ t }) {
                       <button className="btn btn-sm btn-secondary" style={{ color: '#166534' }}
                         onClick={() => setStatus(tn, 'activate')}>▶ {t('platform.activate')}</button>
                     )}
+                    {' '}
+                    <button className="btn btn-sm btn-secondary" style={{ color: 'var(--red)' }}
+                      onClick={() => setResetting(tn)}>{t('platform.factoryReset')}</button>
                   </td>
                 </tr>
                 {expanded === tn.slug && (
@@ -373,6 +383,52 @@ function DomainManager({ slug }) {
           </tbody>
         </table>
       )}
+    </div>
+  );
+}
+
+
+// Factory reset erases a live ledger, so the dialog asks the operator to TYPE
+// the slug rather than click once. That mirrors the API's ?confirm=<slug> and
+// makes an accidental reset genuinely hard.
+function FactoryResetDialog({ tenant, t, onClose, onDone }) {
+  const [typed, setTyped] = useState('');
+  const [busy, setBusy]   = useState(false);
+  const armed = typed.trim() === tenant.slug;
+
+  async function run() {
+    setBusy(true);
+    try {
+      const r = await pfetch('POST',
+        `/api/platform/tenants/${tenant.slug}/factory-reset?confirm=${encodeURIComponent(tenant.slug)}`);
+      toast(t('platform.resetDone'));
+      onDone({ name: r.name || r.slug, username: r.admin_username, password: r.admin_password });
+    } catch (e) { toast(e.message, 'red'); setBusy(false); }
+  }
+
+  return (
+    <div className="modal-overlay" onClick={e => e.target === e.currentTarget && onClose()}>
+      <div className="modal">
+        <div className="modal-header"><span className="modal-title">{t('platform.factoryReset')}</span></div>
+        <div className="modal-body">
+          <p style={{ marginTop: 0 }}>{t('platform.resetWarn', { name: tenant.name || tenant.slug })}</p>
+          <ul style={{ fontSize: 13, color: 'var(--text-2)', paddingInlineStart: 18 }}>
+            <li>{t('platform.resetLoses')}</li>
+            <li>{t('platform.resetKeeps')}</li>
+          </ul>
+          <div className="form-group">
+            <label className="form-label">{t('platform.resetTypeSlug', { slug: tenant.slug })}</label>
+            <input className="form-control" value={typed} autoFocus
+              onChange={e => setTyped(e.target.value)} placeholder={tenant.slug} />
+          </div>
+        </div>
+        <div className="modal-footer">
+          <button className="btn btn-secondary" onClick={onClose} disabled={busy}>{t('common.cancel')}</button>
+          <button className="btn btn-danger" disabled={!armed || busy} onClick={run}>
+            {busy ? t('common.saving') : t('platform.factoryReset')}
+          </button>
+        </div>
+      </div>
     </div>
   );
 }

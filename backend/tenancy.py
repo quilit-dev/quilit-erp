@@ -348,6 +348,58 @@ def reset_tenant_user_password(slug: str, username: str,
             "must_change_password": True}
 
 
+def factory_reset(slug: str) -> dict:
+    """Wipe a tenant's DATA but keep the business itself.
+
+    IRREVERSIBLE for the data. Implemented as drop-and-reprovision rather than
+    truncating tables: the schema has dozens of tables bound by foreign keys,
+    and any hand-maintained TRUNCATE order silently rots the moment a table is
+    added. Re-provisioning reuses the same code path that builds a brand-new
+    tenant, so a reset workspace is bit-for-bit what a fresh one looks like.
+
+    KEPT (the catalog row is never touched): name, plan, licensed modules,
+    industry, language, currency, contact details, licence dates and any
+    verified custom domains.
+
+    LOST: every business record - clients, invoices, the ledger, documents,
+    users beyond the rebuilt admin, and the audit trail.
+
+    Returns the fresh admin credentials, since the previous ones are gone
+    with the schema.
+    """
+    if not valid_slug(slug):
+        raise ValueError(f"Invalid tenant slug: {slug!r}")
+    schema = schema_for_slug(slug)
+    if not valid_schema_name(schema):
+        raise ValueError(f"Refusing to drop unsafe schema name: {schema!r}")
+
+    raw = _connect()
+    try:
+        ensure_tenants_catalog(raw)
+        with raw.cursor() as cur:
+            cur.execute("SELECT slug, name, plan FROM public.tenants WHERE slug=%s", (slug,))
+            row = cur.fetchone()
+            if not row:
+                raise ValueError(f"No such tenant: {slug!r}")
+            # Drop only the tenant's own schema. The public catalog - and with
+            # it the customer's identity, licence and domains - is untouched.
+            cur.execute(f'DROP SCHEMA IF EXISTS "{schema}" CASCADE')
+        raw.commit()
+    finally:
+        raw.close()
+
+    _CACHE.pop(slug, None)
+    _SCHEMA_STATUS.pop(schema, None)
+    _MODULES_CACHE.pop(schema, None)
+
+    # Rebuild via the normal provisioning path; ON CONFLICT DO NOTHING means
+    # the surviving catalog row keeps its profile.
+    result = provision_tenant(slug, row.get("name"), row.get("plan") or "standard")
+    return {"slug": slug, "name": row.get("name"), "reset": True,
+            "admin_username": result.get("admin_username"),
+            "admin_password": result.get("admin_password")}
+
+
 def tenant_modules(schema: str):
     """Effective (dependency-closed) module set for a schema, or None when the
     tenant has no explicit licence and should see everything.

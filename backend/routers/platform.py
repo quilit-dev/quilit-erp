@@ -341,6 +341,29 @@ def reset_tenant_password(slug: str, data: PasswordReset,
         raise HTTPException(status_code=400, detail=str(e))
 
 
+@router.post("/tenants/{slug}/factory-reset")
+def factory_reset(slug: str, confirm: str = "",
+                  admin=Depends(require_platform_admin)):
+    """Erase a customer's DATA while keeping the business, its licence and
+    its domains. IRREVERSIBLE.
+
+    Requires ?confirm=<slug>, the same guard as deletion: this destroys a
+    live ledger, and a stray or replayed POST must not be able to trigger it.
+    """
+    if confirm != slug:
+        raise HTTPException(
+            status_code=400,
+            detail=("A factory reset erases every business record for this "
+                    "customer - clients, invoices, the ledger, documents and "
+                    "the audit trail. The business, its licence and its "
+                    "domains are kept. Repeat the slug as ?confirm=<slug> to "
+                    "proceed."))
+    try:
+        return tenancy.factory_reset(slug)
+    except ValueError as e:
+        raise HTTPException(status_code=400, detail=str(e))
+
+
 # ── custom domains ───────────────────────────────────────────────────────────
 
 @router.get("/tenants/{slug}/domains")
