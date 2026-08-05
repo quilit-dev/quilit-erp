@@ -89,6 +89,22 @@ const en = {
     last90Days:  'Last 90 days',
     ytd:         'Year to date',
   },
+  support: {
+    reportTitle: 'Report a problem',
+    whatHappened: 'What were you trying to do?',
+    whatHappenedHint: 'Describe what you expected and what happened instead.',
+    howBad: 'How badly is this affecting you?',
+    sevLow: 'Minor — I can carry on',
+    sevMedium: 'Moderate — it is slowing me down',
+    sevHigh: 'Serious — I cannot finish this task',
+    sevCritical: 'Critical — work has stopped',
+    autoAttached: 'The page address, your browser details and any error message are attached automatically.',
+    send: 'Send report',
+    sendFailed: 'Could not send the report. Please try again.',
+    thanksTitle: 'Report sent',
+    thanksBody: 'Thank you — support has the details and can see exactly what happened. You can carry on working.',
+  },
+
   common: {
     loading: 'Loading…',
     nothingHere: 'Nothing here yet',

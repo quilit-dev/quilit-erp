@@ -7,12 +7,12 @@
 // Class component by necessity: error boundaries have no hooks API, so the
 // translated strings come in via the `t` prop from the wrapping route.
 import { Component } from 'react';
-import { reportProblem } from '../api/client';
+import { ReportProblemDialog } from './ReportProblem';
 
 export default class ErrorBoundary extends Component {
   constructor(props) {
     super(props);
-    this.state = { error: null, componentStack: '', reporting: false, reported: false };
+    this.state = { error: null, componentStack: '', showReport: false };
   }
 
   static getDerivedStateFromError(error) {
@@ -26,25 +26,6 @@ export default class ErrorBoundary extends Component {
     // Surface the real stack in the console — the panel stays calm, the
     // developer console keeps the diagnostic detail.
     console.error('Page render error:', error, info?.componentStack);
-  }
-
-  async report() {
-    const { error, componentStack } = this.state;
-    this.setState({ reporting: true });
-    try {
-      await reportProblem({
-        title: `Page crash: ${String(error?.message || error).slice(0, 200)}`,
-        message: String(error?.message || error),
-        stack: [error?.stack, componentStack].filter(Boolean).join('\n\n'),
-        page_url: window.location.href,
-        user_agent: navigator.userAgent,
-        severity: 'high',            // a render crash blanked a page for a user
-      });
-      this.setState({ reported: true, reporting: false });
-    } catch {
-      // Reporting must never throw on top of the error being reported.
-      this.setState({ reporting: false });
-    }
   }
 
   render() {
@@ -72,20 +53,20 @@ export default class ErrorBoundary extends Component {
             <button className="btn btn-secondary" onClick={() => window.location.reload()}>
               {t('common.pageErrorReload')}
             </button>
-            {/* Reporting is one click: everything technical is already known
-                here, so the user is never asked to describe a stack trace. */}
+            {/* Opens the same dialog as the topbar action. The crash detail
+                is attached automatically, but the user still gets to say what
+                they were doing — firing blind lost the one piece of context
+                only they have. */}
             <button className="btn btn-secondary"
-              disabled={this.state.reporting || this.state.reported}
-              onClick={() => this.report()}>
-              {this.state.reported ? t('common.problemReported')
-                : this.state.reporting ? t('common.sending')
-                : t('common.reportProblem')}
+              onClick={() => this.setState({ showReport: true })}>
+              {t('common.reportProblem')}
             </button>
           </div>
-          {this.state.reported && (
-            <p style={{ marginTop: 12, fontSize: 12.5, color: 'var(--green)' }}>
-              {t('common.problemReportedHint')}
-            </p>
+          {this.state.showReport && (
+            <ReportProblemDialog
+              error={error}
+              componentStack={this.state.componentStack}
+              onClose={() => this.setState({ showReport: false })} />
           )}
         </div>
       </div>

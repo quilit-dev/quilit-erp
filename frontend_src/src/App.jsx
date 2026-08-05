@@ -6,6 +6,7 @@ import Sidebar from './components/Sidebar';
 import ToastContainer from './components/ToastContainer';
 import CommandPalette from './components/CommandPalette';
 import NotificationBell from './components/NotificationBell';
+import { ReportProblemButton } from './components/ReportProblem';
 import { LoadingSpinner } from './components/shared';
 import { useTheme } from './hooks/useTheme.jsx';
 import { useLocale } from './hooks/useLocale.jsx';
@@ -235,6 +236,7 @@ function Layout({ children }) {
               {t('common.live')}
             </div>
             <NotificationBell />
+            <ReportProblemButton />
             <LangToggleButton />
             <ThemeToggleButton />
           </div>
