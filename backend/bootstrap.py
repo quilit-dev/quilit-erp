@@ -16,6 +16,21 @@ import sys
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 
 
+def _check_storage():
+    """Validate document storage before serving traffic (see storage.py)."""
+    import storage
+    info = storage.validate_config()
+    if not info.get("checked"):
+        print(f"bootstrap: storage={info['backend']} - {info['detail']}", flush=True)
+    elif info.get("reachable"):
+        print(f"bootstrap: storage=s3 bucket={info['bucket']} reachable.", flush=True)
+    else:
+        # Config is valid but the bucket did not answer. Warn loudly and carry
+        # on: a blip must not keep the whole ERP down.
+        print(f"bootstrap: WARNING storage=s3 bucket={info['bucket']} "
+              f"unreachable - {info.get('warning')}", flush=True)
+
+
 def main():
     from tenant_context import IS_SCHEMA_TENANCY
     if IS_SCHEMA_TENANCY:
@@ -57,6 +72,7 @@ def main():
         import database
         database.init_db()
         print("bootstrap: single-tenant schema ready.", flush=True)
+    _check_storage()
 
 
 if __name__ == "__main__":
