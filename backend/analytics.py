@@ -11,15 +11,11 @@ it reports what the customer TOUCHES, not what they bought. A tenant licensed
 for Manufacturing with zero manufacturing events is either mis-sold or stuck,
 and both are worth a phone call.
 
-Deliberately NOT reported, because nothing records them today:
-  * API usage         - no request counter exists. Adding one means middleware
-                        writing a per-tenant tally; worth doing, but it is
-                        instrumentation, not a query.
-  * Performance       - no timing is collected per tenant.
-  * Storage growth    - only the CURRENT size is knowable. History needs
-                        periodic snapshots, which nothing writes yet.
-These return null rather than a plausible-looking zero: a chart that invents
-a flat line is worse than one that says "not measured".
+API usage, latency and storage growth come from metrics.py, which
+instruments the request path directly: an in-memory counter per request,
+flushed to the shared catalog about once a minute, plus one storage snapshot
+per tenant per day. Those series are empty for a tenant that has not been used
+yet — which is a true statement, not a gap.
 """
 from tenancy import schema_for_slug, valid_schema_name, valid_slug
 
@@ -112,6 +108,13 @@ def for_tenant(slug: str) -> dict:
     import support
     errors = (support.report_stats() or {}).get(slug) or {}
 
+    # API usage, latency and storage history also live in the shared catalog.
+    # Both series are empty until the instrumentation has had time to record —
+    # a brand-new tenant legitimately has no history yet.
+    import metrics
+    api_usage = metrics.usage_for(slug)
+    storage_growth = metrics.storage_for(slug)
+
     return {
         "slug": slug,
         "daily_activity": daily,
@@ -126,10 +129,9 @@ def for_tenant(slug: str) -> dict:
             "urgent": errors.get("urgent") or 0,
             "last":   errors.get("last_report"),
         },
-        # Honest nulls - see the module docstring.
-        "not_measured": {
-            "api_usage":      "no per-tenant request counter is recorded",
-            "performance":    "no per-tenant timing is collected",
-            "storage_growth": "only the current size is known; no history is snapshotted",
-        },
+        # Now instrumented (metrics.py): a per-request counter aggregated in
+        # memory and flushed about once a minute, plus a daily size snapshot.
+        "api_usage": api_usage,
+        "storage_growth": storage_growth,
+        "not_measured": {},
     }

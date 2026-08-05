@@ -50,6 +50,7 @@ app.add_middleware(
 # Schema-per-tenant routing (Phase 2). Self-disables unless TENANCY=schema, so
 # single-tenant / desktop installs are completely unaffected.
 from tenancy import TenantMiddleware
+from tenant_context import IS_SCHEMA_TENANCY
 app.add_middleware(TenantMiddleware)
 
 
@@ -97,11 +98,74 @@ class SecurityHeadersMiddleware:
         await self.app(scope, receive, _send)
 
 
+class MetricsMiddleware:
+    """Per-tenant API usage and latency (see metrics.py).
+
+    Pure ASGI so the response status can be read from the outgoing
+    http.response.start message without buffering the body — wrapping this as
+    a BaseHTTPMiddleware would materialise every response, which is exactly
+    the cost telemetry must not add.
+
+    The hot path is a timer plus a dict increment. The periodic flush runs
+    AFTER the response has been sent, so a customer's request never waits on
+    a metrics write. Every failure is swallowed: telemetry must never take the
+    ERP down.
+    """
+
+    def __init__(self, app):
+        self.app = app
+
+    async def __call__(self, scope, receive, send):
+        if scope.get("type") != "http" or not IS_SCHEMA_TENANCY:
+            await self.app(scope, receive, send)
+            return
+
+        import time as _time
+        started = _time.perf_counter()
+        status_holder = {"code": 0, "schema": None}
+
+        async def _send(message):
+            if message.get("type") == "http.response.start":
+                status_holder["code"] = message.get("status", 0)
+                # Capture the tenant HERE, not in the finally below. This
+                # middleware is registered outside TenantMiddleware, whose own
+                # finally resets the ContextVar first — so by the time our
+                # finally runs, current_schema() is always None. At
+                # response.start the inner middleware is still on the stack and
+                # the context is live.
+                try:
+                    from tenant_context import current_schema
+                    status_holder["schema"] = current_schema()
+                except Exception:
+                    pass
+            await send(message)
+
+        try:
+            await self.app(scope, receive, _send)
+        finally:
+            try:
+                import metrics
+                schema = status_holder.get("schema")
+                if schema:
+                    # tenant_<slug> -> slug
+                    slug = schema[7:] if schema.startswith("tenant_") else schema
+                    metrics.record(slug, status_holder["code"],
+                                   (_time.perf_counter() - started) * 1000.0)
+                # Response is already sent by here, so this costs the customer
+                # nothing.
+                if metrics.due_for_flush():
+                    metrics.flush()
+                    metrics.snapshot_storage_if_due()
+            except Exception:
+                pass
+
+
 from auth_utils import COOKIE_SECURE
 app.add_middleware(SecurityHeadersMiddleware, hsts=COOKIE_SECURE)
 
 # Added last → outermost: it assigns the request id before any other middleware
 # or handler runs, so every log line for the request is correlated.
+app.add_middleware(MetricsMiddleware)
 app.add_middleware(RequestContextMiddleware)
 
 app.include_router(auth.router,        prefix="/api/auth",        tags=["auth"])

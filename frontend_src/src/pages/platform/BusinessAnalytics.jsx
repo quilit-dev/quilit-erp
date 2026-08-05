@@ -45,6 +45,19 @@ function Bars({ data, valueKey, labelKey, height = 54, color = 'var(--accent)' }
   );
 }
 
+const fmtMB = (n) => (n == null ? '—' : `${(n / 1048576).toFixed(1)} MB`);
+
+// A series that is empty because nothing has happened yet is NOT the same as a
+// metric we do not collect. Saying so prevents "no data" reading as "broken".
+function Pending({ what }) {
+  return (
+    <div style={{ color: 'var(--text-3)', fontSize: 12, padding: '10px 0' }}>
+      No {what} recorded yet — collection starts on first use and is written
+      about once a minute.
+    </div>
+  );
+}
+
 function Panel({ title, hint, children }) {
   return (
     <div className="card" style={{ marginBottom: 14 }}>
@@ -143,12 +156,46 @@ export default function BusinessAnalytics({ slug, name, onBack }) {
         ) : <div style={{ color: 'var(--text-3)', fontSize: 12 }}>No module activity in the last 90 days.</div>}
       </Panel>
 
+      <Panel title="API requests" hint="last 30 days · per day">
+        {d.api_usage?.length ? (
+          <>
+            <Bars data={d.api_usage} valueKey="requests" labelKey="day" color="var(--accent)" />
+            <div style={{ display: 'flex', gap: 18, marginTop: 8, fontSize: 12, color: 'var(--text-2)', flexWrap: 'wrap' }}>
+              <span>Total: <strong>{d.api_usage.reduce((a, r) => a + Number(r.requests || 0), 0).toLocaleString()}</strong></span>
+              <span>Server errors: <strong style={{ color: d.api_usage.some(r => r.server_errors > 0) ? 'var(--red)' : undefined }}>
+                {d.api_usage.reduce((a, r) => a + Number(r.server_errors || 0), 0)}</strong></span>
+              <span>Slowest day: <strong>{Math.max(...d.api_usage.map(r => Number(r.max_ms || 0))).toFixed(0)} ms</strong></span>
+            </div>
+          </>
+        ) : <Pending what="request volume" />}
+      </Panel>
+
+      {/* Average is total/requests; max is the worst single call that day.
+          Together they answer "is this customer's ERP slow?" without the
+          machinery a percentile would need. */}
+      <Panel title="Response time" hint="average ms per day">
+        {d.api_usage?.length
+          ? <Bars data={d.api_usage} valueKey="avg_ms" labelKey="day" color="var(--yellow)" />
+          : <Pending what="latency" />}
+      </Panel>
+
+      <Panel title="Storage growth" hint="database size · one snapshot per day">
+        {d.storage_growth?.length
+          ? <>
+              <Bars data={d.storage_growth} valueKey="db_bytes" labelKey="day" color="var(--blue)" />
+              <div style={{ marginTop: 8, fontSize: 12, color: 'var(--text-2)' }}>
+                Latest: <strong>{fmtMB(d.storage_growth[d.storage_growth.length - 1]?.db_bytes)}</strong>
+              </div>
+            </>
+          : <Pending what="storage history" />}
+      </Panel>
+
       <Panel title="User growth" hint="accounts added per month">
         <Bars data={d.user_growth} valueKey="added" labelKey="month" color="var(--purple)" />
       </Panel>
 
-      {/* Stated, not silently omitted. */}
-      <div className="card">
+      {/* Only rendered when something genuinely is not measured. */}
+      {Object.keys(d.not_measured || {}).length > 0 && <div className="card">
         <div className="card-body">
           <div style={{ fontSize: 12, color: 'var(--text-3)' }}>
             <strong style={{ color: 'var(--text-2)' }}>Not measured yet</strong>
@@ -159,7 +206,7 @@ export default function BusinessAnalytics({ slug, name, onBack }) {
             </ul>
           </div>
         </div>
-      </div>
+      </div>}
     </div>
   );
 }
