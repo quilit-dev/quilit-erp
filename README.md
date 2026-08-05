@@ -46,7 +46,7 @@ recruitment and CRM into a single self-hosted application.
 | Layer | Technology |
 |-------|-----------|
 | Backend | Python 3.11+, FastAPI, Uvicorn |
-| Database | SQLite (zero-config, single file) in WAL mode |
+| Database | PostgreSQL (cloud / multi-tenant) or SQLite in WAL mode (desktop / self-hosted) |
 | Frontend | React 18, Vite, React Router v6 |
 | Auth | JWT (HS256) via HttpOnly cookies, PBKDF2-SHA256 passwords |
 | Packaging | PyInstaller (Windows .exe), Inno Setup 6 |
@@ -142,30 +142,81 @@ After seeding, log in with **`admin` / `Admin123!`**.
 
 ### Running Tests
 
+Backend:
+
 ```bash
 cd backend
-python -m pytest -q       # 800+ tests covering auth, RBAC, tax, POS,
+python -m pytest -q       # 1000+ tests covering auth, RBAC, tax, POS,
                           # multi-currency (F-1..F-9), period locking,
                           # fiscal-year close, multi-warehouse, payroll,
                           # contracts, recruitment, approvals, VAT, …
 ```
 
+
+Frontend — run all three before committing:
+
+```bash
+cd frontend_src
+npm run lint     # no-undef / jsx-no-undef: catches references the bundler
+                 # resolves but that crash at runtime (the "white screen" class)
+npm test         # mounts every page against an empty mocked API and asserts
+                 # none of them throw
+npm run build
+```
+
 ---
 
-## Per-customer module builds
+## Control Center
 
-Module visibility is configured by the vendor at **build time**, not at
-runtime. The single source of truth is `backend/vendor_config.py`:
+The vendor's operations console, at `/platform` on a cloud deployment. Separate
+identity from every customer: its own table, its own cookie, its own guard.
+
+Provisioning (company details, subdomain, plan, modules, language, currency,
+licence), fleet health scored per customer with the reasons behind the score,
+a support inbox fed by the ERP's own **Report problem** action, per-business
+analytics, password administration and factory reset.
+
+See [docs/DEPLOYMENT-RAILWAY.md](docs/DEPLOYMENT-RAILWAY.md) for the deployment
+and first-operator steps.
+
+---
+
+## Module licensing
+
+Which modules a customer gets is resolved in three layers, most specific first.
+
+**1. Per tenant (cloud).** On a multi-tenant deployment the licence belongs to
+the customer, stored in `public.tenants.modules` and managed from the Control
+Center. One deployment therefore serves many customers with different module
+sets.
+
+**2. Environment (per instance).** `ENABLED_MODULES` overrides the build-time
+constant, so a single image can be deployed several times with different module
+sets without rebuilding.
+
+**3. Build-time constant** — `backend/vendor_config.py`, used by desktop and
+self-hosted installs:
 
 ```python
 ENABLED_MODULES = "sales,clients,quotations,invoices,inventory,warehouses"
 ```
 
-An empty string means "every module visible" (dev and demo default). To
-slim a customer's build, edit the constant before running `build.ps1` —
-the value is baked into the installer and cannot be changed from a running
-ERP, even by a superadmin. This closes the "delete `erp.db` + relaunch"
-attack against module gating.
+An empty value means "every module visible" (dev and demo default).
+
+Whatever the source, the selected set is expanded to its **dependency closure**
+by `backend/capabilities.py` before it is stored or enforced: buying `pos`
+automatically grants `invoices`, `inventory`, `cash` and `clients`, because POS
+writes an invoice, moves stock and settles into a drawer. Invalid combinations
+are therefore unrepresentable rather than merely discouraged.
+
+Enforcement is server-side in `permissions.check_perm`, ahead of the superadmin
+bypass, so a disabled module's API cannot be reached by guessing the URL.
+
+> **Note on the desktop build.** Only layer 3 is immutable at runtime. In a
+> cloud deployment the module set is data and configuration — an operator with
+> Control Center access or the ability to set environment variables can change
+> it. Do not rely on it as a security boundary against your own infrastructure;
+> it is a licensing control, and RBAC remains the per-user boundary.
 
 ---
 
@@ -211,7 +262,19 @@ PORT=8765                              # Auto-increments if port is already in u
 BIND_HOST=0.0.0.0                      # Use 127.0.0.1 to restrict to localhost only
 
 # Database
-DB_PATH=erp.db                         # Path to the SQLite database file
+DB_PATH=erp.db                         # SQLite file (desktop / self-hosted)
+DB_BACKEND=sqlite                      # or 'postgres' for a cloud deployment
+DATABASE_URL=                          # postgres DSN; required when DB_BACKEND=postgres
+
+# Cloud / multi-tenant (see docs/DEPLOYMENT-RAILWAY.md)
+TENANCY=single                         # 'schema' = one isolated schema per customer
+ENABLED_MODULES=                       # empty = all; overrides the build-time constant
+STORAGE=db                             # 's3' stores documents in S3/R2 instead of the DB
+S3_BUCKET=                             # required when STORAGE=s3
+S3_ENDPOINT_URL=                       # set for Cloudflare R2 / MinIO; omit for AWS
+S3_ACCESS_KEY_ID=
+S3_SECRET_ACCESS_KEY=
+LOG_FORMAT=text                        # 'json' for structured logs
 ```
 
 ---
@@ -233,7 +296,7 @@ erp-system/
 │   ├── backup_manager.py      # Daily/weekly backups + USB export
 │   ├── utils.py               # Tax math (Decimal-based), notify(), helpers
 │   ├── vendor_config.py       # Per-customer enabled-modules constant
-│   ├── routers/               # One file per module (37 routers)
+│   ├── routers/               # One file per module (41 routers)
 │   │   ├── auth.py            clients.py     projects.py
 │   │   ├── quotations.py      invoices.py    inventory.py
 │   │   ├── warehouses.py      purchases.py   suppliers.py
@@ -245,9 +308,11 @@ erp-system/
 │   │   ├── dashboard.py       search.py      notifications.py
 │   │   ├── approval_policies.py  approval_requests.py
 │   │   ├── announcements.py   settings.py    documents.py
-│   │   ├── attachments.py     audit.py       archives.py
+│   │   ├── attachments.py     audit.py       categories.py
+│   ├── products.py        promotions.py  platform.py
+│   ├── imports.py         support.py
 │   │   └── users.py           roles.py
-│   ├── tests/                 # Pytest suite — 800+ tests, including
+│   ├── tests/                 # Pytest suite — 1000+ tests, including
 │   │                          # multi-currency audit (F-1..F-9), period
 │   │                          # locking, fiscal-year close, multi-warehouse
 │   ├── seed.py                # Single comprehensive sample-data seeder
@@ -255,7 +320,8 @@ erp-system/
 │   └── requirements.txt
 ├── frontend_src/
 │   ├── src/
-│   │   ├── pages/             # One component per page
+│   │   ├── pages/             # Page per route; large pages are folders
+│   │   │                      # of sections (pages/accounting/, crm/ …)
 │   │   ├── components/        # Sidebar, NotificationBell, CommandPalette, shared
 │   │   ├── hooks/             # useSettings, usePermissions, useLocale, useWarehouses
 │   │   ├── api/client.js      # All HTTP calls

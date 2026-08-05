@@ -400,6 +400,39 @@ def factory_reset(slug: str) -> dict:
             "admin_password": result.get("admin_password")}
 
 
+def expire_due_trials() -> list:
+    """Suspend tenants whose trial_ends_at has passed. Returns what changed.
+
+    Suspend, never delete: the customer keeps their data, so converting them
+    to paid is flipping the status back. A trial that silently runs forever is
+    lost revenue, and remembering to do this by hand does not scale past a
+    handful of customers.
+
+    Idempotent - an already-suspended tenant is skipped, so running it on every
+    flush cycle costs one indexed query and changes nothing.
+    """
+    from utils import _now
+    today = _now()[:10]
+    raw = _connect()
+    try:
+        ensure_tenants_catalog(raw)
+        with raw.cursor() as cur:
+            cur.execute(
+                "UPDATE public.tenants SET status='suspended', updated_at=%s "
+                "WHERE status='active' AND trial_ends_at IS NOT NULL "
+                "  AND trial_ends_at < %s "
+                "RETURNING slug, name, trial_ends_at",
+                (_now(), today))
+            changed = [dict(r) for r in cur.fetchall()]
+        raw.commit()
+    finally:
+        raw.close()
+    for row in changed:
+        _CACHE.pop(row["slug"], None)
+        _SCHEMA_STATUS.pop(schema_for_slug(row["slug"]), None)
+    return changed
+
+
 def tenant_modules(schema: str):
     """Effective (dependency-closed) module set for a schema, or None when the
     tenant has no explicit licence and should see everything.
@@ -873,6 +906,29 @@ def resolve_tenant_from_scope(scope):
     return None  # unresolved → get_db falls back to `public` (no business tables)
 
 
+# Only hosts under our own base domain can be judged "not a workspace". The
+# platform URL (erp-production-8232.up.railway.app), a health probe, or any
+# other host we do not own must pass through untouched — otherwise the fix
+# takes down the very URLs used to reach and monitor the deployment.
+#
+# Unset TENANT_BASE_DOMAIN keeps the previous permissive behaviour, so this
+# cannot regress an existing deployment that has not opted in.
+def _looks_like_tenant_host(scope) -> bool:
+    import os
+    base = (os.environ.get("TENANT_BASE_DOMAIN") or "").strip().lower().lstrip(".")
+    if not base:
+        return False
+    headers = {k.decode("latin1").lower(): v.decode("latin1")
+               for k, v in scope.get("headers", [])}
+    host = headers.get("host", "").split(":")[0].strip().lower().rstrip(".")
+    if not host.endswith("." + base):
+        return False
+    label = host[: -(len(base) + 1)]
+    # Multi-level (a.b.quilit.dev) is never a tenant, and reserved labels are
+    # the platform's own surfaces.
+    return "." not in label and label not in ("www", "app", "api", "admin")
+
+
 class TenantMiddleware:
     """Pure-ASGI middleware: resolve the request's tenant schema and stash it in
     the ContextVar so get_db can pin the connection's search_path. A request that
@@ -892,6 +948,17 @@ class TenantMiddleware:
             await JSONResponse(
                 {"detail": "This workspace is suspended. Please contact support."},
                 status_code=402)(scope, receive, send)
+            return
+        if resolved is None and _looks_like_tenant_host(scope):
+            # A subdomain of OUR base domain that matches no tenant. Without
+            # this the wildcard DNS record quietly serves the app for any
+            # typo'd hostname, so a mistyped workspace looks like a working
+            # ERP the user cannot log into.
+            from starlette.responses import JSONResponse
+            await JSONResponse(
+                {"detail": "No such workspace. Check the address with your "
+                           "administrator."},
+                status_code=404)(scope, receive, send)
             return
         schema = resolved[0] if resolved else None
         token = set_current_schema(schema)

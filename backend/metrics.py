@@ -148,6 +148,16 @@ def snapshot_storage_if_due() -> bool:
         return False
     _last_snapshot_day = day           # set first: a failure must not spin
 
+    # Same once-a-day slot: expire trials that ran out. Piggybacking here
+    # avoids standing up a scheduler for two cheap jobs.
+    try:
+        import tenancy
+        for row in tenancy.expire_due_trials():
+            print(f"trial expired -> suspended: {row['slug']} "
+                  f"(ended {row['trial_ends_at']})", flush=True)
+    except Exception:
+        pass
+
     try:
         from tenancy import _connect
         import health
