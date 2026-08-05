@@ -12,6 +12,7 @@ import { pfetch } from './platform/api';
 import ProvisionWizard from './platform/ProvisionWizard';
 import FleetHealth from './platform/FleetHealth';
 import BusinessAnalytics from './platform/BusinessAnalytics';
+import { ChangeOwnPassword, TenantUserAdmin } from './platform/UserAdmin';
 import SupportInbox from './platform/SupportInbox';
 import { useLocale } from '../hooks/useLocale';
 import { LoadingSpinner, toast } from '../components/shared';
@@ -26,6 +27,7 @@ export default function PlatformConsole() {
   const [operator, setOperator] = useState(null);
   const [section, setSection]   = useState('businesses');
   const [insights, setInsights] = useState(null);   // {slug,name} drill-down
+  const [ownPw, setOwnPw]       = useState(false);  // operator password dialog
 
   useEffect(() => {
     (async () => {
@@ -55,6 +57,9 @@ export default function PlatformConsole() {
           {phase === 'console' && (
             <div style={{ display: 'flex', gap: 10, alignItems: 'center' }}>
               <span style={{ fontSize: 13, color: 'var(--text-2)' }}>{operator?.username}</span>
+              <button className="btn btn-sm btn-secondary" onClick={() => setOwnPw(true)}>
+                {t('platform.changePassword')}
+              </button>
               <button className="btn btn-sm btn-secondary" onClick={async () => {
                 try { await pfetch('POST', '/api/platform/logout'); } catch {}
                 setOperator(null); setPhase('login');
@@ -62,6 +67,11 @@ export default function PlatformConsole() {
             </div>
           )}
         </div>
+
+        {ownPw && (
+          <ChangeOwnPassword username={operator?.username}
+            onClose={() => setOwnPw(false)} />
+        )}
 
         {phase === 'probing'  && <LoadingSpinner />}
         {phase === 'disabled' && (
@@ -138,6 +148,7 @@ function TenantManager({ t }) {
   const [creating, setCreating] = useState(false);
   const [expanded, setExpanded] = useState(null);   // slug whose domains panel is open
   const [resetting, setResetting] = useState(null); // tenant awaiting reset confirmation
+  const [usersFor, setUsersFor]   = useState(null); // slug whose user panel is open
 
   async function reload() {
     try { setTenants(await pfetch('GET', '/api/platform/tenants')); }
@@ -244,6 +255,11 @@ function TenantManager({ t }) {
                       🌐 Domains
                     </button>
                     {' '}
+                    <button className="btn btn-sm btn-secondary"
+                      onClick={() => setUsersFor(usersFor === tn.slug ? null : tn.slug)}>
+                      {t('platform.users')}
+                    </button>
+                    {' '}
                     {tn.status === 'active' ? (
                       <button className="btn btn-sm btn-secondary" style={{ color: '#92400e' }}
                         onClick={() => setStatus(tn, 'suspend')}>⏸ {t('platform.suspend')}</button>
@@ -256,6 +272,13 @@ function TenantManager({ t }) {
                       onClick={() => setResetting(tn)}>{t('platform.factoryReset')}</button>
                   </td>
                 </tr>
+                {usersFor === tn.slug && (
+                  <tr>
+                    <td colSpan={6} style={{ background: 'var(--surface-2)', padding: 0 }}>
+                      <TenantUserAdmin slug={tn.slug} />
+                    </td>
+                  </tr>
+                )}
                 {expanded === tn.slug && (
                   <tr>
                     <td colSpan={6} style={{ background: 'var(--surface-2)', padding: 0 }}>

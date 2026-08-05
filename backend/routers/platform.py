@@ -273,6 +273,27 @@ def fleet_health(admin=Depends(require_platform_admin)):
     return health.overview()
 
 
+class OwnPasswordChange(BaseModel):
+    current_password: str
+    new_password: str
+
+
+@router.post("/me/password")
+def change_own_password(data: OwnPasswordChange,
+                        admin=Depends(require_platform_admin)):
+    """Operator changes their own password.
+
+    The current password is required even though the session is already
+    authenticated: possession of a console tab must not be enough to lock the
+    real operator out of the platform.
+    """
+    try:
+        return tenancy.change_platform_password(
+            admin["username"], data.current_password, data.new_password)
+    except ValueError as e:
+        raise HTTPException(status_code=400, detail=str(e))
+
+
 # ── support inbox ────────────────────────────────────────────────────────────
 # Every tenant's problem reports in one queue. Reports live in the shared
 # public schema precisely so this is a single query rather than a fan-out

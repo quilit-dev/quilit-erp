@@ -602,6 +602,7 @@ const en = {
   },
 
   platform: {
+    changePassword: 'Change password',
     factoryReset: 'Factory reset',
     resetWarn: 'This erases every business record for {{name}}. It cannot be undone.',
     resetLoses: 'Lost: clients, invoices, the ledger, documents, users and the audit trail.',

@@ -662,6 +662,37 @@ def create_platform_admin(username: str, password: str = None, full_name: str = 
     return {"username": username, "password": password}
 
 
+def change_platform_password(username: str, current: str, new: str) -> dict:
+    """Operator changes their OWN password.
+
+    Distinct from create_platform_admin, which upserts and is how the very
+    first operator is seeded: this proves possession of the current password
+    first, so a hijacked console session cannot lock the real operator out.
+    """
+    if not verify_platform_admin(username, current):
+        raise ValueError("Current password is incorrect.")
+    new = (new or "").strip()
+    if len(new) < 10:
+        raise ValueError("New password must be at least 10 characters.")
+    if new == current:
+        raise ValueError("New password must differ from the current one.")
+
+    raw = _connect()
+    try:
+        ensure_platform_admins_catalog(raw)
+        with raw.cursor() as cur:
+            cur.execute("UPDATE public.platform_admins SET password_hash=%s "
+                        "WHERE username=%s RETURNING username",
+                        (hash_password(new), username))
+            row = cur.fetchone()
+            if not row:
+                raise ValueError(f"No such operator: {username!r}")
+        raw.commit()
+    finally:
+        raw.close()
+    return {"username": row["username"], "changed": True}
+
+
 def verify_platform_admin(username: str, password: str):
     raw = _connect()
     try:
