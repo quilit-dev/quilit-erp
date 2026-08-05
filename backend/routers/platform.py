@@ -25,6 +25,7 @@ from pydantic import BaseModel
 import capabilities
 import tenancy
 import support
+import health
 from auth_utils import (
     SECRET_KEY, ALGORITHM, COOKIE_SECURE, TOKEN_EXPIRE_HOURS,
     PLATFORM_COOKIE_NAME, create_platform_token,
@@ -242,6 +243,19 @@ def delete_tenant(slug: str, confirm: str = "",
         return tenancy.delete_tenant(slug)
     except ValueError as e:
         raise HTTPException(status_code=400, detail=str(e))
+
+
+# ── fleet health ─────────────────────────────────────────────────────────────
+
+@router.get("/health")
+def fleet_health(admin=Depends(require_platform_admin)):
+    """Health row per customer, worst first, plus platform-wide totals.
+
+    Every figure is derived from stored data; anything not genuinely knowable
+    (per-tenant backups, storage under S3) is returned as null rather than
+    estimated - see health.py.
+    """
+    return health.overview()
 
 
 # ── support inbox ────────────────────────────────────────────────────────────
