@@ -599,6 +599,9 @@ const ar = {
   },
 
   platform: {
+    navBusinesses: 'الشركات',
+    navHealth: 'الحالة',
+    navInbox: 'صندوق الدعم',
     title: 'إدارة المزوّد',
     subtitle: 'منطقتك الخاصة — إعداد وإدارة أعمال العملاء الذين يستخدمون نظامك',
     cloudOnlyTitle: 'متاح في النسخة السحابية فقط',

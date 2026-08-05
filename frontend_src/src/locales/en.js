@@ -602,6 +602,9 @@ const en = {
   },
 
   platform: {
+    navBusinesses: 'Businesses',
+    navHealth: 'Health',
+    navInbox: 'Support inbox',
     title: 'Vendor Admin',
     subtitle: 'Your private area — set up and manage the client businesses that use your ERP',
     cloudOnlyTitle: 'Cloud deployment only',

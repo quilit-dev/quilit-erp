@@ -8,26 +8,13 @@
 // Operator auth lives on its own cookie (platform_session) — completely
 // separate from tenant sessions.
 import { useEffect, useState, Fragment } from 'react';
+import { pfetch } from './platform/api';
 import ProvisionWizard from './platform/ProvisionWizard';
+import FleetHealth from './platform/FleetHealth';
+import SupportInbox from './platform/SupportInbox';
 import { useLocale } from '../hooks/useLocale';
 import { LoadingSpinner, toast } from '../components/shared';
 
-async function pfetch(method, path, body) {
-  const res = await fetch(path, {
-    method,
-    credentials: 'include',
-    headers: { 'Content-Type': 'application/json' },
-    body: body !== undefined ? JSON.stringify(body) : undefined,
-  });
-  if (!res.ok) {
-    let detail = `HTTP ${res.status}`;
-    try { detail = (await res.json()).detail || detail; } catch {}
-    const err = new Error(detail);
-    err.status = res.status;
-    throw err;
-  }
-  return res.json();
-}
 
 const PLANS = ['standard', 'pro'];
 
@@ -36,6 +23,7 @@ export default function PlatformConsole() {
   // phase: probing → disabled | login | console
   const [phase, setPhase]       = useState('probing');
   const [operator, setOperator] = useState(null);
+  const [section, setSection]   = useState('businesses');
 
   useEffect(() => {
     (async () => {
@@ -56,7 +44,7 @@ export default function PlatformConsole() {
 
   return (
     <div style={{ minHeight: '100vh', background: 'var(--bg)', padding: '32px 16px' }}>
-      <div style={{ maxWidth: 860, margin: '0 auto' }}>
+      <div style={{ maxWidth: 1180, margin: '0 auto' }}>
         <div style={{ display: 'flex', alignItems: 'baseline', justifyContent: 'space-between', marginBottom: 18 }}>
           <div>
             <h1 style={{ margin: 0, fontSize: 22 }}>{t('platform.title')}</h1>
@@ -81,7 +69,25 @@ export default function PlatformConsole() {
           </div>
         )}
         {phase === 'login'   && <OperatorLogin onSuccess={(op) => { setOperator(op); setPhase('console'); }} />}
-        {phase === 'console' && <TenantManager t={t} />}
+        {phase === 'console' && (
+          <>
+            {/* Section nav — the console is an operations centre, not a
+                single screen: provisioning, fleet health and the support
+                queue are distinct jobs. */}
+            <div className="tabs" style={{ flexWrap: 'wrap', marginBottom: 16 }}>
+              {[['businesses', t('platform.navBusinesses')],
+                ['health',     t('platform.navHealth')],
+                ['inbox',      t('platform.navInbox')]].map(([key, label]) => (
+                <button key={key}
+                  className={`tab-btn${section === key ? ' active' : ''}`}
+                  onClick={() => setSection(key)}>{label}</button>
+              ))}
+            </div>
+            {section === 'businesses' && <TenantManager t={t} />}
+            {section === 'health'     && <FleetHealth />}
+            {section === 'inbox'      && <SupportInbox />}
+          </>
+        )}
       </div>
     </div>
   );
