@@ -87,10 +87,20 @@ export default function SendDocument({ entityType, doc, onClose }) {
 
         <div className="modal-body" style={{ maxHeight: '68vh', overflowY: 'auto' }}>
           <div className="tabs" style={{ marginBottom: 14 }}>
+            {/* Never disabled. Disabling it left an unclickable tab with no
+                explanation, and it made the "why" panel below unreachable — so
+                the reason email was unavailable could not be discovered from the
+                UI at all. The tab is browsable; the Send button is what stays
+                disabled. */}
             <button className={`tab-btn${channel === 'email' ? ' active' : ''}`}
-              onClick={() => setChannel('email')} disabled={!emailReady}
+              onClick={() => setChannel('email')}
               title={emailReady ? '' : t('comms.emailNotConfigured')}>
               {t('comms.email')}
+              {!emailReady && (
+                <span style={{ marginInlineStart: 5, fontSize: 10, opacity: 0.75 }}>
+                  ({t('comms.unavailable')})
+                </span>
+              )}
             </button>
             <button className={`tab-btn${channel === 'whatsapp' ? ' active' : ''}`}
               onClick={() => setChannel('whatsapp')}>
@@ -102,7 +112,10 @@ export default function SendDocument({ entityType, doc, onClose }) {
             <div style={{ background: 'var(--yellow-light)', color: 'var(--yellow)',
                           border: '1px solid var(--yellow)', borderRadius: 'var(--r-sm)',
                           padding: '9px 11px', fontSize: 12.5, marginBottom: 12 }}>
-              {t('comms.emailNotConfigured')}
+              <div style={{ fontWeight: 600, marginBottom: 3 }}>
+                {t('comms.emailNotConfigured')}
+              </div>
+              <div style={{ opacity: 0.9 }}>{t('comms.emailSetupHint')}</div>
             </div>
           )}
 

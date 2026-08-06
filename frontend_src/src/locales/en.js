@@ -624,6 +624,8 @@ const en = {
   },
 
   comms: {
+    unavailable: 'unavailable',
+    emailSetupHint: 'Ask your administrator to set RESEND_API_KEY and MAIL_FROM on the server. WhatsApp works without any setup.',
     pdfInArabic: 'PDF in Arabic',
     pdfInEnglish: 'PDF in English',
     quickWhatsappShort: 'Send by WhatsApp',

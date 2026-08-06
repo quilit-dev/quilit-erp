@@ -621,6 +621,8 @@ const ar = {
   },
 
   comms: {
+    unavailable: 'غير متاح',
+    emailSetupHint: 'اطلب من المسؤول ضبط RESEND_API_KEY و MAIL_FROM على الخادم. واتساب يعمل دون أي إعداد.',
     pdfInArabic: 'PDF بالعربية',
     pdfInEnglish: 'PDF بالإنجليزية',
     quickWhatsappShort: 'إرسال عبر واتساب',
