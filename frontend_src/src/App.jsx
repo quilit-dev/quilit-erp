@@ -15,6 +15,8 @@ import { logout, getSetupStatus } from './api/client';
 const Login               = lazy(() => import('./pages/Login'));
 const PlatformConsole     = lazy(() => import('./pages/PlatformConsole'));
 const Setup               = lazy(() => import('./pages/Setup'));
+// Client-facing document view. Public by design: the recipient is not a user.
+const PublicDocument      = lazy(() => import('./pages/PublicDocument'));
 const ForceChangePassword = lazy(() => import('./pages/ForceChangePassword'));
 const Dashboard      = lazy(() => import('./pages/Dashboard'));
 const Clients        = lazy(() => import('./pages/Clients'));
@@ -283,6 +285,7 @@ export default function App() {
           <Routes>
             <Route path="/setup"                  element={<Page><Setup /></Page>} />
             <Route path="/login"                  element={<Page><Login /></Page>} />
+            <Route path="/d/:token"               element={<Page><PublicDocument /></Page>} />
             <Route path="/vendor-admin"           element={<Page><PlatformConsole /></Page>} />
             <Route path="/platform"               element={<Page><PlatformConsole /></Page>} />{/* legacy alias */}
             <Route path="/force-change-password"  element={<RequireAuth><Page><ForceChangePassword /></Page></RequireAuth>} />

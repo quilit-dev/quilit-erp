@@ -1,0 +1,323 @@
+"""
+Send invoices and quotations to clients, and record what was sent.
+
+Two audiences, two auth models, deliberately in one file so the shape of the
+public payload sits next to the code that issues the token for it:
+
+  * `/api/communications/*` — staff, behind require_perm.
+  * `/api/communications/public/{token}` — the CLIENT, unauthenticated. This is
+    the only route in the app that returns business data without a session, so
+    it is written to be boring: one document, read-only, no listing, no
+    neighbouring records, and a 404 for anything it cannot prove.
+"""
+import sqlite3
+from datetime import datetime, timedelta
+
+from fastapi import APIRouter, Depends, HTTPException, Request
+from pydantic import BaseModel
+from typing import Optional
+
+import communications as comms
+from database import get_db
+from permissions import require_perm
+from utils import _now
+
+router = APIRouter()
+
+
+class SendRequest(BaseModel):
+    entity_type: str                      # 'invoice' | 'quotation'
+    entity_id: int
+    channel: str                          # 'email' | 'whatsapp'
+    to: Optional[str] = None              # email address / phone (E.164 digits)
+    note: Optional[str] = None            # optional line from the sender
+
+
+# ── document loading ─────────────────────────────────────────────────────────
+
+_DOC = {
+    "invoice": {
+        "table": "invoices", "number": "invoice_number", "label": "Invoice",
+        "items": "invoice_items", "fk": "invoice_id", "module": "invoices",
+    },
+    "quotation": {
+        "table": "quotations", "number": "quote_number", "label": "Quotation",
+        "items": "quotation_items", "fk": "quotation_id", "module": "quotations",
+    },
+}
+
+
+def _cfg(entity_type: str) -> dict:
+    cfg = _DOC.get(entity_type)
+    if not cfg:
+        raise HTTPException(400, "Unsupported document type.")
+    return cfg
+
+
+def _load_document(db, entity_type: str, entity_id: int) -> dict:
+    """Read one document plus its client and lines.
+
+    Table and column names come from the _DOC registry, never from the request,
+    so the interpolation below cannot be steered by a caller.
+    """
+    cfg = _cfg(entity_type)
+    row = db.execute(
+        f"""SELECT d.*, d.{cfg['number']} AS doc_number,
+                   c.name AS client_name, c.email AS client_email,
+                   c.phone AS client_phone
+            FROM {cfg['table']} d
+            LEFT JOIN clients c ON d.client_id = c.id
+            WHERE d.id = ?""", (entity_id,)).fetchone()
+    if not row:
+        raise HTTPException(404, f"{cfg['label']} not found.")
+    doc = dict(row)
+    try:
+        items = db.execute(
+            f"SELECT name, quantity, unit_price FROM {cfg['items']} "
+            f"WHERE {cfg['fk']} = ? ORDER BY id", (entity_id,)).fetchall()
+        doc["items"] = [dict(i) for i in items]
+    except sqlite3.Error:
+        doc["items"] = []
+    return doc
+
+
+def _company(db) -> dict:
+    """Company identity for the document header. This is the one place the
+    tenant's own name is still shown to an outsider — it is their invoice, not
+    Quilit's."""
+    out = {"name": "", "address": "", "phone": "", "email": "", "currency": "USD"}
+    try:
+        rows = db.execute(
+            "SELECT key, value FROM settings WHERE key IN "
+            "('company_name','company_address','company_phone','company_email','currency')"
+        ).fetchall()
+        m = {r["key"]: r["value"] for r in rows}
+        out.update({
+            "name": m.get("company_name") or "",
+            "address": m.get("company_address") or "",
+            "phone": m.get("company_phone") or "",
+            "email": m.get("company_email") or "",
+            "currency": m.get("currency") or "USD",
+        })
+    except sqlite3.Error:
+        pass
+    return out
+
+
+def _money(amount, currency: str) -> str:
+    try:
+        return f"{currency} {float(amount or 0):,.2f}"
+    except (TypeError, ValueError):
+        return f"{currency} 0.00"
+
+
+# ── share links ──────────────────────────────────────────────────────────────
+
+def _share_url(request: Request, token: str) -> str:
+    """Build the client-facing URL on the SAME host the request arrived on.
+
+    That is what makes per-tenant tokens safe: the link is on the customer's own
+    domain, so tenant resolution happens from the host and a token cannot be
+    replayed against another workspace.
+    """
+    base = str(request.base_url).rstrip("/")
+    return f"{base}/d/{token}"
+
+
+def _issue_share(db, entity_type: str, entity_id: int, user_id) -> tuple:
+    """Create a fresh capability token. Returns (share_id, plaintext token).
+
+    A new token per send, rather than one reusable link per document: sending
+    again after a correction should not silently reuse a link the client may
+    have forwarded, and revoking one send must not break another.
+    """
+    token = comms.new_token()
+    expires = (datetime.utcnow() + timedelta(days=comms.SHARE_TTL_DAYS)
+               ).strftime("%Y-%m-%d %H:%M:%S") if comms.SHARE_TTL_DAYS > 0 else None
+    cur = db.execute(
+        "INSERT INTO document_shares (entity_type, entity_id, token_hash, "
+        "expires_at, created_by, created_at) VALUES (?,?,?,?,?,?)",
+        (entity_type, entity_id, comms.hash_token(token), expires, user_id, _now()))
+    db.commit()
+    return cur.lastrowid, token
+
+
+def _log(db, *, channel, entity_type, entity_id, recipient, subject,
+         status, error=None, share_id=None, user_id=None) -> int:
+    cur = db.execute(
+        "INSERT INTO communications_log (channel, entity_type, entity_id, "
+        "recipient, subject, status, error, share_id, sent_by, sent_at) "
+        "VALUES (?,?,?,?,?,?,?,?,?,?)",
+        (channel, entity_type, entity_id, recipient, subject, status, error,
+         share_id, user_id, _now()))
+    db.commit()
+    return cur.lastrowid
+
+
+# ── staff endpoints ──────────────────────────────────────────────────────────
+
+@router.get("/status")
+def status(user=Depends(require_perm("communications", "view"))):
+    """Whether email can actually be sent, so the UI can disable the option and
+    say why instead of failing at the moment of sending."""
+    return {"email": comms.email_status(), "whatsapp": {"enabled": True,
+            "mode": "deep_link"}}
+
+
+@router.post("/send")
+def send(data: SendRequest, request: Request,
+         user=Depends(require_perm("communications", "create")),
+         db: sqlite3.Connection = Depends(get_db)):
+    """Issue a link for one document and either email it or return a wa.me URL.
+
+    WhatsApp does not send from the server in phase 1: the response carries a
+    deep link the browser opens, so the message leaves the user's own WhatsApp
+    account. The log records that as 'opened', not 'sent' — the server never
+    observes delivery and must not claim it did.
+    """
+    cfg = _cfg(data.entity_type)
+    if data.channel not in ("email", "whatsapp"):
+        raise HTTPException(400, "Channel must be 'email' or 'whatsapp'.")
+
+    doc = _load_document(db, data.entity_type, data.entity_id)
+    company = _company(db)
+    total = _money(doc.get("amount"), company["currency"])
+    user_id = int(user["sub"])
+
+    share_id, token = _issue_share(db, data.entity_type, data.entity_id, user_id)
+    url = _share_url(request, token)
+
+    common = dict(company=company["name"] or "Your supplier",
+                  doc_label=cfg["label"], doc_number=doc.get("doc_number") or "",
+                  client_name=doc.get("client_name") or "Customer",
+                  total=total, url=url, note=(data.note or "").strip() or None)
+
+    if data.channel == "whatsapp":
+        phone = "".join(ch for ch in (data.to or doc.get("client_phone") or "")
+                        if ch.isdigit())
+        if not phone:
+            raise HTTPException(400, "No phone number for this client.")
+        text = comms.whatsapp_text(**common)
+        _log(db, channel="whatsapp", entity_type=data.entity_type,
+             entity_id=data.entity_id, recipient=phone,
+             subject=f"{cfg['label']} {common['doc_number']}",
+             status="opened", share_id=share_id, user_id=user_id)
+        from urllib.parse import quote
+        return {"channel": "whatsapp", "url": url,
+                "whatsapp_url": f"https://wa.me/{phone}?text={quote(text)}"}
+
+    to = (data.to or doc.get("client_email") or "").strip()
+    if not to:
+        raise HTTPException(400, "No email address for this client.")
+    subject = f"{cfg['label']} {common['doc_number']} from {common['company']}"
+    try:
+        comms.send_email(to=to, subject=subject,
+                         html=comms.document_email_html(**common),
+                         reply_to=company["email"] or None,
+                         from_name=company["name"] or None)
+    except RuntimeError as e:
+        # Logged as failed, then surfaced. A send that vanishes without a trace
+        # is the failure mode this log exists to prevent.
+        _log(db, channel="email", entity_type=data.entity_type,
+             entity_id=data.entity_id, recipient=to, subject=subject,
+             status="failed", error=str(e)[:500], share_id=share_id,
+             user_id=user_id)
+        raise HTTPException(502, str(e))
+
+    _log(db, channel="email", entity_type=data.entity_type,
+         entity_id=data.entity_id, recipient=to, subject=subject,
+         status="sent", share_id=share_id, user_id=user_id)
+    return {"channel": "email", "to": to, "url": url}
+
+
+@router.get("/log")
+def log(entity_type: str, entity_id: int,
+        user=Depends(require_perm("communications", "view")),
+        db: sqlite3.Connection = Depends(get_db)):
+    """Everything ever sent for one document — the answer to 'did they get it?'."""
+    _cfg(entity_type)
+    rows = db.execute(
+        """SELECT l.*, u.username AS sent_by_name,
+                  s.view_count, s.last_seen_at, s.revoked_at, s.expires_at
+           FROM communications_log l
+           LEFT JOIN users u ON l.sent_by = u.id
+           LEFT JOIN document_shares s ON l.share_id = s.id
+           WHERE l.entity_type = ? AND l.entity_id = ?
+           ORDER BY l.sent_at DESC, l.id DESC""",
+        (entity_type, entity_id)).fetchall()
+    return [dict(r) for r in rows]
+
+
+@router.post("/shares/{share_id}/revoke")
+def revoke(share_id: int,
+           user=Depends(require_perm("communications", "edit")),
+           db: sqlite3.Connection = Depends(get_db)):
+    """Kill a link that was sent to the wrong person. Irreversible by design —
+    issue a new one rather than un-revoking."""
+    row = db.execute("SELECT id FROM document_shares WHERE id=?",
+                     (share_id,)).fetchone()
+    if not row:
+        raise HTTPException(404, "Link not found.")
+    db.execute("UPDATE document_shares SET revoked_at=? WHERE id=? "
+               "AND revoked_at IS NULL", (_now(), share_id))
+    db.commit()
+    return {"revoked": True}
+
+
+# ── the client-facing endpoint (no auth) ─────────────────────────────────────
+
+@router.get("/public/{token}")
+def public_document(token: str, db: sqlite3.Connection = Depends(get_db)):
+    """Return exactly one document to whoever holds a valid token.
+
+    Every rejection is a flat 404 with the same body: distinguishing "expired"
+    from "revoked" from "never existed" would confirm to a prober that a token
+    was once real. The lookup is by HASH, so the stored value is not a usable
+    credential.
+    """
+    NOT_FOUND = HTTPException(404, "This link is no longer available.")
+    if not token or len(token) < 20:
+        raise NOT_FOUND
+
+    share = db.execute(
+        "SELECT * FROM document_shares WHERE token_hash = ?",
+        (comms.hash_token(token),)).fetchone()
+    if not share:
+        raise NOT_FOUND
+    share = dict(share)
+    if share.get("revoked_at"):
+        raise NOT_FOUND
+    if share.get("expires_at") and share["expires_at"] < _now():
+        raise NOT_FOUND
+
+    cfg = _cfg(share["entity_type"])
+    doc = _load_document(db, share["entity_type"], share["entity_id"])
+    company = _company(db)
+
+    # Record the open. Best-effort: a failed counter update must not stop the
+    # client seeing their invoice.
+    try:
+        db.execute("UPDATE document_shares SET view_count = view_count + 1, "
+                   "last_seen_at = ? WHERE id = ?", (_now(), share["id"]))
+        db.commit()
+    except sqlite3.Error:
+        pass
+
+    # An explicit allow-list, not `dict(doc)`. A SELECT * that later gains an
+    # internal column (a margin, a cost, an private note) must not start
+    # leaking it to the public — so the payload is enumerated by hand.
+    return {
+        "type": share["entity_type"],
+        "label": cfg["label"],
+        "number": doc.get("doc_number"),
+        "issued_at": (doc.get("created_at") or "")[:10],
+        "due_date": doc.get("due_date"),
+        "currency": company["currency"],
+        "amount": doc.get("amount") or 0,
+        "notes": doc.get("notes"),
+        "client": {"name": doc.get("client_name")},
+        "company": {"name": company["name"], "address": company["address"],
+                    "phone": company["phone"], "email": company["email"]},
+        "items": [{"name": i.get("name"), "quantity": i.get("quantity"),
+                   "unit_price": i.get("unit_price")} for i in doc["items"]],
+    }

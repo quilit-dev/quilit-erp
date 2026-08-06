@@ -59,6 +59,11 @@ _REQUIRES = {
     "recruitment":   {"hr"},
     "hr_contracts":  {"hr"},
     "hr_activities": {"hr"},
+    # Communications sends documents TO a client, so it needs the client
+    # record. It does NOT require invoices or quotations: a tenant licensed for
+    # only one of them should still be able to send that one, and requiring
+    # both would force an upsell the customer did not ask for.
+    "communications": {"clients"},
     # `reports` deliberately requires nothing: it renders whatever the tenant
     # is licensed for, so it must never be the reason another module is pulled
     # in (nor be blocked itself).

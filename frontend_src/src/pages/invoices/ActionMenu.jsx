@@ -1,16 +1,8 @@
 // Per-row action dropdown (edit / pay / export / WhatsApp / void).
 import { useState, useRef, useEffect } from 'react';
 import { useLocale } from '../../hooks/useLocale.jsx';
-import { WhatsAppShareButton, Icon } from '../../components/shared';
-
-// Pre-built WhatsApp message for an invoice — bilingual short form so the
-// client immediately sees what they're being sent before opening the file.
-function _waMessage(inv) {
-  const who = inv.client_name ? `, ${inv.client_name}` : '';
-  const total = `$${Number(inv.amount || 0).toFixed(2)}`;
-  const due   = inv.due_date ? ` due ${inv.due_date}` : '';
-  return `Hello${who}, here is invoice ${inv.invoice_number} for ${total}${due}. Thank you!`;
-}
+import { Icon } from '../../components/shared';
+import { SendDocumentButton } from '../../components/SendDocument';
 
 // ── Per-row action dropdown ───────────────────────────────────────────────
 function ActionMenu({ inv, exporting, onEdit, onPay, onExport, onVoid, onUnvoid }) {
@@ -40,9 +32,7 @@ function ActionMenu({ inv, exporting, onEdit, onPay, onExport, onVoid, onUnvoid 
 
   return (
     <div style={{ display: 'flex', gap: 5, alignItems: 'center', justifyContent: 'flex-end' }}>
-      {!isVoided && (
-        <WhatsAppShareButton phone={inv.client_phone} message={_waMessage(inv)} />
-      )}
+      {!isVoided && <SendDocumentButton entityType="invoice" doc={inv} />}
       {isVoided ? (
         <span style={{ fontSize: 11, color: 'var(--text-3)', fontStyle: 'italic' }}>{t('invoices.voidedLabel')}</span>
       ) : !isPaid ? (

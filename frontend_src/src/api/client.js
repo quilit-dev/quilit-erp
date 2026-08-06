@@ -710,3 +710,14 @@ export const cancelStockTransfer      = (id, reason)   => api.post(`/api/warehou
 
 // Support — file a problem report to the vendor's Control Center inbox.
 export const reportProblem = (body) => api.post('/api/support/report', body);
+
+// Communications — send an invoice or quotation to the client, and read back
+// what was sent. The share link is minted server-side per send; the browser
+// never constructs one.
+export const commsStatus   = () => api.get('/api/communications/status');
+export const commsSend     = (body) => api.post('/api/communications/send', body);
+export const commsLog      = (entity_type, entity_id) =>
+  api.get(`/api/communications/log?entity_type=${encodeURIComponent(entity_type)}`
+          + `&entity_id=${encodeURIComponent(entity_id)}`);
+export const commsRevoke   = (shareId) =>
+  api.post(`/api/communications/shares/${shareId}/revoke`);

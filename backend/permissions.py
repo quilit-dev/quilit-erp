@@ -16,6 +16,11 @@ MODULES = [
     'hr', 'hr_contracts', 'recruitment', 'hr_activities',
     'pos', 'cash',
     'manufacturing', 'assets',
+    # Client communications — emailing / WhatsApp-ing invoices and quotations,
+    # plus the sent-log. Its own module so it can be licensed and priced
+    # separately, and so a role can be allowed to view what was sent without
+    # being allowed to send.
+    'communications',
     # Internal comms — uses require_perm("announcements") in its router and
     # appears in the Roles UI; declaring it here keeps the RBAC catalog
     # honest (and matches what role_permissions actually stores).

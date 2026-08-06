@@ -11,8 +11,9 @@ import {
 import {
   LoadingSpinner, ErrorAlert, EmptyState, Modal, ConfirmModal,
   Badge, ExportButton, fmt, fmtDate, toast, SortableTh, Pagination,
-  DualMoney, ExchangeRateBadge, DisplayCurrencyToggle, WhatsAppShareButton, NumberInput, BranchField,
+  DualMoney, ExchangeRateBadge, DisplayCurrencyToggle, NumberInput, BranchField,
   Icon} from '../components/shared';
+import { SendDocumentButton } from '../components/SendDocument';
 import { exportQuotationPDF, exportQuotationExcel } from '../utils/exportUtils';
 import { useLocale } from '../hooks/useLocale.jsx';
 import { usePermissions } from '../hooks/usePermissions';
@@ -462,10 +463,7 @@ export default function Quotations() {
                           {isVoided ? (
                             <span style={{ fontSize: 11, color: 'var(--text-3)', fontStyle: 'italic' }}>{t('invoices.voidedLabel')}</span>
                           ) : (
-                            <WhatsAppShareButton
-                              phone={q.client_phone || q.lead_phone}
-                              message={`Hello${(q.client_name || q.lead_name) ? `, ${q.client_name || q.lead_name}` : ''}, please find our quotation ${q.quote_number} for ${fmt(q.total_with_tax ?? q.total)}. Looking forward to your feedback.`}
-                            />
+                            <SendDocumentButton entityType="quotation" doc={q} />
                           )}
                           {q.invoice_count === 0 && !isVoided && (
                             <button

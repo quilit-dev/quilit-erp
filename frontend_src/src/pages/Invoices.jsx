@@ -9,7 +9,7 @@ import {
 import {
   LoadingSpinner, ErrorAlert, EmptyState, Modal, ConfirmModal,
   Badge, ExportButton, fmt, fmtDate, toast, SortableTh, Pagination,
-  DualMoney, ExchangeRateBadge, DisplayCurrencyToggle, WhatsAppShareButton, NumberInput, BranchField} from '../components/shared';
+  DualMoney, ExchangeRateBadge, DisplayCurrencyToggle, NumberInput, BranchField} from '../components/shared';
 import { exportInvoicePDF, exportInvoiceExcel } from '../utils/exportUtils';
 import InventoryCombobox from '../components/InventoryCombobox';
 import { useLocale } from '../hooks/useLocale.jsx';

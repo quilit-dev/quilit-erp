@@ -15,6 +15,7 @@ from fastapi.middleware.cors import CORSMiddleware
 import os
 
 from routers import clients, projects, quotations, inventory, invoices, finance, dashboard, auth
+from routers import communications as communications_router
 from routers import purchases, settings, documents, suppliers, audit, users, roles, search
 from routers import reports, crm, planning, notifications
 from routers import approval_policies, approval_requests, hr, hr_contracts, recruitment, hr_activities, tax_rates, pos, cash, manufacturing
@@ -226,6 +227,7 @@ app.include_router(support_router.router, prefix="/api/support",  tags=["support
 app.include_router(products.router,           prefix="/api/products",           tags=["products"])
 app.include_router(categories_router.router,  prefix="/api/categories",         tags=["categories"])
 app.include_router(promotions.router,         prefix="/api/promotions",         tags=["promotions"])
+app.include_router(communications_router.router, prefix="/api/communications", tags=["communications"])
 
 @app.get("/api/health")
 def health():
