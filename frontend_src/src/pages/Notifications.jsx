@@ -6,6 +6,7 @@ import {
 } from '../api/client';
 import { LoadingSpinner, EmptyState } from '../components/shared.jsx';
 import { useLocale } from '../hooks/useLocale.jsx';
+import { isInternalPath } from '../utils/safeNav';
 
 // ── Type config (same palette as NotificationBell) ───────────────────────────
 //
@@ -164,7 +165,8 @@ export default function Notifications() {
       setNotifs(prev => prev.map(x => x.id === n.id ? { ...x, is_read: 1 } : x));
       setUnread(prev => Math.max(0, prev - 1));
     }
-    if (n.link) navigate(n.link);
+    // Stored data → validated as an in-app path first (utils/safeNav.js).
+    if (isInternalPath(n.link)) navigate(n.link);
   }
 
   async function handleDelete(n, e) {

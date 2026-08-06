@@ -54,7 +54,7 @@ jobs:
       - name: Install dependencies
         run: |
           python -m pip install --upgrade pip
-          pip install -r backend/requirements.txt -r backend/requirements-cloud.txt
+          pip install -r backend/requirements.txt -r backend/requirements-cloud.txt -c backend/constraints.txt
           # httpx backs FastAPI's TestClient; pytest is the runner.
           pip install pytest httpx moto fakeredis
 
@@ -101,9 +101,47 @@ jobs:
       - name: Install dependencies
         run: |
           python -m pip install --upgrade pip
-          pip install -r backend/requirements.txt -r backend/requirements-cloud.txt
+          pip install -r backend/requirements.txt -r backend/requirements-cloud.txt -c backend/constraints.txt
           pip install pytest httpx moto fakeredis
 
       - name: Run schema-per-tenant isolation + lifecycle tests
         working-directory: backend
-        run: python -m pytest tests/test_multitenancy.py tests/test_platform.py -q -p no:cacheprovider
+        run: |
+          python -m pytest tests/test_multitenancy.py tests/test_platform.py \
+                           tests/test_tenant_security.py -q -p no:cacheprovider
+
+  # The frontend gate. esbuild does no scope analysis, so a missing import
+  # builds fine and white-screens at runtime; lint is the only thing that
+  # catches it. Kept as its own job so a frontend break is legible without
+  # reading a backend log.
+  frontend:
+    name: frontend (lint + tests + build)
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Set up Node
+        uses: actions/setup-node@v4
+        with:
+          node-version: '20'
+          cache: npm
+          cache-dependency-path: frontend_src/package-lock.json
+
+      - name: Install dependencies
+        working-directory: frontend_src
+        run: npm ci
+
+      - name: Lint (no-undef / jsx-no-undef / rules-of-hooks)
+        working-directory: frontend_src
+        run: npx eslint src --max-warnings 0
+
+      - name: Tests
+        working-directory: frontend_src
+        run: npm test
+
+      - name: Build
+        working-directory: frontend_src
+        run: npm run build

@@ -28,7 +28,23 @@ from routers import categories as categories_router, promotions
 from logging_setup import configure_logging, RequestContextMiddleware
 configure_logging()
 
-app = FastAPI(title="ERP System", version="2.0.0")
+# Interactive API docs are a development tool. On a multi-tenant deployment they
+# publish the complete API surface — every endpoint, every field name — to
+# anyone who asks, unauthenticated. That does not grant access (the endpoints
+# still require auth) but it hands an attacker a finished map, so the cloud
+# deployment turns them off.
+#
+# The switch is on TENANCY rather than a new variable: schema mode IS the hosted
+# multi-tenant product, and the self-hosted/desktop build keeps the docs it has
+# always had. API_DOCS=on forces them back for debugging a cloud instance.
+_DOCS = (os.environ.get("API_DOCS", "").strip().lower() in ("1", "on", "true")
+         or os.environ.get("TENANCY", "single").strip().lower()
+         not in ("schema", "multi", "tenant"))
+
+app = FastAPI(title="ERP System", version="2.0.0",
+              docs_url="/docs" if _DOCS else None,
+              redoc_url="/redoc" if _DOCS else None,
+              openapi_url="/openapi.json" if _DOCS else None)
 
 # Turn known bad-input failures (bad FKs, absurd amounts) into clean 4xx
 # instead of 500s — see error_handlers.py.

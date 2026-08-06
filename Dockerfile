@@ -29,8 +29,14 @@ ENV PYTHONUNBUFFERED=1 \
 WORKDIR /app
 RUN apt-get update && apt-get install -y --no-install-recommends curl \
     && rm -rf /var/lib/apt/lists/*
-COPY backend/requirements.txt backend/requirements-cloud.txt ./
-RUN pip install -r requirements.txt -r requirements-cloud.txt
+COPY backend/requirements.txt backend/requirements-cloud.txt backend/constraints.txt ./
+# -c constraints.txt pins the whole transitive tree. The requirements files
+# carry deliberate >= security floors and stay readable; the constraints file
+# is the lockfile that makes a rebuild reproducible. Without it, two builds of
+# the same commit can ship different dependency versions — so "it passed CI"
+# says nothing about what is actually running, and a bad upstream release
+# reaches production on the next unrelated deploy.
+RUN pip install -r requirements.txt -r requirements-cloud.txt -c constraints.txt
 COPY backend/ ./backend/
 # Bundle the built SPA so this single service can serve it (main.py serves
 # STATIC_DIR=../static when present). In the compose stack Caddy fronts it; here

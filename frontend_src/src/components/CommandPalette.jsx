@@ -20,6 +20,7 @@ import { searchAll } from '../api/client';
 import { useLocale } from '../hooks/useLocale.jsx';
 import { usePermissions } from '../hooks/usePermissions.js';
 import { useScrollLock } from '../hooks/useScrollLock';
+import { safePath } from '../utils/safeNav';
 
 // Emoji-only — same set across themes so the palette renders identically in
 // light/dark and in both Latin and Arabic numerals.
@@ -321,7 +322,8 @@ export default function CommandPalette({ open, onClose }) {
     if (!item || !item.url) return;
     pushRecent(item);
     setRecents(loadRecents());
-    navigate(item.url);
+    // Result urls come from stored/search data — validate before navigating.
+    navigate(safePath(item.url));
     onClose();
   }, [navigate, onClose]);
 

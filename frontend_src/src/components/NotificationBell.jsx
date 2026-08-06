@@ -6,6 +6,7 @@ import {
 } from '../api/client';
 import { useLocale } from '../hooks/useLocale.jsx';
 import { useScrollLock } from '../hooks/useScrollLock';
+import { isInternalPath } from '../utils/safeNav';
 
 const POLL_MS = 30_000;
 
@@ -171,7 +172,9 @@ export default function NotificationBell() {
       setNotifs(prev => prev.map(n => n.id === notif.id ? { ...n, is_read: 1 } : n));
       setUnread(prev => Math.max(0, prev - 1));
     }
-    if (notif.link) { navigate(notif.link); setOpen(false); }
+    // The link is stored data, so it is validated as an in-app path before it
+    // becomes a navigation target — see utils/safeNav.js.
+    if (isInternalPath(notif.link)) { navigate(notif.link); setOpen(false); }
   }
 
   async function handleDelete(notif, e) {
