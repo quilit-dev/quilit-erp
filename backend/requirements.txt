@@ -19,3 +19,14 @@ idna>=3.15
 # (tenancy.verify_tenant_domain). Only used on the multi-tenant cloud deployment;
 # its absence degrades gracefully to "cannot verify yet".
 dnspython>=2.6.0
+
+# Server-side PDF for invoices/quotations (pdf_render.py). Pure Python by
+# deliberate choice: WeasyPrint would render HTML/CSS but needs pango/cairo
+# system libraries, which cannot be installed or tested on a plain developer
+# machine — and PDF code that cannot be tested locally gets shipped unverified.
+fpdf2>=2.8.0
+# Arabic needs contextual shaping + bidi reordering applied BEFORE the glyphs
+# reach the page, or an Arabic invoice renders as disconnected letters running
+# the wrong way. Both are pure Python.
+arabic-reshaper>=3.0.0
+python-bidi>=0.4.2

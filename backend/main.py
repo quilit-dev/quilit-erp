@@ -16,6 +16,7 @@ import os
 
 from routers import clients, projects, quotations, inventory, invoices, finance, dashboard, auth
 from routers import communications as communications_router
+from routers import pdf as pdf_router
 from routers import purchases, settings, documents, suppliers, audit, users, roles, search
 from routers import reports, crm, planning, notifications
 from routers import approval_policies, approval_requests, hr, hr_contracts, recruitment, hr_activities, tax_rates, pos, cash, manufacturing
@@ -228,6 +229,7 @@ app.include_router(products.router,           prefix="/api/products",           
 app.include_router(categories_router.router,  prefix="/api/categories",         tags=["categories"])
 app.include_router(promotions.router,         prefix="/api/promotions",         tags=["promotions"])
 app.include_router(communications_router.router, prefix="/api/communications", tags=["communications"])
+app.include_router(pdf_router.router, prefix="/api/pdf", tags=["pdf"])
 
 @app.get("/api/health")
 def health():
