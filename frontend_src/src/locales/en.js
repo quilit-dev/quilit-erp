@@ -106,6 +106,8 @@ const en = {
   },
 
   common: {
+    noData: 'No data',
+    sending: 'Sending…',
     loading: 'Loading…',
     nothingHere: 'Nothing here yet',
     noDataFound: 'No data found.',
@@ -618,6 +620,8 @@ const en = {
   },
 
   platform: {
+    users: 'Users',
+    domains: 'Domains',
     changePassword: 'Change password',
     factoryReset: 'Factory reset',
     resetWarn: 'This erases every business record for {{name}}. It cannot be undone.',
@@ -1282,6 +1286,9 @@ const en = {
   },
 
   pos: {
+    lineDiscount: 'Disc',
+    noItems: 'No items',
+    receiptNumber: 'Receipt',
     title: 'Point of Sale',
     register: 'Register',
     sessions: 'Sessions',
@@ -2365,6 +2372,8 @@ const en = {
   },
 
   reports: {
+    clientRevenue: 'Client Revenue',
+    expenseAnalysis: 'Expense Analysis',
     title: 'Reports',
     subtitle: 'Business intelligence & analytics',
     exportExcel: 'Export Excel',

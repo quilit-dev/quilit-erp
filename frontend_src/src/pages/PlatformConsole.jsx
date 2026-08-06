@@ -252,7 +252,7 @@ function TenantManager({ t }) {
                   <td style={{ textAlign: 'end', whiteSpace: 'nowrap' }}>
                     <button className="btn btn-sm btn-secondary"
                       onClick={() => setExpanded(expanded === tn.slug ? null : tn.slug)}>
-                      🌐 Domains
+                      🌐 {t('platform.domains')}
                     </button>
                     {' '}
                     <button className="btn btn-sm btn-secondary"

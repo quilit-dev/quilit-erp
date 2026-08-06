@@ -106,6 +106,8 @@ const ar = {
   },
 
   common: {
+    noData: 'لا توجد بيانات',
+    sending: 'جارٍ الإرسال…',
     loading: 'جار التحميل…',
     nothingHere: 'لا يوجد شيء هنا بعد',
     noDataFound: 'لم يتم العثور على بيانات.',
@@ -615,6 +617,8 @@ const ar = {
   },
 
   platform: {
+    users: 'المستخدمون',
+    domains: 'النطاقات',
     changePassword: 'تغيير كلمة المرور',
     factoryReset: 'إعادة ضبط المصنع',
     resetWarn: 'سيؤدي هذا إلى محو كل سجلات الأعمال لـ {{name}}. لا يمكن التراجع عن ذلك.',
@@ -1279,6 +1283,9 @@ const ar = {
   },
 
   pos: {
+    lineDiscount: 'خصم',
+    noItems: 'لا توجد أصناف',
+    receiptNumber: 'إيصال',
     title: 'نقطة البيع',
     register: 'الصندوق',
     sessions: 'الجلسات',
@@ -2360,6 +2367,8 @@ const ar = {
   },
 
   reports: {
+    clientRevenue: 'إيرادات العملاء',
+    expenseAnalysis: 'تحليل المصروفات',
     title: 'التقارير',
     subtitle: 'ذكاء الأعمال والتحليلات',
     exportExcel: 'تصدير Excel',
