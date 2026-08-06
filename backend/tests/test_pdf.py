@@ -237,7 +237,10 @@ def test_invoice_carries_every_professional_element():
         "bank name": "Bank Audi",
         "iban": "LB62",
         "swift": "AUDBLBBX",
-        "notes heading": "NOTES",
+        # Notes are a tinted band with a bold lead-in, as the old
+        # template had them — not a section heading.
+        "notes band": "Notes:",
+        "notes content": "Payment by bank transfer",
         "bank heading": "BANK DETAILS",
         "footer": "Goods remain our property",
     }
@@ -300,3 +303,62 @@ def test_quotation_has_no_payment_or_balance_language():
     txt = _text(pdf_render.render_quotation(QUOTATION, FULL_SETTINGS, "en"))
     assert "Balance due" not in txt
     assert "PAYMENT HISTORY" not in txt
+
+
+# ── structure carried over from the old HTML template ───────────────────────
+
+def test_payment_state_band_reflects_the_state():
+    """The old template led with a coloured callout for the payment state, and
+    it is the line a client is meant to act on. Three states, three messages."""
+    paid = dict(RICH_INVOICE, payment_status="Paid", remaining=0, total_paid=1665)
+    assert "Paid in full" in _text(pdf_render.render_invoice(paid, FULL_SETTINGS, "en"))
+
+    overdue = dict(RICH_INVOICE, payment_status="Unpaid", due_date="2020-01-01",
+                   remaining=1665, total_paid=0)
+    t = _text(pdf_render.render_invoice(overdue, FULL_SETTINGS, "en"))
+    assert "Overdue" in t and "2020" in t
+
+    upcoming = dict(RICH_INVOICE, payment_status="Unpaid", due_date="2099-01-01",
+                    remaining=1665, total_paid=0)
+    t2 = _text(pdf_render.render_invoice(upcoming, FULL_SETTINGS, "en"))
+    assert "Payment due" in t2 and "Overdue" not in t2
+
+
+def test_deduction_is_parenthesised_not_negative():
+    """A minus sign in a totals column reads as a credit. The old box used
+    "(125.00)"."""
+    txt = _text(pdf_render.render_invoice(RICH_INVOICE, FULL_SETTINGS, "en"))
+    assert "(125.00 USD)" in txt
+    assert "-125.00" not in txt
+
+
+def test_grand_total_is_labelled_as_such():
+    txt = _text(pdf_render.render_invoice(RICH_INVOICE, FULL_SETTINGS, "en"))
+    assert "Grand Total" in txt
+
+
+def test_document_footer_identifies_the_page():
+    """A printed page filed away has to say who issued it and which document it
+    is, without the covering email."""
+    txt = _text(pdf_render.render_invoice(RICH_INVOICE, FULL_SETTINGS, "en"))
+    assert "INV-2026-0042" in txt
+    assert "billing@quilitdemo.com" in txt
+
+
+def test_item_description_is_not_lost_behind_the_name():
+    """Rows carry a name AND a longer description; collapsing them lost the
+    specification the client actually agreed to."""
+    inv = dict(RICH_INVOICE, items=[{
+        "name": "Centrifugal pump", "description": "3in cast iron, 400V motor",
+        "quantity": 1, "unit_price": 100, "line_total": 100}])
+    txt = _text(pdf_render.render_invoice(inv, FULL_SETTINGS, "en"))
+    assert "Centrifugal pump" in txt
+    assert "3in cast iron" in txt
+
+
+def test_state_band_is_translated_in_arabic():
+    paid = dict(RICH_INVOICE, payment_status="Paid", remaining=0)
+    txt = _text(pdf_render.render_invoice(paid, FULL_SETTINGS, "ar"))
+    # Shaped Arabic, and no English state text leaking through.
+    assert "Paid in full" not in txt
+    assert any(0xFE70 <= ord(c) <= 0xFEFF for c in txt)

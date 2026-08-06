@@ -58,6 +58,12 @@ GREEN = (21, 128, 61)
 RED = (185, 28, 28)
 AMBER = (180, 83, 9)
 ZEBRA = (249, 247, 250)
+# Band tints. Derived from the theme accent/semantic colours rather than the old
+# template's slate palette, so a document looks like the rest of the product.
+BAND_BG = (248, 245, 248)
+BAND_SLATE = (247, 248, 250)
+GREEN_BG = (240, 253, 244)
+AMBER_BG = (255, 251, 235)
 
 
 def available() -> tuple[bool, str]:
@@ -133,6 +139,15 @@ def _add_days(value, days: int) -> str:
 
 _L = {
     "en": {
+        "paidLabel": "Paid in full.",
+        "paidBody": "Settled — thank you for your prompt payment.",
+        "overdueLabel": "Overdue.",
+        "overdueBody": "{amount} was due on {date}. Please arrange payment.",
+        "dueLabel": "Payment due.",
+        "dueBody": "{amount} by {date} (net {d} days).",
+        "notesLabel": "Notes:",
+        "fxLabel": "Currency note:",
+        "noteLabel": "Note:",
         "invoice": "INVOICE", "quotation": "QUOTATION",
         "billTo": "BILL TO", "quoteFor": "QUOTATION FOR",
         "details": "DETAILS", "issued": "Issued", "due": "Due",
@@ -141,7 +156,7 @@ _L = {
         "no": "#", "desc": "Description", "qty": "Qty", "price": "Unit price",
         "disc": "Disc.", "tax": "Tax", "amount": "Amount",
         "subtotal": "Subtotal", "discount": "Discount", "taxTotal": "Tax",
-        "grand": "TOTAL", "paid": "Paid", "balance": "Balance due",
+        "grand": "Grand Total", "paid": "Paid", "balance": "Balance due",
         "payments": "PAYMENT HISTORY", "date": "Date", "method": "Method",
         "note": "Note", "notes": "NOTES", "bank": "BANK DETAILS",
         "bankName": "Bank", "account": "Account", "iban": "IBAN",
@@ -151,6 +166,15 @@ _L = {
         "taxNo": "Tax No.", "regNo": "Reg. No.",
     },
     "ar": {
+        "paidLabel": "مدفوعة بالكامل.",
+        "paidBody": "تم السداد — شكراً لالتزامكم بالدفع.",
+        "overdueLabel": "متأخرة.",
+        "overdueBody": "كان مبلغ {amount} مستحقاً في {date}. نرجو ترتيب الدفع.",
+        "dueLabel": "مستحقة الدفع.",
+        "dueBody": "{amount} بحلول {date} (صافي {d} يوماً).",
+        "notesLabel": "ملاحظات:",
+        "fxLabel": "ملاحظة العملة:",
+        "noteLabel": "ملاحظة:",
         "invoice": "فاتورة", "quotation": "عرض سعر",
         "billTo": "الفاتورة إلى", "quoteFor": "عرض سعر إلى",
         "details": "التفاصيل", "issued": "تاريخ الإصدار", "due": "تاريخ الاستحقاق",
@@ -159,7 +183,7 @@ _L = {
         "no": "#", "desc": "الوصف", "qty": "الكمية", "price": "سعر الوحدة",
         "disc": "الخصم", "tax": "الضريبة", "amount": "المبلغ",
         "subtotal": "المجموع", "discount": "الخصم", "taxTotal": "الضريبة",
-        "grand": "الإجمالي", "paid": "المدفوع", "balance": "الرصيد المستحق",
+        "grand": "الإجمالي العام", "paid": "المدفوع", "balance": "الرصيد المستحق",
         "payments": "سجل الدفعات", "date": "التاريخ", "method": "الطريقة",
         "note": "ملاحظة", "notes": "ملاحظات", "bank": "التفاصيل البنكية",
         "bankName": "المصرف", "account": "الحساب", "iban": "IBAN",
@@ -295,6 +319,71 @@ class _Doc:
     def heading(self, text):
         self.line(text, size=7.8, bold=True, color=ACCENT, h=4.2)
 
+    def band(self, label: str, text: str, bg=BAND_BG, fg=ACCENT):
+        """A tinted full-width callout with a bold lead-in.
+
+        The old HTML template used these for the payment state, notes, bank
+        details and the currency note, and they are the reason that document
+        read as a statement rather than a table dump — the one line a client
+        must not miss is the one in colour.
+        """
+        pdf, d = self.pdf, self.d
+        if pdf.get_y() > 248:
+            pdf.add_page()
+        pdf.set_fill_color(*bg)
+        y0 = pdf.get_y()
+        pdf.set_x(MARGIN)
+        # Measure first so the fill matches the wrapped height exactly.
+        self.font(8.6, False, INK)
+        body = f"{label}  {text}" if label else str(text)
+        pdf.multi_cell(BODY_W, 4.6, shape(body), align=d.start, fill=True,
+                       new_x="LMARGIN", new_y="NEXT")
+        # Re-draw just the label in colour, over the tinted background.
+        if label:
+            pdf.set_xy(MARGIN + (0 if not d.rtl else 0), y0)
+            self.font(8.6, True, fg)
+            w = pdf.get_string_width(shape(label)) + 1
+            if d.rtl:
+                pdf.set_x(PAGE_W - MARGIN - w)
+            pdf.cell(w, 4.6, shape(label), align=d.start)
+            pdf.set_y(max(pdf.get_y(), y0))
+            pdf.set_x(MARGIN)
+            pdf.ln(0)
+        pdf.ln(1.2)
+
+    def doc_footer(self, co, number: str):
+        """Three columns pinned under the content: who issued it, what it is,
+        how to reach them. Carried over from the old template — a page that can
+        be printed and filed needs to identify itself without its covering
+        email."""
+        pdf, d = self.pdf, self.d
+        pdf.ln(2)
+        pdf.set_draw_color(*RULE)
+        y = pdf.get_y()
+        pdf.line(MARGIN, y, PAGE_W - MARGIN, y)
+        pdf.ln(1.5)
+        third = BODY_W / 3.0
+        left = co.name
+        if co.address:
+            left += "\n" + co.address
+        if co.phone:
+            left += f"  ·  {co.phone}"
+        mid = f"{number}  ·  {datetime.utcnow().strftime('%d %b %Y')}"
+        right = co.email or ""
+        if co.tax_no:
+            right += (" · " if right else "") + f"{self.L['taxNo']}: {co.tax_no}"
+        cols = [(left, "L"), (mid, "C"), (right, "R")]
+        if d.rtl:
+            cols = list(reversed(cols))
+        top = pdf.get_y()
+        for i, (text, align) in enumerate(cols):
+            pdf.set_xy(MARGIN + i * third, top)
+            self.font(6.8, False, MUTED)
+            try:
+                pdf.multi_cell(third, 3.4, shape(text), align=align)
+            except Exception:
+                pdf.multi_cell(third, 3.4, _fold(text), align=align)
+
     def out(self) -> bytes:
         return bytes(self.pdf.output())
 
@@ -422,10 +511,16 @@ def _items(doc: _Doc, items: list, code: str, co: _Company, doc_disc_pct: float)
         total = it.get("line_total")
         total = _num(total) if total not in (None, "") else net + tax
 
-        desc = str(it.get("description") or it.get("name") or "—")
+        # Two lines per row, as the old template did: the item NAME in normal
+        # weight, its longer description beneath in muted small text. Collapsing
+        # both into one cell was losing the description entirely on invoices that
+        # carry both, which is where the specification a client agreed to lives.
+        primary = str(it.get("name") or it.get("description") or "—")
+        secondary = str(it.get("description") or "") if it.get("name") else ""
+        if secondary.strip() == primary.strip():
+            secondary = ""
         limit = 52 if (show_disc and show_tax) else 62
-        if len(desc) > limit:
-            desc = desc[:limit - 1] + "…"
+        desc = primary if len(primary) <= limit else primary[:limit - 1] + "…"
 
         values = [(str(i), 8, "L"), (desc, 0, "L"), (f"{qty:g}", 16, "R"),
                   (_money(price, code), 26, "R")]
@@ -444,6 +539,15 @@ def _items(doc: _Doc, items: list, code: str, co: _Company, doc_disc_pct: float)
             pdf.cell(w, 6.2, shape(text),
                      align=(d.end if align == "R" else d.start), fill=fill)
         pdf.ln(6.2)
+        if secondary:
+            # Second line, under the description column only, tinted to match.
+            desc_w = cols[1][1]
+            x = MARGIN + (BODY_W - cols[0][1] - desc_w if d.rtl else cols[0][1])
+            pdf.set_x(x)
+            doc.font(7.6, False, MUTED)
+            sec = secondary if len(secondary) <= limit + 14 else secondary[:limit + 13] + "…"
+            pdf.cell(desc_w, 4.4, shape(sec), align=d.start, fill=fill)
+            pdf.ln(4.4)
         fill = not fill
 
     if not items:
@@ -462,8 +566,13 @@ def _totals(doc: _Doc, rows: list, code: str):
         pdf.set_x(x)
         doc.font(10.5 if strong else 9, strong, INK if strong else MUTED)
         pdf.cell(lw, 6, shape(label), align=d.start)
-        doc.font(10.5 if strong else 9, strong, color or INK)
-        pdf.cell(vw, 6, shape(_money(value, code)), align=d.end)
+        # A deduction reads as "(125.00 USD)" in amber rather than a minus sign:
+        # a negative number in a totals column is easy to misread as a credit.
+        neg = _num(value) < 0
+        text = f"({_money(abs(_num(value)), code)})" if neg else _money(value, code)
+        doc.font(10.5 if strong else 9, strong,
+                 AMBER if neg else (color or INK))
+        pdf.cell(vw, 6, shape(text), align=d.end)
         pdf.ln(6)
         if strong:
             pdf.set_draw_color(*RULE)
@@ -499,15 +608,34 @@ def _payments(doc: _Doc, payments: list, code: str):
         pdf.ln(5.4)
 
 
+def _state_band(doc: _Doc, L: dict, status: str, balance: float, due: str,
+                days: int, code: str):
+    """The payment-state callout. This is the line a client is meant to act on,
+    so it gets colour and its own band rather than sitting in a totals column."""
+    if status == "Paid" or balance < 0.01:
+        doc.band(L["paidLabel"], L["paidBody"], GREEN_BG, GREEN)
+        return
+    overdue = False
+    try:
+        overdue = bool(due) and datetime.strptime(str(due)[:10], "%Y-%m-%d") < datetime.utcnow()
+    except Exception:
+        overdue = False
+    if overdue:
+        doc.band(L["overdueLabel"],
+                 L["overdueBody"].format(amount=_money(balance, code),
+                                         date=_date(due)), AMBER_BG, AMBER)
+    else:
+        doc.band(L["dueLabel"],
+                 L["dueBody"].format(amount=_money(balance, code),
+                                     date=_date(due), d=days))
+
+
 def _footer_blocks(doc: _Doc, co: _Company, notes, fx_note: str = None):
     L = doc.L
     if notes:
-        doc.rule()
-        doc.heading(L["notes"])
-        doc.para(notes, size=8.8)
+        doc.band(L["notesLabel"], str(notes))
     if fx_note:
-        doc.pdf.ln(1)
-        doc.para(fx_note, size=8.2, color=MUTED)
+        doc.band(L["fxLabel"], fx_note, BAND_SLATE, MUTED)
     bank = [(L["bankName"], co.bank_name), (L["account"], co.bank_account),
             (L["iban"], co.bank_iban), (L["swift"], co.bank_swift)]
     bank = [(k, v) for k, v in bank if v]
@@ -532,8 +660,7 @@ def _footer_blocks(doc: _Doc, co: _Company, notes, fx_note: str = None):
             pdf.cell(BODY_W - lw, 4.8, shape(v), align=d.start)
             pdf.ln(4.8)
     if co.footer:
-        doc.rule()
-        doc.para(co.footer, size=8, color=MUTED)
+        doc.band(L["noteLabel"], co.footer, BAND_SLATE, MUTED)
 
 
 def _fx_note(company_settings: dict, co: _Company, L: dict, code: str):
@@ -594,8 +721,13 @@ def render_invoice(inv: dict, settings: dict, lang: str = "en") -> bytes:
                  GREEN if remaining < 0.01 else RED))
     _totals(doc, rows, code)
 
+    # The payment state, as a coloured band directly under the totals — this is
+    # the line the client is meant to act on.
+    _state_band(doc, L, status, remaining, due, co.payment_days, code)
+
     _payments(doc, inv.get("payments"), code)
     _footer_blocks(doc, co, inv.get("notes"), _fx_note(settings, co, L, code))
+    doc.doc_footer(co, inv.get("invoice_number") or "—")
     return doc.out()
 
 
@@ -637,4 +769,5 @@ def render_quotation(q: dict, settings: dict, lang: str = "en") -> bytes:
     _totals(doc, rows, code)
 
     _footer_blocks(doc, co, q.get("notes"), _fx_note(settings, co, L, code))
+    doc.doc_footer(co, q.get("quote_number") or "—")
     return doc.out()
