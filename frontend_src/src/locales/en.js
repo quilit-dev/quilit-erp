@@ -106,6 +106,7 @@ const en = {
   },
 
   common: {
+    printing: 'Printing…',
     copy: 'Copy',
     copied: 'Copied',
     noData: 'No data',
@@ -623,6 +624,9 @@ const en = {
   },
 
   comms: {
+    quickWhatsappShort: 'Send by WhatsApp',
+    quickEmailShort: 'Send by email',
+    printDoc: 'Print',
     quickWhatsapp: 'Send by WhatsApp — opens in your WhatsApp',
     quickEmail: 'Email to {{to}}',
     emailedTo: 'Emailed to {{to}}',

@@ -216,71 +216,22 @@ function StatusBadge({ status, t }) {
   return <span className={`badge ${cls}`}>{label}</span>;
 }
 
-// Row actions.
+// Row action — ONE control.
 //
-// Three controls rather than one, because the cost of a click is not the same
-// as the cost of a wrong send:
-//
-//   WhatsApp  — one click, genuinely free. The message opens in the user's own
-//               WhatsApp and they still press send there, so a misclick costs
-//               nothing and there is no way to fire at the wrong client silently.
-//   Email     — one click, but an email cannot be unsent, so the toast names the
-//               address it went to. That is the only undo available.
-//   Send…     — the full dialog, for changing recipient or message and reading
-//               the history.
-//
-// PDF (open / download) lives on the same row via PdfButtons: the server route
-// exists precisely because window.print() cannot serve a mobile app.
+// This briefly had three buttons (WhatsApp, Email, Send) plus two PDF links on
+// the same row. Seven controls per invoice is not a feature, it is a wall, and
+// two of them looked identical because the ⋯ menu already had an "Export PDF"
+// that did something different. Quick channels and PDF now live in that menu;
+// the row keeps a single Send, which is the action people actually reach for.
 export function SendDocumentButton({ entityType, doc }) {
   const { t } = useLocale();
   const [open, setOpen] = useState(false);
-  const [busy, setBusy] = useState(null);
-
-  const recipientEmail = doc?.client_email;
-  const recipientPhone = doc?.client_phone;
-
-  async function quickSend(channel) {
-    setBusy(channel);
-    try {
-      const r = await commsSend({ entity_type: entityType, entity_id: doc.id, channel });
-      if (channel === 'whatsapp' && r?.wa_url) {
-        // Opened, not sent — the user completes it in WhatsApp. The log says the
-        // same thing, so nothing here claims a delivery it cannot observe.
-        window.open(r.wa_url, '_blank', 'noopener,noreferrer');
-      } else if (channel === 'email') {
-        toast(t('comms.emailedTo', { to: r?.recipient || recipientEmail || '' }));
-      }
-    } catch (e) {
-      toast(e?.message || t('comms.sendFailed'), 'red');
-    } finally {
-      setBusy(null);
-    }
-  }
-
-  const btn = {
-    display: 'inline-flex', alignItems: 'center', gap: 5,
-    padding: '3px 9px', fontSize: 12, lineHeight: 1.4,
-  };
-
   return (
     <>
-      {recipientPhone && (
-        <button className="btn btn-sm btn-secondary" style={btn} disabled={busy}
-          title={t('comms.quickWhatsapp')} onClick={() => quickSend('whatsapp')}>
-          <Icon name="message-circle" size={13} />
-          {busy === 'whatsapp' ? '…' : t('comms.whatsapp')}
-        </button>
-      )}
-      {recipientEmail && (
-        <button className="btn btn-sm btn-secondary" style={btn} disabled={busy}
-          title={t('comms.quickEmail', { to: recipientEmail })}
-          onClick={() => quickSend('email')}>
-          <Icon name="mail" size={13} />
-          {busy === 'email' ? '…' : t('comms.email')}
-        </button>
-      )}
       <button className="btn btn-sm btn-secondary" onClick={() => setOpen(true)}
-        title={t('comms.sendTitle')} style={btn}>
+        title={t('comms.sendTitle')}
+        style={{ display: 'inline-flex', alignItems: 'center', gap: 5,
+                 padding: '3px 9px', fontSize: 12, lineHeight: 1.4 }}>
         <Icon name="send" size={13} />
         {t('comms.send')}
       </button>
@@ -291,35 +242,31 @@ export function SendDocumentButton({ entityType, doc }) {
   );
 }
 
-// Open / download the server-rendered PDF.
+// One-click send, for the ⋯ menus. Exported separately from the dialog so a row
+// stays uncluttered while a single click is still reachable.
 //
-// Separate from the browser's print path on purpose. window.print() needs a
-// human at a print dialog, which a mobile app cannot show and an email cannot
-// attach — these hit /api/pdf, which renders without a browser at all.
-//
-// The link is a plain anchor rather than a fetch: the browser and the mobile
-// webview already know how to preview a PDF and how to save one, and reusing
-// that costs nothing and behaves natively on both.
-export function PdfButtons({ entityType, doc }) {
+// WhatsApp is safe to fire on one click: the message opens in the user's own
+// WhatsApp and they press send there. Email cannot be unsent, so its toast names
+// the address it went to — the only undo available.
+export function useQuickSend(entityType, doc) {
   const { t } = useLocale();
-  const base = entityType === 'invoice'
-    ? `/api/pdf/invoices/${doc.id}.pdf`
-    : `/api/pdf/quotations/${doc.id}.pdf`;
-  const btn = {
-    display: 'inline-flex', alignItems: 'center', gap: 5,
-    padding: '3px 9px', fontSize: 12, lineHeight: 1.4, textDecoration: 'none',
-  };
-  return (
-    <>
-      <a className="btn btn-sm btn-secondary" style={btn} href={base}
-         target="_blank" rel="noopener noreferrer" title={t('comms.openPdf')}>
-        <Icon name="file-text" size={13} />
-        PDF
-      </a>
-      <a className="btn btn-sm btn-secondary" style={btn}
-         href={`${base}?download=1`} title={t('comms.downloadPdf')}>
-        <Icon name="download" size={13} />
-      </a>
-    </>
-  );
+  const [busy, setBusy] = useState(null);
+
+  async function quickSend(channel) {
+    setBusy(channel);
+    try {
+      const r = await commsSend({ entity_type: entityType, entity_id: doc.id, channel });
+      if (channel === 'whatsapp' && r?.wa_url) {
+        window.open(r.wa_url, '_blank', 'noopener,noreferrer');
+      } else if (channel === 'email') {
+        toast(t('comms.emailedTo', { to: r?.recipient || doc?.client_email || '' }));
+      }
+    } catch (e) {
+      toast(e?.message || t('comms.sendFailed'), 'red');
+    } finally {
+      setBusy(null);
+    }
+  }
+  return { quickSend, busy };
 }
+

@@ -2,7 +2,7 @@
 import { useState, useRef, useEffect } from 'react';
 import { useLocale } from '../../hooks/useLocale.jsx';
 import { Icon } from '../../components/shared';
-import { SendDocumentButton, PdfButtons } from '../../components/SendDocument';
+import { SendDocumentButton, useQuickSend } from '../../components/SendDocument';
 
 // ── Per-row action dropdown ───────────────────────────────────────────────
 function ActionMenu({ inv, exporting, onEdit, onPay, onExport, onVoid, onUnvoid }) {
@@ -29,11 +29,11 @@ function ActionMenu({ inv, exporting, onEdit, onPay, onExport, onVoid, onUnvoid 
   const isVoided    = inv.payment_status === 'Void' || !!inv.voided_at;
   const isPaid      = inv.payment_status === 'Paid';
   const isExporting = !!exporting;
+  const { quickSend, busy: sendBusy } = useQuickSend('invoice', inv);
 
   return (
     <div style={{ display: 'flex', gap: 5, alignItems: 'center', justifyContent: 'flex-end' }}>
       {!isVoided && <SendDocumentButton entityType="invoice" doc={inv} />}
-      <PdfButtons entityType="invoice" doc={inv} />
       {isVoided ? (
         <span style={{ fontSize: 11, color: 'var(--text-3)', fontStyle: 'italic' }}>{t('invoices.voidedLabel')}</span>
       ) : !isPaid ? (
@@ -110,15 +110,42 @@ function ActionMenu({ inv, exporting, onEdit, onPay, onExport, onVoid, onUnvoid 
                 : <><Icon name="file-spreadsheet" size={14} /><span>Export XLS</span></>}
             </button>
 
+            {/* The browser path: opens a print dialog. Named "Print" because
+                that is what it does — calling it "Export PDF" next to a real
+                PDF link is what made two buttons look like duplicates. */}
             <button
               disabled={isExporting || isVoided}
               onClick={() => { setOpen(false); onExport('pdf'); }}
               style={{ ...menuItemStyle, color: '#991b1b', opacity: (isExporting || isVoided) ? 0.4 : 1 }}
             >
               {exporting === 'pdf'
-                ? <><Icon name="loader" size={14} style={SPIN} /><span>Exporting…</span></>
-                : <><Icon name="file-text" size={14} /><span>Export PDF</span></>}
+                ? <><Icon name="loader" size={14} style={SPIN} /><span>{t('common.printing')}</span></>
+                : <><Icon name="printer" size={14} /><span>{t('comms.printDoc')}</span></>}
             </button>
+
+            {/* The server path: a real file, no print dialog. This is what the
+                mobile app and an email attachment can use. */}
+            <button disabled={!!sendBusy} onClick={() => { setOpen(false); quickSend('whatsapp'); }}
+              style={{ ...menuItemStyle, opacity: sendBusy ? 0.5 : 1 }}>
+              <Icon name="message-circle" size={14} />
+              <span>{t('comms.quickWhatsappShort')}</span>
+            </button>
+            <button disabled={!!sendBusy} onClick={() => { setOpen(false); quickSend('email'); }}
+              style={{ ...menuItemStyle, opacity: sendBusy ? 0.5 : 1 }}>
+              <Icon name="mail" size={14} />
+              <span>{t('comms.quickEmailShort')}</span>
+            </button>
+
+            <a href={`/api/pdf/invoices/${inv.id}.pdf`} target="_blank"
+               rel="noopener noreferrer" onClick={() => setOpen(false)}
+               style={{ ...menuItemStyle, textDecoration: 'none' }}>
+              <Icon name="file-text" size={14} /><span>{t('comms.openPdf')}</span>
+            </a>
+            <a href={`/api/pdf/invoices/${inv.id}.pdf?download=1`}
+               onClick={() => setOpen(false)}
+               style={{ ...menuItemStyle, textDecoration: 'none' }}>
+              <Icon name="download" size={14} /><span>{t('comms.downloadPdf')}</span>
+            </a>
 
             <div style={{ height: 1, background: 'var(--border)', margin: '4px 0' }} />
 

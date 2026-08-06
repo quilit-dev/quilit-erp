@@ -13,7 +13,7 @@ import {
   Badge, ExportButton, fmt, fmtDate, toast, SortableTh, Pagination,
   DualMoney, ExchangeRateBadge, DisplayCurrencyToggle, NumberInput, BranchField,
   Icon} from '../components/shared';
-import { SendDocumentButton, PdfButtons } from '../components/SendDocument';
+import { SendDocumentButton, useQuickSend } from '../components/SendDocument';
 import { exportQuotationPDF, exportQuotationExcel } from '../utils/exportUtils';
 import { useLocale } from '../hooks/useLocale.jsx';
 import { usePermissions } from '../hooks/usePermissions';
@@ -40,9 +40,10 @@ const menuItemStyle = {
 const SPIN = { animation: 'spin .7s linear infinite' };
 
 // ── Per-row action dropdown (Edit / exports / Void / Unvoid) ──────────────
-function QuoteActionMenu({ exporting, isVoided, onEdit, onExport, onVoid, onUnvoid }) {
+function QuoteActionMenu({ doc, exporting, isVoided, onEdit, onExport, onVoid, onUnvoid }) {
   const { t } = useLocale();
   const [open, setOpen]     = useState(false);
+  const { quickSend, busy: sendBusy } = useQuickSend('quotation', doc);
   const [dropUp, setDropUp] = useState(false);
   const ref    = useRef(null);
   const btnRef = useRef(null);
@@ -122,8 +123,34 @@ function QuoteActionMenu({ exporting, isVoided, onEdit, onExport, onVoid, onUnvo
           >
             {exporting === 'pdf'
               ? <><Icon name="loader" size={14} style={SPIN} /><span>{t('common.exporting')}</span></>
-              : <><Icon name="file-text" size={14} /><span>{t('quotations.exportPdf')}</span></>}
+              : <><Icon name="printer" size={14} /><span>{t('comms.printDoc')}</span></>}
           </button>
+
+          {/* Server-rendered PDF — a real file, no print dialog. The item above
+              opens the browser's print dialog, which is a different action; the
+              two were previously both called "Export PDF", which is what made
+              the row look duplicated. */}
+          <button disabled={!!sendBusy} onClick={() => { setOpen(false); quickSend('whatsapp'); }}
+              style={{ ...menuItemStyle, opacity: sendBusy ? 0.5 : 1 }}>
+              <Icon name="message-circle" size={14} />
+              <span>{t('comms.quickWhatsappShort')}</span>
+            </button>
+            <button disabled={!!sendBusy} onClick={() => { setOpen(false); quickSend('email'); }}
+              style={{ ...menuItemStyle, opacity: sendBusy ? 0.5 : 1 }}>
+              <Icon name="mail" size={14} />
+              <span>{t('comms.quickEmailShort')}</span>
+            </button>
+
+            <a href={`/api/pdf/quotations/${doc.id}.pdf`} target="_blank"
+             rel="noopener noreferrer" onClick={() => setOpen(false)}
+             style={{ ...menuItemStyle, textDecoration: 'none' }}>
+            <Icon name="file-text" size={14} /><span>{t('comms.openPdf')}</span>
+          </a>
+          <a href={`/api/pdf/quotations/${doc.id}.pdf?download=1`}
+             onClick={() => setOpen(false)}
+             style={{ ...menuItemStyle, textDecoration: 'none' }}>
+            <Icon name="download" size={14} /><span>{t('comms.downloadPdf')}</span>
+          </a>
 
           {divider}
 
@@ -463,10 +490,7 @@ export default function Quotations() {
                           {isVoided ? (
                             <span style={{ fontSize: 11, color: 'var(--text-3)', fontStyle: 'italic' }}>{t('invoices.voidedLabel')}</span>
                           ) : (
-                            <>
-                              <SendDocumentButton entityType="quotation" doc={q} />
-                              <PdfButtons entityType="quotation" doc={q} />
-                            </>
+                            <SendDocumentButton entityType="quotation" doc={q} />
                           )}
                           {q.invoice_count === 0 && !isVoided && (
                             <button
@@ -484,6 +508,7 @@ export default function Quotations() {
                             </button>
                           )}
                           <QuoteActionMenu
+                            doc={q}
                             exporting={exporting}
                             isVoided={isVoided}
                             onEdit={() => openEdit(q)}

@@ -13,6 +13,11 @@ import { getBranchContext, getBranchFilter } from '../api/client';
 // constants (no user input), injected via dangerouslySetInnerHTML to keep the
 // map compact.
 const ICON_PATHS = {
+  // Added for the document row actions. A missing name renders an EMPTY
+  // button — Icon has no fallback glyph — which is exactly how a blank
+  // control shipped next to the PDF link.
+  'download':       '<path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/><polyline points="7 10 12 15 17 10"/><line x1="12" y1="15" x2="12" y2="3"/>',
+  'message-circle': '<path d="M21 11.5a8.38 8.38 0 0 1-.9 3.8 8.5 8.5 0 0 1-7.6 4.7 8.38 8.38 0 0 1-3.8-.9L3 21l1.9-5.7a8.38 8.38 0 0 1-.9-3.8 8.5 8.5 0 0 1 4.7-7.6 8.38 8.38 0 0 1 3.8-.9h.5a8.48 8.48 0 0 1 8 8v.5Z"/>',
   // Paper plane. Channel-neutral on purpose: the Send action covers email AND
   // WhatsApp, so `mail` would misdescribe half of what the button does.
   'send':           '<path d="M22 2 11 13"/><path d="M22 2 15 22l-4-9-9-4Z"/>',

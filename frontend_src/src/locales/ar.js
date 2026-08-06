@@ -106,6 +106,7 @@ const ar = {
   },
 
   common: {
+    printing: 'جارٍ الطباعة…',
     copy: 'نسخ',
     copied: 'تم النسخ',
     noData: 'لا توجد بيانات',
@@ -620,6 +621,9 @@ const ar = {
   },
 
   comms: {
+    quickWhatsappShort: 'إرسال عبر واتساب',
+    quickEmailShort: 'إرسال بالبريد',
+    printDoc: 'طباعة',
     quickWhatsapp: 'إرسال عبر واتساب — يُفتح في تطبيقك',
     quickEmail: 'إرسال بالبريد إلى {{to}}',
     emailedTo: 'تم الإرسال بالبريد إلى {{to}}',
