@@ -6,7 +6,7 @@ import { SendDocumentButton, useQuickSend } from '../../components/SendDocument'
 
 // ── Per-row action dropdown ───────────────────────────────────────────────
 function ActionMenu({ inv, exporting, onEdit, onPay, onExport, onVoid, onUnvoid }) {
-  const { t } = useLocale();
+  const { t, lang } = useLocale();
   const [open, setOpen] = useState(false);
   const [dropUp, setDropUp] = useState(false);
   const ref = useRef(null);
@@ -110,19 +110,6 @@ function ActionMenu({ inv, exporting, onEdit, onPay, onExport, onVoid, onUnvoid 
                 : <><Icon name="file-spreadsheet" size={14} /><span>Export XLS</span></>}
             </button>
 
-            {/* The browser path: opens a print dialog. Named "Print" because
-                that is what it does — calling it "Export PDF" next to a real
-                PDF link is what made two buttons look like duplicates. */}
-            <button
-              disabled={isExporting || isVoided}
-              onClick={() => { setOpen(false); onExport('pdf'); }}
-              style={{ ...menuItemStyle, color: '#991b1b', opacity: (isExporting || isVoided) ? 0.4 : 1 }}
-            >
-              {exporting === 'pdf'
-                ? <><Icon name="loader" size={14} style={SPIN} /><span>{t('common.printing')}</span></>
-                : <><Icon name="printer" size={14} /><span>{t('comms.printDoc')}</span></>}
-            </button>
-
             {/* The server path: a real file, no print dialog. This is what the
                 mobile app and an email attachment can use. */}
             <button disabled={!!sendBusy} onClick={() => { setOpen(false); quickSend('whatsapp'); }}
@@ -136,15 +123,25 @@ function ActionMenu({ inv, exporting, onEdit, onPay, onExport, onVoid, onUnvoid 
               <span>{t('comms.quickEmailShort')}</span>
             </button>
 
-            <a href={`/api/pdf/invoices/${inv.id}.pdf`} target="_blank"
+            <a href={`/api/pdf/invoices/${inv.id}.pdf?lang=${lang}`} target="_blank"
                rel="noopener noreferrer" onClick={() => setOpen(false)}
                style={{ ...menuItemStyle, textDecoration: 'none' }}>
               <Icon name="file-text" size={14} /><span>{t('comms.openPdf')}</span>
             </a>
-            <a href={`/api/pdf/invoices/${inv.id}.pdf?download=1`}
+            <a href={`/api/pdf/invoices/${inv.id}.pdf?download=1&lang=${lang}`}
                onClick={() => setOpen(false)}
                style={{ ...menuItemStyle, textDecoration: 'none' }}>
               <Icon name="download" size={14} /><span>{t('comms.downloadPdf')}</span>
+            </a>
+
+            {/* The other language. One template renders both, so a customer
+                can be sent an Arabic invoice and an English one from the same
+                record without a second layout existing. */}
+            <a href={`/api/pdf/invoices/${inv.id}.pdf?lang=${lang === 'ar' ? 'en' : 'ar'}`}
+               target="_blank" rel="noopener noreferrer" onClick={() => setOpen(false)}
+               style={{ ...menuItemStyle, textDecoration: 'none' }}>
+              <Icon name="globe" size={14} />
+              <span>{lang === 'ar' ? t('comms.pdfInEnglish') : t('comms.pdfInArabic')}</span>
             </a>
 
             <div style={{ height: 1, background: 'var(--border)', margin: '4px 0' }} />

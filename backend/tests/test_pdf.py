@@ -186,3 +186,117 @@ def test_pdf_requires_authentication(make_client):
     """The PDF is business data — it must not be reachable without a session."""
     anon = make_client()
     assert anon.get("/api/pdf/invoices/1.pdf").status_code in (401, 403)
+
+
+# ── the single professional template ────────────────────────────────────────
+#
+# There used to be a second, richer template in the frontend rendered through
+# window.print(). It was deleted, so everything it carried has to be here — and
+# these assert that, because a silently thinner invoice is a document a business
+# cannot legally or practically send.
+
+FULL_SETTINGS = {
+    "company_name": "Quilit Demo Trading SARL",
+    "company_tagline": "Industrial supply since 2011",
+    "company_address": "Sin El Fil", "company_city": "Beirut",
+    "company_country": "Lebanon", "company_phone": "+961 1 490 000",
+    "company_email": "billing@quilitdemo.com", "company_website": "quilitdemo.com",
+    "company_tax_number": "VAT-1234567", "company_reg_number": "REG-88991",
+    "bank_name": "Bank Audi", "bank_account": "0012-345678",
+    "bank_iban": "LB62 0999 0000 0001", "bank_swift": "AUDBLBBX",
+    "default_currency": "USD", "footer_text": "Goods remain our property until paid.",
+    "payment_terms_days": "15", "show_tax_col": "1", "show_discount_col": "1",
+}
+
+RICH_INVOICE = dict(
+    INVOICE,
+    project_name="Warehouse fit-out",
+    payments=[{"paid_at": "2026-08-10", "method": "Bank transfer",
+               "note": "Partial on account", "amount": 500}],
+    discount_total=125.00,
+    items=[{"description": "Centrifugal pump", "quantity": 2, "unit_price": 1250,
+            "discount_pct": 5, "tax_rate": 11, "line_total": 2636.25}],
+)
+
+
+def test_invoice_carries_every_professional_element():
+    txt = _text(pdf_render.render_invoice(RICH_INVOICE, FULL_SETTINGS, "en"))
+    required = {
+        "company name": "Quilit Demo Trading SARL",
+        "tagline": "Industrial supply since 2011",
+        "address": "Beirut",
+        "tax number": "VAT-1234567",
+        "registration number": "REG-88991",
+        "client": "Acme Trading LLC",
+        "project": "Warehouse fit-out",
+        "payment terms": "Net 15",
+        "line item": "Centrifugal pump",
+        "grand total": "1,665.00",
+        "payment history": "PAYMENT HISTORY",
+        "payment method": "Bank transfer",
+        "bank name": "Bank Audi",
+        "iban": "LB62",
+        "swift": "AUDBLBBX",
+        "notes heading": "NOTES",
+        "bank heading": "BANK DETAILS",
+        "footer": "Goods remain our property",
+    }
+    missing = [name for name, needle in required.items() if needle not in txt]
+    assert not missing, f"the single template dropped: {missing}"
+
+
+def test_bank_details_survive_in_arabic():
+    """Regression. These were joined into one line; an Arabic label with a Latin
+    value is mixed-direction, bidi put the Latin first and Arabic last, and
+    multi_cell then dropped most of it — so the IBAN and SWIFT a client needs in
+    order to PAY vanished from the Arabic invoice while English looked fine."""
+    txt = _text(pdf_render.render_invoice(RICH_INVOICE, FULL_SETTINGS, "ar"))
+    for needle in ("Bank Audi", "LB62", "AUDBLBBX", "0012-345678"):
+        assert needle in txt, f"{needle!r} lost in the Arabic document"
+
+
+def test_arabic_document_is_mirrored_not_just_translated():
+    """The Arabic layout must place the company block on the right and the
+    totals on the left. Comparing the x of the company name against the English
+    render is the cheapest proof the direction actually flipped."""
+    import io
+    pypdf = pytest.importorskip("pypdf")
+
+    def first_x(data, needle):
+        page = pypdf.PdfReader(io.BytesIO(data)).pages[0]
+        found = []
+        page.extract_text(visitor_text=lambda t, cm, tm, fd, fs:
+                          found.append(tm[4]) if needle in t else None)
+        return found[0] if found else None
+
+    en = pdf_render.render_invoice(RICH_INVOICE, FULL_SETTINGS, "en")
+    ar = pdf_render.render_invoice(RICH_INVOICE, FULL_SETTINGS, "ar")
+    # The invoice number sits on the opposite edge in each direction.
+    x_en = first_x(en, "INV-2026-0042")
+    x_ar = first_x(ar, "INV-2026-0042")
+    assert x_en is not None and x_ar is not None
+    assert x_ar < x_en, (
+        f"Arabic document was not mirrored: number at x={x_ar} vs x={x_en}")
+
+
+def test_optional_columns_follow_settings():
+    """A company that does not use per-line tax must not get an empty Tax
+    column, and one that does must get it."""
+    off = dict(FULL_SETTINGS, show_tax_col="0", show_discount_col="0")
+    txt_off = _text(pdf_render.render_invoice(RICH_INVOICE, off, "en"))
+    txt_on = _text(pdf_render.render_invoice(RICH_INVOICE, FULL_SETTINGS, "en"))
+    # The COLUMN header is "Disc." with a full stop; the totals row says
+    # "Discount" and is driven by the amount, not by the toggle. Matching on a
+    # bare "Disc" cannot tell them apart.
+    assert "Disc." not in txt_off, "per-line discount column rendered while disabled"
+    assert "Disc." in txt_on, "per-line discount column missing while enabled"
+    # The totals line is independent of the column toggle.
+    assert "Discount" in txt_off
+
+
+def test_quotation_has_no_payment_or_balance_language():
+    """A quotation is not owed. Showing "Balance due" on one is wrong and
+    invites a client to pay against a document that is not a bill."""
+    txt = _text(pdf_render.render_quotation(QUOTATION, FULL_SETTINGS, "en"))
+    assert "Balance due" not in txt
+    assert "PAYMENT HISTORY" not in txt

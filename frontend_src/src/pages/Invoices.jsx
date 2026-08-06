@@ -10,7 +10,7 @@ import {
   LoadingSpinner, ErrorAlert, EmptyState, Modal, ConfirmModal,
   Badge, ExportButton, fmt, fmtDate, toast, SortableTh, Pagination,
   DualMoney, ExchangeRateBadge, DisplayCurrencyToggle, NumberInput, BranchField} from '../components/shared';
-import { exportInvoicePDF, exportInvoiceExcel } from '../utils/exportUtils';
+import { exportInvoiceExcel } from '../utils/exportUtils';
 import InventoryCombobox from '../components/InventoryCombobox';
 import { useLocale } from '../hooks/useLocale.jsx';
 import { usePermissions } from '../hooks/usePermissions';
@@ -96,7 +96,6 @@ export default function Invoices() {
 
   const { exportLoading, handleExport } = useRecordExport({
     fetchFull:   getInvoice,
-    exportPDF:   exportInvoicePDF,
     exportExcel: exportInvoiceExcel,
     getClients:  () => clients,
     getExportOpts: () => ({ displayCurrency, exchangeRate }),

@@ -286,7 +286,13 @@ export default function App() {
           <Routes>
             <Route path="/setup"                  element={<Page><Setup /></Page>} />
             <Route path="/login"                  element={<Page><Login /></Page>} />
+            {/* Two shapes on purpose. New links carry the document number for
+                readability (/d/inv-2026-0042/<token>); links already sent to
+                clients are /d/<token> and must keep working forever, because a
+                dead invoice link is a support call. PublicDocument reads the
+                LAST segment either way. */}
             <Route path="/d/:token"               element={<Page><PublicDocument /></Page>} />
+            <Route path="/d/:label/:token"        element={<Page><PublicDocument /></Page>} />
             <Route path="/vendor-admin"           element={<Page><PlatformConsole /></Page>} />
             <Route path="/platform"               element={<Page><PlatformConsole /></Page>} />{/* legacy alias */}
             <Route path="/force-change-password"  element={<RequireAuth><Page><ForceChangePassword /></Page></RequireAuth>} />

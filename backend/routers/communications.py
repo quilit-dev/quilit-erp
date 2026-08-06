@@ -113,15 +113,33 @@ def _money(amount, currency: str) -> str:
 
 # ── share links ──────────────────────────────────────────────────────────────
 
-def _share_url(request: Request, token: str) -> str:
+def _url_slug(text: str) -> str:
+    """A short, safe, human-readable path segment from a document number."""
+    out = "".join(c if (c.isalnum() or c in "-_") else "-" for c in str(text or "").lower())
+    while "--" in out:
+        out = out.replace("--", "-")
+    return out.strip("-")[:40]
+
+
+def _share_url(request: Request, token: str, doc_number: str = None) -> str:
     """Build the client-facing URL on the SAME host the request arrived on.
 
     That is what makes per-tenant tokens safe: the link is on the customer's own
     domain, so tenant resolution happens from the host and a token cannot be
     replayed against another workspace.
+
+    The document number goes in the path ahead of the token. A bare random
+    string reads exactly like a phishing link, and a client who does not open
+    the message has not been sent anything — so the URL has to say what it is.
+    The segment is cosmetic: the token alone is checked, and /d/<token> without
+    it still resolves, which keeps every link already sent working.
+
+    No new disclosure: anyone holding the link can read the whole document, so
+    putting its number in the path reveals nothing the page would not.
     """
     base = str(request.base_url).rstrip("/")
-    return f"{base}/d/{token}"
+    slug = _url_slug(doc_number)
+    return f"{base}/d/{slug}/{token}" if slug else f"{base}/d/{token}"
 
 
 def _issue_share(db, entity_type: str, entity_id: int, user_id) -> tuple:
@@ -185,7 +203,7 @@ def send(data: SendRequest, request: Request,
     user_id = int(user["sub"])
 
     share_id, token = _issue_share(db, data.entity_type, data.entity_id, user_id)
-    url = _share_url(request, token)
+    url = _share_url(request, token, doc.get("doc_number"))
 
     common = dict(company=company["name"] or "Your supplier",
                   doc_label=cfg["label"], doc_number=doc.get("doc_number") or "",

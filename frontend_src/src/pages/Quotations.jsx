@@ -14,7 +14,7 @@ import {
   DualMoney, ExchangeRateBadge, DisplayCurrencyToggle, NumberInput, BranchField,
   Icon} from '../components/shared';
 import { SendDocumentButton, useQuickSend } from '../components/SendDocument';
-import { exportQuotationPDF, exportQuotationExcel } from '../utils/exportUtils';
+import { exportQuotationExcel } from '../utils/exportUtils';
 import { useLocale } from '../hooks/useLocale.jsx';
 import { usePermissions } from '../hooks/usePermissions';
 import Attachments from '../components/Attachments.jsx';
@@ -41,7 +41,7 @@ const SPIN = { animation: 'spin .7s linear infinite' };
 
 // ── Per-row action dropdown (Edit / exports / Void / Unvoid) ──────────────
 function QuoteActionMenu({ doc, exporting, isVoided, onEdit, onExport, onVoid, onUnvoid }) {
-  const { t } = useLocale();
+  const { t, lang } = useLocale();
   const [open, setOpen]     = useState(false);
   const { quickSend, busy: sendBusy } = useQuickSend('quotation', doc);
   const [dropUp, setDropUp] = useState(false);
@@ -116,15 +116,6 @@ function QuoteActionMenu({ doc, exporting, isVoided, onEdit, onExport, onVoid, o
               ? <><Icon name="loader" size={14} style={SPIN} /><span>{t('common.exporting')}</span></>
               : <><Icon name="file-spreadsheet" size={14} /><span>{t('quotations.exportXls')}</span></>}
           </button>
-          <button
-            style={{ ...menuItemStyle, color: '#991b1b', opacity: (isExporting || isVoided) ? 0.4 : 1 }}
-            disabled={isExporting || isVoided}
-            onClick={() => { setOpen(false); onExport('pdf'); }}
-          >
-            {exporting === 'pdf'
-              ? <><Icon name="loader" size={14} style={SPIN} /><span>{t('common.exporting')}</span></>
-              : <><Icon name="printer" size={14} /><span>{t('comms.printDoc')}</span></>}
-          </button>
 
           {/* Server-rendered PDF — a real file, no print dialog. The item above
               opens the browser's print dialog, which is a different action; the
@@ -141,16 +132,26 @@ function QuoteActionMenu({ doc, exporting, isVoided, onEdit, onExport, onVoid, o
               <span>{t('comms.quickEmailShort')}</span>
             </button>
 
-            <a href={`/api/pdf/quotations/${doc.id}.pdf`} target="_blank"
+            <a href={`/api/pdf/quotations/${doc.id}.pdf?lang=${lang}`} target="_blank"
              rel="noopener noreferrer" onClick={() => setOpen(false)}
              style={{ ...menuItemStyle, textDecoration: 'none' }}>
             <Icon name="file-text" size={14} /><span>{t('comms.openPdf')}</span>
           </a>
-          <a href={`/api/pdf/quotations/${doc.id}.pdf?download=1`}
+          <a href={`/api/pdf/quotations/${doc.id}.pdf?download=1&lang=${lang}`}
              onClick={() => setOpen(false)}
              style={{ ...menuItemStyle, textDecoration: 'none' }}>
             <Icon name="download" size={14} /><span>{t('comms.downloadPdf')}</span>
           </a>
+
+            {/* The other language. One template renders both, so a customer
+                can be sent an Arabic invoice and an English one from the same
+                record without a second layout existing. */}
+            <a href={`/api/pdf/quotations/${doc.id}.pdf?lang=${lang === 'ar' ? 'en' : 'ar'}`}
+               target="_blank" rel="noopener noreferrer" onClick={() => setOpen(false)}
+               style={{ ...menuItemStyle, textDecoration: 'none' }}>
+              <Icon name="globe" size={14} />
+              <span>{lang === 'ar' ? t('comms.pdfInEnglish') : t('comms.pdfInArabic')}</span>
+            </a>
 
           {divider}
 
@@ -208,7 +209,6 @@ export default function Quotations() {
 
   const { exportLoading, handleExport } = useRecordExport({
     fetchFull:   getQuotation,
-    exportPDF:   exportQuotationPDF,
     exportExcel: exportQuotationExcel,
     getClients:  () => clients,
     getExportOpts: () => ({ displayCurrency, exchangeRate }),

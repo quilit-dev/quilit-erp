@@ -621,6 +621,8 @@ const ar = {
   },
 
   comms: {
+    pdfInArabic: 'PDF بالعربية',
+    pdfInEnglish: 'PDF بالإنجليزية',
     quickWhatsappShort: 'إرسال عبر واتساب',
     quickEmailShort: 'إرسال بالبريد',
     printDoc: 'طباعة',

@@ -13,6 +13,7 @@ import { getBranchContext, getBranchFilter } from '../api/client';
 // constants (no user input), injected via dangerouslySetInnerHTML to keep the
 // map compact.
 const ICON_PATHS = {
+  'globe':          '<circle cx="12" cy="12" r="10"/><line x1="2" y1="12" x2="22" y2="12"/><path d="M12 2a15.3 15.3 0 0 1 4 10 15.3 15.3 0 0 1-4 10 15.3 15.3 0 0 1-4-10 15.3 15.3 0 0 1 4-10z"/>',
   // Added for the document row actions. A missing name renders an EMPTY
   // button — Icon has no fallback glyph — which is exactly how a blank
   // control shipped next to the PDF link.

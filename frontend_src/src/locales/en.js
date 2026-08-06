@@ -624,6 +624,8 @@ const en = {
   },
 
   comms: {
+    pdfInArabic: 'PDF in Arabic',
+    pdfInEnglish: 'PDF in English',
     quickWhatsappShort: 'Send by WhatsApp',
     quickEmailShort: 'Send by email',
     printDoc: 'Print',

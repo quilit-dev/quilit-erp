@@ -45,7 +45,17 @@ ENTITY_TYPES = ("invoice", "quotation")
 # ── tokens ───────────────────────────────────────────────────────────────────
 
 def new_token() -> str:
-    return secrets.token_urlsafe(32)
+    """A capability token for one share link.
+
+    16 bytes, not 32. token_urlsafe(32) produces 43 characters, which alongside
+    a host makes a URL that reads like something a client should not click — and
+    an invoice nobody opens has not been delivered. 128 bits is 3.4e38
+    possibilities: unguessable over HTTP, the same strength used for session
+    identifiers, and on a link that also expires, is revocable, and only ever
+    exposes a single read-only document. The extra 128 bits bought nothing but
+    21 more characters of noise.
+    """
+    return secrets.token_urlsafe(16)
 
 
 def hash_token(token: str) -> str:
@@ -175,5 +185,8 @@ def whatsapp_text(*, company: str, doc_label: str, doc_number: str,
         parts.append(note)
     parts.append(f"Your {doc_label.lower()} {doc_number} from {company} "
                  f"is ready. Total: {total}.")
-    parts.append(url)
+    # Introduce the link. A URL alone on its own line, with no sentence around
+    # it, is the shape of a scam message — the recipient decides whether to
+    # trust it from the words next to it, not from the domain.
+    parts.append("View or print it here:\n" + url)
     return "\n\n".join(parts)

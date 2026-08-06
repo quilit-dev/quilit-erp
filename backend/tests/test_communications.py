@@ -275,3 +275,86 @@ def test_a_role_without_the_module_cannot_send(as_role, invoice):
     r = c.post("/api/communications/send", json={
         "entity_type": "invoice", "entity_id": invoice["id"], "channel": "whatsapp"})
     assert r.status_code == 403, r.text
+
+
+# ── link readability ────────────────────────────────────────────────────────
+#
+# A share link is read by a CLIENT deciding whether to click. A bare 43-char
+# random string is the shape of a phishing URL, and an invoice nobody opens has
+# not been delivered — so these pin the readability properties as behaviour, not
+# cosmetics.
+
+def test_share_url_names_the_document(make_client):
+    """The document number goes in the path so the recipient can see what the
+    link is before trusting it."""
+    c = make_client("superadmin")
+    cl = c.post("/api/clients/", json={"name": "Acme", "phone": "+96171234567"}).json()
+    inv = c.post("/api/invoices/", json={"client_id": cl["id"], "amount": 100}).json()
+    r = c.post("/api/communications/send",
+               json={"entity_type": "invoice", "entity_id": inv["id"],
+                     "channel": "whatsapp"}).json()
+
+    path = r["url"].split("testserver")[-1]
+    parts = path.strip("/").split("/")
+    assert parts[0] == "d"
+    assert len(parts) == 3, f"expected /d/<slug>/<token>, got {path}"
+    assert parts[1].startswith("inv-"), f"slug does not name the invoice: {parts[1]}"
+
+
+def test_share_token_stays_short_enough_to_trust(make_client):
+    """128 bits, 22 characters. Longer buys no security on an expiring,
+    revocable, single-document link and costs trust in the URL."""
+    c = make_client("superadmin")
+    cl = c.post("/api/clients/", json={"name": "Acme", "phone": "+96171234567"}).json()
+    inv = c.post("/api/invoices/", json={"client_id": cl["id"], "amount": 100}).json()
+    r = c.post("/api/communications/send",
+               json={"entity_type": "invoice", "entity_id": inv["id"],
+                     "channel": "whatsapp"}).json()
+    token = r["url"].rstrip("/").split("/")[-1]
+    assert 20 <= len(token) <= 24, f"token is {len(token)} chars: {token}"
+
+
+def test_token_alone_still_opens_the_document(make_client):
+    """The slug is cosmetic. Links already sent to clients are /d/<token> with
+    no slug, and the API only ever receives the token — so an old link must
+    resolve through exactly the same path. A dead invoice link is a support
+    call, forever."""
+    c = make_client("superadmin")
+    cl = c.post("/api/clients/", json={"name": "Acme", "phone": "+96171234567"}).json()
+    inv = c.post("/api/invoices/", json={"client_id": cl["id"], "amount": 100}).json()
+    r = c.post("/api/communications/send",
+               json={"entity_type": "invoice", "entity_id": inv["id"],
+                     "channel": "whatsapp"}).json()
+    token = r["url"].rstrip("/").split("/")[-1]
+
+    anon = make_client()
+    assert anon.get(f"/api/communications/public/{token}").status_code == 200
+
+
+def test_url_slug_is_safe():
+    """The slug is interpolated into a URL, so it must never carry a path
+    separator or anything that could change where the link points."""
+    from routers.communications import _url_slug
+    assert _url_slug("INV-2026-0042") == "inv-2026-0042"
+    assert "/" not in _url_slug("INV/2026/0042")
+    assert "?" not in _url_slug("INV?2026")
+    assert ".." not in _url_slug("../../etc/passwd")
+    assert _url_slug(None) == ""
+    assert _url_slug("") == ""
+    assert len(_url_slug("X" * 200)) <= 40
+
+
+def test_whatsapp_message_introduces_the_link():
+    """The URL must not sit alone on a line. A recipient judges a link by the
+    sentence next to it."""
+    import communications as comms
+    text = comms.whatsapp_text(
+        company="Quilit Demo Co", doc_label="Invoice", doc_number="INV-1",
+        client_name="Acme", total="USD 100.00",
+        url="https://demo.quilit.dev/d/inv-1/abc")
+    assert "INV-1" in text
+    assert "Quilit Demo Co" in text
+    assert "USD 100.00" in text
+    lines = [l for l in text.splitlines() if l.strip()]
+    idx = next(i for i, l in enumerate(lines) if l.startswith("https://"))
+    assert idx > 0 and lines[idx - 1].strip(), "the link has no introducing line"
