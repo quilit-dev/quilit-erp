@@ -17,6 +17,7 @@ const PlatformConsole     = lazy(() => import('./pages/PlatformConsole'));
 const Setup               = lazy(() => import('./pages/Setup'));
 // Client-facing document view. Public by design: the recipient is not a user.
 const PublicDocument      = lazy(() => import('./pages/PublicDocument'));
+const Communications      = lazy(() => import('./pages/Communications'));
 const ForceChangePassword = lazy(() => import('./pages/ForceChangePassword'));
 const Dashboard      = lazy(() => import('./pages/Dashboard'));
 const Clients        = lazy(() => import('./pages/Clients'));
@@ -291,6 +292,7 @@ export default function App() {
             <Route path="/force-change-password"  element={<RequireAuth><Page><ForceChangePassword /></Page></RequireAuth>} />
             <Route path="/"             element={Auth(<Dashboard />)} />
             <Route path="/clients"      element={Auth(<Clients />)} />
+            <Route path="/communications" element={Auth(<Communications />)} />
             <Route path="/clients/:id"  element={Auth(<ClientDetail />)} />
             <Route path="/projects"     element={Auth(<Projects />)} />
             <Route path="/projects/:id" element={Auth(<ProjectDetail />)} />

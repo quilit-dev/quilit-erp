@@ -719,5 +719,13 @@ export const commsSend     = (body) => api.post('/api/communications/send', body
 export const commsLog      = (entity_type, entity_id) =>
   api.get(`/api/communications/log?entity_type=${encodeURIComponent(entity_type)}`
           + `&entity_id=${encodeURIComponent(entity_id)}`);
+export const commsHistory  = ({ channel, status, q } = {}) => {
+  const p = new URLSearchParams();
+  if (channel) p.set('channel', channel);
+  if (status)  p.set('status', status);
+  if (q)       p.set('q', q);
+  const qs = p.toString();
+  return api.get(`/api/communications/history${qs ? `?${qs}` : ''}`);
+};
 export const commsRevoke   = (shareId) =>
   api.post(`/api/communications/shares/${shareId}/revoke`);

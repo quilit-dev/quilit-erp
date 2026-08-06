@@ -12,7 +12,7 @@
 import { useEffect, useMemo, useState } from 'react';
 
 export const GROUPS = [
-  { title: 'Sales & Customers', keys: ['clients', 'quotations', 'invoices', 'crm'] },
+  { title: 'Sales & Customers', keys: ['clients', 'quotations', 'invoices', 'crm', 'communications'] },
   { title: 'Operations',        keys: ['inventory', 'warehouses', 'purchases', 'suppliers', 'manufacturing', 'pos'] },
   { title: 'Finance',           keys: ['finance', 'expenses', 'cash', 'assets', 'accounting', 'reports'] },
   { title: 'Delivery',          keys: ['projects', 'planning'] },
@@ -28,6 +28,7 @@ export const LABEL = {
   accounting: 'Accounting', reports: 'Reports', projects: 'Projects', planning: 'Planning',
   hr: 'HR & Payroll', hr_contracts: 'Contracts', hr_activities: 'HR Activities',
   recruitment: 'Recruitment', announcements: 'Announcements',
+  communications: 'Client Communications',
 };
 
 export const label = (k) => LABEL[k] || k;

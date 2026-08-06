@@ -248,6 +248,76 @@ def log(entity_type: str, entity_id: int,
     return [dict(r) for r in rows]
 
 
+@router.get("/history")
+def history(channel: str = None, status: str = None, q: str = None,
+            limit: int = 100, offset: int = 0,
+            user=Depends(require_perm("communications", "view")),
+            db: sqlite3.Connection = Depends(get_db)):
+    """Everything sent, across every document — the Communications page.
+
+    The per-document log answers "did this invoice go out?". This answers the
+    questions you cannot ask from inside one record: what failed today, what has
+    never been opened, who has been sending.
+
+    Document numbers are resolved with two LEFT JOINs rather than a per-row
+    lookup, so the list stays one query regardless of length.
+    """
+    where, params = [], []
+    if channel in ("email", "whatsapp"):
+        where.append("l.channel = ?"); params.append(channel)
+    if status in ("sent", "opened", "failed"):
+        where.append("l.status = ?"); params.append(status)
+    if q:
+        where.append("(l.recipient LIKE ? OR l.subject LIKE ?)")
+        params += [f"%{q}%", f"%{q}%"]
+    clause = (" WHERE " + " AND ".join(where)) if where else ""
+
+    limit = max(1, min(int(limit or 100), 500))
+    rows = db.execute(
+        f"""SELECT l.*, u.username AS sent_by_name,
+                   s.view_count, s.last_seen_at, s.revoked_at, s.expires_at,
+                   i.invoice_number, qt.quote_number
+            FROM communications_log l
+            LEFT JOIN users u ON l.sent_by = u.id
+            LEFT JOIN document_shares s ON l.share_id = s.id
+            LEFT JOIN invoices   i  ON l.entity_type = 'invoice'   AND l.entity_id = i.id
+            LEFT JOIN quotations qt ON l.entity_type = 'quotation' AND l.entity_id = qt.id
+            {clause}
+            ORDER BY l.sent_at DESC, l.id DESC
+            LIMIT ? OFFSET ?""",
+        (*params, limit, max(0, int(offset or 0)))).fetchall()
+
+    total = db.execute(
+        f"SELECT COUNT(*) AS n FROM communications_log l{clause}",
+        tuple(params)).fetchone()["n"]
+
+    out = []
+    for r in rows:
+        d = dict(r)
+        d["document"] = d.pop("invoice_number", None) or d.pop("quote_number", None)
+        d.pop("invoice_number", None); d.pop("quote_number", None)
+        out.append(d)
+
+    # Headline counters, computed server-side so the page is correct even when
+    # the list itself is paginated.
+    counts = {}
+    for row in db.execute(
+            "SELECT status, COUNT(*) AS n FROM communications_log GROUP BY status"
+    ).fetchall():
+        counts[row["status"]] = row["n"]
+    # "Sent but never opened" is the number that actually prompts a follow-up.
+    unopened = db.execute(
+        "SELECT COUNT(*) AS n FROM communications_log l "
+        "LEFT JOIN document_shares s ON l.share_id = s.id "
+        "WHERE l.status IN ('sent','opened') AND COALESCE(s.view_count, 0) = 0"
+    ).fetchone()["n"]
+
+    return {"items": out, "total": total, "limit": limit,
+            "offset": max(0, int(offset or 0)),
+            "counts": counts, "unopened": unopened,
+            "email": comms.email_status()}
+
+
 @router.post("/shares/{share_id}/revoke")
 def revoke(share_id: int,
            user=Depends(require_perm("communications", "edit")),

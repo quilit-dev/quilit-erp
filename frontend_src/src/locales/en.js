@@ -257,6 +257,7 @@ const en = {
   },
 
   nav: {
+    communications: 'Communications',
     main: 'Main',
     system: 'System',
     admin: 'Admin',
@@ -622,6 +623,19 @@ const en = {
   },
 
   comms: {
+    pageHint: 'Everything sent to clients — invoices, quotations, and whether they were opened.',
+    neverOpened: 'Never opened',
+    notOpenedYet: 'Not opened yet',
+    allChannels: 'All channels',
+    allStatuses: 'All statuses',
+    searchHint: 'Search recipient or subject…',
+    when: 'When',
+    document: 'Document',
+    channel: 'Channel',
+    recipient: 'Recipient',
+    sentBy: 'Sent by',
+    nothingSent: 'Nothing has been sent yet.',
+    showing: 'Showing {{shown}} of {{total}}',
     send: 'Send',
     sendTitle: 'Send to client',
     email: 'Email',

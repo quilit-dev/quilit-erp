@@ -257,6 +257,7 @@ const ar = {
   },
 
   nav: {
+    communications: 'المراسلات',
     main: 'الرئيسية',
     system: 'النظام',
     admin: 'الإدارة',
@@ -619,6 +620,19 @@ const ar = {
   },
 
   comms: {
+    pageHint: 'كل ما أُرسل إلى العملاء — الفواتير وعروض الأسعار، وهل تم فتحها.',
+    neverOpened: 'لم يُفتح أبداً',
+    notOpenedYet: 'لم يُفتح بعد',
+    allChannels: 'جميع القنوات',
+    allStatuses: 'جميع الحالات',
+    searchHint: 'ابحث في المستلم أو الموضوع…',
+    when: 'التاريخ',
+    document: 'المستند',
+    channel: 'القناة',
+    recipient: 'المستلم',
+    sentBy: 'أرسلها',
+    nothingSent: 'لم يُرسل شيء بعد.',
+    showing: 'إظهار {{shown}} من {{total}}',
     send: 'إرسال',
     sendTitle: 'إرسال إلى العميل',
     email: 'بريد إلكتروني',
