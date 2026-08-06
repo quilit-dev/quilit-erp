@@ -617,6 +617,10 @@ const ar = {
   },
 
   platform: {
+    modules: 'الوحدات',
+    licensed: 'مرخّصة',
+    unrestricted: 'غير مقيّد',
+    unrestrictedHint: 'لا يوجد ترخيص مسجّل — هذا النشاط يرى جميع الوحدات حالياً. افتح الوحدات لتحديد ما تم شراؤه.',
     users: 'المستخدمون',
     domains: 'النطاقات',
     changePassword: 'تغيير كلمة المرور',

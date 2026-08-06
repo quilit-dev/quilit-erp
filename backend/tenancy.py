@@ -19,6 +19,7 @@ the routers change. In single-tenant mode (``TENANCY=single``, the default) the
 middleware is inert and everything behaves exactly as before.
 """
 import re
+import time
 from http.cookies import SimpleCookie
 
 import jwt
@@ -234,7 +235,10 @@ def update_tenant(slug: str, profile: dict) -> dict:
     finally:
         raw.close()
     _CACHE.pop(slug, None)
-    _MODULES_CACHE.pop(slug, None)
+    # _MODULES_CACHE is keyed by SCHEMA, not slug — popping the slug here was a
+    # no-op, so a licence change never took effect in this process. Every other
+    # invalidation site already used the schema.
+    _MODULES_CACHE.pop(schema_for_slug(slug), None)
     return dict(row) if row else None
 
 
@@ -439,9 +443,18 @@ def tenant_modules(schema: str):
 
     Cached: this is consulted on every permission check, so an uncached lookup
     would put a query in front of every request.
+
+    The cache is per-PROCESS, and production runs WEB_CONCURRENCY>1. Popping on
+    write therefore only corrects the worker that handled the write; the others
+    would keep serving the old licence until restart. So entries also expire:
+    an operator upgrading a customer sees it take effect everywhere within
+    _MODULES_TTL rather than "sometimes, depending which worker answers".
     """
-    if schema in _MODULES_CACHE:
-        return _MODULES_CACHE[schema]
+    hit = _MODULES_CACHE.get(schema)
+    if hit is not None:
+        cached_at, value = hit
+        if (time.monotonic() - cached_at) < _MODULES_TTL:
+            return value
     try:
         raw = _connect()
     except Exception:
@@ -462,7 +475,7 @@ def tenant_modules(schema: str):
         import capabilities
         result = capabilities.resolve(
             {m.strip() for m in raw_modules.split(",") if m.strip()})
-    _MODULES_CACHE[schema] = result
+    _MODULES_CACHE[schema] = (time.monotonic(), result)
     return result
 
 
@@ -760,7 +773,11 @@ def get_platform_admin(admin_id: int):
 _CACHE = {}            # slug -> (schema, status)
 _SCHEMA_STATUS = {}    # schema -> status
 _HOST_CACHE = {}       # custom domain (host) -> (schema, status)
-_MODULES_CACHE = {}    # schema -> effective module set (or None)
+_MODULES_CACHE = {}    # schema -> (cached_at, effective module set or None)
+# Bounds how long a worker that did NOT handle the write can serve a stale
+# licence. Short enough that an operator's change looks immediate; long
+# enough that the permission check stays a dict lookup, not a query.
+_MODULES_TTL = 30.0   # seconds
 
 
 def _lookup_by_slug(slug: str):

@@ -11,7 +11,8 @@
 // choice forces it. That makes an invalid licence unrepresentable rather than
 // merely discouraged — the backend applies the same closure on save, so the
 // two can never disagree.
-import { useEffect, useMemo, useState } from 'react';
+import { useState } from 'react';
+import { ModulePicker, useModuleGraph } from './ModulePicker';
 
 const STEPS = ['Company', 'Access', 'Modules', 'Licence'];
 
@@ -23,26 +24,6 @@ const INDUSTRIES = [
 const CURRENCIES = ['USD', 'EUR', 'GBP', 'AED', 'SAR', 'LBP'];
 const LANGUAGES  = [{ code: 'en', label: 'English' }, { code: 'ar', label: 'العربية (Arabic)' }];
 const PLANS      = ['trial', 'standard', 'professional', 'enterprise'];
-
-// Presentation grouping only — licensing truth lives in the backend graph.
-const GROUPS = [
-  { title: 'Sales & Customers', keys: ['clients', 'quotations', 'invoices', 'crm'] },
-  { title: 'Operations',        keys: ['inventory', 'warehouses', 'purchases', 'suppliers', 'manufacturing', 'pos'] },
-  { title: 'Finance',           keys: ['finance', 'expenses', 'cash', 'assets', 'accounting', 'reports'] },
-  { title: 'Delivery',          keys: ['projects', 'planning'] },
-  { title: 'People',            keys: ['hr', 'hr_contracts', 'hr_activities', 'recruitment'] },
-  { title: 'Workplace',         keys: ['announcements'] },
-];
-
-const LABEL = {
-  clients: 'Clients', quotations: 'Quotations', invoices: 'Invoices', crm: 'CRM Pipeline',
-  inventory: 'Inventory', warehouses: 'Multi-warehouse', purchases: 'Purchasing',
-  suppliers: 'Suppliers', manufacturing: 'Manufacturing', pos: 'Point of Sale',
-  finance: 'Finance', expenses: 'Expenses', cash: 'Cash & Till', assets: 'Fixed Assets',
-  accounting: 'Accounting', reports: 'Reports', projects: 'Projects', planning: 'Planning',
-  hr: 'HR & Payroll', hr_contracts: 'Contracts', hr_activities: 'HR Activities',
-  recruitment: 'Recruitment', announcements: 'Announcements',
-};
 
 export default function ProvisionWizard({ pfetch, onCreated, onCancel }) {
   const [step, setStep]   = useState(0);
@@ -56,61 +37,10 @@ export default function ProvisionWizard({ pfetch, onCreated, onCancel }) {
   });
   const set = (k, v) => setForm(f => ({ ...f, [k]: v }));
 
-  // Module catalogue + dependency graph, fetched once.
-  const [catalog, setCatalog] = useState([]);
-  const [selected, setSelected] = useState(new Set());
-  useEffect(() => {
-    pfetch('GET', '/api/platform/modules')
-      .then(d => setCatalog(d.modules || []))
-      .catch(err => setError(err.message));
-  }, [pfetch]);
-
-  const graph = useMemo(() => {
-    const requires = {}, alwaysOn = new Set();
-    for (const m of catalog) {
-      requires[m.key] = m.requires || [];
-      if (m.always_on) alwaysOn.add(m.key);
-    }
-    return { requires, alwaysOn };
-  }, [catalog]);
-
-  // Transitive closure, mirroring capabilities.resolve() on the server so the
-  // UI never promises a combination the backend would silently expand.
-  const resolve = useMemo(() => (chosen) => {
-    const out = new Set([...chosen, ...graph.alwaysOn]);
-    let grew = true;
-    while (grew) {
-      grew = false;
-      for (const key of [...out]) {
-        for (const dep of (graph.requires[key] || [])) {
-          if (!out.has(dep)) { out.add(dep); grew = true; }
-        }
-      }
-    }
-    return out;
-  }, [graph]);
-
-  const effective = useMemo(() => resolve(selected), [resolve, selected]);
-
-  // Which explicit choices force a given module on — powers the lock reason.
-  const lockedBy = useMemo(() => {
-    const map = {};
-    for (const key of effective) {
-      if (graph.alwaysOn.has(key)) continue;
-      const causes = [...selected].filter(c => c !== key && resolve(new Set([c])).has(key));
-      if (causes.length) map[key] = causes;
-    }
-    return map;
-  }, [effective, selected, resolve, graph]);
-
-  function toggle(key) {
-    if (graph.alwaysOn.has(key) || lockedBy[key]) return;   // required — not removable
-    setSelected(prev => {
-      const next = new Set(prev);
-      next.has(key) ? next.delete(key) : next.add(key);
-      return next;
-    });
-  }
+  // Module catalogue, closure and lock reasons — shared with ModuleEditor so
+  // the two screens can never disagree about what a selection resolves to.
+  const { graph, selected, effective, lockedBy, toggle, error: modErr } =
+    useModuleGraph(pfetch);
 
   const slugOk = /^[a-z0-9_]{2,}$/.test(form.slug.trim());
 
@@ -170,7 +100,9 @@ export default function ProvisionWizard({ pfetch, onCreated, onCancel }) {
       </div>
 
       <div className="card-body">
-        {error && <div className="alert alert-danger" style={{ marginBottom: 14 }}>{error}</div>}
+        {(error || modErr) && (
+          <div className="alert alert-danger" style={{ marginBottom: 14 }}>{error || modErr}</div>
+        )}
 
         {step === 0 && (
           <div className="form-grid">
@@ -208,53 +140,8 @@ export default function ProvisionWizard({ pfetch, onCreated, onCancel }) {
               switched on automatically and locked — a licence can never resolve
               to a combination that doesn&apos;t work.
             </p>
-            {GROUPS.map(group => {
-              const keys = group.keys.filter(k => graph.requires[k] !== undefined);
-              if (!keys.length) return null;
-              return (
-                <div key={group.title} style={{ marginBottom: 16 }}>
-                  <div style={{
-                    fontSize: 11, fontWeight: 700, letterSpacing: '0.06em',
-                    textTransform: 'uppercase', color: 'var(--text-3)', marginBottom: 8,
-                  }}>{group.title}</div>
-                  <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(230px, 1fr))', gap: 8 }}>
-                    {keys.map(key => {
-                      const always = graph.alwaysOn.has(key);
-                      const forced = lockedBy[key];
-                      const on = effective.has(key);
-                      const locked = always || !!forced;
-                      return (
-                        <label key={key} title={always ? 'Always included' : forced ? `Required by ${forced.map(c => LABEL[c] || c).join(', ')}` : ''}
-                          style={{
-                            display: 'flex', alignItems: 'flex-start', gap: 8,
-                            padding: '9px 11px', border: '1px solid var(--rule)',
-                            borderRadius: 'var(--r-sm)',
-                            background: on ? 'var(--accent-soft)' : 'var(--surface)',
-                            cursor: locked ? 'not-allowed' : 'pointer',
-                            opacity: locked && !on ? 0.6 : 1,
-                          }}>
-                          <input type="checkbox" checked={on} disabled={locked}
-                            onChange={() => toggle(key)} style={{ marginTop: 2 }} />
-                          <span style={{ minWidth: 0 }}>
-                            <span style={{ fontSize: 13, fontWeight: 600, display: 'block' }}>
-                              {LABEL[key] || key}
-                            </span>
-                            {always && (
-                              <span style={{ fontSize: 11, color: 'var(--text-3)' }}>Always included</span>
-                            )}
-                            {forced && (
-                              <span style={{ fontSize: 11, color: 'var(--accent)' }}>
-                                Required by {forced.map(c => LABEL[c] || c).join(', ')}
-                              </span>
-                            )}
-                          </span>
-                        </label>
-                      );
-                    })}
-                  </div>
-                </div>
-              );
-            })}
+            <ModulePicker graph={graph} selected={selected} effective={effective}
+              lockedBy={lockedBy} toggle={toggle} />
             <div style={{ fontSize: 12, color: 'var(--text-2)' }}>
               <strong>{selected.size}</strong> selected ·{' '}
               <strong>{effective.size}</strong> licensed after dependencies

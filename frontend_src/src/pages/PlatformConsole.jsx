@@ -14,6 +14,7 @@ import FleetHealth from './platform/FleetHealth';
 import BusinessAnalytics from './platform/BusinessAnalytics';
 import { ChangeOwnPassword, TenantUserAdmin } from './platform/UserAdmin';
 import SupportInbox from './platform/SupportInbox';
+import ModuleEditor from './platform/ModuleEditor';
 import { useLocale } from '../hooks/useLocale';
 import { LoadingSpinner, toast } from '../components/shared';
 
@@ -148,6 +149,7 @@ function TenantManager({ t }) {
   const [creating, setCreating] = useState(false);
   const [expanded, setExpanded] = useState(null);   // slug whose domains panel is open
   const [resetting, setResetting] = useState(null); // tenant awaiting reset confirmation
+  const [editingModules, setEditingModules] = useState(null); // tenant whose licence is open
   const [usersFor, setUsersFor]   = useState(null); // slug whose user panel is open
 
   async function reload() {
@@ -211,6 +213,12 @@ function TenantManager({ t }) {
         </div>
       )}
 
+      {editingModules && (
+        <ModuleEditor tenant={editingModules}
+          onClose={() => setEditingModules(null)}
+          onSaved={reload} />
+      )}
+
       {resetting && (
         <FactoryResetDialog tenant={resetting} t={t}
           onClose={() => setResetting(null)}
@@ -227,13 +235,14 @@ function TenantManager({ t }) {
                 <th>{t('platform.businessName')}</th>
                 <th>{t('platform.plan')}</th>
                 <th>{t('platform.status')}</th>
+                <th>{t('platform.modules')}</th>
                 <th>{t('platform.created')}</th>
                 <th />
               </tr>
             </thead>
             <tbody>
               {tenants.length === 0 && (
-                <tr><td colSpan={6} style={{ textAlign: 'center', color: 'var(--text-3)', padding: 24 }}>
+                <tr><td colSpan={7} style={{ textAlign: 'center', color: 'var(--text-3)', padding: 24 }}>
                   {t('platform.noTenants')}
                 </td></tr>
               )}
@@ -248,6 +257,19 @@ function TenantManager({ t }) {
                       {tn.status === 'active' ? t('platform.active') : t('platform.suspended')}
                     </span>
                   </td>
+                  <td style={{ fontSize: 12.5 }}>
+                    {/* An empty licence means the tenant sees EVERY module —
+                        the fail-open in tenancy.tenant_modules(). That used to
+                        be invisible here, so a business could run unrestricted
+                        for weeks without anyone noticing. Now it is loud. */}
+                    {(tn.modules || '').trim()
+                      ? <span style={{ color: 'var(--text-2)' }}>
+                          {(tn.modules || '').split(',').filter(Boolean).length} {t('platform.licensed')}
+                        </span>
+                      : <span className="badge badge-yellow" title={t('platform.unrestrictedHint')}>
+                          ⚠ {t('platform.unrestricted')}
+                        </span>}
+                  </td>
                   <td style={{ fontSize: 12.5, color: 'var(--text-2)' }}>{(tn.created_at || '').slice(0, 10)}</td>
                   <td style={{ textAlign: 'end', whiteSpace: 'nowrap' }}>
                     <button className="btn btn-sm btn-secondary"
@@ -258,6 +280,11 @@ function TenantManager({ t }) {
                     <button className="btn btn-sm btn-secondary"
                       onClick={() => setUsersFor(usersFor === tn.slug ? null : tn.slug)}>
                       {t('platform.users')}
+                    </button>
+                    {' '}
+                    <button className="btn btn-sm btn-secondary"
+                      onClick={() => setEditingModules(tn)}>
+                      {t('platform.modules')}
                     </button>
                     {' '}
                     {tn.status === 'active' ? (

@@ -620,6 +620,10 @@ const en = {
   },
 
   platform: {
+    modules: 'Modules',
+    licensed: 'licensed',
+    unrestricted: 'Unrestricted',
+    unrestrictedHint: 'No licence recorded — this business currently sees every module. Open Modules to set what they bought.',
     users: 'Users',
     domains: 'Domains',
     changePassword: 'Change password',

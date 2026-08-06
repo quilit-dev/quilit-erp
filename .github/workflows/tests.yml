@@ -108,7 +108,8 @@ jobs:
         working-directory: backend
         run: |
           python -m pytest tests/test_multitenancy.py tests/test_platform.py \
-                           tests/test_tenant_security.py -q -p no:cacheprovider
+                           tests/test_tenant_security.py tests/test_module_licensing.py \
+                           -q -p no:cacheprovider
 
   # The frontend gate. esbuild does no scope analysis, so a missing import
   # builds fine and white-screens at runtime; lint is the only thing that
