@@ -216,24 +216,110 @@ function StatusBadge({ status, t }) {
   return <span className={`badge ${cls}`}>{label}</span>;
 }
 
-// Row action that opens the dialog. Replaces the older bare WhatsApp button on
-// invoice/quotation rows: same channel, but the message now carries a link to
-// the document and the send is recorded.
+// Row actions.
+//
+// Three controls rather than one, because the cost of a click is not the same
+// as the cost of a wrong send:
+//
+//   WhatsApp  — one click, genuinely free. The message opens in the user's own
+//               WhatsApp and they still press send there, so a misclick costs
+//               nothing and there is no way to fire at the wrong client silently.
+//   Email     — one click, but an email cannot be unsent, so the toast names the
+//               address it went to. That is the only undo available.
+//   Send…     — the full dialog, for changing recipient or message and reading
+//               the history.
+//
+// PDF (open / download) lives on the same row via PdfButtons: the server route
+// exists precisely because window.print() cannot serve a mobile app.
 export function SendDocumentButton({ entityType, doc }) {
   const { t } = useLocale();
   const [open, setOpen] = useState(false);
+  const [busy, setBusy] = useState(null);
+
+  const recipientEmail = doc?.client_email;
+  const recipientPhone = doc?.client_phone;
+
+  async function quickSend(channel) {
+    setBusy(channel);
+    try {
+      const r = await commsSend({ entity_type: entityType, entity_id: doc.id, channel });
+      if (channel === 'whatsapp' && r?.wa_url) {
+        // Opened, not sent — the user completes it in WhatsApp. The log says the
+        // same thing, so nothing here claims a delivery it cannot observe.
+        window.open(r.wa_url, '_blank', 'noopener,noreferrer');
+      } else if (channel === 'email') {
+        toast(t('comms.emailedTo', { to: r?.recipient || recipientEmail || '' }));
+      }
+    } catch (e) {
+      toast(e?.message || t('comms.sendFailed'), 'red');
+    } finally {
+      setBusy(null);
+    }
+  }
+
+  const btn = {
+    display: 'inline-flex', alignItems: 'center', gap: 5,
+    padding: '3px 9px', fontSize: 12, lineHeight: 1.4,
+  };
+
   return (
     <>
+      {recipientPhone && (
+        <button className="btn btn-sm btn-secondary" style={btn} disabled={busy}
+          title={t('comms.quickWhatsapp')} onClick={() => quickSend('whatsapp')}>
+          <Icon name="message-circle" size={13} />
+          {busy === 'whatsapp' ? '…' : t('comms.whatsapp')}
+        </button>
+      )}
+      {recipientEmail && (
+        <button className="btn btn-sm btn-secondary" style={btn} disabled={busy}
+          title={t('comms.quickEmail', { to: recipientEmail })}
+          onClick={() => quickSend('email')}>
+          <Icon name="mail" size={13} />
+          {busy === 'email' ? '…' : t('comms.email')}
+        </button>
+      )}
       <button className="btn btn-sm btn-secondary" onClick={() => setOpen(true)}
-        title={t('comms.sendTitle')}
-        style={{ display: 'inline-flex', alignItems: 'center', gap: 5,
-                 padding: '3px 9px', fontSize: 12, lineHeight: 1.4 }}>
+        title={t('comms.sendTitle')} style={btn}>
         <Icon name="send" size={13} />
         {t('comms.send')}
       </button>
       {open && (
         <SendDocument entityType={entityType} doc={doc} onClose={() => setOpen(false)} />
       )}
+    </>
+  );
+}
+
+// Open / download the server-rendered PDF.
+//
+// Separate from the browser's print path on purpose. window.print() needs a
+// human at a print dialog, which a mobile app cannot show and an email cannot
+// attach — these hit /api/pdf, which renders without a browser at all.
+//
+// The link is a plain anchor rather than a fetch: the browser and the mobile
+// webview already know how to preview a PDF and how to save one, and reusing
+// that costs nothing and behaves natively on both.
+export function PdfButtons({ entityType, doc }) {
+  const { t } = useLocale();
+  const base = entityType === 'invoice'
+    ? `/api/pdf/invoices/${doc.id}.pdf`
+    : `/api/pdf/quotations/${doc.id}.pdf`;
+  const btn = {
+    display: 'inline-flex', alignItems: 'center', gap: 5,
+    padding: '3px 9px', fontSize: 12, lineHeight: 1.4, textDecoration: 'none',
+  };
+  return (
+    <>
+      <a className="btn btn-sm btn-secondary" style={btn} href={base}
+         target="_blank" rel="noopener noreferrer" title={t('comms.openPdf')}>
+        <Icon name="file-text" size={13} />
+        PDF
+      </a>
+      <a className="btn btn-sm btn-secondary" style={btn}
+         href={`${base}?download=1`} title={t('comms.downloadPdf')}>
+        <Icon name="download" size={13} />
+      </a>
     </>
   );
 }

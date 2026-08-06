@@ -378,6 +378,39 @@ erDiagram
 | `POST /api/pos/return/{sale_id}` | Void + restock atomically |
 | `GET /api/pos/summary` | KPIs (today's sales, top items, …) |
 
+## Receipt printing
+
+The receipt is laid out for thermal paper and printed through the browser.
+
+**Paper width.** Settings → Financial → *Receipt paper width* switches between
+**80 mm** (default) and **58 mm**. Set it to match the roll in the printer: a
+receipt laid out for 80 mm prints clipped on a 58 mm roll, and a 58 mm layout on
+an 80 mm roll wastes half the paper. This is a per-company setting, so a business
+with mixed hardware should standardise the rolls rather than the setting.
+
+**One-click printing.** `window.print()` opens the browser's print dialog, and no
+web page can bypass that — it is a browser security boundary, not a missing
+feature. For a dedicated till, launch Chrome with kiosk printing and the dialog
+disappears; the receipt goes straight to the default printer on click:
+
+```
+chrome --kiosk-printing --app=https://<your-subdomain>.quilit.dev/pos
+```
+
+Set the thermal printer as the machine's **default** printer first, since that is
+where kiosk printing sends the job. This is the recommended setup for a fixed
+counter and needs no changes to the ERP.
+
+**What this does not do.** There is no ESC/POS control, so the ERP cannot cut the
+paper, kick the cash drawer, or beep. Those need raw byte access to the printer —
+either a local print agent, or a native mobile app using Bluetooth. Most thermal
+printers cut automatically on a page boundary, which is why this is rarely a
+problem in practice.
+
+**Mobile.** A phone browser cannot drive a Bluetooth receipt printer reliably, so
+one-tap printing from a phone requires a native wrapper. Printing from a mobile
+browser goes through the OS print dialog like any other page.
+
 ## What's NOT supported (deliberately)
 
 - Layaway / partial-payment over multiple sessions. POS is for over-the-

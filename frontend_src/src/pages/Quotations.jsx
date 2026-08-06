@@ -13,7 +13,7 @@ import {
   Badge, ExportButton, fmt, fmtDate, toast, SortableTh, Pagination,
   DualMoney, ExchangeRateBadge, DisplayCurrencyToggle, NumberInput, BranchField,
   Icon} from '../components/shared';
-import { SendDocumentButton } from '../components/SendDocument';
+import { SendDocumentButton, PdfButtons } from '../components/SendDocument';
 import { exportQuotationPDF, exportQuotationExcel } from '../utils/exportUtils';
 import { useLocale } from '../hooks/useLocale.jsx';
 import { usePermissions } from '../hooks/usePermissions';
@@ -463,7 +463,10 @@ export default function Quotations() {
                           {isVoided ? (
                             <span style={{ fontSize: 11, color: 'var(--text-3)', fontStyle: 'italic' }}>{t('invoices.voidedLabel')}</span>
                           ) : (
-                            <SendDocumentButton entityType="quotation" doc={q} />
+                            <>
+                              <SendDocumentButton entityType="quotation" doc={q} />
+                              <PdfButtons entityType="quotation" doc={q} />
+                            </>
                           )}
                           {q.invoice_count === 0 && !isVoided && (
                             <button

@@ -2,7 +2,7 @@
 import { useState, useRef, useEffect } from 'react';
 import { useLocale } from '../../hooks/useLocale.jsx';
 import { Icon } from '../../components/shared';
-import { SendDocumentButton } from '../../components/SendDocument';
+import { SendDocumentButton, PdfButtons } from '../../components/SendDocument';
 
 // ── Per-row action dropdown ───────────────────────────────────────────────
 function ActionMenu({ inv, exporting, onEdit, onPay, onExport, onVoid, onUnvoid }) {
@@ -33,6 +33,7 @@ function ActionMenu({ inv, exporting, onEdit, onPay, onExport, onVoid, onUnvoid 
   return (
     <div style={{ display: 'flex', gap: 5, alignItems: 'center', justifyContent: 'flex-end' }}>
       {!isVoided && <SendDocumentButton entityType="invoice" doc={inv} />}
+      <PdfButtons entityType="invoice" doc={inv} />
       {isVoided ? (
         <span style={{ fontSize: 11, color: 'var(--text-3)', fontStyle: 'italic' }}>{t('invoices.voidedLabel')}</span>
       ) : !isPaid ? (

@@ -620,6 +620,11 @@ const ar = {
   },
 
   comms: {
+    quickWhatsapp: 'إرسال عبر واتساب — يُفتح في تطبيقك',
+    quickEmail: 'إرسال بالبريد إلى {{to}}',
+    emailedTo: 'تم الإرسال بالبريد إلى {{to}}',
+    openPdf: 'فتح ملف PDF',
+    downloadPdf: 'تنزيل ملف PDF',
     pageHint: 'كل ما أُرسل إلى العملاء — الفواتير وعروض الأسعار، وهل تم فتحها.',
     neverOpened: 'لم يُفتح أبداً',
     notOpenedYet: 'لم يُفتح بعد',
@@ -2096,6 +2101,8 @@ const ar = {
   },
 
   settings: {
+    receiptWidth: 'عرض ورق الإيصال',
+    receiptWidthHint: 'اختر عرض بكرة الطابعة الحرارية. الإيصال المعدّ لـ 80 مم يُطبع مقطوعاً على بكرة 58 مم والعكس صحيح.',
     title: 'الإعدادات',
     subtitle: 'تكوين النظام',
     companyName: 'اسم الشركة',

@@ -37,7 +37,14 @@ function ReceiptModal({ sale, onClose }) {
   // Inline styles only — keeps the receipt visually isolated from the
   // rest of the app's design tokens (light text on dark theme would
   // ruin a printed receipt).
-  const RECEIPT_WIDTH = 320;     // px on screen ~= 80mm thermal paper
+  // Paper width is a SETTING, not a constant. 58mm rolls are as common as 80mm
+  // in small shops, and a receipt laid out for 80mm prints clipped or wildly
+  // padded on one — a silent, per-customer defect that only shows on real
+  // hardware. Anything other than an explicit 58 falls back to 80.
+  const paperMm = String(co.pos_receipt_width || '80').trim() === '58' ? 58 : 80;
+  // The on-screen preview is scaled to match the paper so what the cashier
+  // checks is what the roll produces (~4px per mm at this font size).
+  const RECEIPT_WIDTH = paperMm === 58 ? 232 : 320;
   const MONO = '"JetBrains Mono", "Courier New", ui-monospace, monospace';
 
   return (
@@ -55,10 +62,10 @@ function ReceiptModal({ sale, onClose }) {
           body.pos-receipt-printing .pos-receipt * { visibility: visible !important; }
           body.pos-receipt-printing .pos-receipt {
             position: absolute !important; left: 0 !important; top: 0 !important;
-            width: 80mm !important; padding: 4mm !important; margin: 0 !important;
+            width: ${paperMm}mm !important; padding: ${paperMm === 58 ? 3 : 4}mm !important; margin: 0 !important;
             border: none !important; border-radius: 0 !important; box-shadow: none !important;
           }
-          @page { margin: 0; size: 80mm auto; }
+          @page { margin: 0; size: ${paperMm}mm auto; }
         }
       `}</style>
 

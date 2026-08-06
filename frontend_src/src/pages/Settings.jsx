@@ -67,6 +67,7 @@ export default function Settings() {
     'payroll_tax_pct', 'payroll_nssf_employee_pct',
     'payroll_nssf_employer_pct', 'payroll_overtime_multiplier',
     'footer_text', 'show_discount_col', 'show_tax_col',
+    'pos_receipt_width',
   ]);
 
   async function save() {
@@ -292,6 +293,13 @@ export default function Settings() {
             </Field>
             <Field label={t('settings.quotationPrefix')}>
               <Input disabled={!isAdmin} value={form.quotation_prefix || ''} onChange={set('quotation_prefix')} placeholder="QTN-" />
+            </Field>
+            <Field label={t('settings.receiptWidth')} hint={t('settings.receiptWidthHint')}>
+              <select className="form-control" disabled={!isAdmin}
+                value={form.pos_receipt_width || '80'} onChange={set('pos_receipt_width')}>
+                <option value="80">80 mm</option>
+                <option value="58">58 mm</option>
+              </select>
             </Field>
             <Field label={t('settings.contractPrefix')}>
               <Input disabled={!isAdmin} value={form.contract_prefix || ''} onChange={set('contract_prefix')} placeholder="CTR-" />

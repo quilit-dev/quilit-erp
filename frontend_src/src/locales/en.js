@@ -623,6 +623,11 @@ const en = {
   },
 
   comms: {
+    quickWhatsapp: 'Send by WhatsApp — opens in your WhatsApp',
+    quickEmail: 'Email to {{to}}',
+    emailedTo: 'Emailed to {{to}}',
+    openPdf: 'Open the PDF',
+    downloadPdf: 'Download the PDF',
     pageHint: 'Everything sent to clients — invoices, quotations, and whether they were opened.',
     neverOpened: 'Never opened',
     notOpenedYet: 'Not opened yet',
@@ -2101,6 +2106,8 @@ const en = {
   },
 
   settings: {
+    receiptWidth: 'Receipt paper width',
+    receiptWidthHint: 'Match the roll in your thermal printer. A 58 mm receipt prints clipped on an 80 mm layout, and vice versa.',
     title: 'Settings',
     subtitle: 'System configuration',
     companyName: 'Company Name',
