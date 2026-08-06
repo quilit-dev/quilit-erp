@@ -309,7 +309,7 @@ function DomainManager({ slug }) {
     try { setDomains(await pfetch('GET', `/api/platform/tenants/${slug}/domains`)); }
     catch (err) { toast(err.message, 'red'); }
   }
-  useEffect(() => { reload(); /* eslint-disable-next-line */ }, [slug]);
+  useEffect(() => { reload(); }, [slug]);
 
   async function add(e) {
     e.preventDefault();

@@ -82,7 +82,7 @@ export function TenantUserAdmin({ slug }) {
 
   const load = () => pfetch('GET', `/api/platform/tenants/${slug}/users`)
     .then(setUsers).catch(e => setError(e.message));
-  useEffect(() => { load(); }, [slug]);   // eslint-disable-line react-hooks/exhaustive-deps
+  useEffect(() => { load(); }, [slug]);
 
   async function reset(username) {
     setBusy(username);

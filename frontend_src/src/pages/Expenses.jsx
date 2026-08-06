@@ -28,7 +28,7 @@ function TransactionsPanel() {
       const exp = expenses.find(x => x.id === focusId);
       if (exp) { openEdit(exp); clearFocus(); }
     }
-  }, [focusId, expenses]);   // eslint-disable-line react-hooks/exhaustive-deps
+  }, [focusId, expenses]);
   const { t, tCategory } = useLocale();
   const expenseCats = useCategories('expense');
   const catOptions = expenseCats;

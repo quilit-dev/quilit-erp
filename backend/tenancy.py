@@ -929,6 +929,66 @@ def _looks_like_tenant_host(scope) -> bool:
     return "." not in label and label not in ("www", "app", "api", "admin")
 
 
+# A mistyped workspace address is almost always typed by a PERSON into a browser
+# bar, so the reply has to read like a page, not like a failed API call. API
+# clients still get JSON — they cannot do anything with markup.
+_NO_WORKSPACE_HTML = """<!DOCTYPE html>
+<html lang="en"><head><meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>Workspace not found</title>
+<style>
+  :root {{ color-scheme: light dark; --bg:#fbfafb; --fg:#1c1a1d; --muted:#6b6570;
+           --card:#fff; --line:#e7e3e8; --accent:#714B67; }}
+  @media (prefers-color-scheme: dark) {{
+    :root {{ --bg:#161418; --fg:#f2eff3; --muted:#9d95a1;
+             --card:#211d23; --line:#332d36; --accent:#C49AB8; }}
+  }}
+  * {{ box-sizing:border-box; }}
+  body {{ margin:0; min-height:100vh; display:flex; align-items:center;
+          justify-content:center; padding:24px; background:var(--bg);
+          color:var(--fg);
+          font:15px/1.6 system-ui,-apple-system,"Segoe UI",Roboto,sans-serif; }}
+  .card {{ background:var(--card); border:1px solid var(--line); border-radius:14px;
+           padding:40px 36px; max-width:440px; width:100%; text-align:center; }}
+  h1 {{ margin:18px 0 8px; font-size:20px; letter-spacing:-.01em; }}
+  p {{ margin:0 0 14px; color:var(--muted); font-size:14px; }}
+  code {{ background:var(--bg); border:1px solid var(--line); border-radius:6px;
+          padding:2px 7px; font-size:13px; color:var(--fg); word-break:break-all; }}
+  .mark {{ color:var(--accent); }}
+</style></head>
+<body><div class="card">
+  <svg class="mark" width="46" height="46" viewBox="-1 5.5 118 118" fill="none"
+       aria-hidden="true">
+    <circle cx="58" cy="64" r="42" stroke="currentColor" stroke-width="9"/>
+    <path d="M78 88 L102 112" stroke="currentColor" stroke-width="9"
+          stroke-linecap="round"/>
+  </svg>
+  <h1>Workspace not found</h1>
+  <p>There is no workspace at <code>{host}</code>.</p>
+  <p>Check the address with your administrator — it is easy to mistype.</p>
+</div></body></html>"""
+
+
+def _no_workspace_response(scope):
+    """404 for an unknown subdomain, in whichever format the caller can use."""
+    from starlette.responses import HTMLResponse, JSONResponse
+    headers = {k.decode("latin1").lower(): v.decode("latin1")
+               for k, v in scope.get("headers", [])}
+    accept = headers.get("accept", "")
+    detail = "No such workspace. Check the address with your administrator."
+    # /api callers and anything explicitly asking for JSON keep the old body,
+    # so nothing that parses this response has to change.
+    if scope.get("path", "").startswith("/api") or "application/json" in accept:
+        return JSONResponse({"detail": detail}, status_code=404)
+    if "text/html" not in accept:
+        return JSONResponse({"detail": detail}, status_code=404)
+    host = headers.get("host", "").split(":")[0].strip()
+    # Escape: the host is attacker-controllable, and it is echoed into markup.
+    from html import escape
+    return HTMLResponse(_NO_WORKSPACE_HTML.format(host=escape(host)),
+                        status_code=404)
+
+
 class TenantMiddleware:
     """Pure-ASGI middleware: resolve the request's tenant schema and stash it in
     the ContextVar so get_db can pin the connection's search_path. A request that
@@ -954,11 +1014,7 @@ class TenantMiddleware:
             # this the wildcard DNS record quietly serves the app for any
             # typo'd hostname, so a mistyped workspace looks like a working
             # ERP the user cannot log into.
-            from starlette.responses import JSONResponse
-            await JSONResponse(
-                {"detail": "No such workspace. Check the address with your "
-                           "administrator."},
-                status_code=404)(scope, receive, send)
+            await _no_workspace_response(scope)(scope, receive, send)
             return
         schema = resolved[0] if resolved else None
         token = set_current_schema(schema)

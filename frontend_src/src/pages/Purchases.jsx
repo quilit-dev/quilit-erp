@@ -68,7 +68,7 @@ function PurchaseForm({ initial = {}, inventoryItems = [], inventoryCategories =
     if (defaultWarehouseId && !form.warehouse_id) {
       setForm(f => ({ ...f, warehouse_id: defaultWarehouseId }));
     }
-    // eslint-disable-next-line react-hooks/exhaustive-deps
+
   }, [defaultWarehouseId]);
 
   const useCustom = form.category === '__custom__';
@@ -461,7 +461,7 @@ export default function Purchases() {
       const p = purchases.find(x => x.id === focusId);
       if (p) { setActivePurchase(p); setModal('edit'); clearFocus(); }
     }
-  }, [focusId, purchases]);   // eslint-disable-line react-hooks/exhaustive-deps
+  }, [focusId, purchases]);
 
   const load = useCallback(async () => {
     setLoading(true);

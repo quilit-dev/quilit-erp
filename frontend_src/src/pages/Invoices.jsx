@@ -44,7 +44,7 @@ export default function Invoices() {
       const inv = invoices.find(i => i.id === focusId);
       if (inv) { openPayModal(inv); clearFocus(); }
     }
-  }, [focusId, invoices]);   // eslint-disable-line react-hooks/exhaustive-deps
+  }, [focusId, invoices]);
 
   const taxEnabled      = settings?.tax_enabled === '1';
   // Setting → "Enable per-line discounts" drives both the visible column

@@ -286,7 +286,7 @@ export function SelectOther({
     // A blank value is left alone so a fresh "Other" pick keeps the input open.
     if (value && inList(value)) setOther(false);
     else if (value && !inList(value)) setOther(true);
-  }, [value]); // eslint-disable-line react-hooks/exhaustive-deps
+  }, [value]);
 
   const showInput = other || isCustom;
 
@@ -358,7 +358,7 @@ export function BranchField({ value, onChange, label }) {
       })
       .catch(() => { /* non-critical */ });
     return () => { alive = false; };
-  }, []); // eslint-disable-line react-hooks/exhaustive-deps
+  }, []);
 
   if (!isGlobal || branches.length <= 1) return null;   // scoped users → no picker
   return (

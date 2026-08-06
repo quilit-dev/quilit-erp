@@ -165,7 +165,7 @@ export default function Quotations() {
       const q = quotations.find(x => x.id === focusId);
       if (q) { openEdit(q); clearFocus(); }
     }
-  }, [focusId, quotations]);   // eslint-disable-line react-hooks/exhaustive-deps
+  }, [focusId, quotations]);
 
   const [modalOpen,    setModalOpen]    = useState(false);
   const [form,         setForm]         = useState(makeEmpty);

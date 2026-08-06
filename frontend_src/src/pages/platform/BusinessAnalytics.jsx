@@ -46,6 +46,9 @@ function Bars({ data, valueKey, labelKey, height = 54, color = 'var(--accent)' }
 }
 
 const fmtMB = (n) => (n == null ? '—' : `${(n / 1048576).toFixed(1)} MB`);
+// A missing percentile is a real state (no histogram recorded for that day),
+// so it shows as an em dash rather than a misleading 0 ms.
+const fmtMs = (n) => (n == null ? '—' : `${Number(n).toFixed(0)} ms`);
 
 // A series that is empty because nothing has happened yet is NOT the same as a
 // metric we do not collect. Saying so prevents "no data" reading as "broken".
@@ -85,6 +88,9 @@ export default function BusinessAnalytics({ slug, name, onBack }) {
   const t = d.totals || {};
   const revenue = d.revenue_trend || [];
   const totalCollected = revenue.reduce((s, r) => s + Number(r.collected || 0), 0);
+  // The most recent day that actually saw traffic — the last row can be a
+  // quiet day whose latency numbers say nothing.
+  const latest = [...(d.api_usage || [])].reverse().find(r => Number(r.requests) > 0);
 
   return (
     <div>
@@ -170,13 +176,31 @@ export default function BusinessAnalytics({ slug, name, onBack }) {
         ) : <Pending what="request volume" />}
       </Panel>
 
-      {/* Average is total/requests; max is the worst single call that day.
-          Together they answer "is this customer's ERP slow?" without the
-          machinery a percentile would need. */}
-      <Panel title="Response time" hint="average ms per day">
-        {d.api_usage?.length
-          ? <Bars data={d.api_usage} valueKey="avg_ms" labelKey="day" color="var(--yellow)" />
-          : <Pending what="latency" />}
+      {/* p95 is the headline, not the average: the average is dragged around by
+          a handful of slow calls and ends up describing nobody's actual
+          experience. p95 answers "how slow is it when it is bad?", which is
+          what a complaining customer is describing. Both are plotted so a gap
+          between them is visible — a wide gap means the slowness is spiky
+          rather than uniform. */}
+      <Panel title="Response time" hint="p95 ms per day · approximate, from histogram buckets">
+        {d.api_usage?.length ? (
+          <>
+            <Bars data={d.api_usage} valueKey="p95_ms" labelKey="day" color="var(--yellow)" />
+            <div style={{ display: 'flex', gap: 18, marginTop: 8, fontSize: 12,
+                          color: 'var(--text-2)', flexWrap: 'wrap' }}>
+              <span>Typical (p50): <strong>{fmtMs(latest?.p50_ms)}</strong></span>
+              <span>Slow tail (p95): <strong>{fmtMs(latest?.p95_ms)}</strong></span>
+              <span>Average: <strong>{fmtMs(latest?.avg_ms)}</strong></span>
+              <span style={{ color: 'var(--text-3)' }}>latest day with traffic</span>
+            </div>
+            {latest?.p50_ms == null && (
+              <div style={{ marginTop: 6, fontSize: 12, color: 'var(--text-3)' }}>
+                Percentiles start from the first traffic after this release —
+                days recorded earlier have no histogram to read.
+              </div>
+            )}
+          </>
+        ) : <Pending what="latency" />}
       </Panel>
 
       <Panel title="Storage growth" hint="database size · one snapshot per day">

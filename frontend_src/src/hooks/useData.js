@@ -61,7 +61,7 @@ export function useData(fetchFn, deps = []) {
         setLoading(false);
       }
     }
-  // eslint-disable-next-line react-hooks/exhaustive-deps
+
   }, deps);
 
   // Run on mount and whenever deps change
@@ -132,7 +132,7 @@ export function useMultiData(fetchFns) {
     setResults(newResults);
     setErrors(newErrors);
     setLoadings(newLoadings);
-  // eslint-disable-next-line react-hooks/exhaustive-deps
+
   }, []);
 
   useEffect(() => { load(); }, [load]);

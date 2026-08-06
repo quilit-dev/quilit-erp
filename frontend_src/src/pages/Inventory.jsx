@@ -61,7 +61,7 @@ export default function Inventory() {
       const it = items.find(x => x.id === focusId);
       if (it) { setView('items'); setActiveItem(it); setModal('edit'); clearFocus(); }
     }
-  }, [focusId, items]);   // eslint-disable-line react-hooks/exhaustive-deps
+  }, [focusId, items]);
 
   const load = useCallback(async () => {
     setLoading(true);

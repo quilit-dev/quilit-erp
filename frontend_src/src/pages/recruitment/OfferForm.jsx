@@ -48,7 +48,7 @@ function OfferForm({ appId, applicant, existing, onClose, onSaved }) {
     const end = new Date(start);
     end.setMonth(end.getMonth() + Number(form.probation_months));
     setForm(f => ({ ...f, probation_end_date: end.toISOString().slice(0, 10) }));
-  // eslint-disable-next-line react-hooks/exhaustive-deps
+
   }, [form.start_date, form.probation_months]);
 
   async function submit(e) {

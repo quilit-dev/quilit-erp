@@ -26,7 +26,7 @@ function AccessTab({ t }) {
     } catch (e) { toast(e.message, 'red'); }
     finally { setLoading(false); }
   }
-  useEffect(() => { load(); /* eslint-disable-line */ }, []);
+  useEffect(() => { load(); }, []);
 
   if (loading) return <LoadingSpinner />;
   if (!warehouses.length) return <EmptyState icon="🏬" title={t('warehouses.noneTitle')} subtitle={t('warehouses.noneAdmin')} />;
