@@ -44,6 +44,7 @@
    - 7.26 [Recurring Expenses](#726-recurring-expenses)
    - 7.27 [Attachments (cross-cutting)](#727-attachments-cross-cutting)
    - 7.28 [Accounting (General Ledger)](#728-accounting-general-ledger)
+   - 7.29 [Client Communications](#729-client-communications)
 8. [Taxation & Multi-Currency](#8-taxation--multi-currency)
 9. [API Reference](#9-api-reference)
 10. [Database Schema](#10-database-schema)
@@ -55,7 +56,9 @@
 16. [Product Variants & Attributes](#16-product-variants--attributes)
 17. [Category Registry](#17-category-registry)
 18. [Multi-Branch & Multi-Warehouse](#18-multi-branch--multi-warehouse)
-19. [Module Licensing & Per-Instance Hosting](#19-module-licensing--per-instance-hosting)
+19. [Module Licensing](#19-module-licensing)
+20. [Document Rendering (PDF)](#20-document-rendering-pdf)
+21. [Client Communications & Share Links](#21-client-communications--share-links)
 
 ---
 
@@ -132,7 +135,7 @@ erp-system/
 │   │   ├── settings.py         documents.py   audit.py
 │   │   ├── archives.py         announcements.py
 │   │   └── users.py            roles.py
-│   ├── tests/                  # Pytest QA suite (see §14) — 431 tests
+│   ├── tests/                  # Pytest QA suite (see §14) — 1074 passing
 │   │   ├── conftest.py         # Fixtures: fresh DB per test, auth clients
 │   │   ├── test_smoke_endpoints.py     test_auth_session.py
 │   │   ├── test_role_permission_matrix.py
@@ -291,6 +294,20 @@ All runtime configuration is provided via **environment variables**. Create a `.
 | `DB_PATH` | `erp.db` | Path to the SQLite database file |
 | `PORT` | `8765` | Backend HTTP port. Auto-increments if the port is already in use |
 | `BIND_HOST` | `0.0.0.0` | Bind address. Use `127.0.0.1` to restrict access to localhost only |
+| `DB_BACKEND` | `sqlite` | `postgres` for a cloud deployment |
+| `DATABASE_URL` | — | Postgres DSN; required when `DB_BACKEND=postgres`. Several aliases are accepted (Railway exposes a private-network variant) and an empty value fails fast rather than silently falling back to localhost |
+| `TENANCY` | `single` | `schema` = one isolated PostgreSQL schema per customer (§2) |
+| `ENABLED_MODULES` | *(empty)* | Fallback module whitelist. A per-tenant licence takes precedence — see §19 |
+| `TENANT_BASE_DOMAIN` | *(empty)* | e.g. `quilit.dev`. An unknown subdomain under this domain returns a branded 404 instead of serving an ERP nobody can log into. Only matters with wildcard DNS; unset leaves the guard completely inert, so it cannot regress an existing deployment |
+| `API_DOCS` | *(empty)* | `on` re-enables `/docs`, `/redoc` and `/openapi.json`, which are switched **off** automatically whenever `TENANCY` is a multi-tenant mode — they otherwise publish the entire API surface unauthenticated |
+| `STORAGE` | `db` | `s3` stores attachments in S3/R2 instead of the database |
+| `S3_BUCKET`, `S3_ENDPOINT_URL`, `S3_ACCESS_KEY_ID`, `S3_SECRET_ACCESS_KEY` | — | Required when `STORAGE=s3`. Omit the endpoint for AWS; set it for Cloudflare R2 or MinIO |
+| `RESEND_API_KEY` | *(empty)* | Email delivery for §21. Unset means the email channel reports itself unavailable in the UI and explains why, rather than failing at the moment of sending |
+| `MAIL_FROM` | *(empty)* | Sender address; must be a domain verified with the provider |
+| `MAIL_FROM_NAME` | *(empty)* | Display name on outgoing mail |
+| `SHARE_LINK_TTL_DAYS` | `30` | Lifetime of a client share link. `0` = never expires |
+| `LOG_FORMAT` | `text` | `json` for structured logs with per-request correlation ids |
+| `WEB_CONCURRENCY` | `3` | Gunicorn workers in the container. Note the module-licence cache is per-process — see §19 |
 
 ### System Settings (via UI)
 
@@ -1477,6 +1494,66 @@ A whole financial year can be **closed** (e.g. `2025 → closed`) from **Account
 The **Income Statement excludes** closing entries (and their reversals), so a closed year still shows its real operating result; the **Balance Sheet / Trial Balance include** them, so the profit shows up in Retained Earnings. **Reopening** a year (admin / `accounting:delete`) reverses the closing entry and unlocks the year. Closing requires `accounting:edit`.
 
 > **Scope (simplified).** Posting is **forward-only** — entries accrue from the moment the module ships; there is no automatic backfill of historical transactions (post an opening-balance manual entry to seed balances). Inventory valuation and VAT liability are not split into the GL in this version (purchases are expensed on payment and invoice payments are recognised gross), keeping the ledger perfectly aligned with the existing cash-basis reports.
+
+---
+
+### 7.29 Client Communications
+
+**Module key:** `communications` · **Requires:** `clients` · **Sidebar:** Sales →
+Communications
+
+Sends invoices and quotations to the client who owes them, and records what went
+out. Full design rationale in [§21](#21-client-communications--share-links); this
+section is the operational view.
+
+**Permissions** — `view` reads the history, `create` sends. Split on purpose: a
+bookkeeper can be allowed to check whether an invoice was delivered without being
+allowed to send anything to a customer.
+
+**Sending.** The `Send` button on an invoice or quotation row opens a dialog with
+an Email and a WhatsApp tab, the recipient pre-filled from the client record, and
+the per-document history. The ⋯ menu carries one-click **Send by WhatsApp** and
+**Send by email** for when no changes are needed.
+
+| Channel | Configuration | What the log records |
+|---------|---------------|----------------------|
+| WhatsApp | none — a `wa.me` deep link opens the user's own WhatsApp | `opened` (nothing observes delivery) |
+| Email | `RESEND_API_KEY` + `MAIL_FROM` | `sent`, or `failed` with the provider error |
+
+Every send mints a fresh expiring, revocable link to a client-facing document page
+— no login, and a Print / Save-PDF button. Opening it increments a view count.
+
+**The Communications page** aggregates every send across every document:
+
+- counters for **sent**, **opened**, **failed**, and **never opened**
+- filters by channel, status and recipient search
+- revoke any live link
+- a warning when email is unconfigured, since that is where someone lands when
+  wondering why mail is not going out
+
+*Never opened* is the number worth watching. A failure is loud and gets fixed; a
+delivered-but-ignored invoice is silent, and it is the one that ages into a
+collections problem.
+
+**Endpoints**
+
+```
+GET   /api/communications/status                # can email actually send?
+POST  /api/communications/send                  # {entity_type, entity_id, channel, to?, note?}
+GET   /api/communications/log?entity_type=&entity_id=
+GET   /api/communications/history?channel=&status=&q=
+POST  /api/communications/shares/{id}/revoke
+GET   /api/communications/public/{token}        # UNAUTHENTICATED — the client's view
+```
+
+**Tables** — `communications_log` (channel, recipient, subject, status, error,
+share id, sender, timestamp) and `document_shares` (token hash, expiry, revocation,
+view count). Both live in the tenant schema, so a token from one customer is
+meaningless against another.
+
+**Not included:** the WhatsApp Business API (needs per-customer Meta onboarding),
+per-tenant DKIM, and PDF attachments — email currently carries the link rather than
+the file, though the renderer for one exists (§20).
 
 ---
 
@@ -3073,14 +3150,65 @@ The backend ships with a **pytest** suite under `backend/tests/`. It runs agains
 
 ### Running the Tests
 
-The suite needs two dev-only dependencies that are not in `requirements.txt`:
+The suite needs dev-only dependencies that are not in `requirements.txt`:
 
 ```bash
-pip install pytest httpx
+pip install pytest httpx moto fakeredis pypdf
 
 cd backend
-python -m pytest tests/ -v
+python -m pytest tests/ -q          # ~13 minutes
 ```
+
+`pypdf` is not optional in spirit: without it every PDF content assertion in
+`test_pdf.py` calls `importorskip` and silently passes, producing a green run that
+checked nothing about the documents.
+
+**Current baseline: 1074 passing, 33 skipped, 1 known failure** across 81 files.
+The known failure is
+`test_module_provisioning.py::test_get_surfaces_overridden_constant`, verified
+pre-existing by reproducing it at HEAD with the working tree stashed.
+
+### Run it alone
+
+Every test shares the single on-disk `backend/erp.db`. Starting a second pytest —
+even one file — while another run is in progress **corrupts both**: the new run
+dies with `UNIQUE constraint failed: users.username` or
+`duplicate column name: void_prev_status`, and the original picks up spurious
+failures, so its result has to be discarded. Check for a live run before
+invoking:
+
+```bash
+ps -W | grep -c python          # expect 1
+```
+
+`-k` subsets are unreliable for the same reason — they deselect the tests that
+build state others depend on, so a subset failure is usually not a regression.
+
+### Postgres-only suites
+
+Four files skip silently on SQLite, and they are the ones proving tenant
+isolation and licensing — a green run that does not mention them has tested
+neither:
+
+```bash
+TENANCY=schema DB_BACKEND=postgres DATABASE_URL=postgresql://...   python -m pytest tests/test_multitenancy.py tests/test_platform.py                    tests/test_tenant_security.py tests/test_module_licensing.py -q
+```
+
+Baseline: **27 passing**. `test_tenant_security.py` is the adversarial half —
+forged `Host`, forged `X-Tenant`, both together, an attempted cross-tenant write,
+tenant sessions reaching for Control Center endpoints, and schema-name injection.
+
+### Frontend gate
+
+```bash
+cd frontend_src
+npm run lint     # no-undef / jsx-no-undef / rules-of-hooks
+npm test         # 73 tests: every page mounts, plus module editor, safeNav, send dialog
+npm run build
+```
+
+esbuild does no scope analysis, so a missing import builds cleanly and
+white-screens at runtime. Lint is the only thing that catches that class.
 
 ### Isolation Model
 
@@ -3277,50 +3405,273 @@ the built-in single-branch operator.
 
 ---
 
-## 19. Module Licensing & Per-Instance Hosting
+## 19. Module Licensing
 
-The same codebase serves different customers with different module sets — the
-foundation for selling the ERP as separate, optionally-branded instances.
+The same codebase serves customers who bought different module sets. Licensing is
+resolved in three layers, and only the last one is a paywall.
 
-### The whitelist
+### Where a licence lives
 
-`vendor_config.ENABLED_MODULES` is a comma-separated list of module keys.
+| Layer | Source | Precedence |
+|-------|--------|-----------|
+| Per-tenant licence | `public.tenants.modules` — comma-separated **selected** keys | highest |
+| Deployment default | `ENABLED_MODULES` environment variable | middle |
+| Build-time constant | `backend/vendor_config.py` | lowest |
 
-- **Source:** the `ENABLED_MODULES` **environment variable** if set, otherwise
-  the build-time constant in `backend/vendor_config.py`.
-- **Empty string = all modules** (dev / demo / full build) — and a complete
-  no-op, so unrestricted deployments behave exactly as before.
-- Sub-features that have their own sidebar entry (`warehouses`, `accounting`,
-  `recruitment`, `hr_activities`) are listed explicitly. The one route-guard key
-  with no sidebar entry, `hr_contracts`, rides along with its parent `hr`. System
-  keys (`dashboard`, `users`, `roles`) are never paywalled.
+`vendor_config.enabled_modules_set()` consults them in that order.
+`tenancy.tenant_modules(schema)` reads the catalog row and expands it.
 
-### Two-layer enforcement
+### Selected vs effective
 
-1. **Sidebar** hides modules not in the whitelist (cosmetic).
-2. **API** — `vendor_config.module_allowed(module)` is checked in
-   `permissions.check_perm` **before** the superadmin bypass, so an unpurchased
-   module's endpoints return **403** even to the owner. This is the real paywall;
-   the sidebar alone is not.
+The catalog stores what the operator **picked**. The effective set is the
+dependency closure of that, recomputed on read by `capabilities.resolve()`.
+Storing the closure instead would freeze today's dependency graph into every
+existing customer's licence, so a later change to the graph would leave old
+tenants silently wrong.
 
-### Hosting two customers
+`capabilities.ALWAYS_ON` — `dashboard`, `users`, `roles`, `settings`, `audit`,
+`accounting` — is never paywalled. `_REQUIRES` is derived from the cross-module
+table reads each module actually performs, so ticking Point of Sale forces
+Invoices, Inventory, Cash and Clients on and locks them as required.
 
-**Desktop / self-hosted (SQLite):** set the constant in `vendor_config.py`,
-run `.\build.ps1`, ship the installer. Each install has its own `erp.db`.
+### Fail-open, and why it is visible
 
-**Cloud (Render / PostgreSQL):** run the same repo as two services that differ
-only by environment:
+**An empty `modules` value means unrestricted.** That is deliberate — a dev or
+demo tenant should not be locked out of its own ERP — but on a paying deployment
+it means a licence that never got written silently grants every module. The
+Control Center therefore shows such a business with a yellow **Unrestricted**
+badge in the Modules column rather than leaving the state invisible.
+`test_module_licensing.py::test_no_licence_means_every_module` pins the behaviour
+so it stays a decision someone can see.
 
-| Env var | Owner A | Owner B |
-|---------|---------|---------|
-| `ENABLED_MODULES` | `crm,clients,quotations,invoices,inventory,pos,reports` | `inventory,warehouses,purchases,suppliers,manufacturing,finance,accounting,hr,recruitment` |
-| `DATABASE_URL` | Owner A's Postgres | Owner B's Postgres |
+### Enforcement
 
-No per-customer branch or rebuild is needed to change a module set — edit the env
-var and redeploy. Within each instance, RBAC still governs per-user access.
+`permissions.check_perm` consults the licence **before** the superadmin bypass, so
+an unlicensed module's endpoints return **403** to the owner too. The sidebar
+hides unlicensed entries as well, but that is cosmetic; the API check is the
+paywall.
 
-See also `docs/DEPLOYMENT.md` and `docs/SAAS_ARCHITECTURE.md`.
+### Changing a licence at runtime
+
+Control Center → Businesses → **Modules** opens the same dependency-aware picker
+the provisioning wizard uses (`ModulePicker.jsx`, shared so the two cannot drift).
+It leads with the diff — what is being enabled, what is being disabled — because
+removing a module from a live business hides screens from people mid-task.
+**A downgrade never deletes data**; the tables stay and re-enabling restores
+access to the same records.
+
+`PUT /api/platform/tenants/{slug}` writes it. Because it is the shared
+`_apply_profile` path, keys are filtered through `capabilities.known_module()` —
+so a stale or misspelled key is discarded rather than stored.
+
+### The cache, and multi-worker staleness
+
+`tenant_modules()` is consulted on every permission check, so it is cached per
+process. Two consequences:
+
+1. `update_tenant()` invalidates by **schema**, not slug. It once popped the slug,
+   which was a no-op — a licence change appeared to save and then did nothing.
+2. The cache is per-process and production runs `WEB_CONCURRENCY>1`, so popping on
+   write only corrects the worker that handled it. Entries therefore expire after
+   `_MODULES_TTL` (30 s), which bounds how long another worker can serve a stale
+   licence.
+
+### Keeping the catalogue and the UI in step
+
+The picker renders only modules listed in its own presentation `GROUPS`, so a
+module added to the backend but forgotten in the frontend **cannot be licensed at
+all** — invisible in the editor, and (because empty means unrestricted) appearing
+to work until the first real licence. `tests/test_module_catalog_ui.py` reads
+`ModulePicker.jsx` and asserts every sellable module is offered, every offered key
+exists, and every one has a human label.
+
+### Hosting variants
+
+**Desktop / self-hosted (SQLite):** set the constant in `vendor_config.py`, run
+the Windows build pipeline, ship the installer. Immutable at runtime, by design.
+
+**Cloud (multi-tenant):** one deployment, per-tenant licences in the catalog,
+edited from the Control Center. No rebuild, no redeploy, no per-customer branch.
 
 ---
 
-*End of Documentation*
+## 20. Document Rendering (PDF)
+
+`backend/pdf_render.py` is the **only** place an invoice or quotation is laid out.
+A second template used to live in the frontend and render through
+`window.print()`; it was deleted, because a browser-printed document cannot be
+attached to an email, opened by a mobile app, or shown on a client's share link —
+and two templates meant the copy a customer received could drift from the one
+their supplier saw on screen.
+
+### Endpoints
+
+```
+GET /api/pdf/invoices/{id}.pdf     ?download=1  ?lang=ar
+GET /api/pdf/quotations/{id}.pdf   ?download=1  ?lang=ar
+GET /api/pdf/status
+```
+
+`inline` by default so a viewer opens it; `?download=1` switches the disposition
+to `attachment`. `Cache-Control: no-store` is deliberate — an invoice can be paid,
+edited or voided between two opens, and a proxy-cached PDF of a financial document
+is a real problem.
+
+The payload is obtained by **calling the existing get-one handlers**
+(`routers.invoices.get_invoice`) rather than re-querying. Their `Depends(...)`
+defaults are only resolved by FastAPI, so passing `db` and `user` explicitly runs
+the same function bodies the API serves, and the PDF cannot disagree with the
+screen. Permission is therefore enforced on the PDF route itself — calling a
+handler directly bypasses its own dependency.
+
+### Money is formatted, never calculated
+
+The API already returns `subtotal`, `tax_total`, `total_paid` and `remaining`.
+`pdf_render` prints those. A second implementation of the arithmetic that decides
+what a customer owes would eventually disagree with the first; a test feeds a
+payload whose total contradicts its line items and asserts the payload wins.
+
+### What the document carries
+
+Logo · company name, tagline, address, phone, email, website · tax and
+registration numbers · bill-to block · issued / due / project / payment terms ·
+per-line discount and tax columns honouring the Document Settings toggles ·
+subtotal, discount (parenthesised, in amber — a minus sign in a totals column
+reads as a credit), tax, **Grand Total**, paid, balance · a coloured
+**payment-state band** (green *paid* / amber *overdue* / accent *due*) · payment
+history · notes · bank details · secondary-currency note · configurable footer ·
+a three-column document footer identifying issuer, document and date.
+
+A quotation deliberately shows **no** balance-due or payment history — it is not a
+bill, and inviting payment against one is wrong.
+
+### Bilingual means mirrored
+
+`?lang=ar` does not merely translate. `_D` carries the direction and every
+horizontal placement asks it: the company block moves to the right, the totals to
+the left, and the item columns reverse. A test extracts the x-coordinate of the
+invoice number and asserts it sits on the opposite edge, so the assertion is about
+layout rather than alignment.
+
+Arabic needs contextual shaping and bidi reordering applied **before** the glyphs
+reach the page, because fpdf2 draws them in the order given. `shape()` does that
+via `arabic_reshaper` + `python-bidi`. The tests assert Unicode presentation forms
+(U+FE70–FEFF) are **present** and unshaped base letters **absent** — unshaped
+Arabic still produces a file starting with `%PDF`, so a check that only asserts
+"it rendered" passes on a garbled document.
+
+**Mixed-direction strings are the trap.** Bank details were once a single joined
+line: an Arabic label with a Latin value is mixed-direction, bidi put the Latin run
+first and the Arabic last, and `multi_cell` then dropped most of it — so the IBAN
+and SWIFT a client needs in order to pay silently vanished from Arabic invoices
+while English looked perfect. Each field is now its own label/value row, keeping
+every run in one direction.
+
+### Why pure Python
+
+WeasyPrint would allow HTML/CSS templates but needs pango and cairo system
+libraries, which cannot be installed or exercised on a plain developer machine —
+and PDF code that cannot be tested locally gets shipped unverified. fpdf2 costs a
+hand-written layout and buys a stack identical in dev, CI and the container, with
+no Dockerfile change.
+
+**Amiri** (OFL, `backend/assets/fonts/`) is embedded because it is the one bundled
+font covering both scripts. Noto Sans Arabic was tried first and rejected when a
+glyph probe showed it has **no Latin letters at all** — every English word in a
+bilingual invoice would have rendered as blanks.
+
+`pdf_render.available()` reports whether rendering can run and why not, so a caller
+can degrade to the share link and say something true instead of returning a 500.
+Missing dependencies produce **503 with the reason named**, not a stack trace.
+
+### POS receipts
+
+Receipts are a separate, deliberately different path: they print from the browser
+because a till has a thermal printer attached to that machine.
+`Settings → Financial → Receipt paper width` switches the layout and `@page` size
+between **80 mm** and **58 mm** — a receipt laid out for one prints clipped or
+half-empty on the other, a defect that only ever shows on real hardware. No web
+page can bypass the browser print dialog; for a dedicated till, launch Chrome with
+`--kiosk-printing` and it goes straight to the default printer. See the POS manual
+page for the limits (no paper cut, drawer kick or beep without raw ESC/POS).
+
+---
+
+## 21. Client Communications & Share Links
+
+Module key `communications`, requiring only `clients` — not invoices or
+quotations, so a tenant licensed for one can send that one without being forced
+into an upsell. It is its own RBAC surface: a role can be allowed to *see* what was
+sent without being allowed to send.
+
+### Channels
+
+**WhatsApp** needs no configuration. The server returns a `wa.me` deep link and the
+message leaves the user's own WhatsApp. The Business API was deliberately not used:
+it requires Meta verification, approved templates, per-message billing and —
+fatally for a multi-tenant product — a separate number and onboarding per
+customer. You cannot send as ten different businesses from one number. The log
+entry reads **opened**, not *sent*, because nothing here observes delivery.
+
+**Email** goes through Resend's HTTP API over `urllib` — no new dependency, no SMTP
+socket handling. Unconfigured, it fails loudly *and records the failure*: a send
+that vanishes without a trace is indistinguishable from never having tried. The
+Send dialog's email tab stays clickable when email is unavailable and explains what
+to set; disabling it made the explanation unreachable. Per-tenant DKIM is not
+implemented — mail sends from the vendor domain with the customer's name and their
+address as reply-to.
+
+### The share link
+
+This is the only route in the application that returns business data without a
+session, so it is built to be boring:
+
+- **128-bit token**, only its SHA-256 stored — a database dump yields no working links
+- **one document**, read-only, no listing, no neighbouring records
+- **expiring** (`SHARE_LINK_TTL_DAYS`) and **revocable**
+- **payload enumerated by hand** rather than spread from the row, so a later
+  `SELECT *` cannot start leaking costs or private notes
+- **every rejection is an identical 404** — distinguishing expired from revoked
+  from never-existed confirms to a prober that a token was once real
+- tokens live in the **tenant schema** and links are served from the tenant's own
+  host, so a token is meaningless against another customer
+
+A **new token per send**: sending again after a correction must not silently reuse
+a link the client may have forwarded, and revoking one send must not break another.
+
+### URL shape
+
+```
+/d/inv-2026-0042/Zso33zVa1v_XFZ7iUxKMUA
+```
+
+The document number is in the path because a bare random string reads exactly like
+a phishing link, and an invoice nobody opens has not been delivered. The segment is
+**cosmetic** — only the token is checked, and `/d/<token>` without it still
+resolves, which keeps every link already sent to a client working. It discloses
+nothing: anyone holding the link can read the whole document anyway.
+
+The token is 128-bit rather than 256-bit for the same reason. 43 characters made an
+untrustworthy-looking URL; 128 bits is unguessable over HTTP, the same strength
+used for session identifiers, on a link that also expires and is revocable.
+
+### What is recorded
+
+`communications_log` holds channel, recipient, subject, status, error, the share
+id, who sent it and when. `document_shares` holds the token hash, expiry,
+revocation and a view count.
+
+`GET /api/communications/history` aggregates across every document — the
+Communications page (Sales → Communications). Its **never opened** counter is the
+only number there that prompts an action: a failure is loud and gets fixed, while a
+delivered-but-ignored invoice is silent and ages into a collections problem.
+
+### Reporting problems
+
+`ReportProblem.jsx` is reachable from the topbar on every page **and** from the
+ErrorBoundary of a crashed one. The user is only ever asked what they were trying
+to do; page, browser, error and stack are attached automatically, because a
+frustrated user will not paste a stack trace and should not be asked to. Reports
+land in `public.error_reports` and surface in the Control Center inbox.
+
+---

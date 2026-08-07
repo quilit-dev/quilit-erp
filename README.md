@@ -35,9 +35,11 @@ recruitment and CRM into a single self-hosted application.
 | **Announcements** | Internal top-down communications with audience targeting (all / role / department / individuals) + acknowledgements |
 | **Notifications** | 30+ typed alerts (overdue invoices, low stock, leave requests, payroll, transfers, FX stale, period unlocked, contract expiring, approvals…) — gated by module permission |
 | **Global Search** | Cross-module command palette (Ctrl+K) over 45+ entity types, grouped by category, with match highlighting and recent-records list |
-| **Access Control** | RBAC across 28 modules with 18 seeded roles, JWT sessions with revocation, append-only audit log, recycle bin |
+| **Client Communications** | Send invoices and quotations by email or WhatsApp; every send mints an expiring, revocable capability link to a client-facing document page, with view tracking and a cross-document history of what went out, to whom, and whether it was opened |
+| **Documents (PDF)** | One server-rendered template for invoices and quotations — bilingual English / Arabic with a genuinely mirrored RTL layout, logo, tax and registration numbers, per-line discount and tax columns, payment history, bank details, and a payment-state band. No browser required, so the mobile app, an email attachment and a client link all get the same document |
+| **Access Control** | RBAC across 25 permissioned modules (plus 4 admin surfaces) with 18 seeded roles, JWT sessions with revocation, append-only audit log, recycle bin |
 | **Localization** | Full English and Arabic (RTL) across every module — including payroll, contracts, accounting filters, reports, and the command palette |
-| **Per-customer builds** | Module visibility baked in at build time via `backend/vendor_config.py` — immutable at runtime |
+| **Module licensing** | Per-tenant licences held in the shared catalog and editable at runtime from the Control Center, with automatic dependency resolution; enforced in the API before the superadmin bypass, so an unlicensed module returns 403 rather than merely hiding. The desktop build can still bake a fixed set in at build time |
 
 ---
 
@@ -49,8 +51,9 @@ recruitment and CRM into a single self-hosted application.
 | Database | PostgreSQL (cloud / multi-tenant) or SQLite in WAL mode (desktop / self-hosted) |
 | Frontend | React 18, Vite, React Router v6 |
 | Auth | JWT (HS256) via HttpOnly cookies, PBKDF2-SHA256 passwords |
+| Documents | fpdf2 + arabic-reshaper + python-bidi, Amiri embedded (pure Python — no system libraries) |
 | Packaging | PyInstaller (Windows .exe), Inno Setup 6 |
-| Documentation | MkDocs Material (54 pages with Operator / Administrator / Auditor tabs) |
+| Documentation | MkDocs Material (53 pages with Operator / Administrator / Auditor tabs) |
 
 ---
 
@@ -71,8 +74,11 @@ cd erp-system
 
 ```bash
 # 2. Install backend dependencies
+#    -c constraints.txt pins the whole transitive tree, so two installs of the
+#    same commit get the same versions. requirements.txt keeps the >= security
+#    floors and the reasoning behind them.
 cd backend
-pip install -r requirements.txt
+pip install -r requirements.txt -c constraints.txt
 cd ..
 ```
 
@@ -146,10 +152,24 @@ Backend:
 
 ```bash
 cd backend
-python -m pytest -q       # 1000+ tests covering auth, RBAC, tax, POS,
-                          # multi-currency (F-1..F-9), period locking,
+python -m pytest -q       # ~13 min. 1074 passing across 81 files: auth, RBAC,
+                          # tax, POS, multi-currency (F-1..F-9), period locking,
                           # fiscal-year close, multi-warehouse, payroll,
-                          # contracts, recruitment, approvals, VAT, …
+                          # contracts, recruitment, approvals, VAT, PDF
+                          # rendering, communications, module licensing …
+```
+
+**Run it alone.** Every test shares the single on-disk `backend/erp.db`, so a
+second pytest — even one file — corrupts both runs and produces failures that
+look like regressions but are not. `-k` subsets are unreliable for the same
+reason: they deselect the tests that build state others depend on.
+
+Tests that need PostgreSQL skip silently on SQLite. They are the ones proving
+tenant isolation and module licensing, so a green run that does not mention them
+has not tested either:
+
+```bash
+TENANCY=schema DB_BACKEND=postgres DATABASE_URL=postgresql://...   python -m pytest tests/test_multitenancy.py tests/test_platform.py                    tests/test_tenant_security.py tests/test_module_licensing.py -q
 ```
 
 
@@ -178,6 +198,48 @@ analytics, password administration and factory reset.
 
 See [docs/DEPLOYMENT-RAILWAY.md](docs/DEPLOYMENT-RAILWAY.md) for the deployment
 and first-operator steps.
+
+---
+
+## Documents & client delivery
+
+**One template.** Invoices and quotations are rendered by
+`backend/pdf_render.py` and served from `/api/pdf/...`. There is deliberately no
+second template: a browser-printed document cannot be attached to an email,
+opened by the mobile app, or shown on a client's link, and maintaining two meant
+the copy a customer received could drift from the one their supplier saw.
+
+**Bilingual, and mirrored.** `?lang=ar` does not merely translate — the company
+block moves to the right, the totals to the left, and the item columns reverse.
+Arabic is contextually shaped and bidi-reordered before it reaches the page,
+because fpdf2 draws glyphs in the order given. Amiri is embedded (OFL, in
+`backend/assets/fonts/`) because it is the one bundled font covering both Arabic
+and Latin — an Arabic-only font renders every English word as blanks.
+
+The stack is pure Python on purpose. WeasyPrint would allow HTML/CSS templates
+but needs pango and cairo system libraries, which cannot be installed or tested
+on a plain developer machine — and PDF code that cannot be tested locally gets
+shipped unverified.
+
+**Sending.** `Send` on an invoice or quotation row offers email and WhatsApp, and
+the ⋯ menu carries one-click variants plus both PDF languages. Every send mints a
+fresh capability link:
+
+- 128-bit token, only its SHA-256 stored, so a database dump yields no working links
+- one document, read-only, expiring (`SHARE_LINK_TTL_DAYS`) and revocable
+- served from the tenant's own host, so a token is meaningless against another customer
+- every rejection is an identical 404 — distinguishing expired from revoked from
+  never-existed confirms to a prober that a token was once real
+
+WhatsApp needs no configuration: the server returns a `wa.me` deep link and the
+message leaves the user's own WhatsApp. Its log entry reads *opened*, not *sent*,
+because nothing here observes delivery. Email needs `RESEND_API_KEY` and
+`MAIL_FROM`; without them the channel says so in the UI rather than failing at
+the moment of sending.
+
+The **Communications** page (Sales → Communications, licensed under
+`communications`) shows everything sent across every document, with a
+*never opened* counter — the only number on the page that prompts an action.
 
 ---
 
@@ -275,6 +337,22 @@ S3_ENDPOINT_URL=                       # set for Cloudflare R2 / MinIO; omit for
 S3_ACCESS_KEY_ID=
 S3_SECRET_ACCESS_KEY=
 LOG_FORMAT=text                        # 'json' for structured logs
+TENANT_BASE_DOMAIN=                    # e.g. quilit.dev — makes an unknown
+                                       # subdomain return a branded 404 instead
+                                       # of serving an ERP nobody can log into.
+                                       # Only matters with wildcard DNS; unset
+                                       # leaves the guard inert.
+API_DOCS=                              # 'on' re-enables /docs and /openapi.json,
+                                       # which are OFF automatically whenever
+                                       # TENANCY is a multi-tenant mode
+
+# Client communications (email). WhatsApp needs no configuration — the server
+# returns a wa.me deep link and the message leaves the user's own WhatsApp.
+RESEND_API_KEY=                        # unset = the email channel reports itself
+                                       # unavailable and explains why in the UI
+MAIL_FROM=invoices@yourdomain.com      # must be a domain verified in Resend
+MAIL_FROM_NAME=Your Company
+SHARE_LINK_TTL_DAYS=30                 # 0 = share links never expire
 ```
 
 ---
@@ -287,7 +365,7 @@ erp-system/
 │   ├── main.py                # FastAPI app and router registration
 │   ├── database.py            # SQLite schema, numbered migrations (120+)
 │   ├── auth_utils.py          # JWT + PBKDF2 password hashing
-│   ├── permissions.py         # RBAC middleware (28 modules)
+│   ├── permissions.py         # RBAC middleware (25 modules + 4 admin)
 │   ├── warehouse_access.py    # Row-level warehouse access helpers
 │   ├── accounting.py          # Double-entry posting engine, GL reports
 │   ├── costing.py             # FIFO / LIFO / weighted-average inventory costing
@@ -295,8 +373,13 @@ erp-system/
 │   ├── approval_engine.py     # Multi-step approval workflow
 │   ├── backup_manager.py      # Daily/weekly backups + USB export
 │   ├── utils.py               # Tax math (Decimal-based), notify(), helpers
-│   ├── vendor_config.py       # Per-customer enabled-modules constant
-│   ├── routers/               # One file per module (41 routers)
+│   ├── vendor_config.py       # Enabled-modules resolution (tenant → env → constant)
+│   ├── capabilities.py        # Module dependency graph + licence closure
+│   ├── tenancy.py             # Schema-per-tenant catalog, provisioning, licences
+│   ├── communications.py      # Share tokens, email delivery, WhatsApp text
+│   ├── pdf_render.py          # THE invoice/quotation template (bilingual, RTL)
+│   ├── assets/fonts/          # Amiri Regular + Bold (OFL) embedded in every PDF
+│   ├── routers/               # One file per module (44 routers)
 │   │   ├── auth.py            clients.py     projects.py
 │   │   ├── quotations.py      invoices.py    inventory.py
 │   │   ├── warehouses.py      purchases.py   suppliers.py
@@ -309,15 +392,20 @@ erp-system/
 │   │   ├── approval_policies.py  approval_requests.py
 │   │   ├── announcements.py   settings.py    documents.py
 │   │   ├── attachments.py     audit.py       categories.py
-│   ├── products.py        promotions.py  platform.py
-│   ├── imports.py         support.py
+│   │   ├── platform.py        support.py
+│   │   ├── imports.py         support.py     communications.py
+│   │   ├── pdf.py             products.py    promotions.py
 │   │   └── users.py           roles.py
-│   ├── tests/                 # Pytest suite — 1000+ tests, including
+│   ├── tests/                 # Pytest suite — 1074 passing across 81 files:
 │   │                          # multi-currency audit (F-1..F-9), period
-│   │                          # locking, fiscal-year close, multi-warehouse
+│   │                          # locking, fiscal-year close, multi-warehouse,
+│   │                          # tenant isolation, module licensing, PDF
+│   │                          # rendering, communications. Run it ALONE.
 │   ├── seed.py                # Single comprehensive sample-data seeder
 │   ├── env.example
-│   └── requirements.txt
+│   ├── requirements.txt       # >= floors with security rationale in comments
+│   ├── requirements-cloud.txt # psycopg / boto3 / gunicorn — cloud only
+│   └── constraints.txt        # lockfile: all 44 transitive pins, audited
 ├── frontend_src/
 │   ├── src/
 │   │   ├── pages/             # Page per route; large pages are folders
@@ -325,10 +413,12 @@ erp-system/
 │   │   ├── components/        # Sidebar, NotificationBell, CommandPalette, shared
 │   │   ├── hooks/             # useSettings, usePermissions, useLocale, useWarehouses
 │   │   ├── api/client.js      # All HTTP calls
-│   │   ├── locales/           # en.js and ar.js translation strings (3000+ keys)
+│   │   ├── locales/           # en.js and ar.js — 3726 keys each, exact parity
+│   │   ├── test/              # Vitest: page smoke suite + targeted units
 │   │   └── index.css          # Design tokens + base component classes
+│   ├── public/                # PWA manifest + icons (installable on mobile)
 │   └── vite.config.js
-├── docs/manual/               # MkDocs Material user manual (54 pages,
+├── docs/manual/               # MkDocs Material user manual (53 pages,
 │                              # three-audience tabs per module)
 ├── backups/                   # Daily/weekly DB backups (gitignored)
 ├── installer/                 # Inno Setup files
@@ -347,6 +437,10 @@ The backend exposes a REST API under `/api/*`. Interactive docs:
 - Swagger UI: `http://localhost:8765/docs`
 - ReDoc: `http://localhost:8765/redoc`
 
+Both are **disabled automatically** on a multi-tenant deployment (`TENANCY=schema`)
+— they publish the whole API surface to anyone who asks. Set `API_DOCS=on` to get
+them back for debugging a cloud instance.
+
 Key endpoint groups:
 
 ```
@@ -362,7 +456,23 @@ Key endpoint groups:
 /api/recruitment            /api/approval-policies     /api/approval-requests
 /api/notifications          /api/announcements         /api/documents
 /api/attachments            /api/audit                 /api/archives
-/api/settings               /api/dashboard
+/api/settings               /api/dashboard             /api/imports
+/api/communications         /api/pdf                   /api/support
+/api/platform               /api/products              /api/categories
+```
+
+Two of those are worth calling out:
+
+```
+GET  /api/pdf/invoices/{id}.pdf?download=1&lang=ar   # server-rendered document
+GET  /api/pdf/quotations/{id}.pdf                    # inline unless ?download=1
+GET  /api/pdf/status                                 # is rendering available?
+
+POST /api/communications/send                        # email, or a wa.me deep link
+GET  /api/communications/history                     # everything ever sent
+GET  /api/communications/public/{token}              # the CLIENT's view — the
+                                                     # only unauthenticated route
+                                                     # returning business data
 ```
 
 ---
