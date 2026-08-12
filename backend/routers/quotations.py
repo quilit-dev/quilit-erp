@@ -14,6 +14,7 @@ from typing import Optional, List
 from database import get_db
 from permissions import require_perm
 from routers.audit import log_action
+from routers.promotions import apply_promotions_to_lines
 from utils import _now, get_tax_context, resolve_line_tax, money, notify
 from routers.projects import bump_project_status
 from approval_engine import evaluate_and_apply
@@ -38,6 +39,10 @@ class QuoteItem(BaseModel):
     # unchanged. The pricing roll-up subtracts it from the net before tax,
     # matching how invoices and POS handle the same field.
     discount: float = 0
+    # Which stock item this line came from, when it was picked rather than
+    # typed. Carries the promotion lookup — matching on `name` instead would
+    # silently misprice the moment an item is renamed.
+    inventory_id: Optional[int] = None
     tax_rate_id: Optional[int] = None
 
 
@@ -169,6 +174,12 @@ def create_quotation(
     user=Depends(require_perm("quotations", "create")),
     db: sqlite3.Connection = Depends(get_db),
 ):
+    # Indicative only. A quotation is not a sale, so the promotion is shown at
+    # today's terms and the quantity cap is never consumed — the quote may
+    # expire unaccepted, and burning units for it would deny them to a real
+    # sale. The discount is snapshotted onto the line, so ending the promotion
+    # later cannot silently reprice a quote already sent to a client.
+    promo_ids = apply_promotions_to_lines(db, data.items)
     total, tax_total, line_tax = _price_quote_items(db, data.items)
     qn    = _next_quote_number(db)
     now   = _now()
@@ -194,15 +205,18 @@ def create_quotation(
         rid, rate, tax_amt = line_tax[idx]
         db.execute(
             "INSERT INTO quotation_items "
-            "(quotation_id, name, quantity, unit_price, discount, total, tax_rate_id, tax_rate, tax_amount) "
-            "VALUES (?,?,?,?,?,?,?,?,?)",
+            "(quotation_id, name, quantity, unit_price, discount, total, tax_rate_id, "
+            " tax_rate, tax_amount, inventory_id, promotion_id) "
+            "VALUES (?,?,?,?,?,?,?,?,?,?,?)",
             (qid, item.name, item.quantity, item.unit_price,
              float(getattr(item, "discount", 0) or 0),
              # `total` mirrors the line net after discount so historical
              # reports tie to the modern pricing math.
              round(max(0.0, item.quantity * item.unit_price
                             - float(getattr(item, "discount", 0) or 0)), 4),
-             rid, rate, tax_amt),
+             rid, rate, tax_amt,
+             getattr(item, "inventory_id", None),
+             promo_ids[idx] if idx < len(promo_ids) else None),
         )
     # An active policy can gate a new quotation behind approval. The snapshot
     # keeps the requested status so an approval can release it back to it.
@@ -253,6 +267,7 @@ def update_quotation(
     if data.status in ("Voided", "Cancelled"):
         raise HTTPException(400, "Use the Void action to void a quotation.")
 
+    promo_ids = apply_promotions_to_lines(db, data.items)
     total, tax_total, line_tax = _price_quote_items(db, data.items)
     invoice_amount = round(total + tax_total, 4)
 
@@ -311,11 +326,21 @@ def update_quotation(
     for idx, item in enumerate(data.items):
         rid, rate, tax_amt = line_tax[idx]
         db.execute(
+            # Mirrors the create path: `discount` is stored, and `total` is the
+            # line NET of it. Editing a quotation used to drop the discount and
+            # write a gross total, so a revised quote quietly cost the customer
+            # their agreed reduction.
             "INSERT INTO quotation_items "
-            "(quotation_id, name, quantity, unit_price, total, tax_rate_id, tax_rate, tax_amount) "
-            "VALUES (?,?,?,?,?,?,?,?)",
+            "(quotation_id, name, quantity, unit_price, discount, total, tax_rate_id, "
+            " tax_rate, tax_amount, inventory_id, promotion_id) "
+            "VALUES (?,?,?,?,?,?,?,?,?,?,?)",
             (quote_id, item.name, item.quantity, item.unit_price,
-             round(item.quantity * item.unit_price, 4), rid, rate, tax_amt),
+             float(getattr(item, "discount", 0) or 0),
+             round(max(0.0, item.quantity * item.unit_price
+                            - float(getattr(item, "discount", 0) or 0)), 4),
+             rid, rate, tax_amt,
+             getattr(item, "inventory_id", None),
+             promo_ids[idx] if idx < len(promo_ids) else None),
         )
     qref = db.execute("SELECT quote_number FROM quotations WHERE id = ?", (quote_id,)).fetchone()
     log_action(db, user, "update", "quotation", quote_id,

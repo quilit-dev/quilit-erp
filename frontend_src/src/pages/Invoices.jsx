@@ -11,7 +11,7 @@ import {
   Badge, ExportButton, fmt, fmtDate, toast, SortableTh, Pagination,
   DualMoney, ExchangeRateBadge, DisplayCurrencyToggle, NumberInput, BranchField} from '../components/shared';
 import { exportInvoiceExcel } from '../utils/exportUtils';
-import InventoryCombobox from '../components/InventoryCombobox';
+import InventoryCombobox, { salePriceInBase } from '../components/InventoryCombobox';
 import { useLocale } from '../hooks/useLocale.jsx';
 import { usePermissions } from '../hooks/usePermissions';
 import Attachments from '../components/Attachments.jsx';
@@ -22,7 +22,7 @@ const METHODS    = ['Cash', 'Bank Transfer', 'Cheque', 'Card', 'Other'];
 // `discount` (in functional currency) is opt-in via Settings → "Enable
 // per-line discounts". When the toggle is off the field stays 0 and the
 // column is hidden — the rest of the form behaves exactly as before.
-const EMPTY_ITEM = { name: '', quantity: 1, unit_price: 0, discount: 0, tax_rate_id: null };
+const EMPTY_ITEM = { name: '', quantity: 1, unit_price: 0, discount: 0, inventory_id: null, tax_rate_id: null };
 const EMPTY_FORM = { quotation_id: '', project_id: '', client_id: '', due_date: '', notes: '', branch_id: '', items: [{ ...EMPTY_ITEM }] };
 import { ActionMenu } from './invoices/ActionMenu';
 
@@ -143,6 +143,9 @@ export default function Invoices() {
               quantity: i.quantity,
               unit_price: i.unit_price,
               discount: i.discount || 0,
+              // Carried back so re-saving an edited document keeps the stock
+              // link — losing it here would drop the promotion on every edit.
+              inventory_id: i.inventory_id ?? null,
               tax_rate_id: i.tax_rate_id ?? null,
             }))
           : [{ ...EMPTY_ITEM }],
@@ -158,10 +161,23 @@ export default function Invoices() {
   const setItem    = (i, field, val) => setForm(f => ({
     ...f, items: f.items.map((item, x) => x === i ? { ...item, [field]: val } : item),
   }));
-  const setItemFromInventory = (i, name, price) => setForm(f => ({
-    ...f, items: f.items.map((item, x) => x === i
-      ? { ...item, name, ...(price !== null ? { unit_price: price } : {}) }
-      : item),
+  // Picking an inventory item fills its SALE price (converted into the document
+  // currency) and remembers which stock item it was. The user can still type over
+  // the price afterwards — the fill is a starting point, never a lock.
+  //
+  // A price that cannot be converted confidently is left alone rather than
+  // guessed: an LBP figure written into a USD invoice looks like a real number.
+  const setItemFromInventory = (i, name, price, meta) => setForm(f => ({
+    ...f, items: f.items.map((item, x) => {
+      if (x !== i) return item;
+      const base = salePriceInBase(price, meta?.price_currency, exchangeRate,
+                                   settings?.default_currency || 'USD');
+      return {
+        ...item, name,
+        ...(base !== null ? { unit_price: base } : {}),
+        inventory_id: meta?.inventory_id ?? null,
+      };
+    }),
   }));
   // Subtotal uses the discounted net per line so the form preview matches
   // what the backend pricing engine computes.
@@ -190,6 +206,10 @@ export default function Invoices() {
           quantity: Number(i.quantity)||0,
           unit_price: Number(i.unit_price)||0,
           discount: discountEnabled ? (Number(i.discount) || 0) : 0,
+          // The stock link travels with the line so the server can find a
+          // promotion for it. Dropping it here would silently disable
+          // promotions on every document, with nothing to show why.
+          inventory_id: i.inventory_id ?? null,
           tax_rate_id: i.tax_rate_id ?? null,
         })),
         version:      editVersion,
@@ -507,7 +527,7 @@ export default function Invoices() {
                       <InventoryCombobox
                         value={item.name}
                         inventory={inventory || []}
-                        onChange={(name, price) => setItemFromInventory(i, name, price)}
+                        onChange={(name, price, meta) => setItemFromInventory(i, name, price, meta)}
                       />
                     )}
                     <NumberInput className="form-control" placeholder={t('common.quantity')} min="0" step="any"

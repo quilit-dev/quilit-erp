@@ -2,14 +2,41 @@
  * InventoryCombobox
  * A description input that lets the user:
  *  - Type freely (manual item)
- *  - Type to search inventory and pick a matching item (auto-fills unit_price)
+ *  - Type to search inventory and pick a matching item (auto-fills the price)
+ *
+ * It reads `sale_price`, NOT `unit_price`. Inventory has no `unit_price` column —
+ * it has `unit_cost` (what you paid) and `sale_price` (what you charge). This
+ * component asked for `unit_price`, got undefined, and so never filled a price
+ * at all; the invoice form silently kept 0 on every picked item.
  *
  * Props:
  *  value        – current text value
- *  inventory    – array of inventory items [{ id, name, unit_price, unit }]
- *  onChange     – (name, unit_price) => void  called on pick or free-type
+ *  inventory    – [{ id, name, sale_price, price_currency, unit }]
+ *  onChange     – (name, price, meta) => void
+ *                 price: the item's sale price in ITS OWN currency, or null when
+ *                        the user is free-typing (null = do not overwrite)
+ *                 meta:  { inventory_id, price_currency, unit } — the id is what
+ *                        lets the server link a line back to stock
  */
 import { useState, useRef, useEffect } from 'react';
+
+// Convert an inventory sale price into the document's base currency.
+//
+// Returns null rather than a guess when the conversion cannot be made
+// confidently: writing an LBP figure into a USD invoice is worse than leaving
+// the field for the user, because it looks like a real price.
+export function salePriceInBase(price, from, exchangeRate, baseCode = 'USD') {
+  if (price === null || price === undefined || price === '') return null;
+  const n = Number(price);
+  if (!Number.isFinite(n)) return null;
+  const base = exchangeRate?.base || baseCode;
+  if (!from || from === base) return n;
+  const rate = Number(exchangeRate?.rate) || 0;
+  // The rest of the app treats rate as secondary-per-base (LBP per USD), so a
+  // secondary-currency price divides back into base.
+  if (from === exchangeRate?.secondary && rate > 0) return n / rate;
+  return null;
+}
 
 export default function InventoryCombobox({ value, inventory = [], onChange }) {
   const [open,  setOpen]  = useState(false);
@@ -38,13 +65,18 @@ export default function InventoryCombobox({ value, inventory = [], onChange }) {
     const val = e.target.value;
     setQuery(val);
     setOpen(true);
-    onChange(val, null);   // null price = don't overwrite what user typed
+    // Free typing: no price, and no inventory link — this is a manual line.
+    onChange(val, null, null);
   }
 
   function handlePick(item) {
     setQuery(item.name);
     setOpen(false);
-    onChange(item.name, item.unit_price);
+    onChange(item.name, item.sale_price, {
+      inventory_id: item.id,
+      price_currency: item.price_currency || null,
+      unit: item.unit || null,
+    });
   }
 
   function handleKeyDown(e) {
@@ -102,7 +134,8 @@ export default function InventoryCombobox({ value, inventory = [], onChange }) {
                 {item.name}
               </span>
               <span style={{ color: 'var(--text-3, #94a3b8)', fontSize: 11, marginLeft: 8, whiteSpace: 'nowrap' }}>
-                ${Number(item.unit_price || 0).toFixed(2)}
+                {Number(item.sale_price || 0).toFixed(2)}
+                {item.price_currency ? ` ${item.price_currency}` : ''}
                 {item.unit ? ` / ${item.unit}` : ''}
               </span>
             </div>

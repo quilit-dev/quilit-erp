@@ -18,7 +18,7 @@ import { exportQuotationExcel } from '../utils/exportUtils';
 import { useLocale } from '../hooks/useLocale.jsx';
 import { usePermissions } from '../hooks/usePermissions';
 import Attachments from '../components/Attachments.jsx';
-import InventoryCombobox from '../components/InventoryCombobox';
+import InventoryCombobox, { salePriceInBase } from '../components/InventoryCombobox';
 import { useSortPaginate } from '../hooks/useSortPaginate';
 import { useRecordExport } from '../hooks/useRecordExport';
 import { useFocusId } from '../hooks/useFocusId';
@@ -27,7 +27,7 @@ const STATUSES   = ['Draft', 'Sent', 'Accepted', 'Rejected'];
 // `discount` (in functional currency) is opt-in via Settings → "Enable
 // per-line discounts". When the toggle is off the field stays 0 and the
 // column is hidden — the rest of the form behaves exactly as before.
-const EMPTY_ITEM = { name: '', quantity: 1, unit_price: 0, discount: 0, tax_rate_id: null };
+const EMPTY_ITEM = { name: '', quantity: 1, unit_price: 0, discount: 0, inventory_id: null, tax_rate_id: null };
 const makeEmpty  = () => ({ client_id: '', lead_id: '', project_id: '', project_name: '', status: 'Draft', notes: '', branch_id: '', items: [{ ...EMPTY_ITEM }] });
 
 const menuItemStyle = {
@@ -238,6 +238,9 @@ export default function Quotations() {
               quantity: i.quantity,
               unit_price: i.unit_price,
               discount: i.discount || 0,
+              // Carried back so re-saving an edited document keeps the stock
+              // link — losing it here would drop the promotion on every edit.
+              inventory_id: i.inventory_id ?? null,
               tax_rate_id: i.tax_rate_id ?? null,
             }))
           : [{ ...EMPTY_ITEM }],
@@ -255,8 +258,20 @@ export default function Quotations() {
   const setItem    = (i, field, val) => setForm(f => ({
     ...f, items: f.items.map((item, x) => x === i ? { ...item, [field]: val } : item),
   }));
-  const setItemFromInventory = (i, name) => setForm(f => ({
-    ...f, items: f.items.map((item, x) => x === i ? { ...item, name } : item),
+  // Quotations never filled a price at all — the picked item's price was
+  // discarded. Same behaviour as invoices now: fill the sale price, remember the
+  // stock link, and let the user override.
+  const setItemFromInventory = (i, name, price, meta) => setForm(f => ({
+    ...f, items: f.items.map((item, x) => {
+      if (x !== i) return item;
+      const base = salePriceInBase(price, meta?.price_currency, exchangeRate,
+                                   settings?.default_currency || 'USD');
+      return {
+        ...item, name,
+        ...(base !== null ? { unit_price: base } : {}),
+        inventory_id: meta?.inventory_id ?? null,
+      };
+    }),
   }));
 
   const taxEnabled     = settings?.tax_enabled === '1';
@@ -301,6 +316,10 @@ export default function Quotations() {
           quantity: Number(i.quantity)||0,
           unit_price: Number(i.unit_price)||0,
           discount: discountEnabled ? (Number(i.discount) || 0) : 0,
+          // The stock link travels with the line so the server can find a
+          // promotion for it. Dropping it here would silently disable
+          // promotions on every document, with nothing to show why.
+          inventory_id: i.inventory_id ?? null,
           tax_rate_id: i.tax_rate_id ?? null,
         })),
       };
@@ -628,7 +647,7 @@ export default function Quotations() {
                     <InventoryCombobox
                       value={item.name}
                       inventory={inventory || []}
-                      onChange={(name) => setItemFromInventory(i, name)}
+                      onChange={(name, price, meta) => setItemFromInventory(i, name, price, meta)}
                     />
                     <NumberInput className="form-control" placeholder={t('common.quantity')} min="0" step="any"
                       value={item.quantity} onChange={e => setItem(i, 'quantity', e.target.value)} />

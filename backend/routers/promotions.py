@@ -51,6 +51,89 @@ def best_promo_for(db: sqlite3.Connection, inventory_id, category, today: str):
     return best
 
 
+def promo_discount_for_line(db, inventory_id, quantity, unit_price, today=None):
+    """The promotion discount for ONE invoice or quotation line.
+
+    Returns ``(discount_amount, promotion_id)``, or ``(0.0, None)`` when nothing
+    applies. The amount is in the document's currency, matching the `discount`
+    column the pricing engine already subtracts before tax.
+
+    Two deliberate differences from the POS path:
+
+    * **The quantity cap is not consumed.** POS meters "first N units" by
+      bumping `used_quantity` inside the sale transaction. An invoice is not a
+      sale — it can be drafted, edited and voided — so metering here would burn
+      units of a promotion the customer may never receive. POS stays the metered
+      channel; a quotation is indicative only, and may well expire before it is
+      accepted.
+    * **Every unit is eligible**, precisely because nothing is being metered.
+
+    The caller snapshots the returned values onto the line, so ending or editing
+    a promotion later cannot retroactively change a document already issued.
+    """
+    from utils import _now
+    if not inventory_id:
+        return 0.0, None
+    try:
+        qty = float(quantity or 0)
+        price = float(unit_price or 0)
+    except (TypeError, ValueError):
+        return 0.0, None
+    if qty <= 0 or price <= 0:
+        return 0.0, None
+
+    today = today or _now()[:10]
+    row = db.execute("SELECT category FROM inventory WHERE id=?",
+                     (inventory_id,)).fetchone()
+    category = row["category"] if row else None
+
+    promo = best_promo_for(db, inventory_id, category, today)
+    if not promo:
+        return 0.0, None
+    pct = float(promo["discount_value"] or 0)
+    if pct <= 0:
+        return 0.0, None
+    return round(qty * price * pct / 100.0, 4), promo["id"]
+
+
+def apply_promotions_to_lines(db, items, today=None):
+    """Fill each line's `discount` from the best live promotion, IN PLACE.
+
+    Returns a list of promotion ids parallel to `items` (None where nothing
+    applied), so the caller can snapshot which promotion produced the reduction.
+
+    Called BEFORE pricing, so tax is computed on the discounted net exactly as
+    it is for a hand-entered discount — the promotion changes what the customer
+    owes, and tax follows the actual consideration.
+
+    **An explicitly entered discount is left alone.** Someone typing a number
+    into that box has made a decision, and an automatic rule must not overwrite
+    it. The promotion only fills a line that has none.
+    """
+    out = []
+    for it in (items or []):
+        try:
+            existing = float(getattr(it, "discount", 0) or 0)
+        except (TypeError, ValueError):
+            existing = 0.0
+        if existing > 0:
+            out.append(None)                   # a human already decided
+            continue
+        amount, promo_id = promo_discount_for_line(
+            db, getattr(it, "inventory_id", None),
+            getattr(it, "quantity", 0), getattr(it, "unit_price", 0), today)
+        if promo_id and amount > 0:
+            try:
+                it.discount = amount
+            except Exception:
+                out.append(None)               # immutable model — do not guess
+                continue
+            out.append(promo_id)
+        else:
+            out.append(None)
+    return out
+
+
 def _row(p) -> dict:
     d = dict(p)
     cap = d.get("max_quantity")

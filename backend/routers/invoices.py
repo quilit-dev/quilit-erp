@@ -17,6 +17,7 @@ from typing import Optional
 from database import get_db
 from permissions import require_perm
 from routers.audit import log_action
+from routers.promotions import apply_promotions_to_lines
 from routers.finance import _check_period_locked
 from routers.projects import bump_project_status
 from approval_engine import evaluate_and_apply
@@ -59,6 +60,10 @@ class InvoiceItemCreate(BaseModel):
     # for callers (and customers) that don't use line discounts. The pricing
     # engine subtracts it from the net before computing tax.
     discount:    float = 0
+    # Which stock item this line came from, when it was picked rather than
+    # typed. Carries the promotion lookup — matching on `name` instead would
+    # silently misprice the moment an item is renamed.
+    inventory_id: Optional[int] = None
     tax_rate_id: Optional[int] = None
 
 class InvoiceCreate(BaseModel):
@@ -328,6 +333,12 @@ def create_invoice(
         "SELECT 1 FROM quotations WHERE id=?", (data.quotation_id,)).fetchone():
         raise HTTPException(400, "Quotation not found")
     items    = data.items or []
+    # Promotions fill an empty line discount BEFORE pricing, so tax lands on the
+    # discounted net exactly as it does for a hand-entered discount. The
+    # quantity cap is deliberately NOT consumed here — an invoice can be
+    # drafted, edited and voided, so metering it would burn units of a promotion
+    # the customer may never receive. POS stays the metered channel.
+    promo_ids = apply_promotions_to_lines(db, items)
     subtotal, tax_total, computed_amount, line_tax = _price_items(db, items, data.amount)
     if computed_amount <= 0:
         raise HTTPException(400, "Invoice amount must be positive")
@@ -355,11 +366,14 @@ def create_invoice(
         rid, rate, tax_amt = line_tax[idx]
         db.execute(
             "INSERT INTO invoice_items "
-            "(invoice_id, name, quantity, unit_price, discount, tax_rate_id, tax_rate, tax_amount) "
-            "VALUES (?,?,?,?,?,?,?,?)",
+            "(invoice_id, name, quantity, unit_price, discount, tax_rate_id, "
+            " tax_rate, tax_amount, inventory_id, promotion_id) "
+            "VALUES (?,?,?,?,?,?,?,?,?,?)",
             (invoice_id, item.name, item.quantity, item.unit_price,
              float(getattr(item, "discount", 0) or 0),
-             rid, rate, tax_amt),
+             rid, rate, tax_amt,
+             getattr(item, "inventory_id", None),
+             promo_ids[idx] if idx < len(promo_ids) else None),
         )
     # An active policy can gate the invoice behind approval. A gated invoice is
     # parked in 'Pending Approval' (it takes no payments and its project advance
@@ -435,6 +449,7 @@ def update_invoice(
                    inv["invoice_number"], {"note": "metadata only — amounts locked"})
     else:
         items    = data.items or []
+        promo_ids = apply_promotions_to_lines(db, items)
         subtotal, tax_total, computed_amount, line_tax = _price_items(db, items, data.amount)
 
         rows_updated = db.execute(
@@ -452,11 +467,21 @@ def update_invoice(
         db.execute("DELETE FROM invoice_items WHERE invoice_id=?", (invoice_id,))
         for idx, item in enumerate(items):
             rid, rate, tax_amt = line_tax[idx]
+            # `discount` must be written here too. It was omitted, so editing an
+            # invoice silently reset every per-line discount to 0 while the
+            # stored total kept the discounted figure — a document that no
+            # longer added up, and a customer quietly losing the discount they
+            # were given.
             db.execute(
                 "INSERT INTO invoice_items "
-                "(invoice_id, name, quantity, unit_price, tax_rate_id, tax_rate, tax_amount) "
-                "VALUES (?,?,?,?,?,?,?)",
-                (invoice_id, item.name, item.quantity, item.unit_price, rid, rate, tax_amt),
+                "(invoice_id, name, quantity, unit_price, discount, tax_rate_id, "
+                " tax_rate, tax_amount, inventory_id, promotion_id) "
+                "VALUES (?,?,?,?,?,?,?,?,?,?)",
+                (invoice_id, item.name, item.quantity, item.unit_price,
+                 float(getattr(item, "discount", 0) or 0),
+                 rid, rate, tax_amt,
+                 getattr(item, "inventory_id", None),
+                 promo_ids[idx] if idx < len(promo_ids) else None),
             )
         log_action(db, user, "update", "invoice", invoice_id,
                    inv["invoice_number"], {"amount": computed_amount})

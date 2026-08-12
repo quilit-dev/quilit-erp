@@ -2932,6 +2932,33 @@ def _run_migrations(conn, c):
                   "ON communications_log(entity_type, entity_id, sent_at)")
         done("139b_communications_log")
 
+    # ── 140: link a document line to stock, and snapshot its promotion ──────
+    # Invoice and quotation lines carried only a free-text `name`, so nothing
+    # could tell which stock item a line referred to. Promotions are looked up
+    # by inventory id, so without this a promotion could only ever be matched by
+    # name — which silently misprices the moment an item is renamed.
+    #
+    # `promotion_id` records WHICH promotion produced the discount. Without it
+    # the reduction is unexplainable in a dispute: the line just shows a smaller
+    # number than the price list. It is a snapshot, like `tax_rate` — editing or
+    # ending a promotion must never retroactively change a document that was
+    # already issued.
+    #
+    # Both are nullable: a manually typed line has neither, and that is normal.
+    if need("140a_line_inventory_link"):
+        for tbl in ("invoice_items", "quotation_items"):
+            for col, decl in (("inventory_id", "INTEGER"),
+                              ("promotion_id", "INTEGER")):
+                try:
+                    c.execute(f"ALTER TABLE {tbl} ADD COLUMN {col} {decl}")
+                except Exception:
+                    pass          # already present — the migration is idempotent
+        c.execute("CREATE INDEX IF NOT EXISTS idx_invoice_items_inventory "
+                  "ON invoice_items(inventory_id)")
+        c.execute("CREATE INDEX IF NOT EXISTS idx_quotation_items_inventory "
+                  "ON quotation_items(inventory_id)")
+        done("140a_line_inventory_link")
+
     conn.commit()
 
 
