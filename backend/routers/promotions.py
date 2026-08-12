@@ -15,7 +15,7 @@ from fastapi import APIRouter, Depends, HTTPException
 from pydantic import BaseModel
 
 from database import get_db
-from permissions import require_perm
+from permissions import require_perm, require_any_perm
 from routers.audit import log_action
 from utils import _now
 
@@ -268,3 +268,54 @@ def archive_promotion(promo_id: int, user=Depends(require_perm("inventory", "del
     log_action(db, user, "archive", "promotion", promo_id, row["name"])
     db.commit()
     return {"message": "Promotion archived"}
+
+
+# ── preview ──────────────────────────────────────────────────────────────────
+
+class _PreviewLine(BaseModel):
+    inventory_id: Optional[int] = None
+    quantity: float = 0
+    unit_price: float = 0
+    discount: Optional[float] = 0
+
+
+class PreviewRequest(BaseModel):
+    lines: list[_PreviewLine] = []
+
+
+@router.post("/preview")
+def preview_promotions(data: PreviewRequest,
+                       user=Depends(require_any_perm("invoices", "quotations", "pos")),
+                       db: sqlite3.Connection = Depends(get_db)):
+    """Price draft lines against live promotions, without saving anything.
+
+    The invoice and quotation forms compute their own running totals, so without
+    this they showed a discount of zero while the server was about to apply one —
+    the operator agreed a figure with the customer that the saved document then
+    contradicted.
+
+    It deliberately calls the SAME `promo_discount_for_line` the save path uses.
+    Re-implementing the rule in JavaScript would drift, and the failure mode of
+    drift here is quoting a price the invoice does not honour.
+
+    Nothing is metered: this reads promotions, and even the save path leaves the
+    quantity cap to POS.
+    """
+    today = _now()[:10]
+    out = []
+    for ln in (data.lines or []):
+        # A typed discount wins, exactly as it does on save.
+        if (ln.discount or 0) > 0:
+            out.append({"discount": float(ln.discount or 0), "promotion_id": None,
+                        "promotion_name": None, "source": "manual"})
+            continue
+        amount, promo_id = promo_discount_for_line(
+            db, ln.inventory_id, ln.quantity, ln.unit_price, today)
+        name = None
+        if promo_id:
+            row = db.execute("SELECT name FROM promotions WHERE id=?", (promo_id,)).fetchone()
+            name = row["name"] if row else None
+        out.append({"discount": round(float(amount or 0), 2),
+                    "promotion_id": promo_id, "promotion_name": name,
+                    "source": "promotion" if promo_id else None})
+    return {"lines": out}

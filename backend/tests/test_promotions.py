@@ -7,9 +7,11 @@ only the eligible units and records usage in the sale transaction, so "first N"
 can't be over-spent; a return hands the allowance back.
 """
 import uuid
-from datetime import date, timedelta
+from datetime import datetime, timedelta
 
 import pytest
+
+from utils import _now
 
 
 def _key():
@@ -76,7 +78,15 @@ def test_store_wide_scope_applies(make_client):
 def test_out_of_date_range_is_ignored(make_client):
     c = make_client("superadmin"); _open(c)
     it = _item(c, price=10)
-    yest = (date.today() - timedelta(days=1)).isoformat()
+    # Derive "yesterday" from the SERVER's clock, not the machine's.
+    #
+    # The server evaluates promotion windows with utils._now(), which is UTC.
+    # date.today() is local, so on a machine east of UTC this test computed a
+    # date that was still *today* in UTC — the promotion had not expired, the
+    # discount correctly applied, and the assertion failed. A latent flake that
+    # only fired between local midnight and UTC midnight.
+    server_today = datetime.strptime(_now()[:10], "%Y-%m-%d").date()
+    yest = (server_today - timedelta(days=1)).isoformat()
     _promo(c, scope_type="all", discount_value=50, end_date=yest)   # ended yesterday
     assert _sell(c, it, 1, 10).json()["total"] == pytest.approx(10)  # full price
 

@@ -714,6 +714,10 @@ export const reportProblem = (body) => api.post('/api/support/report', body);
 // Communications — send an invoice or quotation to the client, and read back
 // what was sent. The share link is minted server-side per send; the browser
 // never constructs one.
+// Price draft lines against live promotions without saving. The server owns
+// the rule; re-deriving it in the form would drift and quote prices the
+// invoice does not honour.
+export const promoPreview  = (lines) => api.post('/api/promotions/preview', { lines });
 export const commsStatus   = () => api.get('/api/communications/status');
 export const commsSend     = (body) => api.post('/api/communications/send', body);
 export const commsLog      = (entity_type, entity_id) =>

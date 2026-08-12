@@ -4,7 +4,7 @@ import { useSettings } from '../hooks/useSettings';
 import {
   getInvoices, getInvoice, getClients, getProjects, getInventory,
   createInvoice, updateInvoice, voidInvoice, unvoidInvoice,
-  addInvoicePayment, deleteInvoicePayment, getCashDrawers,
+  addInvoicePayment, deleteInvoicePayment, getCashDrawers, promoPreview
 } from '../api/client';
 import {
   LoadingSpinner, ErrorAlert, EmptyState, Modal, ConfirmModal,
@@ -22,6 +22,49 @@ const METHODS    = ['Cash', 'Bank Transfer', 'Cheque', 'Card', 'Other'];
 // `discount` (in functional currency) is opt-in via Settings → "Enable
 // per-line discounts". When the toggle is off the field stays 0 and the
 // column is hidden — the rest of the form behaves exactly as before.
+
+// Live promotion preview for a document form.
+//
+// The form computes its own running totals, so without this it showed a discount
+// of zero while the server was about to apply one — the operator agreed a figure
+// with the customer that the saved document then contradicted.
+//
+// The server prices the lines, using the same helper the save path uses, so the
+// preview cannot disagree with what is stored.
+function usePromoPreview(items, enabled) {
+  const [promo, setPromo] = useState({});   // index -> { discount, promotion_name }
+
+  // Only the fields that can change a promotion decision, so typing a
+  // description does not re-price on every keystroke.
+  const key = JSON.stringify((items || []).map(i => [
+    i.inventory_id ?? null, Number(i.quantity) || 0,
+    Number(i.unit_price) || 0, Number(i.discount) || 0,
+  ]));
+
+  useEffect(() => {
+    if (!enabled) { setPromo({}); return undefined; }
+    const lines = JSON.parse(key).map(([inventory_id, quantity, unit_price, discount]) =>
+      ({ inventory_id, quantity, unit_price, discount }));
+    if (!lines.some(l => l.inventory_id)) { setPromo({}); return undefined; }
+    let alive = true;
+    const timer = setTimeout(() => {
+      promoPreview(lines)
+        .then(r => {
+          if (!alive) return;
+          const next = {};
+          (r?.lines || []).forEach((l, i) => {
+            if (l.source === 'promotion' && l.discount > 0) next[i] = l;
+          });
+          setPromo(next);
+        })
+        .catch(() => { if (alive) setPromo({}); });   // a preview must never block entry
+    }, 250);
+    return () => { alive = false; clearTimeout(timer); };
+  }, [key, enabled]);
+
+  return promo;
+}
+
 const EMPTY_ITEM = { name: '', quantity: 1, unit_price: 0, discount: 0, inventory_id: null, tax_rate_id: null };
 const EMPTY_FORM = { quotation_id: '', project_id: '', client_id: '', due_date: '', notes: '', branch_id: '', items: [{ ...EMPTY_ITEM }] };
 import { ActionMenu } from './invoices/ActionMenu';
@@ -57,15 +100,15 @@ export default function Invoices() {
   // Per-line net = qty × price − discount (when enabled), floored at 0.
   // Tax on the line uses the discounted net so the customer is taxed on
   // what they actually pay, matching how the backend prices.
-  const lineNet = (item) => {
+  // `i` is the line index, needed to look up the promotion preview for it.
+  const lineNet = (item, i) => {
     const gross = (Number(item.quantity) || 0) * (Number(item.unit_price) || 0);
-    const disc  = discountEnabled ? (Number(item.discount) || 0) : 0;
-    return Math.max(0, gross - disc);
+    return Math.max(0, gross - effDiscount(item, i));
   };
-  const lineTaxAmt = (item) => {
+  const lineTaxAmt = (item, i) => {
     if (!taxEnabled) return 0;
     const r = rateById(item.tax_rate_id);
-    return r ? lineNet(item) * (Number(r.rate) || 0) / 100 : 0;
+    return r ? lineNet(item, i) * (Number(r.rate) || 0) / 100 : 0;
   };
 
   const [statusFilter, setStatusFilter] = useState('');
@@ -75,6 +118,18 @@ export default function Invoices() {
 
   const [formModal,     setFormModal]     = useState(false);
   const [form,          setForm]          = useState(EMPTY_FORM);
+  // What the server WILL apply on save, shown live so the running total the
+  // operator quotes matches the document that gets stored.
+  const promoLines = usePromoPreview(form.items, true);
+  // A promotion reduces what the customer owes whether or not the company uses
+  // manual per-line discounts, so its effect is counted even when the discount
+  // COLUMN is switched off — an invisible reduction that changes the total is
+  // how a document stops adding up.
+  const effDiscount = (item, i) => {
+    const typed = Number(item.discount) || 0;
+    if (typed > 0) return discountEnabled ? typed : 0;
+    return Number(promoLines[i]?.discount) || 0;
+  };
   const [editId,        setEditId]        = useState(null);
   const [editVersion,   setEditVersion]   = useState(null);
   const [amountsLocked, setAmountsLocked] = useState(false);
@@ -181,18 +236,18 @@ export default function Invoices() {
   }));
   // Subtotal uses the discounted net per line so the form preview matches
   // what the backend pricing engine computes.
-  const invoiceSubtotal  = (form.items || []).reduce((s, i) => s + lineNet(i), 0);
+  const invoiceSubtotal  = (form.items || []).reduce((s, it, i) => s + lineNet(it, i), 0);
   const invoiceDiscount  = discountEnabled
-    ? (form.items || []).reduce((s, i) => s + (Number(i.discount) || 0), 0)
+    ? (form.items || []).reduce((s, it, i) => s + effDiscount(it, i), 0)
     : 0;
-  const invoiceTaxAmt    = (form.items || []).reduce((s, i) => s + lineTaxAmt(i), 0);
+  const invoiceTaxAmt    = (form.items || []).reduce((s, it, i) => s + lineTaxAmt(it, i), 0);
   const invoiceTotal     = invoiceSubtotal + invoiceTaxAmt;
 
   async function handleSave(e) {
     e.preventDefault(); setSaving(true);
     try {
       // Amount = discounted net, matching the backend's _price_items.
-      const subtotal = (form.items || []).reduce((s, i) => s + lineNet(i), 0);
+      const subtotal = (form.items || []).reduce((s, it, i) => s + lineNet(it, i), 0);
       const payload = {
         quotation_id: form.quotation_id ? Number(form.quotation_id) : null,
         project_id:   form.project_id   ? Number(form.project_id)   : null,
@@ -518,9 +573,12 @@ export default function Invoices() {
 
               {(form.items||[]).map((item, i) => {
                 // Net per line — qty × price minus discount (when enabled).
-                const lineTotal = lineNet(item);
+                const lineTotal = lineNet(item, i);
+                const promo = promoLines[i];
                 return (
-                  <div key={i} style={{ display:'grid', gridTemplateColumns:itemGrid, gap:10, marginBottom:10, alignItems:'center' }}>
+                  <div key={i}>
+                  <div style={{ display:'grid', gridTemplateColumns:itemGrid, gap:10,
+                                marginBottom: promo ? 2 : 10, alignItems:'center' }}>
                     {amountsLocked ? (
                       <span style={{ fontSize:13, padding:'6px 4px', color:'var(--text-2)' }}>{item.name || '—'}</span>
                     ) : (
@@ -572,6 +630,15 @@ export default function Invoices() {
                       <button type="button" className="btn btn-sm btn-danger"
                         onClick={() => removeItem(i)} disabled={(form.items||[]).length === 1}>✕</button>
                     )}
+                  </div>
+                  {/* Name the promotion. A line that is cheaper for no stated
+                      reason is unexplainable to the customer who asks. */}
+                  {promo && (
+                    <div style={{ fontSize:11.5, color:'var(--affirm)', margin:'0 0 10px 2px' }}>
+                      🏷 {promo.promotion_name || t('common.discount')}
+                      {' · −$'}{Number(promo.discount).toFixed(2)}
+                    </div>
+                  )}
                   </div>
                 );
               })}

@@ -144,3 +144,77 @@ def test_an_inactive_promotion_is_ignored(make_client):
                    "inventory_id": item["id"]}]})
     line = _lines("invoice_items", "invoice_id", r.json()["id"])[0]
     assert (line["discount"] or 0) == 0
+
+
+# ── the form preview ────────────────────────────────────────────────────────
+#
+# The form computes its own running totals. Without a preview it showed a
+# discount of zero while the server was about to apply one, so the figure the
+# operator quoted was contradicted by the document that got saved.
+
+def _promo_setup(c, pct=20):
+    cl = c.post("/api/clients/", json={"name": "Acme"}).json()
+    it = c.post("/api/inventory/", json={"name": "Promo Widget", "quantity": 100,
+                                         "unit_cost": 40, "sale_price": 100}).json()
+    c.post("/api/promotions/", json={"name": "Preview Promo", "scope_type": "item",
+                                     "scope_value": str(it["id"]),
+                                     "discount_value": pct, "active": True})
+    return cl["id"], it["id"]
+
+
+def test_preview_matches_what_gets_saved(make_client):
+    """The whole point. A preview that disagrees with the save is worse than no
+    preview, because it is believed."""
+    c = make_client("superadmin")
+    client_id, iid = _promo_setup(c)
+    line = {"name": "Promo Widget", "quantity": 2, "unit_price": 100,
+            "discount": 0, "inventory_id": iid}
+
+    previewed = c.post("/api/promotions/preview",
+                       json={"lines": [line]}).json()["lines"][0]
+    inv = c.post("/api/invoices/", json={"client_id": client_id,
+                                         "items": [line]}).json()
+    saved = c.get(f"/api/invoices/{inv['id']}").json()["items"][0]
+
+    assert float(previewed["discount"]) == float(saved["discount"])
+    assert previewed["promotion_name"] == "Preview Promo"
+
+
+def test_preview_leaves_a_typed_discount_alone(make_client):
+    c = make_client("superadmin")
+    _, iid = _promo_setup(c)
+    r = c.post("/api/promotions/preview", json={"lines": [
+        {"inventory_id": iid, "quantity": 2, "unit_price": 100, "discount": 15}]}).json()
+    assert r["lines"][0]["discount"] == 15
+    assert r["lines"][0]["source"] == "manual"
+    assert r["lines"][0]["promotion_id"] is None
+
+
+def test_preview_ignores_lines_with_no_stock_link(make_client):
+    """A hand-typed line has no inventory id, so no promotion can reach it."""
+    c = make_client("superadmin")
+    _promo_setup(c)
+    r = c.post("/api/promotions/preview", json={"lines": [
+        {"inventory_id": None, "quantity": 1, "unit_price": 50, "discount": 0}]}).json()
+    assert r["lines"][0]["discount"] == 0
+    assert r["lines"][0]["promotion_id"] is None
+
+
+def test_preview_never_meters_the_cap(make_client):
+    """Previewing is reading. Calling it repeatedly must not consume a promotion
+    the customer has not been given."""
+    c = make_client("superadmin")
+    _, iid = _promo_setup(c)
+    line = {"inventory_id": iid, "quantity": 3, "unit_price": 100, "discount": 0}
+    for _ in range(5):
+        c.post("/api/promotions/preview", json={"lines": [line]})
+    promos = c.get("/api/promotions/").json()
+    rows = promos if isinstance(promos, list) else promos.get("items", [])
+    assert all((p.get("used_quantity") or 0) == 0 for p in rows)
+
+
+def test_preview_requires_a_relevant_permission(make_client):
+    """Display-only, but still business data: an anonymous caller gets nothing."""
+    anon = make_client()
+    r = anon.post("/api/promotions/preview", json={"lines": []})
+    assert r.status_code in (401, 403)

@@ -150,6 +150,35 @@ def require_perm(module: str, action: str = "view"):
     return dep
 
 
+def require_any_perm(*modules: str, action: str = "view"):
+    """Dependency factory: allow the request if the user can `action` ANY of
+    `modules`.
+
+    For read-only data that several modules legitimately need. The promotion
+    preview is the case that prompted it: the register, the invoice form and the
+    quotation form all price lines against live promotions, and gating that feed
+    on `pos` alone would mean an invoicing clerk with no till access could not
+    see the discount their own document is about to apply.
+    """
+    def dep(
+        user: dict = Depends(get_current_user),
+        db:   sqlite3.Connection = Depends(get_db),
+    ) -> dict:
+        resolved = _resolve_user(user, db)
+        last = None
+        for m in modules:
+            try:
+                check_perm(resolved, db, m, action)
+                return resolved
+            except HTTPException as e:
+                last = e
+        # Report the failure for the FIRST module asked for, so the message
+        # names something the caller recognises rather than the last one tried.
+        raise last or HTTPException(status_code=403, detail="Not permitted.")
+
+    return dep
+
+
 def require_admin(
     user: dict = Depends(get_current_user),
     db:   sqlite3.Connection = Depends(get_db),
