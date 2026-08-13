@@ -2984,6 +2984,31 @@ def _run_migrations(conn, c):
                 pass          # already present — the migration is idempotent
         done("141a_line_discount_pct")
 
+    if need("142a_company_logo"):
+        # The logo moves OFF the filesystem and into the database.
+        #
+        # It used to be a single file, `static/logo.png`, resolved relative to
+        # the running process. That is wrong twice over on a hosted deployment:
+        # `static/` is baked into the image at build time with no volume behind
+        # it, so an uploaded logo is destroyed by the next deploy; and one path
+        # serves every tenant, so whoever uploaded last replaced everyone
+        # else's branding on their invoices.
+        #
+        # In the database it is per-tenant for free — each customer owns their
+        # own schema — and it survives redeploys. Attachments already store
+        # their bytes this way.
+        c.execute("""
+            CREATE TABLE IF NOT EXISTS company_logo (
+                id         INTEGER PRIMARY KEY CHECK (id = 1),
+                data       BLOB NOT NULL,
+                mime       TEXT NOT NULL,
+                filename   TEXT,
+                size_bytes INTEGER,
+                updated_at TEXT
+            )
+        """)
+        done("142a_company_logo")
+
     conn.commit()
 
 
@@ -3334,6 +3359,18 @@ def _ensure_pg_post_baseline(raw):
                     "ON invoice_items(inventory_id)")
         cur.execute("CREATE INDEX IF NOT EXISTS idx_quotation_items_inventory "
                     "ON quotation_items(inventory_id)")
+        # 142 — the company logo, stored per tenant instead of as one shared
+        # file. BYTEA is the Postgres spelling of the chain's BLOB.
+        cur.execute("""
+            CREATE TABLE IF NOT EXISTS company_logo (
+                id         INTEGER PRIMARY KEY CHECK (id = 1),
+                data       BYTEA NOT NULL,
+                mime       TEXT NOT NULL,
+                filename   TEXT,
+                size_bytes INTEGER,
+                updated_at TEXT
+            )
+        """)
     raw.commit()
 
 

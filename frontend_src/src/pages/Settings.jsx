@@ -41,7 +41,7 @@ export default function Settings() {
   useEffect(() => {
     API.get('/api/settings/').then(data => {
       setForm(data);
-      setLogoPreview(`/logo.png?_=${Date.now()}`);
+      setLogoPreview(`/api/settings/logo?_=${Date.now()}`);
     }).catch((err) => setMsg({ type: 'err', text: t('settings.failedLoad') + ': ' + (err.message || '') }));
     getBackupStatus().then(setBackupStatus).catch(() => {});
     getExchangeRate().then(setRateInfo).catch(() => {});
@@ -88,7 +88,7 @@ export default function Settings() {
       }
       setMsg({ type: 'ok', text: t('settings.savedMsg') });
       setLogoFile(null);
-      setLogoPreview(`/logo.png?_=${Date.now()}`);
+      setLogoPreview(`/api/settings/logo?_=${Date.now()}`);
       reloadSettings();
     } catch (err) {
       // Surface the real error so 422s / validation failures don't look

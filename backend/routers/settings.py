@@ -9,7 +9,7 @@ flip it from a running ERP. The GET endpoint here surfaces it for the
 Sidebar to read, but no write path accepts the field.
 """
 from fastapi import APIRouter, Depends, HTTPException, UploadFile, File
-from fastapi.responses import FileResponse
+from fastapi.responses import FileResponse, Response
 from pydantic import BaseModel
 from typing import Optional
 from database import get_db, DB_PATH
@@ -284,10 +284,11 @@ MAX_DB_SIZE    = 100 * 1024 * 1024  # 100 MB
 
 def _logo_path() -> str:
     """
-    Resolve the logo path relative to the running exe / script.
+    The LEGACY on-disk logo, kept only so an existing self-hosted install does
+    not lose its branding on upgrade. New uploads go to the database instead
+    (see `upload_logo`); this path is read as a fallback and never written.
     - Frozen (PyInstaller onedir): next to the .exe in the dist folder
     - Plain Python dev mode: two levels up from this file → static/logo.png
-    This ensures the saved logo is in the same static/ folder the server serves.
     """
     if getattr(sys, "frozen", False):
         # onedir: exe lives next to the static/ folder
@@ -296,13 +297,51 @@ def _logo_path() -> str:
         base = os.path.normpath(os.path.join(os.path.dirname(__file__), "..", ".."))
     return os.path.join(base, "static", "logo.png")
 
+
+def _stored_logo(db):
+    """The tenant's logo as (bytes, mime), or None.
+
+    Reads the database first and the legacy file only as a fallback, so a
+    self-hosted install that already had `static/logo.png` keeps showing it
+    until someone uploads a replacement.
+    """
+    try:
+        row = db.execute("SELECT data, mime FROM company_logo WHERE id = 1").fetchone()
+    except sqlite3.Error:
+        row = None                      # table not created yet — fall through
+    if row is not None and row["data"] is not None:
+        data = row["data"]
+        # psycopg hands back memoryview for BYTEA; sqlite3 hands back bytes.
+        return bytes(data), (row["mime"] or "image/png")
+
+    legacy = _logo_path()
+    if os.path.exists(legacy):
+        try:
+            with open(legacy, "rb") as f:
+                return f.read(), "image/png"
+        except OSError:
+            pass
+    return None
+
+
 @router.get("/logo")
-def get_logo():
-    """Serve the company logo. Returns 404 if no logo has been uploaded yet."""
-    logo_path = _logo_path()
-    if not os.path.exists(logo_path):
+def get_logo(db: sqlite3.Connection = Depends(get_db)):
+    """Serve the company logo. Returns 404 if no logo has been uploaded yet.
+
+    Deliberately unauthenticated: the login screen shows the logo before anyone
+    has a session, and so does the document a customer opens from a share link.
+    The tenant comes from the request's own schema, which the tenancy
+    middleware resolves from the host — so an anonymous reader on
+    aman.quilit.dev gets AMAN's logo and never another customer's.
+    """
+    found = _stored_logo(db)
+    if found is None:
         raise HTTPException(404, "No logo uploaded")
-    return FileResponse(logo_path, media_type="image/png")
+    data, mime = found
+    # No-store: the logo is per-tenant and these responses must never be reused
+    # across workspaces by a shared cache.
+    return Response(content=data, media_type=mime,
+                    headers={"Cache-Control": "no-store"})
 
 
 _IMG_MAGIC = {
@@ -318,6 +357,19 @@ def _detect_image(data: bytes) -> bool:
             return True
     return False
 
+
+def _image_mime(data: bytes) -> str:
+    """The content type to serve these bytes back with.
+
+    The file used to be saved as logo.png and served as image/png whatever it
+    actually was — which happened to work because browsers sniff, but stored
+    bytes deserve an honest type.
+    """
+    for sig, kind in _IMG_MAGIC.items():
+        if data[:len(sig)] == sig:
+            return f"image/{kind}"
+    return "application/octet-stream"
+
 @router.post("/logo")
 async def upload_logo(
     file: UploadFile = File(...),
@@ -329,10 +381,17 @@ async def upload_logo(
         raise HTTPException(413, "Logo file too large (max 2 MB)")
     if not _detect_image(data):
         raise HTTPException(400, "File must be a valid image (PNG, JPEG, GIF, or WEBP)")
-    logo_path = _logo_path()
-    os.makedirs(os.path.dirname(logo_path), exist_ok=True)
-    with open(logo_path, "wb") as f:
-        f.write(data)
+    # Into the database, NOT onto disk. The filesystem is wrong on both counts:
+    # a hosted deployment bakes static/ into the image with no volume behind it,
+    # so an uploaded file dies with the next deploy; and one path is shared by
+    # every tenant, so an upload replaced other customers' branding.
+    mime = _image_mime(data)
+    now = _now()
+    db.execute("DELETE FROM company_logo WHERE id = 1")
+    db.execute(
+        "INSERT INTO company_logo (id, data, mime, filename, size_bytes, updated_at) "
+        "VALUES (1, ?, ?, ?, ?, ?)",
+        (data, mime, file.filename, len(data), now))
     log_action(db, user, "update", "settings", None, "Company logo",
                {"filename": file.filename, "size": len(data)})
     db.commit()

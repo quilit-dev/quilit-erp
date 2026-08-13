@@ -232,6 +232,57 @@ def test_existing_tenant_schemas_get_new_columns(app, pair):
         raw.close()
 
 
+# ── branding does not cross the boundary ────────────────────────────────────
+
+def test_each_tenant_keeps_its_own_logo(app, pair):
+    """The logo used to be ONE file, `static/logo.png`, resolved from the
+    running process with no tenant in the path. On this deployment every
+    customer shares one filesystem, so whoever uploaded last replaced everyone
+    else's branding — and it then appeared on their invoices, their quotations
+    and the documents their own customers opened from a share link.
+
+    It lives in the database now, so each schema holds its own.
+    """
+    import io
+
+    victim_png   = b"\x89PNG\r\n\x1a\n" + b"V" * 64
+    attacker_png = b"\x89PNG\r\n\x1a\n" + b"A" * 64
+
+    def upload(client, data):
+        r = client.post("/api/settings/logo",
+                        files={"file": ("logo.png", io.BytesIO(data), "image/png")})
+        assert r.status_code == 200, r.text
+
+    victim   = _login(app, "victim")
+    attacker = _login(app, "attacker")
+
+    upload(victim, victim_png)
+    upload(attacker, attacker_png)          # LAST write wins under the old code
+
+    assert victim.get("/api/settings/logo").content == victim_png, (
+        "the victim is serving someone else's logo — a later upload by another "
+        "tenant overwrote their branding")
+    assert attacker.get("/api/settings/logo").content == attacker_png
+
+
+def test_anonymous_reader_gets_the_logo_of_the_host_they_asked_for(app, pair):
+    """The login screen and the customer-facing share link both render the logo
+    with no session, so the tenant comes from the host. That path must not fall
+    back to some other tenant's branding."""
+    import io
+
+    victim_png = b"\x89PNG\r\n\x1a\n" + b"V" * 64
+    victim = _login(app, "victim")
+    r = victim.post("/api/settings/logo",
+                    files={"file": ("logo.png", io.BytesIO(victim_png), "image/png")})
+    assert r.status_code == 200, r.text
+
+    anon = TestClient(app)
+    got = anon.get("/api/settings/logo", headers={"X-Tenant": "victim"})
+    assert got.status_code == 200
+    assert got.content == victim_png
+
+
 def test_tenant_upgrade_is_idempotent(app, pair):
     """It runs on every boot, so a second pass must be a no-op rather than an
     error that blocks startup."""

@@ -35,6 +35,14 @@ _REQUIRED = [
 ]
 
 
+# Tables introduced after the squashed baseline. A table added to the SQLite
+# chain alone fails the same way a column does — on the first query, in
+# production only.
+_REQUIRED_TABLES = [
+    "company_logo",
+]
+
+
 @pytest.fixture(scope="module")
 def source() -> str:
     return _DB.read_text(encoding="utf-8")
@@ -65,6 +73,18 @@ def test_column_reaches_the_postgres_path(pg_block, table, column):
 def test_column_reaches_the_sqlite_chain(source, table, column):
     """The mirror check, so a Postgres-only addition is caught too."""
     assert column in source, f"{table}.{column} is not created for SQLite either"
+
+
+@pytest.mark.parametrize("table", _REQUIRED_TABLES)
+def test_table_reaches_both_backends(source, pg_block, table):
+    """A new table is the same trap as a new column: the SQLite chain creates
+    it, PostgreSQL never replays that chain, and the miss only shows up as a
+    500 for a hosted customer."""
+    assert f"CREATE TABLE IF NOT EXISTS {table}" in pg_block, (
+        f"{table} is not created by _ensure_pg_post_baseline — PostgreSQL "
+        f"deployments will 500 on the first query against it")
+    assert f"CREATE TABLE IF NOT EXISTS {table}" in source, (
+        f"{table} is not created for SQLite either")
 
 
 def test_postgres_path_uses_if_not_exists(pg_block):

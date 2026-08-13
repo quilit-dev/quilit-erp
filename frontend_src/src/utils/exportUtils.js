@@ -76,7 +76,12 @@ function addDays(dateStr, days) {
 // their customer opens.
 export async function getLogoDataURL() {
   try {
-    const resp = await fetch(`/logo.png?_=${Date.now()}`, { cache: 'no-store' });
+    // /api/settings/logo, NOT the static /logo.png. The static file is one
+    // shared path for the whole server, so on a multi-tenant deployment it
+    // served whichever customer uploaded last; the API route reads the logo
+    // from the requesting tenant's own database. It is unauthenticated, so
+    // this works on the client-facing share page too.
+    const resp = await fetch(`/api/settings/logo?_=${Date.now()}`, { cache: 'no-store' });
     if (!resp.ok) return null;
     const ct = resp.headers.get('content-type') || '';
     if (!ct.startsWith('image/')) return null;
