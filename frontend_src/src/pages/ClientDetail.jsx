@@ -253,7 +253,18 @@ export default function ClientDetail() {
           <SectionTable
             emptyMsg={t('clients.noInvoicesForClient')}
             columns={[
-              { key: 'invoice_number', label: '#',                       primary: true },
+              // Opens the invoice's own detail view on the Invoices page.
+              // There is no /invoices/:id route — `?focus=` is the same deep
+              // link global search already uses, so both entry points land in
+              // the same place instead of this page growing a second, diverging
+              // detail view of its own.
+              { key: 'invoice_number', label: '#', primary: true,
+                render: i => (
+                  <Link to={`/invoices?focus=${i.id}`}
+                        style={{ color: 'var(--accent)', textDecoration: 'none', fontWeight: 500 }}>
+                    {i.invoice_number}
+                  </Link>
+                ) },
               { key: 'status',         label: t('common.status'),        render: i => <Badge status={i.status} /> },
               { key: 'project_name',   label: t('quotations.project'),   render: i => i.project_name || '—' },
               { key: 'amount',         label: t('common.amount'),        render: i => fmt(i.amount) },
