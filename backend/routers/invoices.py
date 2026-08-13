@@ -76,6 +76,14 @@ class InvoiceItemCreate(BaseModel):
     # (the mobile app serialising an absent value) should mean "not set",
     # not fail validation on a field it never knew about.
     discount_auto: Optional[bool] = True
+    # The percentage the operator typed, when they typed one. `discount` stays
+    # the authoritative MONEY figure — the ledger and every issued document
+    # depend on it — and is computed from this when it is present.
+    #
+    # None means "the amount was given directly": every line written before this
+    # existed is in that state, and those documents must keep their exact money
+    # rather than have it recomputed from a derived percentage.
+    discount_pct: Optional[float] = None
     tax_rate_id: Optional[int] = None
 
 class InvoiceCreate(BaseModel):
@@ -378,11 +386,12 @@ def create_invoice(
         rid, rate, tax_amt = line_tax[idx]
         db.execute(
             "INSERT INTO invoice_items "
-            "(invoice_id, name, quantity, unit_price, discount, tax_rate_id, "
+            "(invoice_id, name, quantity, unit_price, discount, discount_pct, tax_rate_id, "
             " tax_rate, tax_amount, inventory_id, promotion_id) "
-            "VALUES (?,?,?,?,?,?,?,?,?,?)",
+            "VALUES (?,?,?,?,?,?,?,?,?,?,?)",
             (invoice_id, item.name, item.quantity, item.unit_price,
              float(getattr(item, "discount", 0) or 0),
+             getattr(item, "discount_pct", None),
              rid, rate, tax_amt,
              getattr(item, "inventory_id", None),
              promo_ids[idx] if idx < len(promo_ids) else None),
@@ -486,11 +495,12 @@ def update_invoice(
             # were given.
             db.execute(
                 "INSERT INTO invoice_items "
-                "(invoice_id, name, quantity, unit_price, discount, tax_rate_id, "
+                "(invoice_id, name, quantity, unit_price, discount, discount_pct, tax_rate_id, "
                 " tax_rate, tax_amount, inventory_id, promotion_id) "
-                "VALUES (?,?,?,?,?,?,?,?,?,?)",
+                "VALUES (?,?,?,?,?,?,?,?,?,?,?)",
                 (invoice_id, item.name, item.quantity, item.unit_price,
                  float(getattr(item, "discount", 0) or 0),
+                 getattr(item, "discount_pct", None),
                  rid, rate, tax_amt,
                  getattr(item, "inventory_id", None),
                  promo_ids[idx] if idx < len(promo_ids) else None),

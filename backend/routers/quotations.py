@@ -55,6 +55,14 @@ class QuoteItem(BaseModel):
     # (the mobile app serialising an absent value) should mean "not set",
     # not fail validation on a field it never knew about.
     discount_auto: Optional[bool] = True
+    # The percentage the operator typed, when they typed one. `discount` stays
+    # the authoritative MONEY figure — the ledger and every issued document
+    # depend on it — and is computed from this when it is present.
+    #
+    # None means "the amount was given directly": every line written before this
+    # existed is in that state, and those documents must keep their exact money
+    # rather than have it recomputed from a derived percentage.
+    discount_pct: Optional[float] = None
     tax_rate_id: Optional[int] = None
 
 
@@ -217,11 +225,12 @@ def create_quotation(
         rid, rate, tax_amt = line_tax[idx]
         db.execute(
             "INSERT INTO quotation_items "
-            "(quotation_id, name, quantity, unit_price, discount, total, tax_rate_id, "
+            "(quotation_id, name, quantity, unit_price, discount, discount_pct, total, tax_rate_id, "
             " tax_rate, tax_amount, inventory_id, promotion_id) "
-            "VALUES (?,?,?,?,?,?,?,?,?,?,?)",
+            "VALUES (?,?,?,?,?,?,?,?,?,?,?,?)",
             (qid, item.name, item.quantity, item.unit_price,
              float(getattr(item, "discount", 0) or 0),
+             getattr(item, "discount_pct", None),
              # `total` mirrors the line net after discount so historical
              # reports tie to the modern pricing math.
              round(max(0.0, item.quantity * item.unit_price
@@ -343,11 +352,12 @@ def update_quotation(
             # write a gross total, so a revised quote quietly cost the customer
             # their agreed reduction.
             "INSERT INTO quotation_items "
-            "(quotation_id, name, quantity, unit_price, discount, total, tax_rate_id, "
+            "(quotation_id, name, quantity, unit_price, discount, discount_pct, total, tax_rate_id, "
             " tax_rate, tax_amount, inventory_id, promotion_id) "
-            "VALUES (?,?,?,?,?,?,?,?,?,?,?)",
+            "VALUES (?,?,?,?,?,?,?,?,?,?,?,?)",
             (quote_id, item.name, item.quantity, item.unit_price,
              float(getattr(item, "discount", 0) or 0),
+             getattr(item, "discount_pct", None),
              round(max(0.0, item.quantity * item.unit_price
                             - float(getattr(item, "discount", 0) or 0)), 4),
              rid, rate, tax_amt,

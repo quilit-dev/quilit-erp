@@ -2,16 +2,12 @@ import { useState } from 'react';
 import { toast } from '../components/shared';
 
 /**
- * Shared per-row Excel export for record list pages (quotations, invoices).
- *
- * PDF is NOT here. Invoices and quotations are rendered by the server
- * (backend/pdf_render.py) and linked directly, because a browser-printed
- * document cannot reach a mobile app, an email attachment or a client's share
- * link — and two templates meant the customer's copy could differ from the one
- * on screen. This hook now only does the spreadsheet.
+ * Shared per-row export handler for record list pages (quotations, invoices).
+ * Fetches the full record, attaches its client, then runs the PDF/Excel exporter.
  *
  *   const { exportLoading, handleExport } = useRecordExport({
  *     fetchFull:   getQuotation,
+ *     exportPDF:   exportQuotationPDF,
  *     exportExcel: exportQuotationExcel,
  *     getClients:  () => clients,
  *     getExportOpts: () => ({ displayCurrency, exchangeRate }),
@@ -21,7 +17,7 @@ import { toast } from '../components/shared';
  * currency — passed as the 2nd argument to the exporter.
  * `exportLoading` maps record id → 'pdf' | 'excel' | null while a job runs.
  */
-export function useRecordExport({ fetchFull, exportExcel, getClients, getExportOpts }) {
+export function useRecordExport({ fetchFull, exportPDF, exportExcel, getClients, getExportOpts }) {
   const [exportLoading, setExportLoading] = useState({});
 
   async function handleExport(record, type) {
@@ -32,10 +28,13 @@ export function useRecordExport({ fetchFull, exportExcel, getClients, getExportO
       const enriched  = { ...full, client: clientObj };
       const opts      = getExportOpts?.() || {};
 
-      // Excel only. PDF is a direct link to the server renderer, so it never
-      // reaches this hook — see the note at the top.
-      exportExcel(enriched, opts);
-      toast('Excel file downloaded.');
+      if (type === 'pdf') {
+        await exportPDF(enriched, opts);
+        toast('PDF ready — use your browser\'s Save as PDF option.');
+      } else {
+        exportExcel(enriched, opts);
+        toast('Excel file downloaded.');
+      }
     } catch (err) {
       toast(`Export failed: ${err.message}`, 'red');
     } finally {

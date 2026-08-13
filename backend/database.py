@@ -2959,6 +2959,31 @@ def _run_migrations(conn, c):
                   "ON quotation_items(inventory_id)")
         done("140a_line_inventory_link")
 
+    # ── 141: per-line discount as a PERCENTAGE ──────────────────────────────
+    # `discount` holds a money amount, which is what the pricing engine, the
+    # ledger and every issued document depend on — so it stays the authoritative
+    # figure and is NOT replaced. This adds the percentage the operator actually
+    # typed, alongside it.
+    #
+    # Two reasons the percentage has to be stored rather than derived:
+    #
+    #   * Deriving it back from the amount loses precision and can print an
+    #     absurd figure on a reissued document — 33.333333% where someone typed
+    #     a third off.
+    #   * Promotions ARE percentages. Storing only the money meant a document
+    #     could not say "10% off" even though that is exactly what was agreed.
+    #
+    # Nullable on purpose: every line written before this migration has an
+    # amount and no percentage, and those documents must keep their exact money.
+    # A NULL means "amount was given directly" and the amount is used as-is.
+    if need("141a_line_discount_pct"):
+        for tbl in ("invoice_items", "quotation_items"):
+            try:
+                c.execute(f"ALTER TABLE {tbl} ADD COLUMN discount_pct REAL")
+            except Exception:
+                pass          # already present — the migration is idempotent
+        done("141a_line_discount_pct")
+
     conn.commit()
 
 

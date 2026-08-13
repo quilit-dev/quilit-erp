@@ -417,3 +417,88 @@ def test_quotations_behave_identically(make_client):
     z = c.get(f"/api/quotations/{zero['id']}").json()["items"][0]
     assert a["discount"] == 40.0 and a["promotion_id"] is not None
     assert z["discount"] == 0 and z["promotion_id"] is None
+
+
+# ── discount as a percentage ────────────────────────────────────────────────
+#
+# The field is a RATE. `discount` remains the authoritative money figure that
+# the pricing engine and the ledger use; the percentage is what was agreed, and
+# the amount is computed from it.
+
+def test_a_typed_percentage_becomes_money(make_client):
+    c = make_client("superadmin")
+    client_id, iid = _promo_setup(c, pct=20)
+    inv = c.post("/api/invoices/", json={"client_id": client_id, "items": [
+        _line(iid, discount=0, discount_pct=10, discount_auto=False)]}).json()
+    got = c.get(f"/api/invoices/{inv['id']}").json()
+    li = got["items"][0]
+    assert li["discount_pct"] == 10
+    assert li["discount"] == 20.0        # 10% of 2 x 100
+    assert got["amount"] == 180.0
+
+
+def test_a_fractional_percentage_rounds_to_cents(make_client):
+    c = make_client("superadmin")
+    client_id, iid = _promo_setup(c, pct=20)
+    inv = c.post("/api/invoices/", json={"client_id": client_id, "items": [
+        _line(iid, discount=0, discount_pct=12.5, discount_auto=False)]}).json()
+    li = c.get(f"/api/invoices/{inv['id']}").json()["items"][0]
+    assert li["discount"] == 25.0
+
+
+def test_zero_percent_is_a_real_answer(make_client):
+    c = make_client("superadmin")
+    client_id, iid = _promo_setup(c, pct=20)
+    inv = c.post("/api/invoices/", json={"client_id": client_id, "items": [
+        _line(iid, discount=0, discount_pct=0, discount_auto=False)]}).json()
+    got = c.get(f"/api/invoices/{inv['id']}").json()
+    assert got["items"][0]["discount"] == 0
+    assert got["amount"] == 200.0
+
+
+def test_promotion_records_its_rate_not_just_the_money(make_client):
+    """A document that can only say "40.00 off" cannot say "20% off", which is
+    what was actually agreed."""
+    c = make_client("superadmin")
+    client_id, iid = _promo_setup(c, pct=20)
+    inv = c.post("/api/invoices/", json={"client_id": client_id, "items": [
+        _line(iid, discount=0, discount_auto=True)]}).json()
+    li = c.get(f"/api/invoices/{inv['id']}").json()["items"][0]
+    assert li["discount_pct"] == 20
+    assert li["discount"] == 40.0
+    assert li["promotion_id"] is not None
+
+
+def test_a_line_with_only_an_amount_keeps_that_amount(make_client):
+    """Every line written before percentages existed has money and no rate.
+    Recomputing those from a derived percentage would move the totals on
+    documents that were already issued."""
+    c = make_client("superadmin")
+    client_id, iid = _promo_setup(c, pct=20)
+    inv = c.post("/api/invoices/", json={"client_id": client_id, "items": [
+        _line(iid, discount=33.33, discount_auto=False)]}).json()
+    got = c.get(f"/api/invoices/{inv['id']}").json()
+    assert got["items"][0]["discount"] == 33.33
+    assert got["items"][0]["discount_pct"] is None
+    assert got["amount"] == 166.67
+
+
+def test_preview_returns_the_rate(make_client):
+    """The form's field is a percentage, so a preview that returned only an
+    amount left it with nothing to display."""
+    c = make_client("superadmin")
+    _, iid = _promo_setup(c, pct=20)
+    r = c.post("/api/promotions/preview", json={"lines": [
+        {"inventory_id": iid, "quantity": 2, "unit_price": 100, "discount": 0}]}).json()
+    assert r["lines"][0]["discount_pct"] == 20
+    assert r["lines"][0]["discount"] == 40.0
+
+
+def test_quotation_percentage_matches_invoice(make_client):
+    c = make_client("superadmin")
+    client_id, iid = _promo_setup(c, pct=20)
+    q = c.post("/api/quotations/", json={"client_id": client_id, "items": [
+        _line(iid, discount=0, discount_pct=10, discount_auto=False)]}).json()
+    li = c.get(f"/api/quotations/{q['id']}").json()["items"][0]
+    assert li["discount_pct"] == 10
+    assert li["discount"] == 20.0

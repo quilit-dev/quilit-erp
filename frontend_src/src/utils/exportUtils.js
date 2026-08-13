@@ -1,10 +1,3 @@
-// NOTE: the invoice and quotation PDF templates were removed from here.
-// Both documents are rendered by the SERVER (backend/pdf_render.py) and
-// linked directly. A browser-printed document cannot be attached to an
-// email, opened by the mobile app, or shown on a client's share link, and
-// maintaining a second template meant the copy a customer received could
-// drift from the one their supplier saw. Excel export and the report PDF
-// (which still uses SHARED_CSS below) remain here.
 /**
  * exportUtils.js — PDF & Excel export for Quotations and Invoices.
  *
@@ -400,12 +393,200 @@ function paymentInstructions(C) {
 // ═══════════════════════════════════════════════════════════════════════════════
 // QUOTATION PDF
 // ═══════════════════════════════════════════════════════════════════════════════
+export async function exportQuotationPDF(quotation, opts = {}) {
+  const [logoDataURL, settings] = await Promise.all([getLogoDataURL(), getSettings()]);
+  const C  = buildCompany(settings);
+  const CC = currencyContext(C, opts);
+  USD = CC.money;
 
+  const items          = quotation.items || [];
+  const docDiscountPct = Number(quotation.discount_pct || 0);
+  const { subtotal, totalDiscount, totalTax, grandTotal } = aggregateLines(items, C, docDiscountPct);
+
+  const status = quotation.status || 'Draft';
+  const statusStyle = ({
+    Draft:    'background:#f1f5f9;color:#475569;border:1px solid #cbd5e1',
+    Sent:     'background:#eff6ff;color:#2563eb;border:1px solid #bfdbfe',
+    Accepted: 'background:#f0fdf4;color:#15803d;border:1px solid #bbf7d0',
+    Rejected: 'background:#fef2f2;color:#dc2626;border:1px solid #fecaca',
+  })[status] || 'background:#f1f5f9;color:#475569;border:1px solid #cbd5e1';
+
+  const client     = quotation.client || (quotation.client_name ? { name: quotation.client_name } : null);
+  const docNo      = quotation.quote_number || '—';
+  const issueDate  = fmtDate(quotation.created_at);
+  const validUntil = fmtDate(addDays(quotation.created_at, C.paymentDays));
+  const logo       = logoDataURL ? `<img src="${logoDataURL}" class="company-logo" alt="logo" />` : '';
+  const taxOn      = C.taxOn && C.taxRate > 0;
+  const rateNote   = CC.useLbp
+    ? `<div class="band slate"><span class="band-label">Currency Note:</span> Amounts are shown in ${CC.code}, converted from ${C.currency} at 1 ${C.currency} = ${CC.rate.toLocaleString('en-US')} ${CC.code}.</div>`
+    : '';
+
+  const html = `<!DOCTYPE html><html lang="en"><head><meta charset="UTF-8"><title>Quotation ${docNo}</title><style>${SHARED_CSS}</style></head><body>
+<div class="page">
+  <div class="doc-header">
+    <div>${logo}<div class="company-name">${C.name}</div><div class="company-meta">${companyDetails(C)}</div></div>
+    <div style="text-align:right">
+      <div class="doc-title">Quotation</div>
+      <div class="doc-ref">${docNo}</div>
+      <div class="doc-dates">Issued: <strong>${issueDate}</strong> • Valid: <strong>${validUntil}</strong><br>Terms: <strong>Net ${C.paymentDays} Days</strong> • Currency: <strong>${CC.code}</strong></div>
+      <div class="status-badge" style="${statusStyle}">${status}</div>
+    </div>
+  </div>
+
+  <div class="info-grid">
+    <div class="info-col"><div class="info-label">Prepared For</div>${clientHTML(client)}</div>
+    <div class="info-col">
+      <div class="info-label">Document Info</div>
+      ${quotation.project_name ? `<div class="meta-row"><span class="meta-key">Project</span><span>${quotation.project_name}</span></div>` : ''}
+      <div class="meta-row"><span class="meta-key">Ref</span><span>${docNo}</span></div>
+      <div class="meta-row"><span class="meta-key">Issued</span><span>${issueDate}</span></div>
+      <div class="meta-row"><span class="meta-key">Expires</span><span>${validUntil}</span></div>
+    </div>
+  </div>
+
+  <table>${itemTableHTML(items, C, docDiscountPct)}</table>
+
+  ${totalsBoxHTML(subtotal, totalDiscount, totalTax, grandTotal, C)}
+  ${rateNote}
+
+  <div class="band amber"><span class="band-label">Valid Until:</span> ${validUntil} (${C.paymentDays} days from issue). Prices are subject to change thereafter.</div>
+  ${quotation.notes ? `<div class="band"><span class="band-label">Notes:</span> ${quotation.notes}</div>` : ''}
+  <div class="band"><span class="band-label">Terms and Conditions:</span> All prices in ${CC.code}. Payment due Net ${C.paymentDays} days. Quotation binding upon written acceptance. Goods remain property of ${C.name} until paid in full. Scope changes may affect pricing.</div>
+  ${paymentInstructions(C)}
+  ${C.footer ? `<div class="band"><span class="band-label">Note:</span> ${C.footer}</div>` : ''}
+
+  <div class="sig-section">
+    <div class="sig-header">Acceptance & Authorization</div>
+    <div class="sig-body">By signing, the undersigned accepts all terms, pricing, and conditions herein. This document authorizes proceeding with the described scope.
+      <div class="sig-grid">
+        <div><div class="sig-title">Client Signature & Name</div><div class="sig-line">Signature: _______________ Date: ____/____/______</div></div>
+        <div><div class="sig-title">Authorized by ${C.name}</div><div class="sig-line">Signature: _______________ Date: ____/____/______</div></div>
+      </div>
+    </div>
+  </div>
+
+  <div class="content-spacer"></div>
+  <div class="doc-footer">
+    <div class="footer-left"><strong>${C.name}</strong><br>${C.address}${C.phone ? ` • ${C.phone}` : ''}</div>
+    <div style="text-align:center;font-size:7px;color:#9ca3af">Confidential • ${docNo} • ${new Date().toLocaleDateString()}</div>
+    <div style="text-align:right">${C.email}${C.vat ? `<br>${C.vat}` : ''}</div>
+  </div>
+</div></body></html>`;
+
+  await saveDocumentSnapshot('quotation', quotation, `Quotation ${docNo}`, html);
+  printHTML(html, `Quotation_${docNo}.pdf`);
+}
 
 // ═══════════════════════════════════════════════════════════════════════════════
 // INVOICE PDF
 // ═══════════════════════════════════════════════════════════════════════════════
+export async function exportInvoicePDF(invoice, opts = {}) {
+  const [logoDataURL, settings] = await Promise.all([getLogoDataURL(), getSettings()]);
+  const C  = buildCompany(settings);
+  const CC = currencyContext(C, opts);
+  USD = CC.money;
 
+  const items          = invoice.items    || [];
+  const payments       = invoice.payments || [];
+  const docDiscountPct = Number(invoice.discount_pct || 0);
+  const { subtotal, totalDiscount, totalTax, grandTotal } = aggregateLines(items, C, docDiscountPct);
+
+  const paid    = payments.reduce((s, p) => s + (Number(p.amount) || 0), 0);
+  const balance = Math.max(0, grandTotal - paid);
+  const isPaid  = balance < 0.01;
+  const status  = invoice.payment_status || (isPaid ? 'Paid' : paid > 0 ? 'Partial' : 'Unpaid');
+
+  const statusStyle = ({
+    Unpaid:  'background:#fef2f2;color:#dc2626;border:1px solid #fecaca',
+    Partial: 'background:#fffbeb;color:#d97706;border:1px solid #fde68a',
+    Paid:    'background:#f0fdf4;color:#15803d;border:1px solid #bbf7d0',
+  })[status] || 'background:#fef2f2;color:#dc2626;border:1px solid #fecaca';
+
+  const client    = invoice.client || (invoice.client_name ? { name: invoice.client_name } : null);
+  const docNo     = invoice.invoice_number || '—';
+  const invDate   = invoice.created_at || new Date().toISOString();
+  const dueDate   = invoice.due_date || addDays(invDate, C.paymentDays);
+  const isOverdue = !isPaid && new Date(dueDate) < new Date();
+  const logo      = logoDataURL ? `<img src="${logoDataURL}" class="company-logo" alt="logo" />` : '';
+  const taxOn     = C.taxOn && C.taxRate > 0;
+  const rateNote  = CC.useLbp
+    ? `<div class="band slate"><span class="band-label">Currency Note:</span> Amounts are shown in ${CC.code}, converted from ${C.currency} at 1 ${C.currency} = ${CC.rate.toLocaleString('en-US')} ${CC.code}.</div>`
+    : '';
+
+  const paymentRows = payments.map((p, i) =>
+    `<tr>
+      <td class="seq">${i + 1}</td>
+      <td>${fmtDate(p.paid_at)}</td>
+      <td>${p.method || '—'}</td>
+      <td>${p.note   || '—'}</td>
+      <td class="r" style="color:var(--green)">${USD(p.amount)}</td>
+    </tr>`
+  ).join('');
+
+  const extraTotalsRows = `
+    <div class="totals-row"><span class="k">Paid</span><span class="v green">${USD(paid)}</span></div>
+    <div class="totals-row"><span class="k">Balance</span><span class="v ${balance === 0 ? 'green' : 'red'}">${USD(balance)}</span></div>`;
+
+  const html = `<!DOCTYPE html><html lang="en"><head><meta charset="UTF-8"><title>Invoice ${docNo}</title><style>${SHARED_CSS}</style></head><body>
+<div class="page">
+  <div class="doc-header">
+    <div>${logo}<div class="company-name">${C.name}</div><div class="company-meta">${companyDetails(C)}</div></div>
+    <div style="text-align:right">
+      <div class="doc-title">Invoice</div>
+      <div class="doc-ref">${docNo}</div>
+      <div class="doc-dates">Date: <strong>${fmtDate(invDate)}</strong> • Due: <strong>${fmtDate(dueDate)}</strong><br>${invoice.quote_number ? `Quote Ref: <strong>${invoice.quote_number}</strong> • ` : ''}Terms: <strong>Net ${C.paymentDays} Days</strong> • ${CC.code}</div>
+      <div class="status-badge" style="${statusStyle}">${status}</div>
+    </div>
+  </div>
+
+  <div class="info-grid">
+    <div class="info-col"><div class="info-label">Bill To</div>${clientHTML(client)}</div>
+    <div class="info-col">
+      <div class="info-label">Invoice Details</div>
+      ${invoice.project_name ? `<div class="meta-row"><span class="meta-key">Project</span><span>${invoice.project_name}</span></div>` : ''}
+      <div class="meta-row"><span class="meta-key">No.</span><span>${docNo}</span></div>
+      <div class="meta-row"><span class="meta-key">Issued</span><span>${fmtDate(invDate)}</span></div>
+      <div class="meta-row"><span class="meta-key">Due</span><span>${fmtDate(dueDate)}</span></div>
+    </div>
+  </div>
+
+  <table>${itemTableHTML(items, C, docDiscountPct)}</table>
+
+  ${totalsBoxHTML(subtotal, totalDiscount, totalTax, grandTotal, C, extraTotalsRows)}
+  ${rateNote}
+
+  ${isPaid
+    ? `<div class="band green"><span class="band-label">✓ Paid in Full:</span> Settled. Thank you for your prompt payment.</div>`
+    : isOverdue
+      ? `<div class="band amber"><span class="band-label">⚠ Overdue:</span> ${USD(balance)} was due on ${fmtDate(dueDate)}. Please remit immediately to avoid service interruption.</div>`
+      : `<div class="band"><span class="band-label">Due:</span> ${USD(balance)} by ${fmtDate(dueDate)} (Net ${C.paymentDays} days).</div>`
+  }
+  ${invoice.notes ? `<div class="band"><span class="band-label">Notes:</span> ${invoice.notes}</div>` : ''}
+  ${paymentInstructions(C)}
+
+  ${payments.length ? `
+  <div class="section-heading">Payment History</div>
+  <table>
+    <thead><tr>
+      <th style="width:5%">#</th><th style="width:20%">Date</th>
+      <th style="width:18%">Method</th><th style="width:37%">Reference / Note</th>
+      <th style="width:20%" class="r">Amount</th>
+    </tr></thead>
+    <tbody>${paymentRows}</tbody>
+  </table>` : ''}
+
+  ${C.footer ? `<div class="band"><span class="band-label">Note:</span> ${C.footer}</div>` : ''}
+  <div class="content-spacer"></div>
+  <div class="doc-footer">
+    <div class="footer-left"><strong>${C.name}</strong><br>${C.address}${C.phone ? ` • ${C.phone}` : ''}</div>
+    <div style="text-align:center;font-size:7px;color:#9ca3af">Confidential • ${docNo} • ${new Date().toLocaleDateString()}</div>
+    <div style="text-align:right">${C.email}${C.vat ? `<br>${C.vat}` : ''}</div>
+  </div>
+</div></body></html>`;
+
+  await saveDocumentSnapshot('invoice', invoice, `Invoice ${docNo}`, html);
+  printHTML(html, `Invoice_${docNo}.pdf`);
+}
 
 // ═══════════════════════════════════════════════════════════════════════════════
 // EXCEL — shared helpers

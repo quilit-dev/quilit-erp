@@ -96,6 +96,13 @@ def promo_discount_for_line(db, inventory_id, quantity, unit_price, today=None):
     return round(qty * price * pct / 100.0, 4), promo["id"]
 
 
+def _f(v, default=0.0) -> float:
+    try:
+        return float(v if v not in (None, "") else default)
+    except (TypeError, ValueError):
+        return default
+
+
 def apply_promotions_to_lines(db, items, today=None):
     """Fill each line's `discount` from the best live promotion, IN PLACE.
 
@@ -123,7 +130,18 @@ def apply_promotions_to_lines(db, items, today=None):
         raw_auto = getattr(it, "discount_auto", True)
         auto = True if raw_auto is None else bool(raw_auto)
         if not auto or existing > 0:
-            out.append(None)                   # a human already decided
+            # A human decided. If they expressed it as a PERCENTAGE, turn that
+            # into the money figure the pricing engine and the ledger use — the
+            # percentage is what was agreed, the amount is what is owed.
+            pct = getattr(it, "discount_pct", None)
+            if pct is not None:
+                gross = (_f(getattr(it, "quantity", 0))
+                         * _f(getattr(it, "unit_price", 0)))
+                try:
+                    it.discount = round(gross * _f(pct) / 100.0, 2)
+                except Exception:
+                    pass                       # immutable model — leave it be
+            out.append(None)
             continue
         amount, promo_id = promo_discount_for_line(
             db, getattr(it, "inventory_id", None),
@@ -131,6 +149,13 @@ def apply_promotions_to_lines(db, items, today=None):
         if promo_id and amount > 0:
             try:
                 it.discount = amount
+                # Record the rate too, so a document can say "20% off" rather
+                # than only the money. Promotions ARE percentages; storing only
+                # the amount threw that away.
+                row = db.execute("SELECT discount_value FROM promotions WHERE id=?",
+                                 (promo_id,)).fetchone()
+                if row is not None:
+                    it.discount_pct = _f(row["discount_value"])
             except Exception:
                 out.append(None)               # immutable model — do not guess
                 continue
@@ -312,8 +337,9 @@ def preview_promotions(data: PreviewRequest,
     for ln in (data.lines or []):
         # A typed discount wins, exactly as it does on save.
         if (ln.discount or 0) > 0:
-            out.append({"discount": float(ln.discount or 0), "promotion_id": None,
-                        "promotion_name": None, "source": "manual"})
+            out.append({"discount": float(ln.discount or 0), "discount_pct": None,
+                        "promotion_id": None, "promotion_name": None,
+                        "source": "manual"})
             continue
         amount, promo_id = promo_discount_for_line(
             db, ln.inventory_id, ln.quantity, ln.unit_price, today)
@@ -321,7 +347,15 @@ def preview_promotions(data: PreviewRequest,
         if promo_id:
             row = db.execute("SELECT name FROM promotions WHERE id=?", (promo_id,)).fetchone()
             name = row["name"] if row else None
-        out.append({"discount": round(float(amount or 0), 2),
+        # The RATE as well as the money: the form's discount field is a
+        # percentage, so returning only an amount left it with nothing to show.
+        pct = None
+        if promo_id:
+            prow = db.execute("SELECT discount_value FROM promotions WHERE id=?",
+                              (promo_id,)).fetchone()
+            if prow is not None:
+                pct = float(prow["discount_value"] or 0)
+        out.append({"discount": round(float(amount or 0), 2), "discount_pct": pct,
                     "promotion_id": promo_id, "promotion_name": name,
                     "source": "promotion" if promo_id else None})
     return {"lines": out}
