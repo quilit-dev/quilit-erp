@@ -90,6 +90,7 @@ const ar = {
     ytd:         'من بداية السنة',
   },
   support: {
+    reportShort: 'الإبلاغ عن مشكلة',
     reportTitle: 'الإبلاغ عن مشكلة',
     whatHappened: 'ما الذي كنت تحاول القيام به؟',
     whatHappenedHint: 'صف ما توقعته وما حدث بدلاً من ذلك.',

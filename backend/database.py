@@ -3316,6 +3316,24 @@ def _ensure_pg_post_baseline(raw):
         """)
         cur.execute("CREATE INDEX IF NOT EXISTS idx_comms_entity "
                     "ON communications_log(entity_type, entity_id, sent_at)")
+
+        # 140/141 — document line columns.
+        #
+        # These MUST be here as well as in the SQLite migration chain. The two
+        # backends have completely separate migration mechanisms: SQLite replays
+        # _run_migrations, PostgreSQL applies a squashed baseline plus this
+        # function. Adding a column to only one of them leaves the other missing
+        # it, and the failure surfaces as a 500 on the first INSERT — which is
+        # exactly what happened: invoice creation broke in production while
+        # every SQLite test passed.
+        for tbl in ("invoice_items", "quotation_items"):
+            cur.execute(f"ALTER TABLE {tbl} ADD COLUMN IF NOT EXISTS inventory_id INTEGER")
+            cur.execute(f"ALTER TABLE {tbl} ADD COLUMN IF NOT EXISTS promotion_id INTEGER")
+            cur.execute(f"ALTER TABLE {tbl} ADD COLUMN IF NOT EXISTS discount_pct DOUBLE PRECISION")
+        cur.execute("CREATE INDEX IF NOT EXISTS idx_invoice_items_inventory "
+                    "ON invoice_items(inventory_id)")
+        cur.execute("CREATE INDEX IF NOT EXISTS idx_quotation_items_inventory "
+                    "ON quotation_items(inventory_id)")
     raw.commit()
 
 

@@ -115,14 +115,25 @@ export function ReportProblemDialog({ onClose, error = null, componentStack = ''
 }
 
 // Topbar entry point — always reachable, on every page.
+//
+// LABELLED, not an icon alone. It shipped as a bare 14px alert-circle sitting
+// between the notification bell and the theme toggle, with the meaning only in
+// a tooltip — and the person who asked for the feature could not find it. A
+// reporting channel nobody can see reports nothing, so the word is on screen.
+// The label collapses on narrow viewports where the topbar has no room.
 export function ReportProblemButton() {
   const { t } = useLocale();
   const [open, setOpen] = useState(false);
   return (
     <>
       <button className="theme-toggle" onClick={() => setOpen(true)}
-        title={t('support.reportTitle')} aria-label={t('support.reportTitle')}>
+        title={t('support.reportTitle')} aria-label={t('support.reportTitle')}
+        style={{ display: 'inline-flex', alignItems: 'center', gap: 6,
+                 width: 'auto', paddingInline: 10, whiteSpace: 'nowrap' }}>
         <Icon name="alert-circle" size={14} />
+        <span className="hide-on-mobile" style={{ fontSize: 12, fontWeight: 600 }}>
+          {t('support.reportShort')}
+        </span>
       </button>
       {open && <ReportProblemDialog onClose={() => setOpen(false)} />}
     </>

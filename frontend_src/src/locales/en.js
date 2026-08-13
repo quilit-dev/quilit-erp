@@ -90,6 +90,7 @@ const en = {
     ytd:         'Year to date',
   },
   support: {
+    reportShort: 'Report a problem',
     reportTitle: 'Report a problem',
     whatHappened: 'What were you trying to do?',
     whatHappenedHint: 'Describe what you expected and what happened instead.',

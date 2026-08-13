@@ -3961,3 +3961,10 @@ textarea.form-control {
   from { transform: translateY(100%); }
   to   { transform: translateY(0); }
 }
+
+/* Collapse a control's text label on narrow screens, keeping its icon. Used by
+   the topbar Report-a-problem button, which needs its word on desktop to be
+   discoverable but has no room for it on a phone. */
+@media (max-width: 640px) {
+  .hide-on-mobile { display: none !important; }
+}
