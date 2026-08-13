@@ -186,3 +186,57 @@ def test_cosmetic_slug_variants_normalise_to_the_same_tenant(app, pair, variant)
     bad = c2.post("/api/auth/login", json={"username": "admin", "password": "nope"},
                   headers={"X-Tenant": variant})
     assert bad.status_code in (401, 429), bad.text
+
+
+# ── schema upgrades reach EXISTING customers ────────────────────────────────
+
+def test_existing_tenant_schemas_get_new_columns(app, pair):
+    """A column added to the post-baseline must reach schemas that already
+    exist, not just `public` and newly provisioned tenants.
+
+    This is the shape of a real outage: invoice creation returned 500 for a live
+    customer because `public.invoice_items` had `discount_pct` and
+    `tenant_<slug>.invoice_items` did not. Every test passed, because the tests
+    provision fresh schemas that pick the column up on creation.
+    """
+    import psycopg
+    import tenancy
+    from database import _pg_dsn
+
+    schema = "tenant_victim"
+    raw = psycopg.connect(_pg_dsn())
+    try:
+        # Put the schema back into the state it would have been in before the
+        # column was introduced.
+        with raw.cursor() as cur:
+            cur.execute(f'ALTER TABLE "{schema}".invoice_items '
+                        f'DROP COLUMN IF EXISTS discount_pct')
+        raw.commit()
+
+        def has_col():
+            with raw.cursor() as cur:
+                cur.execute("SELECT 1 FROM information_schema.columns WHERE "
+                            "table_schema=%s AND table_name='invoice_items' "
+                            "AND column_name='discount_pct'", (schema,))
+                return cur.fetchone() is not None
+
+        assert not has_col(), "precondition: the column should be gone"
+
+        result = tenancy.upgrade_all_tenant_schemas()
+        assert "victim" in result.get("upgraded", []), result
+
+        assert has_col(), (
+            "upgrade_all_tenant_schemas did not reach an existing tenant — "
+            "a hosted customer would 500 on the next invoice")
+    finally:
+        raw.close()
+
+
+def test_tenant_upgrade_is_idempotent(app, pair):
+    """It runs on every boot, so a second pass must be a no-op rather than an
+    error that blocks startup."""
+    import tenancy
+    first = tenancy.upgrade_all_tenant_schemas()
+    second = tenancy.upgrade_all_tenant_schemas()
+    assert not first.get("failed"), first
+    assert not second.get("failed"), second

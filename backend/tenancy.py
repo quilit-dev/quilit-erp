@@ -1039,3 +1039,62 @@ class TenantMiddleware:
             await self.app(scope, receive, send)
         finally:
             reset_current_schema(token)
+
+
+def upgrade_all_tenant_schemas() -> dict:
+    """Apply the post-baseline upgrade to EVERY existing tenant schema.
+
+    Each customer owns a full copy of the tables, so adding a column to
+    `_ensure_pg_post_baseline` reaches only two places on its own: the `public`
+    schema (upgraded on boot, with the default search_path) and any tenant
+    provisioned afterwards. A schema created BEFORE the column was added never
+    receives it, and the failure appears as a 500 on the first write — which is
+    exactly how invoice creation broke for a live customer while `public` had
+    the column and every test passed.
+
+    Runs on boot, after the public upgrade. Idempotent: every statement in the
+    post-baseline is ADD COLUMN IF NOT EXISTS / CREATE IF NOT EXISTS, so this is
+    a no-op once a schema is current.
+
+    One tenant failing must not stop the others or block startup, so each is
+    attempted independently and the outcome is returned for logging rather than
+    raised.
+    """
+    if not IS_SCHEMA_TENANCY:
+        return {"skipped": "single-tenant mode"}
+
+    from database import _ensure_pg_post_baseline
+    out = {"upgraded": [], "failed": {}}
+    try:
+        raw = _connect()
+    except Exception as e:
+        return {"failed": {"connect": str(e)}}
+    try:
+        ensure_tenants_catalog(raw)
+        with raw.cursor() as cur:
+            cur.execute("SELECT slug, schema_name FROM public.tenants ORDER BY id")
+            tenants = [dict(r) for r in cur.fetchall()]
+
+        for t in tenants:
+            schema = t["schema_name"]
+            if not valid_schema_name(schema):
+                out["failed"][t["slug"]] = f"unsafe schema name {schema!r}"
+                continue
+            try:
+                with raw.cursor() as cur:
+                    cur.execute(f'SET search_path TO "{schema}", public')
+                _ensure_pg_post_baseline(raw)
+                out["upgraded"].append(t["slug"])
+            except Exception as e:
+                raw.rollback()
+                out["failed"][t["slug"]] = str(e)[:200]
+        # Leave the connection pointing somewhere harmless.
+        try:
+            with raw.cursor() as cur:
+                cur.execute("SET search_path TO public")
+            raw.commit()
+        except Exception:
+            pass
+    finally:
+        raw.close()
+    return out

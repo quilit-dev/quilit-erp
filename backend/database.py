@@ -3352,6 +3352,25 @@ def _init_db_postgres():
         conn.commit()
     finally:
         raw.close()
+
+    # Every customer owns a full copy of the tables, so the upgrade above — which
+    # ran against the default search_path — reached `public` alone. A schema
+    # created before a column was added never receives it, and the failure shows
+    # up as a 500 on the first write to that table. Upgrading them here means a
+    # deploy carries the change to existing customers, not just new ones.
+    try:
+        import tenancy
+        if tenancy.IS_SCHEMA_TENANCY:
+            result = tenancy.upgrade_all_tenant_schemas()
+            if result.get("upgraded"):
+                print(f"Tenant schemas upgraded: {', '.join(result['upgraded'])}", flush=True)
+            for slug, err in (result.get("failed") or {}).items():
+                # Loud, but never fatal: one broken tenant must not stop the
+                # service booting for everyone else.
+                print(f"WARNING: tenant {slug} upgrade failed: {err}", flush=True)
+    except Exception as e:
+        print(f"WARNING: tenant schema upgrade skipped: {e}", flush=True)
+
     print("Database initialized (postgres).")
 
 
