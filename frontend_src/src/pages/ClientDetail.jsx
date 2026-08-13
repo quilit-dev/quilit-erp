@@ -232,7 +232,14 @@ export default function ClientDetail() {
           <SectionTable
             emptyMsg={t('clients.noQuotationsForClient')}
             columns={[
-              { key: 'quote_number', label: '#',                      primary: true },
+              // Same deep link as the invoices tab below — see the note there.
+              { key: 'quote_number', label: '#', primary: true,
+                render: q => (
+                  <Link to={`/quotations?focus=${q.id}`}
+                        style={{ color: 'var(--accent)', textDecoration: 'none', fontWeight: 500 }}>
+                    {q.quote_number}
+                  </Link>
+                ) },
               { key: 'status',       label: t('common.status'),       render: q => <Badge status={q.status} /> },
               { key: 'project_name', label: t('quotations.project'),  render: q => q.project_name || '—' },
               { key: 'total',        label: t('quotations.total'),    render: q => fmt(q.total) },

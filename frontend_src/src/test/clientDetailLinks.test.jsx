@@ -18,7 +18,10 @@ const CLIENT = {
   name: 'Acme Contracting',
   stats: {},
   projects: [],
-  quotations: [],
+  quotations: [
+    { id: 8, quote_number: 'QTN-2026-0008', status: 'sent', total: 400,
+      created_at: '2026-08-01' },
+  ],
   invoices: [
     { id: 41, invoice_number: 'INV-2026-0041', status: 'unpaid',
       amount: 1500, paid_amount: 0, due_date: '2026-09-01' },
@@ -38,7 +41,7 @@ vi.mock('../hooks/usePermissions', () => ({
 
 import ClientDetail from '../pages/ClientDetail';
 
-async function openInvoicesTab() {
+async function openTab(match) {
   render(
     <LocaleProvider>
       <MemoryRouter initialEntries={['/clients/7']}>
@@ -48,11 +51,13 @@ async function openInvoicesTab() {
   );
   await act(async () => { await new Promise(r => setTimeout(r, 0)); });
 
-  const tab = screen.getAllByRole('button')
-    .find(b => /invoice/i.test(b.textContent));
-  expect(tab, 'invoices tab should exist').toBeTruthy();
+  const tab = screen.getAllByRole('button').find(b => match.test(b.textContent));
+  expect(tab, `${match} tab should exist`).toBeTruthy();
   await act(async () => { fireEvent.click(tab); });
 }
+
+const openInvoicesTab   = () => openTab(/invoice/i);
+const openQuotationsTab = () => openTab(/quotation/i);
 
 beforeEach(() => { vi.clearAllMocks(); });
 
@@ -72,5 +77,15 @@ describe("a client's invoices open the invoice", () => {
 
     expect(screen.getByText('INV-2026-0042').closest('a').getAttribute('href'))
       .toBe('/invoices?focus=42');
+  });
+});
+
+describe("a client's quotations open the quotation", () => {
+  test('the quote number is a link to that quotation', async () => {
+    await openQuotationsTab();
+
+    const link = screen.getByText('QTN-2026-0008').closest('a');
+    expect(link, 'the quote number should be a link, not plain text').toBeTruthy();
+    expect(link.getAttribute('href')).toBe('/quotations?focus=8');
   });
 });

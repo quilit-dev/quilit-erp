@@ -68,7 +68,13 @@ function addDays(dateStr, days) {
 }
 
 // ─── Logo loader ───────────────────────────────────────────────────────────────
-async function getLogoDataURL() {
+// Exported because the client-facing share page needs the SAME resolution, not
+// a bare `/logo.png` in the markup. This returns null when there is no logo (or
+// the path answers with something that is not an image), and the templates omit
+// the <img> entirely on null — hand them a plain URL instead and a tenant with
+// no logo uploaded gets a broken-image icon captioned "logo" on the document
+// their customer opens.
+export async function getLogoDataURL() {
   try {
     const resp = await fetch(`/logo.png?_=${Date.now()}`, { cache: 'no-store' });
     if (!resp.ok) return null;

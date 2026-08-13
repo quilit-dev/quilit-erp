@@ -20,12 +20,15 @@
 // fields (costs, margins, private notes) cannot leak here by accident.
 import { useEffect, useMemo, useRef, useState } from 'react';
 import { useParams } from 'react-router-dom';
-import { buildInvoiceHTML, buildQuotationHTML } from '../utils/exportUtils';
+import { buildInvoiceHTML, buildQuotationHTML, getLogoDataURL } from '../utils/exportUtils';
 
 export default function PublicDocument() {
   const { token } = useParams();
   const [doc, setDoc] = useState(null);
   const [gone, setGone] = useState(false);
+  // undefined = still resolving, null = there is no logo. The document waits
+  // for this rather than rendering logo-less and then reflowing once it lands.
+  const [logo, setLogo] = useState(undefined);
   const frameRef = useRef(null);
 
   useEffect(() => {
@@ -37,13 +40,21 @@ export default function PublicDocument() {
     return () => { alive = false; };
   }, [token]);
 
+  // Resolve the logo to a data URL exactly as the supplier's own export does.
+  // It answers null when nothing has been uploaded, which is what makes the
+  // template drop the <img> instead of printing a broken image.
+  useEffect(() => {
+    let alive = true;
+    getLogoDataURL()
+      .then(d => { if (alive) setLogo(d || null); })
+      .catch(() => { if (alive) setLogo(null); });
+    return () => { alive = false; };
+  }, []);
+
   // Build the document with the shared template. The public payload already
   // carries the settings-shaped company block, so nothing here needs a session.
   const html = useMemo(() => {
-    if (!doc) return '';
-    // The logo is served as a static file, so a plain URL works where the
-    // authenticated path uses a data URL.
-    const logo = '/logo.png';
+    if (!doc || logo === undefined) return '';
     // The public payload names the reference `number`; the template reads
     // `invoice_number` / `quote_number`. Without this the client's copy shows a
     // dash where the document reference belongs — the one field they quote back
@@ -61,7 +72,7 @@ export default function PublicDocument() {
     } catch {
       return '';        // never leave the client staring at a blank page
     }
-  }, [doc]);
+  }, [doc, logo]);
 
   function printDoc() {
     const w = frameRef.current?.contentWindow;
@@ -81,7 +92,11 @@ export default function PublicDocument() {
     );
   }
 
-  if (!doc) {
+  // Still resolving either half. `logo === undefined` matters as much as a
+  // missing doc: without it the "could not be displayed" panel below flashes up
+  // for a moment on every single visit, because the template cannot be built
+  // until the logo has settled one way or the other.
+  if (!doc || logo === undefined) {
     return <Shell><p style={{ color: '#8b8590', margin: 0 }}>Loading…</p></Shell>;
   }
 
