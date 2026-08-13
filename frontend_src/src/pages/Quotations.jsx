@@ -14,7 +14,7 @@ import {
   DualMoney, ExchangeRateBadge, DisplayCurrencyToggle, NumberInput, BranchField,
   Icon} from '../components/shared';
 import { SendDocumentButton, useQuickSend } from '../components/SendDocument';
-import { exportQuotationExcel } from '../utils/exportUtils';
+import { exportQuotationPDF, exportQuotationExcel } from '../utils/exportUtils';
 import { useLocale } from '../hooks/useLocale.jsx';
 import { usePermissions } from '../hooks/usePermissions';
 import Attachments from '../components/Attachments.jsx';
@@ -73,7 +73,7 @@ function usePromoPreview(items, enabled) {
 // discount starts EMPTY, not 0: an empty box invites the promotion to fill
 // it, while a typed 0 is a decision the promotion must not overwrite.
 // `discount_auto` stays true until a person edits the field.
-const EMPTY_ITEM = { name: '', quantity: 1, unit_price: 0, discount: '',
+const EMPTY_ITEM = { name: '', quantity: 1, unit_price: 0, discount_pct: '',
                      discount_auto: true, inventory_id: null, tax_rate_id: null };
 const makeEmpty  = () => ({ client_id: '', lead_id: '', project_id: '', project_name: '', status: 'Draft', notes: '', branch_id: '', items: [{ ...EMPTY_ITEM }] });
 
@@ -164,10 +164,18 @@ function QuoteActionMenu({ doc, exporting, isVoided, onEdit, onExport, onVoid, o
               : <><Icon name="file-spreadsheet" size={14} /><span>{t('quotations.exportXls')}</span></>}
           </button>
 
-          {/* Server-rendered PDF — a real file, no print dialog. The item above
-              opens the browser's print dialog, which is a different action; the
-              two were previously both called "Export PDF", which is what made
-              the row look duplicated. */}
+          {/* Browser-rendered from the HTML/CSS template in exportUtils.js —
+              opens the print dialog, where the operator chooses Save as PDF. */}
+          <button
+            style={{ ...menuItemStyle, color: '#991b1b', opacity: (isExporting || isVoided) ? 0.4 : 1 }}
+            disabled={isExporting || isVoided}
+            onClick={() => { setOpen(false); onExport('pdf'); }}
+          >
+            {exporting === 'pdf'
+              ? <><Icon name="loader" size={14} style={SPIN} /><span>{t('common.exporting')}</span></>
+              : <><Icon name="file-text" size={14} /><span>{t('quotations.exportPdf')}</span></>}
+          </button>
+
           <button disabled={!!sendBusy} onClick={() => { setOpen(false); quickSend('whatsapp'); }}
               style={{ ...menuItemStyle, opacity: sendBusy ? 0.5 : 1 }}>
               <Icon name="message-circle" size={14} />
@@ -178,27 +186,6 @@ function QuoteActionMenu({ doc, exporting, isVoided, onEdit, onExport, onVoid, o
               <Icon name="mail" size={14} />
               <span>{t('comms.quickEmailShort')}</span>
             </button>
-
-            <a href={`/api/pdf/quotations/${doc.id}.pdf?lang=${lang}`} target="_blank"
-             rel="noopener noreferrer" onClick={() => setOpen(false)}
-             style={{ ...menuItemStyle, textDecoration: 'none' }}>
-            <Icon name="file-text" size={14} /><span>{t('comms.openPdf')}</span>
-          </a>
-          <a href={`/api/pdf/quotations/${doc.id}.pdf?download=1&lang=${lang}`}
-             onClick={() => setOpen(false)}
-             style={{ ...menuItemStyle, textDecoration: 'none' }}>
-            <Icon name="download" size={14} /><span>{t('comms.downloadPdf')}</span>
-          </a>
-
-            {/* The other language. One template renders both, so a customer
-                can be sent an Arabic invoice and an English one from the same
-                record without a second layout existing. */}
-            <a href={`/api/pdf/quotations/${doc.id}.pdf?lang=${lang === 'ar' ? 'en' : 'ar'}`}
-               target="_blank" rel="noopener noreferrer" onClick={() => setOpen(false)}
-               style={{ ...menuItemStyle, textDecoration: 'none' }}>
-              <Icon name="globe" size={14} />
-              <span>{lang === 'ar' ? t('comms.pdfInEnglish') : t('comms.pdfInArabic')}</span>
-            </a>
 
           {divider}
 
@@ -252,10 +239,16 @@ export default function Quotations() {
   // manual per-line discounts, so its effect is counted even when the discount
   // COLUMN is switched off — an invisible reduction that changes the total is
   // how a document stops adding up.
-  const effDiscount = (item, i) => {
+  // The field is a PERCENTAGE; money is derived from it, exactly as the server
+  // does, so the running total matches what gets stored.
+  const effDiscountPct = (item, i) => {
     // Touched means a person decided, and their number stands — including 0.
-    if (item.discount_auto === false) return Number(item.discount) || 0;
-    return Number(promoLines[i]?.discount) || 0;
+    if (item.discount_auto === false) return Number(item.discount_pct) || 0;
+    return Number(promoLines[i]?.discount_pct) || 0;
+  };
+  const effDiscount = (item, i) => {
+    const gross = (Number(item.quantity) || 0) * (Number(item.unit_price) || 0);
+    return Math.round(gross * effDiscountPct(item, i)) / 100;
   };
   const [editId,       setEditId]       = useState(null);
   const [formLoading,  setFormLoading]  = useState(false);
@@ -268,6 +261,7 @@ export default function Quotations() {
 
   const { exportLoading, handleExport } = useRecordExport({
     fetchFull:   getQuotation,
+    exportPDF:   exportQuotationPDF,
     exportExcel: exportQuotationExcel,
     getClients:  () => clients,
     getExportOpts: () => ({ displayCurrency, exchangeRate }),
@@ -296,7 +290,14 @@ export default function Quotations() {
               name: i.name,
               quantity: i.quantity,
               unit_price: i.unit_price,
-              discount: i.discount || '',
+              // Older lines stored only money. Derive a percentage so the box
+              // has something to show, but see the payload note: an untouched
+              // line sends no percentage, so the original amount is preserved
+              // exactly rather than recomputed from a rounded figure.
+              discount_pct: i.discount_pct != null ? i.discount_pct
+                : (Number(i.discount) > 0 && Number(i.quantity) * Number(i.unit_price) > 0
+                    ? Math.round(Number(i.discount) / (Number(i.quantity) * Number(i.unit_price)) * 10000) / 100
+                    : ''),
               // A discount that came FROM a promotion stays "auto", so re-saving
               // re-derives it and keeps the attribution. A hand-entered one is
               // marked manual, so the promotion cannot overwrite the figure
@@ -329,7 +330,7 @@ export default function Quotations() {
   // false is what lets an explicit 0 survive the server's promotion pass.
   const setItemDiscount = (i, val) => setForm(f => ({
     ...f, items: f.items.map((item, x) =>
-      x === i ? { ...item, discount: val, discount_auto: false } : item),
+      x === i ? { ...item, discount_pct: val, discount_auto: false } : item),
   }));
 
   const setItemFromInventory = (i, name, price, meta) => setForm(f => ({
@@ -388,7 +389,10 @@ export default function Quotations() {
           unit_price: Number(i.unit_price)||0,
           // An untouched line sends 0 and lets the server apply the
           // promotion authoritatively; a touched one sends the human's number.
-          discount: i.discount_auto === false ? (Number(i.discount) || 0) : 0,
+          // Send the PERCENTAGE. The server turns it into the money figure the
+          // ledger uses, so the browser never decides what a customer owes.
+          discount: 0,
+          discount_pct: i.discount_auto === false ? (Number(i.discount_pct) || 0) : null,
           discount_auto: i.discount_auto !== false,
           // The stock link travels with the line so the server can find a
           // promotion for it. Dropping it here would silently disable
@@ -728,12 +732,12 @@ export default function Quotations() {
                     <NumberInput className="form-control" placeholder="Unit $" min="0" step="0.01"
                       value={item.unit_price} onChange={e => setItem(i, 'unit_price', e.target.value)} />
                     <NumberInput className="form-control"
-                      placeholder={t('common.discount')}
+                      placeholder="%"
                       title={t('common.discount')}
-                      min="0" step="0.01"
+                      min="0" max="100" step="0.01"
                       value={item.discount_auto === false
-                        ? item.discount
-                        : (promoLines[i]?.discount ?? '')}
+                        ? item.discount_pct
+                        : (promoLines[i]?.discount_pct ?? '')}
                       onChange={e => setItemDiscount(i, e.target.value)} />
                     {taxEnabled && (
                       <select className="form-control" style={{ fontSize:12, padding:'6px 4px' }}

@@ -10,7 +10,7 @@ import {
   LoadingSpinner, ErrorAlert, EmptyState, Modal, ConfirmModal,
   Badge, ExportButton, fmt, fmtDate, toast, SortableTh, Pagination,
   DualMoney, ExchangeRateBadge, DisplayCurrencyToggle, NumberInput, BranchField} from '../components/shared';
-import { exportInvoiceExcel } from '../utils/exportUtils';
+import { exportInvoicePDF, exportInvoiceExcel } from '../utils/exportUtils';
 import InventoryCombobox, { salePriceInBase } from '../components/InventoryCombobox';
 import { useLocale } from '../hooks/useLocale.jsx';
 import { usePermissions } from '../hooks/usePermissions';
@@ -68,7 +68,7 @@ function usePromoPreview(items, enabled) {
 // discount starts EMPTY, not 0: an empty box invites the promotion to fill
 // it, while a typed 0 is a decision the promotion must not overwrite.
 // `discount_auto` stays true until a person edits the field.
-const EMPTY_ITEM = { name: '', quantity: 1, unit_price: 0, discount: '',
+const EMPTY_ITEM = { name: '', quantity: 1, unit_price: 0, discount_pct: '',
                      discount_auto: true, inventory_id: null, tax_rate_id: null };
 const EMPTY_FORM = { quotation_id: '', project_id: '', client_id: '', due_date: '', notes: '', branch_id: '', items: [{ ...EMPTY_ITEM }] };
 import { ActionMenu } from './invoices/ActionMenu';
@@ -129,10 +129,16 @@ export default function Invoices() {
   // manual per-line discounts, so its effect is counted even when the discount
   // COLUMN is switched off — an invisible reduction that changes the total is
   // how a document stops adding up.
-  const effDiscount = (item, i) => {
+  // The field is a PERCENTAGE; money is derived from it, exactly as the server
+  // does, so the running total matches what gets stored.
+  const effDiscountPct = (item, i) => {
     // Touched means a person decided, and their number stands — including 0.
-    if (item.discount_auto === false) return Number(item.discount) || 0;
-    return Number(promoLines[i]?.discount) || 0;
+    if (item.discount_auto === false) return Number(item.discount_pct) || 0;
+    return Number(promoLines[i]?.discount_pct) || 0;
+  };
+  const effDiscount = (item, i) => {
+    const gross = (Number(item.quantity) || 0) * (Number(item.unit_price) || 0);
+    return Math.round(gross * effDiscountPct(item, i)) / 100;
   };
   const [editId,        setEditId]        = useState(null);
   const [editVersion,   setEditVersion]   = useState(null);
@@ -155,6 +161,7 @@ export default function Invoices() {
 
   const { exportLoading, handleExport } = useRecordExport({
     fetchFull:   getInvoice,
+    exportPDF:   exportInvoicePDF,
     exportExcel: exportInvoiceExcel,
     getClients:  () => clients,
     getExportOpts: () => ({ displayCurrency, exchangeRate }),
@@ -201,7 +208,14 @@ export default function Invoices() {
               name: i.name,
               quantity: i.quantity,
               unit_price: i.unit_price,
-              discount: i.discount || '',
+              // Older lines stored only money. Derive a percentage so the box
+              // has something to show, but see the payload note: an untouched
+              // line sends no percentage, so the original amount is preserved
+              // exactly rather than recomputed from a rounded figure.
+              discount_pct: i.discount_pct != null ? i.discount_pct
+                : (Number(i.discount) > 0 && Number(i.quantity) * Number(i.unit_price) > 0
+                    ? Math.round(Number(i.discount) / (Number(i.quantity) * Number(i.unit_price)) * 10000) / 100
+                    : ''),
               // A discount that came FROM a promotion stays "auto", so re-saving
               // re-derives it and keeps the attribution. A hand-entered one is
               // marked manual, so the promotion cannot overwrite the figure
@@ -235,7 +249,7 @@ export default function Invoices() {
   // false is what lets an explicit 0 survive the server's promotion pass.
   const setItemDiscount = (i, val) => setForm(f => ({
     ...f, items: f.items.map((item, x) =>
-      x === i ? { ...item, discount: val, discount_auto: false } : item),
+      x === i ? { ...item, discount_pct: val, discount_auto: false } : item),
   }));
 
   const setItemFromInventory = (i, name, price, meta) => setForm(f => ({
@@ -278,7 +292,10 @@ export default function Invoices() {
           unit_price: Number(i.unit_price)||0,
           // An untouched line sends 0 and lets the server apply the
           // promotion authoritatively; a touched one sends the human's number.
-          discount: i.discount_auto === false ? (Number(i.discount) || 0) : 0,
+          // Send the PERCENTAGE. The server turns it into the money figure the
+          // ledger uses, so the browser never decides what a customer owes.
+          discount: 0,
+          discount_pct: i.discount_auto === false ? (Number(i.discount_pct) || 0) : null,
           discount_auto: i.discount_auto !== false,
           // The stock link travels with the line so the server can find a
           // promotion for it. Dropping it here would silently disable
@@ -584,7 +601,7 @@ export default function Invoices() {
                 <span style={{ fontSize:11, fontWeight:600, color:'var(--text-3)', paddingLeft:4 }}>{t('invoices.descriptionCol')}</span>
                 <span style={{ fontSize:11, fontWeight:600, color:'var(--text-3)', textAlign:'center' }}>{t('invoices.qtyCol')}</span>
                 <span style={{ fontSize:11, fontWeight:600, color:'var(--text-3)', textAlign:'center' }}>{t('invoices.unitPriceCol')}</span>
-                <span style={{ fontSize:11, fontWeight:600, color:'var(--text-3)', textAlign:'center' }}>{t('common.discount')}</span>
+                <span style={{ fontSize:11, fontWeight:600, color:'var(--text-3)', textAlign:'center' }}>{t('common.discount')} %</span>
                 {taxEnabled && <span style={{ fontSize:11, fontWeight:600, color:'var(--text-3)', textAlign:'center' }}>{t('common.taxCol')}</span>}
                 <span style={{ fontSize:11, fontWeight:600, color:'var(--text-3)', textAlign:'right' }}>{t('common.total')}</span>
                 {!amountsLocked && <span />}
@@ -620,12 +637,12 @@ export default function Invoices() {
                         </span>
                       ) : (
                         <NumberInput className="form-control"
-                          placeholder={t('common.discount')}
+                          placeholder="%"
                           title={t('common.discount')}
-                          min="0" step="0.01"
+                          min="0" max="100" step="0.01"
                           value={item.discount_auto === false
-                            ? item.discount
-                            : (promoLines[i]?.discount ?? '')}
+                            ? item.discount_pct
+                            : (promoLines[i]?.discount_pct ?? '')}
                           onChange={e => setItemDiscount(i, e.target.value)} />
                       )
                     )}

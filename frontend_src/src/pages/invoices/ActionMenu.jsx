@@ -110,8 +110,18 @@ function ActionMenu({ inv, exporting, onEdit, onPay, onExport, onVoid, onUnvoid 
                 : <><Icon name="file-spreadsheet" size={14} /><span>Export XLS</span></>}
             </button>
 
-            {/* The server path: a real file, no print dialog. This is what the
-                mobile app and an email attachment can use. */}
+            {/* Browser-rendered from the HTML/CSS template in exportUtils.js —
+                opens the print dialog, where the operator chooses Save as PDF. */}
+            <button
+              disabled={isExporting || isVoided}
+              onClick={() => { setOpen(false); onExport('pdf'); }}
+              style={{ ...menuItemStyle, color: '#991b1b', opacity: (isExporting || isVoided) ? 0.4 : 1 }}
+            >
+              {exporting === 'pdf'
+                ? <><Icon name="loader" size={14} style={SPIN} /><span>Exporting…</span></>
+                : <><Icon name="file-text" size={14} /><span>Export PDF</span></>}
+            </button>
+
             <button disabled={!!sendBusy} onClick={() => { setOpen(false); quickSend('whatsapp'); }}
               style={{ ...menuItemStyle, opacity: sendBusy ? 0.5 : 1 }}>
               <Icon name="message-circle" size={14} />
@@ -122,27 +132,6 @@ function ActionMenu({ inv, exporting, onEdit, onPay, onExport, onVoid, onUnvoid 
               <Icon name="mail" size={14} />
               <span>{t('comms.quickEmailShort')}</span>
             </button>
-
-            <a href={`/api/pdf/invoices/${inv.id}.pdf?lang=${lang}`} target="_blank"
-               rel="noopener noreferrer" onClick={() => setOpen(false)}
-               style={{ ...menuItemStyle, textDecoration: 'none' }}>
-              <Icon name="file-text" size={14} /><span>{t('comms.openPdf')}</span>
-            </a>
-            <a href={`/api/pdf/invoices/${inv.id}.pdf?download=1&lang=${lang}`}
-               onClick={() => setOpen(false)}
-               style={{ ...menuItemStyle, textDecoration: 'none' }}>
-              <Icon name="download" size={14} /><span>{t('comms.downloadPdf')}</span>
-            </a>
-
-            {/* The other language. One template renders both, so a customer
-                can be sent an Arabic invoice and an English one from the same
-                record without a second layout existing. */}
-            <a href={`/api/pdf/invoices/${inv.id}.pdf?lang=${lang === 'ar' ? 'en' : 'ar'}`}
-               target="_blank" rel="noopener noreferrer" onClick={() => setOpen(false)}
-               style={{ ...menuItemStyle, textDecoration: 'none' }}>
-              <Icon name="globe" size={14} />
-              <span>{lang === 'ar' ? t('comms.pdfInEnglish') : t('comms.pdfInArabic')}</span>
-            </a>
 
             <div style={{ height: 1, background: 'var(--border)', margin: '4px 0' }} />
 
