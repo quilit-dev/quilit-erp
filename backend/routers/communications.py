@@ -73,7 +73,8 @@ def _load_document(db, entity_type: str, entity_id: int) -> dict:
     doc = dict(row)
     try:
         items = db.execute(
-            f"SELECT name, quantity, unit_price FROM {cfg['items']} "
+            f"SELECT name, quantity, unit_price, discount, discount_pct, tax_rate "
+            f"FROM {cfg['items']} "
             f"WHERE {cfg['fk']} = ? ORDER BY id", (entity_id,)).fetchall()
         doc["items"] = [dict(i) for i in items]
     except sqlite3.Error:
@@ -85,19 +86,28 @@ def _company(db) -> dict:
     """Company identity for the document header. This is the one place the
     tenant's own name is still shown to an outsider — it is their invoice, not
     Quilit's."""
+    # The keys the printed template reads, so the client's copy looks like the
+    # supplier's. Bank details are included deliberately: the customer cannot pay
+    # an invoice without them, and they are on the paper version already.
+    WANTED = ("company_name", "company_tagline", "company_address", "company_city",
+              "company_country", "company_phone", "company_email", "company_website",
+              "company_tax_number", "company_reg_number",
+              "bank_name", "bank_account", "bank_iban", "bank_swift",
+              "default_currency", "currency", "footer_text", "payment_terms_days",
+              "tax_enabled", "default_tax_rate", "show_tax_col", "show_discount_col")
     out = {"name": "", "address": "", "phone": "", "email": "", "currency": "USD"}
     try:
         rows = db.execute(
             "SELECT key, value FROM settings WHERE key IN "
-            "('company_name','company_address','company_phone','company_email','currency')"
-        ).fetchall()
+            "(" + ",".join("?" * len(WANTED)) + ")", WANTED).fetchall()
         m = {r["key"]: r["value"] for r in rows}
+        out.update(m)
         out.update({
             "name": m.get("company_name") or "",
             "address": m.get("company_address") or "",
             "phone": m.get("company_phone") or "",
             "email": m.get("company_email") or "",
-            "currency": m.get("currency") or "USD",
+            "currency": m.get("default_currency") or m.get("currency") or "USD",
         })
     except sqlite3.Error:
         pass
@@ -391,21 +401,54 @@ def public_document(token: str, db: sqlite3.Connection = Depends(get_db)):
     except sqlite3.Error:
         pass
 
+    payments = []
+    if share["entity_type"] == "invoice":
+        try:
+            rows = db.execute(
+                "SELECT paid_at, method, note, amount FROM invoice_payments "
+                "WHERE invoice_id = ? ORDER BY id", (share["entity_id"],)).fetchall()
+            payments = [dict(r) for r in rows]
+        except sqlite3.Error:
+            payments = []
+
     # An explicit allow-list, not `dict(doc)`. A SELECT * that later gains an
-    # internal column (a margin, a cost, an private note) must not start
-    # leaking it to the public — so the payload is enumerated by hand.
+    # internal column (a margin, a cost, a private note) must not start leaking
+    # it to the public — so the payload is enumerated by hand.
+    #
+    # It carries everything PRINTED on the customer's own document, because the
+    # share link now renders the same layout they would receive as a PDF: line
+    # discounts and tax, the totals, the payment history, and the bank details
+    # they need in order to pay. Nothing here is internal — a cost, a margin or
+    # another customer's data would be, and none of it is included.
     return {
         "type": share["entity_type"],
         "label": cfg["label"],
         "number": doc.get("doc_number"),
         "issued_at": (doc.get("created_at") or "")[:10],
+        "created_at": doc.get("created_at"),
         "due_date": doc.get("due_date"),
+        "valid_until": doc.get("valid_until"),
         "currency": company["currency"],
-        "amount": doc.get("amount") or 0,
+        "amount": doc.get("amount") or doc.get("total") or 0,
+        "subtotal": doc.get("subtotal"),
+        "tax_total": doc.get("tax_total"),
+        "total_paid": doc.get("total_paid"),
+        "remaining": doc.get("remaining"),
+        "payment_status": doc.get("payment_status"),
         "notes": doc.get("notes"),
+        # Name only, deliberately. The document is addressed to whoever opens
+        # the link, and they already know their own phone and email — but the
+        # link is a bearer URL that travels through WhatsApp and gets forwarded,
+        # so carrying contact details here would turn a leaked link into a
+        # contact-data leak. The "Bill To" block shows one line less than the
+        # supplier's copy; that is the intended trade.
         "client": {"name": doc.get("client_name")},
-        "company": {"name": company["name"], "address": company["address"],
-                    "phone": company["phone"], "email": company["email"]},
-        "items": [{"name": i.get("name"), "quantity": i.get("quantity"),
-                   "unit_price": i.get("unit_price")} for i in doc["items"]],
+        "company": company,
+        "payments": payments,
+        "items": [{"name": i.get("name"),
+                   "quantity": i.get("quantity"),
+                   "unit_price": i.get("unit_price"),
+                   "discount": i.get("discount"),
+                   "discount_pct": i.get("discount_pct"),
+                   "tax_rate": i.get("tax_rate")} for i in doc["items"]],
     }

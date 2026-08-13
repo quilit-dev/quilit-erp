@@ -1,25 +1,32 @@
-// The page a CLIENT sees when they open a link from an invoice or quotation
-// email. No login, no sidebar, no app chrome — the recipient is not a user of
-// this ERP and never will be, so anything that looks like an application is
-// noise to them.
+// The page a CLIENT sees when they open a share link from WhatsApp or email.
+// No login, no sidebar, no app chrome — the recipient is not a user of this ERP
+// and never will be, so anything that looks like an application is noise.
 //
-// It deliberately renders only what the public endpoint returns. That endpoint
+// It renders THE SAME document the supplier prints, from the same template in
+// exportUtils.js. It used to have a simplified layout of its own, so the copy a
+// customer opened looked nothing like the invoice they were told had been sent —
+// different fonts, no logo, no bank details, no line discounts. One template,
+// two audiences.
+//
+// The document goes in an IFRAME rather than into the page. That template is a
+// whole HTML document with its own reset and print rules; injecting its markup
+// here would let the app's stylesheet reshape a financial document, and the
+// customer would receive something subtly different from what was sent. An
+// iframe also makes printing exact — the browser prints the frame's own @page
+// rules, not this page's.
+//
+// It still renders only what the public endpoint returns, and that endpoint
 // enumerates its payload by hand rather than spreading the row, so internal
 // fields (costs, margins, private notes) cannot leak here by accident.
-//
-// Printing is the browser's job, same as everywhere else in this app — there is
-// no server-side PDF, and window.print() gives the client a perfectly good one.
-import { useEffect, useState } from 'react';
+import { useEffect, useMemo, useRef, useState } from 'react';
 import { useParams } from 'react-router-dom';
-
-const money = (n, cur) => `${cur || ''} ${Number(n || 0).toLocaleString(undefined, {
-  minimumFractionDigits: 2, maximumFractionDigits: 2,
-})}`.trim();
+import { buildInvoiceHTML, buildQuotationHTML } from '../utils/exportUtils';
 
 export default function PublicDocument() {
   const { token } = useParams();
   const [doc, setDoc] = useState(null);
   const [gone, setGone] = useState(false);
+  const frameRef = useRef(null);
 
   useEffect(() => {
     let alive = true;
@@ -30,11 +37,44 @@ export default function PublicDocument() {
     return () => { alive = false; };
   }, [token]);
 
+  // Build the document with the shared template. The public payload already
+  // carries the settings-shaped company block, so nothing here needs a session.
+  const html = useMemo(() => {
+    if (!doc) return '';
+    // The logo is served as a static file, so a plain URL works where the
+    // authenticated path uses a data URL.
+    const logo = '/logo.png';
+    // The public payload names the reference `number`; the template reads
+    // `invoice_number` / `quote_number`. Without this the client's copy shows a
+    // dash where the document reference belongs — the one field they quote back
+    // when they pay or query it.
+    const shaped = {
+      ...doc,
+      invoice_number: doc.number,
+      quote_number: doc.number,
+    };
+    try {
+      const built = doc.type === 'quotation'
+        ? buildQuotationHTML(shaped, doc.company || {}, logo)
+        : buildInvoiceHTML(shaped, doc.company || {}, logo);
+      return built?.html || '';
+    } catch {
+      return '';        // never leave the client staring at a blank page
+    }
+  }, [doc]);
+
+  function printDoc() {
+    const w = frameRef.current?.contentWindow;
+    if (!w) return;
+    w.focus();
+    w.print();
+  }
+
   if (gone) {
     return (
       <Shell>
         <h1 style={{ fontSize: 19, margin: '0 0 8px' }}>This link is no longer available</h1>
-        <p style={{ color: 'var(--text-2)', margin: 0, fontSize: 14 }}>
+        <p style={{ color: '#6b6570', margin: 0, fontSize: 14 }}>
           It may have expired or been replaced. Please ask your contact to send a new one.
         </p>
       </Shell>
@@ -42,111 +82,73 @@ export default function PublicDocument() {
   }
 
   if (!doc) {
-    return <Shell><p style={{ color: 'var(--text-3)', margin: 0 }}>Loading…</p></Shell>;
+    return <Shell><p style={{ color: '#8b8590', margin: 0 }}>Loading…</p></Shell>;
   }
 
-  const subtotal = (doc.items || []).reduce(
-    (s, i) => s + Number(i.quantity || 0) * Number(i.unit_price || 0), 0);
+  if (!html) {
+    return (
+      <Shell>
+        <h1 style={{ fontSize: 19, margin: '0 0 8px' }}>
+          {doc.label} {doc.number}
+        </h1>
+        <p style={{ color: '#6b6570', margin: 0, fontSize: 14 }}>
+          This document could not be displayed. Please ask your contact to resend it.
+        </p>
+      </Shell>
+    );
+  }
 
   return (
-    <Shell wide>
-      <div style={{ display: 'flex', justifyContent: 'space-between',
-                    alignItems: 'flex-start', gap: 16, flexWrap: 'wrap' }}>
-        <div>
-          <div style={{ fontSize: 20, fontWeight: 700 }}>{doc.company?.name}</div>
-          {doc.company?.address && (
-            <div style={{ fontSize: 13, color: 'var(--text-2)', whiteSpace: 'pre-line' }}>
-              {doc.company.address}
-            </div>
-          )}
-          <div style={{ fontSize: 13, color: 'var(--text-2)' }}>
-            {[doc.company?.phone, doc.company?.email].filter(Boolean).join(' · ')}
+    <div style={{ minHeight: '100vh', background: '#f3f2f4', padding: '16px 12px' }}>
+      <div style={{ maxWidth: 900, margin: '0 auto' }}>
+        <div style={{ display: 'flex', justifyContent: 'space-between',
+                      alignItems: 'center', gap: 12, marginBottom: 12,
+                      flexWrap: 'wrap' }}>
+          <div style={{ fontSize: 13, color: '#57515c' }}>
+            {doc.label} <strong>{doc.number}</strong>
+            {doc.company?.name ? ` · ${doc.company.name}` : ''}
           </div>
+          {/* Print is the only action a recipient needs. "Save as PDF" lives
+              inside the browser's own print dialog on every platform. */}
+          <button onClick={printDoc}
+            style={{ background: '#714B67', color: '#fff', border: 0,
+                     borderRadius: 8, padding: '9px 16px', fontSize: 13.5,
+                     fontWeight: 600, cursor: 'pointer' }}>
+            Print / Save as PDF
+          </button>
         </div>
-        <div style={{ textAlign: 'end' }}>
-          <div style={{ fontSize: 13, letterSpacing: '.08em', textTransform: 'uppercase',
-                        color: 'var(--text-3)' }}>{doc.label}</div>
-          <div style={{ fontSize: 18, fontWeight: 700 }}>{doc.number}</div>
-          {doc.issued_at && (
-            <div style={{ fontSize: 13, color: 'var(--text-2)' }}>Issued {doc.issued_at}</div>
-          )}
-          {doc.due_date && (
-            <div style={{ fontSize: 13, color: 'var(--text-2)' }}>Due {String(doc.due_date).slice(0, 10)}</div>
-          )}
-        </div>
+
+        <iframe
+          ref={frameRef}
+          title={`${doc.label} ${doc.number || ''}`.trim()}
+          srcDoc={html}
+          onLoad={(e) => {
+            // Grow the frame to its content so the page scrolls once, rather
+            // than the customer scrolling inside a small window.
+            try {
+              const d = e.currentTarget.contentDocument;
+              const h = Math.max(d.body.scrollHeight, d.documentElement.scrollHeight);
+              e.currentTarget.style.height = `${h + 40}px`;
+            } catch {
+              e.currentTarget.style.height = '1200px';
+            }
+          }}
+          style={{ width: '100%', border: 0, borderRadius: 10, background: '#fff',
+                   boxShadow: '0 1px 3px rgba(0,0,0,.12)', minHeight: 600 }}
+        />
       </div>
-
-      <div style={{ marginTop: 22, fontSize: 13, color: 'var(--text-3)' }}>Billed to</div>
-      <div style={{ fontSize: 15, fontWeight: 600 }}>{doc.client?.name}</div>
-
-      {(doc.items || []).length > 0 && (
-        <div style={{ overflowX: 'auto', marginTop: 18 }}>
-          <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: 14 }}>
-            <thead>
-              <tr style={{ borderBottom: '1px solid var(--rule)', textAlign: 'start' }}>
-                <th style={{ textAlign: 'start', padding: '8px 0' }}>Description</th>
-                <th style={{ textAlign: 'end', padding: '8px 0' }}>Qty</th>
-                <th style={{ textAlign: 'end', padding: '8px 0' }}>Unit</th>
-                <th style={{ textAlign: 'end', padding: '8px 0' }}>Amount</th>
-              </tr>
-            </thead>
-            <tbody>
-              {doc.items.map((i, n) => (
-                <tr key={n} style={{ borderBottom: '1px solid var(--rule)' }}>
-                  <td style={{ padding: '8px 0' }}>{i.name}</td>
-                  <td style={{ textAlign: 'end', padding: '8px 0' }}>{i.quantity}</td>
-                  <td style={{ textAlign: 'end', padding: '8px 0' }}>{money(i.unit_price, doc.currency)}</td>
-                  <td style={{ textAlign: 'end', padding: '8px 0' }}>
-                    {money(Number(i.quantity || 0) * Number(i.unit_price || 0), doc.currency)}
-                  </td>
-                </tr>
-              ))}
-            </tbody>
-          </table>
-        </div>
-      )}
-
-      <div style={{ display: 'flex', justifyContent: 'flex-end', marginTop: 16 }}>
-        <div style={{ minWidth: 220 }}>
-          {/* The recorded total is authoritative. If it disagrees with the line
-              sum (a manual adjustment, rounding, a discount held elsewhere) the
-              document total is what the client owes — so show both rather than
-              silently overriding one with the other. */}
-          {Math.abs(subtotal - Number(doc.amount || 0)) > 0.01 && (
-            <Row label="Lines" value={money(subtotal, doc.currency)} />
-          )}
-          <Row label="Total" value={money(doc.amount, doc.currency)} bold />
-        </div>
-      </div>
-
-      {doc.notes && (
-        <div style={{ marginTop: 20, fontSize: 13, color: 'var(--text-2)',
-                      whiteSpace: 'pre-line' }}>{doc.notes}</div>
-      )}
-
-      <div className="no-print" style={{ marginTop: 26, display: 'flex', gap: 8 }}>
-        <button className="btn btn-primary" onClick={() => window.print()}>Print / Save PDF</button>
-      </div>
-    </Shell>
-  );
-}
-
-function Row({ label, value, bold }) {
-  return (
-    <div style={{ display: 'flex', justifyContent: 'space-between', padding: '5px 0',
-                  fontWeight: bold ? 700 : 400,
-                  fontSize: bold ? 16 : 14,
-                  borderTop: bold ? '1px solid var(--rule)' : undefined }}>
-      <span>{label}</span><span>{value}</span>
     </div>
   );
 }
 
-function Shell({ children, wide }) {
+function Shell({ children }) {
   return (
-    <div style={{ minHeight: '100vh', background: 'var(--bg)', padding: '32px 16px' }}>
-      <div className="card" style={{ maxWidth: wide ? 780 : 460, margin: '0 auto',
-                                     padding: '28px 26px' }}>
+    <div style={{ minHeight: '100vh', display: 'flex', alignItems: 'center',
+                  justifyContent: 'center', background: '#f3f2f4', padding: 24 }}>
+      <div style={{ background: '#fff', borderRadius: 12, padding: '34px 30px',
+                    maxWidth: 460, width: '100%', textAlign: 'center',
+                    boxShadow: '0 1px 3px rgba(0,0,0,.12)',
+                    font: '15px/1.6 system-ui, -apple-system, "Segoe UI", Roboto, sans-serif' }}>
         {children}
       </div>
     </div>

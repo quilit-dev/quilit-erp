@@ -393,8 +393,8 @@ function paymentInstructions(C) {
 // ═══════════════════════════════════════════════════════════════════════════════
 // QUOTATION PDF
 // ═══════════════════════════════════════════════════════════════════════════════
-export async function exportQuotationPDF(quotation, opts = {}) {
-  const [logoDataURL, settings] = await Promise.all([getLogoDataURL(), getSettings()]);
+/** The quotation document as an HTML string — see buildInvoiceHTML. */
+export function buildQuotationHTML(quotation, settings, logoDataURL = null, opts = {}) {
   const C  = buildCompany(settings);
   const CC = currencyContext(C, opts);
   USD = CC.money;
@@ -473,6 +473,12 @@ export async function exportQuotationPDF(quotation, opts = {}) {
   </div>
 </div></body></html>`;
 
+  return { html, docNo };
+}
+
+export async function exportQuotationPDF(quotation, opts = {}) {
+  const [logoDataURL, settings] = await Promise.all([getLogoDataURL(), getSettings()]);
+  const { html, docNo } = buildQuotationHTML(quotation, settings, logoDataURL, opts);
   await saveDocumentSnapshot('quotation', quotation, `Quotation ${docNo}`, html);
   printHTML(html, `Quotation_${docNo}.pdf`);
 }
@@ -480,8 +486,18 @@ export async function exportQuotationPDF(quotation, opts = {}) {
 // ═══════════════════════════════════════════════════════════════════════════════
 // INVOICE PDF
 // ═══════════════════════════════════════════════════════════════════════════════
-export async function exportInvoicePDF(invoice, opts = {}) {
-  const [logoDataURL, settings] = await Promise.all([getLogoDataURL(), getSettings()]);
+/**
+ * The invoice document as an HTML string.
+ *
+ * Split out from exportInvoicePDF so the CLIENT's share link can render the very
+ * same document the supplier prints. Previously the public page had its own
+ * simplified layout, so the copy a customer opened looked nothing like the one
+ * they were told had been sent.
+ *
+ * Takes `settings` and `logoDataURL` as arguments rather than fetching them:
+ * the public page has no session and cannot call the authenticated endpoints.
+ */
+export function buildInvoiceHTML(invoice, settings, logoDataURL = null, opts = {}) {
   const C  = buildCompany(settings);
   const CC = currencyContext(C, opts);
   USD = CC.money;
@@ -584,6 +600,12 @@ export async function exportInvoicePDF(invoice, opts = {}) {
   </div>
 </div></body></html>`;
 
+  return { html, docNo };
+}
+
+export async function exportInvoicePDF(invoice, opts = {}) {
+  const [logoDataURL, settings] = await Promise.all([getLogoDataURL(), getSettings()]);
+  const { html, docNo } = buildInvoiceHTML(invoice, settings, logoDataURL, opts);
   await saveDocumentSnapshot('invoice', invoice, `Invoice ${docNo}`, html);
   printHTML(html, `Invoice_${docNo}.pdf`);
 }
