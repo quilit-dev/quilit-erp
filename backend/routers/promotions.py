@@ -319,3 +319,115 @@ def preview_promotions(data: PreviewRequest,
                     "promotion_id": promo_id, "promotion_name": name,
                     "source": "promotion" if promo_id else None})
     return {"lines": out}
+
+
+# ── diagnosis ────────────────────────────────────────────────────────────────
+
+@router.get("/diagnose")
+def diagnose_promotions(inventory_id: int,
+                        quantity: float = 1,
+                        unit_price: float = 0,
+                        user=Depends(require_any_perm("invoices", "quotations", "pos")),
+                        db: sqlite3.Connection = Depends(get_db)):
+    """Explain, for ONE inventory item, why a promotion did or did not apply.
+
+    "The discount isn't showing" has half a dozen possible causes — wrong scope,
+    inactive, outside the date window, cap exhausted, or the line simply having
+    no stock link — and answering it by elimination means guessing at data only
+    the customer can see. This reports the verdict for every promotion in the
+    tenant, with the reason attached.
+
+    It does NOT re-implement the rule. Each promotion is checked against the same
+    conditions best_promo_for uses, and then the real functions are called and
+    their answers reported alongside — so if this ever disagreed with production
+    behaviour, the disagreement itself would be visible rather than hidden.
+
+    Read-only: nothing is metered, nothing is written.
+    """
+    item = db.execute(
+        "SELECT id, name, category FROM inventory WHERE id = ?", (inventory_id,)
+    ).fetchone()
+    if not item:
+        raise HTTPException(404, f"No inventory item with id {inventory_id}.")
+
+    today = _now()[:10]
+    rows = db.execute(
+        "SELECT * FROM promotions ORDER BY id"
+    ).fetchall()
+
+    considered = []
+    for p in rows:
+        d = dict(p)
+        reasons = []
+        if not d.get("active"):
+            reasons.append("not active")
+        if d.get("archived_at"):
+            reasons.append("archived")
+        if not (d.get("discount_value") or 0) > 0:
+            reasons.append("discount is zero")
+        if d.get("start_date") and str(d["start_date"]) > today:
+            reasons.append(f"starts {d['start_date']}, server date is {today}")
+        if d.get("end_date") and str(d["end_date"]) < today:
+            reasons.append(f"ended {d['end_date']}, server date is {today}")
+        cap, used = d.get("max_quantity"), d.get("used_quantity") or 0
+        if cap is not None and used >= cap:
+            reasons.append(f"quantity cap reached ({used}/{cap})")
+
+        st = d.get("scope_type")
+        if st == "all":
+            scope_ok = True
+            scope_note = "applies to everything"
+        elif st == "item":
+            scope_ok = str(d.get("scope_value")) == str(inventory_id)
+            scope_note = (f"targets item #{d.get('scope_value')}, "
+                          f"this is item #{inventory_id}")
+        elif st == "category":
+            scope_ok = bool(item["category"]) and d.get("scope_value") == item["category"]
+            scope_note = (f"targets category {d.get('scope_value')!r}, "
+                          f"this item is in {item['category']!r}")
+        else:
+            scope_ok = False
+            scope_note = f"unknown scope type {st!r}"
+        if not scope_ok:
+            reasons.append("scope does not match")
+
+        considered.append({
+            "id": d["id"], "name": d.get("name"),
+            "scope_type": st, "scope_value": d.get("scope_value"),
+            "discount_value": d.get("discount_value"),
+            "active": bool(d.get("active")), "archived": bool(d.get("archived_at")),
+            "start_date": d.get("start_date"), "end_date": d.get("end_date"),
+            "max_quantity": cap, "used_quantity": used,
+            "scope_note": scope_note,
+            "eligible": not reasons,
+            "rejected_because": reasons,
+        })
+
+    # What production actually does, reported rather than inferred.
+    chosen = best_promo_for(db, inventory_id, item["category"], today)
+    amount, promo_id = promo_discount_for_line(db, inventory_id, quantity, unit_price, today)
+
+    eligible = [c for c in considered if c["eligible"]]
+    if promo_id:
+        verdict = (f"{amount:.2f} off — promotion #{promo_id} applies to "
+                   f"{quantity} x {unit_price}.")
+    elif not considered:
+        verdict = "No promotions exist in this workspace yet."
+    elif not eligible:
+        verdict = ("No promotion is eligible for this item. See "
+                   "rejected_because on each one below.")
+    else:
+        verdict = ("A promotion is eligible but produced no discount — check the "
+                   "line quantity and unit price are above zero.")
+
+    return {
+        "item": {"id": item["id"], "name": item["name"], "category": item["category"]},
+        "server_date_utc": today,
+        "line": {"quantity": quantity, "unit_price": unit_price},
+        "verdict": verdict,
+        "discount": round(float(amount or 0), 2),
+        "chosen_promotion_id": promo_id,
+        "chosen_promotion_name": (dict(chosen).get("name") if chosen else None),
+        "eligible_count": len(eligible),
+        "promotions": considered,
+    }

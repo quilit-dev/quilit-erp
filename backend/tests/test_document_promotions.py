@@ -218,3 +218,92 @@ def test_preview_requires_a_relevant_permission(make_client):
     anon = make_client()
     r = anon.post("/api/promotions/preview", json={"lines": []})
     assert r.status_code in (401, 403)
+
+
+# ── diagnosis ───────────────────────────────────────────────────────────────
+#
+# "The discount isn't showing" has half a dozen causes. Answering it by
+# elimination means guessing at data only the customer can see, so the server
+# reports the verdict for every promotion with the reason attached.
+
+def _server_today():
+    from datetime import datetime
+    from utils import _now
+    return datetime.strptime(_now()[:10], "%Y-%m-%d").date()
+
+
+def test_diagnose_names_the_matching_promotion(make_client):
+    c = make_client("superadmin")
+    _, iid = _promo_setup(c, pct=25)
+    d = c.get(f"/api/promotions/diagnose?inventory_id={iid}&quantity=2&unit_price=100").json()
+    assert d["discount"] == 50.0
+    assert d["chosen_promotion_name"] == "Preview Promo"
+    assert d["eligible_count"] == 1
+    assert "off" in d["verdict"]
+
+
+def test_diagnose_explains_each_rejection(make_client):
+    """The reason has to be specific enough to act on — "not eligible" is not an
+    answer anyone can do anything with."""
+    from datetime import timedelta
+    c = make_client("superadmin")
+    _, iid = _promo_setup(c, pct=25)
+    other = c.post("/api/inventory/", json={"name": "Other", "quantity": 5,
+                                            "unit_cost": 1, "sale_price": 10}).json()
+    today = _server_today()
+    c.post("/api/promotions/", json={"name": "Inactive", "scope_type": "all",
+                                     "discount_value": 80, "active": False})
+    c.post("/api/promotions/", json={"name": "Expired", "scope_type": "all",
+                                     "discount_value": 70, "active": True,
+                                     "end_date": (today - timedelta(days=1)).isoformat()})
+    c.post("/api/promotions/", json={"name": "Future", "scope_type": "all",
+                                     "discount_value": 60, "active": True,
+                                     "start_date": (today + timedelta(days=5)).isoformat()})
+    c.post("/api/promotions/", json={"name": "Other item", "scope_type": "item",
+                                     "scope_value": str(other["id"]),
+                                     "discount_value": 90, "active": True})
+
+    d = c.get(f"/api/promotions/diagnose?inventory_id={iid}&quantity=1&unit_price=100").json()
+    by_name = {p["name"]: p for p in d["promotions"]}
+    assert "not active" in by_name["Inactive"]["rejected_because"]
+    assert any("ended" in r for r in by_name["Expired"]["rejected_because"])
+    assert any("starts" in r for r in by_name["Future"]["rejected_because"])
+    assert "scope does not match" in by_name["Other item"]["rejected_because"]
+    # The one that should win still wins despite a 90% promotion existing.
+    assert d["chosen_promotion_name"] == "Preview Promo"
+
+
+def test_diagnose_reports_the_server_date(make_client):
+    """Promotion windows are evaluated in UTC. Someone debugging a window needs
+    to see the date the server is actually using, not assume it is theirs."""
+    c = make_client("superadmin")
+    _, iid = _promo_setup(c)
+    d = c.get(f"/api/promotions/diagnose?inventory_id={iid}").json()
+    from utils import _now
+    assert d["server_date_utc"] == _now()[:10]
+
+
+def test_diagnose_agrees_with_what_actually_saves(make_client):
+    """A diagnosis that disagreed with production would be worse than none."""
+    c = make_client("superadmin")
+    client_id, iid = _promo_setup(c, pct=25)
+    line = {"name": "Promo Widget", "quantity": 2, "unit_price": 100,
+            "discount": 0, "inventory_id": iid}
+    d = c.get(f"/api/promotions/diagnose?inventory_id={iid}&quantity=2&unit_price=100").json()
+    inv = c.post("/api/invoices/", json={"client_id": client_id, "items": [line]}).json()
+    saved = c.get(f"/api/invoices/{inv['id']}").json()["items"][0]
+    assert float(d["discount"]) == float(saved["discount"])
+
+
+def test_diagnose_404s_on_an_unknown_item(make_client):
+    c = make_client("superadmin")
+    assert c.get("/api/promotions/diagnose?inventory_id=999999").status_code == 404
+
+
+def test_diagnose_says_so_when_there_are_no_promotions(make_client):
+    c = make_client("superadmin")
+    it = c.post("/api/inventory/", json={"name": "Lonely", "quantity": 1,
+                                         "unit_cost": 1, "sale_price": 5}).json()
+    d = c.get(f"/api/promotions/diagnose?inventory_id={it['id']}").json()
+    assert d["eligible_count"] == 0
+    assert d["discount"] == 0
