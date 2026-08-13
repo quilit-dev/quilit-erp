@@ -12,6 +12,7 @@ The discount is snapshotted onto the line together with the promotion that
 produced it, so ending or editing a promotion later cannot retroactively
 reprice a document that was already issued.
 """
+import pytest
 import sqlite3
 import os
 
@@ -307,3 +308,112 @@ def test_diagnose_says_so_when_there_are_no_promotions(make_client):
     d = c.get(f"/api/promotions/diagnose?inventory_id={it['id']}").json()
     assert d["eligible_count"] == 0
     assert d["discount"] == 0
+
+
+def test_diagnose_by_name_matches_scope_correctly(make_client):
+    """Regression: looking up by name resolved the item but then matched scope
+    against the raw (None) inventory_id parameter, so every promotion came back
+    "scope does not match". A diagnostic that confidently blames a correct
+    promotion is worse than no diagnostic."""
+    c = make_client("superadmin")
+    _, iid = _promo_setup(c, pct=25)
+    by_id = c.get(f"/api/promotions/diagnose?inventory_id={iid}"
+                  "&quantity=2&unit_price=100").json()
+    by_name = c.get("/api/promotions/diagnose?name=Promo Widget"
+                    "&quantity=2&unit_price=100").json()
+    assert by_name["discount"] == by_id["discount"] == 50.0
+    assert by_name["chosen_promotion_id"] == by_id["chosen_promotion_id"]
+    assert by_name["item"]["id"] == iid
+
+
+def test_diagnose_by_partial_name(make_client):
+    c = make_client("superadmin")
+    _, iid = _promo_setup(c, pct=25)
+    d = c.get("/api/promotions/diagnose?name=widget&quantity=1&unit_price=100").json()
+    assert d["item"]["id"] == iid
+
+
+def test_diagnose_miss_lists_what_is_available(make_client):
+    """A 404 that only says "not found" invites another guess."""
+    c = make_client("superadmin")
+    _promo_setup(c)
+    r = c.get("/api/promotions/diagnose?inventory_id=999999")
+    assert r.status_code == 404
+    detail = r.json()["detail"]
+    assert detail["total_items"] >= 1
+    assert any(i["name"] == "Promo Widget" for i in detail["available_items"])
+
+
+# ── the discount field itself ───────────────────────────────────────────────
+#
+# The field is always on the form now. Empty means "let the promotion decide";
+# anything typed is a human decision the promotion must not overwrite —
+# including a deliberate zero.
+
+def _line(iid, **extra):
+    line = {"name": "Promo Widget", "quantity": 2, "unit_price": 100,
+            "inventory_id": iid}
+    line.update(extra)
+    return line
+
+
+def test_untouched_line_takes_the_promotion(make_client):
+    c = make_client("superadmin")
+    client_id, iid = _promo_setup(c, pct=20)
+    inv = c.post("/api/invoices/", json={"client_id": client_id,
+        "items": [_line(iid, discount=0, discount_auto=True)]}).json()
+    got = c.get(f"/api/invoices/{inv['id']}").json()
+    assert got["items"][0]["discount"] == 40.0
+    assert got["items"][0]["promotion_id"] is not None
+    assert got["amount"] == 160.0
+
+
+def test_an_explicit_zero_survives_the_promotion(make_client):
+    """The case the flag exists for. Without it the server cannot tell "nothing
+    typed" from "deliberately zero", so a customer told they get no discount
+    would silently receive one anyway."""
+    c = make_client("superadmin")
+    client_id, iid = _promo_setup(c, pct=20)
+    inv = c.post("/api/invoices/", json={"client_id": client_id,
+        "items": [_line(iid, discount=0, discount_auto=False)]}).json()
+    got = c.get(f"/api/invoices/{inv['id']}").json()
+    assert got["items"][0]["discount"] == 0
+    assert got["items"][0]["promotion_id"] is None
+    assert got["amount"] == 200.0
+
+
+def test_a_typed_discount_beats_the_promotion(make_client):
+    c = make_client("superadmin")
+    client_id, iid = _promo_setup(c, pct=20)
+    inv = c.post("/api/invoices/", json={"client_id": client_id,
+        "items": [_line(iid, discount=15, discount_auto=False)]}).json()
+    got = c.get(f"/api/invoices/{inv['id']}").json()
+    assert got["items"][0]["discount"] == 15
+    assert got["items"][0]["promotion_id"] is None
+    assert got["amount"] == 185.0
+
+
+@pytest.mark.parametrize("extra", [{}, {"discount_auto": None}])
+def test_absent_or_null_flag_means_not_set(make_client, extra):
+    """An older client, or one serialising an absent value as null, must keep the
+    previous behaviour rather than 422 on a field it never knew about."""
+    c = make_client("superadmin")
+    client_id, iid = _promo_setup(c, pct=20)
+    r = c.post("/api/invoices/", json={"client_id": client_id,
+        "items": [_line(iid, discount=0, **extra)]})
+    assert r.status_code == 200, r.text
+    got = c.get(f"/api/invoices/{r.json()['id']}").json()
+    assert got["items"][0]["discount"] == 40.0
+
+
+def test_quotations_behave_identically(make_client):
+    c = make_client("superadmin")
+    client_id, iid = _promo_setup(c, pct=20)
+    auto = c.post("/api/quotations/", json={"client_id": client_id,
+        "items": [_line(iid, discount=0, discount_auto=True)]}).json()
+    zero = c.post("/api/quotations/", json={"client_id": client_id,
+        "items": [_line(iid, discount=0, discount_auto=False)]}).json()
+    a = c.get(f"/api/quotations/{auto['id']}").json()["items"][0]
+    z = c.get(f"/api/quotations/{zero['id']}").json()["items"][0]
+    assert a["discount"] == 40.0 and a["promotion_id"] is not None
+    assert z["discount"] == 0 and z["promotion_id"] is None

@@ -116,7 +116,13 @@ def apply_promotions_to_lines(db, items, today=None):
             existing = float(getattr(it, "discount", 0) or 0)
         except (TypeError, ValueError):
             existing = 0.0
-        if existing > 0:
+        # `discount_auto=False` means a person touched that field, so their
+        # number stands — INCLUDING zero. Falling back to `existing > 0` alone
+        # made an explicit zero indistinguishable from an untouched field, so a
+        # customer told they get no discount silently received the promotion.
+        raw_auto = getattr(it, "discount_auto", True)
+        auto = True if raw_auto is None else bool(raw_auto)
+        if not auto or existing > 0:
             out.append(None)                   # a human already decided
             continue
         amount, promo_id = promo_discount_for_line(
@@ -324,7 +330,8 @@ def preview_promotions(data: PreviewRequest,
 # ── diagnosis ────────────────────────────────────────────────────────────────
 
 @router.get("/diagnose")
-def diagnose_promotions(inventory_id: int,
+def diagnose_promotions(inventory_id: Optional[int] = None,
+                        name: Optional[str] = None,
                         quantity: float = 1,
                         unit_price: float = 0,
                         user=Depends(require_any_perm("invoices", "quotations", "pos")),
@@ -344,11 +351,49 @@ def diagnose_promotions(inventory_id: int,
 
     Read-only: nothing is metered, nothing is written.
     """
-    item = db.execute(
-        "SELECT id, name, category FROM inventory WHERE id = ?", (inventory_id,)
-    ).fetchone()
+    # Accept a name as well as an id. Asking someone to find a database id
+    # before they can ask why a discount is missing is a poor trade, and the
+    # first thing they will do is guess one that does not exist.
+    item = None
+    if inventory_id is not None:
+        item = db.execute(
+            "SELECT id, name, category FROM inventory WHERE id = ?", (inventory_id,)
+        ).fetchone()
+    elif name:
+        item = db.execute(
+            "SELECT id, name, category FROM inventory "
+            "WHERE lower(name) = lower(?) ORDER BY id LIMIT 1", (name.strip(),)
+        ).fetchone()
+        if not item:
+            item = db.execute(
+                "SELECT id, name, category FROM inventory "
+                "WHERE lower(name) LIKE lower(?) ORDER BY id LIMIT 1",
+                (f"%{name.strip()}%",)
+            ).fetchone()
+
     if not item:
-        raise HTTPException(404, f"No inventory item with id {inventory_id}.")
+        # Say what IS available rather than only what was not found — otherwise
+        # the next request is another guess.
+        available = [dict(r) for r in db.execute(
+            "SELECT id, name FROM inventory ORDER BY id LIMIT 25").fetchall()]
+        asked = (f"id {inventory_id}" if inventory_id is not None
+                 else f"name {name!r}" if name
+                 else "nothing")
+        raise HTTPException(404, {
+            "message": f"No inventory item matched {asked}.",
+            "hint": "Pass ?inventory_id= or ?name=. These are the first items in "
+                    "this workspace:",
+            "available_items": available,
+            "total_items": db.execute(
+                "SELECT COUNT(*) AS n FROM inventory").fetchone()["n"],
+        })
+
+    # Everything below matches on the RESOLVED item, not the raw query
+    # parameter. Looking up by name left inventory_id as None, so every
+    # promotion was reported "scope does not match" — a diagnostic confidently
+    # blaming a promotion that was in fact correct, which is worse than no
+    # diagnostic at all.
+    inventory_id = item["id"]
 
     today = _now()[:10]
     rows = db.execute(

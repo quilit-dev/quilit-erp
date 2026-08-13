@@ -65,7 +65,11 @@ function usePromoPreview(items, enabled) {
   return promo;
 }
 
-const EMPTY_ITEM = { name: '', quantity: 1, unit_price: 0, discount: 0, inventory_id: null, tax_rate_id: null };
+// discount starts EMPTY, not 0: an empty box invites the promotion to fill
+// it, while a typed 0 is a decision the promotion must not overwrite.
+// `discount_auto` stays true until a person edits the field.
+const EMPTY_ITEM = { name: '', quantity: 1, unit_price: 0, discount: '',
+                     discount_auto: true, inventory_id: null, tax_rate_id: null };
 const EMPTY_FORM = { quotation_id: '', project_id: '', client_id: '', due_date: '', notes: '', branch_id: '', items: [{ ...EMPTY_ITEM }] };
 import { ActionMenu } from './invoices/ActionMenu';
 
@@ -126,8 +130,8 @@ export default function Invoices() {
   // COLUMN is switched off — an invisible reduction that changes the total is
   // how a document stops adding up.
   const effDiscount = (item, i) => {
-    const typed = Number(item.discount) || 0;
-    if (typed > 0) return discountEnabled ? typed : 0;
+    // Touched means a person decided, and their number stands — including 0.
+    if (item.discount_auto === false) return Number(item.discount) || 0;
     return Number(promoLines[i]?.discount) || 0;
   };
   const [editId,        setEditId]        = useState(null);
@@ -197,7 +201,12 @@ export default function Invoices() {
               name: i.name,
               quantity: i.quantity,
               unit_price: i.unit_price,
-              discount: i.discount || 0,
+              discount: i.discount || '',
+              // A discount that came FROM a promotion stays "auto", so re-saving
+              // re-derives it and keeps the attribution. A hand-entered one is
+              // marked manual, so the promotion cannot overwrite the figure
+              // someone agreed with the customer.
+              discount_auto: !(Number(i.discount) > 0 && !i.promotion_id),
               // Carried back so re-saving an edited document keeps the stock
               // link — losing it here would drop the promotion on every edit.
               inventory_id: i.inventory_id ?? null,
@@ -222,6 +231,13 @@ export default function Invoices() {
   //
   // A price that cannot be converted confidently is left alone rather than
   // guessed: an LBP figure written into a USD invoice looks like a real number.
+  // Editing the discount makes it a human decision. `discount_auto` going
+  // false is what lets an explicit 0 survive the server's promotion pass.
+  const setItemDiscount = (i, val) => setForm(f => ({
+    ...f, items: f.items.map((item, x) =>
+      x === i ? { ...item, discount: val, discount_auto: false } : item),
+  }));
+
   const setItemFromInventory = (i, name, price, meta) => setForm(f => ({
     ...f, items: f.items.map((item, x) => {
       if (x !== i) return item;
@@ -260,7 +276,10 @@ export default function Invoices() {
           name: i.name,
           quantity: Number(i.quantity)||0,
           unit_price: Number(i.unit_price)||0,
-          discount: discountEnabled ? (Number(i.discount) || 0) : 0,
+          // An untouched line sends 0 and lets the server apply the
+          // promotion authoritatively; a touched one sends the human's number.
+          discount: i.discount_auto === false ? (Number(i.discount) || 0) : 0,
+          discount_auto: i.discount_auto !== false,
           // The stock link travels with the line so the server can find a
           // promotion for it. Dropping it here would silently disable
           // promotions on every document, with nothing to show why.
@@ -556,7 +575,7 @@ export default function Invoices() {
               {(() => {
               // Grid columns: description | qty | price | [disc?] | [tax?] | line total | [×?]
               const itemGrid = '1fr 78px 96px'
-                             + (discountEnabled ? ' 92px' : '')
+                             + ' 92px'
                              + (taxEnabled      ? ' 124px' : '')
                              + ' 88px'
                              + (amountsLocked ? '' : ' 34px');
@@ -565,7 +584,7 @@ export default function Invoices() {
                 <span style={{ fontSize:11, fontWeight:600, color:'var(--text-3)', paddingLeft:4 }}>{t('invoices.descriptionCol')}</span>
                 <span style={{ fontSize:11, fontWeight:600, color:'var(--text-3)', textAlign:'center' }}>{t('invoices.qtyCol')}</span>
                 <span style={{ fontSize:11, fontWeight:600, color:'var(--text-3)', textAlign:'center' }}>{t('invoices.unitPriceCol')}</span>
-                {discountEnabled && <span style={{ fontSize:11, fontWeight:600, color:'var(--text-3)', textAlign:'center' }}>{t('common.discount')}</span>}
+                <span style={{ fontSize:11, fontWeight:600, color:'var(--text-3)', textAlign:'center' }}>{t('common.discount')}</span>
                 {taxEnabled && <span style={{ fontSize:11, fontWeight:600, color:'var(--text-3)', textAlign:'center' }}>{t('common.taxCol')}</span>}
                 <span style={{ fontSize:11, fontWeight:600, color:'var(--text-3)', textAlign:'right' }}>{t('common.total')}</span>
                 {!amountsLocked && <span />}
@@ -594,7 +613,7 @@ export default function Invoices() {
                     <NumberInput className="form-control" placeholder="Unit $" min="0" step="0.01"
                       value={item.unit_price} onChange={e => setItem(i, 'unit_price', e.target.value)}
                       disabled={amountsLocked} style={amountsLocked ? { opacity:0.6 } : {}} />
-                    {discountEnabled && (
+                    {(
                       amountsLocked ? (
                         <span style={{ fontSize:13, padding:'6px 4px', color:'var(--text-2)', textAlign:'center' }}>
                           {Number(item.discount || 0).toFixed(2)}
@@ -604,8 +623,10 @@ export default function Invoices() {
                           placeholder={t('common.discount')}
                           title={t('common.discount')}
                           min="0" step="0.01"
-                          value={item.discount}
-                          onChange={e => setItem(i, 'discount', e.target.value)} />
+                          value={item.discount_auto === false
+                            ? item.discount
+                            : (promoLines[i]?.discount ?? '')}
+                          onChange={e => setItemDiscount(i, e.target.value)} />
                       )
                     )}
                     {taxEnabled && (

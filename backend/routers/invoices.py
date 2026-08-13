@@ -64,6 +64,18 @@ class InvoiceItemCreate(BaseModel):
     # typed. Carries the promotion lookup — matching on `name` instead would
     # silently misprice the moment an item is renamed.
     inventory_id: Optional[int] = None
+    # True when `discount` was NOT set by a human — the form left it to the
+    # promotion. The server then derives the amount itself and snapshots which
+    # promotion produced it.
+    #
+    # This flag exists so an explicit zero is possible. Without it the server
+    # cannot tell "no discount typed" from "deliberately zero", and a customer
+    # who was told they get no discount would silently receive the promotion
+    # anyway. Defaults True so older callers keep the previous behaviour.
+    # Optional[bool] rather than bool: a client that sends an explicit null
+    # (the mobile app serialising an absent value) should mean "not set",
+    # not fail validation on a field it never knew about.
+    discount_auto: Optional[bool] = True
     tax_rate_id: Optional[int] = None
 
 class InvoiceCreate(BaseModel):
