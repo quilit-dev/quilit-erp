@@ -314,6 +314,12 @@ export const completeSetup   = (d) => fetch('/api/settings/complete-setup', {
 // Auth — force password change
 export const forceChangePassword = (new_password) => api.post('/api/auth/force-change-password', { new_password });
 
+// Auth — a user changing their OWN password. Needs the current one, so this is
+// safe for every role: it grants nothing an account holder does not already
+// have, unlike the admin reset in the Users screen.
+export const changePassword = (old_password, new_password) =>
+  api.post('/api/auth/change-password', { old_password, new_password });
+
 // Restore backup (.db file upload)
 export function restoreBackup(file) {
   const fd = new FormData();

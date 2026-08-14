@@ -4,6 +4,7 @@ import { usePermissions } from '../hooks/usePermissions.js';
 import { useLocale } from '../hooks/useLocale.jsx';
 import { logout as apiLogout, getAnnouncementsUnread, getBranchContext, getBranchFilter, setBranchFilter } from '../api/client';
 import BrandLogo from './BrandLogo';
+import ChangePasswordModal from './ChangePasswordModal';
 import { useModules } from '../hooks/useModules';
 
 const Icons = {
@@ -161,6 +162,9 @@ export default function Sidebar() {
   // Account menu — Sign Out now lives in a popover anchored to the user card,
   // the conventional "proper place" for it, instead of a permanent nav row.
   const [accountOpen, setAccountOpen] = useState(false);
+  // Changing your own password is the one account action every role has, so it
+  // belongs here rather than under Settings, which most roles cannot open.
+  const [pwOpen, setPwOpen] = useState(false);
   const accountRef = useRef(null);
   useEffect(() => {
     if (!accountOpen) return undefined;
@@ -335,6 +339,21 @@ export default function Sidebar() {
               </div>
             </div>
             <div style={{ height: 1, background: 'var(--rule)' }} />
+            <button type="button" role="menuitem"
+              onClick={() => { setAccountOpen(false); setPwOpen(true); }}
+              style={{
+                display: 'flex', alignItems: 'center', gap: 10, width: '100%',
+                padding: '12px 14px', background: 'transparent', border: 'none', cursor: 'pointer',
+                font: 'inherit', fontSize: 13, fontWeight: 500, color: 'var(--text)',
+                textAlign: 'start', transition: 'background .12s',
+              }}
+              onMouseEnter={e => { e.currentTarget.style.background = 'var(--surface-2, rgba(0,0,0,0.04))'; }}
+              onMouseLeave={e => { e.currentTarget.style.background = 'transparent'; }}
+            >
+              <span className="nav-link-icon" style={{ color: 'inherit', display: 'inline-flex' }}>{Icons.roles}</span>
+              {t('forceChange.title')}
+            </button>
+            <div style={{ height: 1, background: 'var(--rule)' }} />
             <button type="button" role="menuitem" onClick={handleLogout}
               style={{
                 display: 'flex', alignItems: 'center', gap: 10, width: '100%',
@@ -377,6 +396,8 @@ export default function Sidebar() {
           </svg>
         </button>
       </div>
+
+      {pwOpen && <ChangePasswordModal onClose={() => setPwOpen(false)} />}
     </div>
   );
 }
