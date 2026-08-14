@@ -12,6 +12,7 @@
 // password is what makes it safe to expose to every role: it grants nothing an
 // account holder does not already have.
 import { useState } from 'react';
+import { createPortal } from 'react-dom';
 import { Modal, toast } from './shared';
 import { changePassword } from '../api/client';
 import { useLocale } from '../hooks/useLocale.jsx';
@@ -55,7 +56,13 @@ export default function ChangePasswordModal({ onClose }) {
 
   const pwType = showPw ? 'text' : 'password';
 
-  return (
+  // Through a PORTAL, because this modal is opened from inside the sidebar and
+  // every other one in the app is opened from page content. `.sidebar` is
+  // `position: sticky` with `overflow: hidden`: sticky gives it its own stacking
+  // context and the hidden overflow clips fixed-position descendants, so the
+  // overlay rendered in place was clipped to the sidebar's box and sat UNDER
+  // the dashboard — a half-transparent dialog with its buttons behind the page.
+  return createPortal(
     <Modal title={t('forceChange.title')} onClose={onClose}>
       <form onSubmit={submit}>
         {error && (
@@ -125,6 +132,7 @@ export default function ChangePasswordModal({ onClose }) {
           </button>
         </div>
       </form>
-    </Modal>
+    </Modal>,
+    document.body,
   );
 }

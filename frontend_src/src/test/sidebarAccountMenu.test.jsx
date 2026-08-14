@@ -70,4 +70,23 @@ describe('the sidebar account menu', () => {
     expect(pw.length).toBe(3);
     expect(pw[0].getAttribute('autocomplete')).toBe('current-password');
   });
+
+  test('the dialog escapes the sidebar, which would otherwise clip it', async () => {
+    // `.sidebar` is position:sticky with overflow:hidden. Sticky gives it its
+    // own stacking context and the hidden overflow clips fixed-position
+    // descendants, so a modal rendered in place was clipped to the sidebar's
+    // box and painted UNDER the dashboard: a half-transparent dialog with its
+    // buttons hidden behind the page. Every other modal in the app is opened
+    // from page content, so this one needs a portal and they do not.
+    await mount();
+    await act(async () => { fireEvent.click(findButton(/Sam Sales/)); });
+    await act(async () => { fireEvent.click(findButton(/change password/i)); });
+
+    const overlay = document.querySelector('.modal-overlay');
+    expect(overlay, 'the modal should render').toBeTruthy();
+    expect(overlay.closest('.sidebar'),
+      'the modal must not be nested inside the sidebar — it gets clipped there')
+      .toBeNull();
+    expect(overlay.parentElement).toBe(document.body);
+  });
 });
