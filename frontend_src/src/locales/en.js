@@ -3035,7 +3035,7 @@ const en = {
     strength8: '8+ chars',
     strengthUpper: 'Uppercase',
     strengthNum: 'Number',
-    changedOk: 'Password changed.',
+    changedOk: 'Password changed. Please sign in again.',
   },
 
   commandPalette: {

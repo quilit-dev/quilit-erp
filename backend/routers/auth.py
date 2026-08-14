@@ -210,9 +210,31 @@ def change_password(
         "UPDATE users SET password_hash=?, must_change_password=0 WHERE id=?",
         (hash_password(data.new_password), user["id"])
     )
-    log_action(db, user, "change_password", "auth", user["id"], user.get("username", ""))
+    # EVERY session for this user, including the one making the request.
+    #
+    # The reason to change a password is usually believing someone else has it,
+    # and a token issued before the change would otherwise keep working until it
+    # expired — so the change would answer nothing against the one threat it is
+    # meant to answer.
+    #
+    # Sparing the current session would be friendlier but useless here: login
+    # already revokes every prior session for the user (see `login`), so only
+    # one is ever live, and a stolen token IS that session rather than a second
+    # one alongside it. "All but the current" would match zero rows every time.
+    # The caller re-authenticates and gets a fresh jti; whoever held the old
+    # token does not.
+    revoked = db.execute(
+        "UPDATE user_sessions SET revoked=1 WHERE user_id=? AND revoked=0",
+        (user["id"],)
+    ).rowcount
+    log_action(db, user, "change_password", "auth", user["id"], user.get("username", ""),
+               {"sessions_revoked": revoked if revoked and revoked > 0 else 0})
     db.commit()
-    return {"message": "Password changed successfully."}
+    # `relogin` tells the client to send the user back to the sign-in screen
+    # rather than let them discover the revocation as a random 401.
+    return {"message": "Password changed successfully. Please sign in again.",
+            "sessions_revoked": max(revoked or 0, 0),
+            "relogin": True}
 
 
 @router.post("/force-change-password")
@@ -231,7 +253,15 @@ def force_change_password(
         "UPDATE users SET password_hash=?, must_change_password=0 WHERE id=?",
         (hash_password(data.new_password), user["id"])
     )
+    # ALL sessions, this one included — the response already tells the caller to
+    # log in again, and a first-login password is one an administrator chose and
+    # may have sent over chat or email, so no session predating the change is
+    # worth keeping.
+    revoked = db.execute(
+        "UPDATE user_sessions SET revoked=1 WHERE user_id=? AND revoked=0",
+        (user["id"],)
+    ).rowcount
     log_action(db, user, "change_password", "auth", user["id"], user.get("username", ""),
-               {"forced": True})
+               {"forced": True, "sessions_revoked": revoked if revoked and revoked > 0 else 0})
     db.commit()
     return {"message": "Password updated. Please log in again."}

@@ -42,8 +42,15 @@ export default function ChangePasswordModal({ onClose }) {
     setSaving(true);
     try {
       await changePassword(current, next);
+      // The server revokes every session for this user, this one included, so
+      // the token in localStorage is already dead. Send them to sign in with
+      // the new password rather than let them meet the revocation as a random
+      // 401 on their next click.
       toast(t('forceChange.changedOk'));
+      localStorage.removeItem('token');
+      localStorage.removeItem('user');
       onClose();
+      window.location.assign('/login');
     } catch (err) {
       // Surface the server's wording — "Incorrect current password" is the
       // message the user needs, and it is the one case that is not their typo

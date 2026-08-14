@@ -3018,7 +3018,7 @@ const ar = {
     strength8: '+8 أحرف',
     strengthUpper: 'حرف كبير',
     strengthNum: 'رقم',
-    changedOk: 'تم تغيير كلمة المرور.',
+    changedOk: 'تم تغيير كلمة المرور. يرجى تسجيل الدخول مرة أخرى.',
   },
 
   commandPalette: {

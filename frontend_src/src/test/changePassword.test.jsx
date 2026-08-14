@@ -51,7 +51,16 @@ const submit = async () => {
   await act(async () => { fireEvent.click(btn); });
 };
 
-beforeEach(() => { vi.clearAllMocks(); });
+// jsdom refuses a real navigation, so window.location.assign is replaced.
+const assign = vi.fn();
+beforeEach(() => {
+  vi.clearAllMocks();
+  localStorage.clear();
+  Object.defineProperty(window, 'location', {
+    configurable: true,
+    value: { ...window.location, assign },
+  });
+});
 
 describe('changing your own password', () => {
   test('sends the current and the new password', async () => {
@@ -61,6 +70,34 @@ describe('changing your own password', () => {
 
     expect(changePassword).toHaveBeenCalledWith('OldPass123!', 'NewPass456!');
     expect(onClose).toHaveBeenCalled();
+  });
+
+  test('clears the dead token and sends the user to sign in', async () => {
+    // The server revokes every session for the user, this one included, so the
+    // stored token is already dead. Leaving it in place would strand the user
+    // in an app that 401s on the next click.
+    localStorage.setItem('token', 'stale-token');
+    localStorage.setItem('user', '{"username":"u_sales"}');
+
+    await mount();
+    fill('OldPass123!', 'NewPass456!', 'NewPass456!');
+    await submit();
+
+    expect(localStorage.getItem('token')).toBeNull();
+    expect(localStorage.getItem('user')).toBeNull();
+    expect(assign).toHaveBeenCalledWith('/login');
+  });
+
+  test('keeps the session intact when the change is refused', async () => {
+    changePassword.mockRejectedValueOnce(new Error('Incorrect current password.'));
+    localStorage.setItem('token', 'still-good');
+
+    await mount();
+    fill('wrong', 'NewPass456!', 'NewPass456!');
+    await submit();
+
+    expect(localStorage.getItem('token')).toBe('still-good');
+    expect(assign).not.toHaveBeenCalled();
   });
 
   test('asks for the CURRENT password, not just a new one', async () => {
