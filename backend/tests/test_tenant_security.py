@@ -232,6 +232,49 @@ def test_existing_tenant_schemas_get_new_columns(app, pair):
         raw.close()
 
 
+# ── the first-run wizard must not be a takeover ─────────────────────────────
+
+def test_the_setup_wizard_cannot_claim_a_provisioned_workspace(app, pair):
+    """The worst bug found in the pre-delivery audit.
+
+    `/api/settings/complete-setup` is UNAUTHENTICATED by design: on a
+    self-hosted first run somebody standing at the machine has to set the first
+    password, and a `setup_complete` flag closes it afterwards.
+
+    A provisioned tenant never runs that wizard — the platform generates the
+    admin password and hands it to the owner — so the flag stayed "0" forever
+    and the endpoint remained open on the customer's subdomain. Anyone who knew
+    the subdomain could set the admin password, log in as superadmin and read
+    the customer's books. Verified end to end before the fix.
+    """
+    anon = TestClient(app)
+    H = {"X-Tenant": "victim"}
+
+    r = anon.post("/api/settings/complete-setup", headers=H, json={
+        "admin_password": "AttackerOwns1!", "company_name": "Pwned",
+        "company_email": "a@b.c", "default_currency": "USD", "business_type": "x"})
+    assert r.status_code == 403, (
+        f"the wizard claimed a live workspace: {r.status_code} {r.text[:200]}")
+
+    stolen = TestClient(app)
+    l = stolen.post("/api/auth/login", headers=H,
+                    json={"username": "admin", "password": "AttackerOwns1!"})
+    assert l.status_code != 200, "an attacker set the admin password"
+
+    # The real owner is unaffected.
+    victim = _login(app, "victim")
+    assert victim.get("/api/clients/").status_code == 200
+
+
+def test_setup_status_does_not_advertise_claimable_workspaces(app, pair):
+    """It answered `false`, which told an attacker exactly which subdomains
+    were still open to the takeover above."""
+    anon = TestClient(app)
+    r = anon.get("/api/settings/setup-status", headers={"X-Tenant": "victim"})
+    assert r.status_code == 200
+    assert r.json()["setup_complete"] is True, r.text
+
+
 # ── branding does not cross the boundary ────────────────────────────────────
 
 def test_each_tenant_keeps_its_own_logo(app, pair):

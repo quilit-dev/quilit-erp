@@ -159,6 +159,16 @@ def provision_tenant(slug: str, name: str = None, plan: str = "standard",
         # surfaced); force a reset on first login.
         conn.execute("UPDATE users SET password_hash=?, must_change_password=1 "
                      "WHERE username='admin'", (hash_password(admin_password),))
+        # This workspace is already set up: an admin exists and its password has
+        # just been handed to the owner. Without this the flag stayed "0" and
+        # the UNAUTHENTICATED first-run wizard (/api/settings/complete-setup)
+        # remained open forever on the tenant's subdomain — anyone who reached
+        # it could set the admin password and own the customer's books. The
+        # endpoint refuses in multi-tenant mode regardless; this keeps the
+        # stored state honest too.
+        conn.execute(
+            "INSERT INTO settings (key, value) VALUES ('setup_complete', '1') "
+            "ON CONFLICT (key) DO UPDATE SET value = '1'")
         conn.commit()
 
         with raw.cursor() as cur:

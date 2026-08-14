@@ -532,11 +532,37 @@ async def restore_backup(
     return {"ok": True, "message": "Database restored. Please restart the server."}
 
 
+def _wizard_is_available(db) -> bool:
+    """Whether the unauthenticated first-run wizard may still be used.
+
+    The wizard exists for a SELF-HOSTED first run, where nobody has been issued
+    credentials and someone standing at the machine has to set the first
+    password. On a hosted deployment that premise is false: provisioning
+    generates the admin password and hands it to the owner, and the workspace
+    never runs a wizard — so `setup_complete` stayed "0" forever and the
+    endpoint below remained open to anyone who knew the subdomain.
+
+    That was a full workspace takeover: set the admin password, log in as
+    superadmin, read the customer's books. So in multi-tenant mode the wizard is
+    closed unconditionally, regardless of the flag's value in any schema.
+    """
+    try:
+        from tenancy import IS_SCHEMA_TENANCY
+        if IS_SCHEMA_TENANCY:
+            return False
+    except Exception:
+        pass
+    return _get_all(db).get("setup_complete", "0") != "1"
+
+
 @router.get("/setup-status")
 def setup_status(db: sqlite3.Connection = Depends(get_db)):
-    """Public — no auth. Returns whether the first-run wizard has been completed."""
-    data = _get_all(db)
-    return {"setup_complete": data.get("setup_complete", "0") == "1"}
+    """Public — no auth. Returns whether the first-run wizard has been completed.
+
+    Reports complete whenever the wizard is unavailable, so this cannot be used
+    to enumerate which workspaces are still claimable.
+    """
+    return {"setup_complete": not _wizard_is_available(db)}
 
 
 class CompleteSetupRequest(BaseModel):
@@ -553,8 +579,7 @@ def complete_setup(body: CompleteSetupRequest, db: sqlite3.Connection = Depends(
     Public — no auth. One-time endpoint: sets admin password, saves basic company
     info, and marks setup as complete. Returns 403 if already completed.
     """
-    data = _get_all(db)
-    if data.get("setup_complete", "0") == "1":
+    if not _wizard_is_available(db):
         raise HTTPException(403, "Setup already completed.")
     if len(body.admin_password) < 8:
         raise HTTPException(400, "Password must be at least 8 characters.")
