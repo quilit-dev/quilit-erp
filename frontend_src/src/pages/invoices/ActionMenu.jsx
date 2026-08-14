@@ -1,8 +1,10 @@
-// Per-row action dropdown (edit / pay / export / WhatsApp / void).
+// Per-row action dropdown (edit / pay / export / void).
+//
+// Sending lives on the row's own Send button, not in here.
 import { useState, useRef, useEffect } from 'react';
 import { useLocale } from '../../hooks/useLocale.jsx';
 import { Icon } from '../../components/shared';
-import { SendDocumentButton, useQuickSend } from '../../components/SendDocument';
+import { SendDocumentButton } from '../../components/SendDocument';
 
 // ── Per-row action dropdown ───────────────────────────────────────────────
 function ActionMenu({ inv, exporting, onEdit, onPay, onExport, onVoid, onUnvoid }) {
@@ -29,7 +31,6 @@ function ActionMenu({ inv, exporting, onEdit, onPay, onExport, onVoid, onUnvoid 
   const isVoided    = inv.payment_status === 'Void' || !!inv.voided_at;
   const isPaid      = inv.payment_status === 'Paid';
   const isExporting = !!exporting;
-  const { quickSend, busy: sendBusy } = useQuickSend('invoice', inv);
 
   return (
     <div style={{ display: 'flex', gap: 5, alignItems: 'center', justifyContent: 'flex-end' }}>
@@ -122,16 +123,10 @@ function ActionMenu({ inv, exporting, onEdit, onPay, onExport, onVoid, onUnvoid 
                 : <><Icon name="file-text" size={14} /><span>Export PDF</span></>}
             </button>
 
-            <button disabled={!!sendBusy} onClick={() => { setOpen(false); quickSend('whatsapp'); }}
-              style={{ ...menuItemStyle, opacity: sendBusy ? 0.5 : 1 }}>
-              <Icon name="message-circle" size={14} />
-              <span>{t('comms.quickWhatsappShort')}</span>
-            </button>
-            <button disabled={!!sendBusy} onClick={() => { setOpen(false); quickSend('email'); }}
-              style={{ ...menuItemStyle, opacity: sendBusy ? 0.5 : 1 }}>
-              <Icon name="mail" size={14} />
-              <span>{t('comms.quickEmailShort')}</span>
-            </button>
+            {/* No WhatsApp / email entries here. The Send button on the row
+                covers both channels and shows what will actually be sent, so
+                duplicating them in this menu gave the same row three ways to
+                send one document. */}
 
             <div style={{ height: 1, background: 'var(--border)', margin: '4px 0' }} />
 

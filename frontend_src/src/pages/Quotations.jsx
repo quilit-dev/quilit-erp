@@ -13,7 +13,7 @@ import {
   Badge, ExportButton, fmt, fmtDate, toast, SortableTh, Pagination,
   DualMoney, ExchangeRateBadge, DisplayCurrencyToggle, NumberInput, BranchField,
   Icon} from '../components/shared';
-import { SendDocumentButton, useQuickSend } from '../components/SendDocument';
+import { SendDocumentButton } from '../components/SendDocument';
 import { exportQuotationPDF, exportQuotationExcel } from '../utils/exportUtils';
 import { useLocale } from '../hooks/useLocale.jsx';
 import { usePermissions } from '../hooks/usePermissions';
@@ -90,7 +90,6 @@ const SPIN = { animation: 'spin .7s linear infinite' };
 function QuoteActionMenu({ doc, exporting, isVoided, onEdit, onExport, onVoid, onUnvoid }) {
   const { t, lang } = useLocale();
   const [open, setOpen]     = useState(false);
-  const { quickSend, busy: sendBusy } = useQuickSend('quotation', doc);
   const [dropUp, setDropUp] = useState(false);
   const ref    = useRef(null);
   const btnRef = useRef(null);
@@ -176,16 +175,8 @@ function QuoteActionMenu({ doc, exporting, isVoided, onEdit, onExport, onVoid, o
               : <><Icon name="file-text" size={14} /><span>{t('quotations.exportPdf')}</span></>}
           </button>
 
-          <button disabled={!!sendBusy} onClick={() => { setOpen(false); quickSend('whatsapp'); }}
-              style={{ ...menuItemStyle, opacity: sendBusy ? 0.5 : 1 }}>
-              <Icon name="message-circle" size={14} />
-              <span>{t('comms.quickWhatsappShort')}</span>
-            </button>
-            <button disabled={!!sendBusy} onClick={() => { setOpen(false); quickSend('email'); }}
-              style={{ ...menuItemStyle, opacity: sendBusy ? 0.5 : 1 }}>
-              <Icon name="mail" size={14} />
-              <span>{t('comms.quickEmailShort')}</span>
-            </button>
+          {/* No WhatsApp / email entries here — the row's Send button covers
+              both channels. See the note in invoices/ActionMenu.jsx. */}
 
           {divider}
 

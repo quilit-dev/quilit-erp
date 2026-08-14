@@ -255,31 +255,9 @@ export function SendDocumentButton({ entityType, doc }) {
   );
 }
 
-// One-click send, for the ⋯ menus. Exported separately from the dialog so a row
-// stays uncluttered while a single click is still reachable.
-//
-// WhatsApp is safe to fire on one click: the message opens in the user's own
-// WhatsApp and they press send there. Email cannot be unsent, so its toast names
-// the address it went to — the only undo available.
-export function useQuickSend(entityType, doc) {
-  const { t } = useLocale();
-  const [busy, setBusy] = useState(null);
-
-  async function quickSend(channel) {
-    setBusy(channel);
-    try {
-      const r = await commsSend({ entity_type: entityType, entity_id: doc.id, channel });
-      if (channel === 'whatsapp' && r?.wa_url) {
-        window.open(r.wa_url, '_blank', 'noopener,noreferrer');
-      } else if (channel === 'email') {
-        toast(t('comms.emailedTo', { to: r?.recipient || doc?.client_email || '' }));
-      }
-    } catch (e) {
-      toast(e?.message || t('comms.sendFailed'), 'red');
-    } finally {
-      setBusy(null);
-    }
-  }
-  return { quickSend, busy };
-}
+// `useQuickSend` used to live here: a one-click send wired into the ⋯ menus of
+// both document lists. It was removed with those entries. Sending now always
+// goes through the Send dialog, which shows the operator the channel and the
+// recipient before anything leaves — worth the extra click for an action that
+// reaches a customer and cannot be recalled.
 
