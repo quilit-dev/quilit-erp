@@ -23,12 +23,26 @@ def test_fresh_install_reports_empty_modules(as_role):
 
 
 def test_get_surfaces_overridden_constant(as_role, monkeypatch):
-    """When the build constant is set, the API reports that exact value."""
+    """When the build constant is set, the API reports the licence it implies.
+
+    NOT the raw string. `/api/settings/` returns `enabled_modules_set()`, the
+    DEPENDENCY-CLOSED set: asking for `pos` also licenses the cash, finance and
+    accounting it cannot function without. The sidebar is built from this, and
+    returning the raw constant instead was the bug that left a licensed tenant
+    seeing every module — so this asserts the closure, which is the contract
+    the paywall actually enforces.
+    """
     monkeypatch.setattr(vendor_config, "ENABLED_MODULES", "sales,inventory,pos")
     c = as_role("superadmin")
     r = c.get("/api/settings/")
     assert r.status_code == 200
-    assert r.json()["enabled_modules"] == "sales,inventory,pos"
+
+    reported = r.json()["enabled_modules"]
+    expected = vendor_config.enabled_modules_set()
+    assert reported == ",".join(sorted(expected))
+    # What was asked for is licensed, and the list is a closure of it, not it.
+    assert {"inventory", "pos"} <= set(reported.split(","))
+    assert reported != "sales,inventory,pos"
 
 
 def test_authenticated_non_admin_can_read_modules(as_role):
