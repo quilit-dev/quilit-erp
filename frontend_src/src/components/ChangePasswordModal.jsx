@@ -65,65 +65,72 @@ export default function ChangePasswordModal({ onClose }) {
   return createPortal(
     <Modal title={t('forceChange.title')} onClose={onClose}>
       <form onSubmit={submit}>
-        {error && (
-          <div style={{ padding: '10px 14px', background: 'var(--red-light)',
-                        border: '1px solid var(--red)', borderRadius: 8,
-                        fontSize: 13, color: 'var(--red)', marginBottom: 16 }}>
-            {error}
-          </div>
-        )}
-
-        <div className="form-group">
-          <label className="form-label">{t('forceChange.currentPassword')}</label>
-          <input type={pwType} className="form-control" value={current}
-                 onChange={e => setCurrent(e.target.value)}
-                 autoComplete="current-password" autoFocus required />
-        </div>
-
-        <div className="form-group">
-          <label className="form-label">{t('forceChange.newPassword')}</label>
-          <div style={{ position: 'relative' }}>
-            <input type={pwType} className="form-control" value={next}
-                   onChange={e => setNext(e.target.value)}
-                   placeholder={t('forceChange.minLabel')}
-                   autoComplete="new-password" required />
-            <button type="button" onClick={() => setShowPw(v => !v)}
-              aria-label={t('forceChange.newPassword')}
-              style={{ position: 'absolute', insetInlineEnd: 10, top: '50%',
-                       transform: 'translateY(-50%)', background: 'none',
-                       border: 'none', cursor: 'pointer', color: 'var(--text-3)' }}>
-              {showPw ? '🙈' : '👁'}
-            </button>
-          </div>
-          {next && (
-            <div style={{ marginTop: 6, display: 'flex', gap: 4 }}>
-              {rules.map(({ label, ok }) => (
-                <div key={label} style={{ flex: 1, textAlign: 'center' }}>
-                  <div style={{ height: 3, borderRadius: 2, marginBottom: 3,
-                                background: ok ? 'var(--green)' : 'var(--border)' }} />
-                  <span style={{ fontSize: 10, color: ok ? 'var(--green)' : 'var(--text-3)' }}>
-                    {label}
-                  </span>
-                </div>
-              ))}
+        {/* `Modal` renders its children raw — the padding and the 12px between
+            adjacent blocks come from .modal-body, so a form placed directly
+            inside the modal has its fields edge-to-edge with the labels sitting
+            on top of the inputs. */}
+        <div className="modal-body">
+          {error && (
+            <div style={{ padding: '10px 14px', background: 'var(--red-light)',
+                          border: '1px solid var(--red)', borderRadius: 8,
+                          fontSize: 13, color: 'var(--red)', marginBottom: 16 }}>
+              {error}
             </div>
           )}
+
+          <div className="form-group">
+            <label className="form-label">{t('forceChange.currentPassword')}</label>
+            <input type={pwType} className="form-control" value={current}
+                   onChange={e => setCurrent(e.target.value)}
+                   autoComplete="current-password" autoFocus required />
+          </div>
+
+          <div className="form-group">
+            <label className="form-label">{t('forceChange.newPassword')}</label>
+            <div style={{ position: 'relative' }}>
+              <input type={pwType} className="form-control" value={next}
+                     onChange={e => setNext(e.target.value)}
+                     placeholder={t('forceChange.minLabel')}
+                     autoComplete="new-password" required />
+              <button type="button" onClick={() => setShowPw(v => !v)}
+                aria-label={t('forceChange.newPassword')}
+                style={{ position: 'absolute', insetInlineEnd: 10, top: '50%',
+                         transform: 'translateY(-50%)', background: 'none',
+                         border: 'none', cursor: 'pointer', color: 'var(--text-3)' }}>
+                {showPw ? '🙈' : '👁'}
+              </button>
+            </div>
+            {next && (
+              <div style={{ marginTop: 6, display: 'flex', gap: 4 }}>
+                {rules.map(({ label, ok }) => (
+                  <div key={label} style={{ flex: 1, textAlign: 'center' }}>
+                    <div style={{ height: 3, borderRadius: 2, marginBottom: 3,
+                                  background: ok ? 'var(--green)' : 'var(--border)' }} />
+                    <span style={{ fontSize: 10, color: ok ? 'var(--green)' : 'var(--text-3)' }}>
+                      {label}
+                    </span>
+                  </div>
+                ))}
+              </div>
+            )}
+          </div>
+
+          <div className="form-group">
+            <label className="form-label">{t('forceChange.confirmPassword')}</label>
+            <input type={pwType} className="form-control" value={confirm}
+                   onChange={e => setConfirm(e.target.value)}
+                   placeholder={t('forceChange.repeatPassword')}
+                   autoComplete="new-password" required />
+            {confirm && next !== confirm && (
+              <p style={{ fontSize: 12, color: 'var(--red)', margin: '4px 0 0' }}>
+                {t('forceChange.passwordsNoMatch')}
+              </p>
+            )}
+          </div>
+
         </div>
 
-        <div className="form-group">
-          <label className="form-label">{t('forceChange.confirmPassword')}</label>
-          <input type={pwType} className="form-control" value={confirm}
-                 onChange={e => setConfirm(e.target.value)}
-                 placeholder={t('forceChange.repeatPassword')}
-                 autoComplete="new-password" required />
-          {confirm && next !== confirm && (
-            <p style={{ fontSize: 12, color: 'var(--red)', margin: '4px 0 0' }}>
-              {t('forceChange.passwordsNoMatch')}
-            </p>
-          )}
-        </div>
-
-        <div className="modal-footer" style={{ paddingInline: 0, paddingBottom: 0 }}>
+        <div className="modal-footer">
           <button type="button" className="btn btn-secondary" onClick={onClose}>
             {t('common.cancel')}
           </button>

@@ -84,6 +84,15 @@ describe('the sidebar account menu', () => {
 
     const overlay = document.querySelector('.modal-overlay');
     expect(overlay, 'the modal should render').toBeTruthy();
+
+    // Modal renders its children raw: the padding and the spacing between
+    // fields come from .modal-body. Without it the inputs run edge to edge and
+    // each label sits on top of its input.
+    const body = overlay.querySelector('.modal-body');
+    expect(body, 'the form must be wrapped in .modal-body').toBeTruthy();
+    expect(body.querySelectorAll('input[type="password"]').length).toBe(3);
+    expect(overlay.querySelector('.modal-footer'),
+      'the buttons belong in .modal-footer').toBeTruthy();
     expect(overlay.closest('.sidebar'),
       'the modal must not be nested inside the sidebar — it gets clipped there')
       .toBeNull();
