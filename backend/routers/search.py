@@ -84,6 +84,15 @@ def search_all(
                     results.append(item)
         except Exception:
             logger.warning("global search: a module query failed", exc_info=True)
+            # The isolation above is only real on SQLite. PostgreSQL aborts the
+            # whole transaction on a failed statement and refuses everything
+            # after it ("current transaction is aborted"), so ONE broken query
+            # silently emptied every section that followed it. Roll back so the
+            # connection is usable again and the next module still runs.
+            try:
+                db.rollback()
+            except Exception:
+                pass
 
     # ── Clients ───────────────────────────────────────────────────────────
     if _can(user, db, "clients"):
@@ -846,13 +855,18 @@ def search_all(
     # status, rate history and locked-month metadata out of operator search.
     if _can(user, db, "accounting"):
         # Search a YYYY-MM "period code" so an operator can type "2026-03".
+        # `printf` is SQLite-only and does not exist in PostgreSQL, so this
+        # query raised there — and, before the rollback above, took every
+        # section after it down with it. The YYYY-MM code is matched in Python
+        # instead: the table holds twelve rows a year, so reading it whole
+        # costs nothing and needs no dialect-specific formatting.
+        _code = term.strip("%").lower()
         run(
             "SELECT id, year, month, locked_at, locked_by FROM accounting_periods"
-            " WHERE printf('%04d-%02d', year, month) LIKE ?"
-            "    OR CAST(year AS TEXT) LIKE ? OR locked_by LIKE ?"
+            " WHERE CAST(year AS TEXT) LIKE ? OR locked_by LIKE ?"
             " ORDER BY year DESC, month DESC"
             " LIMIT ?",
-            (term, term, term, limit),
+            (term, term, limit),
             lambda r: {
                 "id": r["id"], "type": "accounting_period",
                 "title": f"{r['year']:04d}-{r['month']:02d}",
@@ -863,6 +877,30 @@ def search_all(
                 "url": "/accounting",
             },
         )
+
+        # The "2026-03" form, matched in Python (see the note above). Skipped
+        # when the term has no digits, so an ordinary word search does not read
+        # the table at all.
+        if any(ch.isdigit() for ch in _code):
+            _seen = {item["id"] for item in results
+                     if item.get("type") == "accounting_period"}
+            run(
+                "SELECT id, year, month, locked_at, locked_by FROM accounting_periods"
+                " ORDER BY year DESC, month DESC",
+                (),
+                lambda r: None if (
+                    r["id"] in _seen
+                    or _code not in f"{r['year']:04d}-{r['month']:02d}"
+                ) else {
+                    "id": r["id"], "type": "accounting_period",
+                    "title": f"{r['year']:04d}-{r['month']:02d}",
+                    "subtitle": _join(
+                        "locked" if r["locked_at"] else "open",
+                        f"by {r['locked_by']}" if r["locked_by"] else None,
+                    ),
+                    "url": "/accounting",
+                },
+            )
 
         run(
             "SELECT year, status, net_income, closed_at, notes FROM fiscal_years"
