@@ -431,6 +431,22 @@ def unarchive_department(
 
 # Fixed literal statements. The list query's filters are each a no-op when the
 # bound value is NULL, so no user input is ever concatenated into the SQL text.
+def _assert_employee_visible(user, db, emp_id: int):
+    """404 unless the caller's branch owns this employee.
+
+    The employee LIST is branch-filtered, but every by-id endpoint trusted the
+    id in the URL — so an HR manager in one branch could read another branch's
+    staff record (name, SALARY, phone, email), rewrite the salary, archive the
+    person, and list or upload their files. 404 rather than 403 so ids cannot
+    be probed.
+    """
+    row = db.execute("SELECT branch_id FROM hr_employees WHERE id=?",
+                     (emp_id,)).fetchone()
+    if not row:
+        raise HTTPException(404, "Employee not found")
+    branch_access.assert_can_view_branch(user, db, row["branch_id"])
+
+
 _EMPLOYEE_BY_ID = """
     SELECT e.*,
            d.name  AS department_name,
@@ -555,6 +571,7 @@ def get_employee(
     row = db.execute(_EMPLOYEE_BY_ID, (emp_id,)).fetchone()
     if not row:
         raise HTTPException(404, "Employee not found")
+    _assert_employee_visible(user, db, emp_id)
     result = dict(row)
     result["leave_history"] = [
         dict(r) for r in db.execute(
@@ -664,6 +681,7 @@ def update_employee(
     ).fetchone()
     if not existing:
         raise HTTPException(404, "Employee not found")
+    _assert_employee_visible(user, db, emp_id)
     _validate_refs(db, data, self_id=emp_id)
 
     # Capture the salary/title/department/manager diff BEFORE the UPDATE so the
@@ -735,6 +753,7 @@ def archive_employee(
     ).fetchone()
     if not row:
         raise HTTPException(404, "Employee not found")
+    _assert_employee_visible(user, db, emp_id)
     db.execute("UPDATE hr_employees SET archived_at=? WHERE id=?", (_now(), emp_id))
     # Detach this person as a manager so reports are not left pointing at an archived record.
     db.execute("UPDATE hr_employees SET manager_id=NULL WHERE manager_id=?", (emp_id,))
@@ -754,6 +773,7 @@ def unarchive_employee(
     ).fetchone()
     if not row:
         raise HTTPException(404, "Employee not found in archives")
+    _assert_employee_visible(user, db, emp_id)
     db.execute("UPDATE hr_employees SET archived_at=NULL WHERE id=?", (emp_id,))
     log_action(db, user, "unarchive", "hr_employee", emp_id, row["full_name"])
     db.commit()
@@ -1043,6 +1063,7 @@ async def upload_employee_file(
         "SELECT 1 FROM hr_employees WHERE id=? AND archived_at IS NULL", (emp_id,)
     ).fetchone():
         raise HTTPException(404, "Employee not found")
+    _assert_employee_visible(user, db, emp_id)
 
     content_type = (file.content_type or "").lower()
     if content_type != "application/pdf":
@@ -1101,6 +1122,7 @@ def list_employee_files(
     db: sqlite3.Connection = Depends(get_db),
 ):
     """Files metadata only — binary fetched separately to keep this cheap."""
+    _assert_employee_visible(user, db, emp_id)
     return [
         dict(r) for r in db.execute(
             "SELECT id, kind, filename, content_type, size_bytes, created_at "
@@ -1118,12 +1140,17 @@ def download_employee_file(
 ):
     """Stream the PDF bytes inline so the browser previews it in a new tab."""
     row = db.execute(
-        "SELECT filename, content_type, data, storage_backend, storage_key "
+        "SELECT employee_id, filename, content_type, data, storage_backend, storage_key "
         "FROM hr_employee_files WHERE id=?",
         (file_id,),
     ).fetchone()
     if not row:
         raise HTTPException(404, "File not found")
+    # This endpoint is keyed on the FILE id, not the employee, so it had no
+    # branch check at all: iterating ids handed any HR user every branch's
+    # contracts and ID documents. `employee_id` is selected above solely so
+    # the owning employee can be branch-checked here.
+    _assert_employee_visible(user, db, row["employee_id"])
     content = (storage.get_object(row["storage_key"])
                if row["storage_backend"] == "s3" else row["data"])
     # `inline` disposition so the browser shows the PDF in-tab; `download`

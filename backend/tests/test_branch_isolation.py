@@ -236,6 +236,105 @@ def test_expense_owner_and_global_user_are_unaffected(expense_world):
         "description": "OWNER-EDIT", "date": "2026-08-14"}).status_code == 200
 
 
+# ── personnel: the most sensitive branch data of all ────────────────────────
+
+@pytest.fixture
+def hr_world(app, db, make_client):
+    """HR Managers in two branches, with an employee and a contract PDF."""
+    import io
+    from auth_utils import hash_password
+
+    owner = make_client("superadmin")
+    a_id = db.execute("SELECT id FROM warehouses WHERE is_default=1").fetchone()["id"]
+    b_id = owner.post("/api/warehouses/",
+                      json={"code": "BR4", "name": "Branch Four",
+                            "type": "Branch"}).json()["id"]
+    role = db.execute("SELECT id FROM roles WHERE name='HR Manager'").fetchone()["id"]
+    for name, branch in (("hr_alice", a_id), ("hr_bob", b_id)):
+        db.execute(
+            "INSERT INTO users (username, password_hash, full_name, role, role_id,"
+            " is_active, is_superadmin, must_change_password, branch_id, created_at)"
+            " VALUES (?,?,?,'user',?,1,0,0,?,datetime('now'))",
+            (name, hash_password(PW), name, role, branch))
+    db.commit()
+
+    def login(u):
+        c = TestClient(app)
+        assert c.post("/api/auth/login",
+                      json={"username": u, "password": PW}).status_code == 200
+        return c
+
+    alice, bob = login("hr_alice"), login("hr_bob")
+    assert alice.post("/api/hr/employees", json={
+        "full_name": "ALICE-STAFF", "position": "Engineer", "salary": 8500,
+        "hire_date": "2026-01-10", "phone": "+96170111222",
+        "email": "staff@a.test"}).status_code == 200
+    emp_id = db.execute(
+        "SELECT id FROM hr_employees ORDER BY id DESC LIMIT 1").fetchone()["id"]
+
+    pdf = b"%PDF-1.4\n" + b"0" * 200
+    alice.post(f"/api/hr/employees/{emp_id}/files?kind=contract",
+               files={"file": ("contract.pdf", io.BytesIO(pdf), "application/pdf")})
+    row = db.execute(
+        "SELECT id FROM hr_employee_files ORDER BY id DESC LIMIT 1").fetchone()
+
+    return {"alice": alice, "bob": bob, "owner": owner,
+            "emp_id": emp_id, "file_id": row["id"] if row else None}
+
+
+def test_cannot_read_another_branchs_employee(hr_world):
+    """This returned the full record: name, SALARY, phone and email."""
+    r = hr_world["bob"].get(f"/api/hr/employees/{hr_world['emp_id']}")
+    assert r.status_code == 404, r.text
+
+
+def test_cannot_rewrite_another_branchs_salary(hr_world, db):
+    emp_id = hr_world["emp_id"]
+    before = dict(db.execute(
+        "SELECT full_name, salary FROM hr_employees WHERE id=?", (emp_id,)).fetchone())
+
+    r = hr_world["bob"].put(f"/api/hr/employees/{emp_id}", json={
+        "full_name": "HIJACKED", "position": "Engineer", "salary": 1,
+        "hire_date": "2026-01-10"})
+
+    after = dict(db.execute(
+        "SELECT full_name, salary FROM hr_employees WHERE id=?", (emp_id,)).fetchone())
+    assert r.status_code == 404, r.text
+    assert after == before, "another branch rewrote this person's salary"
+
+
+def test_cannot_reach_another_branchs_hr_files(hr_world):
+    """Contracts and ID documents. The download endpoint is keyed on the FILE
+    id and had no employee check at all, so ids could simply be iterated."""
+    bob, emp_id, file_id = hr_world["bob"], hr_world["emp_id"], hr_world["file_id"]
+    assert bob.get(f"/api/hr/employees/{emp_id}/files").status_code == 404
+    if file_id is not None:
+        assert bob.get(f"/api/hr/files/{file_id}/download").status_code == 404
+
+
+def test_cannot_archive_another_branchs_employee(hr_world, db):
+    emp_id = hr_world["emp_id"]
+    r = hr_world["bob"].patch(f"/api/hr/employees/{emp_id}/archive", json={"reason": "x"})
+    archived = db.execute("SELECT archived_at FROM hr_employees WHERE id=?",
+                          (emp_id,)).fetchone()["archived_at"]
+    assert r.status_code == 404, r.text
+    assert archived is None, "another branch archived this employee"
+
+
+def test_hr_owner_and_global_user_are_unaffected(hr_world):
+    a, o = hr_world["alice"], hr_world["owner"]
+    emp_id, file_id = hr_world["emp_id"], hr_world["file_id"]
+    assert a.get(f"/api/hr/employees/{emp_id}").status_code == 200
+    assert a.get(f"/api/hr/employees/{emp_id}/files").status_code == 200
+    assert a.put(f"/api/hr/employees/{emp_id}", json={
+        "full_name": "ALICE-STAFF", "position": "Engineer", "salary": 9000,
+        "hire_date": "2026-01-10"}).status_code == 200
+    assert o.get(f"/api/hr/employees/{emp_id}").status_code == 200
+    if file_id is not None:
+        assert a.get(f"/api/hr/files/{file_id}/download").status_code == 200
+        assert o.get(f"/api/hr/files/{file_id}/download").status_code == 200
+
+
 def test_writes_are_forced_into_the_callers_own_branch(world, db):
     """A scoped user naming someone else's branch is refused, not silently
     redirected — so a mistake is visible rather than filed in the wrong place."""
