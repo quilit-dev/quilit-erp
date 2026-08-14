@@ -1,5 +1,5 @@
 import { useState, useEffect } from 'react';
-import { LoadingSpinner, EmptyState, Modal, toast } from '../../components/shared';
+import { LoadingSpinner, EmptyState, Modal, ConfirmModal, toast } from '../../components/shared';
 import {
   getWarehouses, getUsers, getWarehouseAccess,
   grantWarehouseAccess, revokeWarehouseAccess,
@@ -12,6 +12,9 @@ function AccessTab({ t }) {
   const [selectedWid, setSelectedWid] = useState(null);
   const [picker, setPicker] = useState(null);
   const [loading, setLoading] = useState(true);
+  // Set when revoking a grant that is the user's LAST one anywhere — see the
+  // note on `revoke` below.
+  const [confirmLast, setConfirmLast] = useState(null);
 
   async function load() {
     setLoading(true);
@@ -39,9 +42,27 @@ function AccessTab({ t }) {
     catch (e) { toast(e.message, 'red'); }
     setPicker(null);
   }
-  async function revoke(uid) {
+  async function doRevoke(uid) {
     try { await revokeWarehouseAccess(current.id, uid); toast(t('warehouses.toastAccessRevoked'), 'green'); load(); }
     catch (e) { toast(e.message, 'red'); }
+    setConfirmLast(null);
+  }
+
+  // Revoking a user's LAST grant does the opposite of what the button reads.
+  // Access is an opt-in allow-list: a user with zero grants falls back to the
+  // default, which is EVERY warehouse. So removing the final row does not leave
+  // them with nothing — it hands them everything. Revoking any other grant just
+  // narrows the list, so only this case is confirmed.
+  function revoke(uid) {
+    const grant = currentGrants.find(g => g.user_id === uid);
+    const totalForUser = Object.values(grants)
+      .flat()
+      .filter(g => g && g.user_id === uid).length;
+    if (totalForUser <= 1) {
+      setConfirmLast({ uid, name: grant?.full_name || grant?.username || '' });
+      return;
+    }
+    doRevoke(uid);
   }
 
   return (
@@ -109,6 +130,17 @@ function AccessTab({ t }) {
           )}
         </div>
       </div>
+
+      {confirmLast && (
+        <ConfirmModal
+          title={t('warehouses.revokeLastTitle')}
+          message={t('warehouses.revokeLastWarning', { name: confirmLast.name })}
+          confirmLabel={t('warehouses.revokeAnyway')}
+          confirmClass="btn-danger"
+          onConfirm={() => doRevoke(confirmLast.uid)}
+          onCancel={() => setConfirmLast(null)}
+        />
+      )}
 
       {picker && (
         <Modal title={t('warehouses.grantModalTitle')} onClose={() => setPicker(null)}>
