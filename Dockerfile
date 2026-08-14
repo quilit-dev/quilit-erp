@@ -42,6 +42,13 @@ COPY backend/ ./backend/
 # STATIC_DIR=../static when present). In the compose stack Caddy fronts it; here
 # the app serves it directly.
 COPY --from=frontend /build/static /app/static
+# The commit this image was built from, surfaced by /api/health so a deploy can
+# be verified with one request. Railway injects RAILWAY_GIT_COMMIT_SHA itself
+# and needs nothing here; this covers `docker build` and the compose stack:
+#   docker build --build-arg GIT_COMMIT=$(git rev-parse --short=12 HEAD) .
+# Declared AFTER the dependency layers so changing it never busts the pip cache.
+ARG GIT_COMMIT=""
+ENV GIT_COMMIT=${GIT_COMMIT}
 COPY deploy/entrypoint.sh /usr/local/bin/entrypoint.sh
 RUN chmod +x /usr/local/bin/entrypoint.sh \
     && adduser --disabled-password --gecos "" appuser \

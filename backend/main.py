@@ -231,10 +231,53 @@ app.include_router(promotions.router,         prefix="/api/promotions",         
 app.include_router(communications_router.router, prefix="/api/communications", tags=["communications"])
 app.include_router(pdf_router.router, prefix="/api/pdf", tags=["pdf"])
 
+def _build_commit() -> str:
+    """The commit this process is running, resolved ONCE at import.
+
+    Deploys were otherwise unverifiable from outside: after pushing a security
+    fix the only way to tell whether it was live was to trigger the bug, which
+    is not something you do against a customer's workspace. One curl of
+    /api/health now answers it.
+
+    The runtime image has no .git — `backend/` is COPYed in — so the host's
+    build variable is the real source and git is only a development fallback.
+    Railway sets RAILWAY_GIT_COMMIT_SHA itself; the others cover Render, Heroku
+    and a plain `docker build --build-arg`.
+    """
+    for var in ("RAILWAY_GIT_COMMIT_SHA", "GIT_COMMIT",
+                "SOURCE_VERSION", "COMMIT_SHA"):
+        value = (os.environ.get(var) or "").strip()
+        if value:
+            return value[:12]
+
+    # Development fallback. Guarded by a .git check so the subprocess never
+    # runs in a container, and time-boxed so a wedged git cannot delay startup
+    # (this runs at import, before the health check can answer).
+    repo = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
+    if os.path.isdir(os.path.join(repo, ".git")):
+        try:
+            import subprocess
+            out = subprocess.run(["git", "rev-parse", "--short=12", "HEAD"],
+                                 cwd=repo, capture_output=True, text=True,
+                                 timeout=2)
+            if out.returncode == 0 and out.stdout.strip():
+                return out.stdout.strip()
+        except Exception:
+            pass
+    return "unknown"
+
+
+BUILD_COMMIT = _build_commit()
+
+
 @app.get("/api/health")
 def health():
-    """Liveness probe for containers / load balancers (no DB hit)."""
-    return {"status": "ok"}
+    """Liveness probe for containers / load balancers (no DB hit).
+
+    `commit` is resolved at import, so this stays a constant-time response and
+    a probe every few seconds costs nothing.
+    """
+    return {"status": "ok", "commit": BUILD_COMMIT}
 
 # ── Serve the built SPA (single-service hosts: Render, Fly, a bare VM…) ───────
 # In the Docker Compose stack, Caddy serves the SPA and reverse-proxies /api here.
