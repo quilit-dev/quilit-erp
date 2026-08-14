@@ -1,4 +1,4 @@
-﻿"""
+"""
 Quotations — commercial proposals only.
 
 Workflow:
@@ -276,10 +276,14 @@ def update_quotation(
     db: sqlite3.Connection = Depends(get_db),
 ):
     existing = db.execute(
-        "SELECT id, status, quote_number FROM quotations WHERE id = ?", (quote_id,)
+        "SELECT id, status, quote_number, branch_id FROM quotations WHERE id = ?",
+        (quote_id,)
     ).fetchone()
     if not existing:
         raise HTTPException(404, "Quotation not found")
+    # Branch scoping — see the note in invoices.update_invoice. `branch_id` is
+    # selected above solely so this check has something to read.
+    branch_access.assert_can_view_branch(user, db, existing["branch_id"])
     # A voided quotation is read-only until it is unvoided, and the Voided
     # status can only be entered through PATCH /void (which records the
     # previous status for restore) — never by a plain update.
@@ -396,6 +400,10 @@ def convert_to_invoice(
     ).fetchone()
     if not q:
         raise HTTPException(404, "Quotation not found")
+    # Branch scoping. Without this a manager in one branch could reach a
+    # record belonging to another: the list is filtered, but an id in the
+    # URL was not checked. 404 (not 403) so ids cannot be probed.
+    branch_access.assert_can_view_branch(user, db, q["branch_id"])
 
     # A voided / rejected quotation is a terminal state — no invoice may be
     # raised from it (the UI promises this; enforce it on the server too).
@@ -528,6 +536,10 @@ def convert_to_project(
     ).fetchone()
     if not q:
         raise HTTPException(404, "Quotation not found")
+    # Branch scoping. Without this a manager in one branch could reach a
+    # record belonging to another: the list is filtered, but an id in the
+    # URL was not checked. 404 (not 403) so ids cannot be probed.
+    branch_access.assert_can_view_branch(user, db, q["branch_id"])
     if q["status"] in ("Voided", "Cancelled", "Rejected"):
         raise HTTPException(
             400, f"Cannot start a project from a {q['status'].lower()} quotation."
@@ -594,6 +606,10 @@ def void_quotation(
     q = db.execute("SELECT * FROM quotations WHERE id = ? AND archived_at IS NULL", (quote_id,)).fetchone()
     if not q:
         raise HTTPException(404, "Quotation not found")
+    # Branch scoping. Without this a manager in one branch could reach a
+    # record belonging to another: the list is filtered, but an id in the
+    # URL was not checked. 404 (not 403) so ids cannot be probed.
+    branch_access.assert_can_view_branch(user, db, q["branch_id"])
     if q["status"] in ("Voided", "Cancelled"):
         raise HTTPException(400, "Quotation is already voided.")
     inv = db.execute("SELECT id FROM invoices WHERE quotation_id = ? AND archived_at IS NULL", (quote_id,)).fetchone()
@@ -618,6 +634,10 @@ def unvoid_quotation(
     q = db.execute("SELECT * FROM quotations WHERE id = ? AND archived_at IS NULL", (quote_id,)).fetchone()
     if not q:
         raise HTTPException(404, "Quotation not found")
+    # Branch scoping. Without this a manager in one branch could reach a
+    # record belonging to another: the list is filtered, but an id in the
+    # URL was not checked. 404 (not 403) so ids cannot be probed.
+    branch_access.assert_can_view_branch(user, db, q["branch_id"])
     if q["status"] not in ("Voided", "Cancelled"):
         raise HTTPException(400, "Quotation is not voided.")
     # Restore the exact pre-void status; legacy 'Cancelled' rows (which never
@@ -643,6 +663,10 @@ def archive_quotation(
     q = db.execute("SELECT * FROM quotations WHERE id = ? AND archived_at IS NULL", (quote_id,)).fetchone()
     if not q:
         raise HTTPException(404, "Quotation not found")
+    # Branch scoping. Without this a manager in one branch could reach a
+    # record belonging to another: the list is filtered, but an id in the
+    # URL was not checked. 404 (not 403) so ids cannot be probed.
+    branch_access.assert_can_view_branch(user, db, q["branch_id"])
     inv = db.execute("SELECT id FROM invoices WHERE quotation_id = ? AND archived_at IS NULL", (quote_id,)).fetchone()
     if inv:
         raise HTTPException(400, "Cannot archive a quotation that has an active invoice. Archive the invoice first.")

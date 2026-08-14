@@ -19,6 +19,7 @@ import logging
 from fastapi import APIRouter, Depends, Query
 from database import get_db
 from permissions import require_auth
+import branch_access
 import sqlite3
 
 router = APIRouter()
@@ -117,18 +118,26 @@ def search_all(
             },
         )
 
+    # Global search reached across branches: a scoped manager searching a
+    # term found other branches' invoices and quotations, complete with
+    # client name and amount, even though those records 404 when opened.
+    _bf_i, _bp_i = branch_access.branch_filter(user, db, column="i.branch_id")
+    _bf_q, _bp_q = branch_access.branch_filter(user, db, column="q.branch_id")
+
     # ── Invoices (+ line items) ───────────────────────────────────────────
     if _can(user, db, "invoices"):
         run(
             "SELECT i.id, i.invoice_number, i.amount, c.name AS client_name"
             " FROM invoices i LEFT JOIN clients c ON i.client_id = c.id"
-            " WHERE i.deleted_at IS NULL AND ("
+            " WHERE i.deleted_at IS NULL"
+            + _bf_i +
+            " AND ("
             "   i.invoice_number LIKE ? OR c.name LIKE ? OR i.notes LIKE ?"
             "   OR i.void_reason LIKE ?"
             "   OR EXISTS (SELECT 1 FROM invoice_items it"
             "              WHERE it.invoice_id = i.id AND it.name LIKE ?))"
             " LIMIT ?",
-            (term, term, term, term, term, limit),
+            tuple(_bp_i) + (term, term, term, term, term, limit),
             lambda r: {
                 "id": r["id"], "type": "invoice", "title": r["invoice_number"],
                 "subtitle": _join(r["client_name"], _money(r["amount"])),
@@ -141,13 +150,15 @@ def search_all(
         run(
             "SELECT q.id, q.quote_number, q.project_name, q.total, c.name AS client_name"
             " FROM quotations q LEFT JOIN clients c ON q.client_id = c.id"
-            " WHERE q.deleted_at IS NULL AND ("
+            " WHERE q.deleted_at IS NULL"
+            + _bf_q +
+            " AND ("
             "   q.quote_number LIKE ? OR c.name LIKE ? OR q.project_name LIKE ?"
             "   OR q.notes LIKE ?"
             "   OR EXISTS (SELECT 1 FROM quotation_items qi"
             "              WHERE qi.quotation_id = q.id AND qi.name LIKE ?))"
             " LIMIT ?",
-            (term, term, term, term, term, limit),
+            tuple(_bp_q) + (term, term, term, term, term, limit),
             lambda r: {
                 "id": r["id"], "type": "quotation", "title": r["quote_number"],
                 "subtitle": _join(r["client_name"], r["project_name"], _money(r["total"])),

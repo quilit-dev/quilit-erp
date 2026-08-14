@@ -439,6 +439,10 @@ def update_invoice(
     ).fetchone()
     if not inv:
         raise HTTPException(404, "Invoice not found")
+    # Branch scoping. Without this a manager in one branch could reach a
+    # record belonging to another: the list is filtered, but an id in the
+    # URL was not checked. 404 (not 403) so ids cannot be probed.
+    branch_access.assert_can_view_branch(user, db, inv["branch_id"])
     if inv["voided_at"]:
         raise HTTPException(400, "Voided invoices cannot be edited.")
     # A finalised (locked-month / closed-year) invoice can't be edited.
@@ -524,6 +528,10 @@ def void_invoice(
     ).fetchone()
     if not inv:
         raise HTTPException(404, "Invoice not found")
+    # Branch scoping. Without this a manager in one branch could reach a
+    # record belonging to another: the list is filtered, but an id in the
+    # URL was not checked. 404 (not 403) so ids cannot be probed.
+    branch_access.assert_can_view_branch(user, db, inv["branch_id"])
     if inv["voided_at"]:
         raise HTTPException(400, "Invoice is already voided.")
     # Can't void an invoice that belongs to a locked month / closed year —
@@ -567,6 +575,10 @@ def unvoid_invoice(
     ).fetchone()
     if not inv:
         raise HTTPException(404, "Invoice not found")
+    # Branch scoping. Without this a manager in one branch could reach a
+    # record belonging to another: the list is filtered, but an id in the
+    # URL was not checked. 404 (not 403) so ids cannot be probed.
+    branch_access.assert_can_view_branch(user, db, inv["branch_id"])
     if not inv["voided_at"]:
         raise HTTPException(400, "Invoice is not voided.")
     if db.execute("SELECT 1 FROM pos_sales WHERE invoice_id=?", (invoice_id,)).fetchone():
@@ -659,6 +671,10 @@ def add_payment(
     ).fetchone()
     if not inv:
         raise HTTPException(404, "Invoice not found")
+    # Branch scoping. Without this a manager in one branch could reach a
+    # record belonging to another: the list is filtered, but an id in the
+    # URL was not checked. 404 (not 403) so ids cannot be probed.
+    branch_access.assert_can_view_branch(user, db, inv["branch_id"])
     if inv["voided_at"]:
         raise HTTPException(400, "Cannot add payments to a voided invoice.")
     if inv["approval_status"] == "Pending Approval":
@@ -759,6 +775,18 @@ def list_payments(
     user=Depends(require_perm("invoices", "view")),
     db: sqlite3.Connection = Depends(get_db),
 ):
+    # Load the invoice first purely to branch-check it. Without this the
+    # endpoint answered for ANY id, so a manager in one branch could read
+    # another branch's payment history — amounts, methods and dates — even
+    # though the invoice itself was hidden from them.
+    inv = db.execute(
+        "SELECT branch_id FROM invoices WHERE id = ? AND archived_at IS NULL",
+        (invoice_id,),
+    ).fetchone()
+    if not inv:
+        raise HTTPException(404, "Invoice not found")
+    branch_access.assert_can_view_branch(user, db, inv["branch_id"])
+
     rows = db.execute(
         "SELECT * FROM invoice_payments WHERE invoice_id = ? ORDER BY paid_at DESC",
         (invoice_id,),
@@ -778,6 +806,10 @@ def delete_payment(
     ).fetchone()
     if not inv:
         raise HTTPException(404, "Invoice not found")
+    # Branch scoping. Without this a manager in one branch could reach a
+    # record belonging to another: the list is filtered, but an id in the
+    # URL was not checked. 404 (not 403) so ids cannot be probed.
+    branch_access.assert_can_view_branch(user, db, inv["branch_id"])
     if inv["voided_at"]:
         raise HTTPException(400, "Cannot modify payments on a voided invoice.")
 
@@ -811,6 +843,10 @@ def archive_invoice(
     ).fetchone()
     if not inv:
         raise HTTPException(404, "Invoice not found")
+    # Branch scoping. Without this a manager in one branch could reach a
+    # record belonging to another: the list is filtered, but an id in the
+    # URL was not checked. 404 (not 403) so ids cannot be probed.
+    branch_access.assert_can_view_branch(user, db, inv["branch_id"])
     if _has_payments(db, invoice_id):
         raise HTTPException(
             400,
@@ -836,6 +872,10 @@ def unarchive_invoice(
     ).fetchone()
     if not inv:
         raise HTTPException(404, "Invoice not found in archives")
+    # Branch scoping. Without this a manager in one branch could reach a
+    # record belonging to another: the list is filtered, but an id in the
+    # URL was not checked. 404 (not 403) so ids cannot be probed.
+    branch_access.assert_can_view_branch(user, db, inv["branch_id"])
     db.execute("UPDATE invoices SET archived_at=NULL, archive_reason=NULL WHERE id=?", (invoice_id,))
     log_action(db, user, "unarchive", "invoice", invoice_id, inv["invoice_number"])
     db.commit()

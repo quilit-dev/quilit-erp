@@ -227,6 +227,10 @@ def update_drawer(
     dr = db.execute("SELECT * FROM cash_drawers WHERE id=?", (drawer_id,)).fetchone()
     if not dr:
         raise HTTPException(404, "Cash drawer not found")
+    # Branch scoping — an id in the URL was not checked, so a user in one
+    # branch could edit or void another branch's record even though the
+    # list hides it. 404 (not 403) so ids cannot be probed.
+    branch_access.assert_can_view_branch(user, db, dr["branch_id"])
     name = (data.name or "").strip()
     if not name:
         raise HTTPException(400, "Drawer name is required.")
