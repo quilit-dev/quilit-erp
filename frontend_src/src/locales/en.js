@@ -711,6 +711,14 @@ const en = {
     "set": "set",
     "pair": "pair",
   },
+  licence: {
+    trial: 'trial',
+    licence: 'licence',
+    expiresIn: 'Your {{kind}} expires in {{days}} days.',
+    expiresToday: 'Your {{kind}} expires today.',
+    expiredGrace: 'Your {{kind}} has expired — access stops in {{days}} days.',
+    contactHint: 'Contact your provider to renew.',
+  },
   status: {
     Draft: 'Draft',
     Sent: 'Sent',

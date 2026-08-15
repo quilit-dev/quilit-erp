@@ -23,10 +23,13 @@ const lastQuery = () => fetchPage.mock.calls[fetchPage.mock.calls.length - 1][0]
 describe('useServerList', () => {
   test('asks for one page, not the whole table', async () => {
     const { result } = renderHook(() => useServerList(fetchPage));
-    await waitFor(() => expect(fetchPage).toHaveBeenCalled());
+    // Wait for the RESULT, not merely for the call. `fetchPage` having been
+    // invoked says nothing about its promise having resolved and the state
+    // having committed, so asserting on `items` at that point is a race — it
+    // passed alone and failed under a loaded suite.
+    await waitFor(() => expect(result.current.items).toHaveLength(2));
 
     expect(lastQuery()).toMatchObject({ limit: 25, offset: 0 });
-    expect(result.current.items).toHaveLength(2);
     // total is the server's count of the WHOLE filtered set, not the page —
     // it is what "showing 25 of 57" and the page count are built from.
     expect(result.current.total).toBe(57);

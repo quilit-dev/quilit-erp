@@ -311,6 +311,10 @@ export const completeSetup   = (d) => fetch('/api/settings/complete-setup', {
   method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(d),
 }).then(_readSetupJson);
 
+// How long this business's trial/licence has left. {applicable:false} in
+// single-tenant mode, so the banner simply never renders.
+export const getLicenceStatus = () => api.get('/api/settings/licence-status');
+
 // Auth — force password change
 export const forceChangePassword = (new_password) => api.post('/api/auth/force-change-password', { new_password });
 

@@ -157,13 +157,19 @@ export default function LicenceEditor({ tenant, onClose, onSaved }) {
           {field('Licence expires', 'license_expires_at',
                  { type: 'date', hint: 'Blank for a perpetual licence.' })}
 
-          <div style={{ display: 'flex', gap: 6, margin: '-6px 0 16px', flexWrap: 'wrap' }}>
-            <span style={{ fontSize: 12, color: 'var(--text-3)', alignSelf: 'center' }}>Renew:</span>
-            <button type="button" className="btn btn-sm btn-secondary" onClick={() => extend(1)}>+1 month</button>
-            <button type="button" className="btn btn-sm btn-secondary" onClick={() => extend(3)}>+3 months</button>
-            <button type="button" className="btn btn-sm btn-secondary" onClick={() => extend(12)}>+1 year</button>
-            <button type="button" className="btn btn-sm btn-secondary"
-              onClick={() => setForm(f => ({ ...f, license_expires_at: '' }))}>Perpetual</button>
+          {/* A normal .form-group: label above, controls below. The first
+              version put the label and buttons in one flex row and pulled it up
+              with a negative top margin to fight .modal-body's 12px owl rule —
+              which stacked the buttons over the label instead. */}
+          <div className="form-group">
+            <label className="form-label">Renew</label>
+            <div style={{ display: 'flex', gap: 6, flexWrap: 'wrap' }}>
+              <button type="button" className="btn btn-sm btn-secondary" onClick={() => extend(1)}>+1 month</button>
+              <button type="button" className="btn btn-sm btn-secondary" onClick={() => extend(3)}>+3 months</button>
+              <button type="button" className="btn btn-sm btn-secondary" onClick={() => extend(12)}>+1 year</button>
+              <button type="button" className="btn btn-sm btn-secondary"
+                onClick={() => setForm(f => ({ ...f, license_expires_at: '' }))}>Perpetual</button>
+            </div>
           </div>
 
           {field('Notes', 'notes', { placeholder: 'PO number, renewal terms…' })}

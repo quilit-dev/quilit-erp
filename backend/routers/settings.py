@@ -555,6 +555,33 @@ def _wizard_is_available(db) -> bool:
     return _get_all(db).get("setup_complete", "0") != "1"
 
 
+@router.get("/licence-status")
+def licence_status(user=Depends(require_auth)):
+    """How long this business's trial or licence has left.
+
+    The dates live in `public.tenants`, which a tenant's own schema cannot see,
+    so a customer had no way to learn they were about to be suspended — the
+    first sign was being locked out one morning. That is an avoidable support
+    call and a bad look for a product they are paying for.
+
+    Authenticated but not admin-gated: everyone in the business is affected by
+    it stopping, and the person who can act on it is not always the person
+    looking at the screen.
+
+    Returns {"applicable": false} in single-tenant mode and for a workspace with
+    no dates set, so the banner simply never renders.
+    """
+    try:
+        import tenancy
+        from tenant_context import current_schema
+        if not tenancy.IS_SCHEMA_TENANCY:
+            return {"applicable": False}
+        return tenancy.tenant_licence_status(current_schema())
+    except Exception:
+        # A banner must never be the reason a page fails to load.
+        return {"applicable": False}
+
+
 @router.get("/setup-status")
 def setup_status(db: sqlite3.Connection = Depends(get_db)):
     """Public — no auth. Returns whether the first-run wizard has been completed.

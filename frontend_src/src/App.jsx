@@ -7,6 +7,7 @@ import ToastContainer from './components/ToastContainer';
 import CommandPalette from './components/CommandPalette';
 import NotificationBell from './components/NotificationBell';
 import { ReportProblemButton } from './components/ReportProblem';
+import LicenceBanner from './components/LicenceBanner';
 import { LoadingSpinner } from './components/shared';
 import { useTheme } from './hooks/useTheme.jsx';
 import { useLocale } from './hooks/useLocale.jsx';
@@ -244,7 +245,10 @@ function Layout({ children }) {
             <ThemeToggleButton />
           </div>
         </div>
-        <div className="page-content">{children}</div>
+        <div className="page-content">
+          <LicenceBanner />
+          {children}
+        </div>
       </div>
       <ToastContainer />
       <CommandPalette open={paletteOpen} onClose={closePalette} />

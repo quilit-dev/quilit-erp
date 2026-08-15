@@ -178,3 +178,76 @@ def test_the_old_name_still_works():
     """`expire_due_trials` is what metrics.py calls on the flush cycle."""
     import tenancy
     assert tenancy.expire_due_trials is tenancy.expire_due_licences
+
+
+# ── what the customer is told ───────────────────────────────────────────────
+
+def test_licence_status_reaches_the_tenant(app, tenant):
+    """The dates live in public.tenants, which the tenant schema cannot read —
+    so without this endpoint the business genuinely could not know."""
+    import tenancy
+    from fastapi.testclient import TestClient
+    _set(tenant, license_expires_at=_days(10))
+    tenancy._LICENCE_CACHE.clear()
+
+    got = tenancy.tenant_licence_status(tenancy.schema_for_slug(tenant))
+
+    assert got["applicable"] is True
+    assert got["kind"] == "licence"
+    assert got["days_left"] == 10
+    assert got["in_grace"] is False
+
+
+def test_it_reports_the_grace_window(tenant):
+    import tenancy
+    _set(tenant, license_expires_at=_days(-2))
+    tenancy._LICENCE_CACHE.clear()
+
+    got = tenancy.tenant_licence_status(tenancy.schema_for_slug(tenant))
+    assert got["in_grace"] is True
+    assert got["days_left"] == -2
+
+
+def test_no_dates_is_not_applicable(tenant):
+    """A perpetual licence must not render a banner at all."""
+    import tenancy
+    tenancy._LICENCE_CACHE.clear()
+    got = tenancy.tenant_licence_status(tenancy.schema_for_slug(tenant))
+    assert got["applicable"] is False
+
+
+def test_the_sooner_date_is_reported(tenant):
+    import tenancy
+    _set(tenant, trial_ends_at=_days(3), license_expires_at=_days(300))
+    tenancy._LICENCE_CACHE.clear()
+
+    got = tenancy.tenant_licence_status(tenancy.schema_for_slug(tenant))
+    assert got["kind"] == "trial"
+    assert got["days_left"] == 3
+
+
+def test_it_withholds_the_commercial_record(tenant):
+    """Days remaining is the customer's business. The plan, seat count, price
+    and the operator's notes are not."""
+    import tenancy
+    _set(tenant, license_expires_at=_days(10))
+    tenancy._LICENCE_CACHE.clear()
+
+    got = tenancy.tenant_licence_status(tenancy.schema_for_slug(tenant))
+    for leaked in ("plan", "max_users", "notes", "name", "slug"):
+        assert leaked not in got, f"{leaked} should not be exposed to the tenant"
+
+
+def test_a_renewal_invalidates_the_cache(tenant):
+    """Cached for 5 minutes, so a renewal that did not evict would leave the
+    customer staring at an expiry warning they had already paid to clear."""
+    import tenancy
+    _set(tenant, license_expires_at=_days(-2))
+    tenancy._LICENCE_CACHE.clear()
+    assert tenancy.tenant_licence_status(tenancy.schema_for_slug(tenant))["in_grace"] is True
+
+    tenancy.update_tenant(tenant, {"license_expires_at": _days(365)})
+
+    after = tenancy.tenant_licence_status(tenancy.schema_for_slug(tenant))
+    assert after["in_grace"] is False, "the tenant is still being told it expired"
+    assert after["days_left"] > 300

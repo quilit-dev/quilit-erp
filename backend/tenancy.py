@@ -191,6 +191,7 @@ def provision_tenant(slug: str, name: str = None, plan: str = "standard",
     _CACHE.pop(slug, None)               # refresh any cached lookup
     _SCHEMA_STATUS.pop(schema, None)
     _MODULES_CACHE.pop(schema, None)
+    _LICENCE_CACHE.pop(schema, None)
     return {**dict(row), "admin_username": "admin", "admin_password": admin_password}
 
 
@@ -250,6 +251,7 @@ def update_tenant(slug: str, profile: dict) -> dict:
     # no-op, so a licence change never took effect in this process. Every other
     # invalidation site already used the schema.
     _MODULES_CACHE.pop(schema_for_slug(slug), None)
+    _LICENCE_CACHE.pop(schema_for_slug(slug), None)
     return dict(row) if row else None
 
 
@@ -294,6 +296,7 @@ def delete_tenant(slug: str) -> dict:
     _CACHE.pop(slug, None)
     _SCHEMA_STATUS.pop(schema, None)
     _MODULES_CACHE.pop(schema, None)
+    _LICENCE_CACHE.pop(schema, None)
     _HOST_CACHE.clear()                  # any domain pointing here is now gone
     return {"slug": slug, "name": row.get("name"), "schema": schema,
             "domains_removed": domains_removed, "deleted": True}
@@ -406,6 +409,7 @@ def factory_reset(slug: str) -> dict:
     _CACHE.pop(slug, None)
     _SCHEMA_STATUS.pop(schema, None)
     _MODULES_CACHE.pop(schema, None)
+    _LICENCE_CACHE.pop(schema, None)
 
     # Rebuild via the normal provisioning path; ON CONFLICT DO NOTHING means
     # the surviving catalog row keeps its profile.
@@ -462,11 +466,82 @@ def expire_due_licences(grace_days: int = None) -> list:
     for row in changed:
         _CACHE.pop(row["slug"], None)
         _SCHEMA_STATUS.pop(schema_for_slug(row["slug"]), None)
+        _LICENCE_CACHE.pop(schema_for_slug(row["slug"]), None)
     return changed
 
 
 # The original name, kept so an older caller keeps working.
 expire_due_trials = expire_due_licences
+
+
+_LICENCE_CACHE = {}          # schema -> (cached_at, payload)
+_LICENCE_TTL   = 300         # 5 min; a renewal shows up within one cache cycle
+
+
+def tenant_licence_status(schema: str) -> dict:
+    """What the CUSTOMER is allowed to know about their own licence.
+
+    The dates live in `public.tenants`, which the tenant's own schema cannot
+    see, so without this the business had no way to learn it was about to be
+    suspended — the first sign was being locked out. That is a bad way to find
+    out, and an avoidable support call.
+
+    Deliberately narrow: days remaining and whether the grace period has begun.
+    Not the plan, the seat count, the price or the notes — those are the
+    operator's commercial record, not the customer's business.
+    """
+    from datetime import date
+    hit = _LICENCE_CACHE.get(schema)
+    if hit is not None:
+        cached_at, value = hit
+        if (time.monotonic() - cached_at) < _LICENCE_TTL:
+            return value
+
+    payload = {"applicable": False}
+    try:
+        raw = _connect()
+    except Exception:
+        return payload                   # never block a page over a banner
+    try:
+        with raw.cursor() as cur:
+            cur.execute(
+                "SELECT status, trial_ends_at, license_expires_at "
+                "FROM public.tenants WHERE schema_name=%s", (schema,))
+            row = cur.fetchone()
+    except Exception:
+        return payload
+    finally:
+        raw.close()
+
+    if row:
+        def _left(value):
+            if not value:
+                return None
+            try:
+                y, m, d = (int(p) for p in str(value)[:10].split("-"))
+                return (date(y, m, d) - date.today()).days
+            except Exception:
+                return None
+
+        # Whichever ends sooner governs: a licence running to next year is no
+        # comfort if the trial it sits inside has already lapsed.
+        candidates = [(k, _left(row.get(k)))
+                      for k in ("trial_ends_at", "license_expires_at")]
+        candidates = [(k, v) for k, v in candidates if v is not None]
+        if candidates:
+            kind, days = min(candidates, key=lambda kv: kv[1])
+            payload = {
+                "applicable":  True,
+                "kind":        "trial" if kind == "trial_ends_at" else "licence",
+                "days_left":   days,
+                "expires_at":  str(row.get(kind))[:10],
+                "in_grace":    days < 0,
+                "grace_days":  LICENCE_GRACE_DAYS,
+                "status":      row.get("status"),
+            }
+
+    _LICENCE_CACHE[schema] = (time.monotonic(), payload)
+    return payload
 
 
 def tenant_modules(schema: str):

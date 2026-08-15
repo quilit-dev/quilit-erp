@@ -708,6 +708,14 @@ const ar = {
     "set": "طقم",
     "pair": "زوج",
   },
+  licence: {
+    trial: 'الفترة التجريبية',
+    licence: 'الترخيص',
+    expiresIn: 'ينتهي {{kind}} خلال {{days}} يوماً.',
+    expiresToday: 'ينتهي {{kind}} اليوم.',
+    expiredGrace: 'انتهى {{kind}} — سيتوقف الوصول خلال {{days}} يوماً.',
+    contactHint: 'يرجى التواصل مع المزوّد للتجديد.',
+  },
   status: {
     Draft: 'مسودة',
     Sent: 'مُرسل',
