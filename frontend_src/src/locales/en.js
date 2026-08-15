@@ -589,6 +589,7 @@ const en = {
   // see tAccount in useLocale.jsx.
   accountNames: {
     '1000': 'Cash & Bank',
+    '1010': 'Cash — LBP',
     '1100': 'Accounts Receivable',
     '1200': 'Inventory',
     '1500': 'Fixed Assets',
@@ -600,6 +601,7 @@ const en = {
     '3900': 'Retained Earnings',
     '4000': 'Sales Revenue',
     '4900': 'Other Income',
+    '4910': 'Foreign Exchange Gain',
     '5000': 'Cost of Goods Sold',
     '6000': 'Salaries & Wages',
     '6100': 'Rent',
@@ -614,6 +616,8 @@ const en = {
     '6860': 'Subscriptions',
     '6870': 'Permits & Fees',
     '6900': 'General & Other Expense',
+    '6910': 'Cash Short & Over',
+    '6920': 'Foreign Exchange Loss',
   },
   // The 18 seeded role names, also stored in the database in English.
   roleNames: {
