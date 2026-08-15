@@ -46,6 +46,68 @@ def _check_rate_limit(db: sqlite3.Connection, ip: str):
         )
 
 
+# How long a session with no activity still counts against a seat. Matches
+# permissions._SESSION_TIMEOUT: that revocation is LAZY — it only fires when the
+# stale token is next used — so someone who closes their browser would otherwise
+# hold a seat forever and nobody could take it.
+_SEAT_IDLE_MINUTES = 30
+
+
+def _enforce_seat_limit(db: sqlite3.Connection, row) -> None:
+    """Refuse a login that would exceed the licensed seat count.
+
+    Seats are CONCURRENT users, not user accounts. Counting accounts and
+    blocking at the door would punish everyone for an admin adding one person
+    too many, and could not free itself — the company would simply be locked
+    out until someone with no way in fixed it. Concurrency self-heals: a seat
+    comes back when a session is signed out or goes idle.
+
+    An admin is NEVER refused. Whoever can deactivate a user or call the vendor
+    has to be able to get in, and a seat limit that locks the owner out of their
+    own books is worse than no limit at all.
+    """
+    from tenant_context import IS_SCHEMA_TENANCY, current_schema
+    if not IS_SCHEMA_TENANCY:
+        return
+    try:
+        import tenancy
+        limit = tenancy.tenant_seat_limit(current_schema())
+    except Exception:
+        return                      # fail open — never lock out over a lookup
+    if not limit or limit <= 0:
+        return
+
+    if row["is_superadmin"]:
+        return
+    admin_role = db.execute(
+        "SELECT is_admin FROM roles WHERE id=?", (row["role_id"],)
+    ).fetchone() if row["role_id"] else None
+    if admin_role and admin_role["is_admin"]:
+        return
+
+    cutoff = (datetime.utcnow() - timedelta(minutes=_SEAT_IDLE_MINUTES)
+              ).strftime("%Y-%m-%d %H:%M:%S")
+    now = _now()
+    held = db.execute(
+        "SELECT DISTINCT user_id FROM user_sessions "
+        "WHERE revoked=0 AND expires_at > ? AND last_active > ?",
+        (now, cutoff),
+    ).fetchall()
+    in_use = {r["user_id"] for r in held}
+
+    # Signing in again on another device replaces your own session rather than
+    # taking a second seat — login revokes the previous one a few lines below.
+    if row["id"] in in_use:
+        return
+
+    if len(in_use) >= limit:
+        raise HTTPException(
+            status_code=403,
+            detail=(f"All {limit} licensed seats are in use. Ask a colleague to "
+                    f"sign out, or contact your provider to add seats."),
+        )
+
+
 def _record_attempt(db: sqlite3.Connection, ip: str):
     db.execute("INSERT INTO login_attempts (ip, attempted_at) VALUES (?,?)", (ip, _now()))
     db.commit()
@@ -75,6 +137,11 @@ def login(data: LoginRequest, request: Request, response: Response, db: sqlite3.
         raise HTTPException(status_code=403, detail="Account is disabled. Contact your administrator.")
 
     _clear_attempts(db, ip)
+
+    # Licensed seats. AFTER the password check, so a wrong password never
+    # reveals how full the licence is, and after the is_active check so a
+    # disabled account is refused for the honest reason.
+    _enforce_seat_limit(db, row)
 
     # In schema-per-tenant mode, bind the token to the tenant the request resolved
     # to (the same schema this very query ran against), so the session can only

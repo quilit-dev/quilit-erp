@@ -192,6 +192,7 @@ def provision_tenant(slug: str, name: str = None, plan: str = "standard",
     _SCHEMA_STATUS.pop(schema, None)
     _MODULES_CACHE.pop(schema, None)
     _LICENCE_CACHE.pop(schema, None)
+    _LICENCE_CACHE.pop(("seats", schema), None)
     return {**dict(row), "admin_username": "admin", "admin_password": admin_password}
 
 
@@ -252,6 +253,7 @@ def update_tenant(slug: str, profile: dict) -> dict:
     # invalidation site already used the schema.
     _MODULES_CACHE.pop(schema_for_slug(slug), None)
     _LICENCE_CACHE.pop(schema_for_slug(slug), None)
+    _LICENCE_CACHE.pop(("seats", schema_for_slug(slug)), None)
     return dict(row) if row else None
 
 
@@ -297,6 +299,7 @@ def delete_tenant(slug: str) -> dict:
     _SCHEMA_STATUS.pop(schema, None)
     _MODULES_CACHE.pop(schema, None)
     _LICENCE_CACHE.pop(schema, None)
+    _LICENCE_CACHE.pop(("seats", schema), None)
     _HOST_CACHE.clear()                  # any domain pointing here is now gone
     return {"slug": slug, "name": row.get("name"), "schema": schema,
             "domains_removed": domains_removed, "deleted": True}
@@ -410,6 +413,7 @@ def factory_reset(slug: str) -> dict:
     _SCHEMA_STATUS.pop(schema, None)
     _MODULES_CACHE.pop(schema, None)
     _LICENCE_CACHE.pop(schema, None)
+    _LICENCE_CACHE.pop(("seats", schema), None)
 
     # Rebuild via the normal provisioning path; ON CONFLICT DO NOTHING means
     # the surviving catalog row keeps its profile.
@@ -467,6 +471,7 @@ def expire_due_licences(grace_days: int = None) -> list:
         _CACHE.pop(row["slug"], None)
         _SCHEMA_STATUS.pop(schema_for_slug(row["slug"]), None)
         _LICENCE_CACHE.pop(schema_for_slug(row["slug"]), None)
+        _LICENCE_CACHE.pop(("seats", schema_for_slug(row["slug"])), None)
     return changed
 
 
@@ -542,6 +547,40 @@ def tenant_licence_status(schema: str) -> dict:
 
     _LICENCE_CACHE[schema] = (time.monotonic(), payload)
     return payload
+
+
+def tenant_seat_limit(schema: str):
+    """Licensed seats for a schema, or None for unlimited / not applicable.
+
+    Shares the licence cache: it is read on every login, and an uncached lookup
+    would put a cross-schema query in front of the one request a customer
+    notices most.
+    """
+    hit = _LICENCE_CACHE.get(("seats", schema))
+    if hit is not None:
+        cached_at, value = hit
+        if (time.monotonic() - cached_at) < _LICENCE_TTL:
+            return value
+
+    limit = None
+    try:
+        raw = _connect()
+    except Exception:
+        return None                      # fail open: never lock a customer out
+    try:                                 # over an infrastructure hiccup
+        with raw.cursor() as cur:
+            cur.execute("SELECT max_users FROM public.tenants WHERE schema_name=%s",
+                        (schema,))
+            row = cur.fetchone()
+            if row and row.get("max_users"):
+                limit = int(row["max_users"])
+    except Exception:
+        return None
+    finally:
+        raw.close()
+
+    _LICENCE_CACHE[("seats", schema)] = (time.monotonic(), limit)
+    return limit
 
 
 def tenant_modules(schema: str):

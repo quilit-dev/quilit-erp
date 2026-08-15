@@ -151,7 +151,10 @@ export default function LicenceEditor({ tenant, onClose, onSaved }) {
           {field('Subscription plan', 'plan', { options: PLANS })}
           {field('Licensed users', 'max_users',
                  { type: 'number', placeholder: 'blank = unlimited',
-                   hint: 'Recorded for billing. Not enforced at login yet.' })}
+                   hint: 'Concurrent sign-ins. When every seat is taken the '
+                         + 'next person is refused until someone signs out or '
+                         + 'goes idle. Admins are never blocked. Blank or 0 = '
+                         + 'unlimited.' })}
           {field('Trial ends', 'trial_ends_at',
                  { type: 'date', hint: 'Blank if this is not a trial.' })}
           {field('Licence expires', 'license_expires_at',
