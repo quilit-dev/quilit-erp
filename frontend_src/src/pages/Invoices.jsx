@@ -637,13 +637,17 @@ export default function Invoices() {
                       <InventoryCombobox
                         value={item.name}
                         inventory={inventory || []}
+                        title={t('lineItem.itemTitle')}
+                        placeholder={t('lineItem.itemPh')}
                         onChange={(name, price, meta) => setItemFromInventory(i, name, price, meta)}
                       />
                     )}
                     <NumberInput className="form-control" placeholder={t('common.quantity')} min="0" step="any"
+                      title={t('lineItem.qtyTitle')}
                       value={item.quantity} onChange={e => setItem(i, 'quantity', e.target.value)}
                       disabled={amountsLocked} style={amountsLocked ? { opacity:0.6 } : {}} />
-                    <NumberInput className="form-control" placeholder="Unit $" min="0" step="0.01"
+                    <NumberInput className="form-control" placeholder={t('lineItem.unitPricePh')} min="0" step="0.01"
+                      title={t('lineItem.unitPriceTitle')}
                       value={item.unit_price} onChange={e => setItem(i, 'unit_price', e.target.value)}
                       disabled={amountsLocked} style={amountsLocked ? { opacity:0.6 } : {}} />
                     {(
@@ -654,7 +658,7 @@ export default function Invoices() {
                       ) : (
                         <NumberInput className="form-control"
                           placeholder="%"
-                          title={t('common.discount')}
+                          title={t('lineItem.discountTitle')}
                           min="0" max="100" step="0.01"
                           value={item.discount_auto === false
                             ? item.discount_pct
@@ -669,6 +673,7 @@ export default function Invoices() {
                         </span>
                       ) : (
                         <select className="form-control" style={{ fontSize:12, padding:'6px 4px' }}
+                          title={t('lineItem.taxTitle')}
                           value={item.tax_rate_id ?? (defaultTaxRate?.id ?? '')}
                           onChange={e => setItem(i, 'tax_rate_id', Number(e.target.value) || null)}>
                           {activeTaxRates.map(r => (
@@ -677,7 +682,8 @@ export default function Invoices() {
                         </select>
                       )
                     )}
-                    <span style={{ textAlign:'right', fontWeight:600, fontSize:13, color:'var(--text-1)' }}>
+                    <span title={t('lineItem.lineTotalTitle')}
+                      style={{ textAlign:'right', fontWeight:600, fontSize:13, color:'var(--text-1)' }}>
                       ${lineTotal.toFixed(2)}
                     </span>
                     {!amountsLocked && (

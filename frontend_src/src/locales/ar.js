@@ -716,6 +716,20 @@ const ar = {
     expiredGrace: 'انتهى {{kind}} — سيتوقف الوصول خلال {{days}} يوماً.',
     contactHint: 'يرجى التواصل مع المزوّد للتجديد.',
   },
+  // Tooltips for the line-item row. The grid has no room for a caption per
+  // field, and on quotations there are no column headers at all — so the
+  // title attribute is where an operator finds out what a box is for.
+  lineItem: {
+    itemTitle: 'الصنف أو الخدمة. اخترها من المخزون ليُعبّأ السعر تلقائياً، أو اكتبها يدوياً.',
+    itemPh: 'الوصف أو البحث في المخزون…',
+    qtyTitle: 'عدد الوحدات من هذا الصنف.',
+    unitPriceTitle: 'سعر الوحدة الواحدة، قبل الخصم والضريبة.',
+    unitPricePh: 'سعر الوحدة',
+    discountTitle: 'نسبة الخصم على هذا السطر. اتركه فارغاً لاعتماد العرض الترويجي، أو اكتب 0 لعدم وجود خصم.',
+    taxTitle: 'نسبة الضريبة المطبّقة على هذا السطر.',
+    lineTotalTitle: 'الكمية × سعر الوحدة، ناقص الخصم.',
+    removeTitle: 'حذف هذا السطر.',
+  },
   status: {
     Draft: 'مسودة',
     Sent: 'مُرسل',

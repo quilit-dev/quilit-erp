@@ -360,9 +360,12 @@ export default function Quotations() {
   }));
 
   const taxEnabled     = settings?.tax_enabled === '1';
-  // Setting → "Enable per-line discounts" — drives whether the form shows
-  // the Disc column AND whether the line discounts roll into the totals.
-  const discountEnabled = settings?.show_discount_col === '1';
+  // NOTE: `show_discount_col` is deliberately NOT read here. The discount box
+  // is always shown on a quotation because a promotion can reduce a line
+  // whether or not manual per-line discounts are switched on, and a reduction
+  // the operator cannot see is how a quoted total stops matching the document.
+  // The variable used to exist and gated only the grid column, which is what
+  // left the row one column short of its children.
   const activeTaxRates = (taxRates || []).filter(r => r.is_active);
   const defaultTaxRate = (taxRates || []).find(r => r.is_default) || null;
   const rateById = (id) =>
@@ -728,7 +731,15 @@ export default function Quotations() {
                     display: 'grid',
                     gridTemplateColumns:
                       '1fr 78px 96px'
-                      + (discountEnabled ? ' 92px' : '')
+                      // The discount column is ALWAYS reserved, matching
+                      // invoices. The input below renders unconditionally —
+                      // a promotion reduces what the customer owes whether or
+                      // not manual per-line discounts are switched on — so
+                      // making the column conditional left five children in a
+                      // four-column grid and wrapped the ✕ onto its own row.
+                      // `show_discount_col` defaults to "0", so that was the
+                      // DEFAULT appearance of this form.
+                      + ' 92px'
                       + (taxEnabled      ? ' 124px' : '')
                       + ' 34px',
                     gap: 10, marginBottom: 10, alignItems: 'center',
@@ -736,15 +747,19 @@ export default function Quotations() {
                     <InventoryCombobox
                       value={item.name}
                       inventory={inventory || []}
+                      title={t('lineItem.itemTitle')}
+                      placeholder={t('lineItem.itemPh')}
                       onChange={(name, price, meta) => setItemFromInventory(i, name, price, meta)}
                     />
                     <NumberInput className="form-control" placeholder={t('common.quantity')} min="0" step="any"
+                      title={t('lineItem.qtyTitle')}
                       value={item.quantity} onChange={e => setItem(i, 'quantity', e.target.value)} />
-                    <NumberInput className="form-control" placeholder="Unit $" min="0" step="0.01"
+                    <NumberInput className="form-control" placeholder={t('lineItem.unitPricePh')} min="0" step="0.01"
+                      title={t('lineItem.unitPriceTitle')}
                       value={item.unit_price} onChange={e => setItem(i, 'unit_price', e.target.value)} />
                     <NumberInput className="form-control"
                       placeholder="%"
-                      title={t('common.discount')}
+                      title={t('lineItem.discountTitle')}
                       min="0" max="100" step="0.01"
                       value={item.discount_auto === false
                         ? item.discount_pct
@@ -752,6 +767,7 @@ export default function Quotations() {
                       onChange={e => setItemDiscount(i, e.target.value)} />
                     {taxEnabled && (
                       <select className="form-control" style={{ fontSize:12, padding:'6px 4px' }}
+                        title={t('lineItem.taxTitle')}
                         value={item.tax_rate_id ?? (defaultTaxRate?.id ?? '')}
                         onChange={e => setItem(i, 'tax_rate_id', Number(e.target.value) || null)}>
                         {activeTaxRates.map(r => (
@@ -760,6 +776,7 @@ export default function Quotations() {
                       </select>
                     )}
                     <button type="button" className="btn btn-sm btn-danger"
+                      title={t('lineItem.removeTitle')}
                       onClick={() => removeItem(i)} disabled={form.items.length === 1}>✕</button>
                   </div>
                 ))}

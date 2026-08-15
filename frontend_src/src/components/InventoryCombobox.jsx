@@ -38,7 +38,11 @@ export function salePriceInBase(price, from, exchangeRate, baseCode = 'USD') {
   return null;
 }
 
-export default function InventoryCombobox({ value, inventory = [], onChange }) {
+// `title` and `placeholder` are props rather than literals so the document
+// forms can label this field and translate it — the placeholder used to be
+// hardcoded English, which stayed English on an otherwise Arabic form.
+export default function InventoryCombobox({ value, inventory = [], onChange,
+                                            title, placeholder }) {
   const [open,  setOpen]  = useState(false);
   const [query, setQuery] = useState(value || '');
   const [cursor, setCursor] = useState(-1);
@@ -124,7 +128,8 @@ export default function InventoryCombobox({ value, inventory = [], onChange }) {
     <div ref={wrapRef} style={{ position: 'relative', flex: 1 }}>
       <input
         className="form-control"
-        placeholder="Description or search inventory…"
+        title={title}
+        placeholder={placeholder ?? 'Description or search inventory…'}
         value={query}
         required
         autoComplete="off"

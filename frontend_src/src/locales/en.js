@@ -719,6 +719,20 @@ const en = {
     expiredGrace: 'Your {{kind}} has expired — access stops in {{days}} days.',
     contactHint: 'Contact your provider to renew.',
   },
+  // Tooltips for the line-item row. The grid has no room for a caption per
+  // field, and on quotations there are no column headers at all — so the
+  // title attribute is where an operator finds out what a box is for.
+  lineItem: {
+    itemTitle: 'Item or service. Pick from inventory to fill the price, or type your own.',
+    itemPh: 'Description or search inventory…',
+    qtyTitle: 'How many units of this item.',
+    unitPriceTitle: 'Price for ONE unit, before discount and tax.',
+    unitPricePh: 'Unit price',
+    discountTitle: 'Percentage off this line. Leave blank to accept the promotion, or type 0 for no discount.',
+    taxTitle: 'Tax rate applied to this line.',
+    lineTotalTitle: 'Quantity × unit price, less the discount.',
+    removeTitle: 'Remove this line.',
+  },
   status: {
     Draft: 'Draft',
     Sent: 'Sent',
