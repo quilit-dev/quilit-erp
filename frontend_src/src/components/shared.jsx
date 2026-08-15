@@ -257,6 +257,32 @@ export function SupplierCombobox({ value, suppliers = [], onChange, required = f
 // instead of a literal 0 — so typing "1" gives "1", not "10". A value the user
 // actually typed (a string, including "0" or "0.5") shows normally, so decimals
 // keep working. All other props (className, min, step, onChange, …) pass through.
+/**
+ * Makes a field safe to scan into.
+ *
+ * A USB barcode scanner is a keyboard: it types the code and then sends Enter.
+ * Enter in a single-line input inside a <form> with a submit button SUBMITS THE
+ * FORM — so scanning a barcode halfway through "Add item" saved the item there
+ * and then, before cost, price, category or unit were filled. It did not error
+ * and nothing looked wrong; the item was simply created half-empty.
+ *
+ * Swallow the Enter and the scan just fills the box, which is what the operator
+ * expects. Attach to any field a scanner may be pointed at:
+ *
+ *     <input onKeyDown={swallowScannerEnter} … />
+ *
+ * Not needed for a field that is NOT inside a submitting form (the inventory
+ * search box, for instance) — there, Enter already does nothing.
+ */
+export function swallowScannerEnter(e) {
+  if (e.key === 'Enter') {
+    e.preventDefault();
+    // Stop here rather than advancing focus: after a scan the operator is
+    // usually still mid-form, and moving the cursor for them is its own
+    // surprise.
+  }
+}
+
 export function NumberInput({ value, placeholder = '0', ...props }) {
   const blank = value === 0 || value === null || value === undefined || value === '';
   return <input {...props} type="number" placeholder={placeholder} value={blank ? '' : value} />;

@@ -1783,6 +1783,7 @@ const en = {
     supplierLabel: 'Supplier',
     barcodeLabel: 'Barcode / SKU',
     barcodePlaceholder: 'Scan or type a code (optional)',
+    barcodeScanHint: 'Type it or scan it — the scanner will not save the item early.',
     lotTracked: 'Track batches / lots',
     lotTrackedHint: '(adds lot numbers, expiry & traceability; consumes First-Expired-First-Out)',
     shelfLifeDays: 'Shelf life (days)',

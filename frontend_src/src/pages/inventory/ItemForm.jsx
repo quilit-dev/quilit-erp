@@ -2,7 +2,7 @@ import { useState } from 'react';
 import { useLocale } from '../../hooks/useLocale.jsx';
 import { useCategories } from '../../hooks/useCategories';
 import { useSettings } from '../../hooks/useSettings.jsx';
-import { NumberInput, SupplierCombobox } from '../../components/shared';
+import { NumberInput, SupplierCombobox, swallowScannerEnter } from '../../components/shared';
 import { UNITS, PRODUCT_TYPES, fmtNum } from './ui';
 
 function ItemForm({ initial = {}, knownCategories = [], suppliers = [], onSave, onCancel, saving }) {
@@ -167,6 +167,8 @@ function ItemForm({ initial = {}, knownCategories = [], suppliers = [], onSave, 
             <label className="form-label">{t('inventory.barcodeLabel')}</label>
             <input className="form-control" value={form.barcode}
               placeholder={t('inventory.barcodePlaceholder')}
+              title={t('inventory.barcodeScanHint')}
+              onKeyDown={swallowScannerEnter}
               onChange={e => set('barcode', e.target.value)} />
           </div>
 

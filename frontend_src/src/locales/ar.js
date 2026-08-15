@@ -1780,6 +1780,7 @@ const ar = {
     supplierLabel: 'المورد',
     barcodeLabel: 'الباركود / SKU',
     barcodePlaceholder: 'امسح أو اكتب رمزًا (اختياري)',
+    barcodeScanHint: 'اكتبه أو امسحه ضوئياً — لن يحفظ الماسح الصنف قبل الأوان.',
     lotTracked: 'تتبّع الدفعات / اللوطات',
     lotTrackedHint: '(يضيف أرقام اللوطات والصلاحية والتتبّع؛ يُصرف الأقرب انتهاءً أولاً)',
     shelfLifeDays: 'مدة الصلاحية (أيام)',

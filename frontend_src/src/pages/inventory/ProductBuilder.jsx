@@ -2,7 +2,7 @@ import { useState, useEffect } from 'react';
 import { useLocale } from '../../hooks/useLocale.jsx';
 import { useCategories } from '../../hooks/useCategories';
 import { useSettings } from '../../hooks/useSettings.jsx';
-import { toast, NumberInput } from '../../components/shared';
+import { toast, NumberInput, swallowScannerEnter } from '../../components/shared';
 import { getAttributeDefs } from '../../api/client';
 import { fmtNum } from './ui';
 
@@ -245,6 +245,7 @@ function ProductBuilder({ knownCategories = [], onSave, onCancel, saving }) {
           <div className="form-group">
             <label className="form-label">{t('inventory.barcodePrefixLabel')}</label>
             <input className="form-control" value={form.barcode_prefix}
+              onKeyDown={swallowScannerEnter}
               onChange={e => set('barcode_prefix', e.target.value)} placeholder="e.g. TSHIRT-" />
           </div>
         </div>
