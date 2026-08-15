@@ -15,6 +15,7 @@ import BusinessAnalytics from './platform/BusinessAnalytics';
 import { ChangeOwnPassword, TenantUserAdmin } from './platform/UserAdmin';
 import SupportInbox from './platform/SupportInbox';
 import ModuleEditor from './platform/ModuleEditor';
+import LicenceEditor, { licenceState } from './platform/LicenceEditor';
 import { useLocale } from '../hooks/useLocale';
 import { LoadingSpinner, toast } from '../components/shared';
 
@@ -149,6 +150,7 @@ function TenantManager({ t }) {
   const [creating, setCreating] = useState(false);
   const [expanded, setExpanded] = useState(null);   // slug whose domains panel is open
   const [resetting, setResetting] = useState(null); // tenant awaiting reset confirmation
+  const [editingLicence, setEditingLicence] = useState(null); // tenant whose licence is open
   const [editingModules, setEditingModules] = useState(null); // tenant whose licence is open
   const [usersFor, setUsersFor]   = useState(null); // slug whose user panel is open
 
@@ -213,6 +215,12 @@ function TenantManager({ t }) {
         </div>
       )}
 
+      {editingLicence && (
+        <LicenceEditor tenant={editingLicence}
+          onClose={() => setEditingLicence(null)}
+          onSaved={reload} />
+      )}
+
       {editingModules && (
         <ModuleEditor tenant={editingModules}
           onClose={() => setEditingModules(null)}
@@ -234,6 +242,7 @@ function TenantManager({ t }) {
                 <th>{t('platform.slug')}</th>
                 <th>{t('platform.businessName')}</th>
                 <th>{t('platform.plan')}</th>
+                <th>{t('platform.licence')}</th>
                 <th>{t('platform.status')}</th>
                 <th>{t('platform.modules')}</th>
                 <th>{t('platform.created')}</th>
@@ -242,7 +251,7 @@ function TenantManager({ t }) {
             </thead>
             <tbody>
               {tenants.length === 0 && (
-                <tr><td colSpan={7} style={{ textAlign: 'center', color: 'var(--text-3)', padding: 24 }}>
+                <tr><td colSpan={8} style={{ textAlign: 'center', color: 'var(--text-3)', padding: 24 }}>
                   {t('platform.noTenants')}
                 </td></tr>
               )}
@@ -252,6 +261,18 @@ function TenantManager({ t }) {
                   <td className="text-mono">{tn.slug}</td>
                   <td>{tn.name || '—'}</td>
                   <td>{tn.plan}</td>
+                  <td style={{ fontSize: 12.5, whiteSpace: 'nowrap' }}>
+                    {(() => {
+                      // Surfaced in the row because the operator's question is
+                      // "who needs chasing", and opening each business in turn
+                      // to find out does not scale.
+                      const st = licenceState(tn);
+                      return <span className={`badge badge-${st.tone === 'none' ? 'gray' : st.tone}`}
+                                   title={tn.license_expires_at || tn.trial_ends_at || ''}>
+                        {st.label}
+                      </span>;
+                    })()}
+                  </td>
                   <td>
                     <span className={`badge badge-${tn.status === 'active' ? 'green' : 'red'}`}>
                       {tn.status === 'active' ? t('platform.active') : t('platform.suspended')}
@@ -285,6 +306,11 @@ function TenantManager({ t }) {
                     <button className="btn btn-sm btn-secondary"
                       onClick={() => setEditingModules(tn)}>
                       {t('platform.modules')}
+                    </button>
+                    {' '}
+                    <button className="btn btn-sm btn-secondary"
+                      onClick={() => setEditingLicence(tn)}>
+                      {t('platform.licence')}
                     </button>
                     {' '}
                     {tn.status === 'active' ? (

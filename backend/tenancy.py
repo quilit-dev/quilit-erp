@@ -18,6 +18,7 @@ How a request finds its tenant:
 the routers change. In single-tenant mode (``TENANCY=single``, the default) the
 middleware is inert and everything behaves exactly as before.
 """
+import os
 import re
 import time
 from http.cookies import SimpleCookie
@@ -414,29 +415,46 @@ def factory_reset(slug: str) -> dict:
             "admin_password": result.get("admin_password")}
 
 
-def expire_due_trials() -> list:
-    """Suspend tenants whose trial_ends_at has passed. Returns what changed.
+# Days a tenant keeps working after their trial or licence end date. A customer
+# whose bank transfer clears on the 3rd should not lose their books on the 1st,
+# and chasing a renewal is a conversation, not an outage. Set to 0 to cut access
+# on the date itself.
+LICENCE_GRACE_DAYS = int(os.environ.get("LICENCE_GRACE_DAYS", "7") or 7)
 
-    Suspend, never delete: the customer keeps their data, so converting them
-    to paid is flipping the status back. A trial that silently runs forever is
-    lost revenue, and remembering to do this by hand does not scale past a
-    handful of customers.
 
-    Idempotent - an already-suspended tenant is skipped, so running it on every
+def expire_due_licences(grace_days: int = None) -> list:
+    """Suspend tenants whose TRIAL or LICENCE ended more than the grace period
+    ago. Returns what changed.
+
+    Both dates are checked. Only `trial_ends_at` used to be, so a paid customer
+    whose `license_expires_at` passed kept full access indefinitely — the field
+    was written at provisioning, shown in the console, and then never consulted
+    by anything.
+
+    Suspend, never delete: the customer keeps their data, so taking a renewal is
+    flipping the status back. Suspension is the existing 402 path, so nothing
+    new has to be taught to the request layer.
+
+    Idempotent — an already-suspended tenant is skipped, so running it on every
     flush cycle costs one indexed query and changes nothing.
     """
     from utils import _now
-    today = _now()[:10]
+    from datetime import date, timedelta
+    grace = LICENCE_GRACE_DAYS if grace_days is None else grace_days
+    # Compared as ISO dates (YYYY-MM-DD), which sort lexicographically.
+    cutoff = (date.today() - timedelta(days=max(0, grace))).isoformat()
     raw = _connect()
     try:
         ensure_tenants_catalog(raw)
         with raw.cursor() as cur:
             cur.execute(
                 "UPDATE public.tenants SET status='suspended', updated_at=%s "
-                "WHERE status='active' AND trial_ends_at IS NOT NULL "
-                "  AND trial_ends_at < %s "
-                "RETURNING slug, name, trial_ends_at",
-                (_now(), today))
+                "WHERE status='active' AND ("
+                "      (trial_ends_at      IS NOT NULL AND trial_ends_at      < %s)"
+                "   OR (license_expires_at IS NOT NULL AND license_expires_at < %s)"
+                ") "
+                "RETURNING slug, name, trial_ends_at, license_expires_at",
+                (_now(), cutoff, cutoff))
             changed = [dict(r) for r in cur.fetchall()]
         raw.commit()
     finally:
@@ -445,6 +463,10 @@ def expire_due_trials() -> list:
         _CACHE.pop(row["slug"], None)
         _SCHEMA_STATUS.pop(schema_for_slug(row["slug"]), None)
     return changed
+
+
+# The original name, kept so an older caller keeps working.
+expire_due_trials = expire_due_licences
 
 
 def tenant_modules(schema: str):

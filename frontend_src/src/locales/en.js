@@ -825,6 +825,7 @@ const en = {
     slugHint: 'Lower-case letters, digits and underscore — becomes the tenant identifier and cannot be changed later.',
     businessName: 'Business name',
     plan: 'Plan',
+    licence: 'Licence',
     status: 'Status',
     created: 'Created',
     provision: 'Create business',
