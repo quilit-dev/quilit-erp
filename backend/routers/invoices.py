@@ -221,6 +221,7 @@ def list_invoices(
     branch_id: Optional[int] = None,
     limit: Optional[int] = None,
     offset: int = 0,
+    search: Optional[str] = None,
     user=Depends(require_perm("invoices", "view")),
     db: sqlite3.Connection = Depends(get_db),
 ):
@@ -242,6 +243,16 @@ def list_invoices(
     if bf:
         conditions.append(bf[len(" AND "):])   # branch_filter returns a leading " AND "
         params += bp
+    # Free-text search, server-side. The same five fields the list screen used
+    # to match in the browser — which it could only do because it had already
+    # downloaded every invoice. Doing it here is what lets that screen stop.
+    if search and search.strip():
+        like = f"%{search.strip()}%"
+        conditions.append(
+            "(i.invoice_number LIKE ? OR q.quote_number LIKE ? OR c.name LIKE ?"
+            " OR p.name LIKE ? OR i.notes LIKE ?)"
+        )
+        params += [like] * 5
     where_clause = ("WHERE " + " AND ".join(conditions)) if conditions else ""
     select_sql = f"""SELECT i.*,
                   p.name AS project_name,
@@ -271,8 +282,15 @@ def list_invoices(
     # columns, so pagination pushes straight down to SQL (no full-table load).
     if limit is not None and not status:
         cap   = max(1, min(limit, 500))
+        # Same JOINs as the row query: the search predicate reaches into
+        # clients/projects/quotations, so a bare COUNT over `invoices` alone
+        # would fail to resolve those columns.
         total = db.execute(
-            f"SELECT COUNT(*) FROM invoices i {where_clause}", params
+            f"""SELECT COUNT(*) FROM invoices i
+                LEFT JOIN projects   p ON i.project_id   = p.id
+                LEFT JOIN clients    c ON i.client_id    = c.id
+                LEFT JOIN quotations q ON i.quotation_id = q.id
+                {where_clause}""", params
         ).fetchone()[0]
         rows = db.execute(select_sql + " LIMIT ? OFFSET ?", params + [cap, offset]).fetchall()
         return {"items": [_derive(r) for r in rows], "total": total,

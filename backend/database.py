@@ -1,10 +1,11 @@
-import sqlite3, os
+import sqlite3, os, threading
 from datetime import datetime
 from contextlib import contextmanager
 
 from db_compat import CompatConn
 from dialect import get_dialect
-from tenant_context import IS_SCHEMA_TENANCY, current_schema, valid_schema_name
+from tenant_context import (IS_SCHEMA_TENANCY, current_schema, valid_schema_name,
+                            DEFAULT_SCHEMA)
 
 DB_PATH = os.environ.get("DB_PATH", "erp.db")
 
@@ -24,6 +25,95 @@ def _configure(conn):
     conn.execute("PRAGMA cache_size = -8000")
     return conn
 
+_PG_POOL = None
+_PG_POOL_LOCK = threading.Lock()
+
+
+def _pg_pool():
+    """The process-wide PostgreSQL connection pool, created on first use.
+
+    Every request used to open its own connection and close it again. On a
+    private network that handshake measured ~33 ms against ~0.05 ms for a
+    simple query — so the connection, not the work, dominated a request. It
+    also meant in-flight requests each held a backend process, and gunicorn
+    workers x threadpool threads can exceed `max_connections`, which fails
+    every request at once rather than merely slowing them down.
+
+    Sizing: max_size is PER WORKER PROCESS. The ceiling is
+    `WEB_CONCURRENCY x DB_POOL_MAX` connections, which must stay under the
+    server's `max_connections` with room for migrations, psql and backups.
+    """
+    global _PG_POOL
+    if _PG_POOL is None:
+        with _PG_POOL_LOCK:
+            if _PG_POOL is None:
+                from psycopg_pool import ConnectionPool
+                from psycopg.rows import dict_row
+                _PG_POOL = ConnectionPool(
+                    _pg_dsn(),
+                    min_size=int(os.environ.get("DB_POOL_MIN", "1")),
+                    max_size=int(os.environ.get("DB_POOL_MAX", "10")),
+                    # Wait rather than fail when every connection is busy; a
+                    # brief queue is far better than a 500 under a burst.
+                    timeout=float(os.environ.get("DB_POOL_TIMEOUT", "15")),
+                    kwargs={
+                        "row_factory": dict_row,
+                        # NO server-side prepared statements. psycopg auto-
+                        # prepares a query after a few executions, and a
+                        # prepared plan resolves table names ONCE, against the
+                        # search_path in force at prepare time. On a pooled
+                        # connection that later serves another tenant, the
+                        # cached plan would still read the first tenant's
+                        # tables — a silent cross-tenant data leak that no
+                        # amount of SET search_path would correct.
+                        "prepare_threshold": None,
+                    },
+                    open=True,
+                )
+                _warn_if_pool_can_exhaust_connections(_PG_POOL)
+    return _PG_POOL
+
+
+def _warn_if_pool_can_exhaust_connections(pool):
+    """Shout at boot if WEB_CONCURRENCY x DB_POOL_MAX can outrun the server.
+
+    Exceeding `max_connections` does not degrade gracefully — every worker
+    starts failing with "too many clients already" at the same moment, and it
+    happens under load, which is exactly when nobody wants to be reading
+    tuning documentation. Cheap to check once; the numbers are static.
+    """
+    try:
+        workers = int(os.environ.get("WEB_CONCURRENCY", "3"))
+        demand = workers * pool.max_size
+        with pool.connection() as raw:
+            with raw.cursor() as cur:
+                cur.execute("SHOW max_connections")
+                row = cur.fetchone()
+                limit = int(row["max_connections"] if isinstance(row, dict)
+                            else row[0])
+        # Reserve a slice for psql, migrations, backups and the platform itself.
+        if demand > limit * 0.8:
+            print(
+                f"WARNING: this app may open up to {demand} PostgreSQL "
+                f"connections ({workers} workers x pool max {pool.max_size}) "
+                f"against max_connections={limit}. Lower DB_POOL_MAX or "
+                f"WEB_CONCURRENCY, or raise max_connections.",
+                flush=True,
+            )
+    except Exception:
+        pass          # never let a diagnostic stop the app from starting
+
+
+def close_pg_pool():
+    """Release pooled connections (tests, shutdown hooks)."""
+    global _PG_POOL
+    if _PG_POOL is not None:
+        try:
+            _PG_POOL.close()
+        finally:
+            _PG_POOL = None
+
+
 def get_db():
     """Yield a request-scoped DB connection wrapped in CompatConn.
 
@@ -39,29 +129,35 @@ def get_db():
         finally:
             conn.close()
     elif DB_BACKEND in ("postgres", "postgresql", "pg"):
-        import psycopg
-        from psycopg.rows import dict_row
-        connect_kwargs = {"row_factory": dict_row}
-        # Schema-per-tenant routing (Phase 2): pin the session's search_path to the
-        # request's tenant schema at connection time (libpq -c option, applied
-        # before any transaction). The schema name is validated, so it is safe to
-        # interpolate. In single-tenant mode this is skipped → default `public`.
-        if IS_SCHEMA_TENANCY:
-            schema = current_schema()
-            if valid_schema_name(schema):
-                connect_kwargs["options"] = f"-c search_path={schema},public"
-        raw = psycopg.connect(_pg_dsn(), **connect_kwargs)
-        conn = CompatConn(raw, get_dialect("postgres"))
-        try:
-            yield conn
-        finally:
-            # Discard any uncommitted work (mirrors closing a sqlite connection);
-            # routers persist via explicit db.commit().
+        pool = _pg_pool()
+        with pool.connection() as raw:
+            # search_path is applied on EVERY checkout, not at connect time.
+            #
+            # It used to ride on the connect options, which was safe only
+            # because every request opened its own connection. Pooled
+            # connections are reused, so a connection last used by one tenant
+            # would otherwise serve the next request still pointing at the
+            # previous tenant's schema. This SET is the entire isolation
+            # guarantee — never make it conditional.
+            schema = current_schema() if IS_SCHEMA_TENANCY else DEFAULT_SCHEMA
+            if not valid_schema_name(schema):
+                schema = DEFAULT_SCHEMA
+            with raw.cursor() as cur:
+                cur.execute(f'SET search_path TO "{schema}", public')
+
+            conn = CompatConn(raw, get_dialect("postgres"))
             try:
-                raw.rollback()
-            except Exception:
-                pass
-            raw.close()
+                yield conn
+            finally:
+                # Discard any uncommitted work (mirrors closing a sqlite
+                # connection); routers persist via explicit db.commit().
+                # Done HERE rather than left to the pool, whose context manager
+                # COMMITS on a clean exit — which would silently persist work a
+                # router deliberately did not commit.
+                try:
+                    raw.rollback()
+                except Exception:
+                    pass
     else:
         raise RuntimeError(f"Unknown DB_BACKEND={DB_BACKEND!r}")
 

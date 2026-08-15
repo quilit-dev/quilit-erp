@@ -119,9 +119,25 @@ def list_quotations(
     status: Optional[str] = None,
     include_archived: bool = False,
     branch_id: Optional[int] = None,
+    limit: Optional[int] = None,
+    offset: int = 0,
+    search: Optional[str] = None,
     user=Depends(require_perm("quotations", "view")),
     db: sqlite3.Connection = Depends(get_db),
 ):
+    """List quotations.
+
+    Backward-compatible pagination, matching invoices: with no `limit` the
+    response is the full array exactly as before. Pass `limit` (capped at 500)
+    for a {items, total, limit, offset} envelope. `search` matches the same
+    fields the list screen used to filter in the browser.
+    """
+    _JOINS = """
+        FROM quotations q
+        LEFT JOIN projects  p ON q.project_id = p.id
+        LEFT JOIN clients   c ON q.client_id  = c.id
+        LEFT JOIN crm_leads l ON q.lead_id    = l.id
+    """
     query = """
         SELECT q.*,
                p.name  AS project_name,
@@ -136,23 +152,42 @@ def list_quotations(
         LEFT JOIN crm_leads l ON q.lead_id    = l.id
         WHERE 1=1
     """
-    params = []
+    # Predicates are collected once and shared by the row query and the COUNT,
+    # so the two cannot drift apart and disagree about the total.
+    where, params = [], []
     if not include_archived:
-        query += " AND q.archived_at IS NULL"
+        where.append("q.archived_at IS NULL")
     if status:
-        query += " AND q.status = ?"
+        where.append("q.status = ?")
         params.append(status)
     bf, bp = branch_access.branch_filter(user, db, column="q.branch_id", selected=branch_id)
-    query += bf
-    params += bp
-    query += " ORDER BY q.created_at DESC"
-    rows = db.execute(query, params).fetchall()
-    result = []
-    for r in rows:
+    if bf:
+        where.append(bf[len(" AND "):])      # branch_filter returns a leading " AND "
+        params += bp
+    if search and search.strip():
+        like = f"%{search.strip()}%"
+        where.append("(q.quote_number LIKE ? OR c.name LIKE ? OR l.name LIKE ?"
+                     " OR p.name LIKE ? OR q.project_name LIKE ? OR q.notes LIKE ?)")
+        params += [like] * 6
+    if where:
+        query += " AND " + " AND ".join(where)
+
+    def _shape(r):
         d = dict(r)
         d["total_with_tax"] = round(float(d["total"] or 0) + float(d["tax_total"] or 0), 2)
-        result.append(d)
-    return result
+        return d
+
+    if limit is not None:
+        cap = max(1, min(limit, 500))
+        where_sql = (" WHERE " + " AND ".join(where)) if where else ""
+        total = db.execute(f"SELECT COUNT(*) {_JOINS} {where_sql}", params).fetchone()[0]
+        rows = db.execute(query + " ORDER BY q.created_at DESC LIMIT ? OFFSET ?",
+                          params + [cap, offset]).fetchall()
+        return {"items": [_shape(r) for r in rows], "total": total,
+                "limit": cap, "offset": offset}
+
+    rows = db.execute(query + " ORDER BY q.created_at DESC", params).fetchall()
+    return [_shape(r) for r in rows]
 
 # ── Single ────────────────────────────────────────────────────────────────
 @router.get("/{quote_id}")

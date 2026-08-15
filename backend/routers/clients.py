@@ -24,23 +24,43 @@ class ArchiveRequest(BaseModel):
 @router.get("/")
 def list_clients(search: Optional[str] = None, type: Optional[str] = None,
                  include_archived: bool = False,
+                 limit: Optional[int] = None, offset: int = 0,
                  user=Depends(require_perm("clients", "view")), db: sqlite3.Connection = Depends(get_db)):
     # Default view hides archived rows. `include_archived=1` returns them too
     # (each carries archived_at) so the list can offer an in-module "Show
     # archived" filter with inline Restore — the primary archive UX (Option A).
-    query = "SELECT * FROM clients WHERE 1=1"
+    # The WHERE clause is built once and shared by the row query and the COUNT,
+    # so the two can never drift apart and disagree about the total.
+    where  = ["1=1"]
     params = []
     if not include_archived:
-        query += " AND archived_at IS NULL"
+        where.append("archived_at IS NULL")
     if search:
-        query += " AND (name LIKE ? OR company LIKE ? OR phone LIKE ? OR email LIKE ?)"
+        where.append("(name LIKE ? OR company LIKE ? OR phone LIKE ? OR email LIKE ?)")
         s = f"%{search}%"
         params.extend([s, s, s, s])
     if type:
-        query += " AND type = ?"
+        where.append("type = ?")
         params.append(type)
-    query += " ORDER BY created_at DESC"
-    rows = db.execute(query, params).fetchall()
+    where_clause = " WHERE " + " AND ".join(where)
+
+    # Pagination, matching the invoices convention: with no `limit` the response
+    # is the full array exactly as before, so every existing caller is
+    # untouched. Pass `limit` (capped at 500) for a
+    # {items, total, limit, offset} envelope.
+    if limit is not None:
+        cap   = max(1, min(limit, 500))
+        total = db.execute(f"SELECT COUNT(*) FROM clients{where_clause}",
+                           params).fetchone()[0]
+        rows  = db.execute(
+            f"SELECT * FROM clients{where_clause} ORDER BY created_at DESC"
+            f" LIMIT ? OFFSET ?", params + [cap, offset]).fetchall()
+        return {"items": [dict(r) for r in rows], "total": total,
+                "limit": cap, "offset": offset}
+
+    rows = db.execute(
+        f"SELECT * FROM clients{where_clause} ORDER BY created_at DESC",
+        params).fetchall()
     return [dict(r) for r in rows]
 
 @router.get("/{client_id}")
