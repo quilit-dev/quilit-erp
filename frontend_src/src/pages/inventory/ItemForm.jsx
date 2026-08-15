@@ -6,7 +6,7 @@ import { NumberInput, SupplierCombobox } from '../../components/shared';
 import { UNITS, PRODUCT_TYPES, fmtNum } from './ui';
 
 function ItemForm({ initial = {}, knownCategories = [], suppliers = [], onSave, onCancel, saving }) {
-  const { t, tCategory } = useLocale();
+  const { t, tCategory, tEnumValue } = useLocale();
   const { exchangeRate } = useSettings();
   const rate = Number(exchangeRate?.rate) || 0;
   const hasRate = rate > 0;
@@ -151,7 +151,7 @@ function ItemForm({ initial = {}, knownCategories = [], suppliers = [], onSave, 
             <label className="form-label">{t('inventory.unitLabel')}</label>
             <select className="form-control" value={form.unit}
               onChange={e => set('unit', e.target.value)}>
-              {UNITS.map(u => <option key={u} value={u}>{u}</option>)}
+              {UNITS.map(u => <option key={u} value={u}>{tEnumValue(u)}</option>)}
             </select>
           </div>
 

@@ -51,6 +51,50 @@ export function LocaleProvider({ children }) {
     return locale.categories?.[category] ?? category;
   }, [locale]);
 
+  // Translate a value from a fixed option list defined in code — account types,
+  // employment and leave types, contract types, payment methods, units. These
+  // rendered raw in their dropdowns, so an Arabic screen still offered "Asset",
+  // "Full-time" and "Bank Transfer". The value is also what gets STORED, so the
+  // same call translates it back wherever it is displayed later.
+  //
+  // Anything absent from the dictionary passes through unchanged, which keeps
+  // user-defined values (custom units, custom categories) as the user typed them.
+  const tEnumValue = useCallback((value) => {
+    if (!value) return value;
+    return locale.enumValues?.[value] ?? value;
+  }, [locale]);
+
+  // Translate a chart-of-accounts name. The 26 seeded accounts are written to
+  // the DATABASE in English, so the language toggle never reached them — the
+  // General Ledger's account picker stayed English in an otherwise Arabic UI.
+  //
+  // Keyed by account CODE, which is stable, rather than by name. And translated
+  // ONLY while the stored name still matches the seeded English: `en` is the
+  // canonical seed text, so a mismatch means the owner renamed the account and
+  // their wording must win over ours. Accounts they created themselves are not
+  // in the dictionary at all and fall through unchanged.
+  //
+  // Accepts a row ({code, name} or {account_code, account_name}) or a bare code.
+  const tAccount = useCallback((account, fallbackName) => {
+    if (!account) return fallbackName ?? '';
+    const isRow = typeof account === 'object';
+    const code  = isRow ? (account.code ?? account.account_code) : account;
+    const name  = isRow ? (account.name ?? account.account_name ?? '')
+                        : (fallbackName ?? '');
+    if (code == null) return name;
+    const key = String(code);
+    if (!isRow && fallbackName == null) return locale.accountNames?.[key] ?? key;
+    if (en.accountNames?.[key] !== name) return name;   // renamed by the owner
+    return locale.accountNames?.[key] ?? name;
+  }, [locale]);
+
+  // Translate a seeded role name (also stored in the database in English).
+  // Roles the owner created are absent from the dictionary and pass through.
+  const tRole = useCallback((role) => {
+    if (!role) return role;
+    return locale.roleNames?.[role] ?? role;
+  }, [locale]);
+
   // Locale-aware currency formatter — uses settings currency if available
   const fmt = useCallback((val, currency) => {
     const cur = currency || localStorage.getItem('erp_currency') || 'USD';
@@ -68,7 +112,7 @@ export function LocaleProvider({ children }) {
   }, [isRTL]);
 
   return (
-    <LocaleContext.Provider value={{ lang, setLang, isRTL, t, tStatus, tCategory, fmt, fmtDate }}>
+    <LocaleContext.Provider value={{ lang, setLang, isRTL, t, tStatus, tCategory, tAccount, tRole, tEnumValue, fmt, fmtDate }}>
       {children}
     </LocaleContext.Provider>
   );

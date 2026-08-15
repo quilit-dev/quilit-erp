@@ -9,7 +9,7 @@ import { SortableTh } from './ui';
 // Type filter + search + sortable columns. Totals row recomputes against the
 // CURRENT filter so the operator sees the totals for what they're looking at,
 // not the whole sheet — matches Excel/Google Sheets behaviour.
-function TrialBalance({ t, fmt }) {
+function TrialBalance({ t, tAccount, tEnumValue, fmt }) {
   const [asOf, setAsOf] = useState(todayISO());
   const [data, setData] = useState(null);
 
@@ -64,7 +64,7 @@ function TrialBalance({ t, fmt }) {
             value={search} onChange={e => setSearch(e.target.value)} />
           <select className="form-control" style={{ width: 150 }} value={typeFilter} onChange={e => setTypeFilter(e.target.value)}>
             <option value="">{t('accounting.allTypes')}</option>
-            {ACCOUNT_TYPES.map(x => <option key={x} value={x}>{x}</option>)}
+            {ACCOUNT_TYPES.map(x => <option key={x} value={x}>{tEnumValue(x)}</option>)}
           </select>
           <span style={{ fontSize: 13, color: 'var(--text-3)' }}>{t('accounting.asOf')}</span>
           <input type="date" className="form-control" style={{ width: 150 }} value={asOf} onChange={e => setAsOf(e.target.value)} />
@@ -88,7 +88,7 @@ function TrialBalance({ t, fmt }) {
                 </td></tr>
               ) : sorted.map(r => (
                 <tr key={r.code}>
-                  <td className="text-mono">{r.code}</td><td>{r.name}</td><td style={{ color: 'var(--text-3)' }}>{r.type}</td>
+                  <td className="text-mono">{r.code}</td><td>{tAccount(r)}</td><td style={{ color: 'var(--text-3)' }}>{tEnumValue(r.type)}</td>
                   <td style={{ textAlign: 'right' }}>{r.debit ? fmt(r.debit) : ''}</td>
                   <td style={{ textAlign: 'right' }}>{r.credit ? fmt(r.credit) : ''}</td>
                 </tr>

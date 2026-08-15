@@ -22,7 +22,7 @@ const EMPTY = {
 };
 
 export default function Promotions() {
-  const { t } = useLocale();
+  const { t, tCategory } = useLocale();
   const [promos, setPromos]     = useState([]);
   const [loading, setLoading]   = useState(true);
   const [error, setError]       = useState(null);
@@ -204,7 +204,7 @@ export default function Promotions() {
                   <label className="form-label">{t('promotions.category')}</label>
                   <select className="form-control" value={form.scope_value} onChange={e => set('scope_value', e.target.value)}>
                     <option value="">{t('promotions.selectCategory')}</option>
-                    {categories.map(c => <option key={c} value={c}>{c}</option>)}
+                    {categories.map(c => <option key={c} value={c}>{tCategory(c)}</option>)}
                   </select>
                 </div>
               )}

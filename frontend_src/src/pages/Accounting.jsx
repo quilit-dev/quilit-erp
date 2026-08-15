@@ -40,7 +40,7 @@ import { CashFlow } from './accounting/CashFlow';
 import { YearEnd, MonthlyPeriods } from './accounting/Closing';
 
 export default function Accounting() {
-  const { t, fmt, fmtDate } = useLocale();
+  const { t, fmt, fmtDate, tAccount, tEnumValue } = useLocale();
   const { can } = usePermissions();
   const canEdit = can('accounting', 'edit');
   const canCreate = can('accounting', 'create');
@@ -76,13 +76,13 @@ export default function Accounting() {
       </div>
 
       {tab === 'overview' && <Overview t={t} fmt={fmt} fmtDate={fmtDate} />}
-      {tab === 'accounts' && <Accounts t={t} canCreate={canCreate} canEdit={canEdit} can={can} />}
-      {tab === 'journal' && <Journal t={t} fmt={fmt} fmtDate={fmtDate} canCreate={canCreate} canEdit={canEdit} />}
-      {tab === 'ledger' && <Ledger t={t} fmt={fmt} fmtDate={fmtDate} />}
-      {tab === 'trialBalance' && <TrialBalance t={t} fmt={fmt} />}
-      {tab === 'incomeStatement' && <IncomeStatement t={t} fmt={fmt} />}
-      {tab === 'balanceSheet' && <BalanceSheet t={t} fmt={fmt} />}
-      {tab === 'cashFlow' && <CashFlow t={t} fmt={fmt} />}
+      {tab === 'accounts' && <Accounts t={t} tAccount={tAccount} tEnumValue={tEnumValue} canCreate={canCreate} canEdit={canEdit} can={can} />}
+      {tab === 'journal' && <Journal t={t} tAccount={tAccount} tEnumValue={tEnumValue} fmt={fmt} fmtDate={fmtDate} canCreate={canCreate} canEdit={canEdit} />}
+      {tab === 'ledger' && <Ledger t={t} tAccount={tAccount} fmt={fmt} fmtDate={fmtDate} />}
+      {tab === 'trialBalance' && <TrialBalance t={t} tAccount={tAccount} tEnumValue={tEnumValue} fmt={fmt} />}
+      {tab === 'incomeStatement' && <IncomeStatement t={t} tAccount={tAccount} fmt={fmt} />}
+      {tab === 'balanceSheet' && <BalanceSheet t={t} tAccount={tAccount} fmt={fmt} />}
+      {tab === 'cashFlow' && <CashFlow t={t} tAccount={tAccount} fmt={fmt} />}
       {tab === 'closing' && <>
         <YearEnd t={t} fmt={fmt} can={can} />
         <MonthlyPeriods t={t} fmt={fmt} can={can} />

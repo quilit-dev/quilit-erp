@@ -12,7 +12,7 @@ import { SortableTh, Pager } from './ui';
 // Server-paged (the backend now returns {rows, total, source_types}). Every
 // filter change resets the cursor to page 1 so the operator isn't stranded
 // past the end of a freshly-filtered result set.
-function Journal({ t, fmt, fmtDate, canCreate, canEdit }) {
+function Journal({ t, tAccount, tEnumValue, fmt, fmtDate, canCreate, canEdit }) {
   const [start, setStart]               = useState(monthStartISO());
   const [end,   setEnd]                 = useState(todayISO());
   const [sourceType, setSourceType]     = useState('');
@@ -80,7 +80,7 @@ function Journal({ t, fmt, fmtDate, canCreate, canEdit }) {
         <input type="date" className="form-control" style={{ width: 150 }} value={end} onChange={e => setEnd(e.target.value)} />
         <select className="form-control" style={{ width: 160 }} value={sourceType} onChange={e => setSourceType(e.target.value)}>
           <option value="">{t('accounting.allSources')}</option>
-          {sourceTypes.map(s => <option key={s} value={s}>{s}</option>)}
+          {sourceTypes.map(s => <option key={s} value={s}>{tEnumValue(s)}</option>)}
         </select>
         <select className="form-control" style={{ width: 140 }} value={status} onChange={e => setStatus(e.target.value)}>
           <option value="">{t('accounting.allStatuses')}</option>
@@ -131,11 +131,11 @@ function Journal({ t, fmt, fmtDate, canCreate, canEdit }) {
         onPage={setPage} onSize={setPageSize} t={t} />
 
       {detail && (
-        <EntryDetail entry={detail} t={t} fmt={fmt} fmtDate={fmtDate} canEdit={canEdit}
+        <EntryDetail tAccount={tAccount} entry={detail} t={t} fmt={fmt} fmtDate={fmtDate} canEdit={canEdit}
           onClose={() => setDetail(null)} onReverse={() => setConfirmRev(detail.id)} />
       )}
       {adding && (
-        <NewEntryModal t={t} fmt={fmt} onClose={() => setAdding(false)}
+        <NewEntryModal tAccount={tAccount} t={t} fmt={fmt} onClose={() => setAdding(false)}
           onSaved={() => { setAdding(false); load(); }} />
       )}
       {confirmRev != null && (
@@ -147,7 +147,7 @@ function Journal({ t, fmt, fmtDate, canCreate, canEdit }) {
   );
 }
 
-function EntryDetail({ entry, t, fmt, fmtDate, canEdit, onClose, onReverse }) {
+function EntryDetail({ entry, t, tAccount, fmt, fmtDate, canEdit, onClose, onReverse }) {
   const reversible = entry.status === 'posted' && !entry.reversed_by;
   return (
     <Modal title={`${entry.entry_number} · ${fmtDate(entry.entry_date)}`} onClose={onClose} size="modal-lg">
@@ -163,7 +163,7 @@ function EntryDetail({ entry, t, fmt, fmtDate, canEdit, onClose, onReverse }) {
             <tbody>
               {entry.lines.map(l => (
                 <tr key={l.id}>
-                  <td><span className="text-mono">{l.account_code}</span> {l.account_name}</td>
+                  <td><span className="text-mono">{l.account_code}</span> {tAccount(l)}</td>
                   <td style={{ color: 'var(--text-3)' }}>{l.memo || '—'}</td>
                   <td style={{ textAlign: 'right' }}>{l.debit ? fmt(l.debit) : ''}</td>
                   <td style={{ textAlign: 'right' }}>{l.credit ? fmt(l.credit) : ''}</td>
@@ -186,7 +186,7 @@ function EntryDetail({ entry, t, fmt, fmtDate, canEdit, onClose, onReverse }) {
   );
 }
 
-function NewEntryModal({ t, fmt, onClose, onSaved }) {
+function NewEntryModal({ t, tAccount, fmt, onClose, onSaved }) {
   const [accounts, setAccounts] = useState([]);
   const [date, setDate] = useState(todayISO());
   const [memo, setMemo] = useState('');
@@ -239,7 +239,7 @@ function NewEntryModal({ t, fmt, onClose, onSaved }) {
                 <td>
                   <select className="form-control" value={l.account_id} onChange={e => setLine(i, { account_id: e.target.value })}>
                     <option value="">{t('accounting.selectAccount')}</option>
-                    {accounts.map(a => <option key={a.id} value={a.id}>{a.code} — {a.name}</option>)}
+                    {accounts.map(a => <option key={a.id} value={a.id}>{a.code} — {tAccount(a)}</option>)}
                   </select>
                 </td>
                 <td><NumberInput min="0" step="0.01" className="form-control" style={{ textAlign: 'right' }}

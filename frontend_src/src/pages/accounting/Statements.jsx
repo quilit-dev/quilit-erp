@@ -7,7 +7,7 @@ import { DateRange } from './ui';
 import { StatementExport } from './StatementExport';
 
 // ── Income Statement ─────────────────────────────────────────────────────────
-function StatementSection({ title, rows, fmt, color }) {
+function StatementSection({ title, rows, fmt, color, tAccount }) {
   return (
     <>
       <tr style={{ background: 'var(--surface-2, #f9fafb)' }}>
@@ -15,7 +15,7 @@ function StatementSection({ title, rows, fmt, color }) {
       </tr>
       {rows.map(r => (
         <tr key={r.code}>
-          <td style={{ paddingInlineStart: 24 }}><span className="text-mono" style={{ color: 'var(--text-3)' }}>{r.code}</span> {r.name}</td>
+          <td style={{ paddingInlineStart: 24 }}><span className="text-mono" style={{ color: 'var(--text-3)' }}>{r.code}</span> {tAccount ? tAccount(r) : r.name}</td>
           <td style={{ textAlign: 'right' }}>{fmt(r.balance)}</td>
         </tr>
       ))}
@@ -24,7 +24,7 @@ function StatementSection({ title, rows, fmt, color }) {
   );
 }
 
-function IncomeStatement({ t, fmt }) {
+function IncomeStatement({ t, tAccount, fmt }) {
   const [start, setStart] = useState(monthStartISO());
   const [end,   setEnd]   = useState(todayISO());
   const [data, setData] = useState(null);
@@ -41,9 +41,9 @@ function IncomeStatement({ t, fmt }) {
       {!data ? <LoadingSpinner /> : (
         <div className="table-wrap"><table>
           <tbody>
-            <StatementSection title={t('accounting.income')} rows={data.income} fmt={fmt} color="green" />
+            <StatementSection tAccount={tAccount} title={t('accounting.income')} rows={data.income} fmt={fmt} color="green" />
             <tr style={{ fontWeight: 600 }}><td style={{ textAlign: 'right' }}>{t('accounting.totalIncome')}</td><td style={{ textAlign: 'right' }}>{fmt(data.total_income)}</td></tr>
-            <StatementSection title={t('accounting.expense')} rows={data.expense} fmt={fmt} color="red" />
+            <StatementSection tAccount={tAccount} title={t('accounting.expense')} rows={data.expense} fmt={fmt} color="red" />
             <tr style={{ fontWeight: 600 }}><td style={{ textAlign: 'right' }}>{t('accounting.totalExpense')}</td><td style={{ textAlign: 'right' }}>{fmt(data.total_expense)}</td></tr>
             <tr style={{ fontWeight: 700, borderTop: '2px solid var(--border)', fontSize: 15 }}>
               <td style={{ textAlign: 'right' }}>{t('accounting.netIncome')}</td>
@@ -57,7 +57,7 @@ function IncomeStatement({ t, fmt }) {
 }
 
 // ── Balance Sheet ────────────────────────────────────────────────────────────
-function BalanceSheet({ t, fmt }) {
+function BalanceSheet({ t, tAccount, fmt }) {
   const [asOf, setAsOf] = useState(todayISO());
   const [data, setData] = useState(null);
   useEffect(() => { getBalanceSheet({ as_of: asOf }).then(setData).catch(e => toast(e.message, 'red')); }, [asOf]);
@@ -74,10 +74,10 @@ function BalanceSheet({ t, fmt }) {
       {!data ? <LoadingSpinner /> : (
         <div className="table-wrap"><table>
           <tbody>
-            <StatementSection title={t('accounting.assets')} rows={data.assets} fmt={fmt} color="blue" />
+            <StatementSection tAccount={tAccount} title={t('accounting.assets')} rows={data.assets} fmt={fmt} color="blue" />
             <tr style={{ fontWeight: 700 }}><td style={{ textAlign: 'right' }}>{t('accounting.totalAssets')}</td><td style={{ textAlign: 'right' }}>{fmt(data.total_assets)}</td></tr>
-            <StatementSection title={t('accounting.liabilities')} rows={data.liabilities} fmt={fmt} />
-            <StatementSection title={t('accounting.equity')} rows={data.equity} fmt={fmt} />
+            <StatementSection tAccount={tAccount} title={t('accounting.liabilities')} rows={data.liabilities} fmt={fmt} />
+            <StatementSection tAccount={tAccount} title={t('accounting.equity')} rows={data.equity} fmt={fmt} />
             <tr><td style={{ paddingInlineStart: 24 }}>{t('accounting.currentEarnings')}</td><td style={{ textAlign: 'right' }}>{fmt(data.net_income)}</td></tr>
             <tr style={{ fontWeight: 700, borderTop: '2px solid var(--border)' }}>
               <td style={{ textAlign: 'right' }}>{t('accounting.liabilitiesAndEquity')}</td>

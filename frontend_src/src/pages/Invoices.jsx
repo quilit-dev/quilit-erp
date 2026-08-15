@@ -74,7 +74,7 @@ const EMPTY_FORM = { quotation_id: '', project_id: '', client_id: '', due_date: 
 import { ActionMenu } from './invoices/ActionMenu';
 
 export default function Invoices() {
-  const { t, tStatus } = useLocale();
+  const { t, tStatus, tEnumValue } = useLocale();
   const { can } = usePermissions();
   // Invoices use Void/Unvoid as their lifecycle, not archive — no in-module
   // "Show archived" view here.
@@ -839,7 +839,7 @@ export default function Invoices() {
                       <label className="form-label">{t('invoices.methodLabel')}</label>
                       <select className="form-control" value={payForm.method}
                         onChange={e => setPayForm(f => ({ ...f, method: e.target.value }))}>
-                        {METHODS.map(m => <option key={m}>{m}</option>)}
+                        {METHODS.map(m => <option key={m} value={m}>{tEnumValue(m)}</option>)}
                       </select>
                     </div>
                     {payForm.method === 'Cash' && cashDrawers.length > 0 && (

@@ -41,7 +41,7 @@ function ModuleBadge({ module, label }) {
 // ── Condition Row ─────────────────────────────────────────────────────────────
 
 function ConditionRow({ cond, index, fields, onUpdate, onRemove }) {
-  const { t } = useLocale();
+  const { t, tEnumValue } = useLocale();
   const fieldDef = fields.find(f => f.key === cond.field) || fields[0] || {};
   const fieldType = fieldDef.type || 'text';
 
@@ -67,7 +67,7 @@ function ConditionRow({ cond, index, fields, onUpdate, onRemove }) {
       <select className="form-control" style={{ flex: '0 0 80px' }}
         value={cond.op}
         onChange={e => onUpdate(index, { ...cond, op: e.target.value })}>
-        {ops.map(o => <option key={o} value={o}>{o}</option>)}
+        {ops.map(o => <option key={o} value={o}>{tEnumValue(o)}</option>)}
       </select>
 
       <input
@@ -91,7 +91,7 @@ function ConditionRow({ cond, index, fields, onUpdate, onRemove }) {
 // ── Step Row (multi-step) ─────────────────────────────────────────────────────
 
 function StepRow({ step, index, roles, total, onUpdate, onRemove, onMove }) {
-  const { t } = useLocale();
+  const { t, tRole } = useLocale();
   return (
     <div style={{ display: 'flex', gap: 8, alignItems: 'center', marginBottom: 6 }}>
       <span style={{
@@ -107,7 +107,7 @@ function StepRow({ step, index, roles, total, onUpdate, onRemove, onMove }) {
         value={step.role}
         onChange={e => onUpdate(index, { ...step, role: e.target.value })}>
         <option value="">{t('approvals.selectRole')}</option>
-        {roles.map(r => <option key={r} value={r}>{r}</option>)}
+        {roles.map(r => <option key={r} value={r}>{tRole(r)}</option>)}
       </select>
 
       <div style={{ display: 'flex', gap: 2 }}>
@@ -140,7 +140,7 @@ const BLANK_POLICY = {
 };
 
 function PolicyForm({ initial, meta, roles, onSave, onClose }) {
-  const { t } = useLocale();
+  const { t, tRole } = useLocale();
   const [form, setForm] = useState(initial ? {
     ...BLANK_POLICY, ...initial,
     is_active: Boolean(initial.is_active),
@@ -353,7 +353,7 @@ function PolicyForm({ initial, meta, roles, onSave, onClose }) {
                           color: sel ? '#fff' : 'var(--text-2)',
                           fontWeight: sel ? 600 : 400,
                         }}>
-                        {role}
+                        {tRole(role)}
                       </button>
                     );
                   })}
@@ -396,7 +396,7 @@ function PolicyForm({ initial, meta, roles, onSave, onClose }) {
 // ── Policy Row ────────────────────────────────────────────────────────────────
 
 function PolicyRow({ policy, meta, onEdit, onToggle, onDelete }) {
-  const { t } = useLocale();
+  const { t, tRole } = useLocale();
   const conditions = Array.isArray(policy.conditions) ? policy.conditions : [];
   const steps      = Array.isArray(policy.steps)      ? policy.steps      : [];
   const roles      = Array.isArray(policy.approver_roles) ? policy.approver_roles : [];
@@ -446,7 +446,7 @@ function PolicyRow({ policy, meta, onEdit, onToggle, onDelete }) {
         ) : (
           <div style={{ display: 'flex', flexWrap: 'wrap', gap: 4 }}>
             {roles.map(r => (
-              <span key={r} style={{ fontSize: 10, background: 'var(--surface)', border: '1px solid var(--border)', borderRadius: 99, padding: '1px 7px', color: 'var(--text-2)' }}>{r}</span>
+              <span key={r} style={{ fontSize: 10, background: 'var(--surface)', border: '1px solid var(--border)', borderRadius: 99, padding: '1px 7px', color: 'var(--text-2)' }}>{tRole(r)}</span>
             ))}
           </div>
         )}

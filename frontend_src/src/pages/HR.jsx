@@ -45,7 +45,7 @@ function Kpi({ label, value, color = 'var(--text)' }) {
 }
 
 export default function HR() {
-  const { t } = useLocale();
+  const { t, tEnumValue } = useLocale();
   const { can } = usePermissions();
 
   const [tab, setTab] = useState('employees');
@@ -511,14 +511,14 @@ export default function HR() {
                   <label className="form-label">{t('hr.fldEmploymentType')}</label>
                   <select className="form-control" value={empForm.employment_type}
                     onChange={e => setEmpForm(f => ({ ...f, employment_type: e.target.value }))}>
-                    {EMPLOYMENT_TYPES.map(x => <option key={x} value={x}>{x}</option>)}
+                    {EMPLOYMENT_TYPES.map(x => <option key={x} value={x}>{tEnumValue(x)}</option>)}
                   </select>
                 </div>
                 <div className="form-group">
                   <label className="form-label">{t('common.status')}</label>
                   <select className="form-control" value={empForm.status}
                     onChange={e => setEmpForm(f => ({ ...f, status: e.target.value }))}>
-                    {EMPLOYEE_STATUS.map(x => <option key={x} value={x}>{x}</option>)}
+                    {EMPLOYEE_STATUS.map(x => <option key={x} value={x}>{tEnumValue(x)}</option>)}
                   </select>
                 </div>
                 <div className="form-group">
@@ -675,7 +675,7 @@ export default function HR() {
                   <label className="form-label">{t('hr.colLeaveType')}</label>
                   <select className="form-control" value={leaveForm.leave_type}
                     onChange={e => setLeaveForm(f => ({ ...f, leave_type: e.target.value }))}>
-                    {LEAVE_TYPES.map(x => <option key={x} value={x}>{x}</option>)}
+                    {LEAVE_TYPES.map(x => <option key={x} value={x}>{tEnumValue(x)}</option>)}
                   </select>
                 </div>
                 <div className="form-group">

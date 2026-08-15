@@ -35,7 +35,7 @@ export default function UserManagement() {
   const [saving,    setSaving]    = useState(false);
   const [confirm,   setConfirm]   = useState(null);
   const [resetPw,   setResetPw]   = useState('');
-  const { t } = useLocale();
+  const { t, tRole } = useLocale();
 
   const me = (() => { try { return JSON.parse(localStorage.getItem('user') || '{}'); } catch { return {}; } })();
 
@@ -144,7 +144,7 @@ export default function UserManagement() {
       <label className="form-label">{t('users.role')}</label>
       <select className="form-control" value={form.role_id || ''} onChange={e => setForm(f => ({ ...f, role_id: e.target.value ? Number(e.target.value) : '' }))}>
         <option value="">{t('common.noRole')}</option>
-        {assignableRoles.map(r => <option key={r.id} value={r.id}>{r.name}</option>)}
+        {assignableRoles.map(r => <option key={r.id} value={r.id}>{tRole(r.name)}</option>)}
       </select>
     </div>
   );
@@ -222,7 +222,7 @@ export default function UserManagement() {
                     {u.role_name ? (
                       <span style={{ display: 'inline-flex', alignItems: 'center', gap: 5 }}>
                         <span style={{ width: 8, height: 8, borderRadius: '50%', background: u.role_color || '#6B7280', flexShrink: 0 }} />
-                        <span style={{ fontSize: 12.5 }}>{u.role_name}</span>
+                        <span style={{ fontSize: 12.5 }}>{tRole(u.role_name)}</span>
                       </span>
                     ) : <span style={{ color: 'var(--text-3)', fontSize: 12 }}>—</span>}
                   </td>

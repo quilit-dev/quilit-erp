@@ -106,7 +106,7 @@ function ContractsSection({ empId, canEdit }) {
 
 
 function ContractForm({ empId, existing, onClose, onSaved }) {
-  const { t } = useLocale();
+  const { t, tEnumValue } = useLocale();
   const [form, setForm] = useState(() => existing ? {
     contract_type:      existing.contract_type,
     start_date:         existing.start_date || '',
@@ -165,7 +165,7 @@ function ContractForm({ empId, existing, onClose, onSaved }) {
               <label className="form-label">{t('hr.contractType')}</label>
               <select className="form-control" value={form.contract_type}
                 onChange={e => setForm(f => ({ ...f, contract_type: e.target.value }))}>
-                {CONTRACT_TYPES.map(x => <option key={x} value={x}>{x}</option>)}
+                {CONTRACT_TYPES.map(x => <option key={x} value={x}>{tEnumValue(x)}</option>)}
               </select>
             </div>
             <div className="form-group">

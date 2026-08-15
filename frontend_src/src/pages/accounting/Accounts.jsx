@@ -11,7 +11,7 @@ import { SortableTh, Pager } from './ui';
 // small (~30 system + customer-added rows) but operators with mature charts
 // pin 100+ — pagination caps the visible rows so the table never feels
 // unwieldy.
-function Accounts({ t, canCreate, canEdit, can }) {
+function Accounts({ t, tAccount, tEnumValue, canCreate, canEdit, can }) {
   const [rows,    setRows]    = useState(null);
   const [modal,   setModal]   = useState(null);
   const [importing, setImporting] = useState(false);
@@ -102,7 +102,7 @@ function Accounts({ t, canCreate, canEdit, can }) {
             value={search} onChange={e => setSearch(e.target.value)} />
           <select className="form-control" style={{ width: 150 }} value={typeFilter} onChange={e => setTypeFilter(e.target.value)}>
             <option value="">{t('accounting.allTypes')}</option>
-            {ACCOUNT_TYPES.map(x => <option key={x} value={x}>{x}</option>)}
+            {ACCOUNT_TYPES.map(x => <option key={x} value={x}>{tEnumValue(x)}</option>)}
           </select>
           <select className="form-control" style={{ width: 140 }} value={activeFilter} onChange={e => setActiveFilter(e.target.value)}>
             <option value="active">{t('accounting.activeOnly')}</option>
@@ -135,8 +135,8 @@ function Accounts({ t, canCreate, canEdit, can }) {
             ) : paged.map(a => (
               <tr key={a.id} style={{ opacity: a.is_active ? 1 : 0.5 }}>
                 <td className="text-mono">{a.code}</td>
-                <td className="td-primary">{a.name}{a.is_system ? <span className="badge badge-gray" style={{ marginInlineStart: 6 }}>{t('accounting.systemAccount')}</span> : null}</td>
-                <td>{a.type}</td>
+                <td className="td-primary">{tAccount(a)}{a.is_system ? <span className="badge badge-gray" style={{ marginInlineStart: 6 }}>{t('accounting.systemAccount')}</span> : null}</td>
+                <td>{tEnumValue(a.type)}</td>
                 <td style={{ color: 'var(--text-3)' }}>{a.subtype || '—'}{a.is_active ? '' : ` · ${t('accounting.inactive')}`}</td>
                 <td style={{ textAlign: 'right' }}>
                   {canEdit && <button className="btn btn-sm btn-secondary" onClick={() => setModal({ ...a })}>{t('common.edit')}</button>}
@@ -173,7 +173,7 @@ function Accounts({ t, canCreate, canEdit, can }) {
                 <label className="form-label">{t('accounting.type')}</label>
                 <select className="form-control" value={modal.type} disabled={!!modal.id}
                   onChange={e => setModal(m => ({ ...m, type: e.target.value }))}>
-                  {ACCOUNT_TYPES.map(x => <option key={x} value={x}>{x}</option>)}
+                  {ACCOUNT_TYPES.map(x => <option key={x} value={x}>{tEnumValue(x)}</option>)}
                 </select>
               </div>
               <div className="form-group form-full">

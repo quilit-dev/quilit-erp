@@ -6,7 +6,7 @@ import { DateRange } from './ui';
 import { StatementExport } from './StatementExport';
 
 // ── Cash Flow Statement ──────────────────────────────────────────────────────
-function CashFlowSection({ title, rows, total, totalLabel, fmt }) {
+function CashFlowSection({ title, rows, total, totalLabel, fmt, tAccount }) {
   return (
     <>
       <tr style={{ background: 'var(--surface-2, #f9fafb)' }}>
@@ -15,7 +15,7 @@ function CashFlowSection({ title, rows, total, totalLabel, fmt }) {
       {rows.map(r => (
         <tr key={r.code}>
           <td style={{ paddingInlineStart: 24 }}>
-            <span className="text-mono" style={{ color: 'var(--text-3)' }}>{r.code}</span> {r.name}
+            <span className="text-mono" style={{ color: 'var(--text-3)' }}>{r.code}</span> {tAccount ? tAccount(r) : r.name}
           </td>
           <td style={{ textAlign: 'right', color: r.amount < 0 ? 'var(--red)' : undefined }}>{fmt(r.amount)}</td>
         </tr>
@@ -31,7 +31,7 @@ function CashFlowSection({ title, rows, total, totalLabel, fmt }) {
   );
 }
 
-function CashFlow({ t, fmt }) {
+function CashFlow({ t, tAccount, fmt }) {
   const [start, setStart] = useState(monthStartISO());
   const [end,   setEnd]   = useState(todayISO());
   const [data, setData] = useState(null);
@@ -51,11 +51,11 @@ function CashFlow({ t, fmt }) {
       {!data ? <LoadingSpinner /> : (
         <div className="table-wrap"><table>
           <tbody>
-            <CashFlowSection title={t('accounting.cfOperating')} rows={data.operating}
+            <CashFlowSection tAccount={tAccount} title={t('accounting.cfOperating')} rows={data.operating}
               total={data.total_operating} totalLabel={t('accounting.cfNetOperating')} fmt={fmt} />
-            <CashFlowSection title={t('accounting.cfInvesting')} rows={data.investing}
+            <CashFlowSection tAccount={tAccount} title={t('accounting.cfInvesting')} rows={data.investing}
               total={data.total_investing} totalLabel={t('accounting.cfNetInvesting')} fmt={fmt} />
-            <CashFlowSection title={t('accounting.cfFinancing')} rows={data.financing}
+            <CashFlowSection tAccount={tAccount} title={t('accounting.cfFinancing')} rows={data.financing}
               total={data.total_financing} totalLabel={t('accounting.cfNetFinancing')} fmt={fmt} />
             <tr style={{ fontWeight: 700, borderTop: '2px solid var(--border)', fontSize: 15 }}>
               <td style={{ textAlign: 'right' }}>{t('accounting.cfNetChange')}</td>

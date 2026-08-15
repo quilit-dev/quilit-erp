@@ -9,7 +9,7 @@ import { SortableTh, Pager } from './ui';
 // Account-scoped transactions with sortable columns and client-side pagination.
 // The opening + closing balance rows are kept anchored outside the page slice
 // so the operator always sees the period's brackets regardless of the page.
-function Ledger({ t, fmt, fmtDate }) {
+function Ledger({ t, tAccount, fmt, fmtDate }) {
   const [accounts, setAccounts] = useState([]);
   const [accountId, setAccountId] = useState('');
   const [start, setStart] = useState(monthStartISO());
@@ -56,7 +56,7 @@ function Ledger({ t, fmt, fmtDate }) {
       <div className="card-header" style={{ display: 'flex', gap: 8, flexWrap: 'wrap', alignItems: 'center' }}>
         <select className="form-control" style={{ maxWidth: 280 }} value={accountId} onChange={e => setAccountId(e.target.value)}>
           <option value="">{t('accounting.selectAccount')}</option>
-          {accounts.map(a => <option key={a.id} value={a.id}>{a.code} — {a.name}</option>)}
+          {accounts.map(a => <option key={a.id} value={a.id}>{a.code} — {tAccount(a)}</option>)}
         </select>
         <input type="date" className="form-control" style={{ width: 150 }} value={start} onChange={e => setStart(e.target.value)} />
         <span style={{ color: 'var(--text-3)' }}>→</span>

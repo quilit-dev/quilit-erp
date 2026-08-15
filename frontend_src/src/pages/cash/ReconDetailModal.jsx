@@ -10,7 +10,7 @@ import { CloseDayModal } from './modals';
 
 // ── Reconciliation detail modal ─────────────────────────────────────────────
 function ReconDetailModal({ reconId, canCreate, canEdit, canDelete, onClose, onChanged }) {
-  const { t, fmtDate } = useLocale();
+  const { t, fmtDate, tEnumValue } = useLocale();
   const [rec, setRec] = useState(null);
   const [error, setError] = useState(null);
   const [closing, setClosing] = useState(false);
@@ -175,7 +175,7 @@ function ReconDetailModal({ reconId, canCreate, canEdit, canDelete, onClose, onC
                   <label className="form-label">{t('cash.category')}</label>
                   <select className="form-control" style={{ height: 32 }} value={category}
                     onChange={e => setCategory(e.target.value)}>
-                    {CATS[dir].map(cat => <option key={cat} value={cat}>{cat}</option>)}
+                    {CATS[dir].map(cat => <option key={cat} value={cat}>{tEnumValue(cat)}</option>)}
                   </select>
                 </div>
                 <div className="form-group" style={{ margin: 0, flex: 1, minWidth: 110 }}>
