@@ -15,7 +15,7 @@ recruitment and CRM into a single self-hosted application.
 |--------|-------------|
 | **Sales & CRM** | Leads → quotations → invoices → payments; deal pipeline, contacts, activity log |
 | **POS** | Cash-drawer sessions, USD/LBP checkout, refunds that void invoices and restock |
-| **Inventory** | Raw / semi-finished / finished / consumable items, FIFO / LIFO / weighted-average costing, lot tracking with FEFO, weighted-average landed cost, low-stock alerts |
+| **Inventory** | Unique per-item barcodes (scannable at the POS register, in inventory search and on the item form), raw / semi-finished / finished / consumable items, FIFO / LIFO / weighted-average costing, lot tracking with FEFO, weighted-average landed cost, low-stock alerts |
 | **Multi-warehouse** | Multiple locations with row-level access (a clerk authorised for "BRANCH-A" never sees MAIN stock), `Draft → In Transit → Completed / Cancelled` transfer workflow gated on both endpoints, per-warehouse valuation report |
 | **Procurement** | Suppliers, PO lifecycle (`Ordered → Received → Paid`) that auto-posts expenses and adjusts inventory cost |
 | **Manufacturing** | Versioned BOMs with scrap %, multi-level sub-assemblies, production-order lifecycle (`Draft → Confirmed → In Progress → Completed`), QC pass/fail, resource costing, weighted-average production costing |
@@ -36,10 +36,11 @@ recruitment and CRM into a single self-hosted application.
 | **Notifications** | 30+ typed alerts (overdue invoices, low stock, leave requests, payroll, transfers, FX stale, period unlocked, contract expiring, approvals…) — gated by module permission |
 | **Global Search** | Cross-module command palette (Ctrl+K) over 45+ entity types, grouped by category, with match highlighting and recent-records list |
 | **Client Communications** | Send invoices and quotations by email or WhatsApp; every send mints an expiring, revocable capability link to a client-facing document page, with view tracking and a cross-document history of what went out, to whom, and whether it was opened |
-| **Documents (PDF)** | One server-rendered template for invoices and quotations — bilingual English / Arabic with a genuinely mirrored RTL layout, logo, tax and registration numbers, per-line discount and tax columns, payment history, bank details, and a payment-state band. No browser required, so the mobile app, an email attachment and a client link all get the same document |
-| **Access Control** | RBAC across 25 permissioned modules (plus 4 admin surfaces) with 18 seeded roles, JWT sessions with revocation, append-only audit log, recycle bin |
+| **Documents** | One template for invoices and quotations, rendered in the browser and printed via the print dialog (*Save as PDF*) — logo, tax and registration numbers, per-line discount and tax columns, payment history, bank details and a payment-state band. The customer's copy on a share link is rendered from the SAME template, so what they open is what their supplier printed. A server-side PDF renderer (bilingual, shaped Arabic) remains for programmatic callers such as the mobile app |
+| **Access Control** | RBAC across 25 permissioned modules (plus 4 admin surfaces) with 18 seeded roles, JWT sessions with revocation, append-only audit log, recycle bin. Every user can change their own password (which revokes the session, so a copied token dies with it); branch scoping is enforced on every by-id endpoint, not merely filtered out of lists |
 | **Localization** | Full English and Arabic (RTL) across every module — including payroll, contracts, accounting filters, reports, and the command palette |
 | **Module licensing** | Per-tenant licences held in the shared catalog and editable at runtime from the Control Center, with automatic dependency resolution; enforced in the API before the superadmin bypass, so an unlicensed module returns 403 rather than merely hiding. The desktop build can still bake a fixed set in at build time |
+| **Subscription lifecycle** | Plan, licensed seats, trial end and licence expiry are editable per customer with one-click renewal. Expiry suspends the workspace after a grace period (data kept), the customer is warned in-app from 30 days out, and seats are enforced at login as concurrent sign-ins — never blocking an admin, so a business cannot be locked out of its own books |
 
 ---
 
@@ -196,6 +197,17 @@ licence), fleet health scored per customer with the reasons behind the score,
 a support inbox fed by the ERP's own **Report problem** action, per-business
 analytics, password administration and factory reset.
 
+**Licences are managed after provisioning, not only at it.** A Licence column
+shows each customer's state at a glance, and a Licence panel edits plan, seats,
+trial end and expiry with one-click **+1 month / +3 months / +1 year /
+Perpetual**. Renewing extends from whichever is later — today or the date on
+file — so renewing early adds to the remaining term rather than shortening it.
+
+Expiry is enforced. A lapsed trial or licence suspends the workspace after
+`LICENCE_GRACE_DAYS` (7 by default), and the customer sees a warning banner from
+30 days out rather than discovering it at the moment they are locked out.
+Suspension keeps the data: taking payment is flipping the status back.
+
 See [docs/DEPLOYMENT-RAILWAY.md](docs/DEPLOYMENT-RAILWAY.md) for the deployment
 and first-operator steps.
 
@@ -203,27 +215,28 @@ and first-operator steps.
 
 ## Documents & client delivery
 
-**One template.** Invoices and quotations are rendered by
-`backend/pdf_render.py` and served from `/api/pdf/...`. There is deliberately no
-second template: a browser-printed document cannot be attached to an email,
-opened by the mobile app, or shown on a client's link, and maintaining two meant
-the copy a customer received could drift from the one their supplier saw.
+**One template, rendered in the browser.** Invoices and quotations are built by
+`buildInvoiceHTML` / `buildQuotationHTML` in
+`frontend_src/src/utils/exportUtils.js` and printed through the browser's own
+print dialog, where the operator chooses *Save as PDF*.
 
-**Bilingual, and mirrored.** `?lang=ar` does not merely translate — the company
-block moves to the right, the totals to the left, and the item columns reverse.
-Arabic is contextually shaped and bidi-reordered before it reaches the page,
-because fpdf2 draws glyphs in the order given. Amiri is embedded (OFL, in
-`backend/assets/fonts/`) because it is the one bundled font covering both Arabic
-and Latin — an Arabic-only font renders every English word as blanks.
+The same functions render the CUSTOMER's copy on a share link
+(`PublicDocument.jsx`), inside an iframe so the app's stylesheet cannot reshape
+a financial document and so printing uses the template's own `@page` rules.
+That is the point of the shared template: the copy a customer opens is the copy
+their supplier printed. It previously had a simplified layout of its own —
+different fonts, no logo, no bank details, no line discounts — so a customer was
+told an invoice had been sent and then opened something that did not look like
+one.
 
-The stack is pure Python on purpose. WeasyPrint would allow HTML/CSS templates
-but needs pango and cairo system libraries, which cannot be installed or tested
-on a plain developer machine — and PDF code that cannot be tested locally gets
-shipped unverified.
+A server-side renderer (`backend/pdf_render.py`, `/api/pdf/...`, fpdf2 + Amiri
+for shaped Arabic) is still mounted for programmatic consumers such as the
+mobile app. **The web UI does not call it.** If you change the document design,
+change the browser template — the server one will not follow.
 
-**Sending.** `Send` on an invoice or quotation row offers email and WhatsApp, and
-the ⋯ menu carries one-click variants plus both PDF languages. Every send mints a
-fresh capability link:
+**Sending.** `Send` on an invoice or quotation row offers email and WhatsApp.
+(The ⋯ menu no longer duplicates them: one row offering three ways to send the
+same document was worse than one.) Every send mints a fresh capability link:
 
 - 128-bit token, only its SHA-256 stored, so a database dump yields no working links
 - one document, read-only, expiring (`SHARE_LINK_TTL_DAYS`) and revocable
@@ -328,6 +341,17 @@ DB_PATH=erp.db                         # SQLite file (desktop / self-hosted)
 DB_BACKEND=sqlite                      # or 'postgres' for a cloud deployment
 DATABASE_URL=                          # postgres DSN; required when DB_BACKEND=postgres
 
+# Concurrency, and the one sum that must not be exceeded.
+# The database sees at most WEB_CONCURRENCY x DB_POOL_MAX connections PER
+# container (each gunicorn worker keeps its own pool), and that total must stay
+# under PostgreSQL's max_connections with headroom for psql, migrations and
+# backups. Overrunning it does not slow requests down — it fails them all at
+# once with "too many clients already". The app checks this at boot and warns.
+WEB_CONCURRENCY=4                      # gunicorn worker processes
+DB_POOL_MAX=8                          # pooled connections PER worker
+DB_POOL_MIN=1                          # kept warm so the first request is quick
+DB_POOL_TIMEOUT=15                     # seconds to wait for a free connection
+
 # Cloud / multi-tenant (see docs/DEPLOYMENT-RAILWAY.md)
 TENANCY=single                         # 'schema' = one isolated schema per customer
 ENABLED_MODULES=                       # empty = all; overrides the build-time constant
@@ -353,7 +377,24 @@ RESEND_API_KEY=                        # unset = the email channel reports itsel
 MAIL_FROM=invoices@yourdomain.com      # must be a domain verified in Resend
 MAIL_FROM_NAME=Your Company
 SHARE_LINK_TTL_DAYS=30                 # 0 = share links never expire
+
+# Licensing (multi-tenant only)
+LICENCE_GRACE_DAYS=7                   # days a lapsed trial/licence keeps
+                                       # working before the workspace is
+                                       # suspended. 0 = cut on the day.
 ```
+
+`/api/health` reports the commit it is running, so a deploy can be verified with
+one request and no credentials:
+
+```bash
+curl -s https://your-tenant.example.com/api/health
+# {"status":"ok","commit":"2e6b2cac2014"}
+```
+
+Railway injects `RAILWAY_GIT_COMMIT_SHA` itself and needs no configuration.
+Elsewhere set `GIT_COMMIT`, or build with
+`docker build --build-arg GIT_COMMIT=$(git rev-parse --short=12 HEAD)`.
 
 ---
 
@@ -377,7 +418,9 @@ erp-system/
 │   ├── capabilities.py        # Module dependency graph + licence closure
 │   ├── tenancy.py             # Schema-per-tenant catalog, provisioning, licences
 │   ├── communications.py      # Share tokens, email delivery, WhatsApp text
-│   ├── pdf_render.py          # THE invoice/quotation template (bilingual, RTL)
+│   ├── pdf_render.py          # server-side PDF for programmatic callers
+│   │                          # (mobile app); the web UI prints from the
+│   │                          # browser template in exportUtils.js
 │   ├── assets/fonts/          # Amiri Regular + Bold (OFL) embedded in every PDF
 │   ├── routers/               # One file per module (44 routers)
 │   │   ├── auth.py            clients.py     projects.py
@@ -440,6 +483,21 @@ The backend exposes a REST API under `/api/*`. Interactive docs:
 Both are **disabled automatically** on a multi-tenant deployment (`TENANCY=schema`)
 — they publish the whole API surface to anyone who asks. Set `API_DOCS=on` to get
 them back for debugging a cloud instance.
+
+**Paging the big lists.** `/api/invoices/`, `/api/quotations/` and
+`/api/clients/` accept `limit`, `offset`, `search` and `sort`/`dir`. With no
+`limit` the response is the full array exactly as before, so existing callers
+are unaffected; pass `limit` (capped at 500) to get an envelope instead:
+
+```json
+{ "items": [ … ], "total": 1284, "limit": 50, "offset": 0 }
+```
+
+The list screens use it. They previously downloaded every row and filtered,
+sorted and paged in the browser, which measured 1,984 ms and 19.8 MB at 40,000
+invoices on every open; `limit=50` stays flat at ~96 ms across the same range.
+`sort` is resolved through a fixed allow-list, since it reaches `ORDER BY`,
+which takes no bind parameters.
 
 Key endpoint groups:
 

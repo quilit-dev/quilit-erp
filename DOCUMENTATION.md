@@ -57,8 +57,10 @@
 17. [Category Registry](#17-category-registry)
 18. [Multi-Branch & Multi-Warehouse](#18-multi-branch--multi-warehouse)
 19. [Module Licensing](#19-module-licensing)
-20. [Document Rendering (PDF)](#20-document-rendering-pdf)
+20. [Document Rendering](#20-document-rendering)
 21. [Client Communications & Share Links](#21-client-communications--share-links)
+22. [Subscription Lifecycle](#22-subscription-lifecycle)
+23. [Scale & Performance](#23-scale--performance)
 
 ---
 
@@ -283,6 +285,43 @@ To build only the standalone executable (skipping the installer), run `python -m
 
 All runtime configuration is provided via **environment variables**. Create a `.env` file inside the `backend/` directory (copy from `backend/env.example`).
 
+> ### The container filesystem is ephemeral
+>
+> The hosted deployment declares **no volume**, and the Dockerfile copies the
+> built frontend into `/app/static` at BUILD time. Anything the app writes at
+> runtime lives on the container's writable layer and **is destroyed by the next
+> deploy**.
+>
+> So uploads belong in the database, not on disk. `attachments` already stored
+> its bytes as a BLOB; the company logo was moved the same way
+> (`company_logo` table) after it turned out to be written to
+> `static/logo.png` — where every redeploy silently wiped a customer's branding,
+> and where *one file served every tenant*, so whoever uploaded last replaced
+> everyone else's logo on their invoices.
+>
+> It fails silently and on a delay: the upload works, reads back fine for days,
+> and disappears at an unrelated deploy. Before adding any feature that writes a
+> file, ask where it lives after a redeploy.
+
+### Verifying a deploy
+
+`GET /api/health` returns the commit the process is running:
+
+```json
+{"status": "ok", "commit": "2e6b2cac2014"}
+```
+
+Resolved once at import (this is a liveness probe hit every few seconds, and the
+container's own `HEALTHCHECK` depends on it). The runtime image has no `.git`, so
+a platform build variable is the real source — Railway injects
+`RAILWAY_GIT_COMMIT_SHA` with no configuration; `GIT_COMMIT`, `SOURCE_VERSION`
+and `COMMIT_SHA` cover other hosts, and the Dockerfile takes a `GIT_COMMIT`
+build arg. Unresolvable reports `"unknown"` rather than failing.
+
+This exists because a deploy was otherwise unverifiable from outside: after
+pushing a security fix the only way to tell whether it was live was to trigger
+the bug, which is not something you do against a customer's workspace.
+
 ### Environment Variables
 
 | Variable | Default | Description |
@@ -356,6 +395,48 @@ always reports the value baked into the running build.
 - **One active session per user:** a new login revokes all previous sessions for that user
 - **Inactivity timeout:** 30 minutes of no API activity automatically revokes the session
 - **Session tracking:** the client IP address and User-Agent string are recorded per session
+
+### Changing your own password
+
+`POST /api/auth/change-password` has always accepted any authenticated user, but
+nothing in the UI called it — the only password screen was the FORCED one-time
+change at first login. So a member of staff who thought their password had been
+seen had to ask an admin to reset it, which meant the admin choosing and knowing
+their password.
+
+The dialog lives in the sidebar account popover, not under Settings, because
+Settings is a company-configuration screen most roles cannot open while this is
+the one account action that belongs to everybody. Requiring the current password
+is what makes it safe for every role: it grants nothing an account holder does
+not already have.
+
+**Changing a password revokes every session for that user, including the current
+one**, and the response carries `relogin: true` so the client returns to the
+sign-in screen rather than meeting a 401 on the next click.
+
+Sparing the current session would be friendlier and useless: login already
+revokes every prior session, so only one is ever live, and a stolen token *is*
+that session rather than a second one beside it. "All but the current" would
+match zero rows every time. The caller re-authenticates and gets a fresh JTI;
+whoever held the old token does not.
+
+### The first-run wizard is closed on hosted deployments
+
+`POST /api/settings/complete-setup` is unauthenticated by design: on a
+self-hosted first run somebody at the machine has to set the first password, and
+a `setup_complete` flag closes it afterwards.
+
+A provisioned tenant never runs that wizard — the platform generates the admin
+password and hands it to the owner — so the flag stayed `"0"` and the endpoint
+stayed open on the customer's subdomain **permanently**. Anyone who knew the
+subdomain could set the admin password, log in as superadmin and read the
+customer's books. Verified end to end before the fix.
+
+The wizard is now refused outright whenever `IS_SCHEMA_TENANCY`, whatever any
+schema's flag says, and provisioning writes `setup_complete=1`.
+`GET /api/settings/setup-status` reports complete whenever the wizard is
+unavailable, so it cannot be used to enumerate claimable workspaces. The
+self-hosted first run is unchanged and still one-time.
 
 ### JWT Payload
 
@@ -595,6 +676,28 @@ Manages stock items and tracks all movements.
 **Fields:** Name, category, quantity, minimum stock level, unit cost, supplier, unit of measure.
 
 **Categories:** Product, Material, Equipment, Other.
+
+**Barcodes.** Each item carries an optional, unique `barcode` (migration 046,
+indexed). It is matched **exactly** in the inventory list search, exactly by the
+POS register lookup, and by CSV import; global search matches it loosely.
+
+A USB scanner is a keyboard: it types the code, then sends Enter. That matters in
+two opposite ways:
+
+- **POS wants the Enter.** `RegisterView` handles it, and a scan resolving to a
+  single variant is added straight to the cart.
+- **A form must swallow it.** Enter in a single-line input inside a `<form>`
+  with a submit button submits that form, so scanning a barcode partway through
+  *Add item* saved the item there and then — before cost, price, category or
+  unit were filled. Nothing errored; the item was simply created half-empty.
+  `swallowScannerEnter` (in `components/shared.jsx`) cancels that one key, and
+  the barcode fields on the item form and product builder use it.
+
+  It misfired only in the natural order — name first (satisfying `required`),
+  then scan — so it hid from anyone who tested it the other way round.
+
+The ERP does **not** generate or print barcode labels. It stores and reads codes
+that already exist.
 
 **Features:**
 - Low-stock alerts (items below `min_stock` are highlighted in the UI)
@@ -3116,6 +3219,42 @@ Click the **ع / EN** toggle button in the top navigation bar. The language pref
 
 When Arabic is active, `dir="rtl"` is set on `<html>` and CSS logical properties handle layout mirroring — the sidebar, flex directions, text alignment, and padding all adapt automatically.
 
+### Values that are NOT `t('…')` keys
+
+Most UI text is a translation key, so the toggle reaches it. Three kinds of value
+are not, and each needed its own translator on `useLocale`:
+
+| Helper | Covers | Keyed by |
+|---|---|---|
+| `tStatus` | statuses stored in the DB | the English value |
+| `tCategory` | preset categories | the English value |
+| `tAccount` | the 30 seeded chart-of-accounts rows | account **code** |
+| `tRole` | the 18 seeded role names | the English name |
+| `tEnumValue` | 54 fixed option lists in code — account types, employment / leave / contract types, payment methods, units, cash-movement categories, journal source types | the English value |
+
+Anything absent from a dictionary passes through unchanged, so an account, role,
+unit or category the customer created themselves stays exactly as they typed it.
+
+`tAccount` is keyed by **code**, not name, and translates only while the stored
+name still equals the seeded English (`en` is the canonical seed text). A
+mismatch means the owner renamed the account, and their wording wins over ours.
+A typo in `en.js` therefore does not show a wrong label — it silently disables
+translation for that account.
+
+> **A missing translation is invisible.** English is the fallback, so nothing
+> errors and nothing looks broken; the value simply stays English on an
+> otherwise Arabic screen. That is how the General Ledger's account picker
+> shipped untranslated, and how four accounts seeded by migration 120
+> (`4910 Foreign Exchange Gain`, `6910 Cash Short & Over`,
+> `6920 Foreign Exchange Loss`, `1010 Cash — LBP`) were missed on the first
+> pass: the chart of accounts is seeded in **two** places and only the first
+> list was translated.
+
+`backend/tests/test_locale_account_parity.py` reads the seed lists from
+`database.py` **and** `pg_baseline.sql` as text — no database, no app import —
+and fails when a seeded account is missing from either locale, when the English
+entry drifts from the seed, or when an Arabic entry is still its English source.
+
 ### Translation Files
 
 | File | Content |
@@ -3379,6 +3518,53 @@ Arabic looked up); owner-typed custom names show as entered.
 
 ## 18. Multi-Branch & Multi-Warehouse
 
+### A filtered list is not enforcement
+
+The two layers are independent: `users.branch_id` + `branch_access.py` decide
+what a user can **see**; `user_warehouse_access` + `warehouse_access.py` decide
+where they may **transact stock**. Only the vendor superadmin and `is_admin`
+roles (Business Owner alone, in the seed) are global; every other role is pinned
+to its home branch.
+
+List endpoints were branch-filtered from the start. **The ids in URLs were
+not.** A manager in one branch got a 404 opening another branch's invoice, and
+could still act on it by putting the id in the URL, across invoices,
+quotations, expenses, cash drawers and HR — only two by-id endpoints in the
+whole system carried the check. A $1,000 invoice could be
+rewritten to $1, a payment recorded on it, a quotation converted into an invoice
+in the attacker's branch, a salary rewritten, and employment contracts
+downloaded. Global search returned other branches' documents outright.
+
+So: **every by-id endpoint calls `branch_access.assert_can_view_branch`**, which
+raises **404, not 403** — a 403 confirms the record exists and lets ids be
+probed. Endpoints keyed on a CHILD id (`/hr/files/{file_id}/download`) resolve
+the parent and check that; that one had no check of any kind.
+
+Two traps worth knowing:
+
+- **RBAC can disguise the gap.** `DELETE /invoices/{id}/payments/{payment_id}`
+  returned 403 cross-branch — from `require_perm("invoices","delete")`, which the
+  Manager role happens to lack, not from branch scoping. A role holding delete
+  crossed freely. Never read a 403 as proof of branch isolation.
+- **The guard must sit AFTER the `if not row:` block.** One indent level deeper
+  it lands after an unconditional `raise`, becomes unreachable, and every check
+  silently passes.
+
+`backend/tests/test_branch_isolation.py` covers it, and asserts global users are
+still unrestricted — a fix that fences off the Business Owner is worse than the
+bug.
+
+### Warehouse access is opt-in, and revoking the last grant re-opens everything
+
+A user with **zero** rows in `user_warehouse_access` can transact in **every**
+warehouse. That is the migration-safe default: nobody loses access on upgrade.
+Restriction begins with their first grant.
+
+The corollary surprises people. Revoking a user's *last* grant does not leave
+them with nothing — it returns them to the default, which is everything. The
+Control Center asks for confirmation on that specific case rather than inverting
+the default, which would lock out every existing user at once.
+
 ### Warehouses & stock transfers
 
 Stock lives in **warehouses** (types: Main / Branch / Production / Damaged /
@@ -3495,14 +3681,44 @@ edited from the Control Center. No rebuild, no redeploy, no per-customer branch.
 
 ---
 
-## 20. Document Rendering (PDF)
+## 20. Document Rendering
 
-`backend/pdf_render.py` is the **only** place an invoice or quotation is laid out.
-A second template used to live in the frontend and render through
-`window.print()`; it was deleted, because a browser-printed document cannot be
-attached to an email, opened by a mobile app, or shown on a client's share link —
-and two templates meant the copy a customer received could drift from the one
-their supplier saw on screen.
+> **This section was rewritten.** It previously stated that
+> `backend/pdf_render.py` was the *only* place a document is laid out and that
+> the browser template had been deleted. That was reversed: the web UI renders
+> in the browser again, and the server renderer is now the secondary path.
+
+### Where the template lives
+
+`buildInvoiceHTML` and `buildQuotationHTML` in
+`frontend_src/src/utils/exportUtils.js` are what the web UI renders. They return
+a complete HTML document; `printHTML` writes it into a hidden iframe and calls
+`print()`, so the operator saves a PDF through the browser's own dialog.
+
+**The same two functions render the customer's copy.** `PublicDocument.jsx`
+builds the document from them and shows it in an `<iframe srcDoc>` — an iframe
+rather than inline markup so the app's stylesheet cannot reshape a financial
+document and so printing uses the template's own `@page` rules.
+
+That sharing is the whole point. The share page previously had a simplified
+layout of its own: different fonts, no logo, no bank details, no line discounts.
+A customer was told an invoice had been sent, opened the link, and found
+something that did not look like the invoice — with no way to pay it, because
+the bank details were absent.
+
+`exportInvoicePDF` / `exportQuotationPDF` are thin wrappers that fetch settings
+and the logo, build the HTML, snapshot it, then print. Keeping the builders
+separate from the wrappers is what lets the share page reuse them.
+
+### The server-side renderer is still there
+
+`backend/pdf_render.py` (fpdf2 + embedded Amiri, contextually shaped and
+bidi-reordered Arabic) remains mounted at `/api/pdf/...` for programmatic
+callers such as the mobile app, which has no browser print dialog.
+
+**The web UI does not call it.** Nothing in `frontend_src` references
+`/api/pdf`. If you change the document design, change the browser template —
+the server one will not follow, and the two can drift.
 
 ### Endpoints
 
@@ -3673,5 +3889,169 @@ ErrorBoundary of a crashed one. The user is only ever asked what they were tryin
 to do; page, browser, error and stack are attached automatically, because a
 frustrated user will not paste a stack trace and should not be asked to. Reports
 land in `public.error_reports` and surface in the Control Center inbox.
+
+---
+
+## 22. Subscription Lifecycle
+
+Applies to multi-tenant deployments (`TENANCY=schema`). The commercial record
+for each customer lives in `public.tenants`: `plan`, `max_users`,
+`trial_ends_at`, `license_expires_at`, `modules`, `status`.
+
+Those columns existed from the start and were written at provisioning. Nothing
+read them afterwards — the console could create a licence and never change it,
+so taking a renewal meant editing the catalog by hand, and a lapsed licence kept
+working indefinitely.
+
+### Managing a licence
+
+`PUT /api/platform/tenants/{slug}` accepts the profile fields; the Control
+Center's **Licence** panel is the UI. A Licence column on the tenant table shows
+each customer's state (green / yellow / orange / red) so "who needs chasing" is
+answerable without opening every business.
+
+Renewal buttons (+1 month / +3 months / +1 year / Perpetual) extend from
+**whichever is later**, today or the date on file, so renewing early adds to the
+remaining term instead of quietly shortening it.
+
+> Dates here are calendar days and are built from local date parts, never
+> `toISOString()`. That converts to UTC first, so east of UTC a renewal computed
+> at local midnight lands a day early — a day of access the customer paid for.
+
+### Expiry
+
+`tenancy.expire_due_licences(grace_days)` runs on the metrics flush cycle. It
+suspends a tenant whose **trial or licence** ended more than `LICENCE_GRACE_DAYS`
+ago (default 7; `0` cuts on the day). Previously only `trial_ends_at` was swept.
+
+Grace exists because a renewal is usually late, not absent — cutting a customer
+off on the day is how you lose one over a bank transfer. Suspension uses the
+existing 402 "workspace is suspended" path: the data stays, and taking payment is
+flipping `status` back.
+
+### Telling the customer
+
+`GET /api/settings/licence-status` returns days remaining and whether grace has
+started. The dates live in `public.tenants`, which a tenant's own schema cannot
+read, so without this endpoint the business had no way to know — the first sign
+was being locked out.
+
+`LicenceBanner` renders above every page: nothing on a perpetual licence or
+beyond 30 days, then yellow inside 30 days, orange inside 7, red in grace.
+During grace it counts down what is **left**, not how long ago it lapsed.
+
+It is shown to every user, not only admins — everyone is affected when the system
+stops. It carries days remaining and the grace window only; the plan, seat count
+and operator notes stay in the console.
+
+### Licensed seats
+
+`max_users` is enforced at login as **concurrent sign-ins**, not user accounts.
+Counting accounts and refusing at the door would punish everyone for an admin
+adding one person too many, and could never free itself — the people who could
+fix it would be the ones locked out.
+
+Every exemption is deliberate:
+
+| Case | Result | Why |
+|---|---|---|
+| Admin or superadmin | always allowed | whoever can deactivate a user or call the vendor must be able to get in |
+| User already holds a live session | allowed | login replaces their own session; a second device is the same seat |
+| `max_users` blank or `0` | unlimited | a zero is an empty box, not a licence for nobody |
+| Catalog lookup fails | allowed | an infrastructure hiccup must not become a lockout |
+| Session idle > 30 min | seat released | idle revocation is lazy, so a closed browser would otherwise hold a seat for good |
+
+The check runs **after** authentication, so a failed login never reveals how full
+the licence is. Raising the limit takes effect immediately: the seat count shares
+the licence cache and a `PUT` evicts it.
+
+Known and accepted: two people logging in at the same instant can both clear the
+check for the last seat. A one-seat overshoot that self-corrects is not worth
+serialising the login path.
+
+---
+
+## 23. Scale & Performance
+
+Measured on PostgreSQL, not estimated.
+
+### Connection pooling
+
+`database.get_db` used to open a **new** PostgreSQL connection per request and
+close it. On localhost that handshake measured ~33 ms against ~0.05 ms for a
+simple query, so the connection dominated the request — and in-flight requests
+could outnumber the server's `max_connections`, which fails everything at once
+rather than merely slowing it down.
+
+It now uses a `psycopg_pool.ConnectionPool` per worker process. Identical load,
+80 concurrent requests:
+
+| | throughput | median latency |
+|---|---|---|
+| connect-per-request | 59.5 req/s | 766 ms |
+| pooled (`max_size=10`) | 104.7 req/s | 387 ms |
+
+Two details that are load-bearing:
+
+- **`search_path` is set on every checkout**, not at connect time. Pooled
+  connections are reused, so a connection last used by one tenant would
+  otherwise serve the next request still pointing at the previous tenant's
+  schema. This SET is the entire isolation guarantee — never make it
+  conditional.
+- **Server-side prepared statements are disabled** (`prepare_threshold=None`).
+  psycopg auto-prepares a repeated query, and a prepared plan resolves table
+  names once, against the `search_path` in force at prepare time. On a pooled
+  connection later serving another tenant, that plan would still read the first
+  tenant's tables — a cross-tenant leak no `SET search_path` could correct.
+
+`backend/tests/test_connection_pool.py` pins both, driving two tenants through a
+`max_size=1` pool so reuse is certain.
+
+### The connection budget
+
+    WEB_CONCURRENCY x DB_POOL_MAX x replicas  <  max_connections
+
+`max_size` is per worker process. The app reads `max_connections` at boot and
+warns when the demand exceeds 80% of it, because exceeding it happens under load,
+which is exactly when nobody wants to be reading tuning notes.
+
+### Server-side paging
+
+The invoice, quotation and client lists fetched every row and filtered, sorted
+and paged in the browser:
+
+| invoices | dashboard | full list | payload | `limit=50` |
+|---|---|---|---|---|
+| 200 | 117 ms | 115 ms | 0.1 MB | 68 ms |
+| 10,000 | 174 ms | 549 ms | 4.9 MB | 80 ms |
+| 40,000 | 306 ms | 1,984 ms | 19.8 MB | 96 ms |
+
+Paging, sorting and searching moved to the server **together** — moving one
+without the others is worse than moving none, since sorting a page of fifty
+sorts the wrong rows and searching a page finds only what is already on screen.
+`useServerList` owns page, size, sort, direction and a debounced search.
+
+Two things that would have broken silently:
+
+- **Exports** fetch the whole filtered set (no `limit`) rather than the visible
+  page. An export that quietly drops rows is worse than one that fails.
+- **`?focus=<id>` deep links** fetch by id instead of searching the loaded array,
+  which now usually does not contain the record.
+
+### Tenants
+
+101 tables and 270 indexes per tenant schema. The boot-time
+`upgrade_all_tenant_schemas()` costs ~52 ms per tenant, so 200 tenants adds ~10 s
+to startup — well inside the 300 s healthcheck. Schema-per-tenant is comfortable
+into the low hundreds; past that `pg_dump` and autovacuum become the constraint,
+not the app.
+
+### What is deliberately NOT cached
+
+There is no Redis. The bottleneck was connection setup, not query execution, and
+Redis does not touch that. A cache key that forgets the tenant is also the same
+class of bug as a missing per-record scope check. It earns its place when several
+replicas need shared state — rate limiting, a job queue — not for read-caching
+financial data.
 
 ---
