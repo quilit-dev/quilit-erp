@@ -122,6 +122,10 @@ def list_quotations(
     limit: Optional[int] = None,
     offset: int = 0,
     search: Optional[str] = None,
+    client_id: Optional[int] = None,
+    project_id: Optional[int] = None,
+    sort: Optional[str] = None,
+    dir: str = "asc",
     user=Depends(require_perm("quotations", "view")),
     db: sqlite3.Connection = Depends(get_db),
 ):
@@ -169,8 +173,29 @@ def list_quotations(
         where.append("(q.quote_number LIKE ? OR c.name LIKE ? OR l.name LIKE ?"
                      " OR p.name LIKE ? OR q.project_name LIKE ? OR q.notes LIKE ?)")
         params += [like] * 6
+    if client_id is not None:
+        where.append("q.client_id = ?")
+        params.append(client_id)
+    if project_id is not None:
+        where.append("q.project_id = ?")
+        params.append(project_id)
     if where:
         query += " AND " + " AND ".join(where)
+
+    # Sorting from a fixed allow-list: `sort` reaches ORDER BY, which takes no
+    # bind parameters, so only a value from this map may be interpolated.
+    _SORTABLE = {
+        "quote_number":   "q.quote_number",
+        "client_name":    "c.name",
+        "project_name":   "p.name",
+        "status":         "q.status",
+        "total":          "q.total",
+        "total_with_tax": "(COALESCE(q.total,0) + COALESCE(q.tax_total,0))",
+        "created_at":     "q.created_at",
+    }
+    _direction = "DESC" if str(dir).lower() == "desc" else "ASC"
+    order_sql = (f" ORDER BY {_SORTABLE[sort]} {_direction}"
+                 if sort in _SORTABLE else " ORDER BY q.created_at DESC")
 
     def _shape(r):
         d = dict(r)
@@ -181,12 +206,12 @@ def list_quotations(
         cap = max(1, min(limit, 500))
         where_sql = (" WHERE " + " AND ".join(where)) if where else ""
         total = db.execute(f"SELECT COUNT(*) {_JOINS} {where_sql}", params).fetchone()[0]
-        rows = db.execute(query + " ORDER BY q.created_at DESC LIMIT ? OFFSET ?",
+        rows = db.execute(query + order_sql + " LIMIT ? OFFSET ?",
                           params + [cap, offset]).fetchall()
         return {"items": [_shape(r) for r in rows], "total": total,
                 "limit": cap, "offset": offset}
 
-    rows = db.execute(query + " ORDER BY q.created_at DESC", params).fetchall()
+    rows = db.execute(query + order_sql, params).fetchall()
     return [_shape(r) for r in rows]
 
 # ── Single ────────────────────────────────────────────────────────────────

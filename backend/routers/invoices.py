@@ -222,6 +222,10 @@ def list_invoices(
     limit: Optional[int] = None,
     offset: int = 0,
     search: Optional[str] = None,
+    client_id: Optional[int] = None,
+    project_id: Optional[int] = None,
+    sort: Optional[str] = None,
+    dir: str = "asc",
     user=Depends(require_perm("invoices", "view")),
     db: sqlite3.Connection = Depends(get_db),
 ):
@@ -253,6 +257,12 @@ def list_invoices(
             " OR p.name LIKE ? OR i.notes LIKE ?)"
         )
         params += [like] * 5
+    if client_id is not None:
+        conditions.append("i.client_id = ?")
+        params.append(client_id)
+    if project_id is not None:
+        conditions.append("i.project_id = ?")
+        params.append(project_id)
     where_clause = ("WHERE " + " AND ".join(conditions)) if conditions else ""
     select_sql = f"""SELECT i.*,
                   p.name AS project_name,
@@ -266,7 +276,31 @@ def list_invoices(
            LEFT JOIN clients    c ON i.client_id    = c.id
            LEFT JOIN quotations q ON i.quotation_id = q.id
            {where_clause}
-           ORDER BY i.created_at DESC"""
+           ORDER BY {{order_by}}"""
+
+    # Sorting, from a fixed allow-list. `sort` reaches ORDER BY, which takes no
+    # bind parameters, so nothing but a value from this map may ever be
+    # interpolated. `payment_status` is absent on purpose: it is derived after
+    # the query, so it is handled by the slower path below rather than faked
+    # here.
+    _SORTABLE = {
+        "invoice_number": "i.invoice_number",
+        "quote_number":   "q.quote_number",
+        "client_name":    "c.name",
+        "project_name":   "p.name",
+        "amount":         "i.amount",
+        "due_date":       "i.due_date",
+        "created_at":     "i.created_at",
+        "total_paid":     "total_paid",
+        "remaining":      "(i.amount - total_paid)",
+    }
+    _direction = "DESC" if str(dir).lower() == "desc" else "ASC"
+    order_by = (f"{_SORTABLE[sort]} {_direction}"
+                if sort in _SORTABLE else "i.created_at DESC")
+    select_sql = select_sql.format(order_by=order_by)
+    # A derived sort key cannot be expressed in SQL, so it takes the same
+    # fetch-derive-slice route as the derived `status` filter.
+    _derived_sort = sort == "payment_status"
 
     def _derive(r):
         d          = dict(r)
@@ -278,9 +312,10 @@ def list_invoices(
         _apply_pending(d)
         return d
 
-    # Fast path: no `status` filter means the sort key + row set are plain
-    # columns, so pagination pushes straight down to SQL (no full-table load).
-    if limit is not None and not status:
+    # Fast path: no `status` filter and no derived sort key means the row set
+    # and ordering are both plain SQL, so pagination pushes straight down to the
+    # database (no full-table load).
+    if limit is not None and not status and not _derived_sort:
         cap   = max(1, min(limit, 500))
         # Same JOINs as the row query: the search predicate reaches into
         # clients/projects/quotations, so a bare COUNT over `invoices` alone
@@ -306,6 +341,11 @@ def list_invoices(
         result = [r for r in result if r["payment_status"] == "Void"]
     elif status:
         result = [r for r in result if r["payment_status"] == status and r["payment_status"] != "Void"]
+
+    # Sort the derived value here, since SQL never saw it.
+    if _derived_sort:
+        result.sort(key=lambda r: (r.get("payment_status") or ""),
+                    reverse=_direction == "DESC")
 
     if limit is not None:
         cap = max(1, min(limit, 500))

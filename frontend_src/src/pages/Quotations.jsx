@@ -19,9 +19,9 @@ import { useLocale } from '../hooks/useLocale.jsx';
 import { usePermissions } from '../hooks/usePermissions';
 import Attachments from '../components/Attachments.jsx';
 import InventoryCombobox, { salePriceInBase } from '../components/InventoryCombobox';
-import { useSortPaginate } from '../hooks/useSortPaginate';
 import { useRecordExport } from '../hooks/useRecordExport';
 import { useFocusId } from '../hooks/useFocusId';
+import { useServerList } from '../hooks/useServerList';
 
 const STATUSES   = ['Draft', 'Sent', 'Accepted', 'Rejected'];
 // `discount` (in functional currency) is opt-in via Settings → "Enable
@@ -203,7 +203,28 @@ export default function Quotations() {
   const navigate = useNavigate();
   // Quotations use Void/Unvoid as their lifecycle, not archive — so there is
   // no in-module "Show archived" view here.
-  const { data: quotations, loading, error, reload } = useData((s) => getQuotations({}, s));
+  const [statusFilter, setStatusFilter]   = usePersistedState('quotations.statusFilter', '');
+  const [clientFilter, setClientFilter]   = usePersistedState('quotations.clientFilter', '');
+  const [projectFilter, setProjectFilter] = usePersistedState('quotations.projectFilter', '');
+  const [savedSearch, setSavedSearch]     = usePersistedState('quotations.search', '');
+
+  // Paged, searched and sorted BY THE SERVER; this screen used to fetch every
+  // quotation and do all three in the browser.
+  const list = useServerList(
+    (query, s) => getQuotations(query, s),
+    {
+      status:     statusFilter  || undefined,
+      client_id:  clientFilter  || undefined,
+      project_id: projectFilter || undefined,
+    },
+    { initialSearch: savedSearch },
+  );
+  const { items: pagedQuotations, total: totalCount, loading, error, reload,
+          page, pageSize, totalPages, setPage, setPageSize,
+          sortKey, sortDir, requestSort, search, setSearch,
+          isFiltered, PAGE_SIZES } = list;
+  // Keep remembering the operator's search across sessions, as before.
+  useEffect(() => { setSavedSearch(search); }, [search]);
   const { data: clients,  loading: cLoading,  reload: reloadClients }  = useData((s) => getClients({}, s));
   // Quotations can also be addressed to CRM leads — load active (non-archived)
   // leads alongside the client list so the picker covers both.
@@ -215,11 +236,16 @@ export default function Quotations() {
   // Global-search deep link (?focus=<id>) → open that quotation.
   const [focusId, clearFocus] = useFocusId();
   useEffect(() => {
-    if (focusId != null && quotations?.length) {
-      const q = quotations.find(x => x.id === focusId);
-      if (q) { openEdit(q); clearFocus(); }
-    }
-  }, [focusId, quotations]);
+    if (focusId == null) return;
+    // Fetched by id, not looked up in the loaded rows: the list is one page
+    // now, so a link from global search or a client's quotation list usually
+    // points at a record that is not on it.
+    let alive = true;
+    getQuotation(focusId)
+      .then(q => { if (alive && q) { openEdit(q); clearFocus(); } })
+      .catch(() => { /* deleted or not visible to this user — ignore */ });
+    return () => { alive = false; };
+  }, [focusId]);
 
   const [modalOpen,    setModalOpen]    = useState(false);
   const [form,         setForm]         = useState(makeEmpty);
@@ -245,10 +271,6 @@ export default function Quotations() {
   const [formLoading,  setFormLoading]  = useState(false);
   const [voidQuoteId,  setVoidQuoteId]  = useState(null);
   const [saving,       setSaving]       = useState(false);
-  const [statusFilter, setStatusFilter] = usePersistedState('quotations.statusFilter', '');
-  const [search, setSearch] = usePersistedState('quotations.search', '');
-  const [clientFilter, setClientFilter] = usePersistedState('quotations.clientFilter', '');
-  const [projectFilter, setProjectFilter] = usePersistedState('quotations.projectFilter', '');
 
   const { exportLoading, handleExport } = useRecordExport({
     fetchFull:   getQuotation,
@@ -435,21 +457,18 @@ export default function Quotations() {
     } catch (err) { toast(err.message, 'red'); }
   }
 
-  const q2 = search.toLowerCase();
-  const filtered = (quotations || []).filter(q => {
-    if (statusFilter  && q.status !== statusFilter) return false;
-    if (clientFilter  && String(q.client_id) !== clientFilter) return false;
-    if (projectFilter && String(q.project_id) !== projectFilter) return false;
-    if (q2 && ![q.quote_number, q.client_name, q.lead_name, q.lead_company,
-                q.project_name, q.notes]
-                .join(' ').toLowerCase().includes(q2)) return false;
-    return true;
-  });
   const dropdownsReady = !cLoading && !lLoading && !pLoading;
 
-  const { sorted: pagedQuotations, page, pageSize, totalPages, setPage, setPageSize, sortKey, sortDir, requestSort, PAGE_SIZES } = useSortPaginate(filtered);
-
-  const exportData = (filtered || []).map(q => ({
+  // Fetches every matching quotation (no `limit`), so an export is never
+  // silently truncated to the page on screen.
+  const fetchExportRows = async () => {
+    const all = await getQuotations({
+      status:     statusFilter  || undefined,
+      client_id:  clientFilter  || undefined,
+      project_id: projectFilter || undefined,
+      ...(search.trim() ? { search: search.trim() } : {}),
+    });
+    return (Array.isArray(all) ? all : all.items || []).map(q => ({
     'Quote #':               q.quote_number,
     'Status':                q.status,
     'Client':                q.client_name  || (q.lead_name ? `${q.lead_name} (lead)` : '—'),
@@ -458,19 +477,20 @@ export default function Quotations() {
     ...(taxEnabled ? { 'Total incl. VAT (USD)': q.total_with_tax ?? q.total ?? 0 } : {}),
     'Created':               q.created_at   ? new Date(q.created_at).toLocaleDateString() : '—',
     'Notes':                 q.notes        || '',
-  }));
+    }));
+  };
 
   return (
     <div>
       <div className="page-header">
         <div>
           <h1 className="page-title">{t('quotations.title')}</h1>
-          <p className="page-subtitle">{t('quotations.totalQuotations', { count: quotations?.length ?? 0 })}</p>
+          <p className="page-subtitle">{t('quotations.totalQuotations', { count: totalCount })}</p>
         </div>
         <div style={{display:'flex',gap:8,alignItems:'center'}}>
           <ExchangeRateBadge />
           <DisplayCurrencyToggle />
-          <ExportButton data={exportData} filename="Quotations" sheetName="Quotations" />
+          <ExportButton fetchData={fetchExportRows} filename="Quotations" sheetName="Quotations" />
           <button className="btn btn-primary" onClick={openCreate}>{t('quotations.addQuotation')}</button>
         </div>
       </div>
@@ -515,16 +535,16 @@ export default function Quotations() {
               </button>
             )}
           </div>
-          {filtered.length !== (quotations||[]).length && (
+          {isFiltered && (
             <div style={{fontSize:12,color:'var(--text-3)'}}>
-              {t('quotations.showingFiltered', { count: filtered.length, total: (quotations||[]).length })}
+              {t('quotations.showingFiltered', { count: totalCount, total: totalCount })}
             </div>
           )}
         </div>
 
         {loading ? <LoadingSpinner /> :
          error   ? <ErrorAlert message={error} onRetry={reload} /> :
-         filtered.length === 0 ? <EmptyState message={t('quotations.noQuotationsFound')} /> : (
+         pagedQuotations.length === 0 ? <EmptyState message={t('quotations.noQuotationsFound')} /> : (
           <div className="table-wrap">
             <table>
               <thead>
@@ -612,7 +632,7 @@ export default function Quotations() {
               </tbody>
             </table>
             <Pagination page={page} totalPages={totalPages} pageSize={pageSize} pageSizes={PAGE_SIZES}
-              totalRows={filtered.length} setPage={setPage} setPageSize={setPageSize} />
+              totalRows={totalCount} setPage={setPage} setPageSize={setPageSize} />
           </div>
         )}
       </div>

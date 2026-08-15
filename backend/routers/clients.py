@@ -25,6 +25,7 @@ class ArchiveRequest(BaseModel):
 def list_clients(search: Optional[str] = None, type: Optional[str] = None,
                  include_archived: bool = False,
                  limit: Optional[int] = None, offset: int = 0,
+                 sort: Optional[str] = None, dir: str = "asc",
                  user=Depends(require_perm("clients", "view")), db: sqlite3.Connection = Depends(get_db)):
     # Default view hides archived rows. `include_archived=1` returns them too
     # (each carries archived_at) so the list can offer an in-module "Show
@@ -44,6 +45,14 @@ def list_clients(search: Optional[str] = None, type: Optional[str] = None,
         params.append(type)
     where_clause = " WHERE " + " AND ".join(where)
 
+    # Sorting from a fixed allow-list: `sort` reaches ORDER BY, which takes no
+    # bind parameters, so only a value from this map may be interpolated.
+    _SORTABLE = {"name": "name", "company": "company", "type": "type",
+                 "phone": "phone", "email": "email", "created_at": "created_at"}
+    _direction = "DESC" if str(dir).lower() == "desc" else "ASC"
+    order_sql = (f" ORDER BY {_SORTABLE[sort]} {_direction}"
+                 if sort in _SORTABLE else " ORDER BY created_at DESC")
+
     # Pagination, matching the invoices convention: with no `limit` the response
     # is the full array exactly as before, so every existing caller is
     # untouched. Pass `limit` (capped at 500) for a
@@ -53,13 +62,13 @@ def list_clients(search: Optional[str] = None, type: Optional[str] = None,
         total = db.execute(f"SELECT COUNT(*) FROM clients{where_clause}",
                            params).fetchone()[0]
         rows  = db.execute(
-            f"SELECT * FROM clients{where_clause} ORDER BY created_at DESC"
+            f"SELECT * FROM clients{where_clause}{order_sql}"
             f" LIMIT ? OFFSET ?", params + [cap, offset]).fetchall()
         return {"items": [dict(r) for r in rows], "total": total,
                 "limit": cap, "offset": offset}
 
     rows = db.execute(
-        f"SELECT * FROM clients{where_clause} ORDER BY created_at DESC",
+        f"SELECT * FROM clients{where_clause}{order_sql}",
         params).fetchall()
     return [dict(r) for r in rows]
 

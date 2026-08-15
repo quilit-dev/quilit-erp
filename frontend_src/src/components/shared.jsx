@@ -533,14 +533,35 @@ export function exportToExcel(data, filename, sheetName = 'Sheet1') {
   XLSX.writeFile(wb, `${filename}.xlsx`);
 }
 
-export function ExportButton({ data, filename, sheetName }) {
+/**
+ * `data` exports what the caller already holds. `fetchData` is for screens that
+ * only hold ONE PAGE: they pass an async function that fetches every matching
+ * row, so the export stays the whole filtered set rather than silently
+ * shrinking to whatever happened to be on screen — an export that quietly drops
+ * rows is worse than one that fails.
+ */
+export function ExportButton({ data, fetchData, filename, sheetName }) {
   const { t } = useLocale();
+  const [busy, setBusy] = useState(false);
+
+  async function run() {
+    if (!fetchData) { exportToExcel(data, filename, sheetName); return; }
+    setBusy(true);
+    try {
+      exportToExcel(await fetchData(), filename, sheetName);
+    } catch (e) {
+      toast(e?.message || 'Export failed', 'red');
+    } finally {
+      setBusy(false);
+    }
+  }
+
   return (
-    <button className="btn btn-secondary btn-sm" onClick={() => exportToExcel(data, filename, sheetName)} title="Export to Excel">
+    <button className="btn btn-secondary btn-sm" onClick={run} disabled={busy} title="Export to Excel">
       <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
         <path d="M21 15v4a2 2 0 01-2 2H5a2 2 0 01-2-2v-4"/><polyline points="7 10 12 15 17 10"/><line x1="12" y1="15" x2="12" y2="3"/>
       </svg>
-      {t('common.export')}
+      {busy ? t('common.exporting') : t('common.export')}
     </button>
   );
 }

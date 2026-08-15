@@ -1,13 +1,12 @@
 import { usePersistedState } from '../hooks/usePersistedState';
 import { useState } from 'react';
 import { useNavigate } from 'react-router-dom';
-import { useData } from '../hooks/useData';
+import { useServerList } from '../hooks/useServerList';
 import { getClients, createClient, updateClient, archiveClient, unarchiveClient } from '../api/client';
 import {
   LoadingSpinner, ErrorAlert, EmptyState, Modal, ConfirmModal,
   ExportButton, fmtDate, toast, SortableTh, Pagination
 } from '../components/shared';
-import { useSortPaginate } from '../hooks/useSortPaginate';
 import { useLocale } from '../hooks/useLocale.jsx';
 import ImportWizard from '../components/ImportWizard';
 
@@ -16,10 +15,15 @@ const EMPTY = { name: '', company: '', phone: '', email: '', address: '', type: 
 export default function Clients() {
   const navigate = useNavigate();
   const [showArchived, setShowArchived] = usePersistedState('clients.showArchived', false);
-  const { data: clients, loading, error, reload } = useData(
-    (s) => getClients(showArchived ? { include_archived: 1 } : {}, s),
-    [showArchived],
+  // Paged, searched and sorted BY THE SERVER. This screen used to download
+  // every client and do all three in the browser.
+  const list = useServerList(
+    (query, s) => getClients(query, s),
+    showArchived ? { include_archived: 1 } : {},
   );
+  const { items: sorted, total, loading, error, reload,
+          page, pageSize, totalPages, setPage, setPageSize,
+          sortKey, sortDir, requestSort, search, setSearch, PAGE_SIZES } = list;
   const [modal,    setModal]    = useState(null);
   const [importing, setImporting] = useState(false);
   const [form,     setForm]     = useState(EMPTY);
@@ -27,14 +31,8 @@ export default function Clients() {
   const [deleteId, setDeleteId] = useState(null);
   const [restoreId, setRestoreId] = useState(null);
   const [saving,   setSaving]   = useState(false);
-  const [search, setSearch] = usePersistedState('clients.search', '');
   const { t } = useLocale();
 
-  const filtered = (clients || []).filter(c =>
-    [c.name, c.company, c.email, c.phone].join(' ').toLowerCase().includes(search.toLowerCase())
-  );
-
-  const { sorted, page, pageSize, totalPages, setPage, setPageSize, sortKey, sortDir, requestSort, PAGE_SIZES } = useSortPaginate(filtered);
 
   function openCreate()  { setForm(EMPTY); setEditId(null); setModal('form'); }
   function openEdit(c)   { setForm({ ...c }); setEditId(c.id); setModal('form'); }
@@ -69,21 +67,29 @@ export default function Clients() {
     } catch (err) { toast(err.message, 'red'); }
   }
 
-  const exportData = filtered.map(c => ({
-    Name: c.name, Company: c.company || '', Type: c.type,
-    Phone: c.phone || '', Email: c.email || '', Address: c.address || '',
-    Created: fmtDate(c.created_at),
-  }));
+  // Fetches the whole filtered set (no `limit`), so an export is never
+  // silently truncated to the page on screen.
+  const fetchExportRows = async () => {
+    const all = await getClients({
+      ...(showArchived ? { include_archived: 1 } : {}),
+      ...(search.trim() ? { search: search.trim() } : {}),
+    });
+    return (Array.isArray(all) ? all : all.items || []).map(c => ({
+      Name: c.name, Company: c.company || '', Type: c.type,
+      Phone: c.phone || '', Email: c.email || '', Address: c.address || '',
+      Created: fmtDate(c.created_at),
+    }));
+  };
 
   return (
     <div>
       <div className="page-header">
         <div>
           <h1 className="page-title">{t('clients.title')}</h1>
-          <p className="page-subtitle">{t('clients.totalClients', { count: clients?.length ?? 0 })}</p>
+          <p className="page-subtitle">{t('clients.totalClients', { count: total })}</p>
         </div>
         <div style={{ display: 'flex', gap: 8 }}>
-          <ExportButton data={exportData} filename="Clients" sheetName="Clients" />
+          <ExportButton fetchData={fetchExportRows} filename="Clients" sheetName="Clients" />
           <button className="btn btn-secondary" onClick={() => setImporting(true)}>⬆ {t('imports.importBtn')}</button>
           <button className="btn btn-primary" onClick={openCreate}>{t('clients.addClient')}</button>
         </div>
@@ -114,7 +120,7 @@ export default function Clients() {
 
         {loading ? <LoadingSpinner /> :
          error   ? <ErrorAlert message={error} onRetry={reload} /> :
-         filtered.length === 0 ? <EmptyState message={t('clients.noClientsFound')} /> : (
+         sorted.length === 0 ? <EmptyState message={t('clients.noClientsFound')} /> : (
           <div className="table-wrap">
             <table>
               <thead>
@@ -162,7 +168,7 @@ export default function Clients() {
               </tbody>
             </table>
             <Pagination page={page} totalPages={totalPages} pageSize={pageSize} pageSizes={PAGE_SIZES}
-              totalRows={filtered.length} setPage={setPage} setPageSize={setPageSize} />
+              totalRows={total} setPage={setPage} setPageSize={setPageSize} />
           </div>
         )}
       </div>
