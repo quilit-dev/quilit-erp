@@ -68,6 +68,7 @@ export default function Settings() {
     'payroll_tax_pct', 'payroll_nssf_employee_pct',
     'payroll_nssf_employer_pct', 'payroll_overtime_multiplier',
     'footer_text', 'show_discount_col', 'show_tax_col',
+    'show_barcode_col', 'show_total_words', 'preprinted_stationery',
     'pos_receipt_width',
   ]);
 
@@ -467,6 +468,7 @@ export default function Settings() {
             <Toggle disabled={!isAdmin} label={t('settings.showTaxCol')} checked={isOn('show_tax_col')} onChange={bool('show_tax_col')} />
             <Toggle disabled={!isAdmin} label={t('settings.showBarcodeCol')} checked={isOn('show_barcode_col')} onChange={bool('show_barcode_col')} />
             <Toggle disabled={!isAdmin} label={t('settings.showTotalWords')} checked={isOn('show_total_words')} onChange={bool('show_total_words')} />
+            <Toggle disabled={!isAdmin} label={t('settings.preprintedStationery')} checked={isOn('preprinted_stationery')} onChange={bool('preprinted_stationery')} />
           </div>
         </Section>
 

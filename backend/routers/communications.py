@@ -101,6 +101,12 @@ def _company(db) -> dict:
               "default_currency", "currency", "footer_text", "payment_terms_days",
               "tax_enabled", "default_tax_rate", "show_tax_col", "show_discount_col",
               "show_barcode_col", "show_total_words")
+    # `preprinted_stationery` is deliberately NOT in that list, and adding it
+    # would be a bug. It means "this company prints onto paper that already has
+    # its letterhead", which is true of the supplier and false of whoever opens
+    # the link — they are looking at a screen. Carrying it here would strip the
+    # design from the customer's copy of a document the supplier sent on
+    # letterhead.
     out = {"name": "", "address": "", "phone": "", "email": "", "currency": "USD"}
     try:
         rows = db.execute(

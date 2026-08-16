@@ -10,6 +10,10 @@
  *   show_barcode_col   — adds a per-line "Barcode" column, resolved server-side
  *                        through the line's inventory link
  *   show_total_words   — spells the grand total out beneath the totals box
+ *   preprinted_stationery — the company's paper already carries its letterhead,
+ *                        so the design is left off the company's own export.
+ *                        Never set on the share link: the customer has no such
+ *                        paper, so their copy keeps the design.
  *   document_template  — which letterhead to print on. READ-ONLY: resolved from
  *                        the tenant in backend/vendor_config.py, never settable
  *                        by a tenant, because a letterhead is a company's
@@ -35,11 +39,25 @@ export function openSafeHtmlDocument(html) {
 }
 
 // ─── Formatters ────────────────────────────────────────────────────────────────
-const fmtCurrency = (v, currency = 'USD', decimals = 2) =>
-  new Intl.NumberFormat('en-US', {
+// Currencies with no minor unit in circulation. Printing "12,172,000.00" on a
+// Lebanese invoice is not a rounding preference — there is nothing the ".00"
+// could refer to, and it makes every figure two characters harder to read on a
+// document whose totals already run to eight digits.
+const ZERO_DECIMAL = new Set([
+  'LBP', 'JPY', 'KRW', 'VND', 'CLP', 'ISK', 'PYG', 'UGX', 'RWF', 'XAF', 'XOF',
+  'XPF', 'KMF', 'DJF', 'GNF', 'MGA', 'VUV',
+]);
+
+/** Decimal places to print for a currency: 0 where it has no minor unit. */
+export const decimalsFor = code => (ZERO_DECIMAL.has(String(code || '').toUpperCase()) ? 0 : 2);
+
+const fmtCurrency = (v, currency = 'USD', decimals) => {
+  const dp = decimals === undefined ? decimalsFor(currency) : decimals;
+  return new Intl.NumberFormat('en-US', {
     style: 'currency', currency,
-    minimumFractionDigits: decimals, maximumFractionDigits: decimals,
+    minimumFractionDigits: dp, maximumFractionDigits: dp,
   }).format(Number(v) || 0);
+};
 
 // `USD` is the document money formatter. Despite the name it formats whichever
 // currency the export is rendered in — it is reassigned per-export so an LBP
@@ -53,7 +71,10 @@ function currencyContext(C, opts) {
   const useLbp = opts?.displayCurrency === 'LBP' && Number(opts?.exchangeRate?.rate) > 0;
   const rate   = useLbp ? Number(opts.exchangeRate.rate) : 1;
   const code   = useLbp ? (opts.exchangeRate.secondary || 'LBP') : C.currency;
-  const dec    = useLbp ? 0 : 2;
+  // Driven by the currency, not by which view is showing. The converted view
+  // already dropped decimals for LBP; a company whose BASE currency is LBP was
+  // still getting "LBP 12,172,000.00" on every line.
+  const dec    = decimalsFor(code);
   return {
     useLbp, rate, code,
     money: (v) => fmtCurrency((Number(v) || 0) * rate, code, dec),
@@ -300,6 +321,8 @@ function buildCompany(s) {
     showDiscountCol: s.show_discount_col   === '1',   // per-line Discount column
     showBarcodeCol:  s.show_barcode_col    === '1',   // per-line Barcode column
     showTotalWords:  s.show_total_words    === '1',   // total spelled out
+    // The company prints onto paper that already carries its letterhead.
+    preprinted:      s.preprinted_stationery === '1',
   };
 }
 
@@ -447,15 +470,20 @@ function docShell(theme, { C, logo, title, client, rows, statusHtml, defaultHead
   // A table, not divs. thead and tfoot are the only things a browser reliably
   // repeats on every printed sheet, and they reserve their own height on each —
   // so the letterhead prints on page three of a long invoice, and page three's
-  // first row cannot land on top of it.
-  // A table, not divs. thead and tfoot are the only things a browser reliably
-  // repeats on every printed sheet, and they reserve their own height on each —
-  // so the letterhead prints on page three of a long invoice, and page three's
   // first row cannot land on top of it. The whole letterhead hangs off the
   // thead; the tfoot is an empty spacer that only reserves the foot margin.
+  //
+  // On pre-printed stationery the thead carries nothing but that reservation.
+  // The paper already has the letterhead on it, so printing the design again
+  // would lay ink over ink — and no printer feeds a sheet within a tenth of a
+  // millimetre, so the second impression would sit slightly off the first and
+  // show as a doubled edge. The MARGINS stay exactly the same either way, which
+  // is what keeps the text landing in the blank area the design leaves free.
+  const sheet = C.preprinted ? '' : theme.sheet(C, logo);
+
   return `<div class="page">
   <table class="hj-sheet">
-    <thead><tr><td>${theme.sheet(C, logo)}</td></tr></thead>
+    <thead><tr><td>${sheet}</td></tr></thead>
     <tbody><tr><td>
       ${theme.open}
         ${theme.header({ C, title, client, rows, statusHtml })}

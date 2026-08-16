@@ -200,6 +200,89 @@ describe('the monogram', () => {
   });
 });
 
+// The customer prints onto paper that already carries the letterhead, so their
+// own export must put nothing but data on it. Printing the design again would
+// lay ink over ink, and since no printer feeds a sheet within a tenth of a
+// millimetre, the second impression would sit slightly off the first and show
+// as a doubled edge.
+describe('pre-printed stationery', () => {
+  const ON = { ...BASE, document_template: 'hajosign', preprinted_stationery: '1' };
+
+  test('the design is left off', () => {
+    // Markup, not the whole file: the theme's stylesheet still defines these
+    // classes, and a search over the document would match the CSS while the
+    // page was in fact printing the design.
+    const markup = body(ON);
+
+    for (const part of ['hj-art', 'hj-masthead', 'hj-watermark', 'hj-foot']) {
+      expect(markup, `${part} would print over the pre-printed sheet`)
+        .not.toContain(`class="${part}`);
+    }
+    expect(markup).toContain('<thead><tr><td></td></tr></thead>');
+  });
+
+  test('but the margins are unchanged, so the data still lands in the blank area', () => {
+    // The whole point: the text has to fall exactly where the paper is empty.
+    // If turning this on moved the content, it would print over the letterhead
+    // it was meant to avoid.
+    expect(build(ON)).toContain('height: 50mm');       // thead reservation
+    expect(build(ON)).toContain('height: 32mm');       // tfoot reservation
+    expect(build(ON)).toContain('padding: 0 16mm');    // side margins
+  });
+
+  test('the document still says everything it said', () => {
+    const html = build(ON);
+    for (const needle of ['INV-2026-0007', 'Flex Roll 320cm', '1,800.00', 'Sales Invoice']) {
+      expect(html).toContain(needle);
+    }
+  });
+
+  test('a customer opening the share link still gets the design', () => {
+    // The public payload deliberately withholds this setting, because it
+    // describes the SUPPLIER's paper. Simulated here by its absence.
+    const shared = body({ ...BASE, document_template: 'hajosign' });
+    expect(shared).toContain('class="hj-art');
+    expect(shared).toContain('class="hj-masthead"');
+  });
+
+  test('it does nothing to a tenant with no letterhead', () => {
+    expect(build({ ...BASE, preprinted_stationery: '1' })).toBe(build(BASE));
+  });
+});
+
+describe('currencies with no minor unit', () => {
+  const LBP = { ...BASE, default_currency: 'LBP', show_total_words: '1' };
+
+  test('LBP prints whole, not to two decimals', () => {
+    // "LBP 12,172,000.00" has nothing the .00 could refer to, and makes an
+    // eight-digit figure two characters harder to read.
+    const html = buildInvoiceHTML(
+      { ...INVOICE, items: [{ name: 'Flex Roll 320cm', quantity: 1, unit_price: 12172000 }] },
+      LBP).html;
+
+    expect(html).toContain('12,172,000');
+    expect(html).not.toContain('12,172,000.00');
+  });
+
+  test('USD still prints its cents', () => {
+    expect(build(BASE)).toContain('1,800.00');
+  });
+
+  test('the words agree with the figure', () => {
+    const html = buildInvoiceHTML(
+      { ...INVOICE, items: [{ name: 'x', quantity: 1, unit_price: 12172000 }] }, LBP).html;
+
+    expect(html).toContain('12,172,000');
+    expect(html).toContain('Twelve million one hundred seventy-two thousand Lebanese Pounds only');
+  });
+
+  test('the converted view was already right and stays right', () => {
+    const html = buildInvoiceHTML(INVOICE, { ...BASE }, null,
+      { displayCurrency: 'LBP', exchangeRate: { rate: 89000, secondary: 'LBP' } }).html;
+    expect(html).not.toMatch(/LBP[^<]*\.\d\d/);
+  });
+});
+
 describe('a theme changes presentation, never the figures', () => {
   const plain = build(BASE);
   const themed = build({ ...BASE, document_template: 'hajosign' });

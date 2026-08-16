@@ -70,6 +70,12 @@ DEFAULTS = {
     # an empty column. Switched on per company in Settings → Document Settings.
     "show_barcode_col":    "0",
     "show_total_words":    "0",
+    # Set when the company prints onto stationery that already carries its
+    # letterhead. The design is then omitted from the company's OWN export —
+    # printing it again would double it, and any misregistration in the printer
+    # shows up as a ghosted edge. The copy a customer opens from a share link is
+    # unaffected: they have no such paper, so their document carries the design.
+    "preprinted_stationery": "0",
     # Setup
     "setup_complete":      "0",
 }
@@ -108,6 +114,7 @@ class SettingsUpdate(BaseModel):
     show_tax_col:       Optional[str] = None
     show_barcode_col:   Optional[str] = None
     show_total_words:   Optional[str] = None
+    preprinted_stationery: Optional[str] = None
     # `document_template` is deliberately absent for the same reason as
     # `enabled_modules` below: it is a vendor decision, and `extra: forbid`
     # turns an attempt to set it into a 422 rather than a silent no-op.
