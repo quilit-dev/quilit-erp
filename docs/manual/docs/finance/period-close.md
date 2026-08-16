@@ -36,23 +36,13 @@ reconcile for each business date. Close each reconciliation with the
 counted USD + LBP balances. The F-3 fix posts any variance to **6910 Cash
 Short & Over** automatically.
 
-Verify there are no open reconciliations:
-
-```sql
-SELECT id, drawer_id, business_date
-FROM cash_reconciliations
-WHERE status = 'open';
--- Should return zero rows before the period can be locked.
-```
+Verify there are no open reconciliations.
 
 ### 2. Post FX revaluation (if you hold LBP cash)
 
-Count physical LBP across all drawers and call:
-
-```
-POST /api/accounting/fx-revaluation
-{ "counted_lbp": 89000000, "as_of": "2026-05-31",
-  "note": "Month-end LBP mark-to-market" }
+Count the physical LBP across all drawers, then go to
+**Accounting → FX revaluation**, enter the counted amount and the date,
+and save.
 ```
 
 The system marks `1010 Cash — LBP` to the current spot rate and posts the
@@ -63,8 +53,8 @@ for the math.
 
 Fixed Assets → **Run depreciation for period**. The system computes
 straight-line depreciation for every active asset that's eligible
-(`in_service_date` ≤ period end, `last_depreciated_period` < this period)
-and posts:
+(in service date ≤ period end, last depreciated period < this period)
+and posts.
 
 `DR 6300 Depreciation Expense / CR 1510 Accumulated Depreciation`
 
@@ -73,21 +63,13 @@ One journal entry per asset, marked `source_type='depreciation'` and
 
 ### 4. Generate recurring expenses
 
-Recurring expense templates produce actual `expenses` rows on their
-`next_run_date`. The scheduler runs automatically, but you can force it:
+Recurring expense templates produce actual expenses rows on their
+next run date. The scheduler runs automatically, but you can force it.
 
-`POST /api/recurring-expenses/run-due`
+**Expenses → Recurring → Run due now**
 
 After running, verify the recurring expenses for the period are all
-generated:
-
-```sql
-SELECT re.name, re.next_run_date, re.last_generated_date
-FROM recurring_expenses re
-WHERE re.is_active = 1
-  AND re.next_run_date <= '2026-05-31';
--- Empty result = all due rows generated for this period.
-```
+generated.
 
 ### 5. Read the Trial Balance
 
@@ -124,7 +106,7 @@ period showing red.
 ### 8. Snapshot period totals
 
 Finance → **Period snapshots** → **Save snapshot for [month]**. Writes
-one `period_snapshots` row with frozen income / expenses / profit /
+one period snapshots row with frozen income / expenses / profit /
 counts.
 
 The snapshot is the post-lock single-source-of-truth — even after
@@ -133,27 +115,27 @@ unlocking and adjustments, the snapshot persists for trend analysis.
 ### 9. Lock the period
 
 Finance → **Lock period** → confirm. Writes `accounting_periods.locked_at`
-+ `locked_by`. From this point:
++ locked by. From this point.
 
-- Any new journal entry with `entry_date` in the locked period is **rejected**
+- Any new journal entry with entry date in the locked period is **rejected**
 - Edits to invoices/expenses/payments in the period are blocked
-- The lock is reversible by an administrator (`unlock_period` endpoint)
+- The lock is reversible by an administrator
 
 ### 10–11. Year-end (only if December close)
 
-For the December close, after step 9 also:
+For the December close, after step 9 also.
 
 ```
-POST /api/accounting/fiscal-years/{year}/close
+Accounting → Closing → Close year
 ```
 
 The system computes Net Income for the year and posts the **closing
-entry**:
+entry**.
 
 `DR Income accounts (zero them out) / CR Expense accounts (zero them out) / CR Retained Earnings (3900)`
 
 This is the only entry that touches Retained Earnings via the closing
-process. The `fiscal_years.status` flips to `closed`; `closing_entry_id`
+process. The `fiscal_years.status` flips to `closed`; closing entry id
 references the entry.
 
 ## What can go wrong (and how to recover)

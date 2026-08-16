@@ -1,143 +1,76 @@
 # Headline workflows
 
-Three end-to-end workflows that span this chapter's modules.
+Three jobs that run across several parts of the system. Each one is a
+sequence of ordinary screens — this page shows the order.
 
-## Workflow 1 — Monthly payroll
+---
 
-```mermaid
-sequenceDiagram
-    autonumber
-    participant HR as HR Manager
-    participant API as POST /api/hr/payroll/runs
-    participant ENG as Accounting engine
-    participant DB as SQLite
+## Monthly payroll
 
-    HR->>API: Create draft run<br/>{ period_start, period_end }
-    API->>DB: INSERT hr_payroll_runs (status='Draft')
+**Who:** HR Manager · **When:** end of each month
 
-    loop each active employee
-        API->>DB: Look up active contract<br/>(snapshot salary_currency)
-        API->>DB: INSERT hr_payroll_lines<br/>(employee_id, base_salary,<br/>tax, NSSF emp + employer,<br/>net, salary_currency)
-    end
+| # | Where | What you do |
+|---|---|---|
+| 1 | **HR → Payroll → New run** | Pick the month. The system creates a draft and adds a line for every active employee, using the salary on their current contract. |
+| 2 | The draft run | Adjust bonuses, deductions and overtime per person. Tax and social contributions are worked out for you. |
+| 3 | **Approve** | The run locks. Nobody can edit the lines after this. |
+| 4 | **Mark paid** | The system records the expense and posts it to the accounts. |
 
-    Note over HR: HR Manager tweaks bonuses /<br/>deductions / overtime per line
+**Before you start:** every employee who should be paid needs an active
+contract. Someone without one is skipped, which is the usual reason a person
+is missing from a run.
 
-    HR->>API: Approve run<br/>POST /runs/{id}/approve
-    API->>DB: UPDATE hr_payroll_runs<br/>status='Approved', approved_at, by
+**If someone's pay is wrong:** fix it while the run is still a draft. Once
+approved, the run cannot be edited — cancel it and start again, so the
+history shows what happened.
 
-    HR->>API: Mark paid<br/>POST /runs/{id}/mark-paid
+Staff paid in different currencies are grouped by currency, so each is
+recorded at its own rate.
 
-    API->>DB: GROUP BY salary_currency
-    Note over API: F-6 fix: convert each<br/>currency segment to USD<br/>at the latest spot rate
+---
 
-    alt LBP segment exists but no rate set
-        API-->>HR: 400: "Set LBP→USD rate first"
-    else proceed
-        API->>DB: INSERT expenses (category='Payroll', amount=USD total)
-        API->>ENG: post_entry(<br/>DR 6000 Salaries USD total /<br/>CR 1000 Cash (USD segment) /<br/>CR 1010 Cash—LBP (LBP segment))
-        ENG->>DB: INSERT journal_entry + lines
-        API->>DB: UPDATE hr_payroll_runs<br/>status='Paid', paid_at, by, posted_expense_id
-        API->>DB: INSERT audit_log
-    end
+## Capex approval
 
-    API-->>HR: { expense_id, amount }
-```
+**Who:** whoever requests the purchase, then the approvers · **When:** buying
+something that becomes a company asset
 
-The F-6 fix is what makes this safe for mixed-currency installs. Every line's
-`salary_currency` is snapshotted at run-creation time; mark-paid groups by
-currency and converts at the *latest* spot rate.
+| # | Where | What happens |
+|---|---|---|
+| 1 | **Fixed Assets → New asset** | Enter what you want to buy and its cost. |
+| 2 | Automatic | If the amount crosses an approval rule, the request goes to the first approver instead of being created outright. |
+| 3 | **Approvals** | Each approver in turn approves or rejects. Everyone sees where it is. |
+| 4 | On final approval | The asset is created and starts depreciating. |
+| 5 | On rejection | Nothing is created. The request and its reason stay on record. |
 
-## Workflow 2 — Capex approval chain
+**Why nothing appeared:** if you created an asset and cannot find it, it is
+probably waiting for approval. Check **Approvals**.
 
-A fixed asset over a threshold needs a Finance Manager sign-off before being
-recorded. The approval policy engine handles the chain.
+Approval rules are set up once by an administrator — see
+[Approvals](approvals.md).
 
-```mermaid
-sequenceDiagram
-    autonumber
-    participant USR as Operations Manager
-    participant API as POST /api/assets/
-    participant POL as Approval engine
-    participant FIN as Finance Manager
-    participant DB as SQLite
+---
 
-    USR->>API: { asset_code, acquisition_cost: 25000, ... }
+## Hiring someone
 
-    API->>POL: evaluate_and_apply(<br/>module='assets', action='create',<br/>entity_data={amount: 25000})
+**Who:** Recruiter, then HR Manager · **When:** filling a position
 
-    Note over POL: Matches policy "Capex > $10K → Finance Manager"
+| # | Where | What you do |
+|---|---|---|
+| 1 | **Recruitment → Positions** | Open the role you are hiring for. |
+| 2 | **Applicants** | Add candidates as they apply. |
+| 3 | **Interviews** | Schedule them; each is recorded against the applicant. |
+| 4 | **Offer** | Make the offer. The applicant's status follows it. |
+| 5 | **Convert to employee** | Once accepted, this creates the employee record from the applicant — you do not retype their details. |
+| 6 | **HR → Contracts** | Add their employment contract. Until this exists they will not appear in a payroll run. |
 
-    POL->>DB: INSERT approval_requests (status='pending')
-    POL->>DB: INSERT approval_steps (step=1, approver_role='Finance Manager')
-    POL-->>API: needs_approval=true
+**The step people forget is 6.** Converting an applicant creates the person;
+it does not create their contract, and payroll works from contracts.
 
-    API->>DB: INSERT fixed_assets (status='Pending Approval')
-    API->>DB: INSERT notifications<br/>(user=Finance Mgr, type='approval_request')
-    API-->>USR: { id, status: 'Pending Approval' }
+---
 
-    Note over FIN: Sees notification → opens Approvals →
+## Where to read more
 
-    FIN->>API: POST /api/approval-requests/{id}/approve<br/>{ step: 1, comment: 'OK to capitalise' }
-    API->>POL: Approve step
-    POL->>DB: UPDATE approval_steps (status='approved', acted_at, by)
-
-    alt all steps approved
-        POL->>DB: UPDATE approval_requests (status='approved')
-        POL->>API: Apply pending action
-        API->>DB: UPDATE fixed_assets (status='Active')
-        API->>API: Now safe to depreciate
-    end
-
-    API->>DB: INSERT notifications<br/>(user=Ops Mgr, type='approval_status')
-    API-->>FIN: { applied: true }
-```
-
-The same engine gates expenses, purchases, invoices, projects, and assets.
-The policy specifies which modules + actions + conditions + approver roles.
-
-## Workflow 3 — Hire-to-employee conversion
-
-When a recruitment applicant is hired, the system promotes them to a full
-HR employee record.
-
-```mermaid
-sequenceDiagram
-    autonumber
-    participant REC as Recruiter
-    participant HR as HR Manager
-    participant API as Recruitment + HR routers
-    participant DB as SQLite
-
-    Note over REC: Process applicant through<br/>Screening → Test → Interview → Accepted
-
-    REC->>API: POST /api/recruitment/offers/<br/>{ applicant_id, salary, terms }
-    API->>DB: INSERT recruitment_offers (status='Draft')
-
-    REC->>API: POST /offers/{id}/send
-    API->>DB: UPDATE recruitment_offers (status='Sent', sent_at)
-
-    Note over REC: Candidate accepts →
-
-    REC->>API: POST /offers/{id}/accept
-    API->>DB: UPDATE recruitment_offers (status='Accepted', accepted_at)
-    API->>DB: UPDATE recruitment_applicants (status='Hired')
-
-    HR->>API: POST /api/recruitment/applicants/{id}/convert-to-employee
-
-    API->>DB: BEGIN
-    API->>DB: INSERT hr_employees<br/>(full_name, email, salary, job_title,<br/>department_id from offer)
-    API->>DB: INSERT hr_contracts<br/>(employee_id, salary_currency,<br/>contract_type, start_date,<br/>benefits, terms from offer)
-    API->>DB: UPDATE recruitment_applicants<br/>SET converted_employee_id = <new emp id>
-    API->>DB: INSERT hr_employment_changes<br/>(change_type='hire', new_salary, new_title)
-    API->>DB: INSERT audit_log<br/>(action='hire_applicant')
-    API->>DB: COMMIT
-
-    API-->>HR: { employee_id, message: 'Hired' }
-```
-
-After conversion, the applicant record stays (audit trail), but the
-operational records are now in HR. From there:
-
-- Payroll runs include the new employee
-- HR contract carries forward into the next renewal cycle
-- The recruitment position's `headcount` decrements
+- [HR](hr.md) — employees, leave, payroll
+- [HR Contracts](hr-contracts.md) — contracts and renewals
+- [Recruitment](recruitment.md) — positions, applicants, offers
+- [Approvals](approvals.md) — how approval rules are configured

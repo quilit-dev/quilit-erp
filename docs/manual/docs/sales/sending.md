@@ -122,8 +122,8 @@ it stops working — which you cannot do with a PDF once it has left your outbox
     - it opens **one** document, read-only
     - it cannot be used to reach any other record or any other customer
     - it expires, and can be revoked
-    - the database stores only a hash of it, so a database copy yields no
-      working links
+    - it is not stored anywhere in a form that could be replayed, so a copy
+      of the database yields no working links
     - every rejected link returns the same "not available" response,
       whether it expired, was revoked, or never existed
 

@@ -6,7 +6,7 @@ retroactively alter old documents.
 
 ## Purpose
 
-The tax engine is **rate-based** (not formula-based). Each rate has:
+The tax engine is **rate-based** (not formula-based). Each rate has.
 
 - A name (`"Standard 11%"`, `"Zero"`, `"Exempt"`)
 - A rate value (`11`, `0`, ...)
@@ -14,8 +14,8 @@ The tax engine is **rate-based** (not formula-based). Each rate has:
 - An is_default flag
 
 Documents (invoices, quotations, purchases, expenses) reference a rate by
-**ID + snapshot** — `tax_rate_id`, `tax_rate` (the value at write time),
-`tax_amount` (computed).
+**ID + snapshot** — tax rate, tax rate (the value at write time),
+tax amount (computed).
 
 ## Personas
 
@@ -31,7 +31,7 @@ Documents (invoices, quotations, purchases, expenses) reference a rate by
 - **Three types**: `standard`, `zero`, `exempt`
 - **One rate has `is_default=1`** — used when no rate is specified
 - **Per-line snapshot** — invoices, quotations, expenses, purchases all
-  carry `tax_rate_id`, `tax_rate`, `tax_amount`
+  carry tax rate, tax rate, tax amount
 - **Output VAT** goes to `2100 VAT Payable` (credit)
 - **Input VAT** also tracks against `2100 VAT Payable` (debit) for
   net-VAT computation
@@ -43,7 +43,7 @@ Documents (invoices, quotations, purchases, expenses) reference a rate by
     ### Picking a rate on a document
 
     Every line item form (invoice, quote, purchase, expense) has an
-    optional "Tax rate" dropdown. Options:
+    optional "Tax rate" dropdown. Options.
 
     - The default rate (auto-selected)
     - Other active rates
@@ -51,17 +51,17 @@ Documents (invoices, quotations, purchases, expenses) reference a rate by
 
     The displayed dropdown shows `name (rate%)` — e.g. "Standard (11%)".
 
-    When you save, the system snapshots `tax_rate_id`, `tax_rate`, and
+    When you save, the system snapshots tax rate, tax rate, and
     computes `tax_amount = quantity × unit_price × rate / 100`.
 
     ### Subtotal vs. amount
 
-    Every taxed document carries:
+    Every taxed document carries.
 
     | Field | Computed |
     |---|---|
     | Subtotal | Sum of (qty × price) per line, BEFORE tax |
-    | Tax total | Sum of `tax_amount` per line |
+    | Tax total | Sum of tax amount per line |
     | Amount | Subtotal + Tax total |
 
     The customer pays `Amount`; the VAT report nets out the tax portion.
@@ -70,13 +70,13 @@ Documents (invoices, quotations, purchases, expenses) reference a rate by
 
     ### Permissions
 
-    Tax rates are gated by `admin_access` (Business Owner + Superadmin) —
-    not via the regular RBAC `tax_rates` module key. That's because
+    Tax rates are limited to administrators (Business Owner) —
+    not via the regular Tax Rates permission. That's because
     changing tax rates affects the books.
 
     ### Creating a rate
 
-    Settings → **Tax Rates** → **+ Add rate**:
+    Settings → **Tax Rates** → **+ Add rate**.
 
     | Field | Notes |
     |---|---|
@@ -97,7 +97,7 @@ Documents (invoices, quotations, purchases, expenses) reference a rate by
     ### Changing a rate's value
 
     Editing a rate's `rate` value does **NOT** retroactively change
-    existing documents — they hold their snapshotted `tax_rate` value.
+    existing documents — they hold their snapshotted tax rate value.
     Only documents created **after** the change use the new value.
 
     For a true regime change (e.g. VAT went from 10% to 11%), create a
@@ -109,7 +109,7 @@ Documents (invoices, quotations, purchases, expenses) reference a rate by
 
     | Type | What the system does |
     |---|---|
-    | `standard` | Normal VAT — `tax_amount` computed and posted to `2100 VAT Payable` |
+    | `standard` | Normal VAT — tax amount computed and posted to `2100 VAT Payable` |
     | `zero` | Zero-rated — `tax_amount=0`, but the transaction shows in the VAT report |
     | `exempt` | Exempt — `tax_amount=0`, transaction excluded from VAT report's net base |
 
@@ -120,21 +120,7 @@ Documents (invoices, quotations, purchases, expenses) reference a rate by
 
     ### Per-line snapshot integrity
 
-    The snapshot is what survives rate changes — verify it's intact:
-
-    ```sql
-    -- Lines whose snapshotted tax_amount doesn't match
-    -- recompute from the current rate. Different = snapshot working as intended.
-    SELECT ii.invoice_id, ii.id AS line_id,
-           ii.quantity, ii.unit_price, ii.tax_rate AS snap_rate,
-           tr.rate AS current_rate,
-           ii.tax_amount AS snap_tax_amount,
-           ROUND(ii.quantity * ii.unit_price * tr.rate / 100, 2) AS recomputed
-    FROM invoice_items ii
-    LEFT JOIN tax_rates tr ON tr.id = ii.tax_rate_id
-    WHERE ii.tax_rate IS NOT NULL
-      AND ABS(ii.tax_amount - ROUND(ii.quantity * ii.unit_price * tr.rate / 100, 2)) > 0.01;
-    ```
+    The snapshot is what survives rate changes — verify it's intact.
 
     Many rows here = the rate changed at some point, and the snapshots
     preserved the original rate. If you ran this immediately after a rate
@@ -143,72 +129,20 @@ Documents (invoices, quotations, purchases, expenses) reference a rate by
 
     ### VAT Payable ties to per-document tax totals
 
-    ```sql
-    -- VAT Payable from GL
-    SELECT SUM(jel.credit) - SUM(jel.debit) AS vat_payable
-    FROM journal_entry_lines jel
-    JOIN journal_entries je ON je.id = jel.journal_entry_id
-    JOIN chart_of_accounts a ON a.id = jel.account_id
-    WHERE a.code = '2100' AND je.status = 'posted';
-
-    -- VAT collected on invoices minus VAT paid on purchases
-    SELECT
-      (SELECT SUM(tax_total) FROM invoices WHERE deleted_at IS NULL
-                                              AND voided_at IS NULL) AS output_vat,
-      (SELECT SUM(tax_amount) FROM purchases WHERE status IN ('Received','Paid')
-                                              AND deleted_at IS NULL) AS input_vat;
-    ```
-
-    `output_vat − input_vat` should equal `vat_payable` (within rounding).
+    `output_vat − input_vat` should equal vat payable (within rounding).
 
     ### Default rate audit
 
-    Exactly one rate should be the default at any time:
-
-    ```sql
-    SELECT COUNT(*) FROM tax_rates WHERE is_default = 1 AND is_active = 1;
-    -- Expected: 1
-    ```
+    Exactly one rate should be the default at any time.
 
 ---
-
-## Data model
-
-```mermaid
-erDiagram
-    TAX_RATES ||--o{ INVOICE_ITEMS : "applied to"
-    TAX_RATES ||--o{ QUOTATION_ITEMS : "applied to"
-    TAX_RATES ||--o{ PURCHASES : "applied to"
-    TAX_RATES ||--o{ EXPENSES : "applied to"
-    TAX_RATES ||--o{ RECURRING_EXPENSES : "default for"
-
-    TAX_RATES {
-        int  id PK
-        text name
-        real rate
-        text tax_type
-        int  is_default
-        int  is_active
-        text created_at
-    }
-```
-
-## API surface
-
-| Endpoint | Purpose |
-|---|---|
-| `GET /api/tax-rates/` | List rates |
-| `POST /api/tax-rates/` | Create rate |
-| `PUT /api/tax-rates/{id}` | Update (name, rate, type) |
-| `PATCH /api/tax-rates/{id}/toggle-active` | Activate/deactivate |
-| `PATCH /api/tax-rates/{id}/set-default` | Promote to default |
 
 ## What's NOT supported
 
 - Compound taxes (VAT on top of a city tax). Single rate per line.
 - Per-item default rates (item X always uses rate Y). The default is global;
   per-line override is operator's choice.
-- Tax-inclusive pricing. The line's `unit_price` is always the **net** of
+- Tax-inclusive pricing. The line's unit price is always the **net** of
   VAT; the customer-visible "gross" is computed. (POS has a tax-inclusive
   option, see [POS](../operations/pos.md).)
 - Per-jurisdiction tax engines. One country, one regime per install.

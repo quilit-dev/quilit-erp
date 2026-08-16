@@ -107,18 +107,11 @@ extra:
 nav:
   - Home: index.md
   - Everyday tasks: everyday.md
-  - Architecture:
-      - architecture/index.md
-      - System overview: architecture/overview.md
-      - Technology stack: architecture/tech-stack.md
-      - Module map: architecture/module-map.md
-      - Data flow: architecture/data-flow.md
-      - Deployment topology: architecture/deployment.md
   - Foundation:
       - foundation/index.md
       - Your account: foundation/your-account.md
       - Authentication: foundation/authentication.md
-      - Role-Based Access Control (RBAC): foundation/rbac.md
+      - Roles & permissions: foundation/rbac.md
       - Multi-warehouse access: foundation/warehouse-access.md
       - Audit trail: foundation/audit-trail.md
       - Backup & recovery: foundation/backups.md
@@ -167,5 +160,4 @@ nav:
       - Permissions matrix: reference/permissions.md
       - Chart of accounts: reference/chart-of-accounts.md
       - Module index: reference/module-index.md
-      - API surface: reference/api.md
       - Glossary: reference/glossary.md

@@ -1,22 +1,17 @@
 # Expenses & Recurring Expenses
 
-The cost record. Every dollar that leaves the company (except inventory
-purchases at receipt and payroll) flows through here.
+Money going out — rent, fuel, salaries paid outside payroll, anything that
+is not stock you bought or an asset you own.
 
 ## Purpose
 
-An expense is a **single cost event** — money out the door. The system models
-both **one-off** expenses (`expenses` table) and **recurring templates**
-(`recurring_expenses` table) that spawn one-off expenses on a schedule.
+An expense records one payment out of the business: what it was for, how
+much, when, and optionally which project it belongs to. It is posted to the
+accounts for you.
 
-Every expense:
-
-- Records the **what** (`category`, `description`)
-- Records the **how much** (`amount`, plus optional `tax_amount`)
-- Records the **when** (`date`)
-- Optionally allocates to a **project** (`project_id`)
-- May reference a **cash drawer** (for cash payments)
-- Auto-posts to the GL
+**Recurring expenses** are for costs that repeat — rent every month, a
+subscription every year. You set the template once and the system creates
+the expense each time it falls due, so nobody has to remember.
 
 ## Personas
 
@@ -35,7 +30,7 @@ Every expense:
   Depreciation, Purchase, Other
 - **Per-category GL routing**: each maps to a specific 6xxx account
 - **Status**: `Recorded` (default) or `Pending Approval` (if a policy kicks in)
-- **Soft delete + void**: void preserves the record with `void_reason`
+- **Soft delete + void**: void preserves the record with void reason
 - **Multi-currency**: payment_method captures the tender but amount is USD
 - **Recurring frequencies**: `monthly`, `quarterly`, `annual`
 
@@ -45,7 +40,7 @@ Every expense:
 
     ### Recording a one-off expense
 
-    Expenses → **+ Add expense**:
+    Expenses → **+ Add expense**.
 
     | Field | Notes |
     |---|---|
@@ -53,7 +48,7 @@ Every expense:
     | Description | Free text — what was bought / for whom |
     | Amount | In USD |
     | Date | When it was incurred |
-    | Project | Optional — allocates the cost to a project's `actual_cost` |
+    | Project | Optional — allocates the cost to a project's actual cost |
     | Tax rate | Optional |
     | Payment method | `Cash`, `Bank Transfer`, `Card`, … |
     | Cash drawer | Required if payment_method is Cash |
@@ -64,7 +59,7 @@ Every expense:
     ### Voiding an expense
 
     Open the expense → **Void** with a required reason. The row stays in
-    the database with `voided_at` + `void_reason`, but is excluded from
+    the database with void date + void reason, but is excluded from
     Finance totals + reports + the cash dashboard.
 
     Cannot edit a Recorded expense — for a correction, void and re-record.
@@ -74,7 +69,7 @@ Every expense:
     Use these for rent, subscriptions, utilities — anything that happens
     on a schedule.
 
-    Recurring Expenses → **+ Add template**:
+    Recurring Expenses → **+ Add template**.
 
     | Field | Notes |
     |---|---|
@@ -86,17 +81,17 @@ Every expense:
     | End date | Optional — leave blank for indefinite |
     | Project, payment method, tax | Optional defaults |
 
-    Save. The system computes `next_run_date` from the frequency.
+    Save. The system computes next run date from the frequency.
 
     ### How recurring becomes actual
 
-    On a scheduled tick (or manual **Run due**), the system:
+    On a scheduled tick (or manual **Run due**), the system.
 
     1. Finds templates with `next_run_date ≤ today` and `is_active = 1`
-    2. For each: spawns an actual `expenses` row with the template's
-       values + `recurring_expense_id` linking back
-    3. Updates the template's `last_generated_date` and bumps
-       `next_run_date` by the frequency
+    2. For each: spawns an actual expenses row with the template's
+       values + recurring expense id linking back
+    3. Updates the template's last generated date and bumps
+       next run date by the frequency
 
     You can pause a template via `is_active=0` without deleting it.
 
@@ -114,7 +109,7 @@ Every expense:
 
     ### Category → GL account mapping
 
-    Hard-coded in `accounting.CATEGORY_ACCOUNTS`:
+    Hard-coded in `accounting.CATEGORY_ACCOUNTS`.
 
     | Category | GL account |
     |---|---|
@@ -145,83 +140,33 @@ Every expense:
     ### Recurring expense scheduler
 
     A background thread checks for due templates every hour. Manual
-    trigger:
+    trigger.
 
-    `POST /api/recurring-expenses/run-due`
+    **Expenses → Recurring → Run due now.**
 
-    The handler is **idempotent** — running it twice the same day doesn't
-    create duplicate expense rows (the `next_run_date` advances on each
-    spawn).
+    Running it twice the same day is safe — you will not get duplicate
+    expenses. Each expense moves on to its next due date as it is created.
 
 === "Auditor's view"
 
     ### Expense → GL reconciliation
 
-    Every recorded expense should have a matching journal entry:
+    Every recorded expense should have a matching journal entry.
 
-    ```sql
-    SELECT e.id, e.category, e.amount, e.date,
-           je.entry_number, jel.debit AS posted_debit, a.code
-    FROM expenses e
-    LEFT JOIN journal_entries je
-      ON je.source_type = 'expense' AND je.source_id = e.id
-    LEFT JOIN journal_entry_lines jel
-      ON jel.journal_entry_id = je.id AND jel.debit > 0
-    LEFT JOIN chart_of_accounts a ON a.id = jel.account_id
-    WHERE e.deleted_at IS NULL AND e.voided_at IS NULL
-      AND e.status = 'Recorded'
-      AND DATE(e.created_at) >= '2026-05-01'
-    ORDER BY e.date DESC LIMIT 20;
-    ```
-
-    Every row should show a non-null `entry_number`. NULLs = expense
-    recorded without GL post (control gap).
-
-    Posted debit should equal `amount + tax_amount` (when tax > 0, the tax
-    splits to 2100 VAT Payable).
+    An expense with no journal entry behind it is a gap worth asking
+    about. When tax was charged, the tax is posted separately to
+    *2100 VAT Payable* rather than lumped into the expense.
 
     ### Voided expenses
-
-    ```sql
-    SELECT e.id, e.amount, e.voided_at, e.void_reason,
-           u.username AS voided_by
-    FROM expenses e
-    LEFT JOIN audit_log a
-      ON a.module='expenses' AND a.action='void' AND a.record_id=e.id
-    LEFT JOIN users u ON u.id = a.user_id
-    WHERE e.voided_at IS NOT NULL
-    ORDER BY e.voided_at DESC;
-    ```
 
     Each void should have an audit row + a Finance Manager (or higher)
     approval if the policy requires it.
 
     ### Recurring template completeness
 
-    No active template should be "stale" (next_run far in the past):
-
-    ```sql
-    SELECT id, name, frequency, next_run_date, last_generated_date
-    FROM recurring_expenses
-    WHERE is_active = 1
-      AND date(next_run_date) < date('now', '-7 days');
-    -- Expected: zero rows (the scheduler should keep next_run_date current)
-    ```
+    No active template should be "stale" (next_run far in the past).
 
     ### Project allocation totals
-
-    ```sql
-    SELECT p.id, p.name, p.estimated_cost,
-           COALESCE(SUM(e.amount), 0) AS total_expense
-    FROM projects p
-    LEFT JOIN expenses e ON e.project_id = p.id
-                          AND e.deleted_at IS NULL
-                          AND e.voided_at IS NULL
-                          AND e.status = 'Recorded'
-    WHERE p.deleted_at IS NULL
-    GROUP BY p.id
-    ORDER BY total_expense DESC;
-    ```
 
     Compare to `projects.actual_cost` (maintained denormally) — the two
     should equal within rounding.
@@ -247,107 +192,6 @@ stateDiagram-v2
           projects.actual_cost += amount
     end note
 ```
-
-## Workflow — recording an expense atomically
-
-```mermaid
-sequenceDiagram
-    autonumber
-    participant ACC as Accountant
-    participant API as POST /api/expenses/
-    participant POL as Approval engine
-    participant LE as Accounting engine
-    participant DB as SQLite
-
-    ACC->>API: { category, description, amount,<br/>date, project_id, payment_method }
-
-    API->>POL: evaluate_and_apply(module='expense', amount, ...)
-    POL-->>API: needs_approval = false (or true → status='Pending Approval')
-
-    API->>DB: BEGIN
-    API->>DB: INSERT expenses (status='Recorded')
-
-    alt project_id set
-        API->>DB: UPDATE projects SET actual_cost += amount
-    end
-
-    alt not needs_approval
-        API->>LE: post_entry(<br/>DR expense_account_code(category) /<br/>CR Cash 1000,<br/>source='expense', source_id)
-        LE->>DB: INSERT journal_entry + 2 lines (balanced)
-    end
-
-    API->>DB: INSERT audit_log
-    API->>DB: COMMIT
-    API-->>ACC: { id, message: 'Expense recorded' }
-```
-
-## Data model
-
-```mermaid
-erDiagram
-    EXPENSES }o..|| PROJECTS : "charged to"
-    EXPENSES }o..|| RECURRING_EXPENSES : "spawned from"
-    EXPENSES }o..|| FIXED_ASSETS : "depreciation of"
-    EXPENSES }o..|| TAX_RATES : "taxed with"
-    EXPENSES }o..|| CASH_DRAWERS : "paid from"
-    EXPENSES ||--|| JOURNAL_ENTRIES : "source_id"
-    RECURRING_EXPENSES }o..|| PROJECTS : "default project"
-
-    EXPENSES {
-        int  id PK
-        int  project_id FK
-        text category
-        text description
-        real amount
-        text date
-        text status
-        int  tax_rate_id FK
-        real tax_rate
-        real tax_amount
-        text payment_method
-        int  cash_drawer_id FK
-        int  recurring_expense_id FK
-        int  fixed_asset_id FK
-        text voided_at
-        text void_reason
-        text created_at
-        text deleted_at
-        text archived_at
-    }
-
-    RECURRING_EXPENSES {
-        int  id PK
-        text name
-        text category
-        text description
-        real amount
-        text frequency
-        text start_date
-        text end_date
-        text next_run_date
-        text last_generated_date
-        int  project_id FK
-        text payment_method
-        int  tax_rate_id FK
-        int  is_active
-        int  created_by FK
-        text created_at
-        text archived_at
-    }
-```
-
-## API surface
-
-| Endpoint | Purpose |
-|---|---|
-| `GET /api/finance/expenses` | List expenses (filter by category, project, date) |
-| `POST /api/finance/expenses` | Create expense |
-| `PATCH /api/finance/expenses/{id}/void` | Void with reason |
-| `GET /api/recurring-expenses/` | List templates |
-| `POST /api/recurring-expenses/` | Create template |
-| `PUT /api/recurring-expenses/{id}` | Update |
-| `POST /api/recurring-expenses/{id}/toggle` | Pause/resume (is_active flip) |
-| `POST /api/recurring-expenses/run-due` | Manual scheduler trigger |
 
 ## What's NOT supported
 

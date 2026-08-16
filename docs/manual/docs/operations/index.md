@@ -1,13 +1,13 @@
 # Operations
 
-The six modules that govern **physical things**: what's on hand, where it
-lives, how it got there, how it gets made, and how it gets sold.
+Everything to do with physical goods: what you have, where it is, how it
+got there, how it is made, and how it is sold.
 
 | Page | What it covers |
 |---|---|
-| [Procure-to-stock workflow](procure-to-stock.md) | End-to-end diagrams. Read first. |
+| [Procure-to-stock workflow](procure-to-stock.md) | How buying, making and selling fit together. Read first. |
 | [Inventory](inventory.md) | Items, lots (FEFO), FIFO/LIFO/avg costing, low-stock alerts |
-| [Warehouses & Transfers](warehouses.md) | Multi-location stock, row-level access, transfer workflow |
+| [Warehouses & Transfers](warehouses.md) | Multi-location stock, per-warehouse access, transfers |
 | [Suppliers](suppliers.md) | Vendor master + 360° detail |
 | [Purchases](purchases.md) | PO lifecycle Ordered → Received → Paid |
 | [Manufacturing](manufacturing.md) | BOMs, production orders, QC, resources, costing |
@@ -63,7 +63,7 @@ The Operations chapter assumes these never break — every audit query below
 relies on them:
 
 1. **`inventory.quantity` = SUM of `inventory_stock.quantity` across warehouses** — maintained on every write
-2. **Every stock-touching write produces a `stock_movements` row** — with `warehouse_id` stamped after migration 122
+2. **Every stock change is recorded** — with the warehouse it happened in
 3. **The GL Inventory account (1200) ties to the sum of inventory value** — `Σ(quantity × unit_cost)` per item, summed across items
 4. **Internal warehouse transfers never post to GL** — they're motion within one account, not value movement
 

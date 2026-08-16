@@ -1,7 +1,7 @@
 # Procure-to-stock workflow
 
-The three operational pipelines, end-to-end, with every table that gets
-written to.
+How goods come in, move around, and go out — and what each step updates
+for you.
 
 ## Pipeline 1 — Procure-to-stock
 
@@ -53,11 +53,11 @@ flowchart TB
     style W4 fill:#fef3c7,stroke:#f59e0b
 ```
 
-## Pipeline 3 — POS sale (the busiest write path)
+## Pipeline 3 — POS sale
 
-Already documented end-to-end in [Architecture → Data flow](../architecture/data-flow.md).
-The 8-step transaction trace shows every table that gets touched on a POS
-cash sale.
+A till sale does the whole cycle in one step: it bills the customer, records
+the payment, takes the stock off the shelf and posts the sale to the accounts —
+all at once. See [POS](pos.md).
 
 ## Cross-pipeline timing
 
@@ -92,7 +92,7 @@ Five top-level controls cover most operations audit work:
    across all items, should equal the GL's `1200 Inventory` balance at any
    moment (after Phase 1's audit remediation).
 2. **Every receipt has a stock movement and a journal entry** — both with
-   `source_ref` linking to the PO number.
+   source ref linking to the PO number.
 3. **Every sale has a COGS posting** — invoice + DR Cash CR Revenue + DR
    COGS CR Inventory.
 4. **Production output equals the sum of consumed inputs valued at their

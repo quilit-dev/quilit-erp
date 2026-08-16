@@ -1,11 +1,12 @@
-# Role-Based Access Control (RBAC)
+# Roles & permissions
 
-The permission model that decides whether the logged-in user can perform a
-specific action on a specific module.
+Who can see what, and who can do what.
 
 ## Purpose
 
-RBAC answers questions like:
+Every person has a **role**, and the role decides which parts of the system
+they can open and what they can do there. This is what answers questions
+like:
 
 - *Can the Cashier see the General Ledger?* (No.)
 - *Can the Sales Manager approve a $50,000 expense?* (Depends on the policy.)
@@ -33,9 +34,9 @@ Permission = Role × Module × Action
   Manager, Sales, Cashier, Project Manager, Operations Manager, HR Manager,
   Recruiter, Procurement Officer, Inventory, Production Manager, CRM
   Specialist, Auditor, Viewer.
-- **28 modules** (the full catalogue is on the [module map](../architecture/module-map.md)).
+- **28 modules** (the full list is in the [module index](../reference/module-index.md)).
 - **5 actions per module**: `view`, `create`, `edit`, `delete`, `approve`.
-- One **superadmin** account bypasses all checks (intended for the vendor or
+- One **support** account bypasses all checks (used by the vendor or
   the company owner).
 
 ## The permission matrix
@@ -69,7 +70,7 @@ role × module combination.
 
     - If a module is absent from your sidebar, your role doesn't have `view`
       permission for it.
-    - If a button on a page is disabled or hidden, that's RBAC again — at
+    - If a button on a page is disabled or hidden, that is your role again — at
       the action level.
     - If you click something and see *"You don't have permission to do
       that"*, send the screenshot to your administrator with a one-line
@@ -84,7 +85,7 @@ role × module combination.
 
     ### Role groups in the matrix UI
 
-    The Roles & Permissions page groups modules so it's scannable:
+    The Roles & Permissions page groups modules so it's scannable.
 
     | Group | Modules |
     |---|---|
@@ -102,8 +103,8 @@ role × module combination.
 
     ### Per-warehouse access is separate
 
-    Module-level RBAC says *"can the user touch the Inventory module at
-    all?"*. Row-level access (the `user_warehouse_access` table) says
+    Your role says *"can the user touch the Inventory module at
+    all?"*. Warehouse access says
     *"which warehouses specifically?"*. See [Multi-warehouse
     access](warehouse-access.md) for that layer.
 
@@ -117,7 +118,7 @@ role × module combination.
     ### Effect timing
 
     Permission changes take effect on the **next request** the user makes —
-    not on next login. The token carries `role_id`, and that's
+    not on next login. The token carries role, and that's
     re-resolved on every call.
 
 === "Auditor's view"
@@ -126,48 +127,27 @@ role × module combination.
 
     | Table | What it proves |
     |---|---|
-    | `roles` | Every role and its description (incl. `is_system`, `is_admin`) |
-    | `role_permissions` | The full grant matrix — every cell with `can_view`, `can_create`, `can_edit`, `can_delete`, `can_approve` flags |
+    | roles | Every role and its description (incl. is system, is admin) |
+    | role permissions | The full grant matrix — every cell with can view, can create, can edit, can delete, can approve flags |
     | `users.role_id` | Which role each user has |
 
     ### Standard reports for an audit
 
-    "Show me every user who can post journal entries":
+    "Show me every user who can post journal entries".
 
-    ```sql
-    SELECT u.username, r.name AS role
-    FROM users u
-    JOIN roles r ON r.id = u.role_id
-    JOIN role_permissions rp
-      ON rp.role_id = r.id
-     AND rp.module = 'accounting'
-     AND rp.can_create = 1
-    WHERE u.deleted_at IS NULL AND u.is_active = 1;
-    ```
-
-    "Show me every user with delete permission anywhere":
-
-    ```sql
-    SELECT u.username, r.name AS role, rp.module
-    FROM users u
-    JOIN roles r ON r.id = u.role_id
-    JOIN role_permissions rp ON rp.role_id = r.id
-    WHERE rp.can_delete = 1
-      AND u.deleted_at IS NULL AND u.is_active = 1
-    ORDER BY u.username, rp.module;
-    ```
+    "Show me every user with delete permission anywhere".
 
     ### Segregation of duties checklist
 
-    For a tight install, verify NO single role has all of:
+    For a tight install, verify NO single role has all of.
 
     | Module | Should NOT all be checked on one role |
     |---|---|
-    | `purchases` | create + approve |
-    | `expenses` | create + approve |
-    | `invoices` | create + approve |
+    | purchases | create + approve |
+    | expenses | create + approve |
+    | invoices | create + approve |
     | `accounting` | create + edit + delete |
-    | `users` | edit + delete |
+    | users | edit + delete |
 
     The default Sales / Procurement Officer / etc. roles already split these.
     Custom roles need to be reviewed.
@@ -175,23 +155,23 @@ role × module combination.
     ### Controls
 
     - System roles are immutable (`is_system=1` blocks edit + delete in the UI).
-    - Permission changes are recorded in `audit_log` with `module='roles'`.
-    - Superadmin can grant superadmin to another user, but the action is
+    - Permission changes are recorded in the audit trail with `module='roles'`.
+    - The support account can grant the same to another user, but the action is
       logged.
 
 ---
 
 ## Resolution pipeline
 
-When an endpoint declares `require_perm("invoices", "create")`, this is what
-runs:
+When you try to do something — say, create an invoice — this is the order
+of checks.
 
 ```mermaid
 flowchart TD
-    REQ[Request hits handler] --> AUTH[Resolve user from JWT]
+    REQ[You try to do something] --> AUTH[Who are you?]
     AUTH --> ACT{is_active?}
     ACT -->|no| F1[401 — disabled]
-    ACT -->|yes| SA{is_superadmin?}
+    ACT -->|yes| SA{Support account?}
     SA -->|yes| OK[Allow — bypass all checks]
     SA -->|no| RID{role_id set?}
     RID -->|no| F2[403 — no role]
@@ -200,54 +180,13 @@ flowchart TD
     CHK -->|no| F3[403 — module insufficient]
     CHK -->|yes| WH{Module is<br/>warehouse-scoped?}
     WH -->|no| OK
-    WH -->|yes| RLA[Row-level check<br/>see warehouse-access.md]
+    WH -->|yes| RLA[Warehouse check<br/>see warehouse-access.md]
     RLA --> OK
     style OK fill:#dcfce7,stroke:#16a34a
     style F1 fill:#fee2e2,stroke:#dc2626
     style F2 fill:#fee2e2,stroke:#dc2626
     style F3 fill:#fee2e2,stroke:#dc2626
 ```
-
-## Data model
-
-```mermaid
-erDiagram
-    ROLES ||--o{ USERS : "is assigned to"
-    ROLES ||--o{ ROLE_PERMISSIONS : "has many"
-
-    ROLES {
-        int  id PK
-        text name UK
-        text description
-        text color
-        int  is_system
-        int  is_admin
-        text created_at
-    }
-
-    ROLE_PERMISSIONS {
-        int  id PK
-        int  role_id FK
-        text module
-        int  can_view
-        int  can_create
-        int  can_edit
-        int  can_delete
-        int  can_approve
-    }
-
-    USERS {
-        int  id PK
-        text username UK
-        int  role_id FK
-        int  is_superadmin
-        int  is_active
-    }
-```
-
-A user's effective permissions are the **single row** in `role_permissions`
-matching their `role_id` × the requested `module`. Five booleans on that row
-gate the five action verbs.
 
 ## The 18 seeded roles at a glance
 
@@ -278,14 +217,3 @@ gate the five action verbs.
   and auditable.
 - Conditional permissions ("only on Mondays"). Doesn't suit SMEs.
 - Time-limited permissions. Use `is_active=0` to expire a user.
-
-## API surface
-
-| Endpoint | Purpose |
-|---|---|
-| `GET /api/roles/` | List roles + per-module permission grid |
-| `POST /api/roles/` | Create a custom role |
-| `PUT /api/roles/{id}` | Update name/description/color |
-| `PUT /api/roles/{id}/permissions` | Replace the permissions matrix for a role |
-| `DELETE /api/roles/{id}` | Delete a custom role (system roles refused) |
-| `GET /api/users/{id}/effective-permissions` | Resolved cells for a single user |

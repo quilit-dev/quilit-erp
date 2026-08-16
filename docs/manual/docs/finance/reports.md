@@ -7,7 +7,7 @@ Each is exportable to Excel.
 ## Purpose
 
 Reports answer **specific business questions** with the data the system
-already has:
+already has.
 
 | Report | Question it answers |
 |---|---|
@@ -51,7 +51,7 @@ already has:
 
     ### Financial Report
 
-    The headline. For the selected period:
+    The headline. For the selected period.
 
     - Total income (cash-basis from `invoice_payments.amount`)
     - Total expenses (from `expenses.amount`)
@@ -65,7 +65,7 @@ already has:
 
     ### Projects Report
 
-    Per-project rows:
+    Per-project rows.
 
     | Column | What |
     |---|---|
@@ -82,7 +82,7 @@ already has:
 
     ### Clients Report
 
-    Lifetime value per client:
+    Lifetime value per client.
 
     - Total billed
     - Total received
@@ -93,7 +93,7 @@ already has:
 
     ### Invoice Aging
 
-    Open A/R bucketed by days overdue:
+    Open A/R bucketed by days overdue.
 
     - Current (not yet due)
     - 1-30 days overdue
@@ -106,7 +106,7 @@ already has:
 
     ### Expenses Report
 
-    Breakdown over the period:
+    Breakdown over the period.
 
     - By category (14 standard categories)
     - By project
@@ -116,7 +116,7 @@ already has:
 
     ### Pipeline Report
 
-    From CRM:
+    From CRM.
 
     - Deals by stage (count + value)
     - Win rate
@@ -128,7 +128,7 @@ already has:
 
     ### VAT Report
 
-    Per-rate breakdown for the period:
+    Per-rate breakdown for the period.
 
     - Output VAT (sales) per rate
     - Input VAT (purchases) per rate
@@ -139,7 +139,7 @@ already has:
 
     ### Inventory by Warehouse Report
 
-    Phase 3 addition. Per-warehouse:
+    Phase 3 addition. Per-warehouse.
 
     - SKU count
     - Quantity total
@@ -166,18 +166,18 @@ already has:
     ### Data sources
 
     Each report reads from existing operational tables — no separate
-    `reports` table or batch-computed denormalised view:
+    `reports` table or batch-computed denormalised view.
 
     | Report | Primary source |
     |---|---|
-    | Financial | `invoice_payments`, `expenses` |
-    | Projects | `projects` + joins to `invoices`, `expenses` |
-    | Clients | `clients` + joins to `invoices`, `invoice_payments` |
-    | Aging | `invoices` + `invoice_payments` |
-    | Expenses | `expenses` |
-    | Pipeline | `crm_leads`, `crm_deals` |
-    | VAT | `invoices`, `invoice_items`, `purchases` |
-    | Inventory by WH | `inventory_stock`, `inventory`, `warehouses` |
+    | Financial | payments, expenses |
+    | Projects | projects + joins to invoices, expenses |
+    | Clients | clients + joins to invoices, payments |
+    | Aging | invoices + payments |
+    | Expenses | expenses |
+    | Pipeline | leads, deals |
+    | VAT | invoices, invoice lines, purchases |
+    | Inventory by WH | stock per warehouse, inventory, warehouses |
 
     Real-time → numbers change as fast as operators record events.
 
@@ -185,86 +185,30 @@ already has:
 
     Each report's Export button packs the visible filter into an XLSX with
     multiple sheets (e.g. by-warehouse + top-skus). The export uses the
-    SheetJS library bundled with the frontend.
+    the export tool built into the app.
 
 === "Auditor's view"
 
-    Each report ties back to underlying tables. Spot-check with SQL:
+    Each report ties back to underlying tables. Spot-check with SQL.
 
     ### Financial Report cross-check
 
     The numbers should match the cash-basis Finance dashboard for the
-    same period:
-
-    ```sql
-    SELECT
-      (SELECT SUM(amount) FROM invoice_payments
-       WHERE strftime('%Y-%m', paid_at) = '2026-05') AS revenue,
-      (SELECT SUM(amount) FROM expenses
-       WHERE strftime('%Y-%m', date) = '2026-05'
-         AND deleted_at IS NULL AND voided_at IS NULL
-         AND status = 'Recorded') AS expenses;
-    ```
+    same period.
 
     ### Aging Report bucket arithmetic
 
-    Verify the system's bucketing matches independent calculation:
-
-    ```sql
-    SELECT
-      CASE
-        WHEN julianday('now') - julianday(i.due_date) <= 0 THEN 'Current'
-        WHEN julianday('now') - julianday(i.due_date) <= 30 THEN '1-30 days'
-        WHEN julianday('now') - julianday(i.due_date) <= 60 THEN '31-60 days'
-        WHEN julianday('now') - julianday(i.due_date) <= 90 THEN '61-90 days'
-        ELSE '90+ days'
-      END AS bucket,
-      ROUND(SUM(i.amount - COALESCE(p.paid, 0)), 2) AS open_ar
-    FROM invoices i
-    LEFT JOIN (SELECT invoice_id, SUM(amount) AS paid
-               FROM invoice_payments GROUP BY invoice_id) p
-      ON p.invoice_id = i.id
-    WHERE i.deleted_at IS NULL AND i.voided_at IS NULL
-      AND (i.amount - COALESCE(p.paid, 0)) > 0.01
-    GROUP BY bucket;
-    ```
+    Verify the system's bucketing matches independent calculation.
 
     ### VAT Report self-balancing check
 
     Net VAT due = Output VAT collected − Input VAT paid. The Net VAT for
     the period should match the change in `2100 VAT Payable` over the
-    same period:
-
-    ```sql
-    -- VAT Payable closing balance (from GL)
-    SELECT
-      SUM(jel.credit) - SUM(jel.debit) AS vat_payable_balance
-    FROM journal_entry_lines jel
-    JOIN journal_entries je ON je.id = jel.journal_entry_id
-    JOIN chart_of_accounts a ON a.id = jel.account_id
-    WHERE a.code = '2100' AND je.status = 'posted'
-      AND je.entry_date <= '2026-05-31';
-    ```
+    same period.
 
     Compare to the Net VAT in the report — they should agree at month-end.
 
 ---
-
-## API surface
-
-| Endpoint | Returns |
-|---|---|
-| `GET /api/reports/financial` | Financial report (with optional `start`, `end`) |
-| `GET /api/reports/projects` | Per-project margin |
-| `GET /api/reports/clients` | Per-client lifetime |
-| `GET /api/reports/invoice-aging` | Aging buckets |
-| `GET /api/reports/expenses` | Expense breakdown |
-| `GET /api/reports/pipeline` | CRM funnel |
-| `GET /api/reports/vat` | Output / input VAT |
-| `GET /api/reports/inventory-by-warehouse` | Per-warehouse SKU + qty + value |
-
-All endpoints accept a date range via query params (`start`, `end`,
-ISO 8601).
 
 ## What's NOT supported
 

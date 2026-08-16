@@ -1,6 +1,6 @@
 # Permissions matrix
 
-The full RBAC grid as seeded by the system, regenerated from the live
+The full permission grid as shipped, regenerated from the live
 database at manual-build time. **18 roles × 27 modules × 5 actions =
 2,430 cells.**
 
@@ -23,19 +23,19 @@ database at manual-build time. **18 roles × 27 modules × 5 actions =
 | Who can dispatch a stock transfer? | Anyone with `warehouses : E` AND access to the source warehouse |
 
 !!! tip "Per-warehouse access is independent"
-    Module-level RBAC (this matrix) decides "can the user touch the
+    Your role (this matrix) decides "can the user touch the
     module?". For Inventory / POS / Manufacturing / Warehouses,
-    **row-level warehouse access** decides "which warehouses
+    **warehouse access** decides "which warehouses
     specifically?". See [Multi-warehouse access](../foundation/warehouse-access.md).
 
 ## Special tiers
 
 | Tier | Effect |
 |---|---|
-| `is_superadmin = 1` | Bypasses **all** module RBAC AND row-level checks. Reserved for the vendor or company owner. |
-| `is_admin = 1` (role-level) | Admin-tier — adds visibility into administration pages (Users, Roles, Settings, Audit). Doesn't bypass module RBAC. |
+| Support account | Bypasses **every** permission and warehouse check. Reserved for the vendor or company owner. |
+| Admin-tier role | Adds the administration pages (Users, Roles, Settings, Audit). Does not bypass the ordinary permission checks. |
 
-The **Business Owner** role is admin-tier; everyone else (except superadmin)
+The **Business Owner** role is admin-tier; everyone else (except the support account)
 is standard.
 
 ### Admin
@@ -53,9 +53,9 @@ is standard.
 | Module | V | C | E | D | A |
 |---|:-:|:-:|:-:|:-:|:-:|
 | `crm` | ✓ | ✓ | ✓ | ✓ | ✓ |
-| `clients` | ✓ | ✓ | ✓ | ✓ | ✓ |
-| `quotations` | ✓ | ✓ | ✓ | ✓ | ✓ |
-| `invoices` | ✓ | ✓ | ✓ | ✓ | ✓ |
+| clients | ✓ | ✓ | ✓ | ✓ | ✓ |
+| quotations | ✓ | ✓ | ✓ | ✓ | ✓ |
+| invoices | ✓ | ✓ | ✓ | ✓ | ✓ |
 | `pos` | ✓ | ✓ | ✓ | ✓ | ✓ |
 
 
@@ -63,7 +63,7 @@ is standard.
 
 | Module | V | C | E | D | A |
 |---|:-:|:-:|:-:|:-:|:-:|
-| `projects` | ✓ | ✓ | ✓ | ✓ | ✓ |
+| projects | ✓ | ✓ | ✓ | ✓ | ✓ |
 | `planning` | ✓ | ✓ | ✓ | ✓ | ✓ |
 
 
@@ -71,10 +71,10 @@ is standard.
 
 | Module | V | C | E | D | A |
 |---|:-:|:-:|:-:|:-:|:-:|
-| `suppliers` | ✓ | ✓ | ✓ | ✓ | ✓ |
-| `purchases` | ✓ | ✓ | ✓ | ✓ | ✓ |
-| `inventory` | ✓ | ✓ | ✓ | ✓ | ✓ |
-| `warehouses` | · | · | · | · | · |
+| suppliers | ✓ | ✓ | ✓ | ✓ | ✓ |
+| purchases | ✓ | ✓ | ✓ | ✓ | ✓ |
+| inventory | ✓ | ✓ | ✓ | ✓ | ✓ |
+| warehouses | · | · | · | · | · |
 | `manufacturing` | ✓ | ✓ | ✓ | ✓ | ✓ |
 
 
@@ -82,7 +82,7 @@ is standard.
 
 | Module | V | C | E | D | A |
 |---|:-:|:-:|:-:|:-:|:-:|
-| `expenses` | ✓ | ✓ | ✓ | ✓ | ✓ |
+| expenses | ✓ | ✓ | ✓ | ✓ | ✓ |
 | `assets` | ✓ | ✓ | ✓ | ✓ | ✓ |
 | `finance` | ✓ | ✓ | ✓ | ✓ | ✓ |
 | `cash` | ✓ | ✓ | ✓ | ✓ | ✓ |
@@ -95,8 +95,8 @@ is standard.
 | Module | V | C | E | D | A |
 |---|:-:|:-:|:-:|:-:|:-:|
 | `hr` | ✓ | ✓ | ✓ | ✓ | ✓ |
-| `hr_contracts` | ✓ | ✓ | ✓ | ✓ | ✓ |
-| `hr_activities` | ✓ | ✓ | ✓ | ✓ | ✓ |
+| contracts | ✓ | ✓ | ✓ | ✓ | ✓ |
+| HR activities | ✓ | ✓ | ✓ | ✓ | ✓ |
 | `recruitment` | ✓ | ✓ | ✓ | ✓ | ✓ |
 
 
@@ -112,8 +112,8 @@ is standard.
 | Module | V | C | E | D | A |
 |---|:-:|:-:|:-:|:-:|:-:|
 | `settings` | · | · | · | · | · |
-| `users` | · | · | · | · | · |
-| `roles` | · | · | · | · | · |
+| users | · | · | · | · | · |
+| roles | · | · | · | · | · |
 | `audit` | · | · | · | · | · |
 
 ### Business Owner
@@ -131,9 +131,9 @@ is standard.
 | Module | V | C | E | D | A |
 |---|:-:|:-:|:-:|:-:|:-:|
 | `crm` | ✓ | ✓ | ✓ | ✓ | ✓ |
-| `clients` | ✓ | ✓ | ✓ | ✓ | ✓ |
-| `quotations` | ✓ | ✓ | ✓ | ✓ | ✓ |
-| `invoices` | ✓ | ✓ | ✓ | ✓ | ✓ |
+| clients | ✓ | ✓ | ✓ | ✓ | ✓ |
+| quotations | ✓ | ✓ | ✓ | ✓ | ✓ |
+| invoices | ✓ | ✓ | ✓ | ✓ | ✓ |
 | `pos` | ✓ | ✓ | ✓ | ✓ | ✓ |
 
 
@@ -141,7 +141,7 @@ is standard.
 
 | Module | V | C | E | D | A |
 |---|:-:|:-:|:-:|:-:|:-:|
-| `projects` | ✓ | ✓ | ✓ | ✓ | ✓ |
+| projects | ✓ | ✓ | ✓ | ✓ | ✓ |
 | `planning` | ✓ | ✓ | ✓ | ✓ | ✓ |
 
 
@@ -149,10 +149,10 @@ is standard.
 
 | Module | V | C | E | D | A |
 |---|:-:|:-:|:-:|:-:|:-:|
-| `suppliers` | ✓ | ✓ | ✓ | ✓ | ✓ |
-| `purchases` | ✓ | ✓ | ✓ | ✓ | ✓ |
-| `inventory` | ✓ | ✓ | ✓ | ✓ | ✓ |
-| `warehouses` | · | · | · | · | · |
+| suppliers | ✓ | ✓ | ✓ | ✓ | ✓ |
+| purchases | ✓ | ✓ | ✓ | ✓ | ✓ |
+| inventory | ✓ | ✓ | ✓ | ✓ | ✓ |
+| warehouses | · | · | · | · | · |
 | `manufacturing` | ✓ | ✓ | ✓ | ✓ | ✓ |
 
 
@@ -160,7 +160,7 @@ is standard.
 
 | Module | V | C | E | D | A |
 |---|:-:|:-:|:-:|:-:|:-:|
-| `expenses` | ✓ | ✓ | ✓ | ✓ | ✓ |
+| expenses | ✓ | ✓ | ✓ | ✓ | ✓ |
 | `assets` | ✓ | ✓ | ✓ | ✓ | ✓ |
 | `finance` | ✓ | ✓ | ✓ | ✓ | ✓ |
 | `cash` | ✓ | ✓ | ✓ | ✓ | ✓ |
@@ -173,8 +173,8 @@ is standard.
 | Module | V | C | E | D | A |
 |---|:-:|:-:|:-:|:-:|:-:|
 | `hr` | ✓ | ✓ | ✓ | ✓ | ✓ |
-| `hr_contracts` | ✓ | ✓ | ✓ | ✓ | ✓ |
-| `hr_activities` | ✓ | ✓ | ✓ | ✓ | ✓ |
+| contracts | ✓ | ✓ | ✓ | ✓ | ✓ |
+| HR activities | ✓ | ✓ | ✓ | ✓ | ✓ |
 | `recruitment` | ✓ | ✓ | ✓ | ✓ | ✓ |
 
 
@@ -190,8 +190,8 @@ is standard.
 | Module | V | C | E | D | A |
 |---|:-:|:-:|:-:|:-:|:-:|
 | `settings` | ✓ | ✓ | ✓ | ✓ | ✓ |
-| `users` | ✓ | ✓ | ✓ | ✓ | ✓ |
-| `roles` | ✓ | ✓ | ✓ | ✓ | ✓ |
+| users | ✓ | ✓ | ✓ | ✓ | ✓ |
+| roles | ✓ | ✓ | ✓ | ✓ | ✓ |
 | `audit` | ✓ | ✓ | ✓ | ✓ | ✓ |
 
 ### Manager
@@ -209,9 +209,9 @@ is standard.
 | Module | V | C | E | D | A |
 |---|:-:|:-:|:-:|:-:|:-:|
 | `crm` | ✓ | ✓ | ✓ | · | ✓ |
-| `clients` | ✓ | ✓ | ✓ | · | ✓ |
-| `quotations` | ✓ | ✓ | ✓ | · | ✓ |
-| `invoices` | ✓ | ✓ | ✓ | · | ✓ |
+| clients | ✓ | ✓ | ✓ | · | ✓ |
+| quotations | ✓ | ✓ | ✓ | · | ✓ |
+| invoices | ✓ | ✓ | ✓ | · | ✓ |
 | `pos` | ✓ | ✓ | ✓ | ✓ | · |
 
 
@@ -219,7 +219,7 @@ is standard.
 
 | Module | V | C | E | D | A |
 |---|:-:|:-:|:-:|:-:|:-:|
-| `projects` | ✓ | ✓ | ✓ | · | ✓ |
+| projects | ✓ | ✓ | ✓ | · | ✓ |
 | `planning` | ✓ | ✓ | ✓ | · | ✓ |
 
 
@@ -227,10 +227,10 @@ is standard.
 
 | Module | V | C | E | D | A |
 |---|:-:|:-:|:-:|:-:|:-:|
-| `suppliers` | ✓ | ✓ | ✓ | · | ✓ |
-| `purchases` | ✓ | · | · | · | · |
-| `inventory` | ✓ | · | · | · | · |
-| `warehouses` | · | · | · | · | · |
+| suppliers | ✓ | ✓ | ✓ | · | ✓ |
+| purchases | ✓ | · | · | · | · |
+| inventory | ✓ | · | · | · | · |
+| warehouses | · | · | · | · | · |
 | `manufacturing` | ✓ | · | · | · | · |
 
 
@@ -238,7 +238,7 @@ is standard.
 
 | Module | V | C | E | D | A |
 |---|:-:|:-:|:-:|:-:|:-:|
-| `expenses` | ✓ | · | · | · | · |
+| expenses | ✓ | · | · | · | · |
 | `assets` | ✓ | · | · | · | · |
 | `finance` | ✓ | · | · | · | · |
 | `cash` | ✓ | ✓ | ✓ | ✓ | · |
@@ -251,8 +251,8 @@ is standard.
 | Module | V | C | E | D | A |
 |---|:-:|:-:|:-:|:-:|:-:|
 | `hr` | ✓ | · | · | · | · |
-| `hr_contracts` | ✓ | · | · | · | · |
-| `hr_activities` | ✓ | · | · | · | · |
+| contracts | ✓ | · | · | · | · |
+| HR activities | ✓ | · | · | · | · |
 | `recruitment` | ✓ | · | · | · | · |
 
 
@@ -268,8 +268,8 @@ is standard.
 | Module | V | C | E | D | A |
 |---|:-:|:-:|:-:|:-:|:-:|
 | `settings` | · | · | · | · | · |
-| `users` | · | · | · | · | · |
-| `roles` | · | · | · | · | · |
+| users | · | · | · | · | · |
+| roles | · | · | · | · | · |
 | `audit` | · | · | · | · | · |
 
 ### Finance Manager
@@ -287,9 +287,9 @@ is standard.
 | Module | V | C | E | D | A |
 |---|:-:|:-:|:-:|:-:|:-:|
 | `crm` | · | · | · | · | · |
-| `clients` | ✓ | · | · | · | · |
-| `quotations` | ✓ | · | · | · | · |
-| `invoices` | ✓ | ✓ | ✓ | · | ✓ |
+| clients | ✓ | · | · | · | · |
+| quotations | ✓ | · | · | · | · |
+| invoices | ✓ | ✓ | ✓ | · | ✓ |
 | `pos` | ✓ | · | · | · | · |
 
 
@@ -297,7 +297,7 @@ is standard.
 
 | Module | V | C | E | D | A |
 |---|:-:|:-:|:-:|:-:|:-:|
-| `projects` | ✓ | · | · | · | · |
+| projects | ✓ | · | · | · | · |
 | `planning` | · | · | · | · | · |
 
 
@@ -305,10 +305,10 @@ is standard.
 
 | Module | V | C | E | D | A |
 |---|:-:|:-:|:-:|:-:|:-:|
-| `suppliers` | ✓ | · | · | · | · |
-| `purchases` | ✓ | · | · | · | · |
-| `inventory` | ✓ | · | · | · | · |
-| `warehouses` | · | · | · | · | · |
+| suppliers | ✓ | · | · | · | · |
+| purchases | ✓ | · | · | · | · |
+| inventory | ✓ | · | · | · | · |
+| warehouses | · | · | · | · | · |
 | `manufacturing` | · | · | · | · | · |
 
 
@@ -316,7 +316,7 @@ is standard.
 
 | Module | V | C | E | D | A |
 |---|:-:|:-:|:-:|:-:|:-:|
-| `expenses` | ✓ | ✓ | ✓ | ✓ | ✓ |
+| expenses | ✓ | ✓ | ✓ | ✓ | ✓ |
 | `assets` | ✓ | ✓ | ✓ | ✓ | ✓ |
 | `finance` | ✓ | ✓ | ✓ | ✓ | ✓ |
 | `cash` | ✓ | ✓ | ✓ | ✓ | ✓ |
@@ -329,8 +329,8 @@ is standard.
 | Module | V | C | E | D | A |
 |---|:-:|:-:|:-:|:-:|:-:|
 | `hr` | · | · | · | · | · |
-| `hr_contracts` | · | · | · | · | · |
-| `hr_activities` | · | · | · | · | · |
+| contracts | · | · | · | · | · |
+| HR activities | · | · | · | · | · |
 | `recruitment` | · | · | · | · | · |
 
 
@@ -346,8 +346,8 @@ is standard.
 | Module | V | C | E | D | A |
 |---|:-:|:-:|:-:|:-:|:-:|
 | `settings` | · | · | · | · | · |
-| `users` | · | · | · | · | · |
-| `roles` | · | · | · | · | · |
+| users | · | · | · | · | · |
+| roles | · | · | · | · | · |
 | `audit` | · | · | · | · | · |
 
 ### Accountant
@@ -365,9 +365,9 @@ is standard.
 | Module | V | C | E | D | A |
 |---|:-:|:-:|:-:|:-:|:-:|
 | `crm` | · | · | · | · | · |
-| `clients` | ✓ | · | · | · | · |
-| `quotations` | ✓ | · | · | · | · |
-| `invoices` | ✓ | ✓ | ✓ | · | · |
+| clients | ✓ | · | · | · | · |
+| quotations | ✓ | · | · | · | · |
+| invoices | ✓ | ✓ | ✓ | · | · |
 | `pos` | ✓ | · | · | · | · |
 
 
@@ -375,7 +375,7 @@ is standard.
 
 | Module | V | C | E | D | A |
 |---|:-:|:-:|:-:|:-:|:-:|
-| `projects` | ✓ | · | · | · | · |
+| projects | ✓ | · | · | · | · |
 | `planning` | · | · | · | · | · |
 
 
@@ -383,10 +383,10 @@ is standard.
 
 | Module | V | C | E | D | A |
 |---|:-:|:-:|:-:|:-:|:-:|
-| `suppliers` | ✓ | · | · | · | · |
-| `purchases` | ✓ | · | · | · | · |
-| `inventory` | ✓ | · | · | · | · |
-| `warehouses` | · | · | · | · | · |
+| suppliers | ✓ | · | · | · | · |
+| purchases | ✓ | · | · | · | · |
+| inventory | ✓ | · | · | · | · |
+| warehouses | · | · | · | · | · |
 | `manufacturing` | · | · | · | · | · |
 
 
@@ -394,7 +394,7 @@ is standard.
 
 | Module | V | C | E | D | A |
 |---|:-:|:-:|:-:|:-:|:-:|
-| `expenses` | ✓ | ✓ | ✓ | · | · |
+| expenses | ✓ | ✓ | ✓ | · | · |
 | `assets` | ✓ | ✓ | ✓ | · | · |
 | `finance` | ✓ | ✓ | ✓ | · | · |
 | `cash` | ✓ | ✓ | ✓ | · | · |
@@ -407,8 +407,8 @@ is standard.
 | Module | V | C | E | D | A |
 |---|:-:|:-:|:-:|:-:|:-:|
 | `hr` | · | · | · | · | · |
-| `hr_contracts` | · | · | · | · | · |
-| `hr_activities` | · | · | · | · | · |
+| contracts | · | · | · | · | · |
+| HR activities | · | · | · | · | · |
 | `recruitment` | · | · | · | · | · |
 
 
@@ -424,8 +424,8 @@ is standard.
 | Module | V | C | E | D | A |
 |---|:-:|:-:|:-:|:-:|:-:|
 | `settings` | · | · | · | · | · |
-| `users` | · | · | · | · | · |
-| `roles` | · | · | · | · | · |
+| users | · | · | · | · | · |
+| roles | · | · | · | · | · |
 | `audit` | · | · | · | · | · |
 
 ### Sales Manager
@@ -443,9 +443,9 @@ is standard.
 | Module | V | C | E | D | A |
 |---|:-:|:-:|:-:|:-:|:-:|
 | `crm` | ✓ | ✓ | ✓ | · | ✓ |
-| `clients` | ✓ | ✓ | ✓ | ✓ | · |
-| `quotations` | ✓ | ✓ | ✓ | · | ✓ |
-| `invoices` | ✓ | ✓ | ✓ | · | · |
+| clients | ✓ | ✓ | ✓ | ✓ | · |
+| quotations | ✓ | ✓ | ✓ | · | ✓ |
+| invoices | ✓ | ✓ | ✓ | · | · |
 | `pos` | ✓ | ✓ | ✓ | ✓ | · |
 
 
@@ -453,7 +453,7 @@ is standard.
 
 | Module | V | C | E | D | A |
 |---|:-:|:-:|:-:|:-:|:-:|
-| `projects` | ✓ | · | · | · | · |
+| projects | ✓ | · | · | · | · |
 | `planning` | · | · | · | · | · |
 
 
@@ -461,10 +461,10 @@ is standard.
 
 | Module | V | C | E | D | A |
 |---|:-:|:-:|:-:|:-:|:-:|
-| `suppliers` | · | · | · | · | · |
-| `purchases` | · | · | · | · | · |
-| `inventory` | ✓ | · | · | · | · |
-| `warehouses` | · | · | · | · | · |
+| suppliers | · | · | · | · | · |
+| purchases | · | · | · | · | · |
+| inventory | ✓ | · | · | · | · |
+| warehouses | · | · | · | · | · |
 | `manufacturing` | · | · | · | · | · |
 
 
@@ -472,7 +472,7 @@ is standard.
 
 | Module | V | C | E | D | A |
 |---|:-:|:-:|:-:|:-:|:-:|
-| `expenses` | · | · | · | · | · |
+| expenses | · | · | · | · | · |
 | `assets` | · | · | · | · | · |
 | `finance` | · | · | · | · | · |
 | `cash` | ✓ | ✓ | ✓ | · | · |
@@ -485,8 +485,8 @@ is standard.
 | Module | V | C | E | D | A |
 |---|:-:|:-:|:-:|:-:|:-:|
 | `hr` | · | · | · | · | · |
-| `hr_contracts` | · | · | · | · | · |
-| `hr_activities` | · | · | · | · | · |
+| contracts | · | · | · | · | · |
+| HR activities | · | · | · | · | · |
 | `recruitment` | · | · | · | · | · |
 
 
@@ -502,8 +502,8 @@ is standard.
 | Module | V | C | E | D | A |
 |---|:-:|:-:|:-:|:-:|:-:|
 | `settings` | · | · | · | · | · |
-| `users` | · | · | · | · | · |
-| `roles` | · | · | · | · | · |
+| users | · | · | · | · | · |
+| roles | · | · | · | · | · |
 | `audit` | · | · | · | · | · |
 
 ### Sales
@@ -521,9 +521,9 @@ is standard.
 | Module | V | C | E | D | A |
 |---|:-:|:-:|:-:|:-:|:-:|
 | `crm` | ✓ | ✓ | · | · | · |
-| `clients` | ✓ | ✓ | ✓ | · | · |
-| `quotations` | ✓ | ✓ | ✓ | · | · |
-| `invoices` | ✓ | · | · | · | · |
+| clients | ✓ | ✓ | ✓ | · | · |
+| quotations | ✓ | ✓ | ✓ | · | · |
+| invoices | ✓ | · | · | · | · |
 | `pos` | ✓ | ✓ | · | · | · |
 
 
@@ -531,7 +531,7 @@ is standard.
 
 | Module | V | C | E | D | A |
 |---|:-:|:-:|:-:|:-:|:-:|
-| `projects` | ✓ | · | · | · | · |
+| projects | ✓ | · | · | · | · |
 | `planning` | · | · | · | · | · |
 
 
@@ -539,10 +539,10 @@ is standard.
 
 | Module | V | C | E | D | A |
 |---|:-:|:-:|:-:|:-:|:-:|
-| `suppliers` | · | · | · | · | · |
-| `purchases` | · | · | · | · | · |
-| `inventory` | ✓ | · | · | · | · |
-| `warehouses` | · | · | · | · | · |
+| suppliers | · | · | · | · | · |
+| purchases | · | · | · | · | · |
+| inventory | ✓ | · | · | · | · |
+| warehouses | · | · | · | · | · |
 | `manufacturing` | · | · | · | · | · |
 
 
@@ -550,7 +550,7 @@ is standard.
 
 | Module | V | C | E | D | A |
 |---|:-:|:-:|:-:|:-:|:-:|
-| `expenses` | · | · | · | · | · |
+| expenses | · | · | · | · | · |
 | `assets` | · | · | · | · | · |
 | `finance` | · | · | · | · | · |
 | `cash` | · | · | · | · | · |
@@ -563,8 +563,8 @@ is standard.
 | Module | V | C | E | D | A |
 |---|:-:|:-:|:-:|:-:|:-:|
 | `hr` | · | · | · | · | · |
-| `hr_contracts` | · | · | · | · | · |
-| `hr_activities` | · | · | · | · | · |
+| contracts | · | · | · | · | · |
+| HR activities | · | · | · | · | · |
 | `recruitment` | · | · | · | · | · |
 
 
@@ -580,8 +580,8 @@ is standard.
 | Module | V | C | E | D | A |
 |---|:-:|:-:|:-:|:-:|:-:|
 | `settings` | · | · | · | · | · |
-| `users` | · | · | · | · | · |
-| `roles` | · | · | · | · | · |
+| users | · | · | · | · | · |
+| roles | · | · | · | · | · |
 | `audit` | · | · | · | · | · |
 
 ### Cashier
@@ -599,9 +599,9 @@ is standard.
 | Module | V | C | E | D | A |
 |---|:-:|:-:|:-:|:-:|:-:|
 | `crm` | · | · | · | · | · |
-| `clients` | ✓ | ✓ | · | · | · |
-| `quotations` | · | · | · | · | · |
-| `invoices` | ✓ | · | · | · | · |
+| clients | ✓ | ✓ | · | · | · |
+| quotations | · | · | · | · | · |
+| invoices | ✓ | · | · | · | · |
 | `pos` | ✓ | ✓ | ✓ | · | · |
 
 
@@ -609,7 +609,7 @@ is standard.
 
 | Module | V | C | E | D | A |
 |---|:-:|:-:|:-:|:-:|:-:|
-| `projects` | · | · | · | · | · |
+| projects | · | · | · | · | · |
 | `planning` | · | · | · | · | · |
 
 
@@ -617,10 +617,10 @@ is standard.
 
 | Module | V | C | E | D | A |
 |---|:-:|:-:|:-:|:-:|:-:|
-| `suppliers` | · | · | · | · | · |
-| `purchases` | · | · | · | · | · |
-| `inventory` | ✓ | · | · | · | · |
-| `warehouses` | · | · | · | · | · |
+| suppliers | · | · | · | · | · |
+| purchases | · | · | · | · | · |
+| inventory | ✓ | · | · | · | · |
+| warehouses | · | · | · | · | · |
 | `manufacturing` | · | · | · | · | · |
 
 
@@ -628,7 +628,7 @@ is standard.
 
 | Module | V | C | E | D | A |
 |---|:-:|:-:|:-:|:-:|:-:|
-| `expenses` | · | · | · | · | · |
+| expenses | · | · | · | · | · |
 | `assets` | · | · | · | · | · |
 | `finance` | · | · | · | · | · |
 | `cash` | ✓ | ✓ | ✓ | · | · |
@@ -641,8 +641,8 @@ is standard.
 | Module | V | C | E | D | A |
 |---|:-:|:-:|:-:|:-:|:-:|
 | `hr` | · | · | · | · | · |
-| `hr_contracts` | · | · | · | · | · |
-| `hr_activities` | · | · | · | · | · |
+| contracts | · | · | · | · | · |
+| HR activities | · | · | · | · | · |
 | `recruitment` | · | · | · | · | · |
 
 
@@ -658,8 +658,8 @@ is standard.
 | Module | V | C | E | D | A |
 |---|:-:|:-:|:-:|:-:|:-:|
 | `settings` | · | · | · | · | · |
-| `users` | · | · | · | · | · |
-| `roles` | · | · | · | · | · |
+| users | · | · | · | · | · |
+| roles | · | · | · | · | · |
 | `audit` | · | · | · | · | · |
 
 ### Project Manager
@@ -677,9 +677,9 @@ is standard.
 | Module | V | C | E | D | A |
 |---|:-:|:-:|:-:|:-:|:-:|
 | `crm` | · | · | · | · | · |
-| `clients` | ✓ | · | · | · | · |
-| `quotations` | ✓ | · | · | · | · |
-| `invoices` | ✓ | · | · | · | · |
+| clients | ✓ | · | · | · | · |
+| quotations | ✓ | · | · | · | · |
+| invoices | ✓ | · | · | · | · |
 | `pos` | · | · | · | · | · |
 
 
@@ -687,7 +687,7 @@ is standard.
 
 | Module | V | C | E | D | A |
 |---|:-:|:-:|:-:|:-:|:-:|
-| `projects` | ✓ | ✓ | ✓ | · | ✓ |
+| projects | ✓ | ✓ | ✓ | · | ✓ |
 | `planning` | ✓ | ✓ | ✓ | ✓ | ✓ |
 
 
@@ -695,10 +695,10 @@ is standard.
 
 | Module | V | C | E | D | A |
 |---|:-:|:-:|:-:|:-:|:-:|
-| `suppliers` | · | · | · | · | · |
-| `purchases` | · | · | · | · | · |
-| `inventory` | ✓ | · | · | · | · |
-| `warehouses` | · | · | · | · | · |
+| suppliers | · | · | · | · | · |
+| purchases | · | · | · | · | · |
+| inventory | ✓ | · | · | · | · |
+| warehouses | · | · | · | · | · |
 | `manufacturing` | · | · | · | · | · |
 
 
@@ -706,7 +706,7 @@ is standard.
 
 | Module | V | C | E | D | A |
 |---|:-:|:-:|:-:|:-:|:-:|
-| `expenses` | ✓ | ✓ | · | · | · |
+| expenses | ✓ | ✓ | · | · | · |
 | `assets` | · | · | · | · | · |
 | `finance` | · | · | · | · | · |
 | `cash` | · | · | · | · | · |
@@ -719,8 +719,8 @@ is standard.
 | Module | V | C | E | D | A |
 |---|:-:|:-:|:-:|:-:|:-:|
 | `hr` | · | · | · | · | · |
-| `hr_contracts` | · | · | · | · | · |
-| `hr_activities` | · | · | · | · | · |
+| contracts | · | · | · | · | · |
+| HR activities | · | · | · | · | · |
 | `recruitment` | · | · | · | · | · |
 
 
@@ -736,8 +736,8 @@ is standard.
 | Module | V | C | E | D | A |
 |---|:-:|:-:|:-:|:-:|:-:|
 | `settings` | · | · | · | · | · |
-| `users` | · | · | · | · | · |
-| `roles` | · | · | · | · | · |
+| users | · | · | · | · | · |
+| roles | · | · | · | · | · |
 | `audit` | · | · | · | · | · |
 
 ### Operations Manager
@@ -755,9 +755,9 @@ is standard.
 | Module | V | C | E | D | A |
 |---|:-:|:-:|:-:|:-:|:-:|
 | `crm` | · | · | · | · | · |
-| `clients` | ✓ | · | · | · | · |
-| `quotations` | · | · | · | · | · |
-| `invoices` | · | · | · | · | · |
+| clients | ✓ | · | · | · | · |
+| quotations | · | · | · | · | · |
+| invoices | · | · | · | · | · |
 | `pos` | ✓ | ✓ | ✓ | ✓ | · |
 
 
@@ -765,7 +765,7 @@ is standard.
 
 | Module | V | C | E | D | A |
 |---|:-:|:-:|:-:|:-:|:-:|
-| `projects` | ✓ | ✓ | ✓ | · | · |
+| projects | ✓ | ✓ | ✓ | · | · |
 | `planning` | ✓ | ✓ | ✓ | · | · |
 
 
@@ -773,10 +773,10 @@ is standard.
 
 | Module | V | C | E | D | A |
 |---|:-:|:-:|:-:|:-:|:-:|
-| `suppliers` | ✓ | ✓ | ✓ | · | · |
-| `purchases` | ✓ | ✓ | ✓ | · | · |
-| `inventory` | ✓ | ✓ | ✓ | · | · |
-| `warehouses` | · | · | · | · | · |
+| suppliers | ✓ | ✓ | ✓ | · | · |
+| purchases | ✓ | ✓ | ✓ | · | · |
+| inventory | ✓ | ✓ | ✓ | · | · |
+| warehouses | · | · | · | · | · |
 | `manufacturing` | ✓ | ✓ | ✓ | ✓ | · |
 
 
@@ -784,7 +784,7 @@ is standard.
 
 | Module | V | C | E | D | A |
 |---|:-:|:-:|:-:|:-:|:-:|
-| `expenses` | · | · | · | · | · |
+| expenses | · | · | · | · | · |
 | `assets` | ✓ | ✓ | ✓ | · | · |
 | `finance` | · | · | · | · | · |
 | `cash` | ✓ | ✓ | ✓ | · | · |
@@ -797,8 +797,8 @@ is standard.
 | Module | V | C | E | D | A |
 |---|:-:|:-:|:-:|:-:|:-:|
 | `hr` | · | · | · | · | · |
-| `hr_contracts` | · | · | · | · | · |
-| `hr_activities` | · | · | · | · | · |
+| contracts | · | · | · | · | · |
+| HR activities | · | · | · | · | · |
 | `recruitment` | · | · | · | · | · |
 
 
@@ -814,8 +814,8 @@ is standard.
 | Module | V | C | E | D | A |
 |---|:-:|:-:|:-:|:-:|:-:|
 | `settings` | · | · | · | · | · |
-| `users` | · | · | · | · | · |
-| `roles` | · | · | · | · | · |
+| users | · | · | · | · | · |
+| roles | · | · | · | · | · |
 | `audit` | · | · | · | · | · |
 
 ### HR Manager
@@ -833,9 +833,9 @@ is standard.
 | Module | V | C | E | D | A |
 |---|:-:|:-:|:-:|:-:|:-:|
 | `crm` | · | · | · | · | · |
-| `clients` | · | · | · | · | · |
-| `quotations` | · | · | · | · | · |
-| `invoices` | · | · | · | · | · |
+| clients | · | · | · | · | · |
+| quotations | · | · | · | · | · |
+| invoices | · | · | · | · | · |
 | `pos` | · | · | · | · | · |
 
 
@@ -843,7 +843,7 @@ is standard.
 
 | Module | V | C | E | D | A |
 |---|:-:|:-:|:-:|:-:|:-:|
-| `projects` | · | · | · | · | · |
+| projects | · | · | · | · | · |
 | `planning` | · | · | · | · | · |
 
 
@@ -851,10 +851,10 @@ is standard.
 
 | Module | V | C | E | D | A |
 |---|:-:|:-:|:-:|:-:|:-:|
-| `suppliers` | · | · | · | · | · |
-| `purchases` | · | · | · | · | · |
-| `inventory` | · | · | · | · | · |
-| `warehouses` | · | · | · | · | · |
+| suppliers | · | · | · | · | · |
+| purchases | · | · | · | · | · |
+| inventory | · | · | · | · | · |
+| warehouses | · | · | · | · | · |
 | `manufacturing` | · | · | · | · | · |
 
 
@@ -862,7 +862,7 @@ is standard.
 
 | Module | V | C | E | D | A |
 |---|:-:|:-:|:-:|:-:|:-:|
-| `expenses` | · | · | · | · | · |
+| expenses | · | · | · | · | · |
 | `assets` | · | · | · | · | · |
 | `finance` | · | · | · | · | · |
 | `cash` | · | · | · | · | · |
@@ -875,8 +875,8 @@ is standard.
 | Module | V | C | E | D | A |
 |---|:-:|:-:|:-:|:-:|:-:|
 | `hr` | ✓ | ✓ | ✓ | ✓ | ✓ |
-| `hr_contracts` | ✓ | ✓ | ✓ | ✓ | ✓ |
-| `hr_activities` | ✓ | ✓ | ✓ | ✓ | ✓ |
+| contracts | ✓ | ✓ | ✓ | ✓ | ✓ |
+| HR activities | ✓ | ✓ | ✓ | ✓ | ✓ |
 | `recruitment` | ✓ | ✓ | ✓ | ✓ | ✓ |
 
 
@@ -892,8 +892,8 @@ is standard.
 | Module | V | C | E | D | A |
 |---|:-:|:-:|:-:|:-:|:-:|
 | `settings` | · | · | · | · | · |
-| `users` | · | · | · | · | · |
-| `roles` | · | · | · | · | · |
+| users | · | · | · | · | · |
+| roles | · | · | · | · | · |
 | `audit` | · | · | · | · | · |
 
 ### Recruiter
@@ -911,9 +911,9 @@ is standard.
 | Module | V | C | E | D | A |
 |---|:-:|:-:|:-:|:-:|:-:|
 | `crm` | · | · | · | · | · |
-| `clients` | · | · | · | · | · |
-| `quotations` | · | · | · | · | · |
-| `invoices` | · | · | · | · | · |
+| clients | · | · | · | · | · |
+| quotations | · | · | · | · | · |
+| invoices | · | · | · | · | · |
 | `pos` | · | · | · | · | · |
 
 
@@ -921,7 +921,7 @@ is standard.
 
 | Module | V | C | E | D | A |
 |---|:-:|:-:|:-:|:-:|:-:|
-| `projects` | · | · | · | · | · |
+| projects | · | · | · | · | · |
 | `planning` | · | · | · | · | · |
 
 
@@ -929,10 +929,10 @@ is standard.
 
 | Module | V | C | E | D | A |
 |---|:-:|:-:|:-:|:-:|:-:|
-| `suppliers` | · | · | · | · | · |
-| `purchases` | · | · | · | · | · |
-| `inventory` | · | · | · | · | · |
-| `warehouses` | · | · | · | · | · |
+| suppliers | · | · | · | · | · |
+| purchases | · | · | · | · | · |
+| inventory | · | · | · | · | · |
+| warehouses | · | · | · | · | · |
 | `manufacturing` | · | · | · | · | · |
 
 
@@ -940,7 +940,7 @@ is standard.
 
 | Module | V | C | E | D | A |
 |---|:-:|:-:|:-:|:-:|:-:|
-| `expenses` | · | · | · | · | · |
+| expenses | · | · | · | · | · |
 | `assets` | · | · | · | · | · |
 | `finance` | · | · | · | · | · |
 | `cash` | · | · | · | · | · |
@@ -953,8 +953,8 @@ is standard.
 | Module | V | C | E | D | A |
 |---|:-:|:-:|:-:|:-:|:-:|
 | `hr` | ✓ | · | · | · | · |
-| `hr_contracts` | · | · | · | · | · |
-| `hr_activities` | ✓ | ✓ | ✓ | ✓ | ✓ |
+| contracts | · | · | · | · | · |
+| HR activities | ✓ | ✓ | ✓ | ✓ | ✓ |
 | `recruitment` | ✓ | ✓ | ✓ | ✓ | ✓ |
 
 
@@ -970,8 +970,8 @@ is standard.
 | Module | V | C | E | D | A |
 |---|:-:|:-:|:-:|:-:|:-:|
 | `settings` | · | · | · | · | · |
-| `users` | · | · | · | · | · |
-| `roles` | · | · | · | · | · |
+| users | · | · | · | · | · |
+| roles | · | · | · | · | · |
 | `audit` | · | · | · | · | · |
 
 ### Procurement Officer
@@ -989,9 +989,9 @@ is standard.
 | Module | V | C | E | D | A |
 |---|:-:|:-:|:-:|:-:|:-:|
 | `crm` | · | · | · | · | · |
-| `clients` | · | · | · | · | · |
-| `quotations` | · | · | · | · | · |
-| `invoices` | · | · | · | · | · |
+| clients | · | · | · | · | · |
+| quotations | · | · | · | · | · |
+| invoices | · | · | · | · | · |
 | `pos` | · | · | · | · | · |
 
 
@@ -999,7 +999,7 @@ is standard.
 
 | Module | V | C | E | D | A |
 |---|:-:|:-:|:-:|:-:|:-:|
-| `projects` | · | · | · | · | · |
+| projects | · | · | · | · | · |
 | `planning` | · | · | · | · | · |
 
 
@@ -1007,10 +1007,10 @@ is standard.
 
 | Module | V | C | E | D | A |
 |---|:-:|:-:|:-:|:-:|:-:|
-| `suppliers` | ✓ | ✓ | ✓ | ✓ | · |
-| `purchases` | ✓ | ✓ | ✓ | · | ✓ |
-| `inventory` | ✓ | ✓ | ✓ | · | · |
-| `warehouses` | · | · | · | · | · |
+| suppliers | ✓ | ✓ | ✓ | ✓ | · |
+| purchases | ✓ | ✓ | ✓ | · | ✓ |
+| inventory | ✓ | ✓ | ✓ | · | · |
+| warehouses | · | · | · | · | · |
 | `manufacturing` | ✓ | · | · | · | · |
 
 
@@ -1018,7 +1018,7 @@ is standard.
 
 | Module | V | C | E | D | A |
 |---|:-:|:-:|:-:|:-:|:-:|
-| `expenses` | ✓ | · | · | · | · |
+| expenses | ✓ | · | · | · | · |
 | `assets` | · | · | · | · | · |
 | `finance` | · | · | · | · | · |
 | `cash` | · | · | · | · | · |
@@ -1031,8 +1031,8 @@ is standard.
 | Module | V | C | E | D | A |
 |---|:-:|:-:|:-:|:-:|:-:|
 | `hr` | · | · | · | · | · |
-| `hr_contracts` | · | · | · | · | · |
-| `hr_activities` | · | · | · | · | · |
+| contracts | · | · | · | · | · |
+| HR activities | · | · | · | · | · |
 | `recruitment` | · | · | · | · | · |
 
 
@@ -1048,8 +1048,8 @@ is standard.
 | Module | V | C | E | D | A |
 |---|:-:|:-:|:-:|:-:|:-:|
 | `settings` | · | · | · | · | · |
-| `users` | · | · | · | · | · |
-| `roles` | · | · | · | · | · |
+| users | · | · | · | · | · |
+| roles | · | · | · | · | · |
 | `audit` | · | · | · | · | · |
 
 ### Inventory
@@ -1067,9 +1067,9 @@ is standard.
 | Module | V | C | E | D | A |
 |---|:-:|:-:|:-:|:-:|:-:|
 | `crm` | · | · | · | · | · |
-| `clients` | · | · | · | · | · |
-| `quotations` | · | · | · | · | · |
-| `invoices` | · | · | · | · | · |
+| clients | · | · | · | · | · |
+| quotations | · | · | · | · | · |
+| invoices | · | · | · | · | · |
 | `pos` | · | · | · | · | · |
 
 
@@ -1077,7 +1077,7 @@ is standard.
 
 | Module | V | C | E | D | A |
 |---|:-:|:-:|:-:|:-:|:-:|
-| `projects` | · | · | · | · | · |
+| projects | · | · | · | · | · |
 | `planning` | · | · | · | · | · |
 
 
@@ -1085,10 +1085,10 @@ is standard.
 
 | Module | V | C | E | D | A |
 |---|:-:|:-:|:-:|:-:|:-:|
-| `suppliers` | ✓ | ✓ | ✓ | · | · |
-| `purchases` | ✓ | ✓ | ✓ | · | · |
-| `inventory` | ✓ | ✓ | ✓ | · | · |
-| `warehouses` | · | · | · | · | · |
+| suppliers | ✓ | ✓ | ✓ | · | · |
+| purchases | ✓ | ✓ | ✓ | · | · |
+| inventory | ✓ | ✓ | ✓ | · | · |
+| warehouses | · | · | · | · | · |
 | `manufacturing` | ✓ | ✓ | ✓ | · | · |
 
 
@@ -1096,7 +1096,7 @@ is standard.
 
 | Module | V | C | E | D | A |
 |---|:-:|:-:|:-:|:-:|:-:|
-| `expenses` | · | · | · | · | · |
+| expenses | · | · | · | · | · |
 | `assets` | · | · | · | · | · |
 | `finance` | · | · | · | · | · |
 | `cash` | · | · | · | · | · |
@@ -1109,8 +1109,8 @@ is standard.
 | Module | V | C | E | D | A |
 |---|:-:|:-:|:-:|:-:|:-:|
 | `hr` | · | · | · | · | · |
-| `hr_contracts` | · | · | · | · | · |
-| `hr_activities` | · | · | · | · | · |
+| contracts | · | · | · | · | · |
+| HR activities | · | · | · | · | · |
 | `recruitment` | · | · | · | · | · |
 
 
@@ -1126,8 +1126,8 @@ is standard.
 | Module | V | C | E | D | A |
 |---|:-:|:-:|:-:|:-:|:-:|
 | `settings` | · | · | · | · | · |
-| `users` | · | · | · | · | · |
-| `roles` | · | · | · | · | · |
+| users | · | · | · | · | · |
+| roles | · | · | · | · | · |
 | `audit` | · | · | · | · | · |
 
 ### Production Manager
@@ -1145,9 +1145,9 @@ is standard.
 | Module | V | C | E | D | A |
 |---|:-:|:-:|:-:|:-:|:-:|
 | `crm` | · | · | · | · | · |
-| `clients` | · | · | · | · | · |
-| `quotations` | · | · | · | · | · |
-| `invoices` | · | · | · | · | · |
+| clients | · | · | · | · | · |
+| quotations | · | · | · | · | · |
+| invoices | · | · | · | · | · |
 | `pos` | · | · | · | · | · |
 
 
@@ -1155,7 +1155,7 @@ is standard.
 
 | Module | V | C | E | D | A |
 |---|:-:|:-:|:-:|:-:|:-:|
-| `projects` | · | · | · | · | · |
+| projects | · | · | · | · | · |
 | `planning` | ✓ | · | · | · | · |
 
 
@@ -1163,10 +1163,10 @@ is standard.
 
 | Module | V | C | E | D | A |
 |---|:-:|:-:|:-:|:-:|:-:|
-| `suppliers` | · | · | · | · | · |
-| `purchases` | ✓ | · | · | · | · |
-| `inventory` | ✓ | ✓ | ✓ | · | · |
-| `warehouses` | · | · | · | · | · |
+| suppliers | · | · | · | · | · |
+| purchases | ✓ | · | · | · | · |
+| inventory | ✓ | ✓ | ✓ | · | · |
+| warehouses | · | · | · | · | · |
 | `manufacturing` | ✓ | ✓ | ✓ | ✓ | · |
 
 
@@ -1174,7 +1174,7 @@ is standard.
 
 | Module | V | C | E | D | A |
 |---|:-:|:-:|:-:|:-:|:-:|
-| `expenses` | · | · | · | · | · |
+| expenses | · | · | · | · | · |
 | `assets` | · | · | · | · | · |
 | `finance` | · | · | · | · | · |
 | `cash` | · | · | · | · | · |
@@ -1187,8 +1187,8 @@ is standard.
 | Module | V | C | E | D | A |
 |---|:-:|:-:|:-:|:-:|:-:|
 | `hr` | · | · | · | · | · |
-| `hr_contracts` | · | · | · | · | · |
-| `hr_activities` | · | · | · | · | · |
+| contracts | · | · | · | · | · |
+| HR activities | · | · | · | · | · |
 | `recruitment` | · | · | · | · | · |
 
 
@@ -1204,8 +1204,8 @@ is standard.
 | Module | V | C | E | D | A |
 |---|:-:|:-:|:-:|:-:|:-:|
 | `settings` | · | · | · | · | · |
-| `users` | · | · | · | · | · |
-| `roles` | · | · | · | · | · |
+| users | · | · | · | · | · |
+| roles | · | · | · | · | · |
 | `audit` | · | · | · | · | · |
 
 ### CRM Specialist
@@ -1223,9 +1223,9 @@ is standard.
 | Module | V | C | E | D | A |
 |---|:-:|:-:|:-:|:-:|:-:|
 | `crm` | ✓ | ✓ | ✓ | ✓ | · |
-| `clients` | ✓ | ✓ | ✓ | · | · |
-| `quotations` | ✓ | · | · | · | · |
-| `invoices` | · | · | · | · | · |
+| clients | ✓ | ✓ | ✓ | · | · |
+| quotations | ✓ | · | · | · | · |
+| invoices | · | · | · | · | · |
 | `pos` | · | · | · | · | · |
 
 
@@ -1233,7 +1233,7 @@ is standard.
 
 | Module | V | C | E | D | A |
 |---|:-:|:-:|:-:|:-:|:-:|
-| `projects` | · | · | · | · | · |
+| projects | · | · | · | · | · |
 | `planning` | · | · | · | · | · |
 
 
@@ -1241,10 +1241,10 @@ is standard.
 
 | Module | V | C | E | D | A |
 |---|:-:|:-:|:-:|:-:|:-:|
-| `suppliers` | · | · | · | · | · |
-| `purchases` | · | · | · | · | · |
-| `inventory` | · | · | · | · | · |
-| `warehouses` | · | · | · | · | · |
+| suppliers | · | · | · | · | · |
+| purchases | · | · | · | · | · |
+| inventory | · | · | · | · | · |
+| warehouses | · | · | · | · | · |
 | `manufacturing` | · | · | · | · | · |
 
 
@@ -1252,7 +1252,7 @@ is standard.
 
 | Module | V | C | E | D | A |
 |---|:-:|:-:|:-:|:-:|:-:|
-| `expenses` | · | · | · | · | · |
+| expenses | · | · | · | · | · |
 | `assets` | · | · | · | · | · |
 | `finance` | · | · | · | · | · |
 | `cash` | · | · | · | · | · |
@@ -1265,8 +1265,8 @@ is standard.
 | Module | V | C | E | D | A |
 |---|:-:|:-:|:-:|:-:|:-:|
 | `hr` | · | · | · | · | · |
-| `hr_contracts` | · | · | · | · | · |
-| `hr_activities` | · | · | · | · | · |
+| contracts | · | · | · | · | · |
+| HR activities | · | · | · | · | · |
 | `recruitment` | · | · | · | · | · |
 
 
@@ -1282,8 +1282,8 @@ is standard.
 | Module | V | C | E | D | A |
 |---|:-:|:-:|:-:|:-:|:-:|
 | `settings` | · | · | · | · | · |
-| `users` | · | · | · | · | · |
-| `roles` | · | · | · | · | · |
+| users | · | · | · | · | · |
+| roles | · | · | · | · | · |
 | `audit` | · | · | · | · | · |
 
 ### Auditor
@@ -1301,9 +1301,9 @@ is standard.
 | Module | V | C | E | D | A |
 |---|:-:|:-:|:-:|:-:|:-:|
 | `crm` | ✓ | · | · | · | · |
-| `clients` | ✓ | · | · | · | · |
-| `quotations` | ✓ | · | · | · | · |
-| `invoices` | ✓ | · | · | · | · |
+| clients | ✓ | · | · | · | · |
+| quotations | ✓ | · | · | · | · |
+| invoices | ✓ | · | · | · | · |
 | `pos` | ✓ | · | · | · | · |
 
 
@@ -1311,7 +1311,7 @@ is standard.
 
 | Module | V | C | E | D | A |
 |---|:-:|:-:|:-:|:-:|:-:|
-| `projects` | ✓ | · | · | · | · |
+| projects | ✓ | · | · | · | · |
 | `planning` | ✓ | · | · | · | · |
 
 
@@ -1319,10 +1319,10 @@ is standard.
 
 | Module | V | C | E | D | A |
 |---|:-:|:-:|:-:|:-:|:-:|
-| `suppliers` | ✓ | · | · | · | · |
-| `purchases` | ✓ | · | · | · | · |
-| `inventory` | ✓ | · | · | · | · |
-| `warehouses` | · | · | · | · | · |
+| suppliers | ✓ | · | · | · | · |
+| purchases | ✓ | · | · | · | · |
+| inventory | ✓ | · | · | · | · |
+| warehouses | · | · | · | · | · |
 | `manufacturing` | ✓ | · | · | · | · |
 
 
@@ -1330,7 +1330,7 @@ is standard.
 
 | Module | V | C | E | D | A |
 |---|:-:|:-:|:-:|:-:|:-:|
-| `expenses` | ✓ | · | · | · | · |
+| expenses | ✓ | · | · | · | · |
 | `assets` | ✓ | · | · | · | · |
 | `finance` | ✓ | · | · | · | · |
 | `cash` | ✓ | · | · | · | · |
@@ -1343,8 +1343,8 @@ is standard.
 | Module | V | C | E | D | A |
 |---|:-:|:-:|:-:|:-:|:-:|
 | `hr` | ✓ | · | · | · | · |
-| `hr_contracts` | ✓ | · | · | · | · |
-| `hr_activities` | ✓ | · | · | · | · |
+| contracts | ✓ | · | · | · | · |
+| HR activities | ✓ | · | · | · | · |
 | `recruitment` | ✓ | · | · | · | · |
 
 
@@ -1360,8 +1360,8 @@ is standard.
 | Module | V | C | E | D | A |
 |---|:-:|:-:|:-:|:-:|:-:|
 | `settings` | · | · | · | · | · |
-| `users` | · | · | · | · | · |
-| `roles` | · | · | · | · | · |
+| users | · | · | · | · | · |
+| roles | · | · | · | · | · |
 | `audit` | ✓ | · | · | · | · |
 
 ### Viewer
@@ -1379,9 +1379,9 @@ is standard.
 | Module | V | C | E | D | A |
 |---|:-:|:-:|:-:|:-:|:-:|
 | `crm` | ✓ | · | · | · | · |
-| `clients` | ✓ | · | · | · | · |
-| `quotations` | ✓ | · | · | · | · |
-| `invoices` | ✓ | · | · | · | · |
+| clients | ✓ | · | · | · | · |
+| quotations | ✓ | · | · | · | · |
+| invoices | ✓ | · | · | · | · |
 | `pos` | ✓ | · | · | · | · |
 
 
@@ -1389,7 +1389,7 @@ is standard.
 
 | Module | V | C | E | D | A |
 |---|:-:|:-:|:-:|:-:|:-:|
-| `projects` | ✓ | · | · | · | · |
+| projects | ✓ | · | · | · | · |
 | `planning` | ✓ | · | · | · | · |
 
 
@@ -1397,10 +1397,10 @@ is standard.
 
 | Module | V | C | E | D | A |
 |---|:-:|:-:|:-:|:-:|:-:|
-| `suppliers` | ✓ | · | · | · | · |
-| `purchases` | ✓ | · | · | · | · |
-| `inventory` | ✓ | · | · | · | · |
-| `warehouses` | · | · | · | · | · |
+| suppliers | ✓ | · | · | · | · |
+| purchases | ✓ | · | · | · | · |
+| inventory | ✓ | · | · | · | · |
+| warehouses | · | · | · | · | · |
 | `manufacturing` | ✓ | · | · | · | · |
 
 
@@ -1408,7 +1408,7 @@ is standard.
 
 | Module | V | C | E | D | A |
 |---|:-:|:-:|:-:|:-:|:-:|
-| `expenses` | ✓ | · | · | · | · |
+| expenses | ✓ | · | · | · | · |
 | `assets` | ✓ | · | · | · | · |
 | `finance` | ✓ | · | · | · | · |
 | `cash` | ✓ | · | · | · | · |
@@ -1421,8 +1421,8 @@ is standard.
 | Module | V | C | E | D | A |
 |---|:-:|:-:|:-:|:-:|:-:|
 | `hr` | · | · | · | · | · |
-| `hr_contracts` | · | · | · | · | · |
-| `hr_activities` | · | · | · | · | · |
+| contracts | · | · | · | · | · |
+| HR activities | · | · | · | · | · |
 | `recruitment` | · | · | · | · | · |
 
 
@@ -1438,6 +1438,6 @@ is standard.
 | Module | V | C | E | D | A |
 |---|:-:|:-:|:-:|:-:|:-:|
 | `settings` | · | · | · | · | · |
-| `users` | · | · | · | · | · |
-| `roles` | · | · | · | · | · |
+| users | · | · | · | · | · |
+| roles | · | · | · | · | · |
 | `audit` | · | · | · | · | · |

@@ -1,21 +1,18 @@
 # POS (Point of Sale)
 
-The over-the-counter selling fast-path. Cashier opens a register session,
-rings up sales, accepts cash (USD or LBP), prints a receipt, closes the
-till at end-of-day.
+The till. Ring up a sale over the counter, take cash in USD or LBP, print a
+receipt, and cash up at the end of the day.
 
 ## Purpose
 
-POS condenses the sales cycle into a single screen. One transaction
-produces an invoice, an invoice payment, a stock deduction, two journal
-entries (sale + COGS), and a POS-specific record — all atomic, all
-audit-logged. See [Data flow](../architecture/data-flow.md) for the
-8-write breakdown.
+POS is the fast version of selling: one screen instead of a quotation, an
+invoice and a payment.
 
-The POS module is fully integrated with the rest of the ERP — it's not a
-parallel sales pipeline. A POS sale **is** an invoice (with prefix
-`POS-`) backed by the same `invoices` + `invoice_payments` +
-`stock_movements` infrastructure as regular sales.
+Behind the counter it is still the same system. A till sale creates a real
+invoice (numbered `POS-…`), records the payment, takes the items off your
+stock and posts everything to the accounts — all in one go. It is not a
+separate set of books, so your reports include till sales without you doing
+anything.
 
 ## Personas
 
@@ -32,7 +29,7 @@ parallel sales pipeline. A POS sale **is** an invoice (with prefix
 - **Session lifecycle** — `open → checkout (many) → close` (one open
   session per cashier at a time)
 - **Tender currencies** — USD or LBP
-- **Auto-creates** — every checkout creates an `invoices` row with prefix
+- **Auto-creates** — every checkout creates an invoices row with prefix
   `POS-`
 - **Per-warehouse selling** — session is opened against a specific
   warehouse; sales deduct from there
@@ -46,7 +43,7 @@ parallel sales pipeline. A POS sale **is** an invoice (with prefix
 
     ### Opening a session
 
-    POS → **Open Register** panel:
+    POS → **Open Register** panel.
 
     | Field | Notes |
     |---|---|
@@ -62,7 +59,7 @@ parallel sales pipeline. A POS sale **is** an invoice (with prefix
 
     ### Ringing a sale
 
-    On the POS screen:
+    On the POS screen.
 
     1. Scan barcode OR type item name (autocomplete from inventory)
     2. The line lands in the cart with default unit price
@@ -95,7 +92,7 @@ parallel sales pipeline. A POS sale **is** an invoice (with prefix
     - The original invoice is **voided** with `void_reason='POS return: …'`
     - Stock is restocked at the session's warehouse (`stock_movements
       type='return'`)
-    - A `pos_returns` row records the refund amount
+    - A pos returns row records the refund amount
     - Cash refund is recorded as a negative cash movement on the current
       session
 
@@ -116,7 +113,7 @@ parallel sales pipeline. A POS sale **is** an invoice (with prefix
     - Variance < 0 (till short): `DR Cash Short & Over / CR Cash`
     - Variance > 0 (till over): `DR Cash / CR Cash Short & Over`
 
-    A `cash_variance` notification is sent if the variance crosses a
+    A cash variance notification is sent if the variance crosses a
     threshold ($5 USD or 100,000 LBP).
 
 === "Administrator's view"
@@ -155,7 +152,7 @@ parallel sales pipeline. A POS sale **is** an invoice (with prefix
     ### Exchange rate
 
     LBP tenders use the latest rate from **Settings → Exchange Rate**.
-    The rate is snapshotted on the `invoice_payments` row at the time of
+    The rate is snapshotted on the payments row at the time of
     the sale — so future rate changes don't retroactively affect the
     posted entry.
 
@@ -164,88 +161,26 @@ parallel sales pipeline. A POS sale **is** an invoice (with prefix
     ### Headline reconciliation — POS revenue → GL
 
     Every completed POS sale should appear in the GL `4000 Sales Revenue`
-    account:
-
-    ```sql
-    -- POS revenue from pos_sales (one truth)
-    SELECT SUM(total_usd) FROM pos_sales
-    WHERE status = 'completed' AND DATE(created_at) = '2026-05-30';
-
-    -- POS revenue from GL (other truth)
-    SELECT SUM(jel.credit)
-    FROM journal_entries je
-    JOIN journal_entry_lines jel ON jel.journal_entry_id = je.id
-    JOIN chart_of_accounts a ON a.id = jel.account_id
-    WHERE je.source_type = 'invoice_payment'
-      AND DATE(je.entry_date) = '2026-05-30'
-      AND a.code = '4000'
-      AND je.source_id IN (
-        SELECT ip.id FROM invoice_payments ip
-        JOIN invoices i ON i.id = ip.invoice_id
-        WHERE i.invoice_number LIKE 'POS-%'
-      );
-    ```
+    account.
 
     Numbers should match exactly.
 
     ### COGS posting check
 
-    Every POS sale of stock-backed items should also have a COGS post:
-
-    ```sql
-    SELECT ps.id, ps.created_at, ps.total_usd, ps.cogs_total,
-           je.entry_number AS revenue_je,
-           cogs_je.entry_number AS cogs_je
-    FROM pos_sales ps
-    LEFT JOIN invoice_payments ip ON ip.invoice_id = ps.invoice_id
-    LEFT JOIN journal_entries je
-      ON je.source_type='invoice_payment' AND je.source_id=ip.id
-    LEFT JOIN journal_entries cogs_je
-      ON cogs_je.source_type='pos_cogs' AND cogs_je.source_id=ps.invoice_id
-    WHERE ps.status='completed' AND ps.cogs_total > 0
-      AND cogs_je.id IS NULL;
-    ```
+    Every POS sale of stock-backed items should also have a COGS post.
 
     Rows = sales that should have COGS but don't. Should be empty.
 
     ### Variance trail
-
-    ```sql
-    -- Every session close and the variance posted to GL
-    SELECT s.id, s.cashier_name, s.closed_at,
-           s.variance AS variance_usd,
-           s.variance_lbp,
-           je.entry_number AS variance_je
-    FROM pos_sessions s
-    LEFT JOIN journal_entries je
-      ON je.source_type LIKE 'cash_variance%' AND je.source_id = s.id
-    WHERE s.status = 'closed'
-      AND (ABS(COALESCE(s.variance, 0)) > 0.005
-        OR ABS(COALESCE(s.variance_lbp, 0)) > 1)
-    ORDER BY s.closed_at DESC;
-    ```
 
     Every non-zero variance should have a corresponding JE. NULL JE on a
     non-zero variance = F-3 audit fix not yet applied.
 
     ### LBP routing to account 1010
 
-    LBP POS sales should post Cash to **1010**, not **1000**:
+    LBP POS sales should post Cash to **1010**, not **1000**.
 
-    ```sql
-    SELECT je.entry_number, a.code AS cash_acct, jel.debit
-    FROM pos_sales ps
-    JOIN invoice_payments ip ON ip.invoice_id = ps.invoice_id
-                              AND ip.paid_currency = 'LBP'
-    JOIN journal_entries je
-      ON je.source_type='invoice_payment' AND je.source_id=ip.id
-    JOIN journal_entry_lines jel ON jel.journal_entry_id = je.id
-    JOIN chart_of_accounts a ON a.id = jel.account_id
-    WHERE jel.debit > 0
-    ORDER BY ps.created_at DESC LIMIT 10;
-    ```
-
-    `cash_acct` should consistently show `1010`. Any `1000` = a pre-F-5
+    cash acct should consistently show `1010`. Any `1000` = a pre-F-5
     leak.
 
 ---
@@ -277,107 +212,6 @@ stateDiagram-v2
     end note
 ```
 
-## Workflow — full POS sale (the 8-step transaction)
-
-Already documented in [Architecture → Data flow](../architecture/data-flow.md).
-The TL;DR:
-
-1. Validate session, cart, stock at the session's warehouse
-2. Insert `invoices` (POS- prefix)
-3. Insert `invoice_items`
-4. Insert `invoice_payments` (USD or LBP, rate snapshot)
-5. Post **DR Cash CR Revenue** to GL (Cash routes to 1000 or 1010 by
-   currency)
-6. Deduct stock per costing method → `inventory_stock`, `inventory`,
-   `inventory_cost_layers`/`inventory_lots`, `stock_movements`
-7. Post **DR COGS CR Inventory** to GL
-8. Insert `pos_sales` + `pos_sale_items`, audit-log, COMMIT
-
-## Data model
-
-```mermaid
-erDiagram
-    POS_SESSIONS ||--o{ POS_SALES : "rings"
-    POS_SALES ||--o{ POS_SALE_ITEMS : "has"
-    POS_SALES ||--o{ POS_RETURNS : "refunded by"
-    POS_SALES ||--|| INVOICES : "wraps"
-    POS_SESSIONS }o..|| WAREHOUSES : "sells from"
-    POS_SESSIONS }o..|| USERS : "cashier"
-
-    POS_SESSIONS {
-        int  id PK
-        int  cashier_id FK
-        text cashier_name
-        text status
-        real opening_float
-        real opening_float_lbp
-        real closing_count
-        real closing_count_lbp
-        real expected_cash
-        real expected_cash_lbp
-        real variance
-        real variance_lbp
-        text note
-        text opened_at
-        text closed_at
-        int  warehouse_id FK
-    }
-
-    POS_SALES {
-        int  id PK
-        int  session_id FK
-        int  invoice_id FK
-        int  cashier_id FK
-        text cashier_name
-        text payment_method
-        text paid_currency
-        real amount_tendered
-        real change_given
-        real total_usd
-        text status
-        text returned_at
-        real discount_total
-        real cogs_total
-    }
-
-    POS_SALE_ITEMS {
-        int  id PK
-        int  pos_sale_id FK
-        int  invoice_item_id FK
-        int  inventory_id FK
-        text name
-        real quantity
-        real unit_price
-        text line_type
-        real discount
-        real unit_cost
-    }
-
-    POS_RETURNS {
-        int  id PK
-        int  pos_sale_id FK
-        int  session_id FK
-        int  invoice_id FK
-        int  cashier_id FK
-        real refund_amount
-        text reason
-        text created_at
-    }
-```
-
-## API surface
-
-| Endpoint | Purpose |
-|---|---|
-| `GET /api/pos/session/current` | Caller's open session + running totals |
-| `POST /api/pos/session/open` | Open with opening float + warehouse |
-| `POST /api/pos/session/close` | Close + compute variances |
-| `GET /api/pos/sessions` | History |
-| `GET /api/pos/sales` | Sales history |
-| `POST /api/pos/checkout` | The 8-step atomic write |
-| `POST /api/pos/return/{sale_id}` | Void + restock atomically |
-| `GET /api/pos/summary` | KPIs (today's sales, top items, …) |
-
 ## Receipt printing
 
 The receipt is laid out for thermal paper and printed through the browser.
@@ -391,7 +225,7 @@ with mixed hardware should standardise the rolls rather than the setting.
 **One-click printing.** `window.print()` opens the browser's print dialog, and no
 web page can bypass that — it is a browser security boundary, not a missing
 feature. For a dedicated till, launch Chrome with kiosk printing and the dialog
-disappears; the receipt goes straight to the default printer on click:
+disappears; the receipt goes straight to the default printer on click.
 
 ```
 chrome --kiosk-printing --app=https://<your-subdomain>.quilit.dev/pos

@@ -17,9 +17,9 @@ fires when a triggering action happens.
 **A/R aging** — Accounts Receivable bucketed by days overdue (Current /
 1-30 / 31-60 / 61-90 / 90+). Surface for collection prioritisation.
 
-**Audit log** — Append-only `audit_log` table recording every state-changing
-operation with `user_id`, `action`, `module`, `record_ref`, `detail`,
-`created_at`.
+**Audit log** — Append-only the audit trail table recording every state-changing
+operation with user, `action`, `module`, the record it refers to, `detail`,
+creation date.
 
 ## B
 
@@ -49,7 +49,7 @@ unit cost. Drawn down as items are consumed.
 ## D
 
 **Default warehouse** — The warehouse the system uses when no
-`warehouse_id` is specified on a stock-touching operation. Either the
+warehouse is specified on a stock-touching operation. Either the
 user's personal default (`users.default_warehouse_id`) or the company
 default (`warehouses.is_default = 1`).
 
@@ -59,7 +59,7 @@ The system supports straight-line (`(cost − salvage) / useful_life_months`).
 ## E
 
 **EOS (End-of-Service indemnity)** — Lebanese statutory severance pay.
-Configurable on each `recruitment_offers` row.
+Configurable on each recruitment offers row.
 
 **Expected cash** — At session/reconciliation close: `opening_balance +
 cash-in − cash-out`, computed per currency.
@@ -106,21 +106,18 @@ effect as doing it once. Important for POS checkout and invoice payments
 starts from this date.
 
 **Inventory adjustment** — Manual change to stock quantity (count
-discrepancy, write-off). Warehouse-specific; writes a `stock_movements`
+discrepancy, write-off). Warehouse-specific; writes a stock movements
 row.
 
 ## J
 
 **JE (Journal Entry)** — One balanced double-entry posting with `≥ 2` lines
-in `journal_entry_lines`. Identified by `entry_number` like `JE-2026-00142`.
-
-**JWT** — JSON Web Token. The system uses HS256 in an HttpOnly cookie for
-session auth.
+in journal entry lines. Identified by entry number like `JE-2026-00142`.
 
 ## L
 
 **Landed cost** — Total cost of a purchased item including the unit cost
-plus `additional_costs` (shipping, customs, handling).
+plus additional costs (shipping, customs, handling).
 
 **LBP (Lebanese Pound)** — Secondary tender currency. Stored on its own
 GL account (1010 Cash — LBP).
@@ -128,8 +125,8 @@ GL account (1010 Cash — LBP).
 **LIFO (Last In First Out)** — Costing method drawing newest cost layers
 first.
 
-**Lot** — Identifiable batch of inventory, optionally with `manufacture_date`
-+ `expiry_date`. Tracked separately when `inventory.lot_tracked = 1`.
+**Lot** — Identifiable batch of inventory, optionally with manufacture date
++ expiry date. Tracked separately when `inventory.lot_tracked = 1`.
 
 ## M
 
@@ -150,12 +147,12 @@ payroll computation.
 
 ## P
 
-**Per-warehouse stock** — `inventory_stock` row per (item, warehouse) pair.
+**Per-warehouse stock** — stock per warehouse row per (item, warehouse) pair.
 The sum of `inventory_stock.quantity` across warehouses equals the
 company-wide `inventory.quantity`.
 
 **Period lock** — `accounting_periods.locked_at` flag. Once set, no new
-journal entry can post with `entry_date` in that month.
+journal entry can post with entry date in that month.
 
 **Perpetual inventory** — Accounting model where stock movements
 continuously update the Inventory account. Contrast with periodic
@@ -171,7 +168,7 @@ contracts. Captured in `hr_contracts.probation_end_date`.
 
 ## R
 
-**RBAC (Role-Based Access Control)** — The permission system. Each user
+**Role** — What a person is allowed to do. Each user
 has one role; each role has per-module per-action grants.
 
 **Reservation** — Stock earmarked for a confirmed production order.
@@ -188,18 +185,18 @@ to cancel its effect while preserving both rows in history.
 
 **Snapshot** — A frozen capture of values at a point in time. Tax rates
 are snapshotted per-line; period totals are snapshotted in
-`period_snapshots`; cost layers carry per-receipt cost snapshots.
+period snapshots; cost layers carry per-receipt cost snapshots.
 
 **Source-event** — The business event that originated a JE. Identified by
-`(source_type, source_id)` on the `journal_entries` row.
+`(source_type, source_id)` on the journal entries row.
 
 **Spot rate** — Current LBP-per-USD exchange rate. Latest row in
-`exchange_rates`.
+exchange rates.
 
 ## T
 
 **Tax rate snapshot** — When a tax rate is applied to a document line,
-both the `tax_rate_id` and the **value of the rate at that moment** are
+both the tax rate and the **value of the rate at that moment** are
 stored, so future rate changes don't retroactively alter old documents.
 
 **Tender** — The form of payment (cash, card, bank transfer). For cash
@@ -212,10 +209,7 @@ construction.
 
 ## W
 
-**WAL (Write-Ahead Log)** — SQLite journal mode used. Allows concurrent
-readers while a writer holds a transaction.
-
-**Warehouse type** — Tag on `warehouses.type`: `Main`, `Branch`,
+**Warehouse type** — What kind of warehouse it is: `Main`, `Branch`,
 `Production`, `Damaged`, `Transit`, `Returns`. Informational; doesn't
 affect logic.
 

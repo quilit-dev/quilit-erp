@@ -45,10 +45,10 @@ diagrams, data models, and the audit evidence each operation leaves behind.
 
     *"How do I configure and govern this?"*
 
-    Permissions, multi-warehouse access, RBAC, settings, integrations and
+    Permissions, warehouse access, settings, integrations and
     operational controls. Look for the **Administrator's view** tab.
 
-    [:octicons-arrow-right-24: Authentication & RBAC](foundation/rbac.md)
+    [:octicons-arrow-right-24: Signing in & permissions](foundation/rbac.md)
 
 -   :material-magnify-scan:{ .lg .middle } **Auditor**
 
@@ -124,7 +124,7 @@ entry, all in one atomic transaction. The manual maps each of these for you.
 
 -   :material-warehouse: **Multi-warehouse stock**
 
-    First-class warehouses with row-level access, transfer workflow,
+    First-class warehouses with per-warehouse access, transfers,
     per-warehouse balances. One company-wide Inventory GL account.
 
 -   :material-currency-usd: **Dual-currency (USD + LBP)**
@@ -137,15 +137,15 @@ entry, all in one atomic transaction. The manual maps each of these for you.
     Real general ledger. Trial balance always ties, Income Statement and
     Balance Sheet are derived from journal entries, never inflated.
 
--   :material-account-key: **RBAC + row-level access**
+-   :material-account-key: **Roles and warehouse access**
 
     18 seeded roles × 28 modules × 5 actions, plus per-warehouse access for
     inventory operations.
 
 -   :material-history: **Comprehensive audit trail**
 
-    Every write recorded with `user_id`, `action`, `record_ref`, `detail`,
-    `created_at`. Reversal-only corrections — nothing is silently deleted.
+    Every write recorded with user, `action`, the record it refers to, `detail`,
+    creation date. Reversal-only corrections — nothing is silently deleted.
 
 -   :material-check-decagram: **Approval workflows**
 
@@ -180,9 +180,8 @@ one you know where to look in every other:
 | **Auditor's view** | What records are written and how to verify them |
 | **Data model** | ER diagram of the tables involved |
 | **Workflow** | Sequence/flow diagram of the most common operation |
-| **Permissions** | Module-level + row-level table |
-| **Integrations** | What other modules read from / write to this one |
-| **API surface** | Endpoints invoked when the UI does its work |
+| **Permissions** | Which roles can do what |
+| **Integrations** | Which other parts of the system this one affects |
 
 !!! tip "Searching the manual"
     Hit ++slash++ (or click the magnifying glass) at any time to open the
@@ -190,5 +189,5 @@ one you know where to look in every other:
 
 !!! info "Version covered"
     This manual describes the ERP at version **2.1.0+** — multi-warehouse,
-    multi-currency audit remediation, and the expanded RBAC catalog are all
+    multi-currency handling, and the expanded role catalogue are all
     in scope.

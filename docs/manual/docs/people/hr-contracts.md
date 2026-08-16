@@ -6,12 +6,12 @@ the legal language that goes into printable PDFs.
 
 ## Purpose
 
-Where `hr_employees` says "Jane works here", `hr_contracts` says "she is
+Where employees says "Jane works here", contracts says "she is
 employed under a Permanent contract starting 2024-01-15, salary
 $X/year-LBP-Y/month, with these benefits and these terms". Multiple
 contracts can exist per employee over time (renewals, role changes).
 
-The currency on the contract (`salary_currency`) is what payroll
+The currency on the contract (salary currency) is what payroll
 snapshots into `hr_payroll_lines.salary_currency` (F-6 fix).
 
 ## Personas
@@ -37,7 +37,7 @@ snapshots into `hr_payroll_lines.salary_currency` (F-6 fix).
 
     ### Creating a contract
 
-    HR → **Contracts** → **+ New contract**:
+    HR → **Contracts** → **+ New contract**.
 
     | Field | Notes |
     |---|---|
@@ -52,7 +52,7 @@ snapshots into `hr_payroll_lines.salary_currency` (F-6 fix).
     | Weekly hours | E.g. 40 |
     | Salary | Amount |
     | Salary currency | `USD` or `LBP` |
-    | Benefits | Free-text bullets or JSON |
+    | Benefits | Free text — list what is included |
     | Terms | Free-text legal language |
 
     Save. Lands in **Draft**.
@@ -60,7 +60,7 @@ snapshots into `hr_payroll_lines.salary_currency` (F-6 fix).
     ### Activating
 
     Open contract → **Activate** when signed. Status → Active. The
-    `signed_at` timestamp is captured.
+    signed at timestamp is captured.
 
     ### Printing for signature
 
@@ -90,12 +90,12 @@ snapshots into `hr_payroll_lines.salary_currency` (F-6 fix).
 
     The system doesn't hard-enforce one Active contract at a time, but the
     payroll engine reads the **most recent Active** when computing per-line
-    `salary_currency`. Multiple Active contracts on the same employee = a
+    salary currency. Multiple Active contracts on the same employee = a
     data hygiene issue worth flagging.
 
     ### Termination
 
-    HR → contract → **Terminate** with `terminated_reason`. Status →
+    HR → contract → **Terminate** with terminated reason. Status →
     Terminated. Employee status doesn't auto-flip — that's a separate
     decision (end employment vs. just end this contract).
 
@@ -103,40 +103,12 @@ snapshots into `hr_payroll_lines.salary_currency` (F-6 fix).
 
     ### Active employees should have an Active contract
 
-    ```sql
-    SELECT e.id, e.employee_code, e.full_name, e.status, e.hire_date
-    FROM hr_employees e
-    LEFT JOIN hr_contracts c
-      ON c.employee_id = e.id AND c.status = 'Active'
-    WHERE e.archived_at IS NULL
-      AND e.status IN ('Active', 'On Leave')
-      AND c.id IS NULL;
-    -- Expected: zero rows
-    ```
-
     ### Duplicate Active contracts
-
-    ```sql
-    SELECT employee_id, COUNT(*) AS n
-    FROM hr_contracts
-    WHERE status = 'Active' AND archived_at IS NULL
-    GROUP BY employee_id HAVING n > 1;
-    ```
 
     ### Currency consistency
 
     Contract currency should match recent payroll line currency for the
-    same employee:
-
-    ```sql
-    SELECT e.full_name, c.salary_currency AS contract_ccy,
-           pl.salary_currency AS payroll_ccy, pl.created_at
-    FROM hr_employees e
-    JOIN hr_contracts c ON c.employee_id = e.id AND c.status = 'Active'
-    JOIN hr_payroll_lines pl ON pl.employee_id = e.id
-    WHERE c.salary_currency != pl.salary_currency
-    ORDER BY pl.created_at DESC;
-    ```
+    same employee.
 
 ---
 
@@ -151,45 +123,3 @@ stateDiagram-v2
     Expired --> [*]
     Terminated --> [*]
 ```
-
-## Data model
-
-```mermaid
-erDiagram
-    HR_EMPLOYEES ||--o{ HR_CONTRACTS : "employed under"
-
-    HR_CONTRACTS {
-        int  id PK
-        int  employee_id FK
-        text contract_number
-        text contract_type
-        text status
-        text start_date
-        text end_date
-        text probation_end_date
-        text job_title
-        text work_schedule
-        real weekly_hours
-        real salary
-        text salary_currency
-        text benefits
-        text terms
-        text signed_at
-        text terminated_at
-        text terminated_reason
-        int  created_by FK
-        text created_at
-        text archived_at
-    }
-```
-
-## API surface
-
-| Endpoint | Purpose |
-|---|---|
-| `GET /api/hr/contracts/` | List (filter by employee, status) |
-| `POST /api/hr/contracts/` | Create |
-| `PUT /api/hr/contracts/{id}` | Update Draft |
-| `POST /api/hr/contracts/{id}/activate` | Status → Active |
-| `POST /api/hr/contracts/{id}/terminate` | Status → Terminated with reason |
-| `POST /api/hr/contracts/{id}/render-pdf` | Server PDF |

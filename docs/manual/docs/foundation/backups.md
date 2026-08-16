@@ -5,7 +5,7 @@ back.
 
 ## Purpose
 
-The entire ERP's state lives in **one SQLite file**: `%APPDATA%\ERP
+Everything the ERP knows lives in **one database file**: `%APPDATA%\ERP
 System\erp.db`. That's a feature (one thing to back up) and a risk (one
 thing to lose). Backups exist so a hardware failure, ransomware, or honest
 mistake doesn't end the business.
@@ -23,31 +23,22 @@ mistake doesn't end the business.
 - **Auto-backup**: enabled by default, daily at 02:00 server time
 - **Destination**: `%APPDATA%\ERP System\backups\` by default; configurable
   to a USB stick or network share
-- **Format**: SQLite `VACUUM INTO` snapshot — a full, defragmented copy of
-  `erp.db`
+- **Format**: one file, a complete copy of your data
 - **Filename**: `erp-YYYYMMDD-HHMMSS.db`
 - **Retention**: last 30 daily snapshots, plus any manual backups you pin
 - **Restore**: stop the app, replace the live `erp.db`, restart
 
-## How backup works under the hood
+## What a backup actually is
 
-```mermaid
-flowchart LR
-    LIVE[erp.db<br/>WAL mode] -->|VACUUM INTO| TEMP[Snapshot<br/>(temp .db file)]
-    TEMP --> MOVE[Atomic rename]
-    MOVE --> DEST[backups/<br/>erp-YYYYMMDD-HHMMSS.db]
-    DEST --> ROT{Retention<br/>policy}
-    ROT -->|over limit| DEL[Delete oldest<br/>non-pinned backups]
-```
+Each backup is a single file — a complete copy of everything in the system
+at the moment it was taken. Nothing is left out, and nothing else is needed
+to restore it.
 
-`VACUUM INTO` is the **right** way to back up a live SQLite database:
+A backup can be taken while people are working. It does not interrupt
+anyone, and it never captures a half-finished transaction.
 
-- It runs against an active connection without blocking writers.
-- It produces a **physically defragmented** copy — small and clean.
-- It folds in any pending WAL pages, so the snapshot is always consistent.
-
-This is the same mechanism the build pipeline uses to snapshot `erp.db` →
-`default.db` for the installer.
+Old backups are removed automatically once you have more than you asked to
+keep, except any you have pinned.
 
 ---
 
@@ -110,8 +101,8 @@ This is the same mechanism the build pipeline uses to snapshot `erp.db` →
     |---|---|
     | `backups/` folder listing | Snapshots actually exist on disk, with timestamps |
     | `backup_manager.log` (in startup log) | The scheduler ran and what it produced |
-    | `audit_log` rows with `action='backup_now'` | Manual backups, with operator id |
-    | `audit_log` rows with `action='backup_restore'` | Restore operations, with operator id |
+    | the audit trail rows with `action='backup_now'` | Manual backups, with operator id |
+    | the audit trail rows with `action='backup_restore'` | Restore operations, with operator id |
 
     ### Drill record
 
@@ -132,37 +123,11 @@ This is the same mechanism the build pipeline uses to snapshot `erp.db` →
     - Backup writes happen on a **background thread**, never blocking the
       operational request path.
     - Manual restore is gated by the `admin` capability and recorded in
-      `audit_log`.
+      the audit trail.
     - The `default.db` shipped with the installer is *not* a backup — it's
       a vendor-controlled seed for first-run, and is never written to.
 
 ---
-
-## Workflow — restore from backup
-
-```mermaid
-sequenceDiagram
-    autonumber
-    participant ADM as Administrator
-    participant APP as ERP System.exe
-    participant FS as Filesystem
-    participant DB as %APPDATA%\\erp.db
-
-    ADM->>APP: Settings → Backups → Restore <snapshot>
-    APP->>ADM: ⚠ Confirm: replace live database with<br/>erp-20260413-0200.db (1.1 MB)?
-    ADM->>APP: Confirm
-
-    APP->>APP: Stop accepting new requests
-    APP->>DB: PRAGMA wal_checkpoint(TRUNCATE)
-    APP->>DB: Close database connection
-
-    APP->>FS: Move erp.db → erp-pre-restore-YYYYMMDD.db
-    APP->>FS: Copy backup snapshot → erp.db
-
-    APP->>DB: Open erp.db<br/>(applies any pending migrations)
-    APP->>DB: INSERT audit_log<br/>(action='backup_restore', detail={...})
-    APP-->>ADM: Restore complete — refresh browser
-```
 
 ## Restore — when to do it, and when not to
 
@@ -185,52 +150,20 @@ flowchart LR
     INST --> APPD[%APPDATA%\\ERP System\\ created]
     APPD --> COPY[Copy the latest .db snapshot<br/>over %APPDATA%\\erp.db]
     COPY --> START[Start ERP System.exe]
-    START --> MIG[Applies pending migrations]
+    START --> MIG[Brings the data up to date]
     MIG --> BROWSE[Browse to http://server:8765/]
 ```
 
-The **same installer version** must be used to start with — the migration
-chain assumes it's running forward, not backward. If the snapshot was on an
-older version, upgrade the installer **after** restoring (the migration
-chain will catch up).
-
-## Data model
-
-`backups/` is a filesystem folder, not a database table. The contents are
-the live `erp.db`'s snapshots, named with a timestamp.
-
-There is a small bookkeeping table for **pinned** snapshots (so the retention
-job leaves them alone) — written when the administrator clicks **Pin**:
-
-```mermaid
-erDiagram
-    PINNED_BACKUPS {
-        int id PK
-        text filename UK
-        text pinned_at
-        int pinned_by FK
-        text note
-    }
-```
-
-## API surface
-
-| Endpoint | Purpose |
-|---|---|
-| `GET /api/settings/backups` | List snapshots + their pin state + size + date |
-| `POST /api/settings/backups/now` | Run a manual backup |
-| `POST /api/settings/backups/{filename}/pin` | Pin a snapshot |
-| `POST /api/settings/backups/{filename}/unpin` | Unpin |
-| `POST /api/settings/backups/{filename}/restore` | Restore (admin-gated) |
-| `GET /api/settings/backups/{filename}/download` | Download a snapshot for off-site storage |
+Restore into the **same version or newer** — never into an older one. If
+the backup came from an older version, restore it first and then upgrade;
+the system brings the data up to date on its own.
 
 ## What's deliberately NOT supported
 
-- Point-in-time recovery (WAL log replay). Daily granularity is enough for
-  the SME use case; the recovery procedure is "restore yesterday's
-  snapshot".
-- Continuous replication to a hot standby. Out of scope for a single-process,
-  single-PC install. Customers needing this go to the vendor.
-- Encrypted backups at rest. The snapshot is a plain SQLite file; encrypt the
+- Restoring to an exact moment. You restore to a backup, so the most you
+  can lose is the work done since the last one. Back up more often if that
+  matters.
+- A second machine kept permanently in sync. Ask your provider if you need it.
+- Encrypted backups at rest. The copy is an ordinary file; encrypt the
   destination (BitLocker, encrypted USB, encrypted file share) if you need
   data-at-rest encryption.

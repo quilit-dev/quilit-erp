@@ -1,36 +1,23 @@
 # Approvals
 
-The rule-based multi-step approval engine. Used by Expenses, Purchases,
-Fixed Assets, Projects, Quotations, and Invoices to gate operations that exceed
-configurable thresholds. The governable modules, their trigger actions, the
-fields you can write conditions against, and how an approved/rejected request
-resolves the entity are all declared in one place — the `MODULE_REGISTRY` in
-`backend/approval_engine.py` — and the policy builder is driven from it, so the
-UI can only ever offer targets the engine actually enforces.
-
-Invoices are a special case: an invoice has no stored status column (its
-payment status is *derived* from amount/paid/voided_at), so the gate lives in a
-dedicated `approval_status` field. A gated invoice is parked in **Pending
-Approval** — it accepts no payments and does not advance its project — until it
-clears; an approved invoice is released (and its project moves to *Invoiced*),
-while a rejected invoice is voided so it leaves all financial totals.
+Some actions need someone senior to say yes first. Approvals is where those
+rules live, and where pending requests wait.
 
 ## Purpose
 
-Approval policies answer "this is too big to slip through unwatched —
-make a human sign off". Each policy specifies:
+You set a rule like "any expense over $5,000 needs the Finance Manager".
+From then on, anyone recording an expense above that amount creates a
+**request** instead of the expense itself. The approver sees it, approves or
+rejects, and only then does the expense exist.
 
-- **Module** + **trigger action** (e.g. `expense` + `create`)
-- **Conditions** (e.g. `amount > 5000`)
-- **Approver roles** + step ordering
-- **Approval type** (`single` — any one of the roles must clear; or
-  multi-step where each step must clear in order)
+Rules can be set for expenses, purchases, fixed assets, projects, quotations
+and invoices, and can require several people in turn.
 
-When a triggering action happens, the engine:
+An invoice waiting for approval sits in **Pending Approval**: it takes no
+payments and does not move its project along until it is approved.
 
-1. Evaluates active policies for the module/action
-2. If conditions match → opens an `approval_requests` row
-3. Defers the side-effects until the request resolves
+!!! tip "Created something and cannot find it?"
+    It is probably waiting for approval. Check **Approvals**.
 
 ## Personas
 
@@ -44,11 +31,10 @@ When a triggering action happens, the engine:
 ## Quick reference
 
 - **Modules with approval policies**: expenses, purchases, fixed assets, projects, quotations, invoices
-- **Approval types**: `single` (one-of-roles clears) — multi-step extensible
-- **Conditions**: JSON-encoded; common operators: `>`, `<`, `>=`, `<=`, `==`, `IN`
-- **Request status**: `pending → approved / rejected / cancelled`
-- **Step status**: `pending / approved / rejected / skipped`
-- **Idempotent application** — re-approving a closed request is a no-op
+- **Approval types**: one approver clears it, or several in turn
+- **Conditions**: built from a list — pick a field, a comparison, and a value
+- **Request status**: pending → approved / rejected / cancelled
+- **Re-approving a closed request does nothing** — it cannot be approved twice
 
 ---
 
@@ -56,7 +42,7 @@ When a triggering action happens, the engine:
 
     ### Seeing approval status on your work
 
-    When a policy fires, the entity you created shows:
+    When a policy fires, the entity you created shows.
 
     - **Status badge**: `Pending Approval` (orange)
     - **Approval requests** sidebar: who's holding it, current step, who approved so far
@@ -69,7 +55,7 @@ When a triggering action happens, the engine:
     Approvals page (sidebar) shows your queue: every request where you're
     on the current step.
 
-    Open one. The system shows:
+    Open one. The system shows.
 
     - Entity snapshot (what was created/changed)
     - Previous approvers' comments
@@ -98,29 +84,35 @@ When a triggering action happens, the engine:
 
     ### Designing a policy
 
-    Approval Policies → **+ New policy**:
+    Approval Policies → **+ New policy**.
 
     | Field | Notes |
     |---|---|
     | Name | Display name |
     | Description | What this policy guards |
-    | Module | `expense`, `purchase`, `fixed_asset`, `project`, `quotation`, `invoice` |
-    | Trigger action | `create` (the action set is per-module — see `MODULE_REGISTRY`) |
-    | Conditions | JSON: `{"amount": {">": 5000}}` |
-    | Approval type | `single` (any approver) or multi-step |
-    | Approver roles | Comma-separated role names |
-    | Steps | JSON array for multi-step (each step has its own approver_role) |
-    | Priority | Lower = evaluated first when multiple match |
-    | Is active | Toggle |
+    | Module | Which part of the system this guards — Expenses, Purchases, Fixed Assets, Projects, Quotations or Invoices |
+    | Trigger action | What someone has to do to set it off, usually creating the record |
+    | Conditions | When it applies — see below |
+    | Approval type | One approver is enough, or several in turn |
+    | Approver roles | Which roles can approve |
+    | Priority | If two policies both match, the lower number wins |
+    | Is active | On or off |
 
-    ### Condition examples
+    ### Setting the conditions
 
-    | Goal | Conditions JSON |
-    |---|---|
-    | Expenses > $5,000 | `{"amount": {">": 5000}}` |
-    | Subcontractor expenses any amount | `{"category": {"==": "Subcontractor"}}` |
-    | Purchases > $10K with no inventory link (services) | `{"total_cost": {">": 10000}, "inventory_id": {"==": null}}` |
-    | Capex > $25K | (assets) `{"acquisition_cost": {">": 25000}}` |
+    Click **Add condition** and you get three boxes: a **field**, a
+    **comparison**, and a **value**. The fields offered change with the
+    module you picked, so you can only build conditions that make sense.
+
+    | You want | Field | Comparison | Value |
+    |---|---|---|---|
+    | Expenses over $5,000 | Amount | is greater than | 5000 |
+    | Any subcontractor expense | Category | is | Subcontractor |
+    | Purchases over $10,000 | Total cost | is greater than | 10000 |
+    | Assets over $25,000 | Acquisition cost | is greater than | 25000 |
+
+    Add more than one condition and you choose whether **all** of them must
+    be true (AND) or **any** of them (OR).
     | Project budgets > $100K | `{"estimated_cost": {">": 100000}}` |
 
     ### What happens when an approval is granted
@@ -129,182 +121,23 @@ When a triggering action happens, the engine:
     expenses, that means posting the deferred journal entry. For assets,
     that means flipping status from Pending Approval to Active.
 
-    Each application is one transaction with an `audit_log` row showing
+    Each application is one transaction with an the audit trail row showing
     `action='approval_applied'`.
 
 === "Auditor's view"
 
     ### Every high-value transaction has approval
 
-    Sample a high-value expense:
+    Sample a high-value expense.
 
-    ```sql
-    SELECT e.id, e.category, e.amount, e.status, e.created_at,
-           ar.id AS request_id, ar.status AS approval_status,
-           ar.resolved_at, u.username AS resolved_by
-    FROM expenses e
-    LEFT JOIN approval_requests ar
-      ON ar.module = 'expense' AND ar.entity_id = e.id
-    LEFT JOIN users u ON u.id = ar.resolved_by
-    WHERE e.amount > 5000
-      AND e.deleted_at IS NULL
-    ORDER BY e.created_at DESC LIMIT 20;
-    ```
-
-    Each row should show a non-null `request_id` and `resolved_by` if a
-    policy was in place. NULLs = policy didn't fire (no policy active at
-    the time, or condition didn't match) — fine if intentional, flag if
-    surprising.
+    It should show which approval request covered it and who resolved
+    them. If there is none, no policy applied at the time — which is fine
+    if that was intended, and worth asking about if it was not.
 
     ### Approval chain reconstruction
 
-    For a specific approved request:
-
-    ```sql
-    SELECT ar.policy_name, ar.module, ar.entity_label,
-           ar.requested_at,
-           s.step_number, s.approver_role, s.status,
-           s.acted_at, u.username AS step_actor, s.comment
-    FROM approval_requests ar
-    JOIN approval_steps s ON s.request_id = ar.id
-    LEFT JOIN users u ON u.id = s.approver_user_id
-    WHERE ar.id = ?
-    ORDER BY s.step_number;
-    ```
+    For a specific approved request.
 
     ### Comments trail (negotiation history)
 
-    ```sql
-    SELECT c.created_at, u.username, c.comment
-    FROM approval_comments c
-    LEFT JOIN users u ON u.id = c.user_id
-    WHERE c.request_id = ?
-    ORDER BY c.created_at;
-    ```
-
 ---
-
-## Workflow — policy match and approval
-
-```mermaid
-sequenceDiagram
-    autonumber
-    participant USR as Operator
-    participant API as POST /api/expenses/
-    participant POL as evaluate_and_apply
-    participant DB as SQLite
-    participant APP as Approver
-
-    USR->>API: { amount: 7500, category: 'Subcontractor', ... }
-
-    API->>POL: evaluate(module='expense', action='create',<br/>entity_data={amount: 7500, ...})
-
-    POL->>DB: SELECT FROM approval_policies WHERE module='expense'<br/>AND is_active=1 ORDER BY priority
-    DB-->>POL: 2 matching policies
-
-    Note over POL: For each, check conditions JSON.<br/>"amount > 5000" matches.
-
-    POL->>DB: INSERT approval_requests (status='pending',<br/>entity_snapshot={...JSON...},<br/>policy_id, policy_name, entity_id=null yet)
-    POL->>DB: INSERT approval_steps × N<br/>(step_number, approver_role)
-    POL-->>API: needs_approval=true, request_id
-
-    API->>DB: INSERT expenses (status='Pending Approval')
-    API->>DB: UPDATE approval_requests SET entity_id = expense.id
-    API->>DB: INSERT notifications (user=Finance Mgr,<br/>type='approval_request')
-    API-->>USR: { id, status: 'Pending Approval' }
-
-    Note over APP: Sees notification →
-
-    APP->>API: POST /api/approval-requests/{id}/approve<br/>{ comment: 'OK to post' }
-    API->>DB: UPDATE approval_steps SET status='approved',<br/>acted_at, approver_user_id
-
-    alt all steps approved
-        API->>DB: UPDATE approval_requests SET status='approved'
-        API->>API: Apply original action<br/>(e.g. post the expense's deferred JE)
-        API->>DB: INSERT audit_log (action='approval_applied')
-        API->>DB: INSERT notifications (user=original requester)
-    end
-
-    API-->>APP: { applied: true }
-```
-
-## Data model
-
-```mermaid
-erDiagram
-    APPROVAL_POLICIES ||--o{ APPROVAL_REQUESTS : "spawns"
-    APPROVAL_REQUESTS ||--o{ APPROVAL_STEPS : "has"
-    APPROVAL_REQUESTS ||--o{ APPROVAL_COMMENTS : "discussion"
-
-    APPROVAL_POLICIES {
-        int  id PK
-        text name
-        text description
-        text module
-        text trigger_action
-        text condition_logic
-        text conditions
-        text approval_type
-        text approver_roles
-        text steps
-        int  priority
-        int  is_active
-        int  created_by FK
-        text created_at
-        text updated_at
-    }
-
-    APPROVAL_REQUESTS {
-        int  id PK
-        int  policy_id FK
-        text policy_name
-        text module
-        int  entity_id
-        text entity_label
-        text trigger_action
-        text entity_snapshot
-        text status
-        text approval_type
-        int  current_step
-        int  total_steps
-        int  requested_by FK
-        text requested_at
-        text resolved_at
-        int  resolved_by FK
-        text resolution_comment
-    }
-
-    APPROVAL_STEPS {
-        int  id PK
-        int  request_id FK
-        int  step_number
-        text approver_role
-        int  approver_user_id FK
-        text status
-        text acted_at
-        text comment
-    }
-
-    APPROVAL_COMMENTS {
-        int  id PK
-        int  request_id FK
-        int  user_id FK
-        text comment
-        text created_at
-    }
-```
-
-## API surface
-
-| Endpoint | Purpose |
-|---|---|
-| `GET /api/approval-policies/` | List policies |
-| `POST /api/approval-policies/` | Create |
-| `PUT /api/approval-policies/{id}` | Update |
-| `PATCH /api/approval-policies/{id}/toggle` | Activate/deactivate |
-| `GET /api/approval-requests/` | Filtered list (mine / pending / all) |
-| `GET /api/approval-requests/{id}` | Detail + steps + comments |
-| `POST /api/approval-requests/{id}/approve` | Approve current step |
-| `POST /api/approval-requests/{id}/reject` | Reject the request |
-| `POST /api/approval-requests/{id}/cancel` | Requester cancels |
-| `POST /api/approval-requests/{id}/comments` | Add discussion |

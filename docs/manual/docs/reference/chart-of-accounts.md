@@ -107,7 +107,7 @@ For each business event, which accounts get hit:
 ## Reversed-by convention
 
 A reversal entry mirrors the original (debits ↔ credits). The original's
-`reversed_by` points to the reversal's id; the reversal's `reverses_id`
+reversed by points to the reversal's id; the reversal's reverses id
 points back. Both rows remain visible. There is no edit / delete on
 posted entries.
 
@@ -120,7 +120,7 @@ Constraints:
 
 - Code must be unique (not collide with seeded 1000-6920)
 - `type` ∈ `{Asset, Liability, Equity, Income, Expense}`
-- `normal_balance` consistent with type
+- normal balance consistent with type
 - `is_system = 0` for customer-added accounts
 
 Custom accounts can have their name + description edited; they cannot be

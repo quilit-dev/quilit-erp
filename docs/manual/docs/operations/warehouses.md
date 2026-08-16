@@ -7,7 +7,7 @@ auditable workflow.
 ## Purpose
 
 A **warehouse** is a physical location where stock is held. The system treats
-warehouses as a **stock dimension**, not an accounting entity:
+warehouses as a **stock dimension**, not an accounting entity.
 
 - One company-wide `1200 Inventory` GL account
 - Per-warehouse `inventory_stock.quantity` balances
@@ -48,7 +48,7 @@ control **without** changing your books-of-record.
 
     ### Viewing what's at a warehouse
 
-    Warehouses → row → **View stock**. A modal opens with:
+    Warehouses → row → **View stock**. A modal opens with.
 
     - Search box (live filter by item name or category)
     - Per-item rows: Quantity, Unit cost, Value (= qty × cost)
@@ -58,7 +58,7 @@ control **without** changing your books-of-record.
 
     ### Creating a transfer
 
-    Warehouses → Transfers tab → **+ New transfer**:
+    Warehouses → Transfers tab → **+ New transfer**.
 
     1. Pick **From** (source) and **To** (destination) warehouses
     2. Add line items with quantities
@@ -68,7 +68,7 @@ control **without** changing your books-of-record.
 
     Open the Draft transfer → **Dispatch**.
     - Source warehouse stock is **decremented immediately**
-    - A `stock_movements` row with `type='transfer_out'` is written
+    - A stock movements row with `type='transfer_out'` is written
     - Status → **In Transit**
 
     The destination warehouse hasn't received it yet — that's the trucker's
@@ -77,11 +77,11 @@ control **without** changing your books-of-record.
     ### Receiving
 
     Open the In Transit transfer → **Receive (full)** when goods arrive.
-    Alternatively, edit per-line `received_quantity` if some units were lost
+    Alternatively, edit per-line received quantity if some units were lost
     in transit.
 
     - Destination stock is **incremented**
-    - A `stock_movements` row with `type='transfer_in'` is written
+    - A stock movements row with `type='transfer_in'` is written
     - Status → **Completed**
 
     ### Cancelling
@@ -103,7 +103,7 @@ control **without** changing your books-of-record.
     | Procurement Officer | ✅ | ✗ | ✗ | ✗ |
     | Auditor | ✅ | ✗ | ✗ | ✗ |
 
-    Plus row-level access via `user_warehouse_access` — see [Multi-warehouse
+    Plus warehouse access — see [Multi-warehouse
     access](../foundation/warehouse-access.md).
 
     ### Setting the default warehouse
@@ -113,8 +113,8 @@ control **without** changing your books-of-record.
 
     The default is the fallback when:
     - A user has no personal default set
-    - A purchase/POS/manufacturing form is submitted without `warehouse_id`
-    - An inventory adjustment uses the API without specifying a warehouse
+    - A purchase/POS/manufacturing form is submitted without warehouse
+    - A stock adjustment is made without naming a warehouse
 
     ### Warehouse types
 
@@ -150,66 +150,23 @@ control **without** changing your books-of-record.
 
     ### Every transfer has matched dispatch + receive
 
-    The completeness control: every `transfer_out` movement should have a
-    matching `transfer_in` (same `reference`), and total qtys should match:
+    The completeness control: every transfer out movement should have a
+    matching transfer in (same `reference`), and total qtys should match.
 
-    ```sql
-    SELECT t.transfer_number, t.status,
-           t.dispatched_at, t.received_at,
-           SUM(ti.quantity)         AS dispatched_qty,
-           SUM(ti.received_quantity) AS received_qty,
-           SUM(ti.quantity) - SUM(ti.received_quantity) AS lost_in_transit
-    FROM stock_transfers t
-    JOIN stock_transfer_items ti ON ti.transfer_id = t.id
-    WHERE t.status = 'Completed'
-    GROUP BY t.id
-    HAVING lost_in_transit != 0
-    ORDER BY t.dispatched_at DESC;
-    ```
-
-    Non-zero `lost_in_transit` = real loss. Each row needs a write-off
+    Non-zero lost in transit = real loss. Each row needs a write-off
     decision (adjustment + audit note).
 
     ### Transfers never post to the GL
 
-    Verify the invariant:
-
-    ```sql
-    -- No journal entry should reference a stock_transfer as source
-    SELECT COUNT(*) FROM journal_entries
-    WHERE source_type LIKE 'stock_transfer%';
-    -- Expected: 0
-    ```
+    Verify the invariant.
 
     ### Per-warehouse balances sum to company total
-
-    ```sql
-    -- Per-item, per-warehouse balances vs. company-wide total
-    SELECT i.id, i.name, i.quantity AS company,
-           COALESCE(SUM(s.quantity), 0) AS sum_per_wh
-    FROM inventory i
-    LEFT JOIN inventory_stock s ON s.inventory_id = i.id
-    WHERE i.deleted_at IS NULL
-    GROUP BY i.id
-    HAVING ABS(i.quantity - sum_per_wh) > 0.0001;
-    ```
 
     Empty result = invariant intact. Any row = sync bug.
 
     ### Access trail
 
-    Every grant and revoke is in `audit_log`:
-
-    ```sql
-    SELECT a.created_at, u.username AS by_user, a.action,
-           a.record_ref AS target_user_id,
-           w.code AS warehouse
-    FROM audit_log a
-    LEFT JOIN users u ON u.id = a.user_id
-    LEFT JOIN warehouses w ON w.id = a.record_id
-    WHERE a.module = 'warehouse_access'
-    ORDER BY a.created_at DESC;
-    ```
+    Every grant and revoke is in the audit trail.
 
 ---
 
@@ -231,131 +188,6 @@ stateDiagram-v2
         transfer to reverse.
     end note
 ```
-
-## Workflow — full transfer cycle
-
-```mermaid
-sequenceDiagram
-    autonumber
-    participant USR as Clerk
-    participant API as Warehouses router
-    participant WHA as warehouse_access
-    participant DB as SQLite
-
-    USR->>API: POST /transfers/<br/>{ from: MAIN, to: BRANCH-A,<br/>items: [{widget × 50}] }
-    API->>WHA: require_access(user, MAIN)
-    API->>WHA: require_access(user, BRANCH-A)
-    API->>DB: INSERT stock_transfers (status='Draft')
-    API->>DB: INSERT stock_transfer_items × 1
-    API->>DB: INSERT audit_log
-    API-->>USR: { transfer_number: 'TR-20260530-0001' }
-
-    Note over USR: Driver loads the truck →
-
-    USR->>API: POST /transfers/{id}/dispatch
-    API->>DB: UPDATE inventory_stock<br/>MAIN.widget -50
-    API->>DB: UPDATE inventory.quantity<br/>(no change — internal motion)
-    API->>DB: INSERT stock_movements<br/>(type='transfer_out', warehouse=MAIN, ref='TR-...')
-    API->>DB: UPDATE stock_transfers<br/>status='In Transit', dispatched_at, by
-
-    Note over USR: Truck arrives at BRANCH-A →
-
-    USR->>API: POST /transfers/{id}/receive<br/>{ items: [{ id: ..., received: 50 }] }
-    API->>DB: UPDATE inventory_stock<br/>BRANCH-A.widget +50
-    API->>DB: INSERT stock_movements<br/>(type='transfer_in', warehouse=BRANCH-A)
-    API->>DB: UPDATE stock_transfers<br/>status='Completed', received_at, by
-
-    Note over API: ✅ Company total widget qty unchanged<br/>throughout the journey
-```
-
-Notice the GL is **never posted to**. The full transfer is just two stock
-movements with `inventory.quantity` unchanged at both ends — value didn't
-leave the company.
-
-## Data model
-
-```mermaid
-erDiagram
-    WAREHOUSES ||--o{ INVENTORY_STOCK : "holds"
-    WAREHOUSES ||--o{ STOCK_MOVEMENTS : "stamped on"
-    WAREHOUSES ||--o{ STOCK_TRANSFERS : "source/dest"
-    WAREHOUSES ||--o{ USER_WAREHOUSE_ACCESS : "controls access"
-    WAREHOUSES ||--o{ USERS : "default for"
-    WAREHOUSES ||--o{ PURCHASES : "receives into"
-    WAREHOUSES ||--o{ POS_SESSIONS : "sells from"
-    WAREHOUSES ||--o{ PRODUCTION_ORDERS : "consumes/produces at"
-
-    STOCK_TRANSFERS ||--o{ STOCK_TRANSFER_ITEMS : "has"
-
-    WAREHOUSES {
-        int  id PK
-        text code UK
-        text name
-        text type
-        text address
-        int  manager_id FK
-        int  is_active
-        int  is_default
-        text notes
-        text archived_at
-        text created_at
-    }
-
-    STOCK_TRANSFERS {
-        int  id PK
-        text transfer_number UK
-        int  from_warehouse_id FK
-        int  to_warehouse_id FK
-        text status
-        text notes
-        int  created_by FK
-        text created_at
-        int  dispatched_by FK
-        text dispatched_at
-        int  received_by FK
-        text received_at
-        int  cancelled_by FK
-        text cancelled_at
-        text cancel_reason
-    }
-
-    STOCK_TRANSFER_ITEMS {
-        int  id PK
-        int  transfer_id FK
-        int  inventory_id FK
-        real quantity
-        real received_quantity
-        text note
-    }
-
-    USER_WAREHOUSE_ACCESS {
-        int  user_id PK,FK
-        int  warehouse_id PK,FK
-        text granted_at
-        int  granted_by FK
-    }
-```
-
-## API surface
-
-| Endpoint | Purpose |
-|---|---|
-| `GET /api/warehouses/` | List warehouses the user can transact at |
-| `POST /api/warehouses/` | Create warehouse |
-| `GET /api/warehouses/{id}` | Detail |
-| `PUT /api/warehouses/{id}` | Update |
-| `POST /api/warehouses/{id}/set-default` | Promote to company default |
-| `PATCH /api/warehouses/{id}/archive` | Archive (must be empty + non-default) |
-| `GET /api/warehouses/{id}/stock` | All items + quantities at this warehouse |
-| `GET /api/warehouses/me/accessible` | User's accessible list + resolved default |
-| `GET /api/warehouses/{id}/access` | Per-warehouse access grants |
-| `POST /api/warehouses/{id}/access` | Grant a user |
-| `DELETE /api/warehouses/{id}/access/{user_id}` | Revoke |
-| `GET /api/warehouses/transfers/` | List transfers visible to caller |
-| `POST /api/warehouses/transfers/` | Create draft transfer |
-| `POST /api/warehouses/transfers/{id}/dispatch` | Source -qty + status In Transit |
-| `POST /api/warehouses/transfers/{id}/receive` | Destination +qty + status Completed |
-| `POST /api/warehouses/transfers/{id}/cancel` | Cancel (Draft or In Transit) |
 
 ## What's NOT supported (deliberately)
 

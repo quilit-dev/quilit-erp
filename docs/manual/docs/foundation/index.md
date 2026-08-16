@@ -7,9 +7,9 @@ itself from data loss.
 | Page | Topic |
 |---|---|
 | [Your account](your-account.md) | Changing your own password, switching language, and what the system's messages mean |
-| [Authentication](authentication.md) | How users log in, JWT sessions, password rules, force-change-on-first-login |
-| [RBAC](rbac.md) | Role-based access control: 28 modules × 5 actions × N roles |
-| [Multi-warehouse access](warehouse-access.md) | Row-level access on warehouses — independent of module RBAC |
+| [Authentication](authentication.md) | Signing in, sessions, passwords |
+| [Roles & permissions](rbac.md) | What each role can see and do, across every part of the system |
+| [Multi-warehouse access](warehouse-access.md) | Which warehouses a person can work in — separate from what their role allows |
 | [Audit trail](audit-trail.md) | What gets recorded and how to verify any historical change |
 | [Backups & recovery](backups.md) | Auto-backup cadence, manual backup destinations, restore procedure |
 

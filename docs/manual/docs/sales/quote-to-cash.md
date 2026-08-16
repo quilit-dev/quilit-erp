@@ -3,79 +3,24 @@
 The single most important diagram in the sales chapter. Once you understand
 this end-to-end flow, the individual module pages slot into place.
 
-## The full pipeline
-
-```mermaid
-flowchart TB
-    subgraph PRE ["Inbound"]
-        SRC[Lead source<br/>website · referral · cold call]
-    end
-
-    subgraph CRM ["CRM"]
-        LEAD["Lead<br/>status: New → Contacted →<br/>Qualified → Proposal → Won/Lost"]
-        DEAL["Deal<br/>stage: Qualification →<br/>Proposal → Negotiation → Won/Lost"]
-        ACTIV[Activities<br/>calls, meetings, emails]
-        CONT[Contacts]
-    end
-
-    subgraph SALES ["Sales documents"]
-        QUO["Quotation<br/>status: Draft → Sent →<br/>Accepted / Rejected"]
-        PRJ["Project<br/>status: Quotation Sent →<br/>Active → Invoiced → Completed"]
-        INV["Invoice<br/>computed: Unpaid → Partial → Paid"]
-    end
-
-    subgraph CASH_FLOW ["Money in"]
-        PAY[Payment]
-        CASHD[Cash drawer]
-        BANK[Bank deposit<br/>(non-cash methods)]
-    end
-
-    subgraph BOOKS ["Books of record"]
-        GL[Journal entries:<br/>DR Cash CR Revenue]
-        AGE[A/R aging]
-    end
-
-    SRC --> LEAD
-    LEAD -->|convert| DEAL
-    LEAD -.->|"Won → +client"| CLIENT[Client]
-    LEAD -.->|note| ACTIV
-    DEAL -->|attach| QUO
-    QUO -->|"short job"| INV
-    QUO -->|"long job"| PRJ
-    PRJ -->|"milestone billing"| INV
-    INV -->|tender| PAY
-    PAY --> CASHD
-    PAY --> BANK
-    PAY --> GL
-    INV --> AGE
-    LEAD -.->|attach| CONT
-    CLIENT -.->|attach| CONT
-
-    style CRM fill:#fef3c7,stroke:#f59e0b
-    style SALES fill:#dbeafe,stroke:#3b82f6
-    style CASH_FLOW fill:#dcfce7,stroke:#10b981
-    style BOOKS fill:#f1f5f9,stroke:#475569
-```
-
-The dotted edges are **optional** detours (a lead can win without a deal; a
-quotation can become a direct invoice without a project). The solid edges
-are the **canonical** path most opportunities take.
-
 ## Each conversion in detail
 
-Six explicit conversions can happen along the pipeline. Each is one click,
-one API call, one audit row.
+Six conversions can happen along the pipeline. Each is one click, and each
+leaves a trail so you can see later where a record came from.
 
-| Conversion | From → To | API endpoint | What gets written |
-|---|---|---|---|
-| Lead → Client | Won lead promotes to customer master | `POST /api/crm/leads/{id}/convert` | New `clients` row, `crm_leads.client_id` set, status="Won" |
-| Lead → Deal | Qualified lead opens a deal | `POST /api/crm/deals/` (with `lead_id`) | New `crm_deals` row, stage="Qualification" |
-| Deal → Quotation | Proposal stage attaches a quote | `POST /api/quotations/` (with `client_id` from deal) | New `quotations` row; deal's `quotation_id` set |
-| Quote → Invoice | Short job: bill straight from the quote | `POST /api/quotations/{id}/convert-to-invoice` | New `invoices` row with same line items + tax; quote.status="Accepted"; deal moves to "Won" |
-| Quote → Project | Long job: spawn a project | `POST /api/quotations/{id}/convert-to-project` | New `projects` row, `source_quotation_id` linked, status="Active" |
-| Project → Invoice | Milestone billing | `POST /api/invoices/` (with `project_id`) | New `invoices` row linked to the project |
+| Conversion | When you use it | Where |
+|---|---|---|
+| Lead → Client | The lead is won and becomes a real customer | CRM → the lead → **Convert** |
+| Lead → Deal | The lead is qualified and you want to track the opportunity | CRM → the lead → **New deal** |
+| Deal → Quotation | You are ready to propose a price | Quotations → **+ Add quotation** |
+| Quote → Invoice | Short job — bill straight from the quote | Quotations → the quote → **Convert to Invoice** |
+| Quote → Project | Long job — set up the work first | Quotations → the quote → **Convert to Project** |
+| Project → Invoice | Milestone billing on a long job | Invoices → **+ Add invoice**, pick the project |
 
-Every conversion is **idempotent** at the source side — accepting a quote
+Nothing is retyped: line items, prices and tax carry across, and the new
+record stays linked to the one it came from.
+
+Converting never duplicates — accepting a quote
 twice doesn't create two invoices; the second click hits the existing
 linkage.
 
@@ -135,7 +80,7 @@ Three control questions cover ~80% of sales-cycle audit work:
    approver authorised? Compare `quotations.total` vs. linked
    `invoices.amount` (a discount past quote = approval evidence required).
 3. **Completeness** — every won deal should have either an invoice or a
-   project. `crm_deals` with `stage='Won'` AND `quotation_id IS NULL` AND
+   project. deals with `stage='Won'` AND `quotation_id IS NULL` AND
    no linked invoice = a control gap to investigate.
 
 The Auditor's view on each module page gives you the exact SQL.
