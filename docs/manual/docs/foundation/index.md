@@ -6,6 +6,7 @@ itself from data loss.
 
 | Page | Topic |
 |---|---|
+| [Your account](your-account.md) | Changing your own password, switching language, and what the system's messages mean |
 | [Authentication](authentication.md) | How users log in, JWT sessions, password rules, force-change-on-first-login |
 | [RBAC](rbac.md) | Role-based access control: 28 modules × 5 actions × N roles |
 | [Multi-warehouse access](warehouse-access.md) | Row-level access on warehouses — independent of module RBAC |

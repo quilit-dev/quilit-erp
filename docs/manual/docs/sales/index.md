@@ -10,6 +10,7 @@ The five modules that turn an inbound enquiry into money in the bank.
 | [Quotations](quotations.md) | Proposals, convert to invoice / convert to project |
 | [Projects](projects.md) | Long-form work — budget, milestones, material consumption |
 | [Invoices & Payments](invoices.md) | Sales billing, multi-currency payments, aging |
+| [Sending invoices & quotations](sending.md) | Getting a document to the customer by WhatsApp or email, and seeing whether they opened it |
 
 ## The pipeline at a glance
 

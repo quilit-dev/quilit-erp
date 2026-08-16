@@ -106,6 +106,7 @@ extra:
 # phases add the Sales, Operations, Finance, People, and Reference sections.
 nav:
   - Home: index.md
+  - Everyday tasks: everyday.md
   - Architecture:
       - architecture/index.md
       - System overview: architecture/overview.md
@@ -115,6 +116,7 @@ nav:
       - Deployment topology: architecture/deployment.md
   - Foundation:
       - foundation/index.md
+      - Your account: foundation/your-account.md
       - Authentication: foundation/authentication.md
       - Role-Based Access Control (RBAC): foundation/rbac.md
       - Multi-warehouse access: foundation/warehouse-access.md
@@ -128,6 +130,7 @@ nav:
       - Quotations: sales/quotations.md
       - Projects: sales/projects.md
       - Invoices & Payments: sales/invoices.md
+      - Sending invoices & quotations: sales/sending.md
   - Operations:
       - operations/index.md
       - Procure-to-stock workflow: operations/procure-to-stock.md

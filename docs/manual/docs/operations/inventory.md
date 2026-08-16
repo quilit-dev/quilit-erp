@@ -42,6 +42,25 @@ writes to here (Purchases, Manufacturing, Project consumption, Transfers).
     Sidebar → **Inventory**. Filter / search by name, category, barcode,
     `Low stock` toggle.
 
+    ### Barcodes and scanners
+
+    A barcode scanner behaves like a keyboard: it types the code and then
+    presses Enter for you.
+
+    - **In the search box** — scan and the item is found. Barcodes match
+      exactly, so a scan lands on the one right item.
+    - **At the till** — scanning adds the item straight to the sale.
+    - **When adding a product** — you can scan into the **Barcode** box.
+      The form will not save when the scanner beeps; you finish filling in
+      the rest and save yourself.
+
+    Each barcode belongs to one item. Reusing one is refused, with a
+    message saying which item already has it.
+
+    !!! note "Printing labels"
+        The system stores and reads barcodes that already exist on your
+        products. It does not generate or print barcode labels.
+
     Columns: Name · Category · Quantity · Min stock · Unit cost · Sale
     price · Unit. Click a row to open detail.
 

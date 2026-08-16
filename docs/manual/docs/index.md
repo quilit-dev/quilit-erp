@@ -16,6 +16,14 @@ diagrams, data models, and the audit evidence each operation leaves behind.
 
 ---
 
+!!! tip "New here? Read one page."
+
+    **[Everyday tasks](everyday.md)** answers the things people actually do
+    every day — quote a customer, send an invoice, take a payment, find an
+    old record — in plain language, with no background needed.
+
+    The rest of this manual is the detail behind it.
+
 ## Quick orientation
 
 <div class="grid cards" markdown>
@@ -29,7 +37,7 @@ diagrams, data models, and the audit evidence each operation leaves behind.
     Step-by-step workflows for clerks, cashiers, project managers, accountants
     and HR staff. Look for the **Operator's view** tab on every module page.
 
-    [:octicons-arrow-right-24: Start at the Module map](architecture/module-map.md)
+    [:octicons-arrow-right-24: Start with Everyday tasks](everyday.md)
 
 -   :material-shield-account:{ .lg .middle } **Administrator**
 

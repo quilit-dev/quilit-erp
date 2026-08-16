@@ -101,6 +101,33 @@ Paid`) is **computed** from the sum of payments, never set manually.
 
     Cannot void an invoice with payments — refund the payments first.
 
+    ### Sending it to the customer
+
+    **Send** on the row offers WhatsApp and email. The customer gets a link
+    to a page showing the same document you print — logo, totals, payment
+    history and your bank details.
+
+    See [Sending invoices & quotations](sending.md).
+
+    ### Finding an invoice
+
+    The list shows **one page at a time**, newest first.
+
+    The **search box** searches every invoice, not only the page in front of
+    you — it matches the invoice number, quote number, customer, project and
+    notes. Clicking a **column heading** sorts the whole list the same way.
+
+    So an old invoice is found by searching, never by scrolling. `Ctrl` + `K`
+    from anywhere does the same thing.
+
+    **Export** gives you every invoice matching your current search and
+    filters, not just the page on screen.
+
+    ### Getting there from the customer
+
+    **Clients → the customer → Invoices** lists their invoices, and the
+    invoice number is a link. Same for quotations.
+
 === "Administrator's view"
 
     ### Permissions
