@@ -444,14 +444,26 @@ function docShell(theme, { C, logo, title, client, rows, statusHtml, defaultHead
 </div>`;
   }
 
+  // A table, not divs. thead and tfoot are the only things a browser reliably
+  // repeats on every printed sheet, and they reserve their own height on each —
+  // so the letterhead prints on page three of a long invoice, and page three's
+  // first row cannot land on top of it.
+  // A table, not divs. thead and tfoot are the only things a browser reliably
+  // repeats on every printed sheet, and they reserve their own height on each —
+  // so the letterhead prints on page three of a long invoice, and page three's
+  // first row cannot land on top of it. The whole letterhead hangs off the
+  // thead; the tfoot is an empty spacer that only reserves the foot margin.
   return `<div class="page">
-  ${theme.frame(C, logo)}
-  ${theme.open}
-    ${theme.header({ C, title, client, rows, statusHtml })}
-    ${body}
-    <div class="content-spacer"></div>
-  ${theme.close}
-  ${theme.footer(C)}
+  <table class="hj-sheet">
+    <thead><tr><td>${theme.sheet(C, logo)}</td></tr></thead>
+    <tbody><tr><td>
+      ${theme.open}
+        ${theme.header({ C, title, client, rows, statusHtml })}
+        ${body}
+      ${theme.close}
+    </td></tr></tbody>
+    <tfoot><tr><td></td></tr></tfoot>
+  </table>
 </div>`;
 }
 

@@ -74,7 +74,7 @@ describe('the design reaches only the tenant it belongs to', () => {
   test('another tenant gets no trace of it', () => {
     const html = build(BASE);
 
-    expect(html).not.toContain('hj-frame');
+    expect(html).not.toContain('hj-sheet');     // its page structure
     expect(html).not.toContain('hj-masthead');
     expect(html).not.toContain('F07100');       // the letterhead orange
     expect(html).not.toContain('hj-art');       // its artwork
@@ -90,7 +90,7 @@ describe('the design reaches only the tenant it belongs to', () => {
   test('the themed tenant gets the letterhead', () => {
     const html = build({ ...BASE, document_template: 'hajosign' });
 
-    expect(html).toContain('hj-frame');
+    expect(html).toContain('hj-sheet');
     expect(html).toContain('hj-masthead');
     expect(html).toContain('hj-foot');
     expect(html).toContain('Sales Invoice');
@@ -103,8 +103,58 @@ describe('the design reaches only the tenant it belongs to', () => {
 
   test('quotations are themed too', () => {
     const html = buildQuotationHTML(QUOTE, { ...BASE, document_template: 'hajosign' }).html;
-    expect(html).toContain('hj-frame');
+    expect(html).toContain('hj-sheet');
     expect(html).toContain('Quotation');
+  });
+});
+
+// The first version of this letterhead printed a one-line invoice as two broken
+// pages: the artwork stranded at the foot of page one, the contact strip alone
+// on page two. The cause was `position: fixed`, which reads as the obvious way
+// to pin something to every sheet and is not — Chrome lays a fixed element out
+// once, against the first page. The mechanism browsers DO honour is a repeated
+// thead. These pin the structure that fixed it, because the failure is only
+// visible in a real print and nothing else here would catch a regression.
+describe('the letterhead repeats on every printed sheet', () => {
+  const themed = build({ ...BASE, document_template: 'hajosign' });
+
+  test('the page is a table with a thead and a tfoot', () => {
+    expect(themed).toMatch(/<table class="hj-sheet">\s*<thead>/);
+    expect(themed).toContain('<tfoot>');
+  });
+
+  test('the whole letterhead hangs off the thead, not the tfoot', () => {
+    // The tfoot only reserves the foot margin. On a short final page it sits
+    // directly under the last row, so anything positioned against it lands in
+    // the middle of the paper — which is exactly where the contact strip and
+    // the bottom bar ended up before.
+    const thead = themed.split('<thead>')[1].split('</thead>')[0];
+    const tfoot = themed.split('<tfoot>')[1].split('</tfoot>')[0];
+
+    for (const part of ['hj-masthead', 'hj-art--top', 'hj-art--bot', 'hj-foot']) {
+      expect(thead).toContain(part);
+    }
+    expect(tfoot.trim()).toBe('<tr><td></td></tr>');
+  });
+
+  test('nothing in the theme relies on fixed positioning', () => {
+    // Scoped to the theme's own stylesheet. SHARED_CSS still pins the GENERIC
+    // template's footer that way — which this theme hides in print — so
+    // searching the whole document would fail on somebody else's rule.
+    expect(THEMES.hajosign.css).not.toContain('position: fixed');
+  });
+
+  test('the sheet is pinned to a full page so the foot reaches the paper', () => {
+    // A table treats height as a minimum: it holds the contact strip at the
+    // bottom of a short invoice and still lets a long one grow across pages.
+    expect(themed).toContain('height: 297mm');
+  });
+
+  test('printing leaves no page margin for the artwork to be inset by', () => {
+    // The bands bleed to the paper edge, so the page box has to BE the paper.
+    // A non-zero margin here would also let the browser print its own header
+    // and footer over the design.
+    expect(themed).toMatch(/@page \{ margin: 0; size: A4; \}/);
   });
 });
 

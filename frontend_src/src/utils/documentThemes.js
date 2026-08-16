@@ -79,8 +79,8 @@ const HAJO_BANDS = [
   { cls: 'bot', from: 148, to: 303.22, minY: 148 },
 ];
 
-function hajoArt() {
-  return HAJO_BANDS.map(({ cls, from, to, minY, maxY }) => {
+function hajoArt(which) {
+  return HAJO_BANDS.filter(b => b.cls === which).map(({ cls, from, to, minY, maxY }) => {
     const height = to - from;
     const paths = HAJO_FRAME_PATHS.filter(([, d]) => {
       const ys = d.match(/-?\d+\.?\d*/g).filter((_, i) => i % 2);
@@ -106,17 +106,19 @@ function hajoArt() {
  * The watermark and the logo are the tenant's own uploaded artwork, not a baked
  * asset, which is what keeps this a house style rather than a hardcoded company.
  */
-function hajoFrame(C, logo) {
+function hajoSheet(C, logo) {
   return `
-  <div class="hj-frame">
-    ${hajoArt()}
+  <div class="hj-anchor"><div class="hj-sheet-art">
+    ${hajoArt('top')}
+    ${hajoArt('bot')}
     ${logo ? `<img class="hj-watermark" src="${logo}" alt="" />` : ''}
     <div class="hj-masthead">
       ${logo ? `<img class="hj-logo" src="${logo}" alt="" />` : ''}
       <div class="hj-wordmark">${esc(C.name)}</div>
       ${C.tagline ? `<div class="hj-tagline">${esc(C.tagline)}</div>` : ''}
     </div>
-  </div>`;
+    ${hajoContacts(C)}
+  </div></div>`;
 }
 
 /**
@@ -145,7 +147,7 @@ function hajoHeader({ C, title, client, rows, statusHtml }) {
 }
 
 /** The contact strip: phone, web, address — three columns with orange icons. */
-function hajoFooter(C) {
+function hajoContacts(C) {
   const icon = d => `<svg class="hj-ico" viewBox="0 0 24 24" fill="none"
       stroke="${HAJO.orange}" stroke-width="2" stroke-linecap="round"
       stroke-linejoin="round" aria-hidden="true">${d}</svg>`;
@@ -225,14 +227,49 @@ const MARK = {
 // .hj-inner > * — the reader's content sits above the artwork.
 // thead th — the table is ruled and light, not a filled band, as on the
 //   original.
+//
+// .hj-sheet — the letterhead rides in a table's thead and tfoot, because that
+//   is the only mechanism browsers actually honour for repeating content on
+//   every printed sheet. `position: fixed` looks like the obvious answer and is
+//   not: Chrome lays a fixed element out once, against the first page, which
+//   stranded the artwork at the foot of page one and the contact strip on page
+//   two. A repeated thead/tfoot also RESERVES its own height on every sheet,
+//   which is what stops a later page's first row printing over the masthead.
+// .hj-anchor / .hj-sheet-art — EVERYTHING on the letterhead hangs off the
+//   thead, because the thead is the one element guaranteed to sit at the top of
+//   every sheet. The tfoot is not: on a short final page it lands directly
+//   under the last row, which dragged the bottom bar and the contact strip into
+//   the middle of the paper. So the tfoot is now a plain 32mm spacer that only
+//   reserves room, and the artwork is placed against a 297mm box anchored to
+//   the thead — top band, bottom band, watermark, masthead and contact strip
+//   alike. The zero-height anchor keeps all of it out of the cell's own height.
 const hajoCSS = `
 .page { padding: 0 !important; position: relative; }
-.hj-inner { padding: ${PAGE.top}mm ${PAGE.side}mm ${PAGE.bottom}mm; display: flex; flex-direction: column; flex: 1 1 auto; }
 
-.hj-frame { position: absolute; inset: 0; pointer-events: none; z-index: 0; }
+.page { display: block !important; }
+.hj-sheet {
+  width: 100%; border-collapse: collapse; table-layout: fixed;
+  /* A table treats height as a MINIMUM, so this pins the tfoot to the foot of
+     the sheet on a short invoice while still letting a long one grow across
+     pages. Without it the contact strip floats directly under the last line,
+     halfway up an otherwise empty page. */
+  height: 297mm;
+}
+.hj-sheet > thead > tr > td,
+.hj-sheet > tbody > tr > td,
+.hj-sheet > tfoot > tr > td { padding: 0; border: none; vertical-align: top; }
+.hj-sheet > thead > tr > td { height: ${PAGE.top}mm; }
+.hj-sheet > tfoot > tr > td { height: ${PAGE.bottom}mm; vertical-align: bottom; }
+.hj-inner { padding: 0 ${PAGE.side}mm; }
+
+.hj-anchor { position: relative; height: 0; }
+.hj-sheet-art {
+  position: absolute; top: 0; left: 0; width: 100%; height: 297mm;
+  pointer-events: none;
+}
 .hj-art { position: absolute; left: 0; width: 100%; }
 .hj-art--top { top: -6.39mm; }
-.hj-art--bot { bottom: -6.22mm; }
+.hj-art--bot { top: 148mm; }
 .hj-watermark {
   position: absolute; left: 50%; transform: translateX(-50%);
   top: ${MARK.wmTop}mm; width: ${MARK.wmWidth}mm;
@@ -293,11 +330,11 @@ tbody td { border-bottom: 1px solid ${HAJO.rule}; }
 }
 
 .hj-foot {
-  position: absolute; left: ${PAGE.side}mm; right: ${PAGE.footRightInset}mm;
+  position: absolute; left: ${PAGE.side}mm; right: ${PAGE.side}mm;
   bottom: ${PAGE.footFromEdge}mm;
   display: flex; justify-content: space-between; gap: 8mm;
   border-top: 1px solid ${HAJO.rule}; padding-top: 3mm;
-  font-size: 8px; color: ${HAJO.ink}; z-index: 1;
+  font-size: 8px; color: ${HAJO.ink};
 }
 .hj-foot-col { display: flex; align-items: flex-start; gap: 5px; }
 .hj-ico { width: 11px; height: 11px; flex: none; margin-top: 1px; }
@@ -308,18 +345,8 @@ tbody td { border-bottom: 1px solid ${HAJO.rule}; }
 
 const hajoPrintCSS = `
 @media print {
-  @page { margin: ${PAGE.top}mm ${PAGE.side}mm ${PAGE.bottom}mm; size: A4; }
-  .page { padding: 0 !important; width: 100%; min-height: 0; }
-  .hj-inner { padding: 0; }
-  .hj-frame, .hj-foot { position: fixed; }
-  .hj-frame {
-    top: -${PAGE.top}mm; left: -${PAGE.side}mm;
-    right: -${PAGE.side}mm; bottom: -${PAGE.bottom}mm;
-  }
-  .hj-foot {
-    left: 0; right: ${PAGE.footRightInset - PAGE.side}mm;
-    bottom: -${PAGE.bottom - PAGE.footFromEdge}mm; background: #fff;
-  }
+  @page { margin: 0; size: A4; }
+  .page { padding: 0 !important; width: 100%; min-height: 0; margin: 0; }
   .doc-footer { display: none !important; }
 }
 `;
@@ -328,9 +355,8 @@ export const THEMES = {
   hajosign: {
     id: 'hajosign',
     css: hajoCSS + hajoPrintCSS,
-    frame: hajoFrame,
+    sheet: hajoSheet,
     header: hajoHeader,
-    footer: hajoFooter,
     // Wraps the flowed content so the padding that clears the artwork applies
     // to it and not to the fixed layers.
     open: '<div class="hj-inner">',
