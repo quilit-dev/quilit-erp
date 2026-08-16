@@ -49,6 +49,10 @@ DEFAULTS = {
     "invoice_prefix":      "INV-",
     "quotation_prefix":    "QTN-",
     "contract_prefix":     "CTR-",
+    # Receipt vouchers count in their own sequence, separate from invoices: the
+    # voucher acknowledges money received and is referenced as its own document
+    # in the ledger and by the customer holding it.
+    "receipt_voucher_prefix": "RV-",
     # Inventory cost-flow assumption: weighted_avg (default) / fifo / lifo.
     # Drives how cost-of-goods-sold is valued on every stock-OUT.
     "inventory_costing_method": "weighted_avg",
@@ -103,6 +107,7 @@ class SettingsUpdate(BaseModel):
     invoice_prefix:     Optional[str] = None
     quotation_prefix:   Optional[str] = None
     contract_prefix:    Optional[str] = None
+    receipt_voucher_prefix: Optional[str] = None
     inventory_costing_method: Optional[str] = None
     business_type:      Optional[str] = None
     payroll_tax_pct:             Optional[str] = None

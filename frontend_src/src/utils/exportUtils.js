@@ -19,6 +19,10 @@
  *                        by a tenant, because a letterhead is a company's
  *                        identity and not a preference.
  */
+// A handful of these are exported for receiptVoucher.js, which is a second
+// document built on the same sheet: same CSS, same company block, same currency
+// context, same print path. Re-deriving any of that there is how two documents
+// from one system start disagreeing about the date format or the rate.
 import * as XLSX from 'xlsx';
 import DOMPurify from 'dompurify';
 import { themeFor } from './documentThemes';
@@ -67,7 +71,7 @@ let USD = (v) => fmtCurrency(v, 'USD');
 // Resolve how money is shown for one export. The document is always stored in
 // the base currency (USD); when the user picked the LBP view AND an admin rate
 // exists, amounts are converted at that rate for display only.
-function currencyContext(C, opts) {
+export function currencyContext(C, opts) {
   const useLbp = opts?.displayCurrency === 'LBP' && Number(opts?.exchangeRate?.rate) > 0;
   const rate   = useLbp ? Number(opts.exchangeRate.rate) : 1;
   const code   = useLbp ? (opts.exchangeRate.secondary || 'LBP') : C.currency;
@@ -82,7 +86,7 @@ function currencyContext(C, opts) {
   };
 }
 
-const fmtDate = (d) => {
+export const fmtDate = (d) => {
   if (!d) return '—';
   const dt = new Date(d);
   return isNaN(dt) ? '—' : dt.toLocaleDateString('en-US', { year: 'numeric', month: 'short', day: 'numeric' });
@@ -126,7 +130,7 @@ export async function getLogoDataURL() {
 }
 
 // ─── Print engine ──────────────────────────────────────────────────────────────
-function printHTML(htmlString, filename) {
+export function printHTML(htmlString, filename) {
   const iframe = document.createElement('iframe');
   iframe.style.cssText = 'position:fixed;top:-9999px;left:-9999px;width:0;height:0;border:none';
   document.body.appendChild(iframe);
@@ -145,7 +149,7 @@ function printHTML(htmlString, filename) {
 }
 
 // ─── Shared CSS ────────────────────────────────────────────────────────────────
-const SHARED_CSS = `
+export const SHARED_CSS = `
 @import url('https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&display=swap');
 *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
 :root {
@@ -267,7 +271,7 @@ tbody td.barcode { font-variant-numeric: tabular-nums; white-space: nowrap; font
 `;
 
 // ─── Settings loader ───────────────────────────────────────────────────────────
-async function getSettings() {
+export async function getSettings() {
   try {
     const res = await fetch('/api/settings/', { credentials: 'include' });
     return res.ok ? await res.json() : {};
@@ -275,7 +279,7 @@ async function getSettings() {
 }
 
 // ─── Auto-save document snapshot ──────────────────────────────────────────────
-async function saveDocumentSnapshot(recordType, record, title, htmlContent) {
+export async function saveDocumentSnapshot(recordType, record, title, htmlContent) {
   try {
     const body = {
       record_type:  recordType,
@@ -296,7 +300,7 @@ async function saveDocumentSnapshot(recordType, record, title, htmlContent) {
   }
 }
 
-function buildCompany(s) {
+export function buildCompany(s) {
   return {
     name:            s.company_name       || 'My Company',
     tagline:         s.company_tagline    || '',

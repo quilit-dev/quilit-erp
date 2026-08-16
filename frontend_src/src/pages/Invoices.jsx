@@ -5,13 +5,14 @@ import { useSettings } from '../hooks/useSettings';
 import {
   getInvoices, getInvoice, getClients, getProjects, getInventory,
   createInvoice, updateInvoice, voidInvoice, unvoidInvoice,
-  addInvoicePayment, deleteInvoicePayment, getCashDrawers, promoPreview
+  addInvoicePayment, deleteInvoicePayment, getCashDrawers, promoPreview, issueReceiptVoucher
 } from '../api/client';
 import {
   LoadingSpinner, ErrorAlert, EmptyState, Modal, ConfirmModal,
   Badge, ExportButton, fmt, fmtDate, toast, SortableTh, Pagination,
   DualMoney, ExchangeRateBadge, DisplayCurrencyToggle, NumberInput, BranchField} from '../components/shared';
 import { exportInvoicePDF, exportInvoiceExcel } from '../utils/exportUtils';
+import { printReceiptVoucher } from '../utils/receiptVoucher';
 import InventoryCombobox, { salePriceInBase } from '../components/InventoryCombobox';
 import { useLocale } from '../hooks/useLocale.jsx';
 import { usePermissions } from '../hooks/usePermissions';
@@ -186,6 +187,26 @@ export default function Invoices() {
     getClients:  () => clients,
     getExportOpts: () => ({ displayCurrency, exchangeRate }),
   });
+
+  // The receipt voucher rides alongside the exports but is not one of them: it
+  // needs a number from the server first, and that call is what allocates it.
+  const [receiptLoading, setReceiptLoading] = useState({});
+  async function handleReceipt(inv) {
+    setReceiptLoading(prev => ({ ...prev, [inv.id]: 'receipt' }));
+    try {
+      const full    = await getInvoice(inv.id);
+      const client  = clients.find(c => c.id === full.client_id) || null;
+      const voucher = await issueReceiptVoucher(inv.id);
+      await printReceiptVoucher({ ...full, client }, voucher,
+        { displayCurrency, exchangeRate });
+    } catch (err) {
+      // The server's refusals say WHY (voided / nothing paid); surface that
+      // rather than a generic failure.
+      toast(err.message || t('invoices.receiptFailed'), 'red');
+    } finally {
+      setReceiptLoading(prev => ({ ...prev, [inv.id]: null }));
+    }
+  }
 
 
   function openCreate() { setForm(EMPTY_FORM); setEditId(null); setFormModal(true); }
@@ -504,7 +525,9 @@ export default function Invoices() {
               </thead>
               <tbody>
                 {pagedInvoices.map(inv => {
-                  const exporting = exportLoading[inv.id];
+                  // One spinner slot for both: exporting and receipting are
+                  // mutually exclusive on a row, and the menu keys off the value.
+                  const exporting = exportLoading[inv.id] || receiptLoading[inv.id];
                   return (
                     <tr key={inv.id}>
                       <td className="td-primary text-mono">{inv.invoice_number}</td>
@@ -527,6 +550,7 @@ export default function Invoices() {
                           onEdit={() => openEdit(inv)}
                           onPay={() => openPayModal(inv)}
                           onExport={(fmtType) => handleExport(inv, fmtType)}
+                          onReceipt={() => handleReceipt(inv)}
                           onVoid={() => { setVoidId(inv.id); setVoidReason(''); }}
                           onUnvoid={() => setUnvoidTarget(inv)}
                         />

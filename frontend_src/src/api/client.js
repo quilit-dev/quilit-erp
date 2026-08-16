@@ -153,6 +153,10 @@ export const updateInvoice     = (id, d) => api.put(`/api/invoices/${id}`, d);
 export const archiveInvoice    = (id, reason) => api.patch(`/api/invoices/${id}/archive`, { reason });
 export const unarchiveInvoice  = (id) => api.patch(`/api/invoices/${id}/unarchive`);
 export const voidInvoice       = (id, reason) => api.patch(`/api/invoices/${id}/void`, { reason });
+// Allocates the receipt voucher number on first call and returns the SAME one
+// thereafter — the voucher is one reprintable document per invoice, not a new
+// one per printing. See backend/routers/invoices.py:issue_receipt_voucher.
+export const issueReceiptVoucher = (id) => api.post(`/api/invoices/${id}/receipt-voucher`);
 export const unvoidInvoice     = (id)         => api.patch(`/api/invoices/${id}/unvoid`);
 export const addInvoicePayment    = (id, d)       => api.post(`/api/invoices/${id}/payments`, d);
 export const deleteInvoicePayment = (invId, payId) => api.delete(`/api/invoices/${invId}/payments/${payId}`);

@@ -7,7 +7,7 @@ import { Icon } from '../../components/shared';
 import { SendDocumentButton } from '../../components/SendDocument';
 
 // ── Per-row action dropdown ───────────────────────────────────────────────
-function ActionMenu({ inv, exporting, onEdit, onPay, onExport, onVoid, onUnvoid }) {
+function ActionMenu({ inv, exporting, onEdit, onPay, onExport, onReceipt, onVoid, onUnvoid }) {
   const { t, lang } = useLocale();
   const [open, setOpen] = useState(false);
   const [dropUp, setDropUp] = useState(false);
@@ -29,6 +29,9 @@ function ActionMenu({ inv, exporting, onEdit, onPay, onExport, onVoid, onUnvoid 
   }, [open]);
 
   const isVoided    = inv.payment_status === 'Void' || !!inv.voided_at;
+  // The list row carries the running total, so "has anything been paid?" is
+  // answerable without fetching the payment rows.
+  const hasPayments = Number(inv.total_paid || 0) > 0;
   const isPaid      = inv.payment_status === 'Paid';
   const isExporting = !!exporting;
 
@@ -121,6 +124,20 @@ function ActionMenu({ inv, exporting, onEdit, onPay, onExport, onVoid, onUnvoid 
               {exporting === 'pdf'
                 ? <><Icon name="loader" size={14} style={SPIN} /><span>Exporting…</span></>
                 : <><Icon name="file-text" size={14} /><span>Export PDF</span></>}
+            </button>
+
+            {/* The numbered receipt handed over when money is taken. Disabled
+                with nothing paid, because there would be nothing to acknowledge
+                — the server refuses it too, so this only saves the round trip. */}
+            <button
+              disabled={isExporting || isVoided || !hasPayments}
+              onClick={() => { setOpen(false); onReceipt(); }}
+              title={!hasPayments ? t('invoices.receiptNeedsPayment') : undefined}
+              style={{ ...menuItemStyle, opacity: (isExporting || isVoided || !hasPayments) ? 0.4 : 1 }}
+            >
+              {exporting === 'receipt'
+                ? <><Icon name="loader" size={14} style={SPIN} /><span>{t('common.loading')}</span></>
+                : <><Icon name="banknote" size={14} /><span>{t('invoices.receiptVoucher')}</span></>}
             </button>
 
             {/* No WhatsApp / email entries here. The Send button on the row

@@ -64,6 +64,7 @@ export default function Settings() {
     'bank_name', 'bank_account', 'bank_iban', 'bank_swift',
     'default_tax_rate', 'tax_enabled', 'payment_terms_days',
     'invoice_prefix', 'quotation_prefix', 'contract_prefix',
+    'receipt_voucher_prefix',
     'inventory_costing_method', 'business_type',
     'payroll_tax_pct', 'payroll_nssf_employee_pct',
     'payroll_nssf_employer_pct', 'payroll_overtime_multiplier',
@@ -301,6 +302,9 @@ export default function Settings() {
             </Field>
             <Field label={t('settings.quotationPrefix')}>
               <Input disabled={!isAdmin} value={form.quotation_prefix || ''} onChange={set('quotation_prefix')} placeholder="QTN-" />
+            </Field>
+            <Field label={t('settings.receiptVoucherPrefix')}>
+              <Input disabled={!isAdmin} value={form.receipt_voucher_prefix || ''} onChange={set('receipt_voucher_prefix')} placeholder="RV-" />
             </Field>
             <Field label={t('settings.receiptWidth')} hint={t('settings.receiptWidthHint')}>
               <select className="form-control" disabled={!isAdmin}

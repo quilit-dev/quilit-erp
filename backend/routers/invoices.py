@@ -890,6 +890,68 @@ def delete_payment(
     db.commit()
     return {"message": "Payment deleted"}
 
+# ── Receipt voucher (سند قبض) ─────────────────────────────────────────────
+@router.post("/{invoice_id}/receipt-voucher")
+def issue_receipt_voucher(
+    invoice_id: int,
+    user=Depends(require_perm("invoices", "view")),
+    db: sqlite3.Connection = Depends(get_db),
+):
+    """The number for this invoice's receipt voucher, allocating it on first use.
+
+    The SAME number every time, by design. A voucher states what has been paid
+    on its invoice to date, so it is one document that gets reprinted as
+    instalments arrive — not a new one per printing. Minting a fresh number each
+    time would leave a customer who paid 100 and then 150 holding vouchers
+    reading 100 and 250: receipts for 350 against 250 received. UNIQUE(invoice_id)
+    makes that unrepresentable; this handler simply returns what is already there.
+
+    `view` rather than a write permission: printing the receipt for an invoice
+    you are already allowed to open should not need more, and the UNIQUE bounds
+    what the write can do to one row per invoice.
+    """
+    inv = db.execute(
+        "SELECT i.*, c.name AS client_name FROM invoices i "
+        "LEFT JOIN clients c ON i.client_id = c.id WHERE i.id = ?",
+        (invoice_id,)).fetchone()
+    if not inv:
+        raise HTTPException(404, "Invoice not found")
+    branch_access.assert_can_view_branch(user, db, inv["branch_id"])
+
+    # Both refusals name the reason: "cannot issue" with no cause is the kind of
+    # message that turns into a support call.
+    if inv["voided_at"]:
+        raise HTTPException(
+            400, "This invoice is voided — a receipt cannot be issued against it.")
+    paid = _payment_total(db, invoice_id)
+    if paid <= 0:
+        raise HTTPException(
+            400, "No payment has been recorded on this invoice yet, so there is "
+                 "nothing to receipt.")
+
+    row = db.execute("SELECT number FROM receipt_vouchers WHERE invoice_id = ?",
+                     (invoice_id,)).fetchone()
+    if row:
+        return {"number": row["number"], "issued": False}
+
+    from utils import get_setting
+    prefix = get_setting(db, "receipt_voucher_prefix") or "RV-"
+    # Derived from the row's own id, exactly as invoice numbers are: unique by
+    # construction under AUTOINCREMENT, so two concurrent issues cannot collide
+    # on a number the way a MAX()+1 read-then-write would.
+    cur = db.execute(
+        "INSERT INTO receipt_vouchers (invoice_id, number, created_by, created_at) "
+        "VALUES (?, ?, ?, ?)",
+        (invoice_id, "__pending__", user["id"], _now()))
+    voucher_id = cur.lastrowid
+    number = f"{prefix}{datetime.utcnow().year}-{voucher_id:04d}"
+    db.execute("UPDATE receipt_vouchers SET number=? WHERE id=?", (number, voucher_id))
+
+    log_action(db, user, "issue_receipt_voucher", "invoice", invoice_id,
+               inv["invoice_number"], {"number": number, "amount": money(paid)})
+    db.commit()
+    return {"number": number, "issued": True}
+
 # ── Archive invoice (only for draft invoices with zero payments) ──────────
 @router.patch("/{invoice_id}/archive")
 def archive_invoice(
