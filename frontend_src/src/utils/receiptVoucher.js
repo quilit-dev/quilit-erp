@@ -31,21 +31,25 @@ const esc = s => String(s ?? '').replace(/[&<>"]/g,
 // instead — which is what a naive "label in both languages" helper produces —
 // runs them together as "رقمNo." with nothing to tell a reader where one stops.
 
-/** A form line: English label, the value and its dots, Arabic label. */
-const row = (en, ar, value = '', { dots = true } = {}) => `
+/**
+ * A form line: English label, the filled value, Arabic label.
+ *
+ * The value sits CENTRED on its own dotted rule rather than tucked against the
+ * English label. On a form whose two labels are of unequal length in every row,
+ * left-aligning the values leaves them scattered at whatever x the label
+ * happened to end — the eye has no column to run down. Centring gives the
+ * filled data one axis, and it is where a hand-filled pad puts it too.
+ */
+const row = (en, ar, value = '') => `
   <div class="rv-row">
     <span class="rv-label">${en}</span>
-    ${value ? `<span class="rv-fill">${value}</span>` : ''}
-    ${dots ? DOTS : ''}
+    <span class="rv-fill">${value}</span>
     <span class="rv-label rv-ar">${ar}</span>
   </div>`;
 
 /** English over Arabic — for headings and cells, where a line has no width to spare. */
 const stack = (en, ar) =>
   `<span class="rv-en">${en}</span><span class="rv-ar-sub">${ar}</span>`;
-
-/** A run of dots for something filled in by hand. */
-const DOTS = '<span class="rv-dots"></span>';
 
 const RV_CSS = `
 .rv { padding: 0; }
@@ -68,11 +72,14 @@ const RV_CSS = `
 
 .rv-line { margin-top: 6mm; font-size: 10px; line-height: 1.9; }
 .rv-line .rv-label { font-weight: 700; white-space: nowrap; }
-.rv-fill { font-weight: 600; }
-.rv-dots {
-  display: inline-block; flex: 1 1 auto; min-width: 20mm;
-  border-bottom: 1px dotted currentColor; margin: 0 2mm;
-  transform: translateY(-1mm);
+/* The rule and the value are ONE element: the dots span the whole gap between
+   the labels and the value centres within it, so an empty line and a filled one
+   are the same shape. Two elements — a value then a separate run of dots —
+   is what pushed every value hard against its label. */
+.rv-fill {
+  flex: 1 1 auto; min-width: 20mm; margin: 0 2.5mm;
+  text-align: center; font-weight: 600;
+  border-bottom: 1px dotted currentColor; padding-bottom: 0.6mm;
 }
 .rv-row { display: flex; align-items: flex-end; gap: 2mm; }
 /* Arabic set alongside English, never touching it: a small gap and lighter
@@ -94,8 +101,12 @@ const RV_CSS = `
 
 .rv-payments { margin-top: 5mm; }
 .rv-payments table { width: 100%; border-collapse: collapse; }
+/* Cells centre for the same reason the form lines do — except the amount, which
+   stays right so the figures line up on their decimal and can be added down the
+   column by eye. */
 .rv-payments th, .rv-payments td {
-  border: 1px solid currentColor; padding: 1.5mm 2.5mm; font-size: 9px; text-align: left;
+  border: 1px solid currentColor; padding: 1.5mm 2.5mm; font-size: 9px;
+  text-align: center;
 }
 .rv-payments th { font-weight: 700; }
 .rv-payments td.r, .rv-payments th.r { text-align: right; }
