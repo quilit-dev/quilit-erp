@@ -131,7 +131,7 @@ describe('the letterhead repeats on every printed sheet', () => {
     const thead = themed.split('<thead>')[1].split('</thead>')[0];
     const tfoot = themed.split('<tfoot>')[1].split('</tfoot>')[0];
 
-    for (const part of ['hj-masthead', 'hj-art--top', 'hj-art--bot', 'hj-foot']) {
+    for (const part of ['hj-masthead', 'hj-art', 'hj-watermark', 'hj-foot']) {
       expect(thead).toContain(part);
     }
     expect(tfoot.trim()).toBe('<tr><td></td></tr>');
@@ -148,6 +148,15 @@ describe('the letterhead repeats on every printed sheet', () => {
     // A table treats height as a minimum: it holds the contact strip at the
     // bottom of a short invoice and still lets a long one grow across pages.
     expect(themed).toContain('height: 297mm');
+  });
+
+  test('the bleed is clipped at the paper edge', () => {
+    // Not cosmetic. The artwork's paths deliberately overrun the trim, and
+    // although the SVG clips what it paints, the paths still counted toward the
+    // document's scroll width — so Chrome shrank the ENTIRE page by 210/215.11
+    // to fit, and every measurement on the sheet came out 2.4% small. Clipping
+    // the art box is what keeps the printed page at 1:1.
+    expect(THEMES.hajosign.css).toMatch(/\.hj-sheet-art\s*\{[^}]*overflow:\s*hidden/);
   });
 
   test('printing leaves no page margin for the artwork to be inset by', () => {

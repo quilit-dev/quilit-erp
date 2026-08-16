@@ -110,36 +110,23 @@ const HAJO_FRAME_PATHS = [
             + 'L209.75 -6.39 L215.29 -6.39 L215.29 82.23Z'],
 ];
 
-// The artwork is emitted as two bands — one anchored to the top of the sheet,
-// one to the bottom — rather than one box stretched over the whole page.
+// One SVG covering the whole sheet, sized by its container rather than by a
+// height computed in millimetres.
 //
-// On screen a long invoice is a single tall page, and a full-height artwork
-// layer would stretch with it: the diagonals would skew and the bottom bar
-// would drift to the foot of a 400mm sheet. Anchoring each band to the paper
-// edge it belongs to keeps the geometry true at any document length, which
-// matters because the share page a customer opens is screen, not print.
+// It was two bands with explicit mm heights, which measured correctly in the
+// DOM and then printed 2.4% short — every path drifting further up the page the
+// lower it sat. Sizing from the container removes the question: the box is a
+// fixed 297mm anchored to the thead, the viewBox is the same 210x297, so the
+// mapping is one-to-one and there is no length for the print layout to resolve
+// differently.
 //
-// `top`/`bottom` are the y-range each band covers in the original's own
-// coordinates, including the 3mm bleed that runs past the trim.
-const HAJO_BANDS = [
-  { cls: 'top', from: -6.39, to: 155, maxY: 155 },
-  { cls: 'bot', from: 148, to: 303.22, minY: 148 },
-];
-
-function hajoArt(which) {
-  return HAJO_BANDS.filter(b => b.cls === which).map(({ cls, from, to, minY, maxY }) => {
-    const height = to - from;
-    const paths = HAJO_FRAME_PATHS.filter(([, d]) => {
-      const ys = d.match(/-?\d+\.?\d*/g).filter((_, i) => i % 2);
-      const lo = Math.min(...ys.map(Number));
-      const hi = Math.max(...ys.map(Number));
-      return maxY !== undefined ? lo < maxY : hi > minY;
-    });
-    return `<svg class="hj-art hj-art--${cls}" aria-hidden="true"
-      viewBox="0 ${from} 210 ${height}" preserveAspectRatio="none"
-      style="height:${height}mm">${paths
+// The paths run past 0 and past 210/297 — that is the original's 3mm bleed —
+// and the SVG viewport clips them at the paper edge, which is exactly what
+// trimming a bled sheet does.
+function hajoArt() {
+  return `<svg class="hj-art" aria-hidden="true" viewBox="0 0 210 297"
+      preserveAspectRatio="none">${HAJO_FRAME_PATHS
         .map(([fill, d]) => `<path fill="${fill}" d="${d}"/>`).join('')}</svg>`;
-  }).join('');
 }
 
 /**
@@ -159,8 +146,7 @@ function hajoSheet(C, logo) {
   const mark = logo || HAJO_MARK;
   return `
   <div class="hj-anchor"><div class="hj-sheet-art">
-    ${hajoArt('top')}
-    ${hajoArt('bot')}
+    ${hajoArt()}
     <img class="hj-watermark" src="${mark}" alt="" />
     <div class="hj-masthead">
       <img class="hj-logo" src="${mark}" alt="" />
@@ -316,10 +302,15 @@ const hajoCSS = `
 .hj-sheet-art {
   position: absolute; top: 0; left: 0; width: 100%; height: 297mm;
   pointer-events: none;
+  /* Trims the bleed at the paper edge — and that is not just cosmetic. The
+     artwork's paths deliberately run past the trim (to x 215.38, y 303.22),
+     and although the SVG clips what it PAINTS, the paths still counted toward
+     the document's scroll size. Chrome's print then shrank the whole page by
+     210/215.11 to make it fit, so every measurement on the sheet came out 2.4%
+     small and the bands sat wrong against the original. */
+  overflow: hidden;
 }
-.hj-art { position: absolute; left: 0; width: 100%; }
-.hj-art--top { top: -6.39mm; }
-.hj-art--bot { top: 148mm; }
+.hj-art { position: absolute; inset: 0; width: 100%; height: 100%; }
 .hj-watermark {
   position: absolute; left: 50%; transform: translateX(-50%);
   top: ${MARK.wmTop}mm; width: ${MARK.wmWidth}mm;
