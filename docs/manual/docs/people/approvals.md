@@ -113,7 +113,7 @@ payments and does not move its project along until it is approved.
 
     Add more than one condition and you choose whether **all** of them must
     be true (AND) or **any** of them (OR).
-    | Project budgets > $100K | `{"estimated_cost": {">": 100000}}` |
+    | Project budgets > $100K | estimated cost is greater than 100000 |
 
     ### What happens when an approval is granted
 
@@ -121,8 +121,8 @@ payments and does not move its project along until it is approved.
     expenses, that means posting the deferred journal entry. For assets,
     that means flipping status from Pending Approval to Active.
 
-    Each application is one transaction with an the audit trail row showing
-    `action='approval_applied'`.
+    Each application is one transaction with an audit-trail entry showing
+    the approval action.
 
 === "Auditor's view"
 

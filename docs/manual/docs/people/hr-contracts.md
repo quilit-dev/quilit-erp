@@ -12,7 +12,7 @@ $X/year-LBP-Y/month, with these benefits and these terms". Multiple
 contracts can exist per employee over time (renewals, role changes).
 
 The currency on the contract (salary currency) is what payroll
-snapshots into `hr_payroll_lines.salary_currency` (F-6 fix).
+snapshots into the payroll line's own currency (F-6 fix).
 
 ## Personas
 
@@ -41,13 +41,13 @@ snapshots into `hr_payroll_lines.salary_currency` (F-6 fix).
 
     | Field | Notes |
     |---|---|
-    | Employee | FK |
+    | Employee | Who the contract is for |
     | Contract number | E.g. `EMP-2026-0001` |
     | Contract type | Permanent / Fixed-term / Probation / Internship / Consultant |
     | Start date | |
     | End date | Required for Fixed-term / Probation |
     | Probation end date | Optional for Permanent |
-    | Job title | (Snapshots; doesn't auto-update on employee.job_title change) |
+    | Job title | (Snapshots; doesn't auto-update on a change to the employee's job title) |
     | Work schedule | Free text, e.g. "Mon-Fri 9-5" |
     | Weekly hours | E.g. 40 |
     | Salary | Amount |

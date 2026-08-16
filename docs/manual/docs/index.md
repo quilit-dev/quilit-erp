@@ -5,13 +5,13 @@ hide:
   - toc
 ---
 
-# ERP System — Comprehensive Manual
+# ERP System — User Manual
 
 <div style="font-size:1.1rem; color: var(--md-default-fg-color--light); max-width: 760px;">
-A multi-warehouse, dual-currency, double-entry ERP for small and medium
-enterprises. This manual covers <strong>every module</strong> from three
-perspectives — Operator, Administrator, and Auditor — with workflow
-diagrams, data models, and the audit evidence each operation leaves behind.
+How to use the system, part by part. Every page answers the same three
+questions in turn: <strong>how do I do my job</strong>, <strong>how do I set
+this up</strong>, and <strong>what record does it leave</strong> — so you can
+read only the part that is yours.
 </div>
 
 ---

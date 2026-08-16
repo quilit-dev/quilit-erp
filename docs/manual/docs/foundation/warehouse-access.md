@@ -35,13 +35,13 @@ Warehouse access supplies that second answer.
 > access becomes restricted to the explicit allow-list.
 
 This makes turning it on safe — every existing user keeps working
-unchanged. You opt-in to per-warehouse restriction by adding rows to
+unchanged. You opt in to per-warehouse restriction by granting warehouses in
 warehouse access.
 
 ```mermaid
 flowchart LR
     SU[Support account?] -->|yes| ALL[Access to ALL warehouses]
-    SU -->|no| ANY[Has any rows in<br/>user_warehouse_access?]
+    SU -->|no| ANY[Any warehouses<br/>granted to them?]
     ANY -->|no| ALL2[Access to ALL warehouses<br/>safe default]
     ANY -->|yes| LIST[Access ONLY to listed warehouses]
 
@@ -110,16 +110,16 @@ flowchart LR
 
     ### What records movement
 
-    `stock_movements.warehouse_id` is stamped on **every** quantity change
+    the warehouse is recorded on **every** stock change
     from the moment it was switched on. To verify a user never touched a specific
     warehouse.
 
     ### Stock transfer evidence
 
-    Every transfer leaves two stock movements rows (an "out" on the source
-    and an "in" on the destination) plus a stock transfers row with
-    dispatched by, received by, timestamps, and any cancellation
-    reason. See [Operations → Warehouses](../operations/index.md) (Phase 3).
+    Every transfer leaves two stock movements — an "out" at the source and
+    an "in" at the destination — plus the transfer itself, recording who
+    dispatched it, who received it, when, and any reason it was
+    cancelled. See [Operations → Warehouses](../operations/index.md) (Phase 3).
 
 ---
 
@@ -127,10 +127,10 @@ flowchart LR
 
 ```mermaid
 flowchart TD
-    REQ[Stock-touching request] --> MOD["require_perm('module','action')"]
+    REQ[Stock-touching request] --> MOD[Role allows this module?]
     MOD -->|fails| F1[Refused — role]
-    MOD -->|passes| WH[wha.resolve_warehouse_id]
-    WH --> CHK{can_access<br/>warehouse?}
+    MOD -->|passes| WH[Work out which warehouse]
+    WH --> CHK{May use that<br/>warehouse?}
     CHK -->|no| F2[Refused]
     CHK -->|yes| OK[Proceed]
 
@@ -148,6 +148,6 @@ check, then we do the database hit for warehouse access.
   list". Plan the rollout deliberately.
 - The role is **always** the first gate. Granting Branch A to a Cashier
   who has no Inventory `view` permission grants them nothing.
-- The default warehouse falls back to the company default (`is_default=1`)
+- The default warehouse falls back to the company default (marked as the default)
   if the user's personal default isn't set or isn't accessible — never to
   "no warehouse at all" unless the user has no access anywhere.

@@ -31,7 +31,7 @@ worth now after depreciation.
 - **Useful life**: in months
 - **Salvage value**: residual amount at end of life (default 0)
 - **Status**: `Active` (default), `Disposed`, `Written Off`
-- **Auto-posting**: each period's depreciation creates a JE + an expenses row
+- **Auto-posting**: each period's depreciation creates a journal entry and an expense
 
 ---
 
@@ -52,38 +52,38 @@ worth now after depreciation.
     | Depreciation method | straight line or `none` |
     | Useful life (months) | E.g. 60 for a 5-year asset |
     | Salvage value | Optional; default 0 |
-    | Supplier | Optional FK to suppliers |
+    | Supplier | Optional — who you bought it from |
 
-    Save. The asset lands in **Active** status with `accumulated_depreciation=0`.
+    Save. The asset lands in **Active** status with no depreciation yet.
 
     ### Running depreciation for a period
 
     Once per month: Fixed Assets → **Run depreciation for period**. The
     system.
 
-    1. Picks every Active asset with `in_service_date ≤ period end`
-    2. Computes `monthly_depreciation = (acquisition_cost − salvage_value) ÷ useful_life_months`
+    1. Picks every Active asset already in service by the end of the month
+    2. Computes the monthly amount: (cost − salvage value) ÷ life in months
     3. Skips anything already depreciated for that month, so running it
        twice changes nothing
-    4. For each: posts one JE + one expense row
+    4. For each: posts one journal entry and one expense
 
-    | JE line | Account | Amount |
+    | Entry line | Account | Amount |
     |---|---|---|
-    | Debit | `6300 Depreciation Expense` | monthly_depreciation |
-    | Credit | `1510 Accumulated Depreciation` | monthly_depreciation |
+    | Debit | `6300 Depreciation Expense` | the monthly amount |
+    | Credit | `1510 Accumulated Depreciation` | the monthly amount |
 
-    Plus a row in asset depreciation.
+    Plus a depreciation record against the asset.
 
     | Field | Value |
     |---|---|
-    | asset_id | FK |
+    | Asset | which asset it belongs to |
     | period | `YYYY-MM` |
-    | amount | monthly_depreciation |
-    | accumulated_after | running total |
-    | book_value_after | acquisition_cost − accumulated_after |
-    | expense_id | FK to the expenses row |
+    | amount | the monthly amount |
+    | Depreciation so far | running total |
+    | Book value after | cost minus depreciation so far |
+    | Expense | the expense it created |
 
-    The expenses row keeps the cash-basis Finance dashboard's monthly
+    The expense keeps the cash-basis Finance dashboard's monthly
     expenses in sync.
 
     ### Disposing an asset
@@ -96,7 +96,7 @@ worth now after depreciation.
     | Disposal proceeds | What you got (sold) or 0 (scrapped) |
     | Disposal reason | Free text |
 
-    The system computes **gain/loss** = `proceeds − book_value` and posts.
+    The system computes **gain/loss** = sale proceeds minus book value and posts.
 
     - **Gain** (proceeds > book value): `DR Cash CR 4900 Other Income`
     - **Loss** (proceeds < book value): `DR 6900 General & Other Expense CR Cash` (loss portion)
@@ -132,7 +132,7 @@ worth now after depreciation.
     additional entries on the second run.
 
     To regenerate a specific period (after a correction), reverse the
-    period's JE manually, then back-date last depreciated period and
+    period's entry by hand, then back-date the last depreciated period and
     re-run.
 
     ### Depreciation timing
@@ -148,13 +148,13 @@ worth now after depreciation.
     The headline reconciliation.
 
     Numbers should match exactly. Drift = a register entry without GL
-    backing, or a GL JE for an asset outside the register.
+    backing, or an entry for an asset that is not in the register.
 
     ### Depreciation arithmetic
 
     Verify the monthly amount per asset.
 
-    Each asset depreciation row's `amount` should equal
+    Each depreciation record's amount should equal
     expected monthly depreciation (within rounding).
 
     ### Depreciation completeness
@@ -164,8 +164,8 @@ worth now after depreciation.
 
     ### Disposal trail
 
-    Each row's gain/loss should match a `4900 Other Income` (gain) or
-    `6900` (loss) JE on disposal date.
+    Each disposal's gain or loss should match a `4900 Other Income` (gain) or
+    `6900` (loss) entry on the disposal date.
 
 ---
 
@@ -194,6 +194,6 @@ stateDiagram-v2
 - Asset componentisation (separately depreciating a forklift's engine vs.
   body). One asset = one depreciation stream.
 - Impairment write-downs as a separate workflow. Use `Written Off` status
-  + a manual JE.
+  plus an entry posted by hand.
 - Mid-month proration. Depreciation runs per **full month** — a mid-month
   in-service date depreciates the full month it's placed in service.

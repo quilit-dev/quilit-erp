@@ -99,8 +99,8 @@ it stops working — which you cannot do with a PDF once it has left your outbox
 
     ### Email setup
 
-    Email needs two settings from your provider: an API key and a
-    **from** address on a domain they have verified. Until both exist, the
+    Email needs two things from your provider: a key for the sending service
+    and a **from** address on a domain they have verified. Until both exist, the
     email channel reports itself unavailable in the UI and explains why,
     rather than failing silently at the moment somebody presses send.
 

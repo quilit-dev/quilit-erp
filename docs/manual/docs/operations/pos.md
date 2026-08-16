@@ -29,7 +29,7 @@ anything.
 - **Session lifecycle** — `open → checkout (many) → close` (one open
   session per cashier at a time)
 - **Tender currencies** — USD or LBP
-- **Auto-creates** — every checkout creates an invoices row with prefix
+- **Auto-creates** — every checkout creates an invoice with prefix
   `POS-`
 - **Per-warehouse selling** — session is opened against a specific
   warehouse; sales deduct from there
@@ -89,10 +89,10 @@ anything.
     number → row menu → **Return**.
 
     Returns are **all-or-nothing** for the entire sale:
-    - The original invoice is **voided** with `void_reason='POS return: …'`
-    - Stock is restocked at the session's warehouse (`stock_movements
+    - The original invoice is **voided** with the reason "POS return: …"
+    - Stock is restocked at the session's warehouse (`stock movements
       type='return'`)
-    - A pos returns row records the refund amount
+    - The return records the refund amount
     - Cash refund is recorded as a negative cash movement on the current
       session
 
@@ -137,10 +137,10 @@ anything.
     ### Cash drawer configuration
 
     POS sessions don't directly write to cash drawers — but the
-    associated `invoice_payments.cash_drawer_id` does. Configure cash
+    associated the payment's cash drawer does. Configure cash
     drawers in **Cash → Drawers**.
 
-    Exactly one drawer should have `auto_capture=1` — that's the default
+    Exactly one drawer should have auto-capture switched on — that's the default
     target when no specific drawer is picked on a cash payment.
 
     ### POS invoice prefix
@@ -152,7 +152,7 @@ anything.
     ### Exchange rate
 
     LBP tenders use the latest rate from **Settings → Exchange Rate**.
-    The rate is snapshotted on the payments row at the time of
+    The rate is saved on the payment at the time of
     the sale — so future rate changes don't retroactively affect the
     posted entry.
 
@@ -173,7 +173,7 @@ anything.
 
     ### Variance trail
 
-    Every non-zero variance should have a corresponding JE. NULL JE on a
+    Every non-zero variance should have a matching entry. A missing one on a
     non-zero variance = F-3 audit fix not yet applied.
 
     ### LBP routing to account 1010
@@ -189,7 +189,7 @@ anything.
 
 ```mermaid
 stateDiagram-v2
-    [*] --> Open : Open Register<br/>opening_float, warehouse_id
+    [*] --> Open : Open Register<br/>opening float, warehouse
     Open --> Open : Checkout × many
     Open --> Open : Return × many
     Open --> Closed : Close Register<br/>variance posted to GL
@@ -222,9 +222,9 @@ receipt laid out for 80 mm prints clipped on a 58 mm roll, and a 58 mm layout on
 an 80 mm roll wastes half the paper. This is a per-company setting, so a business
 with mixed hardware should standardise the rolls rather than the setting.
 
-**One-click printing.** `window.print()` opens the browser's print dialog, and no
-web page can bypass that — it is a browser security boundary, not a missing
-feature. For a dedicated till, launch Chrome with kiosk printing and the dialog
+**One-click printing.** Printing always opens the browser's print dialog, and
+no web page is allowed to skip it — that is the browser protecting you, not a
+missing feature. For a dedicated till, launch Chrome with kiosk printing and the dialog
 disappears; the receipt goes straight to the default printer on click.
 
 ```

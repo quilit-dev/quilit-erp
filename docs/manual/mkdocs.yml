@@ -1,7 +1,7 @@
-site_name: ERP System — Operator, Administrator & Auditor Manual
-site_description: Comprehensive cross-audience documentation for the multi-warehouse,
-  dual-currency, double-entry ERP. Covers operator workflows, administrative
-  controls, and audit evidence for every module.
+site_name: ERP System — User Manual
+site_description: How to use the ERP — quoting, invoicing, payments, stock,
+  payroll and month-end — written for the people who use it, with separate
+  answers for everyday users, administrators and auditors.
 site_author: ERP Vendor
 copyright: © 2026 — All rights reserved.
 
@@ -42,9 +42,12 @@ theme:
       toggle:
         icon: material/brightness-4
         name: Switch to light mode
-  font:
-    text: Inter
-    code: JetBrains Mono
+  # `font: false` stops Material fetching Inter and JetBrains Mono from Google
+  # at page load. The manual ships inside the product and has to work on an
+  # office PC with no internet, where those requests hang and then fall back to
+  # system fonts anyway — and the app's Content-Security-Policy blocks the
+  # third-party stylesheet regardless. System fonts, immediately, offline.
+  font: false
   icon:
     repo: fontawesome/brands/git
 
@@ -85,7 +88,13 @@ markdown_extensions:
   - pymdownx.superfences:
       custom_fences:
         - name: mermaid
-          class: mermaid
+          # NOT `mermaid`: that class is Material's own hook, and Material
+          # renders it by fetching Mermaid from unpkg.com at page load. The
+          # manual is served from inside the ERP, whose CSP forbids third-party
+          # scripts, and from installs with no internet at all — so the diagrams
+          # are rendered by the copy bundled in assets/javascripts instead. See
+          # mermaid-init.js.
+          class: mermaid-diagram
           format: !!python/name:pymdownx.superfences.fence_code_format
 
 plugins:
@@ -161,3 +170,9 @@ nav:
       - Chart of accounts: reference/chart-of-accounts.md
       - Module index: reference/module-index.md
       - Glossary: reference/glossary.md
+
+# Mermaid, vendored. Order matters: the library must be parsed before the
+# initialiser runs.
+extra_javascript:
+  - assets/javascripts/mermaid.min.js
+  - assets/javascripts/mermaid-init.js

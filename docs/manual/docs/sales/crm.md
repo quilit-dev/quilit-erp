@@ -62,7 +62,7 @@ transition is a single, audited conversion.
 
     On a lead detail, top-right menu offers.
 
-    - **Convert to client** — creates a clients row, links it to the lead,
+    - **Convert to client** — creates the client, links it to the lead,
       moves status to "Won"
     - **Create deal** — opens a new deal with the lead's company and
       estimated value pre-filled
@@ -117,7 +117,7 @@ transition is a single, audited conversion.
     A core control: a won opportunity should result in revenue evidence
     (quotation, invoice, or both). Find gaps.
 
-    Each row needs an explanation: was the work invoiced under a different
+    Each one needs an explanation: was the work invoiced under a different
     deal? Was it free-of-charge? Was it never invoiced (control gap)?
 
     ### Cycle time
@@ -144,8 +144,8 @@ stateDiagram-v2
     Lost --> [*] : Archived
 
     note right of Won
-        Sets crm_leads.status = 'Won'
-        Links crm_leads.client_id
+        Marks the lead Won
+        Links the lead to the client
         Deal probability → 100%
     end note
 ```

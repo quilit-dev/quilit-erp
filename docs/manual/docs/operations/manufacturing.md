@@ -36,7 +36,7 @@ labour and machine time, not just materials.
   (flat or per-resource), overhead, machine + electricity
 - **MO status** — `Draft → Confirmed → In Progress → Completed` (or
   `Cancelled`)
-- **QC** — opt-in per BOM (`qc_required=1`)
+- **QC** — opt-in per BOM (QC switched on)
 - **Warehouse** — one per MO (consume + produce in the same location, by
   Phase 1 design)
 - **Reservation** — confirming a draft order reserves component quantities
@@ -101,19 +101,19 @@ labour and machine time, not just materials.
     4. Click **Complete**
 
     Atomic writes:
-    - Each component: `inventory.quantity -consumed`, `inventory_stock at
+    - Each component: `inventory.quantity -consumed`, `per-warehouse stock at
       MO.warehouse -consumed`, cost layers drawn
-    - Output: `inventory.quantity +produced`, `inventory_stock +produced`,
+    - Output: `inventory.quantity +produced`, `per-warehouse stock +produced`,
       new lot/layer at calculated unit cost
     - production order items frozen with actual qty + cost
     - production order resources cost = hours × rate
-    - stock movements rows for every motion
+    - a stock movement for everything that moved
 
     ### QC quarantine + release
 
-    If `qc_required=1`:
+    If QC switched on:
     - On Complete, the output goes to quarantine quantity (not sellable)
-    - A production qc row is created in **Pending** status
+    - A QC check is created, in **Pending** status
 
     QC inspector opens the QC → **Resolve**.
 
@@ -144,10 +144,10 @@ labour and machine time, not just materials.
 
     The output unit cost is the sum of.
 
-    1. **Components** — Σ(component_qty × component_unit_cost), with cost
+    1. **Components** — the total of each component's quantity × its cost, with cost
        drawn per the costing method (FIFO/LIFO/avg)
     2. **Labour** — either the flat labor cost on the MO, or Σ(resource
-       hourly_rate × hours) if resources are assigned
+       hourly rate × hours) if resources are assigned
     3. **Overhead** — flat MO field, or per-resource (e.g. electricity at
        kW × hours × tariff)
     4. **Machine + Electricity** — same pattern for resources of those
@@ -226,7 +226,7 @@ flowchart LR
     RES -->|rejected only| REJ[scrap cost recognised]
     RES -->|mixed| MIX[partial release<br/>+ scrap]
     REJ --> RW{Rework?}
-    RW -->|yes| NEWMO[spawn rework order<br/>rework_of_order_id linked]
+    RW -->|yes| NEWMO[Raise a rework order<br/>linked to the original]
     RW -->|no| DONE[done]
     PASS --> DONE
     MIX --> RW

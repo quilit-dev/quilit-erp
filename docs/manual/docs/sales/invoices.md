@@ -81,7 +81,7 @@ disagree with the money.
       rate)
     - Method: `Cash`
 
-    System computes `usd_amount = 89,000,000 / 89,000 = 1,000.00` →
+    System computes 89,000,000 ÷ 89,000 = 1,000.00 →
     invoice goes from Unpaid to Paid. The GL posts.
 
     `DR 1010 Cash — LBP $1,000 / CR 4000 Sales Revenue $1,000`
@@ -145,7 +145,7 @@ disagree with the money.
     - `INV-` for regular invoices (manual + from quote + from project)
     - `POS-` for POS-checkout invoices
 
-    The split is purely cosmetic — under the hood every row is in the
+    The split is purely for display — every amount is held in the
     same table with the same lifecycle. POS-prefixed invoices are
     excluded from the regular Invoices list view to keep it scannable
     (POS sales show in the POS module).
@@ -155,13 +155,13 @@ disagree with the money.
     Cash payments **must** reference a cash drawer id. This is what lets
     the Cash module reconcile drawer balances at end-of-day. If the
     operator doesn't pick a drawer, the system uses the one with
-    `auto_capture=1` (configured per company).
+    auto-capture switched on (configured per company).
 
     ### Exchange rate defaulting
 
     LBP payments either:
     1. Use the rate the operator supplied
-    2. Or fall back to the latest row in exchange rates
+    2. Or fall back to the most recent exchange rate
 
     If no exchange rate has ever been entered, an LBP payment is rejected
     with a clear error message ("Set the LBP→USD rate in Settings →
@@ -189,7 +189,7 @@ disagree with the money.
     ### Void traceability
 
     Each voided invoice should have a reason and a Finance Manager
-    approval audit row.
+    approval recorded in the audit trail.
 
 ---
 
@@ -207,7 +207,7 @@ flowchart LR
     style ST3 fill:#dcfce7,stroke:#10b981
 ```
 
-The badge on the UI is derived per-request from `SUM(invoice_payments.amount)`
+The badge on the UI is derived per-request from the total of payments received
 vs. `invoices.amount`. There is no `invoices.status` column — preventing
 the all-too-common bug of a "status" field drifting from the underlying
 truth.

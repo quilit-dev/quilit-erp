@@ -5,8 +5,12 @@
   "private": true,
   "scripts": {
     "build": "cd frontend_src && npm install && npm run build",
+    "build:manual": "cd docs/manual && python -m mkdocs build --strict -d ../../static/manual",
+    "build:all": "npm run build && npm run build:manual",
     "dev": "cd frontend_src && npm run dev"
   },
+  "//build-order": "The manual lands in static/manual/, and Vite empties static/ on every build — so build:manual must run AFTER build, never before. build:all does both in the right order; the Dockerfile keeps them in separate stages and copies the manual in last. Running build alone is fine: with no manual present the app 404s /manual/ and Settings simply omits the button.",
+  "//build-manual-deps": "build:manual needs the pins in docs/manual/requirements.txt: pip install -r docs/manual/requirements.txt",
   "engines": {
     "node": ">=18"
   }

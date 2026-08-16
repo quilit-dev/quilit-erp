@@ -94,7 +94,7 @@ role × module combination.
     | Delivery | projects, planning |
     | Procurement / stock | suppliers, purchases, inventory, **warehouses**, manufacturing |
     | Finance | expenses, assets, finance, cash, **accounting**, reports |
-    | People | hr, **hr_contracts**, **hr_activities**, **recruitment** |
+    | People | HR, **Contracts**, **HR Activities**, **Recruitment** |
     | Communications | announcements |
     | Administration | settings, users, roles, audit |
 
@@ -125,11 +125,11 @@ role × module combination.
 
     ### Tables that document the design
 
-    | Table | What it proves |
+    | Where | What it proves |
     |---|---|
-    | roles | Every role and its description (incl. is system, is admin) |
-    | role permissions | The full grant matrix — every cell with can view, can create, can edit, can delete, can approve flags |
-    | `users.role_id` | Which role each user has |
+    | Roles | Every role, its description, and whether it is built in or admin-tier |
+    | Permissions | The full grid — for every role and every module, whether it may view, create, edit, delete or approve |
+    | Users | Which role each person has |
 
     ### Standard reports for an audit
 
@@ -154,7 +154,7 @@ role × module combination.
 
     ### Controls
 
-    - System roles are immutable (`is_system=1` blocks edit + delete in the UI).
+    - System roles are immutable (built-in roles cannot be edited or deleted).
     - Permission changes are recorded in the audit trail with `module='roles'`.
     - The support account can grant the same to another user, but the action is
       logged.
@@ -169,14 +169,14 @@ of checks.
 ```mermaid
 flowchart TD
     REQ[You try to do something] --> AUTH[Who are you?]
-    AUTH --> ACT{is_active?}
+    AUTH --> ACT{Account active?}
     ACT -->|no| F1[401 — disabled]
     ACT -->|yes| SA{Support account?}
     SA -->|yes| OK[Allow — bypass all checks]
-    SA -->|no| RID{role_id set?}
+    SA -->|no| RID{Has a role?}
     RID -->|no| F2[403 — no role]
-    RID -->|yes| RP[Read role_permissions<br/>WHERE role_id=? AND module=?]
-    RP --> CHK{can_create = 1?}
+    RID -->|yes| RP[Look up what<br/>that role may do here]
+    RP --> CHK{Allowed to create?}
     CHK -->|no| F3[403 — module insufficient]
     CHK -->|yes| WH{Module is<br/>warehouse-scoped?}
     WH -->|no| OK
@@ -193,7 +193,7 @@ flowchart TD
 | Role | Tier | Primary scope |
 |---|---|---|
 | **Admin** | Admin | Full operational access; reserved for the customer's owner |
-| **Business Owner** | Admin (is_admin=1) | All-modules read/write, can't delete |
+| **Business Owner** | Admin-tier | All-modules read/write, can't delete |
 | **Manager** | Standard | Cross-functional supervisor |
 | **Finance Manager** | Standard | Finance + Accounting + Reports + approvals |
 | **Accountant** | Standard | Bookkeeping, no master-data edit |
@@ -216,4 +216,4 @@ flowchart TD
 - Permission grants directly to users (only to roles). Keeps the matrix small
   and auditable.
 - Conditional permissions ("only on Mondays"). Doesn't suit SMEs.
-- Time-limited permissions. Use `is_active=0` to expire a user.
+- Time-limited permissions. Switch a user off instead.

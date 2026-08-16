@@ -17,13 +17,13 @@ writes to here (Purchases, Manufacturing, Project consumption, Transfers).
 | **Inventory clerk** | Adjusts counts, runs cycle counts, attaches lots, archives obsolete items |
 | **Operations Manager** | Sets min-stock levels, picks costing method, reads low-stock alerts |
 | **Production worker** | Reads remaining qty of components before drawing them |
-| **Cashier** | Indirectly — POS reads sale_price and quantity |
+| **Cashier** | Indirectly — the till reads the selling price and quantity |
 | **Auditor** | Reconciles quantities to GL Inventory account |
 
 ## Quick reference
 
 - **Two grains of "quantity"** — company total (`inventory.quantity`) +
-  per-warehouse (`inventory_stock.quantity`). The two are maintained in
+  per warehouse. The two are maintained in
   lock-step.
 - **Product types** — raw material, semi finished, `finished`, `consumable`
 - **Costing methods** — weighted avg (default), `fifo`, `lifo`. Set
@@ -31,7 +31,7 @@ writes to here (Purchases, Manufacturing, Project consumption, Transfers).
 - **Lot tracking** — opt-in per item. Lot-tracked items consume **FEFO**
   (First Expired First Out).
 - **Reservation + Quarantine** — separate balances on each stock per warehouse
-  row, never affect "available" math directly.
+  record, and never change "available" directly.
 
 ---
 
@@ -68,9 +68,9 @@ writes to here (Purchases, Manufacturing, Project consumption, Transfers).
 
     1. **Overview** — name, category, type, current quantity, unit cost,
        barcode
-    2. **Movements** — every stock movements row for this item, newest
+    2. **Movements** — every stock movement for this item, newest
        first
-    3. **Lots** (if lot_tracked) — FEFO list of lots with expiry status
+    3. **Lots** (if the item is lot-tracked) — FEFO list of lots with expiry status
     4. **Cost layers** (FIFO/LIFO) — open layers with cost basis
     5. **Per-warehouse** — breakdown across stock per warehouse
 
@@ -87,13 +87,13 @@ writes to here (Purchases, Manufacturing, Project consumption, Transfers).
 
     ### Low-stock alerts
 
-    Set minimum stock on each item. When `quantity ≤ min_stock` (company-wide)
+    Set minimum stock on each item. When the quantity falls to the minimum (company-wide)
     the dashboard fires a low stock notification. After Phase 1, you also
     get **per-warehouse alerts** (BRANCH-A low even while MAIN is full).
 
     ### Lot-tracked items
 
-    For an item with `lot_tracked=1`:
+    For an item with lot tracking switched on:
     - **Receipts** (purchases, production) attach a **lot** with optional
       expiry date and manufacture date
     - **Consumption** draws **FEFO** — soonest expiring goes out first
@@ -124,7 +124,7 @@ writes to here (Purchases, Manufacturing, Project consumption, Transfers).
 
     | Method | When to use | Stored where |
     |---|---|---|
-    | weighted avg (default) | Most SMEs. Simple. Blends every receipt. | `inventory.unit_cost` |
+    | weighted avg (default) | Most SMEs. Simple. Blends every receipt. | one unit cost per item |
     | `fifo` | Goods that age (food, pharma). Tax-efficient when prices rise. | cost layers |
     | `lifo` | When permitted by jurisdiction; not common. | cost layers |
 
@@ -132,7 +132,7 @@ writes to here (Purchases, Manufacturing, Project consumption, Transfers).
 
     ### Reservation vs. quarantine
 
-    Two extra balances exist on every stock per warehouse row.
+    Two extra balances exist for each item in each warehouse.
 
     | Balance | Bumps when | Drains when |
     |---|---|---|
@@ -167,18 +167,18 @@ writes to here (Purchases, Manufacturing, Project consumption, Transfers).
 
     ### Per-warehouse sum invariant
 
-    The system maintains `inventory.quantity = SUM(inventory_stock.quantity)`
+    The system maintains `inventory.quantity = SUM(per-warehouse stock.quantity)`
     on every write. Verify.
 
-    Result should be empty. Any row = a sync bug worth investigating.
+    The result should be empty. Anything listed is worth investigating.
 
-    ### Movement → JE reconciliation
+    ### Checking movements against the ledger
 
     Every stock movement of type `purchase`, `sale`, or `production` should
     have a matching journal entry.
 
     Result should be empty for sales (POS posts COGS) and purchases (DR
-    Inventory). Internal transfers and adjustments correctly have no JE.
+    Inventory). Internal transfers and adjustments correctly post nothing to the ledger.
 
 ---
 
@@ -187,8 +187,8 @@ writes to here (Purchases, Manufacturing, Project consumption, Transfers).
 ```mermaid
 stateDiagram-v2
     [*] --> Created : + Add item
-    Created --> Active : Has stock_movements
-    Active --> LowStock : quantity ≤ min_stock
+    Created --> Active : First stock movement
+    Active --> LowStock : quantity reaches the minimum
     LowStock --> Active : Stock added
     Active --> Obsolete : archive
     Obsolete --> Active : unarchive
@@ -204,7 +204,7 @@ stateDiagram-v2
 
 ## Stock-movement types
 
-Every quantity change writes one stock movements row with one of these
+Every quantity change writes one stock movement, of one of these
 types.
 
 | Type | Source module | GL effect |

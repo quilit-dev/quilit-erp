@@ -28,7 +28,7 @@ single-currency books.
 - **Functional currency**: USD
 - **Secondary currency**: LBP
 - **Rate format**: `LBP per 1 USD` (e.g. 89,000)
-- **Where rates are stored**: exchange rates table — versioned, with set by and `note`
+- **Rate history**: every rate you set is kept, with who set it and any note
 - **Default fallback**: latest stored rate
 - **Two cash accounts**: `1000 Cash & Bank` (USD) + `1010 Cash — LBP` (F-4 fix)
 - **FX gain/loss accounts**: `4910 FX Gain` and `6920 FX Loss` (F-4)
@@ -44,7 +44,7 @@ single-currency books.
     - Currency: `LBP`
     - Exchange rate: leave blank (falls back to system rate) or override
 
-    The system computes `usd_amount = 89,000,000 ÷ rate`. For rate 89,000
+    The system computes the USD value: 89,000,000 ÷ the rate. For rate 89,000
     that's exactly $1,000. The invoice settles by $1,000 USD.
 
     The journal post routes the cash to **1010 Cash — LBP** (not 1000).
@@ -57,7 +57,7 @@ single-currency books.
 
     ### Paying an LBP-denominated payroll
 
-    If an employee's contract is in LBP (per `hr_contracts.salary_currency`),
+    If an employee's contract is in LBP (per the currency on their contract),
     payroll resolves their salary at the latest rate at mark-paid time.
     The DR Salaries posts the USD equivalent; the CR side hits 1010 Cash
     — LBP.
@@ -73,7 +73,7 @@ single-currency books.
     Settings → **Exchange Rate** → enter the new rate + optional note →
     **Save**.
 
-    Each save inserts a row into exchange rates. The latest row by `id`
+    Each save adds a new rate. The most recent one
     is the active rate. History is preserved indefinitely.
 
     | Field | Notes |
@@ -98,7 +98,6 @@ single-currency books.
     1. Count the physical LBP across all drawers
     2. Go to **Accounting → FX revaluation**, enter the counted amount
        and the date, and save
-       ```
     3. The system marks `1010 Cash — LBP` to the current spot rate and
        posts the delta:
        - LBP weakened → loss → DR 6920 / CR 1010
@@ -131,15 +130,15 @@ single-currency books.
     A revaluation entry should net to zero in the books except for the
     gain/loss recognition.
 
-    Every entry must balance (`total_dr = total_cr`). The size of the
+    Every entry must balance — debits equal credits. The size of the
     delta is the period's recognised FX gain or loss.
 
     ### Cash — LBP balance vs. physical reality
 
     At period close after revaluation, `1010 Cash — LBP` balance should
-    equal `(LBP physically counted) ÷ spot_rate`.
+    equal the LBP you counted, divided by the rate.
 
-    `book_usd_equivalent × spot_rate` should equal physical LBP at month-end.
+    the USD value on the books, at the current rate, should equal the LBP you actually hold.
 
     ### Exchange rate change history
 

@@ -29,7 +29,7 @@ Equity + Net Income, "as of" a specific date.
 **BOM (Bill of Materials)** — Recipe defining components + resources +
 operations needed to produce one unit of a manufactured item.
 
-**Book value** — Fixed asset's `acquisition_cost − accumulated_depreciation`.
+**Book value** — Fixed asset's cost minus depreciation so far.
 
 ## C
 
@@ -50,18 +50,18 @@ unit cost. Drawn down as items are consumed.
 
 **Default warehouse** — The warehouse the system uses when no
 warehouse is specified on a stock-touching operation. Either the
-user's personal default (`users.default_warehouse_id`) or the company
-default (`warehouses.is_default = 1`).
+user's personal default (each person's own default warehouse) or the company
+default warehouse.
 
 **Depreciation** — Spreading a fixed asset's cost over its useful life.
-The system supports straight-line (`(cost − salvage) / useful_life_months`).
+The system supports straight-line ((cost − salvage value) ÷ life in months).
 
 ## E
 
 **EOS (End-of-Service indemnity)** — Lebanese statutory severance pay.
-Configurable on each recruitment offers row.
+Set on each offer.
 
-**Expected cash** — At session/reconciliation close: `opening_balance +
+**Expected cash** — At session/reconciliation close: the opening float +
 cash-in − cash-out`, computed per currency.
 
 ## F
@@ -111,8 +111,8 @@ row.
 
 ## J
 
-**JE (Journal Entry)** — One balanced double-entry posting with `≥ 2` lines
-in journal entry lines. Identified by entry number like `JE-2026-00142`.
+**Journal entry** — One balanced posting, always two lines or more.
+Identified by entry number like `JE-2026-00142`.
 
 ## L
 
@@ -126,7 +126,7 @@ GL account (1010 Cash — LBP).
 first.
 
 **Lot** — Identifiable batch of inventory, optionally with manufacture date
-+ expiry date. Tracked separately when `inventory.lot_tracked = 1`.
++ expiry date. Tracked separately when the item has lot tracking switched on.
 
 ## M
 
@@ -147,11 +147,11 @@ payroll computation.
 
 ## P
 
-**Per-warehouse stock** — stock per warehouse row per (item, warehouse) pair.
-The sum of `inventory_stock.quantity` across warehouses equals the
+**Per-warehouse stock** — how much of an item a given warehouse holds.
+The sum of the quantity in that warehouse across warehouses equals the
 company-wide `inventory.quantity`.
 
-**Period lock** — `accounting_periods.locked_at` flag. Once set, no new
+**Period lock** — the month's lock date flag. Once set, no new
 journal entry can post with entry date in that month.
 
 **Perpetual inventory** — Accounting model where stock movements
@@ -164,7 +164,7 @@ inventory (where a count is done quarterly).
 **POS** — Point of Sale. Over-the-counter selling fast-path.
 
 **Probation period** — Initial weeks/months of a new employment, set on
-contracts. Captured in `hr_contracts.probation_end_date`.
+contracts. Captured in the contract's probation end date.
 
 ## R
 
@@ -172,11 +172,11 @@ contracts. Captured in `hr_contracts.probation_end_date`.
 has one role; each role has per-module per-action grants.
 
 **Reservation** — Stock earmarked for a confirmed production order.
-`inventory_stock.reserved_quantity` tracks it. Released on MO complete
+the warehouse's reserved quantity tracks it. Released on MO complete
 or cancel.
 
-**Reversal** — A new JE that mirrors an existing one (debits ↔ credits)
-to cancel its effect while preserving both rows in history.
+**Reversal** — A new entry that mirrors an existing one (debits ↔ credits)
+to cancel its effect while keeping both in the history.
 
 ## S
 
@@ -187,10 +187,10 @@ to cancel its effect while preserving both rows in history.
 are snapshotted per-line; period totals are snapshotted in
 period snapshots; cost layers carry per-receipt cost snapshots.
 
-**Source-event** — The business event that originated a JE. Identified by
-`(source_type, source_id)` on the journal entries row.
+**Source-event** — What caused an entry. Identified by
+the document each journal entry came from.
 
-**Spot rate** — Current LBP-per-USD exchange rate. Latest row in
+**Spot rate** — The current LBP-per-USD exchange rate. The most recent entry in
 exchange rates.
 
 ## T

@@ -42,7 +42,7 @@ They share milestones; everything else is separate.
     |---|---|
     | Name | |
     | Description | |
-    | Client | Optional FK |
+    | Client | Optional — which client |
     | Color | Used in Gantt + calendar |
     | Start, End | |
     | Status | Active by default |
@@ -57,12 +57,12 @@ They share milestones; everything else is separate.
     |---|---|
     | Name | |
     | Description | |
-    | Assigned to | User FK |
+    | Assigned to | Who is doing it |
     | Start, End | Drives Gantt position |
     | Status | To Do / In Progress / Done |
     | Priority | Low / Normal / High / Urgent |
     | Progress | 0-100% |
-    | Milestone | Optional FK |
+    | Milestone | Optional — which milestone |
     | Depends on | Tasks that must finish first — the timeline draws arrows between them |
     | Color | Inherits project unless overridden |
 

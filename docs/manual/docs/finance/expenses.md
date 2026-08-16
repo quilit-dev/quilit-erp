@@ -21,7 +21,7 @@ the expense each time it falls due, so nobody has to remember.
 | **Project Manager** | Reads project expenses for budget vs. actual |
 | **Finance Manager** | Approves above-threshold expenses, manages recurring templates |
 | **Operations Manager** | Records purchases / subcontracts |
-| **Auditor** | Reconciles expense rows to GL, samples high-value expenses for documentation |
+| **Auditor** | Checks expenses against the ledger, samples high-value expenses for documentation |
 
 ## Quick reference
 
@@ -31,7 +31,7 @@ the expense each time it falls due, so nobody has to remember.
 - **Per-category GL routing**: each maps to a specific 6xxx account
 - **Status**: `Recorded` (default) or `Pending Approval` (if a policy kicks in)
 - **Soft delete + void**: void preserves the record with void reason
-- **Multi-currency**: payment_method captures the tender but amount is USD
+- **Multi-currency**: the payment method records how it was paid, but the amount is USD
 - **Recurring frequencies**: `monthly`, `quarterly`, `annual`
 
 ---
@@ -51,14 +51,14 @@ the expense each time it falls due, so nobody has to remember.
     | Project | Optional — allocates the cost to a project's actual cost |
     | Tax rate | Optional |
     | Payment method | `Cash`, `Bank Transfer`, `Card`, … |
-    | Cash drawer | Required if payment_method is Cash |
+    | Cash drawer | Required if the payment method is Cash |
 
     Save. The expense is **Recorded** immediately (or **Pending Approval**
     if a policy applies — see Administrator's view).
 
     ### Voiding an expense
 
-    Open the expense → **Void** with a required reason. The row stays in
+    Open the expense → **Void** with a required reason. It stays in
     the database with void date + void reason, but is excluded from
     Finance totals + reports + the cash dashboard.
 
@@ -87,13 +87,13 @@ the expense each time it falls due, so nobody has to remember.
 
     On a scheduled tick (or manual **Run due**), the system.
 
-    1. Finds templates with `next_run_date ≤ today` and `is_active = 1`
-    2. For each: spawns an actual expenses row with the template's
+    1. Finds templates with a next run date of today or earlier, still switched on
+    2. For each: creates a real expense with the template's
        values + recurring expense id linking back
     3. Updates the template's last generated date and bumps
        next run date by the frequency
 
-    You can pause a template via `is_active=0` without deleting it.
+    You can pause a template by switching it off without deleting it.
 
 === "Administrator's view"
 
@@ -159,16 +159,16 @@ the expense each time it falls due, so nobody has to remember.
 
     ### Voided expenses
 
-    Each void should have an audit row + a Finance Manager (or higher)
+    Each void should have an audit-trail entry and a Finance Manager (or higher)
     approval if the policy requires it.
 
     ### Recurring template completeness
 
-    No active template should be "stale" (next_run far in the past).
+    No active template should be "stale" (its next run date long past).
 
     ### Project allocation totals
 
-    Compare to `projects.actual_cost` (maintained denormally) — the two
+    Compare to the project's running actual cost — the two
     should equal within rounding.
 
 ---
@@ -187,16 +187,16 @@ stateDiagram-v2
     note right of Recorded
         Side-effects on entry:
         - GL post: DR <category account> / CR Cash
-        - audit_log row
-        - if project_id set:
-          projects.actual_cost += amount
+        - Audit trail entry
+        - if a project is set:
+          the project's actual cost goes up by the amount
     end note
 ```
 
 ## What's NOT supported
 
-- Per-line expense detail (multiple lines on one expense row). Each expense
-  is one row, one category. For mixed categories, split into multiple expenses.
+- Several lines on one expense. Each expense is one amount in one category;
+  for mixed categories, enter them separately.
 - Multi-currency expense amounts. Always USD. Payment method captures the
   tender but the amount is the USD-equivalent.
 - Expense claim workflow (employee submits → manager approves → finance pays).

@@ -69,7 +69,7 @@ rewriting history.
        - stock per warehouse +qty at the PO's warehouse
        - inventory lots or cost layers updated (per costing
          method)
-       - stock movements row with `type='purchase'`, warehouse
+       - a stock movement recording the receipt, and the warehouse
        - journal entries: **DR Inventory 1200 / CR Cash & Bank 1000**
 
     All five writes in one transaction.
@@ -78,7 +78,7 @@ rewriting history.
 
     Open the Received PO → **Pay** (status → Paid):
     - payment date timestamped
-    - An expenses row is created for the cash-basis dashboard
+    - An expense is recorded for the cash-basis dashboard
     - No new journal entry — the GL hit was at receipt (perpetual inventory
       model)
 
@@ -122,7 +122,7 @@ rewriting history.
     ### Auto-create flow
 
     If inventory id is blank when the PO is created, a new inventory
-    row is auto-created with `quantity=0`, `unit_cost=0`. The first
+    item is created automatically with no quantity and no cost yet. The first
     receipt sets the cost. This is convenient for one-off purchases (a
     new SKU you've never bought before) — no need to pre-define the
     inventory item.
@@ -138,17 +138,17 @@ rewriting history.
 
     ### Stock movement check
 
-    Every receipt should have a stock movements row.
+    Every receipt should have a stock movement.
 
     The quantity that moved into stock should match the quantity received.
     A receipt that did not move stock is a gap worth asking about.
 
     ### Cash basis vs. accrual
 
-    The dashboard monthly expenses includes purchases via the expenses
-    row (created at Paid). The Trial Balance shows the receipt's
-    Inventory→Cash post. They legitimately differ — one is the cash-flow
-    view, one is the accrual GL.
+    The dashboard's monthly expenses count a purchase when you mark it Paid.
+    The Trial Balance records it when the goods arrive. The two differ on
+    purpose: one answers "what did we spend this month", the other "what do
+    we own".
 
     ### Forward-only status check
 
@@ -173,9 +173,9 @@ stateDiagram-v2
     note right of Received
         Atomic writes:
         - inventory.quantity +qty
-        - inventory_stock at warehouse_id +qty
+        - stock at that warehouse goes up
         - cost layers updated
-        - stock_movements row
+        - a stock movement
         - journal entry posts
     end note
 ```

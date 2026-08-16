@@ -15,12 +15,12 @@ flowchart TB
     EXP --> TB[5. Read Trial Balance<br/>verify ties]
     TB --> IS[6. Read Income Statement]
     IS --> BS[7. Read Balance Sheet]
-    BS --> SNAP[8. Snapshot period totals<br/>period_snapshots row]
-    SNAP --> LOCK[9. Lock the period<br/>accounting_periods.locked_at]
+    BS --> SNAP[8. Save the month's totals]
+    SNAP --> LOCK[9. Lock the month]
     LOCK --> NEXT{End of fiscal year?}
     NEXT -->|no| DONE[Month closed ✅]
     NEXT -->|yes| YE[10. Year-end closing entry<br/>net income → Retained Earnings]
-    YE --> FY[11. fiscal_years.status = closed]
+    YE --> FY[11. Mark the year closed]
     FY --> DONE
 
     style LOCK fill:#fef3c7,stroke:#f59e0b
@@ -43,7 +43,6 @@ Verify there are no open reconciliations.
 Count the physical LBP across all drawers, then go to
 **Accounting → FX revaluation**, enter the counted amount and the date,
 and save.
-```
 
 The system marks `1010 Cash — LBP` to the current spot rate and posts the
 delta to `4910 FX Gain` or `6920 FX Loss`. See [Multi-currency](multi-currency.md)
@@ -58,12 +57,12 @@ and posts.
 
 `DR 6300 Depreciation Expense / CR 1510 Accumulated Depreciation`
 
-One journal entry per asset, marked `source_type='depreciation'` and
-`source_id=asset_id`. See [Fixed Assets](assets.md).
+One journal entry per asset, marked as depreciation and
+linked to the asset. See [Fixed Assets](assets.md).
 
 ### 4. Generate recurring expenses
 
-Recurring expense templates produce actual expenses rows on their
+Recurring expense templates produce real expenses on their
 next run date. The scheduler runs automatically, but you can force it.
 
 **Expenses → Recurring → Run due now**
@@ -106,7 +105,7 @@ period showing red.
 ### 8. Snapshot period totals
 
 Finance → **Period snapshots** → **Save snapshot for [month]**. Writes
-one period snapshots row with frozen income / expenses / profit /
+one saved snapshot of the month: income, expenses, profit and
 counts.
 
 The snapshot is the post-lock single-source-of-truth — even after
@@ -114,7 +113,7 @@ unlocking and adjustments, the snapshot persists for trend analysis.
 
 ### 9. Lock the period
 
-Finance → **Lock period** → confirm. Writes `accounting_periods.locked_at`
+Finance → **Lock period** → confirm. Writes the month's lock date
 + locked by. From this point.
 
 - Any new journal entry with entry date in the locked period is **rejected**
@@ -135,23 +134,23 @@ entry**.
 `DR Income accounts (zero them out) / CR Expense accounts (zero them out) / CR Retained Earnings (3900)`
 
 This is the only entry that touches Retained Earnings via the closing
-process. The `fiscal_years.status` flips to `closed`; closing entry id
+process. The year's status flips to closed; the closing entry
 references the entry.
 
 ## What can go wrong (and how to recover)
 
 | Symptom | Cause | Recovery |
 |---|---|---|
-| Trial Balance not balanced | Manual JE was unbalanced (shouldn't happen — the engine refuses) | Find the offending entry with `total_debit != total_credit`, reverse it |
+| Trial Balance not balanced | An entry posted by hand did not balance (shouldn't happen — the engine refuses) | Find the entry whose debits and credits differ, and reverse it |
 | Income Statement shows zero revenue | No payments recorded in period | Verify invoices have payments. POS sales without payments = bug |
-| Balance Sheet not balanced | Net income calc disagrees with retained earnings | Run income_statement(year) and balance_sheet(year) — the system computes both from the same JE data |
+| Balance Sheet not balanced | Net income calc disagrees with retained earnings | Re-run the Income Statement and Balance Sheet — both are built from the same entries, so they should agree |
 | Locked period blocks legitimate adjustment | Operator needs to post into a closed month | Administrator unlocks, adjustment posts, re-locks. Audit log records all three |
 
 ## The locked-period invariant
 
 ```mermaid
 flowchart LR
-    JE[New journal entry<br/>entry_date = 2026-04-15] --> CHK{Period<br/>2026-04 locked?}
+    JE[New journal entry<br/>dated 15 Apr 2026] --> CHK{Period<br/>2026-04 locked?}
     CHK -->|no| OK[Posted ✅]
     CHK -->|yes| FAIL[400: Cannot post<br/>into a locked period<br/>'Period 2026-04 is locked since 2026-05-05']
 
@@ -159,8 +158,8 @@ flowchart LR
     style FAIL fill:#fee2e2,stroke:#dc2626
 ```
 
-Enforced at the engine level in `accounting.post_entry()` — every router
-that posts a JE inherits the check.
+The check sits at the point every entry is posted, so nothing in the system
+can slip past it.
 
 ## Roles involved
 
@@ -184,7 +183,7 @@ that posts a JE inherits the check.
 - [ ] Trial Balance ties (debits = credits)
 - [ ] Income Statement reconciles to GL journal lines
 - [ ] Balance Sheet ties (Assets = Liabilities + Equity + Net Income)
-- [ ] Period locked (`accounting_periods.locked_at` is set)
+- [ ] Period locked (the month's lock date is set)
 - [ ] Period snapshot persisted
 - [ ] Audit log shows the lock action by an authorised user
 

@@ -12,20 +12,20 @@ flowchart TB
     SUP --> ARR[Goods arrive]
     ARR --> RCV[Mark Received<br/>status=Received]
     RCV --> WR{Writes}
-    WR --> W1[inventory.quantity +qty<br/>inventory_stock at PO.warehouse +qty]
-    WR --> W2[inventory_lots or<br/>inventory_cost_layers updated<br/>per costing method]
-    WR --> W3[stock_movements<br/>type='purchase', warehouse_id]
+    WR --> W1[Stock goes up,<br/>at the order's warehouse]
+    WR --> W2[Cost recorded<br/>by your costing method]
+    WR --> W3[Stock movement logged<br/>as a purchase]
     WR --> W4[GL: DR Inventory 1200<br/>CR Cash & Bank 1000]
     RCV --> PAY[Mark Paid<br/>status=Paid]
-    PAY --> EXP[expenses row<br/>(cash-basis dashboard)]
-    PAY --> AUD[audit_log row]
+    PAY --> EXP[Expense recorded]
+    PAY --> AUD[Audit trail entry]
 
     style WR fill:#fef3c7,stroke:#f59e0b
     style W4 fill:#dcfce7,stroke:#10b981
 ```
 
 Every step is one click in the UI. The receipt step does the most writes —
-four to inventory tables plus a journal entry plus an audit row, all in one
+several to your stock, plus a journal entry and an audit-trail entry, all in one
 transaction.
 
 ## Pipeline 2 — Make-to-stock (Manufacturing)
@@ -37,15 +37,15 @@ flowchart TB
     CNF --> START[Start<br/>status=In Progress]
     START --> COMP[Complete<br/>book actual consumption + hours]
     COMP --> W{Writes per item}
-    W --> W1[components:<br/>inventory.quantity -qty<br/>inventory_stock at MO.warehouse -qty<br/>cost layers drawn]
-    W --> W2[output:<br/>inventory.quantity +qty<br/>inventory_stock at MO.warehouse +qty<br/>new lot/layer at unit cost]
-    W --> W3[stock_movements<br/>type='production', warehouse_id]
-    W --> W4[production_order_items<br/>actual qty + cost frozen]
+    W --> W1[Components:<br/>stock goes down<br/>at the order's warehouse]
+    W --> W2[Finished goods:<br/>stock goes up<br/>at its unit cost]
+    W --> W3[Stock movement logged<br/>as production]
+    W --> W4[Actual quantity<br/>and cost locked in]
 
     COMP --> QC{QC required?}
     QC -->|no| DONE[status=Completed]
-    QC -->|yes| QUAR[output → quarantine_quantity<br/>not yet sellable]
-    QUAR --> INSP[Inspector resolves:<br/>passed_qty / rejected_qty / rework_qty]
+    QC -->|yes| QUAR[Held in quarantine<br/>not yet sellable]
+    QUAR --> INSP[Inspector decides:<br/>passed / rejected / rework]
     INSP --> REL[passed: release to stock<br/>rejected: scrap cost recognised<br/>rework: spawns rework order]
     REL --> DONE
 
@@ -88,7 +88,7 @@ debiting "Inventory Adjustment" expense).
 
 Five top-level controls cover most operations audit work:
 
-1. **Inventory ties to the GL** — `Σ(quantity × unit_cost)` per item, summed
+1. **Inventory ties to the GL** — quantity × unit cost, added up per item, summed
    across all items, should equal the GL's `1200 Inventory` balance at any
    moment (after Phase 1's audit remediation).
 2. **Every receipt has a stock movement and a journal entry** — both with
@@ -96,8 +96,8 @@ Five top-level controls cover most operations audit work:
 3. **Every sale has a COGS posting** — invoice + DR Cash CR Revenue + DR
    COGS CR Inventory.
 4. **Production output equals the sum of consumed inputs valued at their
-   costing-method cost** — `output_qty × output_unit_cost` ≈ Σ component
-   line_costs + labour + overhead.
+   costing-method cost** — quantity made × unit cost ≈ Σ component
+   component costs + labour + overhead.
 5. **Cash drawer variances are posted** — `Cash Short & Over` account
    reflects the actual end-of-day discrepancies.
 

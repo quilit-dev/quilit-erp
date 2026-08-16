@@ -74,13 +74,13 @@ KPIs.
 Three control questions cover ~80% of sales-cycle audit work:
 
 1. **Cut-off** — does every invoice posted in Period P actually relate to
-   services delivered (or goods shipped) within P? `invoices.created_at`
-   vs. `projects.completed_at` / linked `stock_movements.created_at`.
+   services delivered (or goods shipped) within P? the invoice date
+   vs. when the project was completed / linked when the stock moved.
 2. **Authorisation** — was the price the customer paid the price the
    approver authorised? Compare `quotations.total` vs. linked
    `invoices.amount` (a discount past quote = approval evidence required).
 3. **Completeness** — every won deal should have either an invoice or a
-   project. deals with `stage='Won'` AND `quotation_id IS NULL` AND
+   project. deals with won deals with no quotation and
    no linked invoice = a control gap to investigate.
 
 The Auditor's view on each module page gives you the exact SQL.

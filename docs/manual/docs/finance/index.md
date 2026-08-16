@@ -22,8 +22,8 @@ The system maintains **two views** of the company's finances:
 ```mermaid
 flowchart LR
     EVT[Business event<br/>e.g. invoice payment] --> DUAL{Both views}
-    DUAL -->|cash-basis<br/>simpler<br/>real-time| CASH[Finance dashboard<br/>· monthly_income<br/>· monthly_expenses<br/>· profit]
-    DUAL -->|accrual GL<br/>double-entry<br/>balanced| GL[Accounting<br/>· chart_of_accounts<br/>· journal_entries<br/>· Trial Balance · IS · BS]
+    DUAL -->|cash-basis<br/>simpler<br/>real-time| CASH[Finance dashboard<br/>· money in<br/>· money out<br/>· profit]
+    DUAL -->|accrual GL<br/>double-entry<br/>balanced| GL[Accounting<br/>· chart of accounts<br/>· journal entries<br/>· Trial Balance · P&L · Balance Sheet]
 
     style CASH fill:#dcfce7,stroke:#10b981
     style GL fill:#dbeafe,stroke:#3b82f6
@@ -31,11 +31,10 @@ flowchart LR
 
 | Layer | Source of truth | What it answers |
 |---|---|---|
-| **Cash-basis Finance** | payments, expenses rows | "What's in the bank?" "What did we spend this month?" |
+| **Cash-basis Finance** | payments and expenses | "What's in the bank?" "What did we spend this month?" |
 | **Double-entry GL** | journal entries + journal entry lines | "Show me the Trial Balance." "Are we profitable accrual-basis?" |
 
-The two reconcile at the **payment level**: every payment row triggers a GL
-post; every expense row triggers a GL post. The system's audit remediation
+The two reconcile at the **payment level**: every payment posts to the ledger, and so does every expense. The system's audit remediation
 (F-1 through F-9) closed every gap between them.
 
 ## Personas
@@ -58,7 +57,7 @@ The chapter assumes the F-1 through F-9 fixes are live. Quick reference:
 | F-2 — COGS not debited; purchases wrongly hit COGS | Perpetual inventory model: receipts DR Inventory, sales DR COGS |
 | F-3 — Cash variance not posted | End-of-session variance posts to 6910 Cash Short & Over |
 | F-4 — Missing accounts in COA | Added 1010 Cash—LBP, 4910 FX Gain, 6910 Cash Short & Over, 6920 FX Loss |
-| F-5 — LBP cash hit USD account | Cash account selected by currency via `cash_account_for()` |
+| F-5 — LBP cash hit a USD account | The cash account is now chosen by the currency of the payment |
 | F-6 — Payroll mis-posted LBP face value | Per-line salary currency snapshot + spot-rate conversion |
 | F-8 — No FX revaluation | **Accounting → FX revaluation** marks LBP cash to market |
 | F-9 — LBP payment without rate | Falls back to latest stored rate; explicit error if none |

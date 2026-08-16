@@ -16,9 +16,22 @@ RUN npm ci
 COPY frontend_src/ ./
 RUN npm run build          # vite outDir is '../static' → /build/static
 
+# ── Stage: build the user manual (MkDocs → /build/manual) ────────────────────
+# Built into the image rather than hosted separately, so "Open the manual" works
+# on an install with no internet and there is no second thing to deploy or keep
+# in step with the running version. --strict fails the build on a broken link,
+# which is the only cheap moment to catch one.
+FROM python:3.12-slim AS manual
+WORKDIR /build
+COPY docs/manual/requirements.txt ./
+RUN pip install --no-cache-dir -r requirements.txt
+COPY docs/manual/ ./manual-src/
+RUN cd manual-src && mkdocs build --strict -d /build/manual
+
 # ── Target: web (Caddy + SPA, TLS, /api reverse proxy) — compose edge ────────
 FROM caddy:2-alpine AS web
 COPY --from=frontend /build/static /srv/www
+COPY --from=manual /build/manual /srv/www/manual
 COPY deploy/Caddyfile /etc/caddy/Caddyfile
 
 # ── Target: app (API + SPA, single self-contained service) — DEFAULT ─────────
@@ -42,6 +55,10 @@ COPY backend/ ./backend/
 # STATIC_DIR=../static when present). In the compose stack Caddy fronts it; here
 # the app serves it directly.
 COPY --from=frontend /build/static /app/static
+# The manual rides along under the SPA's static root; main.py serves it at
+# /manual/ and 404s that path when this layer is absent, so a build without it
+# simply hides the link rather than offering a dead one.
+COPY --from=manual /build/manual /app/static/manual
 # The commit this image was built from, surfaced by /api/health so a deploy can
 # be verified with one request. Railway injects RAILWAY_GIT_COMMIT_SHA itself
 # and needs nothing here; this covers `docker build` and the compose stack:

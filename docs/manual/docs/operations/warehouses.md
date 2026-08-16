@@ -10,7 +10,7 @@ A **warehouse** is a physical location where stock is held. The system treats
 warehouses as a **stock dimension**, not an accounting entity.
 
 - One company-wide `1200 Inventory` GL account
-- Per-warehouse `inventory_stock.quantity` balances
+- Per-warehouse the quantity in that warehouse balances
 - Internal transfers reallocate quantities without posting to the GL
 
 This means the multi-warehouse feature gives you operational visibility and
@@ -29,8 +29,8 @@ control **without** changing your books-of-record.
 ## Quick reference
 
 - **Types**: `Main`, `Branch`, `Production`, `Damaged`, `Transit`, `Returns`
-- **Default warehouse** — exactly one warehouse has `is_default=1`
-- **Per-user default** — `users.default_warehouse_id` overrides the company
+- **Default warehouse** — exactly one warehouse has marked as the default
+- **Per-user default** — each person's own default warehouse overrides the company
   default
 - **Access model** — zero grants = access to all; first grant flips to allow-list
 - **Transfer lifecycle** — `Draft → In Transit → Completed` (or `Cancelled`)
@@ -51,7 +51,7 @@ control **without** changing your books-of-record.
     Warehouses → row → **View stock**. A modal opens with.
 
     - Search box (live filter by item name or category)
-    - Per-item rows: Quantity, Unit cost, Value (= qty × cost)
+    - One line per item: Quantity, Unit cost, Value (= quantity × cost)
     - Badges for Reserved / Quarantined
     - Footer total: SKUs · units · USD value
     - Sorted by value desc (most-capital items first)
@@ -68,7 +68,7 @@ control **without** changing your books-of-record.
 
     Open the Draft transfer → **Dispatch**.
     - Source warehouse stock is **decremented immediately**
-    - A stock movements row with `type='transfer_out'` is written
+    - A stock movement records the goods leaving
     - Status → **In Transit**
 
     The destination warehouse hasn't received it yet — that's the trucker's
@@ -81,7 +81,7 @@ control **without** changing your books-of-record.
     in transit.
 
     - Destination stock is **incremented**
-    - A stock movements row with `type='transfer_in'` is written
+    - A stock movement records the goods arriving
     - Status → **Completed**
 
     ### Cancelling
@@ -109,7 +109,7 @@ control **without** changing your books-of-record.
     ### Setting the default warehouse
 
     Warehouses → row → **Set default**. Exactly one warehouse has
-    `is_default=1` at any time (enforced by a unique partial index).
+    marked as the default at any time (enforced by a unique partial index).
 
     The default is the fallback when:
     - A user has no personal default set
@@ -153,7 +153,7 @@ control **without** changing your books-of-record.
     The completeness control: every transfer out movement should have a
     matching transfer in (same `reference`), and total qtys should match.
 
-    Non-zero lost in transit = real loss. Each row needs a write-off
+    Non-zero lost in transit = real loss. Each one needs a write-off
     decision (adjustment + audit note).
 
     ### Transfers never post to the GL
@@ -162,7 +162,7 @@ control **without** changing your books-of-record.
 
     ### Per-warehouse balances sum to company total
 
-    Empty result = invariant intact. Any row = sync bug.
+    An empty result means everything agrees. Anything listed does not.
 
     ### Access trail
 
@@ -194,7 +194,7 @@ stateDiagram-v2
 - Per-warehouse general ledger accounts. One company = one Inventory
   account. If a customer ever needs distinct sub-ledgers, it's a structural
   change, not a configuration.
-- Per-warehouse costing. Unit cost stays company-wide (`inventory.unit_cost`)
+- Per-warehouse costing. Unit cost stays company-wide
   — deferred until a clear business need emerges (see Phase 1 design).
 - Transfer pricing between warehouses. Internal transfers move stock at
   carrying cost; no markup.

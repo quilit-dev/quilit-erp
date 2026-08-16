@@ -1,0 +1,7 @@
+# Build the user manual:  python -m mkdocs build --strict   (from docs/manual/)
+#
+# Pinned so the manual in a rebuilt image is byte-for-byte the manual that was
+# reviewed. Material ships theme changes in minor releases; an unpinned build
+# can silently change the navigation or the search index of a shipped product.
+mkdocs==1.6.1
+mkdocs-material==9.7.6

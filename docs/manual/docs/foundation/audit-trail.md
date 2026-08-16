@@ -27,9 +27,9 @@ evidence live in different places, each fit for purpose.
 
 ```mermaid
 flowchart TD
-    EVT[Business event] --> AL[audit_log<br/>WHO did WHAT]
-    EVT --> JE[journal_entries<br/>+ journal_entry_lines<br/>financial impact, balanced]
-    EVT --> SM[stock_movements<br/>quantity motion + warehouse]
+    EVT[Business event] --> AL[Audit trail<br/>WHO did WHAT]
+    EVT --> JE[Journal entries<br/>the financial effect, always balanced]
+    EVT --> SM[Stock movements<br/>what moved, and where]
     EVT -.->|optional| NOT[notifications<br/>fan-out to interested users]
 
     style AL fill:#eef2ff,stroke:#6366f1
@@ -44,8 +44,7 @@ flowchart TD
 | stock movements | "Where did the units go?" | Per quantity change, per warehouse |
 
 A POS sale writes to
-**all three**: one the audit trail row, two journal entries (sale + COGS), one
-stock movements row.
+**all three**: one audit-trail entry, two journal entries (the sale and its cost), and one stock movement.
 
 ---
 
@@ -105,12 +104,12 @@ stock movements row.
 
     | Table | What it proves | Indexes |
     |---|---|---|
-    | the audit trail | Who did what, when | `(module, created_at)`, `(user_id, created_at)` |
-    | journal entries | Financial events posted | `(entry_date)`, `(source_type, source_id)` |
-    | journal entry lines | Per-account debits/credits | `(journal_entry_id)`, `(account_id)` |
-    | stock movements | Inventory motion | `(inventory_id)`, `(warehouse_id, created_at)` |
-    | sessions | Session-level evidence | `(jti)`, `(user_id, created_at)` |
-    | approval steps | Multi-step approvals trace | `(request_id, step_number)` |
+    | the audit trail | Who did what, when | by module and date, and by person and date |
+    | journal entries | Financial events posted | by date, and by the document they came from |
+    | journal entry lines | Per-account debits/credits | by entry, and by account |
+    | stock movements | Inventory motion | by item, and by warehouse and date |
+    | sessions | Session-level evidence | by session, and by person and date |
+    | approval steps | Multi-step approvals trace | by request and step |
 
     ### Standard queries
 
@@ -124,14 +123,14 @@ stock movements row.
 
     ### Controls in place
 
-    - The the audit trail table is **append-only** in practice — no UI exposes
-      DELETE; no router writes UPDATE.
+    - The audit trail is **only ever added to**. Nothing in the system can
+      change or remove an entry once it is written.
     - Journal entries are **never deleted, never edited**. Corrections happen
       via balanced reversals (see [Accounting](../finance/index.md), Phase 4).
     - Stock movements are **never deleted, never edited**. Corrections happen
       via offsetting movements (negative delta of the same type, or a
       transfer cancel).
-    - Period locks (`accounting_periods.locked_at`) block any new journal
+    - Period locks (the month's lock date) block any new journal
       entry with entry date inside a locked month/year.
     - Backups (see [Backups](backups.md)) are atomic snapshots — restore
       gets you to a clean past state.
@@ -145,6 +144,6 @@ By design.
 - ❌ Read operations (GETs). Capturing every page view would 100× the log
   without giving an auditor more leverage than session timestamps already do.
 - ❌ Login failures of unknown usernames. (Recorded only as
-  login attempts for rate-limiting, no audit log row, to avoid disclosing
+  login attempts for rate-limiting, no audit-trail entry, to avoid disclosing
   whether a username exists.)
 - ❌ Cosmetic UI changes (theme switch, language toggle, sort preference).

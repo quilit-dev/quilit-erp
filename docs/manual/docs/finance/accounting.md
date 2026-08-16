@@ -16,7 +16,7 @@ Five views.
 | View | Read | Answers |
 |---|---|---|
 | **Chart of Accounts** | the chart of accounts | What accounts exist, what type, what side |
-| **Journal Entries** | journal entries + journal entry lines | Every posted JE, filterable |
+| **Journal Entries** | journal entries + journal entry lines | Every posted entry, filterable |
 | **Trial Balance** | derived | Per-account balance "as of" a date — must tie |
 | **Income Statement** | derived | Revenue − Expense over a period |
 | **Balance Sheet** | derived | Assets, Liabilities, Equity "as of" a date — must balance |
@@ -93,7 +93,7 @@ Five views.
     Must satisfy `Assets = Liabilities + Equity + Net Income`. Footer
     shows ✓ Balanced or ⚠ Not balanced.
 
-    ### Posting a manual JE
+    ### Posting an entry by hand
 
     Accounting → **Journal Entries** → **+ New entry**.
 
@@ -106,17 +106,17 @@ Five views.
     Save. The engine checks:
     - At least 2 lines
     - At least one debit + one credit total
-    - `total_debit ≈ total_credit` (within $0.005)
+    - debits and credits agree (within half a cent)
     - Entry date not in a locked period
 
     The system **refuses** to save an unbalanced entry. There is no path
     to "save anyway".
 
-    ### Reversing a JE
+    ### Reversing an entry
 
-    Open the JE → **Reverse**. Posts a new JE with `debit ↔ credit` swapped,
-    `entry_date = today`, `reverses_id = original`. The original gets
-    `reversed_by = new`.
+    Open the entry → **Reverse**. Posts a new entry with `debit ↔ credit` swapped,
+    dated today, and marked as reversing the original. The original gets
+    a note of the entry that reversed it.
 
     Both entries remain visible — that's the audit trail. There is no
     delete.
@@ -175,12 +175,12 @@ Five views.
     Accounting → Chart of Accounts → **+ Add account**.
 
     - Pick a code that doesn't collide with system accounts
-    - Type + normal_balance must be consistent (DR-normal for Asset/Expense,
+    - The type and its normal side must agree (DR-normal for Asset/Expense,
       CR-normal for Liability/Equity/Income)
-    - `is_system=0` for custom accounts
+    - custom accounts are yours to edit
 
     Custom accounts can be edited (name, description) but never deleted
-    once they've received a JE.
+    once anything has been posted to them.
 
     ### Fiscal year close
 
@@ -194,16 +194,16 @@ Five views.
     2. Computes annual income, expense, net income
     3. Posts the **closing entry**: zeros out every Income and Expense
        account, with the net hitting `3900 Retained Earnings`
-    4. Sets `fiscal_years.status = 'closed'`, closed at, closed by
+    4. Sets the year to closed, with who closed it and when
 
-    The closing entry is `source_type='closing', source_id=year`.
+    The closing entry is marked as the year's closing entry.
 
     ### Reopening a closed year
 
     **Accounting → Closing → Reopen year.**
 
     Reverses the closing entry (it stays in the history, marked
-    reversed by), flips fiscal_year status back to `open`. Costly
+    reversed by), puts the year back to open. Costly
     operation — used to fix a discovered error in a prior year.
 
 === "Auditor's view"
@@ -215,7 +215,7 @@ Five views.
     | Every entry is balanced | Debits equal credits on every single journal entry |
     | Trial Balance ties | Sum of all debits = sum of all credits over time |
     | Balance Sheet balances | Assets = Liabilities + Equity + YTD Net Income |
-    | No JE in locked period | Every JE's entry date falls outside locked months unless the period was unlocked |
+    | Nothing posted into a locked month | Every entry's date falls outside locked months unless the period was unlocked |
 
     ### Trial Balance computation
 
@@ -238,24 +238,24 @@ Five views.
 
     ### Source-event tracing
 
-    Every JE references the originating business event. Trace a JE back
+    Every entry points back to what caused it. Trace one back
     to its source.
 
     Then look up source record in the appropriate table based on source.
 
-    | source_type | Table to look up source_id in |
+    | Source | What kind of document it came from |
     |---|---|
-    | invoice payment | invoice_payments |
+    | invoice payment | invoice payments |
     | `purchase` | purchases |
     | `expense` | expenses |
-    | `payroll` | hr_payroll_runs |
-    | `depreciation` | fixed_assets |
+    | `payroll` | payroll runs |
+    | `depreciation` | fixed assets |
     | pos cogs | invoices (POS-prefixed) |
-    | cash variance usd / cash variance lbp | cash_reconciliations |
+    | cash variance usd / cash variance lbp | cash reconciliations |
     | fx revaluation | (none — manually triggered) |
-    | `closing` | fiscal_years |
+    | `closing` | the fiscal year |
     | `manual` | (none — manual entry) |
-    | `reversal` | journal_entries (the reversed one) |
+    | `reversal` | the journal entry it reversed |
 
 ---
 
@@ -264,7 +264,7 @@ Five views.
 ```mermaid
 stateDiagram-v2
     [*] --> Posted : Engine accepts<br/>balanced lines
-    Posted --> Reversed : Mirror entry posted<br/>reverses_id linked
+    Posted --> Reversed : Mirror entry posted<br/>linked to the entry it reverses
     Reversed --> [*]
     Posted --> [*]
 

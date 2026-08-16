@@ -12,6 +12,15 @@
 		reverse_proxy app:8000
 	}
 
+	# The user manual is a real directory of pages, not a client-side route, so
+	# it must be served before the SPA fallback below — otherwise every link in
+	# it lands on index.html and renders the ERP. A missing page here is a plain
+	# 404, which is what the UI probes to decide whether to offer the manual.
+	handle /manual /manual/* {
+		root * /srv/www
+		file_server
+	}
+
 	# SPA: serve built assets, fall back to index.html for client-side routes.
 	handle {
 		root * /srv/www

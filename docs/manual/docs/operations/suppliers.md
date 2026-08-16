@@ -16,7 +16,7 @@ to know who you're buying from and how to pay them.
 | **Procurement Officer** | Adds suppliers, maintains contact info |
 | **Accountant** | Reads payment terms, reconciles outstanding payables |
 | **Operations Manager** | Reviews supplier performance (delivery times, defect rates) |
-| **Auditor** | Verifies no orphan PO records (every `purchases.supplier_id` resolves) |
+| **Auditor** | Verifies no orphan PO records (every every purchase order's supplier resolves) |
 
 ## Quick reference
 
@@ -64,8 +64,8 @@ to know who you're buying from and how to pay them.
     Same procedure as Clients (no native merge).
 
     1. Pick the canonical supplier
-    2. Re-attach the duplicate's `purchases.supplier_id` to the canonical
-    3. Archive the duplicate with `archive_reason="Merged into supplier #X"`
+    2. Re-attach the duplicate's every purchase order's supplier to the canonical
+    3. Archive the duplicate with the reason "Merged into supplier #X"
 
     ### Payment terms
 

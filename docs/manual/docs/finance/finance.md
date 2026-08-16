@@ -13,8 +13,8 @@ Two simple definitions.
 
 | Field | Computed from |
 |---|---|
-| **Monthly income** | `SUM(invoice_payments.amount)` where payment date is this month |
-| **Monthly expenses** | `SUM(expenses.amount)` where `date` is this month |
+| **Monthly income** | the total of payments received where payment date is this month |
+| **Monthly expenses** | Every expense dated this month, added up |
 
 Profit = income − expenses. Margin = profit ÷ income.
 
@@ -49,7 +49,7 @@ flowchart TB
     | KPI | Definition | Notes |
     |---|---|---|
     | Monthly revenue | Sum of payments received this month | Cash basis — only paid invoices count |
-    | Monthly expenses | Sum of expense rows dated this month | Includes purchases-paid + payroll-paid |
+    | Monthly expenses | Every expense dated this month, added up | Includes purchases-paid + payroll-paid |
     | Net profit | Revenue − Expenses | The cash-basis number |
     | Margin | Profit ÷ Revenue × 100 | Negative = operating loss |
 
@@ -68,7 +68,7 @@ flowchart TB
     - New expense recorded with `date` in the month
     - New invoice payment with payment date in the month
     - New manual journal entry with entry date in the month
-    - Any edit to existing rows in the month
+    - Any edit to something already in the month
 
     Locking is the bright line between "this month is open for adjustments"
     and "the books are final".
@@ -103,8 +103,8 @@ flowchart TB
 
     | Cash dashboard write | Matching GL post |
     |---|---|
-    | payments row added | journal entries row: DR Cash CR Revenue |
-    | expenses row added | journal entries row: DR Expense CR Cash |
+    | A payment is recorded | Journal entry: DR Cash CR Revenue |
+    | An expense is recorded | Journal entry: DR Expense CR Cash |
 
     The pair is atomic — either both writes happen or neither. F-1 and F-2
     audit fixes closed the gap.
@@ -119,9 +119,9 @@ flowchart TB
 
     They legitimately differ when:
     - **Inventory was purchased** — cash dashboard sees the expense (paid
-      PO creates expenses row), GL doesn't (DR Inventory)
+      a purchase order creates an expense), the ledger does not (DR Inventory)
     - **Inventory was sold** — GL sees COGS, cash dashboard doesn't (no
-      expenses row for stock leaving)
+      expense for stock leaving)
     - **Depreciation was posted** — GL sees expense, cash dashboard
       doesn't
     - **FX gain/loss** — same: GL only
@@ -133,7 +133,7 @@ flowchart TB
     ### Period lock audit
 
     Every lock + unlock action is in the audit trail with `module='finance'`
-    and `action IN ('lock_period','unlock_period')`.
+    and the lock and unlock actions.
 
 ---
 

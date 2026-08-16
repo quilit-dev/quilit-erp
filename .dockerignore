@@ -21,4 +21,5 @@ venv
 *.dmg
 *.AppImage
 *.spec
-docs/manual
+# docs/manual is NOT ignored: the `manual` build stage compiles it into the
+# image so the app can serve the user manual at /manual/.

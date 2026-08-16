@@ -87,10 +87,10 @@ project, invoice, payment, and activity for that customer in one place.
     2. Re-attach the duplicate's quotations / projects / invoices /
        activities to the canonical id (via direct SQL or via the
        Administrator panel)
-    3. Archive the duplicate with `archive_reason="Merged into client #X"`
+    3. Archive the duplicate with the reason "Merged into client #X"
 
     !!! warning "Don't hard-delete a client with linked documents"
-        FK constraints will reject the delete. The soft-archive path is
+        The system will refuse the delete. Archiving is
         the supported one.
 
     ### Archiving vs. deleting
@@ -115,7 +115,7 @@ project, invoice, payment, and activity for that customer in one place.
     Every quotation, project, invoice, and CRM record references a
     client. None should be orphaned.
 
-    All counts should be zero — FK constraints enforce it at the DB level.
+    All counts should be zero — the system will not let them be anything else.
 
     ### Top customers by A/R
 

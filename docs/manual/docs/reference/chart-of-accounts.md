@@ -25,7 +25,7 @@ database — these are the codes the GL engine actually uses.
 | `1100` | Accounts Receivable | Current Asset | Informational — system runs cash-basis |
 | `1200` | Inventory | Current Asset | Perpetual inventory — purchases DR here, sales DR COGS CR here (F-2(b)) |
 | `1500` | Fixed Assets | Non-Current Asset | Capital register at acquisition cost |
-| `1510` | Accumulated Depreciation | Contra Asset (credit-normal) | Auto-posted monthly from `fixed_assets.run_depreciation` |
+| `1510` | Accumulated Depreciation | Contra Asset (credit-normal) | Auto-posted monthly from the monthly depreciation run |
 
 ### Liabilities (credit-normal)
 
@@ -39,7 +39,7 @@ database — these are the codes the GL engine actually uses.
 
 | Code | Name | Subtype | Used by |
 |---|---|---|---|
-| `3000` | Owner's Equity | Equity | Capital contributions (manual JE) |
+| `3000` | Owner's Equity | Equity | Capital contributions (posted by hand) |
 | `3900` | Retained Earnings | Equity | Year-end closing target — receives net income |
 
 ### Income (credit-normal)
@@ -102,13 +102,13 @@ For each business event, which accounts get hit:
 | FX revaluation — gain | 1010 Cash — LBP | 4910 FX Gain |
 | FX revaluation — loss | 6920 FX Loss | 1010 Cash — LBP |
 | Fiscal year close | All Income + Expense accounts | 3900 Retained Earnings |
-| Manual JE | Operator's choice | Operator's choice |
+| Posted by hand | Operator's choice | Operator's choice |
 
 ## Reversed-by convention
 
 A reversal entry mirrors the original (debits ↔ credits). The original's
 reversed by points to the reversal's id; the reversal's reverses id
-points back. Both rows remain visible. There is no edit / delete on
+points back. Both remain visible. There is no edit / delete on
 posted entries.
 
 ## Adding custom accounts
@@ -121,7 +121,7 @@ Constraints:
 - Code must be unique (not collide with seeded 1000-6920)
 - `type` ∈ `{Asset, Liability, Equity, Income, Expense}`
 - normal balance consistent with type
-- `is_system = 0` for customer-added accounts
+- Accounts you add yourself are yours to edit or remove
 
 Custom accounts can have their name + description edited; they cannot be
 deleted once they've received any journal entry.

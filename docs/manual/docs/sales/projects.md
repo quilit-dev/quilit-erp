@@ -24,7 +24,7 @@ maintenance contract — all fit this model.
 | **Project Manager** | Lives in this module — runs the work, books materials, marks milestones |
 | **Foreman / Field tech** | Uses inventory deduct-to-project to draw materials |
 | **Accountant** | Issues milestone invoices, reads budget vs. actual |
-| **Sales Manager** | Reviews margin (`expected_revenue - actual_cost`) per project |
+| **Sales Manager** | Reviews margin (expected revenue minus actual cost) per project |
 | **Auditor** | Verifies material consumption matches stock movements |
 
 ## Quick reference
@@ -51,7 +51,7 @@ maintenance contract — all fit this model.
 
     1. **Overview** — budget, dates, location, description, **margin
        indicator**
-    2. **Milestones** — planning_milestones rows with due-date and
+    2. **Milestones** — milestones with a due date and
        reached-at
     3. **Quotations** — quotes linked to this project (typically the
        source quote)
@@ -80,7 +80,7 @@ maintenance contract — all fit this model.
     | Estimated cost | estimated cost (your budget at start) |
     | Actual cost | Sum of expenses + materials valued at unit cost |
 
-    The **margin indicator** turns red when `actual_cost > estimated_cost`.
+    The **margin indicator** turns red when actual cost passes the estimate.
 
 === "Administrator's view"
 
@@ -114,10 +114,10 @@ maintenance contract — all fit this model.
 
     "Deduct to project" is the **only** controlled path to charge materials.
     It writes:
-    - expenses row with `category='Materials'`, `project_id=<this>`
-    - stock movements row with `type='project_use'`, `warehouse_id=<resolved>`
+    - an expense in the Materials category, against this project
+    - a stock movement recording the goods used on the project, and where from
     - `inventory.quantity` decrement (company-wide)
-    - `inventory_stock.quantity` decrement (per-warehouse)
+    - the quantity in that warehouse decrement (per-warehouse)
     - cost layers draw-down (FIFO/LIFO/avg per costing method)
 
     All five writes in a single transaction. See Audit trail for proof.
@@ -161,7 +161,7 @@ stateDiagram-v2
     end note
 
     note right of Invoiced
-        actual_cost frozen for
+        actual cost frozen for
         margin reporting
     end note
 ```

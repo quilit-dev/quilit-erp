@@ -88,7 +88,7 @@ counted − expected. The F-3 audit fix posts that variance to the GL.
     ### Reopening (admin only)
 
     If you closed by mistake (typo in the count, for example), an
-    administrator can **Reopen** the reconciliation. The variance JE is
+    administrator can **Reopen** the reconciliation. The variance entry is
     reversed; you can re-count and re-close.
 
     ### Manual cash movements
@@ -129,7 +129,7 @@ counted − expected. The F-3 audit fix posts that variance to the GL.
     |---|---|
     | Name | "Main Till", "Workshop Petty Cash", … |
     | Active | Inactive drawers don't appear in selectors |
-    | **Auto capture** | Exactly one drawer carries `auto_capture=1` |
+    | **Auto capture** | Exactly one drawer carries auto-capture switched on |
 
     The auto-capture drawer is where unattributed cash transactions land
     — POS sales without a drawer, expenses without a drawer.
@@ -151,7 +151,7 @@ counted − expected. The F-3 audit fix posts that variance to the GL.
     The variance posting translates LBP variance to USD using the **latest
     stored exchange rate**. If no rate is configured, the LBP variance is
     **not posted** (the till-side variance is still recorded on the
-    reconciliation row + surfaced in the notification).
+    reconciliation, and surfaced in the notification).
 
 === "Auditor's view"
 
@@ -165,9 +165,9 @@ counted − expected. The F-3 audit fix posts that variance to the GL.
     ### Variance posting check (F-3 verification)
 
     Every closed reconciliation with a non-trivial variance should have a
-    matching JE.
+    matching entry.
 
-    NULL in the JE column with a non-zero variance = a pre-F-3 leak (or
+    An empty entry column with a non-zero variance = a pre-F-3 leak (or
     an LBP variance with no exchange rate, which is the documented
     no-post case).
 
@@ -184,7 +184,7 @@ stateDiagram-v2
     [*] --> Open : + New reconciliation
     Open --> Open : Add cash movements
     Open --> Closed : Close<br/>variance posted
-    Closed --> Open : Reopen (admin)<br/>JE reversed
+    Closed --> Open : Reopen (admin)<br/>entry reversed
     Closed --> [*]
 ```
 

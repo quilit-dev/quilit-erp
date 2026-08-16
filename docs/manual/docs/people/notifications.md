@@ -31,10 +31,10 @@ in the top bar shows the count.
   activity reminder, invoice overdue, invoice paid, low stock,
   payment received, production completed, quotation accepted,
   recruitment hired, recruitment status, task due soon
-- **Per-user** — `notifications.user_id` is mandatory
+- **Per-user** — every notification belongs to one person
 - **Deduplication** — repeating events use a key + lookback to avoid spamming
 - **Deliver-at** — supports scheduled delivery (e.g. HR activity reminders)
-- **Soft-read** — is read flips; rows are never deleted (retention indefinite)
+- **Soft-read** — read state flips; nothing is ever deleted
 
 ---
 
@@ -45,7 +45,7 @@ in the top bar shows the count.
     Top right corner — bell icon with a red count badge. Click → dropdown
     list of recent unread notifications.
 
-    Each row: icon (per type), title, body snippet, "X minutes ago", and
+    Each one shows: an icon, a title, a snippet, "X minutes ago", and
     an inline link button.
 
     ### Reading
@@ -57,7 +57,7 @@ in the top bar shows the count.
 
     Notifications page (full list).
 
-    - **Mark all as read** — flips `is_read=1` for everything
+    - **Mark all as read** — flips everything to read for everything
     - Filter by type
     - Filter by read state
     - Date range
@@ -72,10 +72,10 @@ in the top bar shows the count.
 
     ### Source of every notification
 
-    Each `notifications` row carries entity type + entity id so the
+    Each notification records what it is about, so the
     notification deep-links to the source. Examples.
 
-    | Type | entity_type | entity_id | Link target |
+    | Type | Related to | Which record | Opens |
     |---|---|---|---|
     | payment received | `invoice` | invoice id | `/invoices` |
     | low stock | inventory | item id | `/inventory` |
@@ -86,18 +86,15 @@ in the top bar shows the count.
 
     ### Deduplication
 
-    The `notify()` helper accepts a dedup hours parameter. With it, the
-    helper checks for an existing notification of the same `type` +
-    entity id within the lookback window — if one exists, it's a no-op.
-    This prevents spam: stock dipping below min_stock 20 times in a day =
-    one notification, not twenty.
+    The same alert about the same record is only sent once within a set
+    window. This is what stops the noise: an item dipping below its
+    minimum twenty times in a day produces one notification, not twenty.
 
     ### Deliver at
 
-    deliver at defaults to creation date for immediate delivery. For
-    scheduled notifications (HR activity reminders), it's set to "X
-    minutes before the event". The unread-count and inbox endpoints
-    filter to `deliver_at <= now`.
+    Most notifications appear immediately. Scheduled ones — an HR activity
+    reminder, say — carry a time to appear, set to a chosen number of
+    minutes before the event, and stay hidden until then.
 
 === "Auditor's view"
 

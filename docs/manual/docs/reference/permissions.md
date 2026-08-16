@@ -7,9 +7,9 @@ database at manual-build time. **18 roles × 27 modules × 5 actions =
 ## How to read
 
 - **V** — can view (read)
-- **C** — can create (insert)
-- **E** — can edit (update)
-- **D** — can delete (or soft-delete)
+- **C** — can create
+- **E** — can edit
+- **D** — can delete
 - **A** — can approve (used by approval policies)
 - **✓** — granted · **·** — not granted
 

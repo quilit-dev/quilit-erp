@@ -100,13 +100,13 @@ documented variance from) the price the approver authorised here.
     ### Numbering
 
     The quote number generator is centralised. The vendor configures the
-    prefix in `vendor_config.py`; the sequence (NNNN) is per-year and
+    prefix is set by your provider; the number runs per year and
     resets each January.
 
     ### Tax engine
 
     Each line carries:
-    - tax rate — FK to tax rates
+    - tax rate
     - tax rate — snapshot of the rate value at the time of write
     - tax amount — computed
 
@@ -128,7 +128,7 @@ documented variance from) the price the approver authorised here.
 
     ### The headline control — invoiced = quoted
 
-    Each non-zero variance row needs an explanation: scope change?
+    Each non-zero variance needs an explanation: scope change?
     discount applied?
 
     ### Status integrity
@@ -138,8 +138,8 @@ documented variance from) the price the approver authorised here.
 
     ### Conversion audit trail
 
-    Every conversion writes an the audit trail row with
-    `action='convert_to_invoice'` or convert to project.
+    Every conversion writes an audit-trail entry with
+    the conversion action or convert to project.
 
 ---
 
@@ -158,8 +158,8 @@ stateDiagram-v2
 
     note right of Accepted
         Side-effect:
-        - INVOICE row created OR
-        - PROJECT row created OR
+        - an invoice was created, OR
+        - a project was created, OR
         - both
     end note
 ```

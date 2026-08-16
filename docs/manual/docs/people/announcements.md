@@ -56,7 +56,7 @@ The system tracks **who's received**, **who's read**, and (if required)
     | Expires at | Optional |
 
     Save. The system computes the recipients list at publish and inserts
-    one announcement recipients row per user. Each user gets a
+    one recipient record per person. Each user gets a
     notification of type `announcement`.
 
     ### Reading reach
@@ -66,8 +66,8 @@ The system tracks **who's received**, **who's read**, and (if required)
     | Stat | Source |
     |---|---|
     | Recipients | Count of announcement recipients |
-    | Read | Rows where `read_at IS NOT NULL` |
-    | Acknowledged | Rows where `acknowledged_at IS NOT NULL` (only if requires ack) |
+    | Read | Entries where someone has opened it |
+    | Acknowledged | Entries where someone has acknowledged it (only when acknowledgement is required) |
 
 === "Operator's view (Reader)"
 
@@ -92,19 +92,19 @@ The system tracks **who's received**, **who's read**, and (if required)
 
     | Role | view | create | edit | delete |
     |---|---|---|---|---|
-    | Anyone authenticated | ✅ inbox (own recipient rows) | ✗ | ✗ | ✗ |
+    | Anyone authenticated | ✅ inbox (their own) | ✗ | ✗ | ✗ |
     | Authors (per the role config) | ✅ all | ✅ | ✅ (own) | ✅ (own) |
     | Administrator | ✅ all | ✅ | ✅ | ✅ |
 
     The "anyone can read" privilege is **scoped to their recipient
-    rows** — you can't peek at other people's announcements. The
+    own** — you can't read other people's announcements. The
     [global search](../reference/index.md) honours this too.
 
     ### Targeted audiences
 
-    | audience_type | audience_payload |
+    | Audience | Who it goes to |
     |---|---|
-    | `all` | (none) — every active user gets a recipient row |
+    | `all` | (none) — everyone active receives it |
     | Roles | The roles you chose to send it to |
     | People | Any individuals you picked as well |
 

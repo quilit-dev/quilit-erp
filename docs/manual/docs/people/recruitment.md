@@ -29,7 +29,7 @@ Recruitment models the full **post-to-hire** funnel.
 - **Offer status**: `Draft → Sent → Accepted / Declined / Expired`
 - **Files**: CV / cover letter / portfolio attached as BLOBs to applicant or position
 - **Status history**: every change captured in recruitment status history
-- **Interview linkage**: each recruitment interviews row spawns an HR activities row
+- **Interview linkage**: each interview also creates an HR activity
 
 ---
 
@@ -42,7 +42,7 @@ Recruitment models the full **post-to-hire** funnel.
     | Field | Notes |
     |---|---|
     | Title | "Senior Welder", "Marketing Lead" |
-    | Department | FK |
+    | Department | Which department |
     | Employment type | Full-time / Part-time / Contract |
     | Location | "Beirut Office", "Remote" |
     | Salary range (min / max) | Optional |
@@ -69,7 +69,7 @@ Recruitment models the full **post-to-hire** funnel.
     ### Moving through the funnel
 
     Open applicant → status dropdown → next stage. Every change writes a
-    recruitment status history row.
+    entry in the applicant's status history.
 
     Typical path:
     `Screening → Interview → Technical Test → Accepted → Hired`
@@ -80,14 +80,13 @@ Recruitment models the full **post-to-hire** funnel.
 
     From applicant detail → **Schedule interview**.
 
-    - Interviewer (FK to user)
+    - Interviewer
     - Date + time + duration
     - Location
     - Type (Phone / Onsite / Video)
 
-    The system creates both a recruitment interviews row **and** an
-    HR activities row for the interviewer's calendar. The two are
-    linked via `recruitment_interviews.hr_activity_id`.
+    The system creates the interview **and** an entry in the
+    interviewer's calendar, and keeps the two linked.
 
     After the interview, mark **Completed** with score + decision +
     notes.
@@ -108,9 +107,9 @@ Recruitment models the full **post-to-hire** funnel.
 
     1. HR Manager opens the applicant
     2. **Convert to employee**
-    3. The system atomically: creates employees row + contracts
-       row + hire-row in employment history
-    4. Updates `recruitment_applicants.converted_employee_id`
+    3. In one step the system creates the employee, their contract, and the
+       hire entry in their employment history
+    4. Updates the applicant's link to their new employee record
     5. Decrements position headcount; closes position if headcount reaches 0
 
     See [Hiring someone](workflows.md#hiring-someone).
@@ -171,7 +170,7 @@ stateDiagram-v2
     Draft --> Sent : Send
     Sent --> Accepted : Candidate accepts
     Sent --> Declined : Candidate declines
-    Sent --> Expired : expires_at reached
+    Sent --> Expired : expiry date passes
     Accepted --> [*]
     Declined --> [*]
     Expired --> [*]

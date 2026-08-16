@@ -100,9 +100,9 @@ keep, except any you have pinned.
     | Source | What it proves |
     |---|---|
     | `backups/` folder listing | Snapshots actually exist on disk, with timestamps |
-    | `backup_manager.log` (in startup log) | The scheduler ran and what it produced |
-    | the audit trail rows with `action='backup_now'` | Manual backups, with operator id |
-    | the audit trail rows with `action='backup_restore'` | Restore operations, with operator id |
+    | the backup log (in the startup log) | The scheduler ran and what it produced |
+    | audit-trail entries for manual backups | Manual backups, with operator id |
+    | audit-trail entries for restores | Restore operations, with operator id |
 
     ### Drill record
 
@@ -135,7 +135,7 @@ keep, except any you have pinned.
 |---|---|
 | The server's hard drive failed | ✅ — restore on a new machine from the latest snapshot |
 | Ransomware encrypted `erp.db` | ✅ — restore from an **off-site** backup that wasn't on the same disk |
-| Someone accidentally deleted a single client | ❌ — use the **Recycle Bin** to restore the row, not the whole database |
+| Someone accidentally deleted a single client | ❌ — use the **Recycle Bin** to restore it, not the whole database |
 | The user wants yesterday's numbers back | ❌ — a manual journal entry adjustment, not a restore |
 | A bad upgrade introduced a regression | ✅ — restore the pre-upgrade snapshot you pinned (see the upgrade checklist) |
 | "We don't trust the last few hours" | ⚠️ — restore loses every transaction since the snapshot. Have a recovery plan for the customer before pulling the trigger. |

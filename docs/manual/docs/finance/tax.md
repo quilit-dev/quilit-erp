@@ -11,7 +11,7 @@ The tax engine is **rate-based** (not formula-based). Each rate has.
 - A name (`"Standard 11%"`, `"Zero"`, `"Exempt"`)
 - A rate value (`11`, `0`, ...)
 - A type (`standard`, `zero`, `exempt`)
-- An is_default flag
+- A default flag
 
 Documents (invoices, quotations, purchases, expenses) reference a rate by
 **ID + snapshot** — tax rate, tax rate (the value at write time),
@@ -29,7 +29,7 @@ tax amount (computed).
 ## Quick reference
 
 - **Three types**: `standard`, `zero`, `exempt`
-- **One rate has `is_default=1`** — used when no rate is specified
+- **One rate has marked as the default** — used when no rate is specified
 - **Per-line snapshot** — invoices, quotations, expenses, purchases all
   carry tax rate, tax rate, tax amount
 - **Output VAT** goes to `2100 VAT Payable` (credit)
@@ -52,7 +52,7 @@ tax amount (computed).
     The displayed dropdown shows `name (rate%)` — e.g. "Standard (11%)".
 
     When you save, the system snapshots tax rate, tax rate, and
-    computes `tax_amount = quantity × unit_price × rate / 100`.
+    computes quantity × price × rate ÷ 100.
 
     ### Subtotal vs. amount
 
@@ -86,12 +86,12 @@ tax amount (computed).
     | Is default | Exactly one rate is the default |
     | Is active | Inactive rates don't show in dropdowns |
 
-    ### What "is_default" means
+    ### What the default rate means
 
     The default rate is auto-selected on every new line item. To enforce
     "always uses Standard 11%", make that rate the default.
 
-    Setting a new rate as default flips the old default's `is_default=0`
+    Setting a new rate as default clears the flag on the old one
     automatically.
 
     ### Changing a rate's value
@@ -110,8 +110,8 @@ tax amount (computed).
     | Type | What the system does |
     |---|---|
     | `standard` | Normal VAT — tax amount computed and posted to `2100 VAT Payable` |
-    | `zero` | Zero-rated — `tax_amount=0`, but the transaction shows in the VAT report |
-    | `exempt` | Exempt — `tax_amount=0`, transaction excluded from VAT report's net base |
+    | `zero` | Zero-rated — no tax charged, but the transaction shows in the VAT report |
+    | `exempt` | Exempt — no tax charged, transaction excluded from VAT report's net base |
 
     Use `zero` for exports / international sales. Use `exempt` for
     domestic services that are VAT-exempt by regulation.
@@ -122,14 +122,14 @@ tax amount (computed).
 
     The snapshot is what survives rate changes — verify it's intact.
 
-    Many rows here = the rate changed at some point, and the snapshots
+    Several entries here mean the rate changed at some point, and the snapshots
     preserved the original rate. If you ran this immediately after a rate
     change, every line dated before the change should show
-    `snap_rate ≠ current_rate`.
+    the rate saved on the document differs from today's.
 
     ### VAT Payable ties to per-document tax totals
 
-    `output_vat − input_vat` should equal vat payable (within rounding).
+    VAT charged minus VAT paid should equal VAT payable (within rounding).
 
     ### Default rate audit
 

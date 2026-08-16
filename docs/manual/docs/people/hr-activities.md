@@ -20,14 +20,14 @@ similar shape.
 |---|---|
 | **Employee** | Logs their own meetings, notes, todos |
 | **HR Manager** | Reviews team workload, attaches interviews to applicants |
-| **Recruiter** | Schedules interviews; each one creates an HR activities row |
+| **Recruiter** | Schedules interviews; each one creates an HR activity |
 | **Manager** | Reads direct reports' upcoming activities |
 
 ## Quick reference
 
 - **Activity types**: `Call`, `Meeting`, `Note`, `Interview`, `Task`
 - **Status**: `Planned`, `Done`, `Cancelled`
-- **Owner**: `hr_employees.id` of the activity owner (one owner per activity)
+- **Owner**: the employee who owns the activity (one owner per activity)
 - **Linked to**: optional applicant id (recruitment) or employee id (HR target)
 - **Reminders**: reminder lead time — fires a notification ahead of scheduled time
 
@@ -80,7 +80,7 @@ similar shape.
     ### Reminder scheduling
 
     A background thread checks for activities with scheduled time minus
-    reminder lead time ≤ now AND `reminder_notif_id IS NULL`. For
+    reminder lead time ≤ now AND no reminder sent yet. For
     each, it spawns a notification and records its id back on the
     activity.
 

@@ -53,7 +53,7 @@ already has.
 
     The headline. For the selected period.
 
-    - Total income (cash-basis from `invoice_payments.amount`)
+    - Total income (cash-basis from `invoice payments.amount`)
     - Total expenses (from `expenses.amount`)
     - Net profit
     - Profit margin
@@ -65,7 +65,7 @@ already has.
 
     ### Projects Report
 
-    Per-project rows.
+    One line per project.
 
     | Column | What |
     |---|---|
@@ -143,7 +143,7 @@ already has.
 
     - SKU count
     - Quantity total
-    - Value (qty × unit_cost)
+    - Value (quantity × unit cost)
     - Top 25 SKUs by value with their primary location
 
     Use case: warehouse manager review, capital concentration analysis.
@@ -166,7 +166,7 @@ already has.
     ### Data sources
 
     Each report reads from existing operational tables — no separate
-    `reports` table or batch-computed denormalised view.
+    pre-computed report storage.
 
     | Report | Primary source |
     |---|---|

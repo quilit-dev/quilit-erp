@@ -62,9 +62,9 @@ exactly which writes happen where.
 The Operations chapter assumes these never break — every audit query below
 relies on them:
 
-1. **`inventory.quantity` = SUM of `inventory_stock.quantity` across warehouses** — maintained on every write
+1. **An item's total stock is the sum of what it holds in each warehouse** — maintained on every write
 2. **Every stock change is recorded** — with the warehouse it happened in
-3. **The GL Inventory account (1200) ties to the sum of inventory value** — `Σ(quantity × unit_cost)` per item, summed across items
+3. **The GL Inventory account (1200) ties to the sum of inventory value** — quantity × unit cost, added up per item, summed across items
 4. **Internal warehouse transfers never post to GL** — they're motion within one account, not value movement
 
 Phase 1's [audit trail](../foundation/audit-trail.md) page gives you the SQL

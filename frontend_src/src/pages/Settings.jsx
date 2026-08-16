@@ -8,6 +8,7 @@ import CategoriesManager from '../components/CategoriesManager.jsx';
 import { Icon } from '../components/shared';
 import { Section, Field, Input, Toggle, CURRENCIES } from './settings/ui';
 import { TaxRatesSection } from './settings/TaxRatesSection';
+import UserManualSection from './settings/UserManualSection.jsx';
 
 export default function Settings() {
   const { t } = useLocale();
@@ -192,6 +193,12 @@ export default function Settings() {
           <span style={{ fontSize: 13, color: 'var(--yellow)', fontWeight: 500 }}>{t('settings.viewOnly')}</span>
         </div>
       )}
+
+      {/* The manual comes first, and deliberately sits outside the `form &&`
+          guard below: someone who opened Settings looking for help should get
+          it before a page of fields they may not be allowed to edit, and still
+          get it if the settings themselves fail to load. */}
+      <UserManualSection />
 
       {form && (<>
         {msg && (

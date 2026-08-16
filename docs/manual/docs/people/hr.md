@@ -52,21 +52,21 @@ it changed.
     | Employee code | `EMP-NNN` or vendor-specific format |
     | Full name | Required |
     | Job title | |
-    | Department | FK to departments |
+    | Department | Which department |
     | Employment type | Full-time / Part-time |
     | Hire date | |
     | Salary | In USD by default; contract carries currency |
-    | Manager | FK to another employee |
+    | Manager | Who they report to |
     | Email, phone, address, notes | |
     | User account | Optional link to `users.id` for self-service |
 
-    Save. An employment history row is auto-created with
-    `change_type='hire'` capturing the initial values.
+    Save. An employment-history entry is created automatically for
+    a hire capturing the initial values.
 
     ### Editing salary or title
 
     Open the employee → **Edit**. Changing salary or title creates a new
-    employment history row with `change_type='raise'`, `'adjustment'`,
+    employment-history entry for a raise, an adjustment,
     `'promotion'`, or `'transfer'` — the entire history is queryable.
 
     ### Submitting a leave request
@@ -91,7 +91,7 @@ it changed.
 
     HR → **Payroll** → **+ New run** with period dates.
 
-    The system seeds one payroll lines row per active employee with.
+    The system adds one line per active employee, with.
 
     - base salary from employee record
     - salary currency from the active contract (F-6 fix)
@@ -161,7 +161,7 @@ it changed.
 
     ### Payroll-to-GL reconciliation
 
-    `pr.total_net` should equal `je.total_debit` (in USD-equivalent after
+    the run's total net pay should equal the posted entry (in USD-equivalent after
     F-6 conversion).
 
     ### Leave entitlement (annual)
