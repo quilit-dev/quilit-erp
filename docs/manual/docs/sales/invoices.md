@@ -208,7 +208,7 @@ flowchart LR
 ```
 
 The badge on the UI is derived per-request from the total of payments received
-vs. `invoices.amount`. There is no `invoices.status` column — preventing
+against the invoice total. Status is never stored on the invoice — which prevents
 the all-too-common bug of a "status" field drifting from the underlying
 truth.
 

@@ -114,7 +114,7 @@ rewriting history.
     - At receipt: DR Inventory / CR Cash
     - At consumption (sale, production, project draw): DR COGS / CR Inventory
 
-    This is the F-2(b) audit fix. The OLD posting (DR COGS / CR Cash at
+    The older posting (DR COGS / CR Cash at
     purchase) was wrong because it recognised the full cost regardless of
     whether the goods were sold. The current posting only converts
     Inventory → COGS when the goods physically leave.
@@ -172,7 +172,7 @@ stateDiagram-v2
 
     note right of Received
         Atomic writes:
-        - inventory.quantity +qty
+        - the item's total goes up
         - stock at that warehouse goes up
         - cost layers updated
         - a stock movement

@@ -1,14 +1,17 @@
 # Inventory
 
-The master record of every physical thing the company owns. Items, quantities,
-costs, lots, and the movements that change them — all under one module.
+Everything you stock: what it is, how much you have, where it is, and what
+it cost you.
 
 ## Purpose
 
-Inventory holds **what exists** (the item catalogue), **how much exists**
-(quantities per location), and **what it cost** (per-layer or per-lot). Every
-other operational module either reads from here (POS, Manufacturing) or
-writes to here (Purchases, Manufacturing, Project consumption, Transfers).
+This is the one list of your products. Everything else in the system reads
+from it or changes it — the till when you sell, purchases when goods arrive,
+manufacturing when you build something, transfers when stock moves between
+warehouses.
+
+Because of that, **you never type a quantity to correct it**. Stock changes
+through whatever actually happened, so there is always a record of why.
 
 ## Personas
 
@@ -16,22 +19,22 @@ writes to here (Purchases, Manufacturing, Project consumption, Transfers).
 |---|---|
 | **Inventory clerk** | Adjusts counts, runs cycle counts, attaches lots, archives obsolete items |
 | **Operations Manager** | Sets min-stock levels, picks costing method, reads low-stock alerts |
-| **Production worker** | Reads remaining qty of components before drawing them |
+| **Production worker** | Checks what components are left before drawing them |
 | **Cashier** | Indirectly — the till reads the selling price and quantity |
-| **Auditor** | Reconciles quantities to GL Inventory account |
+| **Auditor** | Checks the stock on hand against the Inventory account |
 
 ## Quick reference
 
-- **Two grains of "quantity"** — company total (`inventory.quantity`) +
-  per warehouse. The two are maintained in
-  lock-step.
-- **Product types** — raw material, semi finished, `finished`, `consumable`
-- **Costing methods** — weighted avg (default), `fifo`, `lifo`. Set
-  in Settings.
+- **Adding an item** — Inventory → **+ Add Item**. Only the name is required
+- **Two kinds of "quantity"** — the company total, and how much sits in each
+  warehouse. The two always agree
+- **Product types** — raw material, semi-finished, finished, consumable
+- **Costing methods** — weighted average (default), FIFO, LIFO. Set in
+  Settings
 - **Lot tracking** — opt-in per item. Lot-tracked items consume **FEFO**
   (First Expired First Out).
-- **Reservation + Quarantine** — separate balances on each stock per warehouse
-  record, and never change "available" directly.
+- **Reserved and quarantined** stock is counted separately, so neither is
+  silently treated as available
 
 ---
 
@@ -39,8 +42,55 @@ writes to here (Purchases, Manufacturing, Project consumption, Transfers).
 
     ### The Inventory list
 
-    Sidebar → **Inventory**. Filter / search by name, category, barcode,
-    `Low stock` toggle.
+    Sidebar → **Inventory**. Search by name, category or barcode, and use
+    the **Low stock** toggle to see only what needs reordering.
+
+    ### Adding an item
+
+    **Inventory → + Add Item.** Only the name is required — everything else
+    can be filled in later, and most of it can be left alone for a simple
+    product.
+
+    | Field | What to put |
+    |---|---|
+    | **Item Name** | Required. What you call it. |
+    | **Category** | Pick one, or choose **+ Add new category…** and type a new one — you do not have to set categories up first. |
+    | **Product Type** | Raw material, semi-finished, finished or consumable. Leave it Unclassified if you only buy and sell. It matters for manufacturing. |
+    | **Initial Quantity** | How many you have right now. Only offered when creating — after that, quantity changes through purchases, sales and adjustments, never by typing over it. |
+    | **Min Stock Alert** | When the quantity falls to this, the item is flagged and you get a notification. Leave at 0 for no alert. |
+    | **Unit Cost / Landed Cost** | What it costs you, including getting it to you. |
+    | **Sale Price** | What you charge, VAT included. |
+    | **Unit** | pcs, kg, g, l, ml, m, m², m³, box, roll, set or pair. |
+    | **Supplier** | Optional. Start typing to find one. |
+    | **Barcode / SKU** | Optional. Scan it or type it — see below. |
+    | **Track batches / lots** | Off by default. See [Lot-tracked items](#lot-tracked-items) before switching it on. |
+
+    Save, and the item appears in the list.
+
+    !!! tip "Cost and price can be in either currency"
+        Each of those two fields has its own currency box next to it. **Cost
+        is converted to USD once, at the rate on the day** — it is what you
+        actually paid, so it does not move afterwards. **Price entered in the
+        secondary currency floats**: it is converted at the rate current when
+        you sell, so you are not selling at last month's rate. The line
+        underneath each box shows you the converted figure as you type.
+
+        The secondary currency is only offered once an exchange rate has been
+        set. See [Multi-currency](../finance/multi-currency.md).
+
+    !!! note "Initial Quantity is a starting balance, not a purchase"
+        It records what is already on your shelf on the day you set the system
+        up. It does not create a purchase or post anything to the accounts. To
+        bring in stock you actually bought, use
+        [Purchases](purchases.md) instead, so the cost lands in the right
+        place.
+
+    ### Editing an item
+
+    Open the item and change what you need. **Quantity is not editable here**
+    — that is deliberate, so stock only ever moves through something that
+    leaves a record. To correct a count, use
+    [Adjusting a count](#adjusting-a-count).
 
     ### Barcodes and scanners
 
@@ -88,7 +138,7 @@ writes to here (Purchases, Manufacturing, Project consumption, Transfers).
     ### Low-stock alerts
 
     Set minimum stock on each item. When the quantity falls to the minimum (company-wide)
-    the dashboard fires a low stock notification. After Phase 1, you also
+    the dashboard fires a low-stock notification. You also
     get **per-warehouse alerts** (BRANCH-A low even while MAIN is full).
 
     ### Lot-tracked items
@@ -167,7 +217,7 @@ writes to here (Purchases, Manufacturing, Project consumption, Transfers).
 
     ### Per-warehouse sum invariant
 
-    The system maintains `inventory.quantity = SUM(per-warehouse stock.quantity)`
+    The system maintains an item's total equal to the sum of what each warehouse holds
     on every write. Verify.
 
     The result should be empty. Anything listed is worth investigating.

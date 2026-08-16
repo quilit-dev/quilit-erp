@@ -90,7 +90,7 @@ Five top-level controls cover most operations audit work:
 
 1. **Inventory ties to the GL** — quantity × unit cost, added up per item, summed
    across all items, should equal the GL's `1200 Inventory` balance at any
-   moment (after Phase 1's audit remediation).
+   moment.
 2. **Every receipt has a stock movement and a journal entry** — both with
    source ref linking to the PO number.
 3. **Every sale has a COGS posting** — invoice + DR Cash CR Revenue + DR

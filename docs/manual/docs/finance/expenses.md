@@ -135,7 +135,7 @@ the expense each time it falls due, so nobody has to remember.
     - "Expenses tagged with category=Subcontractor need Operations Manager approval"
 
     When a policy fires, the expense status moves to `Pending Approval` and
-    the GL post is **deferred** until the approval clears. See [Approvals](../people/index.md) (Phase 5).
+    the GL post is **deferred** until the approval clears. See [Approvals](../people/index.md).
 
     ### Recurring expense scheduler
 

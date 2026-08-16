@@ -67,5 +67,5 @@ relies on them:
 3. **The GL Inventory account (1200) ties to the sum of inventory value** — quantity × unit cost, added up per item, summed across items
 4. **Internal warehouse transfers never post to GL** — they're motion within one account, not value movement
 
-Phase 1's [audit trail](../foundation/audit-trail.md) page gives you the SQL
+The [audit trail](../foundation/audit-trail.md) page shows you how
 to verify each invariant against live data.

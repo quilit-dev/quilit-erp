@@ -126,7 +126,7 @@ A POS sale writes to
     - The audit trail is **only ever added to**. Nothing in the system can
       change or remove an entry once it is written.
     - Journal entries are **never deleted, never edited**. Corrections happen
-      via balanced reversals (see [Accounting](../finance/index.md), Phase 4).
+      via balanced reversals (see [Accounting](../finance/index.md)).
     - Stock movements are **never deleted, never edited**. Corrections happen
       via offsetting movements (negative delta of the same type, or a
       transfer cancel).

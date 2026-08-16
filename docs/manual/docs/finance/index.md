@@ -8,12 +8,12 @@ financial statements.
 | [Period close workflow](period-close.md) | End-to-end month/year close. Read first. |
 | [Finance dashboard](finance.md) | Cash-basis P&L view, period locks |
 | [Expenses & Recurring](expenses.md) | One-off + recurring expenses, project allocation, approval gates |
-| [Cash & Reconciliation](cash.md) | Per-drawer daily count, USD + LBP variance, GL posting (F-3) |
+| [Cash & Reconciliation](cash.md) | Per-drawer daily count, USD + LBP variance, GL posting |
 | [Fixed Assets](assets.md) | Capital register, straight-line depreciation auto-posting |
 | [Accounting (GL)](accounting.md) | Chart of Accounts, journal entries, Trial Balance, IS, BS, fiscal years |
 | [Reports](reports.md) | Financial, Aging, Expenses, VAT, Inventory by Warehouse |
 | [Tax Rates](tax.md) | Per-rate VAT engine, applied per line |
-| [Multi-currency (USD/LBP)](multi-currency.md) | F-4/F-5/F-8/F-9 audit remediation, FX gain/loss |
+| [Multi-currency (USD/LBP)](multi-currency.md) | Working in two currencies, and FX gain and loss |
 
 ## Two parallel books — by design
 
@@ -34,8 +34,8 @@ flowchart LR
 | **Cash-basis Finance** | payments and expenses | "What's in the bank?" "What did we spend this month?" |
 | **Double-entry GL** | journal entries + journal entry lines | "Show me the Trial Balance." "Are we profitable accrual-basis?" |
 
-The two reconcile at the **payment level**: every payment posts to the ledger, and so does every expense. The system's audit remediation
-(F-1 through F-9) closed every gap between them.
+The two reconcile at the **payment level**: every payment posts to the
+ledger, and so does every expense.
 
 ## Personas
 
@@ -47,19 +47,20 @@ The two reconcile at the **payment level**: every payment posts to the ledger, a
 | **Owner / CEO** | Finance dashboard, Reports → Financial, Trial Balance |
 | **External Auditor** | Accounting → Trial Balance / IS / BS, Reports → VAT |
 
-## What the audit remediation gave you
+## How the two layers stay in step
 
-The chapter assumes the F-1 through F-9 fixes are live. Quick reference:
+Every money event writes to both layers at once, so they cannot drift.
 
-| Finding | Fix |
+| When this happens | The ledger records |
 |---|---|
-| F-1 — POS sales bypassed GL | Every POS sale now posts DR Cash CR Revenue + DR COGS CR Inventory |
-| F-2 — COGS not debited; purchases wrongly hit COGS | Perpetual inventory model: receipts DR Inventory, sales DR COGS |
-| F-3 — Cash variance not posted | End-of-session variance posts to 6910 Cash Short & Over |
-| F-4 — Missing accounts in COA | Added 1010 Cash—LBP, 4910 FX Gain, 6910 Cash Short & Over, 6920 FX Loss |
-| F-5 — LBP cash hit a USD account | The cash account is now chosen by the currency of the payment |
-| F-6 — Payroll mis-posted LBP face value | Per-line salary currency snapshot + spot-rate conversion |
-| F-8 — No FX revaluation | **Accounting → FX revaluation** marks LBP cash to market |
-| F-9 — LBP payment without rate | Falls back to latest stored rate; explicit error if none |
+| A sale at the till | DR Cash CR Revenue, and DR Cost of Sales CR Inventory |
+| Goods received on a purchase | DR Inventory — the cost sits in stock until it sells |
+| A drawer closes short or over | The difference, to 6910 Cash Short & Over |
+| An LBP payment | To the LBP cash account, never the USD one |
+| Payroll paid | Each line at its own currency, converted at the rate of the day |
+| The LBP rate moves | **Accounting → FX revaluation** restates LBP cash, and posts the gain or loss |
 
-Each page in this chapter references the relevant fixes.
+If an LBP payment is taken with no exchange rate set at all, the system uses
+the most recent rate it has, and refuses with a clear message if there has
+never been one.
+

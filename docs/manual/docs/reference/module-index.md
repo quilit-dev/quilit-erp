@@ -12,7 +12,7 @@ access.
 
 | Module key | One-liner | Page |
 |---|---|---|
-| `dashboard` | Personalized landing with KPIs across all modules | (Phase 1) |
+| `dashboard` | Personalized landing with KPIs across all modules | — |
 
 ### Sales lifecycle
 
@@ -71,8 +71,8 @@ access.
 
 | Module key | One-liner | Page |
 |---|---|---|
-| `settings` | Company info, defaults, tax engine, exchange rate | (Phase 6 — admin doc) |
-| users | User accounts, status, role assignment | (Phase 6) |
+| `settings` | Company info, defaults, tax engine, exchange rate | — |
+| users | User accounts, status, role assignment | — |
 | roles | Role definitions and what each may do | [Roles & permissions](../foundation/rbac.md) |
 | `audit` | Immutable record of every write | [Audit trail](../foundation/audit-trail.md) |
 
@@ -104,8 +104,8 @@ documentation:
 
 | Module | Added in | Why it matters |
 |---|---|---|
-| warehouses | Phase 1 of multi-warehouse rollout | Multi-location stock and per-warehouse access |
-| `accounting` | Phase 1 of accounting GL | Double-entry general ledger |
+| warehouses | Stock across several locations | Multi-location stock and per-warehouse access |
+| `accounting` | The double-entry ledger | Double-entry general ledger |
 | contracts | HR maturity work | First-class contract documents |
 | HR activities | HR maturity work | Per-employee calendar |
 | `announcements` | Internal comms feature | Audience-targeted broadcasts |

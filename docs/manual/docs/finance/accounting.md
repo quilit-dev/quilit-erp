@@ -140,9 +140,9 @@ Five views.
     | Code | Name | Type | Normal | Used by |
     |---|---|---|---|---|
     | 1000 | Cash & Bank | Asset | DR | USD cash + bank balances |
-    | 1010 | Cash — LBP | Asset | DR | LBP cash (F-4 fix) |
+    | 1010 | Cash — LBP | Asset | DR | LBP cash |
     | 1100 | Accounts Receivable | Asset | DR | (informational only; system is cash-basis) |
-    | 1200 | Inventory | Asset | DR | Perpetual inventory (F-2(b) fix) |
+    | 1200 | Inventory | Asset | DR | Perpetual inventory |
     | 1500 | Fixed Assets | Asset | DR | Capital register |
     | 1510 | Accumulated Depreciation | Asset (contra) | CR | Auto-posted monthly |
     | 2000 | Accounts Payable | Liability | CR | (informational) |
@@ -152,7 +152,7 @@ Five views.
     | 3900 | Retained Earnings | Equity | CR | Year-end closing target |
     | 4000 | Sales Revenue | Income | CR | All sales — POS, invoices |
     | 4900 | Other Income | Income | CR | Asset disposal gains |
-    | 4910 | Foreign Exchange Gain | Income | CR | FX revaluation gains (F-4 fix) |
+    | 4910 | Foreign Exchange Gain | Income | CR | FX revaluation gains |
     | 5000 | Cost of Goods Sold | Expense | DR | COGS on every sale |
     | 6000 | Salaries & Wages | Expense | DR | Payroll net total |
     | 6100 | Rent | Expense | DR | Expense category 'Rent' |
@@ -167,8 +167,8 @@ Five views.
     | 6860 | Subscriptions | Expense | DR | |
     | 6870 | Permits & Fees | Expense | DR | |
     | 6900 | General & Other Expense | Expense | DR | Default for uncategorised |
-    | 6910 | Cash Short & Over | Expense | DR | F-3 variance posting |
-    | 6920 | Foreign Exchange Loss | Expense | DR | F-4 fix |
+    | 6910 | Cash Short & Over | Expense | DR | Till variances |
+    | 6920 | Foreign Exchange Loss | Expense | DR | FX revaluation losses |
 
     ### Adding custom accounts
 

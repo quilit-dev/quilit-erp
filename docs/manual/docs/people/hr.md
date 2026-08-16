@@ -36,7 +36,7 @@ it changed.
 - **Leave types**: `Annual`, `Sick`, `Unpaid` (+ vendor-extensible)
 - **Leave status**: `Pending`, `Approved`, `Rejected`
 - **Payroll status**: `Draft → Approved → Paid` (or `Cancelled`)
-- **Multi-currency**: per-line salary currency (F-6 fix)
+- **Multi-currency**: per-line salary currency
 - **Settings-driven**: NSSF rate, employer NSSF rate, tax brackets in Settings → Payroll
 
 ---
@@ -94,7 +94,7 @@ it changed.
     The system adds one line per active employee, with.
 
     - base salary from employee record
-    - salary currency from the active contract (F-6 fix)
+    - salary currency from the active contract
     - tax amount computed from settings tax brackets
     - nssf employee and nssf employer per settings
     - gross total, net amount computed
@@ -141,7 +141,7 @@ it changed.
 
     The dashboard's "On Leave Today" tile reads from this status.
 
-    ### Payroll → GL posting (F-6 fix)
+    ### How payroll reaches the ledger
 
     On mark-paid, the system.
 
@@ -161,8 +161,7 @@ it changed.
 
     ### Payroll-to-GL reconciliation
 
-    the run's total net pay should equal the posted entry (in USD-equivalent after
-    F-6 conversion).
+    the run's total net pay should equal the posted entry (as a USD equivalent).
 
     ### Leave entitlement (annual)
 
@@ -173,7 +172,7 @@ it changed.
         annual leave days lives on recruitment offers (also). Active
         contract is the source of truth for current employees.
 
-    ### Multi-currency payroll integrity (F-6 verification)
+    ### Checking multi-currency payroll
 
     Run posts after the fix should show the USD post on the GL equal to
     `USD_segment + LBP_segment / rate`.

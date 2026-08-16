@@ -106,7 +106,7 @@ flowchart TB
     | A payment is recorded | Journal entry: DR Cash CR Revenue |
     | An expense is recorded | Journal entry: DR Expense CR Cash |
 
-    The pair is atomic — either both writes happen or neither. F-1 and F-2
+    The pair is atomic — either both happen or neither.
     audit fixes closed the gap.
 
 === "Auditor's view"

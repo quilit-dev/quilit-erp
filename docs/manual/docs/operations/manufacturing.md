@@ -38,7 +38,7 @@ labour and machine time, not just materials.
   `Cancelled`)
 - **QC** — opt-in per BOM (QC switched on)
 - **Warehouse** — one per MO (consume + produce in the same location, by
-  Phase 1 design)
+  by design)
 - **Reservation** — confirming a draft order reserves component quantities
 
 ---
@@ -101,9 +101,9 @@ labour and machine time, not just materials.
     4. Click **Complete**
 
     Atomic writes:
-    - Each component: `inventory.quantity -consumed`, `per-warehouse stock at
+    - Each component: the item's total goes down, `per-warehouse stock at
       MO.warehouse -consumed`, cost layers drawn
-    - Output: `inventory.quantity +produced`, `per-warehouse stock +produced`,
+    - Output: the item's total goes up, `per-warehouse stock +produced`,
       new lot/layer at calculated unit cost
     - production order items frozen with actual qty + cost
     - production order resources cost = hours × rate
@@ -234,7 +234,7 @@ flowchart LR
 
 ## What's NOT supported (deliberately)
 
-- Different source/destination warehouses for one MO. Phase 1 design choice
+- Different source/destination warehouses for one MO. a deliberate design choice
   — keeps the model simple.
 - Multi-output BOMs (one BOM producing two distinct items). Use two BOMs
   with a shared component graph.

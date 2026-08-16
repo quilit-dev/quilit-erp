@@ -195,11 +195,11 @@ stateDiagram-v2
   account. If a customer ever needs distinct sub-ledgers, it's a structural
   change, not a configuration.
 - Per-warehouse costing. Unit cost stays company-wide
-  — deferred until a clear business need emerges (see Phase 1 design).
+  — deferred until there is a clear need for it.
 - Transfer pricing between warehouses. Internal transfers move stock at
   carrying cost; no markup.
 - Per-bin or per-aisle locations within a warehouse. That's a WMS feature,
   out of scope.
-- Manufacturing across warehouses. By the Phase 1 design, one production
+- Manufacturing across warehouses. By design, one production
   order consumes and produces in **the same** warehouse — explicit
-  source/destination would be a Phase 4 feature.
+  source and destination is not supported.

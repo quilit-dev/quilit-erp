@@ -77,8 +77,8 @@ Three control questions cover ~80% of sales-cycle audit work:
    services delivered (or goods shipped) within P? the invoice date
    vs. when the project was completed / linked when the stock moved.
 2. **Authorisation** — was the price the customer paid the price the
-   approver authorised? Compare `quotations.total` vs. linked
-   `invoices.amount` (a discount past quote = approval evidence required).
+   approver authorised? Compare the quotation total against the linked
+   invoice total (a discount below the quote needs approval on record).
 3. **Completeness** — every won deal should have either an invoice or a
    project. deals with won deals with no quotation and
    no linked invoice = a control gap to investigate.
@@ -89,7 +89,7 @@ The Auditor's view on each module page gives you the exact SQL.
 
 The sales pipeline as defined here doesn't cover:
 
-- **POS sales** — separate fast-path. See Operations → POS (Phase 3).
+- **POS sales** — separate fast-path. See [Point of Sale](../operations/pos.md).
 - **Recurring revenue / subscriptions** — modelled as recurring expenses
   in the Finance chapter, applied per-period.
 - **Returns / RMAs** — POS handles its own returns; for invoiced returns,

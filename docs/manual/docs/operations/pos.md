@@ -33,7 +33,7 @@ anything.
   `POS-`
 - **Per-warehouse selling** — session is opened against a specific
   warehouse; sales deduct from there
-- **Variance posting** — F-3 audit fix: end-of-session variance posts to
+- **Variance posting** — closing a session posts any difference to
   `Cash Short & Over` (account 6910)
 - **Returns** — void the original invoice + restock atomically
 
@@ -109,7 +109,7 @@ anything.
     - **Expected** USD + LBP — opening float ± cash sales ± returns
     - **Variance** — counted − expected, per currency
 
-    If non-zero, the F-3 audit fix posts:
+    If it is not zero, the system posts:
     - Variance < 0 (till short): `DR Cash Short & Over / CR Cash`
     - Variance > 0 (till over): `DR Cash / CR Cash Short & Over`
 
@@ -174,13 +174,13 @@ anything.
     ### Variance trail
 
     Every non-zero variance should have a matching entry. A missing one on a
-    non-zero variance = F-3 audit fix not yet applied.
+    a non-zero variance with nothing posted is worth investigating.
 
     ### LBP routing to account 1010
 
     LBP POS sales should post Cash to **1010**, not **1000**.
 
-    cash acct should consistently show `1010`. Any `1000` = a pre-F-5
+    cash account should consistently show `1010`. Any `1000` is an older
     leak.
 
 ---

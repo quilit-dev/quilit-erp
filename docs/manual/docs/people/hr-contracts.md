@@ -12,7 +12,7 @@ $X/year-LBP-Y/month, with these benefits and these terms". Multiple
 contracts can exist per employee over time (renewals, role changes).
 
 The currency on the contract (salary currency) is what payroll
-snapshots into the payroll line's own currency (F-6 fix).
+snapshots into the payroll line's own currency.
 
 ## Personas
 

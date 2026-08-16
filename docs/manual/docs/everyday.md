@@ -84,7 +84,22 @@ on screen.
 
 ### Add a product
 
-**Inventory → + Add item.** Name, cost, selling price.
+**Inventory → + Add Item.** Only the **name** is required. In practice you
+want three things: the name, what it **costs** you, and what you **sell** it
+for.
+
+Worth setting while you are there:
+
+- **Min Stock Alert** — you get told when it runs low, instead of finding out
+  from a customer.
+- **Category** — you can type a new one right in the box; nothing to set up
+  first.
+- **Initial Quantity** — what is on the shelf today. Only offered when you
+  create the item; after that stock moves through purchases, sales and
+  adjustments, never by typing over the number.
+
+Cost and price each have a currency box beside them. Full detail in
+[Inventory](operations/inventory.md#adding-an-item).
 
 ### Scan a barcode
 

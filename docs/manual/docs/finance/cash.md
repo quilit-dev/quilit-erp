@@ -2,7 +2,7 @@
 
 Per-drawer daily reconciliation, separately for USD and LBP. Verifies that
 physical cash matches what the system says should be there — and posts any
-variance to the GL (F-3 audit fix).
+variance to the ledger.
 
 ## Purpose
 
@@ -12,7 +12,7 @@ expected cash, counted cash, variance.
 
 The system computes "expected" from real activity (cash payments + cash
 expenses dated that day). The cashier counts the physical cash. Variance =
-counted − expected. The F-3 audit fix posts that variance to the GL.
+counted − expected. The system posts that variance to the ledger.
 
 ## Personas
 
@@ -26,8 +26,8 @@ counted − expected. The F-3 audit fix posts that variance to the GL.
 ## Quick reference
 
 - **One drawer is auto capture** — receives all cash transactions that don't specify a drawer
-- **Per-currency reconciliation** — USD and LBP counted separately (Phase 4 of multi-currency)
-- **Variance posting** — F-3 audit fix: closes → GL post to 6910 Cash Short & Over
+- **Per-currency reconciliation** — USD and LBP are counted separately
+- **Variance posting** — closing a drawer posts any difference to 6910 Cash Short & Over
 - **Thresholds** for variance alerts: ≥ $5 USD or ≥ 100,000 LBP triggers notification
 - **Status**: only `open` (active reconciliation) or `closed` (finalized)
 
@@ -73,7 +73,7 @@ counted − expected. The F-3 audit fix posts that variance to the GL.
     2. Count physical LBP bills → enter **Counted LBP**
     3. Click **Close**
 
-    The system posts the variance to the GL automatically (F-3 fix).
+    The system posts the variance to the ledger automatically.
 
     | Variance | GL post |
     |---|---|
@@ -162,12 +162,12 @@ counted − expected. The F-3 audit fix posts that variance to the GL.
     Sum these counted cash values across drawers — should equal the
     `1000 Cash & Bank` GL balance at the same point in time.
 
-    ### Variance posting check (F-3 verification)
+    ### Checking variances were posted
 
     Every closed reconciliation with a non-trivial variance should have a
     matching entry.
 
-    An empty entry column with a non-zero variance = a pre-F-3 leak (or
+    An empty entry column with a non-zero variance means nothing was posted (or
     an LBP variance with no exchange rate, which is the documented
     no-post case).
 

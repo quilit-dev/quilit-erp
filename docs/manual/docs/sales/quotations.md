@@ -95,7 +95,7 @@ documented variance from) the price the approver authorised here.
 
     `approve` is used by **approval policies** — e.g. "quotations with
     discount > 15% need Sales Manager approval before they can be sent".
-    See Approvals (Phase 5).
+    See [Approvals](../people/approvals.md).
 
     ### Numbering
 
@@ -111,7 +111,7 @@ documented variance from) the price the approver authorised here.
     - tax amount — computed
 
     The snapshot means a tax rate change next year won't retroactively
-    alter old quotes. See **Tax Rates** (Phase 4).
+    alter old quotes. See [Tax](../finance/tax.md).
 
     ### Approval policies that gate sending
 
@@ -122,7 +122,7 @@ documented variance from) the price the approver authorised here.
     - Condition: `total > 10000`
     - Approvers: `Sales Manager`
 
-    See Approvals (Phase 5) for the policy engine.
+    See [Approvals](../people/approvals.md) for how the rules are set.
 
 === "Auditor's view"
 

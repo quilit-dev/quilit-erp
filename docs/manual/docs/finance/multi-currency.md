@@ -10,7 +10,7 @@ supported as a **secondary tender currency**. Every business amount stored
 in the database is normalised to USD — but documents capture and preserve
 the **actual tender** the operator handled.
 
-This is the IAS 21 / SME GAAP-compatible model. The F-1 through F-9 audit
+This follows the IAS 21 / SME GAAP model. The
 remediation closed every gap between the multi-currency UI and the
 single-currency books.
 
@@ -30,8 +30,8 @@ single-currency books.
 - **Rate format**: `LBP per 1 USD` (e.g. 89,000)
 - **Rate history**: every rate you set is kept, with who set it and any note
 - **Default fallback**: latest stored rate
-- **Two cash accounts**: `1000 Cash & Bank` (USD) + `1010 Cash — LBP` (F-4 fix)
-- **FX gain/loss accounts**: `4910 FX Gain` and `6920 FX Loss` (F-4)
+- **Two cash accounts**: `1000 Cash & Bank` (USD) + `1010 Cash — LBP`
+- **FX gain/loss accounts**: `4910 FX Gain` and `6920 FX Loss`
 
 ---
 
@@ -62,7 +62,7 @@ single-currency books.
     The DR Salaries posts the USD equivalent; the CR side hits 1010 Cash
     — LBP.
 
-    F-6 fix: if no exchange rate exists and an LBP contract is in the run,
+    If no exchange rate exists and an LBP contract is in the run,
     the system **refuses to post** rather than silently treating LBP face
     value as USD.
 
@@ -103,7 +103,7 @@ single-currency books.
        - LBP weakened → loss → DR 6920 / CR 1010
        - LBP strengthened → gain → DR 1010 / CR 4910
 
-    F-8 audit fix.
+
 
     ### The five multi-currency accounts
 
@@ -112,7 +112,7 @@ single-currency books.
     | 1000 | Cash & Bank | USD cash + bank balances |
     | 1010 | Cash — LBP | LBP cash holdings |
     | 4910 | Foreign Exchange Gain | Realised + unrealised gains |
-    | 6910 | Cash Short & Over | Till variances (F-3) |
+    | 6910 | Cash Short & Over | Till variances |
     | 6920 | Foreign Exchange Loss | Realised + unrealised losses |
 
 
@@ -120,9 +120,9 @@ single-currency books.
 
     ### LBP cash routing audit
 
-    Every LBP payment should debit 1010, not 1000 (F-5 verification).
+    Every LBP payment should debit 1010, not 1000.
 
-    posted to should consistently show `1010`. Any `1000` = pre-F-5
+    posted to should consistently show `1010`. Any `1000` is an older
     transaction (or a bug).
 
     ### FX revaluation effect

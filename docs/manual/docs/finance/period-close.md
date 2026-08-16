@@ -33,7 +33,7 @@ flowchart TB
 
 For every drawer with activity in the period: open Cash → pick drawer →
 reconcile for each business date. Close each reconciliation with the
-counted USD + LBP balances. The F-3 fix posts any variance to **6910 Cash
+counted USD and LBP balances. Any variance posts to **6910 Cash
 Short & Over** automatically.
 
 Verify there are no open reconciliations.

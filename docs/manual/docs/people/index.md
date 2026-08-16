@@ -5,7 +5,7 @@ Eight modules that manage the human and procedural side of the business.
 | Page | What it covers |
 |---|---|
 | [Headline workflows](workflows.md) | Payroll · Capex approval · Hire-to-employee. Read first. |
-| [HR](hr.md) | Employees, departments, salary/title history, payroll runs (NSSF + tax + LBP per F-6), leave |
+| [HR](hr.md) | Employees, departments, salary/title history, payroll runs (NSSF, tax, LBP), leave |
 | [HR Contracts](hr-contracts.md) | Formal employment contracts with print |
 | [HR Activities](hr-activities.md) | Per-employee personal calendar with reminders |
 | [Recruitment](recruitment.md) | Positions, applicants, interviews, offers, hire conversion |
@@ -61,7 +61,7 @@ flowchart LR
 
 | Module | Reads/writes to |
 |---|---|
-| HR payroll | Expenses + Accounting (F-6 multi-currency posting) |
+| HR payroll | Expenses and Accounting, in either currency |
 | HR activities | CRM activities (separate tables, same UX) |
 | Recruitment | HR (on conversion → new employee) |
 | Approvals | Expenses, Purchases, Invoices, Projects, Fixed Assets |

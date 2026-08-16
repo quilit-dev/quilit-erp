@@ -119,7 +119,7 @@ flowchart LR
     Every transfer leaves two stock movements — an "out" at the source and
     an "in" at the destination — plus the transfer itself, recording who
     dispatched it, who received it, when, and any reason it was
-    cancelled. See [Operations → Warehouses](../operations/index.md) (Phase 3).
+    cancelled. See [Operations → Warehouses](../operations/index.md).
 
 ---
 

@@ -18,7 +18,7 @@ already has.
 | **Expenses** | Per-category, per-project, per-month breakdown |
 | **Pipeline** | CRM funnel: leads, deals, conversion rates by source |
 | **VAT** | Output / input VAT by rate, net VAT due |
-| **Inventory by Warehouse** | Per-warehouse SKU count, quantity, value (Phase 3 add) |
+| **Inventory by Warehouse** | Per-warehouse item count, quantity and value |
 
 ## Personas
 
@@ -53,8 +53,8 @@ already has.
 
     The headline. For the selected period.
 
-    - Total income (cash-basis from `invoice payments.amount`)
-    - Total expenses (from `expenses.amount`)
+    - Total income (cash basis, from payments received)
+    - Total expenses (from your expenses)
     - Net profit
     - Profit margin
     - 12-month bar chart (income vs. expenses)
@@ -139,7 +139,7 @@ already has.
 
     ### Inventory by Warehouse Report
 
-    Phase 3 addition. Per-warehouse.
+    Broken down per warehouse.
 
     - SKU count
     - Quantity total

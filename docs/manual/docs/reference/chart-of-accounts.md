@@ -21,9 +21,9 @@ database — these are the codes the GL engine actually uses.
 | Code | Name | Subtype | Used by |
 |---|---|---|---|
 | `1000` | Cash & Bank | Current Asset | USD cash + bank balances; default cash account |
-| `1010` | Cash — LBP | Current Asset | LBP cash holdings — F-4 multi-currency fix |
+| `1010` | Cash — LBP | Current Asset | LBP cash holdings |
 | `1100` | Accounts Receivable | Current Asset | Informational — system runs cash-basis |
-| `1200` | Inventory | Current Asset | Perpetual inventory — purchases DR here, sales DR COGS CR here (F-2(b)) |
+| `1200` | Inventory | Current Asset | Perpetual inventory — purchases DR here, sales DR COGS CR here |
 | `1500` | Fixed Assets | Non-Current Asset | Capital register at acquisition cost |
 | `1510` | Accumulated Depreciation | Contra Asset (credit-normal) | Auto-posted monthly from the monthly depreciation run |
 
@@ -48,19 +48,19 @@ database — these are the codes the GL engine actually uses.
 |---|---|---|---|
 | `4000` | Sales Revenue | Operating Income | Every invoice payment + every POS sale |
 | `4900` | Other Income | Other Income | Asset disposal gains |
-| `4910` | Foreign Exchange Gain | Other Income | FX revaluation gains — F-4 multi-currency fix |
+| `4910` | Foreign Exchange Gain | Other Income | FX revaluation gains |
 
 ### Cost of Goods Sold (debit-normal)
 
 | Code | Name | Subtype | Used by |
 |---|---|---|---|
-| `5000` | Cost of Goods Sold | Cost of Sales | DR'd on every sale of stock-backed items (F-2 fix) |
+| `5000` | Cost of Goods Sold | Cost of Sales | Debited on every sale of an item you hold in stock |
 
 ### Operating Expenses (debit-normal)
 
 | Code | Name | Subtype | Used by |
 |---|---|---|---|
-| `6000` | Salaries & Wages | Operating Expense | Payroll mark-paid (F-6 multi-currency) |
+| `6000` | Salaries & Wages | Operating Expense | Payroll, when marked paid, in either currency |
 | `6100` | Rent | Operating Expense | Expense category `Rent` |
 | `6200` | Utilities | Operating Expense | Expense category `Utilities` |
 | `6300` | Depreciation Expense | Operating Expense | Per-asset monthly auto-post |
@@ -73,13 +73,13 @@ database — these are the codes the GL engine actually uses.
 | `6860` | Subscriptions | Operating Expense | Expense category `Subscription` |
 | `6870` | Permits & Fees | Operating Expense | Expense category `Permits` |
 | `6900` | General & Other Expense | Operating Expense | Default for uncategorised; asset disposal losses |
-| `6910` | Cash Short & Over | Operating Expense | F-3 cash variance posting |
+| `6910` | Cash Short & Over | Operating Expense | Till variances when a drawer is counted |
 
 ### Other Expense
 
 | Code | Name | Subtype | Used by |
 |---|---|---|---|
-| `6920` | Foreign Exchange Loss | Other Expense | FX revaluation losses — F-4 fix |
+| `6920` | Foreign Exchange Loss | Other Expense | FX revaluation losses |
 
 ## Source-event → account map
 

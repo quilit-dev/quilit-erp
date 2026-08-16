@@ -66,10 +66,6 @@ cash-in − cash-out`, computed per currency.
 
 ## F
 
-**F-1 through F-9** — The findings from the multi-currency audit
-remediation. Each is a specific audit fix applied to the codebase. See
-[Multi-currency](../finance/multi-currency.md) for the full reference.
-
 **FEFO (First Expired First Out)** — Costing order for lot-tracked items:
 consume the lot expiring soonest first.
 
@@ -149,7 +145,7 @@ payroll computation.
 
 **Per-warehouse stock** — how much of an item a given warehouse holds.
 The sum of the quantity in that warehouse across warehouses equals the
-company-wide `inventory.quantity`.
+the item's company-wide total.
 
 **Period lock** — the month's lock date flag. Once set, no new
 journal entry can post with entry date in that month.

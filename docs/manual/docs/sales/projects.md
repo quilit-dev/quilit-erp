@@ -47,6 +47,31 @@ maintenance contract — all fit this model.
 
     Filter by status to see "what's running right now".
 
+    ### Creating a project
+
+    Most projects arrive by themselves: when a customer accepts a quotation,
+    choose **Convert to project** and everything carries across — the client,
+    the value, the line items. That is the normal route, and it keeps the
+    quote and the project linked.
+
+    To start one from scratch, **Projects → + New Project**.
+
+    | Field | What to put |
+    |---|---|
+    | **Project Name** | Required. |
+    | **Client** | Who the work is for. |
+    | **Status** | Where it stands — see the list under Quick reference. |
+    | **Location** | Where the work happens. |
+    | **Start / End Date** | The planned span. |
+    | **Estimated Cost** | What you expect it to cost you. |
+    | **Expected Revenue** | What the customer is paying. |
+    | **Description** | Anything the team needs to know. |
+
+    Those two money fields are what the margin figures are built from.
+    Expected revenue minus estimated cost is the profit you are planning for,
+    and the project page warns you as real spending approaches the estimate. A
+    project with both left empty still runs — you just get no warning.
+
     ### Project detail — six tabs
 
     1. **Overview** — budget, dates, location, description, **margin
@@ -65,7 +90,7 @@ maintenance contract — all fit this model.
     | Operation | Where |
     |---|---|
     | Mark a milestone reached | Project → Milestones → click reached date |
-    | Book material consumption | **Inventory → Deduct to project** (warehouse picker now appears, see Phase 1 Foundation → Multi-warehouse access) |
+    | Book material consumption | **Inventory → Deduct to project** (you pick the warehouse — see [Multi-warehouse access](../foundation/warehouse-access.md)) |
     | Add an expense | **Expenses → + Add expense** with this project picked |
     | Bill a milestone | **+ New invoice from this project** (top right) |
     | Mark completed | Status dropdown → Completed |
@@ -80,7 +105,13 @@ maintenance contract — all fit this model.
     | Estimated cost | estimated cost (your budget at start) |
     | Actual cost | Sum of expenses + materials valued at unit cost |
 
-    The **margin indicator** turns red when actual cost passes the estimate.
+    Two things go red on the project page, and they mean different things.
+
+    - **Expected profit** turns red when it is negative — the project is
+      priced to lose money.
+    - **Total expenses** turns red once spending passes **90% of the
+      estimated cost**. That is the early warning: it fires while there is
+      still budget left, not after it is gone.
 
 === "Administrator's view"
 
@@ -116,7 +147,7 @@ maintenance contract — all fit this model.
     It writes:
     - an expense in the Materials category, against this project
     - a stock movement recording the goods used on the project, and where from
-    - `inventory.quantity` decrement (company-wide)
+    - the item's company-wide total goes down
     - the quantity in that warehouse decrement (per-warehouse)
     - cost layers draw-down (FIFO/LIFO/avg per costing method)
 
