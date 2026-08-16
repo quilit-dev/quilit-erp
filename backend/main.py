@@ -306,7 +306,9 @@ def health():
 # present next to the app we serve it + a client-side-routing fallback. Declared
 # AFTER every /api router, so the API always wins; with no build present it falls
 # back to a JSON banner (API-only / test runs for non-SPA paths).
+from fastapi import Depends, Request
 from fastapi.responses import FileResponse, RedirectResponse, Response
+from database import get_db
 
 STATIC_DIR = os.environ.get("STATIC_DIR") or os.path.join(
     os.path.dirname(os.path.dirname(os.path.abspath(__file__))), "static")
@@ -362,9 +364,111 @@ def resolve_static_path(full_path: str, static_dir: str):
     return ("spa", None)
 
 
+SHARE_URL_PREFIX = "d"
+
+
+def _esc(v) -> str:
+    return (str(v or "").replace("&", "&amp;").replace("<", "&lt;")
+            .replace(">", "&gt;").replace('"', "&quot;"))
+
+
+def build_share_head(preview: dict | None, origin: str, has_logo: bool) -> str:
+    """The <meta> block a chat app reads when a customer is sent a share link.
+
+    WhatsApp's crawler does not run JavaScript, so nothing React renders can
+    reach it — these tags have to be in the HTML the server returns or the link
+    arrives as a bare URL with no card at all.
+
+    What the card says is a privacy decision, not a marketing one. It names the
+    document and who issued it and stops there: previews surface in chat lists
+    and on locked phones, so an amount or a balance would be shown to whoever
+    picks up the handset. Anyone who actually opens the link sees everything;
+    the person glancing at a notification does not.
+
+    `og:image` is the TENANT's logo, absolute because a crawler has no base URL,
+    and omitted entirely when they have none — falling back to the vendor mark
+    would put Quilit's branding in the customer's chat over their supplier's
+    invoice. `twitter:card=summary` asks for the small square crop a logo
+    survives, rather than the wide banner a photo wants.
+    """
+    if preview:
+        number = _esc(preview.get("number"))
+        label = _esc(preview.get("label")) or "Document"
+        company = _esc(preview.get("company"))
+        title = " ".join(x for x in (label, number) if x)
+        if company:
+            title = f"{title} — {company}"
+        desc = f"Tap to view your {label.lower()}."
+    else:
+        # An invalid, revoked or expired token gets a card that reveals nothing
+        # — including whether it was ever a real link.
+        title, desc = "Shared document", "This link is no longer available."
+
+    tags = [
+        f'<meta property="og:title" content="{title}">',
+        f'<meta property="og:description" content="{desc}">',
+        '<meta property="og:type" content="website">',
+        f'<meta name="description" content="{desc}">',
+        f'<title>{title}</title>',
+    ]
+    if preview and has_logo:
+        tags += [
+            f'<meta property="og:image" content="{_esc(origin)}/api/settings/logo">',
+            '<meta name="twitter:card" content="summary">',
+        ]
+    else:
+        tags.append('<meta name="twitter:card" content="summary">')
+    return "\n    ".join(tags)
+
+
+def inject_share_head(html: str, head: str) -> str:
+    """Put the card's tags in, and take the app's own <title> out.
+
+    The shell ships a <title>; leaving it would give the document two, and a
+    crawler that picks the first one would caption a customer's invoice
+    "ERP System".
+    """
+    import re
+    html = re.sub(r"<title>.*?</title>", "", html, count=1, flags=re.S)
+    return html.replace("<head>", "<head>\n    " + head, 1)
+
+
 if _HAS_SPA:
     _NO_CACHE = {"Cache-Control": "no-store, no-cache, must-revalidate",
                  "Pragma": "no-cache", "Expires": "0"}
+
+    # Registered BEFORE the catch-all so it wins, and separate from it so the
+    # database is touched only by share links — putting a DB dependency on the
+    # catch-all would open a connection for every image and script tag.
+    #
+    # HEAD as well as GET for the same reason the catch-all takes it, plus one
+    # of its own: some link scanners HEAD a URL before fetching it.
+    @app.api_route("/" + SHARE_URL_PREFIX + "/{rest:path}",
+                   methods=["GET", "HEAD"])
+    def serve_share_page(rest: str, request: Request,
+                         db=Depends(get_db)):
+        from routers.communications import share_preview
+        from routers.settings import _stored_logo
+
+        # /d/<number>/<token> and the older /d/<token>: the token is the last
+        # segment either way, and the number ahead of it is cosmetic.
+        token = (rest or "").strip("/").split("/")[-1]
+        preview = None
+        has_logo = False
+        try:
+            preview = share_preview(db, token)
+            has_logo = bool(preview) and _stored_logo(db) is not None
+        except Exception:
+            # A preview is decoration. If anything here fails the customer must
+            # still get the page — the card is what degrades, not the document.
+            preview = None
+
+        origin = str(request.base_url).rstrip("/")
+        with open(os.path.join(STATIC_DIR, "index.html"),
+                  encoding="utf-8") as fh:
+            shell = fh.read()
+        html = inject_share_head(shell, build_share_head(preview, origin, has_logo))
+        return Response(html, media_type="text/html", headers=_NO_CACHE)
 
     # HEAD as well as GET: this is the app's static file server, and a static
     # server that 405s a HEAD is broken. FastAPI does not add HEAD to a GET

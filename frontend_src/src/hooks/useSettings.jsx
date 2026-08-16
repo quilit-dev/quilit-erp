@@ -15,6 +15,7 @@
  * app no longer keeps a token in localStorage.
  */
 import { createContext, useContext, useState, useEffect } from 'react';
+import { applyTenantTitle } from '../utils/appIdentity.js';
 
 const SettingsContext = createContext({
   settings: null, exchangeRate: null, taxRates: [], reload: () => {},
@@ -63,6 +64,12 @@ export function SettingsProvider({ children }) {
       /* ignore — document forms fall back to no tax options */
     }
   }
+
+  // The tab says whose system this is. Only possible once signed in — the
+  // company name needs a session — so before that it stays the product name.
+  useEffect(() => {
+    applyTenantTitle(settings?.company_name);
+  }, [settings?.company_name]);
 
   useEffect(() => {
     load();

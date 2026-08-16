@@ -383,6 +383,59 @@ def revoke(share_id: int,
 
 # ── the client-facing endpoint (no auth) ─────────────────────────────────────
 
+def share_preview(db, token: str):
+    """The handful of facts a chat app may show ABOUT a share link, or None.
+
+    WhatsApp, Signal and the rest fetch the URL themselves and render a card
+    from its Open Graph tags — in chat lists and on lock screens, where anyone
+    holding the phone sees it. So this deliberately returns the document's
+    IDENTITY and nothing about the money: a label, a number, the company that
+    issued it. The amount, the balance and the client's details stay behind the
+    token, which is the thing the customer actually has to open.
+
+    Same flat failure as `public_document`: an invalid, revoked or expired token
+    returns None and the caller renders a generic card, so a prober cannot learn
+    from the preview that a token was once real.
+
+    Does NOT count as a view — the crawler is not the customer, and letting it
+    tick the counter would report the invoice as read before anybody opened it.
+    """
+    if not token or len(token) < 20:
+        return None
+    try:
+        share = db.execute(
+            "SELECT entity_type, entity_id, revoked_at, expires_at "
+            "FROM document_shares WHERE token_hash = ?",
+            (comms.hash_token(token),)).fetchone()
+    except sqlite3.Error:
+        return None
+    if not share:
+        return None
+    share = dict(share)
+    if share.get("revoked_at"):
+        return None
+    if share.get("expires_at") and share["expires_at"] < _now():
+        return None
+
+    cfg = _DOC.get(share["entity_type"])
+    if not cfg:
+        return None
+    try:
+        row = db.execute(
+            f"SELECT {cfg['number']} AS n FROM {cfg['table']} WHERE id = ?",
+            (share["entity_id"],)).fetchone()
+        name = db.execute(
+            "SELECT value FROM settings WHERE key = 'company_name'").fetchone()
+    except sqlite3.Error:
+        return None
+
+    return {
+        "label": cfg["label"],
+        "number": (dict(row).get("n") if row else "") or "",
+        "company": (dict(name).get("value") if name else "") or "",
+    }
+
+
 @router.get("/public/{token}")
 def public_document(token: str, db: sqlite3.Connection = Depends(get_db)):
     """Return exactly one document to whoever holds a valid token.
