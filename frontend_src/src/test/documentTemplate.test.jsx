@@ -12,6 +12,7 @@
 import { describe, test, expect } from 'vitest';
 import { buildInvoiceHTML, buildQuotationHTML } from '../utils/exportUtils';
 import { themeFor, THEMES } from '../utils/documentThemes';
+import { amountInWords } from '../utils/numberToWords';
 
 const BASE = {
   company_name: 'Hajo Sign',
@@ -339,15 +340,44 @@ describe('total in words', () => {
     expect(html).toContain('One thousand eight hundred Dollars only');
   });
 
-  test('follows the currency the document is shown in', () => {
-    // The document may be rendered in the secondary currency; the words have to
-    // describe THAT figure, not the stored USD one.
+  // This is THE assertion for this feature, and the first version of it was
+  // worthless: it checked the words said "Lebanese Pounds" and never that they
+  // described the printed figure. An invoice went out reading
+  // "Balance LBP 1,780,000" over "Twenty Lebanese Pounds only" — right
+  // currency, wrong amount — because the box converted the total and the words
+  // spelled the unconverted one. Assert the number, not the noun.
+  const grandTotalOf = html => {
+    const row = html.split('totals-row grand')[1] || '';
+    const m = row.match(/>([^<]*[\d,][^<]*)<\/span>\s*<\/div>/);
+    return (m ? m[1] : '').replace(/[^\d.]/g, '');
+  };
+  const wordsOf = html => (html.match(/([A-Z][^<]*? only)/) || [])[1] || '';
+
+  test.each([
+    ['no conversion, USD',   undefined,                        'USD'],
+    ['converted to LBP',     { rate: 89000, secondary: 'LBP' }, 'LBP'],
+    ['a different rate',     { rate: 15000, secondary: 'LBP' }, 'LBP'],
+  ])('the words describe the printed figure — %s', (_label, exchangeRate, code) => {
     const html = buildInvoiceHTML(
       INVOICE, { ...BASE, show_total_words: '1' }, null,
+      exchangeRate ? { displayCurrency: 'LBP', exchangeRate } : {}).html;
+
+    const printed = Number(grandTotalOf(html));
+    expect(printed, 'could not read the grand total back out').toBeGreaterThan(0);
+
+    // Spelled independently from the figure the document actually prints.
+    expect(wordsOf(html)).toBe(amountInWords(printed, code));
+  });
+
+  test('the reported case: 20 USD at 89,000 is not "twenty"', () => {
+    const html = buildInvoiceHTML(
+      { ...INVOICE, items: [{ name: 'x', quantity: 1, unit_price: 20 }] },
+      { ...BASE, show_total_words: '1' }, null,
       { displayCurrency: 'LBP', exchangeRate: { rate: 89000, secondary: 'LBP' } }).html;
 
-    expect(html).toContain('Lebanese Pounds only');
-    expect(html).not.toContain('Dollars only');
+    expect(html).toContain('1,780,000');
+    expect(html).toContain('One million seven hundred eighty thousand Lebanese Pounds only');
+    expect(html).not.toContain('Twenty Lebanese Pounds only');
   });
 
   test('appears on quotations as well', () => {

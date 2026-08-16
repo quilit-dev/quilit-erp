@@ -496,9 +496,16 @@ function docShell(theme, { C, logo, title, client, rows, statusHtml, defaultHead
 }
 
 /** The grand total in words, when the company has asked for it. */
-function totalWordsHTML(theme, total, currencyCode, C) {
+// `total` is in the document's BASE currency, like every other figure here, and
+// is converted through CC exactly as the totals box converts it. Taking the
+// currency context rather than a bare code is deliberate: passing the code
+// alone let the words be spelled from the unconverted number while the box
+// printed the converted one, so an invoice showing a balance of LBP 1,780,000
+// read "Twenty Lebanese Pounds only" underneath — the right currency, the wrong
+// amount, which is the precise failure this line exists to make impossible.
+function totalWordsHTML(theme, total, CC, C) {
   if (!C.showTotalWords) return '';
-  const words = amountInWords(total, currencyCode);
+  const words = amountInWords(CC.conv(total), CC.code);
   if (!words) return '';
   return theme
     ? theme.words(words)
@@ -541,7 +548,7 @@ export function buildQuotationHTML(quotation, settings, logoDataURL = null, opts
   const body = `<table>${itemTableHTML(items, C, docDiscountPct)}</table>
 
   ${totalsBoxHTML(subtotal, totalDiscount, totalTax, grandTotal, C)}
-  ${totalWordsHTML(theme, grandTotal, CC.code, C)}
+  ${totalWordsHTML(theme, grandTotal, CC, C)}
   ${rateNote}
 
   <div class="band amber"><span class="band-label">Valid Until:</span> ${validUntil} (${C.paymentDays} days from issue). Prices are subject to change thereafter.</div>
@@ -676,7 +683,7 @@ export function buildInvoiceHTML(invoice, settings, logoDataURL = null, opts = {
   const body = `<table>${itemTableHTML(items, C, docDiscountPct)}</table>
 
   ${totalsBoxHTML(subtotal, totalDiscount, totalTax, grandTotal, C, extraTotalsRows)}
-  ${totalWordsHTML(theme, grandTotal, CC.code, C)}
+  ${totalWordsHTML(theme, grandTotal, CC, C)}
   ${rateNote}
 
   ${isPaid
