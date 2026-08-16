@@ -24,6 +24,7 @@ from approval_engine import evaluate_and_apply
 from utils import _now, _today, get_tax_context, resolve_line_tax, money, notify
 import accounting
 import branch_access
+import line_items
 import sqlite3
 import uuid
 from datetime import datetime, timedelta
@@ -387,7 +388,7 @@ def get_invoice(
 
     d = _enrich(dict(row), db)
     d["payments"] = [dict(p) for p in payments]
-    d["items"]    = [dict(i) for i in items]
+    d["items"]    = line_items.attach_barcodes(db, [dict(i) for i in items])
     d["amounts_locked"] = _has_payments(db, invoice_id)
     return d
 

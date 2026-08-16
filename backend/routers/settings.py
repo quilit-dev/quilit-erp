@@ -65,6 +65,11 @@ DEFAULTS = {
     "footer_text":         "Thank you for your business.",
     "show_discount_col":   "0",
     "show_tax_col":        "1",
+    # Off by default: both add width or height to a document that already fits,
+    # and a business that does not stock barcoded goods would only be puzzled by
+    # an empty column. Switched on per company in Settings → Document Settings.
+    "show_barcode_col":    "0",
+    "show_total_words":    "0",
     # Setup
     "setup_complete":      "0",
 }
@@ -101,6 +106,11 @@ class SettingsUpdate(BaseModel):
     footer_text:        Optional[str] = None
     show_discount_col:  Optional[str] = None
     show_tax_col:       Optional[str] = None
+    show_barcode_col:   Optional[str] = None
+    show_total_words:   Optional[str] = None
+    # `document_template` is deliberately absent for the same reason as
+    # `enabled_modules` below: it is a vendor decision, and `extra: forbid`
+    # turns an attempt to set it into a 422 rather than a silent no-op.
     # `enabled_modules` is deliberately absent — it lives in vendor_config.py
     # as an immutable constant. A PUT body containing it is rejected by
     # pydantic with 422 ("extra field not permitted") via model_config below.
@@ -148,6 +158,12 @@ def _get_all(db: sqlite3.Connection) -> dict:
     # backed up server-side, so the UI hides that whole section when this is false.
     from database import DB_BACKEND
     data["local_backup"] = DB_BACKEND in ("sqlite", "sqlite3")
+    # Which letterhead invoices and quotations print on. Resolved from the
+    # tenant, never from the settings table, and absent from SettingsUpdate —
+    # so a stale row cannot select a design and a PUT cannot set one. A tenant
+    # granting itself another company's branding would be a real problem, not a
+    # cosmetic one, which is why this is vendor-side.
+    data["document_template"] = vendor_config.document_template()
     # The email feature was removed. Drop any stale email/SMTP rows left in the
     # DB from a prior version so old secrets never reach the browser (the rows
     # are inert; this is just defensive — they're harmless if present).

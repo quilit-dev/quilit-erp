@@ -19,6 +19,7 @@ from utils import _now, get_tax_context, resolve_line_tax, money, notify
 from routers.projects import bump_project_status
 from approval_engine import evaluate_and_apply
 import branch_access
+import line_items
 import sqlite3
 from datetime import datetime, timedelta
 
@@ -243,7 +244,7 @@ def get_quotation(
     ).fetchall()
 
     result = dict(row)
-    result["items"] = [dict(i) for i in items]
+    result["items"] = line_items.attach_barcodes(db, [dict(i) for i in items])
     result["total_with_tax"] = round(float(result["total"] or 0) + float(result["tax_total"] or 0), 2)
     return result
 

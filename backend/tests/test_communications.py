@@ -82,6 +82,40 @@ def test_public_payload_withholds_client_contact_details(client, invoice):
     assert "71234567" not in blob.replace(" ", "")
 
 
+def test_the_line_barcode_travels_but_the_row_id_does_not(client, db):
+    """A barcode is printed on the customer's own copy, so it belongs here.
+
+    The inventory row id used to resolve it does NOT: it is an internal handle,
+    and the allow-list exists to stop exactly that kind of field riding along
+    with something legitimate.
+    """
+    item = client.post("/api/inventory/", json={
+        "name": "Flex Roll 320cm", "barcode": "1000387",
+        "unit_cost": 50, "sale_price": 120}).json()
+    cust = client.post("/api/clients/", json={
+        "name": "Acme Ltd", "phone": "+961 71 234567"}).json()
+    inv = client.post("/api/invoices/", json={
+        "client_id": cust["id"], "amount": 120,
+        "items": [{"name": "Flex Roll 320cm", "quantity": 1, "unit_price": 120,
+                   "inventory_id": item["id"]}],
+    }).json()
+
+    token = _token_of(_send_whatsapp(client, inv))
+    line = client.get(f"/api/communications/public/{token}").json()["items"][0]
+
+    assert line["barcode"] == "1000387"
+    assert "inventory_id" not in line
+
+
+def test_a_hand_typed_line_carries_no_barcode(client, invoice):
+    """Not another product's. A line with no stock link must resolve to null —
+    a wrong code on a document is worse than none, because it scans."""
+    token = _token_of(_send_whatsapp(client, invoice))
+    line = client.get(f"/api/communications/public/{token}").json()["items"][0]
+
+    assert line["barcode"] is None
+
+
 @pytest.mark.parametrize("bad", [
     "short",
     "x" * 43,

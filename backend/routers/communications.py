@@ -18,6 +18,7 @@ from pydantic import BaseModel
 from typing import Optional
 
 import communications as comms
+import line_items
 from database import get_db
 from permissions import require_perm
 from utils import _now
@@ -73,10 +74,14 @@ def _load_document(db, entity_type: str, entity_id: int) -> dict:
     doc = dict(row)
     try:
         items = db.execute(
-            f"SELECT name, quantity, unit_price, discount, discount_pct, tax_rate "
+            f"SELECT name, quantity, unit_price, discount, discount_pct, tax_rate, "
+            f"inventory_id "
             f"FROM {cfg['items']} "
             f"WHERE {cfg['fk']} = ? ORDER BY id", (entity_id,)).fetchall()
-        doc["items"] = [dict(i) for i in items]
+        # inventory_id is selected only to resolve the barcode; it is dropped
+        # from the payload below, since an internal row id tells an outsider
+        # nothing useful and is not theirs to have.
+        doc["items"] = line_items.attach_barcodes(db, [dict(i) for i in items])
     except sqlite3.Error:
         doc["items"] = []
     return doc
@@ -94,7 +99,8 @@ def _company(db) -> dict:
               "company_tax_number", "company_reg_number",
               "bank_name", "bank_account", "bank_iban", "bank_swift",
               "default_currency", "currency", "footer_text", "payment_terms_days",
-              "tax_enabled", "default_tax_rate", "show_tax_col", "show_discount_col")
+              "tax_enabled", "default_tax_rate", "show_tax_col", "show_discount_col",
+              "show_barcode_col", "show_total_words")
     out = {"name": "", "address": "", "phone": "", "email": "", "currency": "USD"}
     try:
         rows = db.execute(
@@ -111,6 +117,13 @@ def _company(db) -> dict:
         })
     except sqlite3.Error:
         pass
+    # Which letterhead to print on. Resolved from the tenant rather than read
+    # from the settings table — same source the supplier's own export uses, so
+    # the copy a customer opens is the copy that was sent. Without this the
+    # customer would get the generic design for a document the supplier printed
+    # on its own letterhead.
+    import vendor_config
+    out["document_template"] = vendor_config.document_template()
     return out
 
 
@@ -445,10 +458,14 @@ def public_document(token: str, db: sqlite3.Connection = Depends(get_db)):
         "client": {"name": doc.get("client_name")},
         "company": company,
         "payments": payments,
+        # `barcode` is here and `inventory_id` is not, deliberately. The barcode
+        # is printed on the customer's own copy when the company prints it; the
+        # row id behind it is internal and tells an outsider nothing they need.
         "items": [{"name": i.get("name"),
                    "quantity": i.get("quantity"),
                    "unit_price": i.get("unit_price"),
                    "discount": i.get("discount"),
                    "discount_pct": i.get("discount_pct"),
-                   "tax_rate": i.get("tax_rate")} for i in doc["items"]],
+                   "tax_rate": i.get("tax_rate"),
+                   "barcode": i.get("barcode")} for i in doc["items"]],
     }

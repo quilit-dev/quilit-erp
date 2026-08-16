@@ -114,3 +114,43 @@ def module_allowed(module: str) -> bool:
         return True
     parent = _MODULE_PARENT.get(module)
     return parent is not None and parent in allowed
+
+
+# ── Printed-document design ───────────────────────────────────────────────────
+# A customer can commission its own letterhead for invoices and quotations. The
+# design is one company's identity, so which tenant prints on it is a VENDOR
+# decision and lives here — alongside the module paywall and for the same
+# reason. Were it an ordinary setting, any tenant could give itself another
+# company's letterhead by writing one key, and every document it then sent
+# would carry a business's branding that does not belong to it.
+#
+# `/api/settings/` serves the resolved value so the templates can read it, but
+# it is deliberately absent from SettingsUpdate — a PUT carrying it is a 422.
+DOCUMENT_TEMPLATES = {
+    # tenant schema → template id in frontend_src/src/utils/documentThemes.js
+    "tenant_hajosign": "hajosign",
+}
+
+DEFAULT_DOCUMENT_TEMPLATE = "default"
+
+
+def document_template() -> str:
+    """Which document design this tenant's invoices and quotations print on.
+
+    `default` — the generic template every tenant shares — unless this tenant
+    has commissioned its own. Single-tenant and desktop installs have no schema
+    to key off, so they use the `DOCUMENT_TEMPLATE` env var instead.
+    """
+    try:
+        from tenant_context import IS_SCHEMA_TENANCY, current_schema
+        if IS_SCHEMA_TENANCY:
+            schema = current_schema()
+            if schema:
+                return DOCUMENT_TEMPLATES.get(schema, DEFAULT_DOCUMENT_TEMPLATE)
+    except Exception:
+        # A design is cosmetic. Never let resolving one fail a request that
+        # would otherwise have served the document.
+        pass
+
+    return (os.environ.get("DOCUMENT_TEMPLATE") or "").strip() \
+        or DEFAULT_DOCUMENT_TEMPLATE

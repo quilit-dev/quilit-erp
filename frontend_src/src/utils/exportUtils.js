@@ -7,9 +7,18 @@
  *   show_tax_col       — adds a per-line "Tax" column to PDF & Excel item tables
  *   show_discount_col  — adds a per-line "Discount" column to PDF & Excel item tables
  *                        (uses item.discount_pct if present, else document-level discount_pct)
+ *   show_barcode_col   — adds a per-line "Barcode" column, resolved server-side
+ *                        through the line's inventory link
+ *   show_total_words   — spells the grand total out beneath the totals box
+ *   document_template  — which letterhead to print on. READ-ONLY: resolved from
+ *                        the tenant in backend/vendor_config.py, never settable
+ *                        by a tenant, because a letterhead is a company's
+ *                        identity and not a preference.
  */
 import * as XLSX from 'xlsx';
 import DOMPurify from 'dompurify';
+import { themeFor } from './documentThemes';
+import { amountInWords } from './numberToWords';
 
 // Open a stored document snapshot in a new window for viewing / printing.
 // The HTML is sanitised first: snapshots are persisted server-side and any
@@ -179,6 +188,10 @@ tbody td { padding: 3.5px 5px; font-size: 9px; border-bottom: 1px solid var(--bo
 tbody td.r { text-align: right; }
 tbody td.num { font-weight: 600; font-variant-numeric: tabular-nums; }
 tbody td.seq { color: var(--text-muted); font-weight: 500; }
+/* Tabular figures and no wrap: a barcode broken across two lines cannot be
+   read back, and it is the one field on the row meant to be matched digit for
+   digit against a label on a shelf. */
+tbody td.barcode { font-variant-numeric: tabular-nums; white-space: nowrap; font-size: 8.5px; }
 .item-name { font-weight: 600; }
 .item-desc { font-size: 8px; color: var(--text-muted); margin-top: 1px; }
 .totals-wrap { display: flex; justify-content: flex-end; margin: 3px 0 8px; }
@@ -285,6 +298,8 @@ function buildCompany(s) {
     // ── Column visibility (Document Settings toggles) ─────────────────────
     showTaxCol:      s.show_tax_col        === '1',   // per-line Tax column
     showDiscountCol: s.show_discount_col   === '1',   // per-line Discount column
+    showBarcodeCol:  s.show_barcode_col    === '1',   // per-line Barcode column
+    showTotalWords:  s.show_total_words    === '1',   // total spelled out
   };
 }
 
@@ -324,14 +339,19 @@ function itemTableHTML(items, C, docDiscountPct = 0) {
   const taxOn  = C.taxOn && C.taxRate > 0;
   const hasDis = C.showDiscountCol;
   const hasTax = C.showTaxCol && taxOn;
+  const hasBar = C.showBarcodeCol;
 
-  // Shrink description to make room for extra columns
-  const descW = hasDis && hasTax ? '34%' : (hasDis || hasTax) ? '40%' : '48%';
-  const colSpan = 5 + (hasDis ? 1 : 0) + (hasTax ? 1 : 0);
+  // Shrink description to make room for extra columns. Barcode takes its 12%
+  // from here for the same reason the other two do — the row has to stay on one
+  // line, and a wrapped description is what pushes an invoice onto a second page.
+  const extras = (hasDis ? 1 : 0) + (hasTax ? 1 : 0);
+  const descW  = (extras === 2 ? 34 : extras === 1 ? 40 : 48) - (hasBar ? 12 : 0);
+  const colSpan = 5 + extras + (hasBar ? 1 : 0);
 
   const thead = `<thead><tr>
     <th style="width:5%">#</th>
-    <th style="width:${descW}">Description</th>
+    ${hasBar ? `<th style="width:12%">Barcode</th>` : ''}
+    <th style="width:${descW}%">Description</th>
     <th style="width:8%" class="r">Qty</th>
     <th style="width:14%" class="r">Unit Price</th>
     ${hasDis ? `<th style="width:10%" class="r">Discount</th>` : ''}
@@ -348,6 +368,7 @@ function itemTableHTML(items, C, docDiscountPct = 0) {
       lineCalc(item, C.taxRate, taxOn, docDiscountPct);
     return `<tr>
       <td class="seq">${i + 1}</td>
+      ${hasBar ? `<td class="barcode">${item.barcode || '—'}</td>` : ''}
       <td><div class="item-name">${item.name || '—'}</div>${item.description ? `<div class="item-desc">${item.description}</div>` : ''}</td>
       <td class="r">${qty.toLocaleString('en-US', { maximumFractionDigits: 4 })}</td>
       <td class="r">${USD(unitPrice)}</td>
@@ -401,6 +422,50 @@ function paymentInstructions(C) {
   return `<div class="band slate"><span class="band-label">Bank Details:</span> ${rows.join(' | ')}</div>`;
 }
 
+// ─── Theme composition ─────────────────────────────────────────────────────────
+// A themed document swaps three things: the masthead + header, the letterhead
+// artwork, and the footer. Everything between them — the table, the totals, the
+// bands — is the same markup either way, so a theme cannot change what the
+// document SAYS, only how it looks. That is the property worth having: a
+// letterhead is presentation, and no company's design should be able to alter
+// the figures on its own invoices.
+function docShell(theme, { C, logo, title, client, rows, statusHtml, defaultHeader, defaultInfo, body, defaultFooter }) {
+  if (!theme) {
+    // Byte-identical to the pre-theme output. Adding one company's letterhead
+    // must not restyle everybody else's documents.
+    return `<div class="page">
+  ${defaultHeader}
+
+  ${defaultInfo}
+
+  ${body}
+  <div class="content-spacer"></div>
+  ${defaultFooter}
+</div>`;
+  }
+
+  return `<div class="page">
+  ${theme.frame(logo)}
+  ${theme.open}
+    ${theme.masthead(C, logo)}
+    ${theme.header({ C, title, client, rows, statusHtml })}
+    ${body}
+    <div class="content-spacer"></div>
+  ${theme.close}
+  ${theme.footer(C)}
+</div>`;
+}
+
+/** The grand total in words, when the company has asked for it. */
+function totalWordsHTML(theme, total, currencyCode, C) {
+  if (!C.showTotalWords) return '';
+  const words = amountInWords(total, currencyCode);
+  if (!words) return '';
+  return theme
+    ? theme.words(words)
+    : `<div class="band slate"><span class="band-label">Amount in words:</span> ${words}</div>`;
+}
+
 // ═══════════════════════════════════════════════════════════════════════════════
 // QUOTATION PDF
 // ═══════════════════════════════════════════════════════════════════════════════
@@ -432,32 +497,12 @@ export function buildQuotationHTML(quotation, settings, logoDataURL = null, opts
     ? `<div class="band slate"><span class="band-label">Currency Note:</span> Amounts are shown in ${CC.code}, converted from ${C.currency} at 1 ${C.currency} = ${CC.rate.toLocaleString('en-US')} ${CC.code}.</div>`
     : '';
 
-  const html = `<!DOCTYPE html><html lang="en"><head><meta charset="UTF-8"><title>Quotation ${docNo}</title><style>${SHARED_CSS}</style></head><body>
-<div class="page">
-  <div class="doc-header">
-    <div>${logo}<div class="company-name">${C.name}</div><div class="company-meta">${companyDetails(C)}</div></div>
-    <div style="text-align:right">
-      <div class="doc-title">Quotation</div>
-      <div class="doc-ref">${docNo}</div>
-      <div class="doc-dates">Issued: <strong>${issueDate}</strong> • Valid: <strong>${validUntil}</strong><br>Terms: <strong>Net ${C.paymentDays} Days</strong> • Currency: <strong>${CC.code}</strong></div>
-      <div class="status-badge" style="${statusStyle}">${status}</div>
-    </div>
-  </div>
+  const theme = themeFor(settings);
 
-  <div class="info-grid">
-    <div class="info-col"><div class="info-label">Prepared For</div>${clientHTML(client)}</div>
-    <div class="info-col">
-      <div class="info-label">Document Info</div>
-      ${quotation.project_name ? `<div class="meta-row"><span class="meta-key">Project</span><span>${quotation.project_name}</span></div>` : ''}
-      <div class="meta-row"><span class="meta-key">Ref</span><span>${docNo}</span></div>
-      <div class="meta-row"><span class="meta-key">Issued</span><span>${issueDate}</span></div>
-      <div class="meta-row"><span class="meta-key">Expires</span><span>${validUntil}</span></div>
-    </div>
-  </div>
-
-  <table>${itemTableHTML(items, C, docDiscountPct)}</table>
+  const body = `<table>${itemTableHTML(items, C, docDiscountPct)}</table>
 
   ${totalsBoxHTML(subtotal, totalDiscount, totalTax, grandTotal, C)}
+  ${totalWordsHTML(theme, grandTotal, CC.code, C)}
   ${rateNote}
 
   <div class="band amber"><span class="band-label">Valid Until:</span> ${validUntil} (${C.paymentDays} days from issue). Prices are subject to change thereafter.</div>
@@ -474,15 +519,48 @@ export function buildQuotationHTML(quotation, settings, logoDataURL = null, opts
         <div><div class="sig-title">Authorized by ${C.name}</div><div class="sig-line">Signature: _______________ Date: ____/____/______</div></div>
       </div>
     </div>
-  </div>
+  </div>`;
 
-  <div class="content-spacer"></div>
-  <div class="doc-footer">
+  const shell = docShell(theme, {
+    C, logo: logoDataURL, title: 'Quotation', client, body,
+    statusHtml: `<div class="status-badge" style="${statusStyle}">${status}</div>`,
+    rows: [
+      { label: 'Date',     value: issueDate },
+      { label: 'Ref',      value: docNo },
+      { label: 'Valid until', value: validUntil },
+      { label: 'Terms',    value: `Net ${C.paymentDays} days` },
+      { label: 'Currency', value: CC.code },
+      { label: 'Project',  value: quotation.project_name || '' },
+    ],
+    defaultHeader: `<div class="doc-header">
+    <div>${logo}<div class="company-name">${C.name}</div><div class="company-meta">${companyDetails(C)}</div></div>
+    <div style="text-align:right">
+      <div class="doc-title">Quotation</div>
+      <div class="doc-ref">${docNo}</div>
+      <div class="doc-dates">Issued: <strong>${issueDate}</strong> • Valid: <strong>${validUntil}</strong><br>Terms: <strong>Net ${C.paymentDays} Days</strong> • Currency: <strong>${CC.code}</strong></div>
+      <div class="status-badge" style="${statusStyle}">${status}</div>
+    </div>
+  </div>`,
+    defaultInfo: `<div class="info-grid">
+    <div class="info-col"><div class="info-label">Prepared For</div>${clientHTML(client)}</div>
+    <div class="info-col">
+      <div class="info-label">Document Info</div>
+      ${quotation.project_name ? `<div class="meta-row"><span class="meta-key">Project</span><span>${quotation.project_name}</span></div>` : ''}
+      <div class="meta-row"><span class="meta-key">Ref</span><span>${docNo}</span></div>
+      <div class="meta-row"><span class="meta-key">Issued</span><span>${issueDate}</span></div>
+      <div class="meta-row"><span class="meta-key">Expires</span><span>${validUntil}</span></div>
+    </div>
+  </div>`,
+    defaultFooter: `<div class="doc-footer">
     <div class="footer-left"><strong>${C.name}</strong><br>${C.address}${C.phone ? ` • ${C.phone}` : ''}</div>
     <div style="text-align:center;font-size:7px;color:#9ca3af">Confidential • ${docNo} • ${new Date().toLocaleDateString()}</div>
     <div style="text-align:right">${C.email}${C.vat ? `<br>${C.vat}` : ''}</div>
-  </div>
-</div></body></html>`;
+  </div>`,
+  });
+
+  const html = `<!DOCTYPE html><html lang="en"><head><meta charset="UTF-8"><title>Quotation ${docNo}</title><style>${SHARED_CSS}${theme ? theme.css : ''}</style></head><body>
+${shell}
+</body></html>`;
 
   return { html, docNo };
 }
@@ -554,32 +632,12 @@ export function buildInvoiceHTML(invoice, settings, logoDataURL = null, opts = {
     <div class="totals-row"><span class="k">Paid</span><span class="v green">${USD(paid)}</span></div>
     <div class="totals-row"><span class="k">Balance</span><span class="v ${balance === 0 ? 'green' : 'red'}">${USD(balance)}</span></div>`;
 
-  const html = `<!DOCTYPE html><html lang="en"><head><meta charset="UTF-8"><title>Invoice ${docNo}</title><style>${SHARED_CSS}</style></head><body>
-<div class="page">
-  <div class="doc-header">
-    <div>${logo}<div class="company-name">${C.name}</div><div class="company-meta">${companyDetails(C)}</div></div>
-    <div style="text-align:right">
-      <div class="doc-title">Invoice</div>
-      <div class="doc-ref">${docNo}</div>
-      <div class="doc-dates">Date: <strong>${fmtDate(invDate)}</strong> • Due: <strong>${fmtDate(dueDate)}</strong><br>${invoice.quote_number ? `Quote Ref: <strong>${invoice.quote_number}</strong> • ` : ''}Terms: <strong>Net ${C.paymentDays} Days</strong> • ${CC.code}</div>
-      <div class="status-badge" style="${statusStyle}">${status}</div>
-    </div>
-  </div>
+  const theme = themeFor(settings);
 
-  <div class="info-grid">
-    <div class="info-col"><div class="info-label">Bill To</div>${clientHTML(client)}</div>
-    <div class="info-col">
-      <div class="info-label">Invoice Details</div>
-      ${invoice.project_name ? `<div class="meta-row"><span class="meta-key">Project</span><span>${invoice.project_name}</span></div>` : ''}
-      <div class="meta-row"><span class="meta-key">No.</span><span>${docNo}</span></div>
-      <div class="meta-row"><span class="meta-key">Issued</span><span>${fmtDate(invDate)}</span></div>
-      <div class="meta-row"><span class="meta-key">Due</span><span>${fmtDate(dueDate)}</span></div>
-    </div>
-  </div>
-
-  <table>${itemTableHTML(items, C, docDiscountPct)}</table>
+  const body = `<table>${itemTableHTML(items, C, docDiscountPct)}</table>
 
   ${totalsBoxHTML(subtotal, totalDiscount, totalTax, grandTotal, C, extraTotalsRows)}
+  ${totalWordsHTML(theme, grandTotal, CC.code, C)}
   ${rateNote}
 
   ${isPaid
@@ -602,14 +660,49 @@ export function buildInvoiceHTML(invoice, settings, logoDataURL = null, opts = {
     <tbody>${paymentRows}</tbody>
   </table>` : ''}
 
-  ${C.footer ? `<div class="band"><span class="band-label">Note:</span> ${C.footer}</div>` : ''}
-  <div class="content-spacer"></div>
-  <div class="doc-footer">
+  ${C.footer ? `<div class="band"><span class="band-label">Note:</span> ${C.footer}</div>` : ''}`;
+
+  const shell = docShell(theme, {
+    C, logo: logoDataURL, title: 'Sales Invoice', client, body,
+    statusHtml: `<div class="status-badge" style="${statusStyle}">${status}</div>`,
+    rows: [
+      { label: 'Date',     value: fmtDate(invDate) },
+      { label: 'Ref',      value: docNo },
+      { label: 'Due',      value: fmtDate(dueDate) },
+      { label: 'Terms',    value: `Net ${C.paymentDays} days` },
+      { label: 'Currency', value: CC.code },
+      { label: 'Quote Ref', value: invoice.quote_number || '' },
+      { label: 'Project',  value: invoice.project_name || '' },
+    ],
+    defaultHeader: `<div class="doc-header">
+    <div>${logo}<div class="company-name">${C.name}</div><div class="company-meta">${companyDetails(C)}</div></div>
+    <div style="text-align:right">
+      <div class="doc-title">Invoice</div>
+      <div class="doc-ref">${docNo}</div>
+      <div class="doc-dates">Date: <strong>${fmtDate(invDate)}</strong> • Due: <strong>${fmtDate(dueDate)}</strong><br>${invoice.quote_number ? `Quote Ref: <strong>${invoice.quote_number}</strong> • ` : ''}Terms: <strong>Net ${C.paymentDays} Days</strong> • ${CC.code}</div>
+      <div class="status-badge" style="${statusStyle}">${status}</div>
+    </div>
+  </div>`,
+    defaultInfo: `<div class="info-grid">
+    <div class="info-col"><div class="info-label">Bill To</div>${clientHTML(client)}</div>
+    <div class="info-col">
+      <div class="info-label">Invoice Details</div>
+      ${invoice.project_name ? `<div class="meta-row"><span class="meta-key">Project</span><span>${invoice.project_name}</span></div>` : ''}
+      <div class="meta-row"><span class="meta-key">No.</span><span>${docNo}</span></div>
+      <div class="meta-row"><span class="meta-key">Issued</span><span>${fmtDate(invDate)}</span></div>
+      <div class="meta-row"><span class="meta-key">Due</span><span>${fmtDate(dueDate)}</span></div>
+    </div>
+  </div>`,
+    defaultFooter: `<div class="doc-footer">
     <div class="footer-left"><strong>${C.name}</strong><br>${C.address}${C.phone ? ` • ${C.phone}` : ''}</div>
     <div style="text-align:center;font-size:7px;color:#9ca3af">Confidential • ${docNo} • ${new Date().toLocaleDateString()}</div>
     <div style="text-align:right">${C.email}${C.vat ? `<br>${C.vat}` : ''}</div>
-  </div>
-</div></body></html>`;
+  </div>`,
+  });
+
+  const html = `<!DOCTYPE html><html lang="en"><head><meta charset="UTF-8"><title>Invoice ${docNo}</title><style>${SHARED_CSS}${theme ? theme.css : ''}</style></head><body>
+${shell}
+</body></html>`;
 
   return { html, docNo };
 }
@@ -630,8 +723,13 @@ function excelItemsSheet(items, C, docDiscountPct, CC) {
   const hasTax = C.showTaxCol && taxOn;
   const cur    = CC.code;
 
+  // The spreadsheet carries the same columns as the printed document. Two
+  // exports of one invoice that disagree on which columns exist is the sort of
+  // thing that gets noticed halfway through a reconciliation.
+  const hasBar = C.showBarcodeCol;
+
   const headers = [
-    '#', 'Description', 'Qty', `Unit Price (${cur})`,
+    '#', ...(hasBar ? ['Barcode'] : []), 'Description', 'Qty', `Unit Price (${cur})`,
     ...(hasDis ? ['Discount %', `Discount Amt (${cur})`] : []),
     ...(hasTax ? [`Tax (${cur})`]                         : []),
     `Line Total (${cur})`,
@@ -641,7 +739,11 @@ function excelItemsSheet(items, C, docDiscountPct, CC) {
     const { qty, unitPrice, disc, discAmt, taxAmt, lineTotal } =
       lineCalc(item, C.taxRate, taxOn, docDiscountPct);
     return [
-      idx + 1, item.name, qty, CC.conv(unitPrice),
+      idx + 1,
+      // As text: a barcode with a leading zero is not a number, and Excel would
+      // eat the zero and leave a code that scans as a different product.
+      ...(hasBar ? [item.barcode ? String(item.barcode) : ''] : []),
+      item.name, qty, CC.conv(unitPrice),
       ...(hasDis ? [disc, CC.conv(discAmt)] : []),
       ...(hasTax ? [CC.conv(taxAmt)]        : []),
       CC.conv(lineTotal),
@@ -651,6 +753,7 @@ function excelItemsSheet(items, C, docDiscountPct, CC) {
   // Helper: build a summary row with correct number of blank cells
   const summaryRow = (label, value) => [
     '', '', '',
+    ...(hasBar ? [''] : []),
     label,
     ...(hasDis ? ['', ''] : []),
     ...(hasTax ? ['']     : []),

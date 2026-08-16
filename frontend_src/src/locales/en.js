@@ -2396,6 +2396,8 @@ const en = {
     footerText: 'Default Footer Text',
     showDiscountCol: 'Enable per-line discounts (quotations, invoices, POS)',
     showTaxCol: 'Show Tax Column in PDFs',
+    showBarcodeCol: 'Show barcode column on invoices and quotations',
+    showTotalWords: 'Write the total out in words',
     backupIntegrity: 'Backup & Data Integrity',
     offlineTitle: 'Works offline. Survives power cuts.',
     offlinePitch: 'No internet is ever required. Your data lives on this machine and is backed up automatically every day — and on demand to a USB drive.',

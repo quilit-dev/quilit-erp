@@ -465,6 +465,8 @@ export default function Settings() {
           <div style={{ display: 'flex', flexDirection: 'column', gap: 14, marginTop: 8 }}>
             <Toggle disabled={!isAdmin} label={t('settings.showDiscountCol')} checked={isOn('show_discount_col')} onChange={bool('show_discount_col')} />
             <Toggle disabled={!isAdmin} label={t('settings.showTaxCol')} checked={isOn('show_tax_col')} onChange={bool('show_tax_col')} />
+            <Toggle disabled={!isAdmin} label={t('settings.showBarcodeCol')} checked={isOn('show_barcode_col')} onChange={bool('show_barcode_col')} />
+            <Toggle disabled={!isAdmin} label={t('settings.showTotalWords')} checked={isOn('show_total_words')} onChange={bool('show_total_words')} />
           </div>
         </Section>
 
