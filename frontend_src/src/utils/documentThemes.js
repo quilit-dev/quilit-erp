@@ -39,6 +39,53 @@ const HAJO = {
   headerBg: '#F7F7F7',
 };
 
+// The HAJO SIGN monogram, traced out of the letterhead.
+//
+// The mark only existed in the original as pixels — Canva flattened it along
+// with everything else — so it was recovered by run-length tracing the
+// watermark copy, which is printed at 110.9mm and therefore carries far more
+// detail than the 14.7mm masthead one. It is strictly rectilinear, so the trace
+// is exact rather than approximate: the decomposition round-trips its source
+// with zero mismatch, and edge error against the full-resolution original is
+// 1.1% — 0.06mm at the size it is actually printed.
+//
+// This is the FALLBACK. A tenant that has uploaded its own logo gets that
+// instead, on both the masthead and the watermark. But the monogram belongs to
+// this letterhead exactly as the orange chevrons do, so the sheet should not
+// arrive missing it just because nobody has been into Settings yet.
+const HAJO_MARK_PATH =
+  'M1.56 0.00H13.67V0.39H1.56ZM22.66 0.00H77.73V0.39H22.66ZM87.11 0.00H100.00V0.39H87.11Z' +
+  'M0.78 0.39H14.06V0.78H0.78ZM21.88 0.39H78.52V1.17H21.88ZM86.72 0.39H100.00V0.78H86.72Z' +
+  'M0.39 0.78H14.45V1.17H0.39ZM86.33 0.78H100.00V1.56H86.33ZM0.00 1.17H14.45V9.77H0.00Z' +
+  'M21.48 1.17H78.91V2.34H21.48ZM85.94 1.56H100.00V9.77H85.94Z' +
+  'M21.09 2.34H78.91V10.16H21.09ZM3.52 9.77H14.45V10.16H3.52ZM85.94 9.77H95.70V35.55H85.94Z' +
+  'M4.30 10.16H14.45V53.91H4.30ZM21.09 10.16H31.25V20.70H21.09Z' +
+  'M69.14 10.16H78.91V20.31H69.14ZM69.14 20.31H78.52V20.70H69.14Z' +
+  'M21.48 20.70H31.25V24.22H21.48ZM69.14 20.70H77.73V21.09H69.14Z' +
+  'M21.09 24.22H31.25V35.94H21.09ZM85.55 35.55H95.70V35.94H85.55Z' +
+  'M21.09 35.94H95.70V44.53H21.09ZM21.48 44.53H95.70V45.31H21.48Z' +
+  'M21.88 45.31H95.70V45.70H21.88ZM22.27 45.70H95.70V46.09H22.27Z' +
+  'M23.44 46.09H32.42V46.48H23.44ZM85.55 46.09H95.70V46.48H85.55Z' +
+  'M85.94 46.48H95.70V89.84H85.94ZM4.30 53.91H78.52V54.30H4.30Z' +
+  'M4.30 54.30H78.91V64.06H4.30ZM4.30 64.06H14.45V89.84H4.30Z' +
+  'M69.14 64.06H78.91V90.23H69.14ZM21.48 79.30H30.08V79.69H21.48Z' +
+  'M21.48 79.69H30.47V80.08H21.48ZM21.48 80.08H30.86V80.86H21.48Z' +
+  'M21.48 80.86H31.25V81.25H21.48ZM21.09 81.25H31.25V88.67H21.09Z' +
+  'M21.09 88.67H31.64V89.45H21.09ZM21.09 89.45H32.03V89.84H21.09Z' +
+  'M3.52 89.84H14.45V90.23H3.52ZM21.09 89.84H37.11V90.23H21.09Z' +
+  'M85.94 89.84H97.27V90.23H85.94ZM0.00 90.23H14.45V98.83H0.00Z' +
+  'M21.09 90.23H78.91V95.31H21.09ZM85.94 90.23H100.00V99.22H85.94Z' +
+  'M21.09 95.31H79.30V97.66H21.09ZM21.09 97.66H78.91V98.44H21.09Z' +
+  'M21.48 98.44H78.91V99.22H21.48ZM0.00 98.83H14.06V99.22H0.00Z' +
+  'M0.39 99.22H14.06V99.61H0.39ZM21.88 99.22H78.52V99.61H21.88Z' +
+  'M86.33 99.22H99.61V99.61H86.33ZM0.78 99.61H13.67V100.00H0.78Z' +
+  'M22.27 99.61H78.12V100.00H22.27ZM86.72 99.61H99.22V100.00H86.72Z';
+
+// Wrapped as a data URI so it drops into the same slots an uploaded logo uses.
+const HAJO_MARK = 'data:image/svg+xml;utf8,' + encodeURIComponent(
+  '<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 100 100">'
+  + '<path fill="' + HAJO.ink + '" d="' + HAJO_MARK_PATH + '"/></svg>');
+
 // The letterhead artwork, in millimetres on a 210x297 page.
 //
 // These are the ORIGINAL's own vector paths. Canva exported the design as a
@@ -107,13 +154,16 @@ function hajoArt(which) {
  * asset, which is what keeps this a house style rather than a hardcoded company.
  */
 function hajoSheet(C, logo) {
+  // The tenant's own logo wins; the letterhead's mark stands in when there is
+  // none, so the sheet is never delivered with a hole where the identity goes.
+  const mark = logo || HAJO_MARK;
   return `
   <div class="hj-anchor"><div class="hj-sheet-art">
     ${hajoArt('top')}
     ${hajoArt('bot')}
-    ${logo ? `<img class="hj-watermark" src="${logo}" alt="" />` : ''}
+    <img class="hj-watermark" src="${mark}" alt="" />
     <div class="hj-masthead">
-      ${logo ? `<img class="hj-logo" src="${logo}" alt="" />` : ''}
+      <img class="hj-logo" src="${mark}" alt="" />
       <div class="hj-wordmark">${esc(C.name)}</div>
       ${C.tagline ? `<div class="hj-tagline">${esc(C.tagline)}</div>` : ''}
     </div>

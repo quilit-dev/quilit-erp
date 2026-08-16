@@ -158,6 +158,39 @@ describe('the letterhead repeats on every printed sheet', () => {
   });
 });
 
+// The first letterhead shipped without either: no monogram on the masthead and
+// no watermark, because both were driven purely by the tenant's uploaded logo
+// and nobody had uploaded one. The mark belongs to this letterhead the same way
+// the orange chevrons do, so a sheet must never arrive with a hole where the
+// identity goes.
+describe('the monogram', () => {
+  const UPLOADED = 'data:image/png;base64,iVBORw0KGgoAAAANSUhEUg==';
+
+  test('the letterhead supplies its own when none is uploaded', () => {
+    const html = build({ ...BASE, document_template: 'hajosign' });
+
+    expect(html).toContain('class="hj-logo"');
+    expect(html).toContain('class="hj-watermark"');
+    expect(html).toContain('data:image/svg+xml');   // the traced mark, inline
+  });
+
+  test("an uploaded logo wins, on the masthead and the watermark alike", () => {
+    const html = buildInvoiceHTML(
+      INVOICE, { ...BASE, document_template: 'hajosign' }, UPLOADED).html;
+
+    const imgs = html.match(/<img class="hj-(?:logo|watermark)" src="([^"]*)"/g) || [];
+    expect(imgs).toHaveLength(2);
+    for (const img of imgs) expect(img).toContain(UPLOADED);
+    expect(html).not.toContain('data:image/svg+xml');  // fallback stood aside
+  });
+
+  test('it does not leak onto the generic template', () => {
+    // A tenant with no theme and no logo still gets no logo — the mark is one
+    // company's, and must not appear on anybody else's invoice.
+    expect(build(BASE)).not.toContain('data:image/svg+xml');
+  });
+});
+
 describe('a theme changes presentation, never the figures', () => {
   const plain = build(BASE);
   const themed = build({ ...BASE, document_template: 'hajosign' });
