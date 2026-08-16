@@ -46,6 +46,11 @@ const QUOTE = {
 
 const build = (settings, doc = INVOICE) => buildInvoiceHTML(doc, settings).html;
 
+// Assertions about what a document SAYS must look at the markup, not the whole
+// file: the <style> block is full of words that would satisfy a naive substring
+// search and produce a test that passes for the wrong reason.
+const body = (...args) => build(...args).split('</head>')[1] || '';
+
 describe('themeFor', () => {
   test('no template key means the generic design', () => {
     expect(themeFor({})).toBeNull();
@@ -71,7 +76,8 @@ describe('the design reaches only the tenant it belongs to', () => {
 
     expect(html).not.toContain('hj-frame');
     expect(html).not.toContain('hj-masthead');
-    expect(html).not.toContain('F0821E');       // the palette
+    expect(html).not.toContain('F07100');       // the letterhead orange
+    expect(html).not.toContain('hj-art');       // its artwork
     expect(html).toContain('doc-header');       // the generic header, intact
   });
 
@@ -149,7 +155,7 @@ describe('barcode column', () => {
 
 describe('total in words', () => {
   test('absent by default', () => {
-    expect(build(BASE)).not.toContain('only');
+    expect(body(BASE)).not.toContain(' only');
   });
 
   test('states the same amount the totals box prints', () => {
@@ -175,7 +181,7 @@ describe('total in words', () => {
   });
 
   test('is independent of the letterhead', () => {
-    expect(build({ ...BASE, show_total_words: '1' })).toContain('only');
-    expect(build({ ...BASE, document_template: 'hajosign' })).not.toContain(' only');
+    expect(body({ ...BASE, show_total_words: '1' })).toContain(' only');
+    expect(body({ ...BASE, document_template: 'hajosign' })).not.toContain(' only');
   });
 });

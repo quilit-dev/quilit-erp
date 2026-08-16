@@ -423,8 +423,8 @@ function paymentInstructions(C) {
 }
 
 // ─── Theme composition ─────────────────────────────────────────────────────────
-// A themed document swaps three things: the masthead + header, the letterhead
-// artwork, and the footer. Everything between them — the table, the totals, the
+// A themed document swaps three things: the letterhead artwork (which carries
+// the masthead), the document header, and the footer. Everything between them — the table, the totals, the
 // bands — is the same markup either way, so a theme cannot change what the
 // document SAYS, only how it looks. That is the property worth having: a
 // letterhead is presentation, and no company's design should be able to alter
@@ -445,9 +445,8 @@ function docShell(theme, { C, logo, title, client, rows, statusHtml, defaultHead
   }
 
   return `<div class="page">
-  ${theme.frame(logo)}
+  ${theme.frame(C, logo)}
   ${theme.open}
-    ${theme.masthead(C, logo)}
     ${theme.header({ C, title, client, rows, statusHtml })}
     ${body}
     <div class="content-spacer"></div>
