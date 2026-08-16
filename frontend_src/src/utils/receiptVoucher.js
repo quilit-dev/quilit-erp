@@ -60,6 +60,7 @@ const RV_CSS = `
   letter-spacing: 1px; text-transform: uppercase; margin-top: 1mm;
 }
 .rv-head { display: flex; justify-content: space-between; align-items: flex-start; gap: 10mm; }
+.rv-meta > div + div { margin-top: 1.5mm; }
 .rv-meta { font-size: 10px; line-height: 2; }
 .rv-meta .rv-key { font-weight: 700; display: inline-block; min-width: 30mm; }
 /* The amount, boxed — the one figure a reader looks for first. */
@@ -70,7 +71,14 @@ const RV_CSS = `
 .rv-amount .rv-fig { font-size: 15px; font-weight: 800; font-variant-numeric: tabular-nums; }
 .rv-amount .rv-date { font-size: 9px; margin-top: 1mm; }
 
-.rv-line { margin-top: 6mm; font-size: 10px; line-height: 1.9; }
+/* Spacing between the lines is a GAP, not line-height. A tall line-height pads
+   each row's own box, which pushed every rule far from the text above it while
+   leaving consecutive rows touching — measured at 0.1mm apart. A normal
+   line-height keeps a value and its rule together; the gap separates the rows. */
+.rv-line {
+  margin-top: 8mm; font-size: 10px; line-height: 1.45;
+  display: flex; flex-direction: column; gap: 4.5mm;
+}
 .rv-line .rv-label { font-weight: 700; white-space: nowrap; }
 /* The rule and the value are ONE element: the dots span the whole gap between
    the labels and the value centres within it, so an empty line and a filled one
@@ -94,18 +102,18 @@ const RV_CSS = `
 .rv-words { font-weight: 600; }
 
 .rv-against {
-  margin-top: 6mm; border: 1px solid currentColor; padding: 2.5mm 4mm;
+  margin-top: 9mm; border: 1px solid currentColor; padding: 2.5mm 4mm;
   font-size: 9px; display: flex; justify-content: space-between; gap: 6mm;
 }
 .rv-against span strong { font-weight: 700; }
 
-.rv-payments { margin-top: 5mm; }
+.rv-payments { margin-top: 7mm; }
 .rv-payments table { width: 100%; border-collapse: collapse; }
 /* Cells centre for the same reason the form lines do — except the amount, which
    stays right so the figures line up on their decimal and can be added down the
    column by eye. */
 .rv-payments th, .rv-payments td {
-  border: 1px solid currentColor; padding: 1.5mm 2.5mm; font-size: 9px;
+  border: 1px solid currentColor; padding: 2.2mm 2.5mm; font-size: 9px;
   text-align: center;
 }
 .rv-payments th { font-weight: 700; }
