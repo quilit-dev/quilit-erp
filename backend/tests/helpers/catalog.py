@@ -45,4 +45,17 @@ PUBLIC_PATHS = {
     "/api/health",                 # liveness probe — intentionally unauthenticated
     "/api/settings/setup-status",
     "/api/platform/status",        # capability probe: {"enabled": bool} only, no data
+    # The tenant's branding. Both are deliberately unauthenticated: the login
+    # screen shows the logo before anyone has a session, and so does the page a
+    # customer opens from a share link. Neither leaks data — the tenant comes
+    # from the request host, so a reader on one workspace's domain can never be
+    # served another's image.
+    #
+    # /logo was ALREADY public and only escaped this check by accident: it 404s
+    # when no logo has been uploaded, which is the state of every test database,
+    # so it never returned the 200 the assertion looks for. /favicon always
+    # answers with an image — that is the point of it — so it surfaced the gap.
+    # Listed together here so the allow-list states what is actually public.
+    "/api/settings/logo",
+    "/api/settings/favicon",
 }
