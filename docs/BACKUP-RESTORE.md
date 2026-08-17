@@ -69,22 +69,25 @@ private network. It cannot run from GitHub Actions or a laptop.
 
 ### 3. A cron service
 
-Add a service from this repo, then set three things on it:
+Add a service from this repo, then set two things on it:
 
-  * `RAILWAY_DOCKERFILE_TARGET=backup` — **required**. With no target Docker
-    builds the last stage, which is `app`, and the cron service would run the
-    API instead of the backup.
-  * Config-as-code path `railway.backup.json` — **required**. The default
-    `railway.json` sets `healthcheckPath: /api/health`, and this service runs no
-    web server, so the healthcheck would fail every run. That file also sets
-    `restartPolicyType: NEVER`, because a process that is *supposed* to exit
-    must not be restarted for exiting.
-  * A cron schedule, e.g. `15 2 * * *` (Railway schedules in UTC).
+  * **Config-as-code path** `railway.backup.json` — this is what selects the
+    backup image (`build.dockerfilePath: Dockerfile.backup`) and drops the
+    healthcheck. The default `railway.json` health-checks `/api/health`, and this
+    service runs no web server, so every run would fail. It also sets
+    `restartPolicyType: NEVER`, because a process whose job is to exit must not
+    be restarted for exiting.
+  * **Cron schedule**, e.g. `15 2 * * *` (Railway schedules in UTC).
 
 Give it no public domain — it serves nothing.
 
-The image is built on `postgres:18-alpine` so `pg_dump` matches the server's
-major version. Debian's client is 15 and would fail against an 18 server.
+Do NOT try to select a Dockerfile *stage*. Railway has no documented way to do
+it: `RAILWAY_DOCKERFILE_PATH` chooses a file, and config-as-code `build` accepts
+only builder, watchPatterns, buildCommand, dockerfilePath and railpackVersion.
+A `backup` stage inside the main Dockerfile was tried and Railway built the
+`app` stage instead — the cron service came up as a second copy of the API, and
+the only evidence was `[app 1/11]` in its build log. Hence a separate
+single-stage `Dockerfile.backup`, which cannot be got wrong.
 
 ### 4. Encryption (recommended)
 
@@ -145,6 +148,21 @@ from cryptography.fernet import Fernet
 open("backup.pgdump", "wb").write(
     Fernet(KEY.encode()).decrypt(open("backup.pgdump.enc", "rb").read()))
 ```
+
+## Proven in production
+
+First real run, 2026-08-17, against the production database:
+
+    backed up 1,547,765 bytes / 3459 objects
+      stored  daily/2026-08-17.pgdump.enc
+
+Then `--verify-latest` downloaded that object, decrypted it and read back the
+same **3459 objects** — so the whole chain is exercised end to end: dump, verify,
+encrypt, upload, download, decrypt, verify.
+
+The R2 token was also checked for scope: it can write, read, list and delete in
+`quilit-backups` and **cannot** reach the attachments bucket. That separation is
+the point — a token that could reach both would undo the reason for a backup.
 
 ## Restore drill
 
