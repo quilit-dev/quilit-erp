@@ -16,6 +16,7 @@ rolled back and reported, valid rows are kept.
 
 Supported entities: clients, suppliers, inventory.
 """
+import logging
 import re
 import sqlite3
 from typing import Optional, List, Dict, Any
@@ -33,6 +34,8 @@ from routers.accounting import AccountCreate, create_account
 from routers.crm import LeadCreate, create_lead
 from routers.hr import EmployeeBody, create_employee
 from utils import _now
+
+logger = logging.getLogger("erp.imports")
 
 router = APIRouter()
 
@@ -367,11 +370,23 @@ def _with_dynamic_attributes(entity: str, cfg: dict, db) -> dict:
     if entity != "inventory":
         return cfg
     try:
+        # GROUP BY, not SELECT DISTINCT ... ORDER BY sort_order. Postgres rejects
+        # ordering a DISTINCT by a column that is not selected ("ORDER BY
+        # expressions must appear in select list"), while SQLite allows it — so
+        # this ran clean in tests and every dev install and failed only on the
+        # deployed database, where the except below turned it into silence.
         rows = db.execute(
-            "SELECT DISTINCT name FROM attribute_defs ORDER BY sort_order, name"
+            "SELECT name, MIN(sort_order) AS first_order FROM attribute_defs "
+            "GROUP BY name ORDER BY first_order, name"
         ).fetchall()
     except Exception:
-        return cfg                       # no attribute system on this install
+        # An install with no attribute system has no such table, which is the
+        # expected case. Logged rather than passed over silently: this same
+        # branch swallowed the SQL error above, so the wizard quietly offered
+        # none of the tenant's own columns instead of reporting a fault.
+        logger.warning("attribute_defs unreadable; importing without the "
+                       "tenant's own attribute columns", exc_info=True)
+        return cfg
     known = {f["key"] for f in cfg["fields"]}
     extra = [{"key": r["name"], "label": r["name"], "attribute": True}
              for r in rows if r["name"] and r["name"] not in known]
