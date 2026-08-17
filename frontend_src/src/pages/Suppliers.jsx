@@ -90,14 +90,19 @@ export default function Suppliers() {
   }
 
   const exportData = filtered.map(s => ({
-    Name:              s.name,
-    'Contact':         s.contact_name  || '',
-    Phone:             s.phone         || '',
-    Email:             s.email         || '',
-    'Payment Terms':   `${s.payment_terms_days ?? 30} days`,
-    '# Purchases':     s.purchase_count ?? 0,
-    'Total Spend':     s.total_spend   ?? 0,
-    Created:           fmtDate(s.created_at),
+    // ── importable: these headers match the import field labels ──
+    // A supplier list is moved between workspaces by exporting it and importing
+    // it, so the values here are the RAW ones. "30 days" reads nicely and cannot
+    // be read back — the unit belongs in the header, not the cell.
+    Name:                   s.name,
+    'Contact name':         s.contact_name || '',
+    Phone:                  s.phone        || '',
+    Email:                  s.email        || '',
+    'Payment terms (days)': s.payment_terms_days ?? 30,
+    // ── reference only: computed, and ignored on import ──
+    '# Purchases':          s.purchase_count ?? 0,
+    'Total Spend':          s.total_spend   ?? 0,
+    Created:                fmtDate(s.created_at),
   }));
 
   return (

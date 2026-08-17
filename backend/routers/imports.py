@@ -16,6 +16,7 @@ rolled back and reported, valid rows are kept.
 
 Supported entities: clients, suppliers, inventory.
 """
+import re
 import sqlite3
 from typing import Optional, List, Dict, Any
 
@@ -252,20 +253,76 @@ def _entity_or_404(entity: str) -> dict:
     return cfg
 
 
+# A number followed by its unit — "30 days", "5 kg", "12 pcs." A spreadsheet
+# column headed "Payment Terms" reads better with the unit in the cell, and
+# people type it that way, so the importer understands it rather than rejecting
+# the row. Anything with digits after the unit ("30-60") does NOT match and is
+# left for the model to reject: it means something we cannot safely guess at.
+_NUM_WITH_UNIT = re.compile(r"^(?P<num>-?[\d.,]+)\s*[A-Za-z%]+\.?$")
+_THOUSANDS = re.compile(r"^-?\d{1,3}(,\d{3})+(\.\d+)?$")
+
+_BOOLS = {"yes": True, "y": True, "true": True, "1": True, "on": True,
+          "no": False, "n": False, "false": False, "0": False, "off": False}
+
+
+def _coerce(value: Any, kind: str) -> Any:
+    """Best-effort typed value for a spreadsheet cell.
+
+    Returns the value UNCHANGED when it cannot help, so the model still produces
+    the error the user reads. Guessing further would turn a bad cell into a
+    plausible wrong number, which is worse than a rejected row.
+
+    This exists because the field types declared in ENTITIES were previously
+    documentation only: every cell went to Pydantic as a raw string, so our own
+    suppliers export — which wrote "30 days" — could not be imported back.
+    """
+    if not isinstance(value, str) or not kind:
+        return value                      # xlsx numerics arrive already typed
+    s = value.strip()
+    if not s:
+        return None
+
+    if kind == "bool":
+        return _BOOLS.get(s.lower(), value)
+
+    if kind in ("int", "number"):
+        m = _NUM_WITH_UNIT.match(s)
+        if m:
+            s = m.group("num")
+        if _THOUSANDS.match(s):
+            s = s.replace(",", "")
+        try:
+            f = float(s)
+        except ValueError:
+            return value                  # not a number at all — let it fail
+        if kind == "number":
+            return f
+        # "30.0" is 30; "30.5" is not an integer and must not be silently
+        # truncated into one.
+        return int(f) if f.is_integer() else value
+
+    return value
+
+
 def _clean(raw: Dict[str, Any], fields: list) -> Dict[str, Any]:
-    """Drop unknown keys, strip strings, and turn blanks into None so optional
-    columns left empty fall back to their model defaults instead of failing
-    type coercion (e.g. '' → int)."""
-    keys = {f["key"] for f in fields}
+    """Drop unknown keys, strip strings, turn blanks into None so optional
+    columns left empty fall back to their model defaults, and coerce each cell
+    to the type its field declares."""
+    kinds = {f["key"]: f.get("type") for f in fields}
     out: Dict[str, Any] = {}
     for k, v in (raw or {}).items():
-        if k not in keys:
+        if k not in kinds:
             continue
         if isinstance(v, str):
             v = v.strip()
-            if v == "":
-                v = None
-        out[k] = v
+        # A blank cell is OMITTED, not sent as None. `Optional[int] = 30` accepts
+        # an explicit None as a value, so passing it stored NULL and skipped the
+        # default the field declares — a supplier imported with an empty terms
+        # column got no terms rather than 30. Import only ever creates, so there
+        # is no value here to deliberately clear.
+        if v is None or v == "":
+            continue
+        out[k] = _coerce(v, kinds[k])
     return out
 
 
