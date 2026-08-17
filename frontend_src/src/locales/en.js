@@ -656,6 +656,18 @@ const en = {
   // and `categories` above: the few words shared across domains ('Other',
   // 'Contract') mean the same thing in each.
   enumValues: {
+    // ── stock movement kinds (stock_movements.type) ──────────────────────
+    "adjustment":     "Adjustment",
+    "sale":           "Sale",
+    "return":         "Return",
+    "production":     "Production",
+    "project_use":    "Project use",
+    "transfer_in":    "Transfer in",
+    "transfer_out":   "Transfer out",
+    "qc_release":     "QC release",
+    "qc_reject":      "QC reject",
+    "qc_quarantine":  "QC quarantine",
+    "Initial stock":  "Initial stock",
     "Float": "Float",
     "Sale": "Sale",
     "Transfer In": "Transfer In",

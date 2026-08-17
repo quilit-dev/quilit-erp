@@ -653,6 +653,18 @@ const ar = {
   // and `categories` above: the few words shared across domains ('Other',
   // 'Contract') mean the same thing in each.
   enumValues: {
+    // ── stock movement kinds (stock_movements.type) ──────────────────────
+    "adjustment":     "تسوية",
+    "sale":           "بيع",
+    "return":         "مرتجع",
+    "production":     "إنتاج",
+    "project_use":    "استخدام في مشروع",
+    "transfer_in":    "تحويل وارد",
+    "transfer_out":   "تحويل صادر",
+    "qc_release":     "إفراج جودة",
+    "qc_reject":      "رفض جودة",
+    "qc_quarantine":  "حجر جودة",
+    "Initial stock":  "رصيد افتتاحي",
     "Float": "رصيد افتتاحي",
     "Sale": "بيع",
     "Transfer In": "تحويل وارد",
