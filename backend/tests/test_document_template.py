@@ -207,3 +207,87 @@ def test_the_barcode_follows_the_product_after_it_is_relabelled(doc_setup):
 
     lines = _lines(c.get(f"/api/invoices/{inv['id']}").json())
     assert lines == {"Flex Roll 320cm": "9999999"}
+
+
+# ── Pre-printed stationery ───────────────────────────────────────────────────
+# The same argument, one step further. Whether the tenant's letterhead is already
+# ON the paper is a fact about their stationery cupboard, not a preference, and it
+# used to be a toggle in Settings. That was wrong twice over: it is the same class
+# of fact as which letterhead they have, and as a switch it could only be set
+# wrong — meaningless for every tenant without a design, and a double-printed
+# invoice for the one tenant it applied to if they forgot it.
+
+def test_only_the_listed_tenants_print_on_their_own_stationery(as_tenant):
+    as_tenant("tenant_someone_else")
+    assert vendor_config.preprinted_stationery() is False
+
+
+def test_the_listed_tenant_gets_the_data_alone(as_tenant):
+    as_tenant(next(iter(vendor_config.PREPRINTED_STATIONERY)))
+    assert vendor_config.preprinted_stationery() is True
+
+
+def test_drawing_the_design_is_the_safe_default(as_tenant):
+    # A tenant who gets the letterhead drawn when they did not need it has an
+    # ugly document. One who gets it omitted when they did need it has a document
+    # that looks blank. So an unknown tenant must draw.
+    as_tenant("tenant_brand_new")
+    assert vendor_config.preprinted_stationery() is False
+
+
+def test_every_preprinted_tenant_actually_has_a_design(as_tenant):
+    # Suppressing a letterhead that was never going to be drawn is a no-op that
+    # reads like a configured behaviour — a sign the two lists have drifted.
+    for schema in vendor_config.PREPRINTED_STATIONERY:
+        assert schema in vendor_config.DOCUMENT_TEMPLATES, (
+            f"{schema} prints on pre-printed stationery but has no letterhead")
+
+
+def test_it_is_served_read_only_and_refused_on_write(as_role):
+    client = as_role("superadmin")
+
+    got = client.get("/api/settings/")
+    assert got.status_code == 200
+    assert got.json()["preprinted_stationery"] in ("0", "1")
+
+    # The barrier that makes it vendor-controlled: `extra: forbid` turns an
+    # attempt to set it into a 422 rather than a silent no-op.
+    r = client.put("/api/settings/", json={"preprinted_stationery": "1"})
+    assert r.status_code == 422, r.text
+
+
+def test_a_desktop_install_can_still_declare_it(monkeypatch):
+    import tenant_context
+    monkeypatch.setattr(tenant_context, "IS_SCHEMA_TENANCY", False)
+    monkeypatch.setenv("PREPRINTED_STATIONERY", "1")
+    assert vendor_config.preprinted_stationery() is True
+
+
+def test_the_customers_copy_still_gets_the_letterhead_drawn(as_role):
+    """The exception that makes the rule usable.
+
+    Pre-printed means the SUPPLIER's printer is loaded with headed paper. Whoever
+    opens the share link is looking at a screen and has none of it, so their copy
+    must be drawn in full. The public payload therefore carries the letterhead id
+    and NOT the pre-printed flag — and now that the flag is vendor-fixed rather
+    than a toggle nobody switches on, adding it to that allow-list would quietly
+    strip the design from every customer's copy.
+    """
+    client = as_role("superadmin")
+    c = client.post("/api/clients/", json={"name": "Acme Ltd"}).json()
+    inv = client.post("/api/invoices/", json={
+        "client_id": c["id"], "amount": 100,
+        "items": [{"name": "Sign", "quantity": 1, "unit_price": 100}],
+    }).json()
+    url = client.post("/api/communications/send", json={
+        "entity_type": "invoice", "entity_id": inv["id"], "channel": "whatsapp",
+        "to": "9613111222",
+    }).json()["url"]
+    token = url.rstrip("/").split("/")[-1]
+
+    company = client.get(f"/api/communications/public/{token}").json()["company"]
+
+    assert "document_template" in company, "the customer's copy needs the design"
+    assert "preprinted_stationery" not in company, (
+        "carrying this to the customer's copy strips the letterhead from a "
+        "document they are reading on a screen")

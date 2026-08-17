@@ -2402,7 +2402,6 @@ const en = {
     showTaxCol: 'Show Tax Column in PDFs',
     showBarcodeCol: 'Show barcode column on invoices and quotations',
     showTotalWords: 'Write the total out in words',
-    preprintedStationery: 'My paper already has our letterhead printed on it',
     backupIntegrity: 'Backup & Data Integrity',
     offlineTitle: 'Works offline. Survives power cuts.',
     offlinePitch: 'No internet is ever required. Your data lives on this machine and is backed up automatically every day — and on demand to a USB drive.',

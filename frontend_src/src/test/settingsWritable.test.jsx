@@ -31,6 +31,7 @@ const NOT_SAVED_HERE = new Set([
   'setup_complete',        // owned by the first-run wizard
   'enabled_modules',       // vendor_config, never tenant-writable
   'document_template',     // vendor_config, never tenant-writable
+  'preprinted_stationery', // vendor_config — a fact about the tenant's paper
   'local_backup',          // derived from the database backend
 ]);
 
@@ -46,7 +47,7 @@ describe('Settings can save what it lets you change', () => {
     // Named explicitly: these are the ones that shipped broken, and a generic
     // assertion would not say so when it fails again.
     for (const key of ['show_discount_col', 'show_tax_col', 'show_barcode_col',
-                       'show_total_words', 'preprinted_stationery']) {
+                       'show_total_words']) {
       expect(writable().has(key), `${key} would be dropped from the save`).toBe(true);
       expect(bound().has(key), `${key} has no control on the page`).toBe(true);
     }
@@ -55,7 +56,8 @@ describe('Settings can save what it lets you change', () => {
   test('the vendor-controlled keys are NOT writable', () => {
     // The other direction. A letterhead is not a preference, and putting it in
     // this list would hand every tenant another company's branding.
-    for (const key of ['document_template', 'enabled_modules']) {
+    for (const key of ['document_template', 'enabled_modules',
+                       'preprinted_stationery']) {
       expect(writable().has(key), `${key} must never be sent from Settings`).toBe(false);
     }
   });

@@ -79,7 +79,6 @@ DEFAULTS = {
     # printing it again would double it, and any misregistration in the printer
     # shows up as a ghosted edge. The copy a customer opens from a share link is
     # unaffected: they have no such paper, so their document carries the design.
-    "preprinted_stationery": "0",
     # Setup
     "setup_complete":      "0",
 }
@@ -119,8 +118,8 @@ class SettingsUpdate(BaseModel):
     show_tax_col:       Optional[str] = None
     show_barcode_col:   Optional[str] = None
     show_total_words:   Optional[str] = None
-    preprinted_stationery: Optional[str] = None
-    # `document_template` is deliberately absent for the same reason as
+    # `document_template` and `preprinted_stationery` are deliberately absent
+    # for the same reason as
     # `enabled_modules` below: it is a vendor decision, and `extra: forbid`
     # turns an attempt to set it into a 422 rather than a silent no-op.
     # `enabled_modules` is deliberately absent — it lives in vendor_config.py
@@ -176,6 +175,7 @@ def _get_all(db: sqlite3.Connection) -> dict:
     # granting itself another company's branding would be a real problem, not a
     # cosmetic one, which is why this is vendor-side.
     data["document_template"] = vendor_config.document_template()
+    data["preprinted_stationery"] = "1" if vendor_config.preprinted_stationery() else "0"
     # The email feature was removed. Drop any stale email/SMTP rows left in the
     # DB from a prior version so old secrets never reach the browser (the rows
     # are inert; this is just defensive — they're harmless if present).

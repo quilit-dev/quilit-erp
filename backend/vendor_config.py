@@ -133,6 +133,25 @@ DOCUMENT_TEMPLATES = {
 
 DEFAULT_DOCUMENT_TEMPLATE = "default"
 
+# Tenants whose letterhead is already PRINTED on the paper they feed the printer.
+# For them the ERP prints the data alone: the design is on the sheet, so drawing
+# it again lands our ink on top of theirs.
+#
+# This is a fact about a company's stationery cupboard, not a preference, which
+# is why it stopped being a toggle in Settings. It was one, and that was wrong in
+# two ways. It is the same fact as which letterhead the tenant has — so it
+# belongs in the same place, not in a table any tenant can write — and as a
+# switch it could only ever be set wrong: every tenant without a commissioned
+# letterhead saw a control that did nothing, and the one tenant it applied to had
+# to remember to turn it on or send a customer a double-printed invoice.
+#
+# It deliberately does NOT apply to the copy a customer opens from a share link.
+# They are looking at a screen, with none of the supplier's stationery, so their
+# document is drawn in full — see `_company()` in routers/communications.py.
+PREPRINTED_STATIONERY = {
+    "tenant_hajosign",
+}
+
 
 def document_template() -> str:
     """Which document design this tenant's invoices and quotations print on.
@@ -154,3 +173,23 @@ def document_template() -> str:
 
     return (os.environ.get("DOCUMENT_TEMPLATE") or "").strip() \
         or DEFAULT_DOCUMENT_TEMPLATE
+
+
+def preprinted_stationery() -> bool:
+    """Does this tenant feed the printer paper that already carries its letterhead?
+
+    Resolved exactly like `document_template()`, and false for everyone not listed
+    — printing the design is the safe default, because a tenant who gets it drawn
+    when they did not need it has an ugly document, while one who gets it omitted
+    when they did need it has a blank-looking one.
+    """
+    try:
+        from tenant_context import IS_SCHEMA_TENANCY, current_schema
+        if IS_SCHEMA_TENANCY:
+            schema = current_schema()
+            if schema:
+                return schema in PREPRINTED_STATIONERY
+    except Exception:
+        pass
+
+    return (os.environ.get("PREPRINTED_STATIONERY") or "").strip() in ("1", "true", "True")
