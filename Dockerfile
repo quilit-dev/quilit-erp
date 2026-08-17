@@ -87,3 +87,27 @@ ENTRYPOINT ["/usr/local/bin/entrypoint.sh"]
 CMD exec gunicorn main:app -k uvicorn.workers.UvicornWorker \
     -b 0.0.0.0:${PORT:-8000} -w ${WEB_CONCURRENCY:-3} --timeout 120 \
     --forwarded-allow-ips='*' --access-logfile -
+
+
+# ── Target: backup (scheduled pg_dump → object storage) ──────────────────────
+# Built on the POSTGRES image rather than the app image, for two reasons.
+#
+# pg_dump must be the same major version as the server or newer, and the app's
+# python:3.12-slim base carries Debian's postgresql-client 15 against a server
+# on 18 — it would fail every night. Starting from postgres:18 makes the
+# versions match by construction.
+#
+# It also keeps the API image untouched: a backup that needs a rebuild of the
+# thing it protects is a backup you postpone. This target and the app target
+# deploy independently.
+FROM postgres:18-alpine AS backup
+ENV PYTHONUNBUFFERED=1 PYTHONDONTWRITEBYTECODE=1
+RUN apk add --no-cache python3 py3-pip \
+    && python3 -m venv /opt/venv \
+    && /opt/venv/bin/pip install --no-cache-dir boto3 cryptography psycopg[binary]
+ENV PATH="/opt/venv/bin:$PATH"
+WORKDIR /app
+COPY backend/pg_backup.py ./
+# Runs once and exits — Railway's cron restarts it on schedule. A non-zero exit
+# marks the run failed rather than letting a silent failure look like success.
+CMD ["python3", "pg_backup.py"]
