@@ -372,6 +372,54 @@ def get_logo(db: sqlite3.Connection = Depends(get_db)):
                     headers={"Cache-Control": "no-store"})
 
 
+def _vendor_icon() -> str:
+    """The bundled product mark, shown when a workspace has uploaded no logo."""
+    if getattr(sys, "frozen", False):
+        base = os.path.dirname(sys.executable)
+    else:
+        base = os.path.normpath(os.path.join(os.path.dirname(__file__), "..", ".."))
+    return os.path.join(base, "static", "icon-192.png")
+
+
+@router.get("/favicon")
+def get_favicon(db: sqlite3.Connection = Depends(get_db)):
+    """The browser tab's icon: the tenant's logo, or the product mark.
+
+    Separate from `/logo` because the two have opposite failure modes. `/logo`
+    must 404 when there is none — callers rely on that to decide whether to draw
+    one at all. A favicon must ALWAYS return an image: a `<link rel="icon">`
+    pointing at a 404 leaves the tab on the browser's default globe.
+
+    Answering that here, rather than probing from JavaScript and swapping the
+    tag, is what makes it work. Chrome reads the icon once while parsing the
+    head and does not reliably repaint when a script later rewrites the href —
+    the DOM changes and the tab does not. A plain URL that always resolves needs
+    no script, and applies before any JavaScript has run.
+
+    Unauthenticated for the same reason `/logo` is: the tab has an icon on the
+    login screen and on the page a customer opens from a share link, neither of
+    which has a session. The tenant comes from the request host.
+    """
+    found = _stored_logo(db)
+    if found is not None:
+        data, mime = found
+    else:
+        try:
+            with open(_vendor_icon(), "rb") as f:
+                data, mime = f.read(), "image/png"
+        except OSError:
+            # No logo and no bundled mark. An empty 200 would be cached by the
+            # browser as the tab's icon; 404 at least lets it fall back.
+            raise HTTPException(404, "No icon available")
+
+    # no-cache, not no-store: browsers cache favicons hard, and a tenant who
+    # uploads a new logo must see the tab change. This revalidates each time
+    # while still allowing a 304, and keeps one tenant's icon out of a shared
+    # cache for another.
+    return Response(content=data, media_type=mime,
+                    headers={"Cache-Control": "no-cache, private"})
+
+
 _IMG_MAGIC = {
     b'\x89PNG':          'png',
     b'\xff\xd8\xff':     'jpeg',

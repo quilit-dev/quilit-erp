@@ -5,11 +5,12 @@
     <meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover" />
     <link rel="manifest" href="/manifest.webmanifest" />
     <meta name="theme-color" content="#714B67" />
-    <!-- The vendor mark is the STARTING value, not the final one: a tenant with
-         a logo gets theirs swapped in at runtime (see utils/appIdentity.js).
-         Shipping one here means the tab is never the browser's default globe,
-         including before any script has run. -->
-    <link rel="icon" href="/icon-192.png" />
+    <!-- The tenant's own logo, resolved server-side from the request host, with
+         the product mark returned when they have uploaded none — so this URL
+         always answers with an image. Static rather than swapped in by script:
+         Chrome reads the icon while parsing the head and does not reliably
+         repaint when JavaScript rewrites the href later. -->
+    <link rel="icon" href="/api/settings/favicon" />
     <link rel="apple-touch-icon" href="/icon-192.png" />
     <!-- iOS ignores the manifest's display mode; this is the only way Safari
          opens an installed shortcut without browser chrome. -->

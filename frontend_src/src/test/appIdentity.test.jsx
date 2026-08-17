@@ -1,100 +1,48 @@
 // The browser tab's identity.
 //
-// The rule is that the tab always shows SOMETHING. The tenant's logo when they
-// have one, the vendor mark otherwise — never the browser's default globe,
-// which is what a <link rel="icon"> pointed straight at a 404 leaves behind in
-// some browsers while silently reporting nothing.
-import { describe, test, expect, beforeEach, vi, afterEach } from 'vitest';
-import { applyTenantFavicon, applyTenantTitle, resetFavicon } from '../utils/appIdentity';
+// The icon is NOT tested here, because it is not JavaScript any more: index.html
+// carries a plain <link rel="icon" href="/api/settings/favicon"> and the server
+// decides what that returns. That endpoint's contract — always an image, the
+// tenant's logo when they have one — is asserted in backend/tests/test_favicon.py.
+//
+// The first attempt did probe and swap the tag from JavaScript, and it did not
+// work: Chrome reads the icon while parsing the head and does not reliably
+// repaint when a script rewrites the href afterwards. The DOM changed and the
+// tab kept the old icon, which is precisely why the assertions below are about
+// the TAG being right in the shipped HTML rather than about what a script does
+// to it later.
+import { describe, test, expect, vi, beforeEach, afterEach } from 'vitest';
+import { applyTenantTitle } from '../utils/appIdentity';
 
-const FALLBACK = '/icon-192.png';
-
-const iconHref = () => document.querySelector('link[rel="icon"]')?.getAttribute('href');
-
-/** Stand in for the shipped tag, so tests start where a real page starts. */
-const shipIcon = () => {
-  document.head.innerHTML = `<link rel="icon" href="${FALLBACK}">`;
-};
-
-const respond = (ok, type = 'image/png') => vi.fn().mockResolvedValue({
-  ok,
-  headers: { get: () => type },
-  blob: async () => new Blob(['x'], { type }),
-});
-
-beforeEach(() => {
-  shipIcon();
-  document.title = 'ERP System';
-  // jsdom has no object-URL implementation.
-  let n = 0;
-  globalThis.URL.createObjectURL = vi.fn(() => `blob:test/${++n}`);
-  globalThis.URL.revokeObjectURL = vi.fn();
-});
-
+beforeEach(() => { document.title = 'ERP System'; });
 afterEach(() => { vi.restoreAllMocks(); });
 
-describe('the tab icon', () => {
-  test('becomes the tenant logo when they have one', async () => {
-    globalThis.fetch = respond(true);
-    await applyTenantFavicon();
+describe('the tab icon is declared, not scripted', () => {
+  test('index.html points the icon at the endpoint that always answers', async () => {
+    const html = (await import('../../index.html?raw')).default;
 
-    expect(iconHref()).toMatch(/^blob:/);
-    expect(globalThis.fetch).toHaveBeenCalledWith('/api/settings/logo',
-      expect.objectContaining({ cache: 'no-store' }));
+    expect(html).toMatch(/<link rel="icon" href="\/api\/settings\/favicon"/);
+    // Not /logo: that endpoint 404s when no logo is uploaded, which is what
+    // leaves a tab on the browser's default globe.
+    expect(html).not.toMatch(/rel="icon"[^>]*\/api\/settings\/logo/);
   });
 
-  test('stays on the vendor mark when no logo is uploaded', async () => {
-    // The endpoint 404s. The tab must NOT end up pointing at that 404.
-    globalThis.fetch = respond(false);
-    await applyTenantFavicon();
+  test('nothing rewrites the icon at runtime', async () => {
+    // A script that sets link.href changes the DOM and not the tab. If this
+    // starts failing, the swap has been reintroduced.
+    const sources = await Promise.all([
+      import('../main.jsx?raw'),
+      import('../utils/appIdentity.js?raw'),
+      import('../pages/Settings.jsx?raw'),
+    ]);
+    // Comments stripped first — this file's own module doc discusses the icon
+    // at length, and matching prose would fail for the wrong reason.
+    const code = sources.map(m => m.default
+      .replace(/\/\*[\s\S]*?\*\//g, '')
+      .replace(/\/\/.*$/gm, '')).join('\n');
 
-    expect(iconHref()).toBe(FALLBACK);
-  });
-
-  test('an HTML error page is not accepted as an icon', async () => {
-    // A proxy or login wall answering 200 with HTML would otherwise be set as
-    // the tab icon and render as nothing at all.
-    globalThis.fetch = respond(true, 'text/html');
-    await applyTenantFavicon();
-
-    expect(iconHref()).toBe(FALLBACK);
-  });
-
-  test('a network failure leaves the shipped icon alone', async () => {
-    globalThis.fetch = vi.fn().mockRejectedValue(new Error('offline'));
-    await expect(applyTenantFavicon()).resolves.toBeUndefined();
-
-    expect(iconHref()).toBe(FALLBACK);
-  });
-
-  test('re-applying frees the old blob but never the live one', async () => {
-    // Revoking the URL just assigned blanks the tab the moment the browser
-    // re-reads it — so the order here is the behaviour, not an optimisation.
-    globalThis.fetch = respond(true);
-    await applyTenantFavicon();
-    const first = iconHref();
-    await applyTenantFavicon();
-    const second = iconHref();
-
-    expect(second).not.toBe(first);
-    expect(globalThis.URL.revokeObjectURL).toHaveBeenCalledWith(first);
-    expect(globalThis.URL.revokeObjectURL).not.toHaveBeenCalledWith(second);
-  });
-
-  test('a page with no icon tag still gets one', async () => {
-    document.head.innerHTML = '';
-    globalThis.fetch = respond(true);
-    await applyTenantFavicon();
-
-    expect(iconHref()).toMatch(/^blob:/);
-  });
-
-  test('resetting goes back to the vendor mark', async () => {
-    globalThis.fetch = respond(true);
-    await applyTenantFavicon();
-    resetFavicon();
-
-    expect(iconHref()).toBe(FALLBACK);
+    expect(code).not.toMatch(/querySelector\(\s*['"]link/);
+    expect(code).not.toMatch(/createObjectURL|applyTenantFavicon/);
   });
 });
 
@@ -107,14 +55,12 @@ describe('the tab text', () => {
   test.each([[null], [undefined], [''], ['   ']])(
     'falls back to the product name for %p', (value) => {
       // Before login there is no company name to show — the settings endpoint
-      // needs a session — so the tab must not go blank.
+      // needs a session, unlike the logo — so the tab must not go blank.
       applyTenantTitle(value);
       expect(document.title).toBe('ERP System');
     });
-});
 
-describe('the wiring, not just the helpers', () => {
-  test('the provider drives the title from the company name', async () => {
+  test('the provider drives it from the company name', async () => {
     // The helper being correct is worthless if nothing calls it. This asserts
     // the connection: settings arrive, the tab changes.
     const { render, waitFor } = await import('@testing-library/react');
@@ -127,15 +73,5 @@ describe('the wiring, not just the helpers', () => {
 
     render(<SettingsProvider><div /></SettingsProvider>);
     await waitFor(() => expect(document.title).toBe('HAJO SIGN'));
-  });
-
-  test('the app applies the icon before React mounts', async () => {
-    // On the login screen and on a customer's share page there is no settings
-    // provider, so the call cannot live inside one.
-    const src = (await import('../main.jsx?raw')).default;
-    expect(src).toMatch(/applyTenantFavicon\(\)/);
-    // Against the CALL, not the import line at the top of the file.
-    expect(src.indexOf('applyTenantFavicon()'))
-      .toBeLessThan(src.indexOf('createRoot(document'));
   });
 });

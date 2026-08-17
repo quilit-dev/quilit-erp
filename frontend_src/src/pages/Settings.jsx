@@ -9,7 +9,6 @@ import { Icon } from '../components/shared';
 import { Section, Field, Input, Toggle, CURRENCIES } from './settings/ui';
 import { TaxRatesSection } from './settings/TaxRatesSection';
 import UserManualSection from './settings/UserManualSection.jsx';
-import { applyTenantFavicon } from '../utils/appIdentity.js';
 
 export default function Settings() {
   const { t } = useLocale();
@@ -93,9 +92,6 @@ export default function Settings() {
       setMsg({ type: 'ok', text: t('settings.savedMsg') });
       setLogoFile(null);
       setLogoPreview(`/api/settings/logo?_=${Date.now()}`);
-      // The tab icon is this logo, so a new one has to take effect here — the
-      // browser will not re-read a <link rel="icon"> whose URL has not changed.
-      applyTenantFavicon();
       reloadSettings();
     } catch (err) {
       // Surface the real error so 422s / validation failures don't look
