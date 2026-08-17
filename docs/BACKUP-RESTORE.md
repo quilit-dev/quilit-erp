@@ -69,12 +69,22 @@ private network. It cannot run from GitHub Actions or a laptop.
 
 ### 3. A cron service
 
-Add a service from this repo built with the `backup` Dockerfile target and give
-it a cron schedule (e.g. `15 2 * * *`). It runs once and exits; a non-zero exit
-marks the run failed rather than letting silence look like success.
+Add a service from this repo, then set three things on it:
 
-The target is built on `postgres:18-alpine` so `pg_dump` matches the server's
-major version — Debian's client is 15 and would fail against an 18 server.
+  * `RAILWAY_DOCKERFILE_TARGET=backup` — **required**. With no target Docker
+    builds the last stage, which is `app`, and the cron service would run the
+    API instead of the backup.
+  * Config-as-code path `railway.backup.json` — **required**. The default
+    `railway.json` sets `healthcheckPath: /api/health`, and this service runs no
+    web server, so the healthcheck would fail every run. That file also sets
+    `restartPolicyType: NEVER`, because a process that is *supposed* to exit
+    must not be restarted for exiting.
+  * A cron schedule, e.g. `15 2 * * *` (Railway schedules in UTC).
+
+Give it no public domain — it serves nothing.
+
+The image is built on `postgres:18-alpine` so `pg_dump` matches the server's
+major version. Debian's client is 15 and would fail against an 18 server.
 
 ### 4. Encryption (recommended)
 
