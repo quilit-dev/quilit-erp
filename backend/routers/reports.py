@@ -841,7 +841,7 @@ def report_service_jobs(
         "SELECT j.id, j.job_number, j.job_type, j.status, j.scheduled_date,"
         "       j.completed_at, j.total, j.parts_cost,"
         "       c.name AS client_name, e.name AS equipment_name,"
-        "       u.username AS technician,"
+        "       COALESCE(NULLIF(u.full_name, ''), u.username) AS technician,"
         "       i.invoice_number, i.id AS invoice_id"
         " FROM service_jobs j"
         " LEFT JOIN clients c ON c.id = j.client_id"

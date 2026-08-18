@@ -429,7 +429,9 @@ def list_jobs(
 
     rows = db.execute(
         "SELECT j.*, c.name AS client_name, e.name AS equipment_name, "
-        "       u.username AS assigned_name, "
+        # The person's name, not their login: a job list read by a
+        # dispatcher should say "Sami Khoury", not "u_operations_manager".
+        "       COALESCE(NULLIF(u.full_name, ''), u.username) AS assigned_name, "
         "       (SELECT i.id FROM invoices i WHERE i.service_job_id = j.id "
         "        AND i.voided_at IS NULL) AS invoice_id "
         "FROM service_jobs j "

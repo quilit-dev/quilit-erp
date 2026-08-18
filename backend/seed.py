@@ -688,6 +688,139 @@ print("  +4 resources, 4 BOMs (1 versioned), 6 orders incl. QC batch + partial r
 # ════════════════════════════════════════════════════════════════════════════
 # 15. Stock transfers between warehouses
 # ════════════════════════════════════════════════════════════════════════════
+# ════════════════════════════════════════════════════════════════════════════
+# 16b. Service — customer equipment and the jobs done on it
+# ════════════════════════════════════════════════════════════════════════════
+header("Service")
+
+# The technician jobs get assigned to. Looked up rather than hardcoded, the same
+# way the warehouse-access grant below does it.
+_tech_id = next((u["id"] for u in GET("/api/users/")
+                 if u.get("username") == "u_operations_manager"), None)
+
+# Equipment: machines the customer owns, at their site. Serial numbers matter —
+# it is how a technician identifies the unit in front of them — so every one
+# carries a plausible plate.
+_equip_seed = [
+    # client,   name,                 manufacturer, model,     serial,      location
+    ("Alpha",  "Production Line A",  "Maker Alpha", "PL-2000", "SN-AL-0142", "Plant floor, bay 1"),
+    ("Alpha",  "Compressor Unit",    "Maker Beta",  "CU-40",   "SN-AL-0871", "Utility room"),
+    ("Beta",   "Packing Machine",    "Maker Alpha", "PK-15",   "SN-BE-3310", "Packing hall"),
+    ("Gamma",  "Chiller Unit",       "Maker Gamma", "CH-8",    "SN-GA-2205", "Roof plant"),
+    ("Delta",  "Conveyor Belt",      "Maker Beta",  "CV-120",  "SN-DE-0064", "Warehouse"),
+    ("Epsilon","Generator 60kVA",    "Maker Delta", "GN-60",   "SN-EP-7788", "External enclosure"),
+]
+EQ = {}
+for _cl, _name, _mfr, _model, _serial, _loc in _equip_seed:
+    EQ[_name] = POST("/api/service/equipment", {
+        "client_id":     CL[_cl],
+        "name":          _name,
+        "manufacturer":  _mfr,
+        "model":         _model,
+        "serial_number": _serial,
+        "install_date":  days_ago(400),
+        "location":      _loc,
+    })["id"]
+
+
+def _job(cl, *, equipment=None, jtype="Repair", fault, parts=(), charges=(),
+         scheduled=None, priority="Normal", work_done=None):
+    """One service job. `parts` are (inventory-key, qty, price) drawn from
+    stock — priced explicitly, the way `_line` does it, because the create
+    response carries only the id. `charges` are (label, amount) flat fees."""
+    items = []
+    for _key, _qty, _price in parts:
+        items.append({"line_type": "part", "inventory_id": inv[_key]["id"],
+                      "name": INV_NAME[_key], "quantity": _qty,
+                      "unit_price": _price})
+    for _label, _amount in charges:
+        items.append({"line_type": "charge", "name": _label,
+                      "quantity": 1, "unit_price": _amount})
+    body = {"client_id": CL[cl], "job_type": jtype, "priority": priority,
+            "reported_fault": fault, "items": items}
+    if equipment:
+        body["equipment_id"] = EQ[equipment]
+    if scheduled:
+        body["scheduled_date"] = scheduled
+    if work_done:
+        body["work_done"] = work_done
+    if _tech_id:
+        body["assigned_to"] = _tech_id
+    return POST("/api/service/jobs", body)
+
+
+# ── Open work, in each state a technician's list actually contains ──────────
+_draft = _job("Gamma", equipment="Chiller Unit", jtype="Inspection",
+              fault="Annual inspection due",
+              charges=[("Inspection visit", 90)])
+
+_sched = _job("Beta", equipment="Packing Machine", jtype="Maintenance",
+              fault="Scheduled 6-month service",
+              scheduled=days_ahead(4),
+              parts=[("mat_c", 2, 17.50)], charges=[("Service labour", 120)])
+
+_started = _job("Delta", equipment="Conveyor Belt", jtype="Repair",
+                fault="Belt slipping under load", priority="High",
+                scheduled=days_ago(1),
+                parts=[("cmp_b", 1, 33.00)], charges=[("Callout", 60), ("Labour", 140)])
+POST(f"/api/service/jobs/{_started['id']}/start")
+
+# ── Completed and invoiced — the normal end state. Completing consumes the
+#    parts, posts their cost, and (auto-invoice being on by default) raises the
+#    invoice, which is then paid so the revenue split shows in the ledger.
+_done = _job("Alpha", equipment="Production Line A", jtype="Repair",
+             fault="Line stopped mid-shift, drive fault",
+             scheduled=days_ago(9), priority="High",
+             work_done="Replaced drive component and realigned the belt. "
+                       "Ran a full cycle under load — no fault repeated.",
+             parts=[("cmp_a", 1, 52.00), ("mat_a", 4, 5.80)],
+             charges=[("Emergency callout", 120), ("Labour, 3h", 180)])
+_done_res = POST(f"/api/service/jobs/{_done['id']}/complete")
+if _done_res.get("invoice"):
+    POST(f"/api/invoices/{_done_res['invoice']['invoice_id']}/payments", {
+        "amount": _done_res["invoice"]["amount"], "currency": "USD",
+        "method": "Bank Transfer", "idempotency_key": f"seed-svc-{_done['id']}"})
+
+_done2 = _job("Alpha", equipment="Compressor Unit", jtype="Maintenance",
+              fault="Pressure dropping overnight",
+              scheduled=days_ago(24),
+              work_done="Replaced seals, pressure-tested to 8 bar.",
+              parts=[("mat_c", 1, 17.50)], charges=[("Labour, 2h", 120)])
+POST(f"/api/service/jobs/{_done2['id']}/complete")
+
+# ── Completed but NOT invoiced — the state the dashboard's "awaiting invoice"
+#    tile and the service report both exist to surface. Auto-invoicing has to
+#    be switched off around it, or there is nothing left unbilled to show.
+PUT("/api/settings/", {"service_auto_invoice": "0"})
+_unbilled = _job("Epsilon", equipment="Generator 60kVA", jtype="Repair",
+                 fault="Fails to start on mains failure",
+                 scheduled=days_ago(3),
+                 work_done="Replaced starter relay; test-started three times.",
+                 parts=[("cmp_b", 1, 33.00)], charges=[("Labour, 1.5h", 90)])
+POST(f"/api/service/jobs/{_unbilled['id']}/complete")
+PUT("/api/settings/", {"service_auto_invoice": "1"})
+
+# ── Cancelled — a job the customer called off before anyone travelled.
+_cancelled = _job("Delta", jtype="Installation",
+                  fault="Install second conveyor drive",
+                  charges=[("Installation, day rate", 400)])
+POST(f"/api/service/jobs/{_cancelled['id']}/cancel",
+     {"reason": "Customer deferred to next quarter"})
+
+# ── An older completed job on the same machine, so at least one piece of
+#    equipment has a HISTORY rather than a single visit. That history is the
+#    reason equipment is a record instead of a text field on the job.
+_hist = _job("Alpha", equipment="Production Line A", jtype="Maintenance",
+             fault="Routine service",
+             scheduled=days_ago(120),
+             work_done="Lubricated bearings, replaced filters, no faults found.",
+             parts=[("mat_b", 20, 0.10)], charges=[("Labour, 2h", 120)])
+POST(f"/api/service/jobs/{_hist['id']}/complete")
+
+print(f"  +{len(EQ)} equipment; 7 jobs "
+      "(draft, scheduled, in progress, 3 completed incl. 1 unbilled, 1 cancelled)")
+
+
 header("Stock transfers")
 # Completed: Main → Beta
 _t1 = POST("/api/warehouses/transfers/", {
@@ -1519,7 +1652,8 @@ print("   • Accounting → Ledger  — manual entries, loan, prepayments, FX")
 print("   • Accounting → Closing — two locked historical periods")
 print("   • Invoices             — every payment state including voided")
 print("   • Warehouses           — transfers in every status")
-print("   • Manufacturing        — QC batch, lots, partial completion")
+print("   • Manufacturing        — QC batch, lots, partial completion
+   • Service              — equipment history, jobs in every state, one unbilled")
 print("   • HR                   — contracts, payroll, leave, attendance")
 print("   • Recruitment          — pipeline from applicant to hired employee")
 print("   • Approvals            — one request pending finance review")
