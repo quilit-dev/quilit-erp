@@ -393,51 +393,91 @@ def get_invoice(
     return d
 
 # ── Create ────────────────────────────────────────────────────────────────
-@router.post("/")
-def create_invoice(
-    data: InvoiceCreate,
-    user=Depends(require_perm("invoices", "create")),
-    db: sqlite3.Connection = Depends(get_db),
+def build_invoice(
+    db, *, user,
+    client_id=None,
+    items=None,
+    amount=None,
+    due_date=None,
+    notes=None,
+    quotation_id=None,
+    project_id=None,
+    service_job_id=None,
+    branch_id=None,
+    apply_promos=True,
+    gate_approval=True,
 ):
+    """Create one invoice and its item rows. The single correct way to raise an
+    invoice from anywhere in the system.
+
+    Does NOT commit and does NOT write the audit log: the caller owns the
+    transaction and logs under its own module label, so a service job or a
+    quotation records the event as its own rather than as an invoice edit.
+
+    This exists because it was previously impossible to reuse. `create_invoice`
+    was the only correct constructor and it is a FastAPI endpoint, so
+    `quotations.convert_to_invoice` re-implemented it by hand and drifted: it
+    lost the approval gate, the branch tag, and the discount, inventory and
+    promotion columns on its items. A third copy would have compounded that.
+
+    `items` is duck-typed - anything with .name/.quantity/.unit_price and
+    optionally .discount/.discount_pct/.tax_rate_id/.inventory_id/
+    .revenue_account. `_price_items` already reads them with getattr, so a
+    SimpleNamespace works as well as a Pydantic model.
+
+    `apply_promos=False` is for callers whose lines already carry a negotiated
+    discount (a quotation): re-running promotions there would either
+    double-discount or overwrite the figure the customer was quoted.
+
+    Returns {invoice_id, invoice_number, subtotal, tax_total, amount,
+             pending_approval}.
+    """
     _ensure_invoice_items_table(db)
     # Validate foreign relations up front: a stale id must return a clean 400,
     # never an unhandled FOREIGN KEY IntegrityError (HTTP 500).
-    if data.client_id is not None and not db.execute(
-        "SELECT 1 FROM clients WHERE id=?", (data.client_id,)).fetchone():
+    if client_id is not None and not db.execute(
+        "SELECT 1 FROM clients WHERE id=?", (client_id,)).fetchone():
         raise HTTPException(400, "Client not found")
-    if data.project_id is not None and not db.execute(
-        "SELECT 1 FROM projects WHERE id=?", (data.project_id,)).fetchone():
+    if project_id is not None and not db.execute(
+        "SELECT 1 FROM projects WHERE id=?", (project_id,)).fetchone():
         raise HTTPException(400, "Project not found")
-    if data.quotation_id is not None and not db.execute(
-        "SELECT 1 FROM quotations WHERE id=?", (data.quotation_id,)).fetchone():
+    if quotation_id is not None and not db.execute(
+        "SELECT 1 FROM quotations WHERE id=?", (quotation_id,)).fetchone():
         raise HTTPException(400, "Quotation not found")
-    items    = data.items or []
+    if service_job_id is not None and not db.execute(
+        "SELECT 1 FROM service_jobs WHERE id=?", (service_job_id,)).fetchone():
+        raise HTTPException(400, "Service job not found")
+
+    items = items or []
     # Promotions fill an empty line discount BEFORE pricing, so tax lands on the
     # discounted net exactly as it does for a hand-entered discount. The
-    # quantity cap is deliberately NOT consumed here — an invoice can be
+    # quantity cap is deliberately NOT consumed here - an invoice can be
     # drafted, edited and voided, so metering it would burn units of a promotion
     # the customer may never receive. POS stays the metered channel.
-    promo_ids = apply_promotions_to_lines(db, items)
-    subtotal, tax_total, computed_amount, line_tax = _price_items(db, items, data.amount)
+    promo_ids = apply_promotions_to_lines(db, items) if apply_promos else []
+    subtotal, tax_total, computed_amount, line_tax = _price_items(db, items, amount)
     if computed_amount <= 0:
         raise HTTPException(400, "Invoice amount must be positive")
-    now      = _now()
-    due_date = data.due_date
+
+    now = _now()
     if not due_date:
-        terms_row = db.execute("SELECT value FROM settings WHERE key='payment_terms_days'").fetchone()
+        terms_row = db.execute(
+            "SELECT value FROM settings WHERE key='payment_terms_days'").fetchone()
         days = int(terms_row["value"]) if terms_row else 15
         due_date = (datetime.utcnow() + timedelta(days=days)).strftime("%Y-%m-%d")
+
     # Reserve the row first (placeholder number), then derive the real number
-    # from its id — see the helper notes; this is what makes concurrent creates
+    # from its id - see the helper notes; this is what makes concurrent creates
     # collision-free.
-    branch_id = branch_access.resolve_branch_id(user, db, data.branch_id)
+    branch_id = branch_access.resolve_branch_id(user, db, branch_id)
     cur = db.execute(
         "INSERT INTO invoices "
-        "(invoice_number, quotation_id, project_id, client_id, amount, subtotal, tax_total, "
-        " due_date, notes, created_at, version, branch_id) "
-        "VALUES (?,?,?,?,?,?,?,?,?,?,1,?)",
-        (_placeholder_invoice_number(), data.quotation_id, data.project_id, data.client_id,
-         computed_amount, subtotal, tax_total, due_date, data.notes, now, branch_id),
+        "(invoice_number, quotation_id, project_id, service_job_id, client_id, amount, "
+        " subtotal, tax_total, due_date, notes, created_at, version, branch_id) "
+        "VALUES (?,?,?,?,?,?,?,?,?,?,?,1,?)",
+        (_placeholder_invoice_number(), quotation_id, project_id, service_job_id,
+         client_id, computed_amount, subtotal, tax_total, due_date, notes, now,
+         branch_id),
     )
     invoice_id = cur.lastrowid
     inv_no     = _finalize_invoice_number(db, invoice_id, _invoice_prefix(db))
@@ -445,43 +485,71 @@ def create_invoice(
         rid, rate, tax_amt = line_tax[idx]
         db.execute(
             "INSERT INTO invoice_items "
-            "(invoice_id, name, quantity, unit_price, discount, discount_pct, tax_rate_id, "
-            " tax_rate, tax_amount, inventory_id, promotion_id) "
-            "VALUES (?,?,?,?,?,?,?,?,?,?,?)",
+            "(invoice_id, name, quantity, unit_price, discount, discount_pct, "
+            " tax_rate_id, tax_rate, tax_amount, inventory_id, promotion_id, "
+            " revenue_account) "
+            "VALUES (?,?,?,?,?,?,?,?,?,?,?,?)",
             (invoice_id, item.name, item.quantity, item.unit_price,
              float(getattr(item, "discount", 0) or 0),
              getattr(item, "discount_pct", None),
              rid, rate, tax_amt,
              getattr(item, "inventory_id", None),
-             promo_ids[idx] if idx < len(promo_ids) else None),
+             promo_ids[idx] if idx < len(promo_ids) else None,
+             # NULL means 4000 Sales Revenue. Only a service labour charge sets
+             # this, so every other caller keeps today's behaviour exactly.
+             getattr(item, "revenue_account", None)),
         )
+
     # An active policy can gate the invoice behind approval. A gated invoice is
     # parked in 'Pending Approval' (it takes no payments and its project advance
-    # is deferred to approval — see approval_engine.apply_resolution).
-    entity_data = {
-        "amount":    float(computed_amount or 0),
-        "subtotal":  float(subtotal or 0),
-        "tax_total": float(tax_total or 0),
-    }
-    needs_approval = evaluate_and_apply(
-        db, module="invoice", action="create",
-        entity_data=entity_data, user_id=user["id"],
-        entity_id=invoice_id, entity_label=inv_no,
-    )
+    # is deferred to approval - see approval_engine.apply_resolution).
+    needs_approval = False
+    if gate_approval:
+        entity_data = {
+            "amount":    float(computed_amount or 0),
+            "subtotal":  float(subtotal or 0),
+            "tax_total": float(tax_total or 0),
+        }
+        needs_approval = evaluate_and_apply(
+            db, module="invoice", action="create",
+            entity_data=entity_data, user_id=user["id"],
+            entity_id=invoice_id, entity_label=inv_no,
+        )
     if needs_approval:
         db.execute("UPDATE invoices SET approval_status='Pending Approval' WHERE id=?",
                    (invoice_id,))
     else:
         # Auto-advance the linked project's status to Invoiced (forward-only).
-        bump_project_status(db, data.project_id, "Invoiced")
+        bump_project_status(db, project_id, "Invoiced")
 
-    log_action(db, user, "create", "invoice", invoice_id, inv_no,
-               {"amount": computed_amount})
+    return {
+        "invoice_id": invoice_id, "invoice_number": inv_no,
+        "subtotal": subtotal, "tax_total": tax_total, "amount": computed_amount,
+        "pending_approval": bool(needs_approval),
+    }
+
+
+@router.post("/")
+def create_invoice(
+    data: InvoiceCreate,
+    user=Depends(require_perm("invoices", "create")),
+    db: sqlite3.Connection = Depends(get_db),
+):
+    res = build_invoice(
+        db, user=user,
+        client_id=data.client_id, items=data.items, amount=data.amount,
+        due_date=data.due_date, notes=data.notes,
+        quotation_id=data.quotation_id, project_id=data.project_id,
+        branch_id=data.branch_id,
+    )
+    log_action(db, user, "create", "invoice", res["invoice_id"],
+               res["invoice_number"], {"amount": res["amount"]})
     db.commit()
     return {
-        "id": invoice_id, "invoice_number": inv_no,
-        "pending_approval": bool(needs_approval),
-        "message": "Invoice pending approval" if needs_approval else "Invoice created",
+        "id": res["invoice_id"], "invoice_number": res["invoice_number"],
+        "pending_approval": res["pending_approval"],
+        "message": ("Invoice pending approval" if res["pending_approval"]
+                    else "Invoice created"),
     }
 
 # ── Update ────────────────────────────────────────────────────────────────
