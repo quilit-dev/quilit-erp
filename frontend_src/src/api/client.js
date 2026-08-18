@@ -747,3 +747,28 @@ export const commsHistory  = ({ channel, status, q } = {}) => {
 };
 export const commsRevoke   = (shareId) =>
   api.post(`/api/communications/shares/${shareId}/revoke`);
+
+// Service — customer equipment and the maintenance/repair jobs done on it.
+export const getServiceEquipment    = (params = {}, s) => api.get(`/api/service/equipment${_qs(params)}`, s);
+export const getServiceEquipmentOne = (id)      => api.get(`/api/service/equipment/${id}`);
+export const createServiceEquipment = (d)       => api.post('/api/service/equipment', d);
+export const updateServiceEquipment = (id, d)   => api.put(`/api/service/equipment/${id}`, d);
+export const archiveServiceEquipment   = (id)   => api.patch(`/api/service/equipment/${id}/archive`);
+export const unarchiveServiceEquipment = (id)   => api.patch(`/api/service/equipment/${id}/unarchive`);
+
+export const getServiceJobs   = (params = {}, s) => api.get(`/api/service/jobs${_qs(params)}`, s);
+export const getServiceJob    = (id)        => api.get(`/api/service/jobs/${id}`);
+export const createServiceJob = (d)         => api.post('/api/service/jobs', d);
+export const updateServiceJob = (id, d)     => api.put(`/api/service/jobs/${id}`, d);
+// One endpoint per transition, mirroring the backend: a single "set status"
+// call would let the UI walk a job to Completed and skip the parts consumption
+// that Completed performs.
+export const scheduleServiceJob = (id, d)   => api.post(`/api/service/jobs/${id}/schedule`, d);
+export const startServiceJob    = (id)      => api.post(`/api/service/jobs/${id}/start`);
+export const completeServiceJob = (id)      => api.post(`/api/service/jobs/${id}/complete`);
+export const reopenServiceJob   = (id)      => api.post(`/api/service/jobs/${id}/reopen`);
+export const cancelServiceJob   = (id, d)   => api.post(`/api/service/jobs/${id}/cancel`, d);
+export const invoiceServiceJob  = (id)      => api.post(`/api/service/jobs/${id}/invoice`);
+export const archiveServiceJob   = (id)     => api.patch(`/api/service/jobs/${id}/archive`);
+export const unarchiveServiceJob = (id)     => api.patch(`/api/service/jobs/${id}/unarchive`);
+export const getServiceJobsReport = (params = {}) => api.get(`/api/reports/service-jobs${_qs(params)}`);

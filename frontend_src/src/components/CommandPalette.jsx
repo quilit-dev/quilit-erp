@@ -125,6 +125,7 @@ const NAV_ITEMS = [
   { slug: 'warehouses',        url: '/warehouses',        icon: '🏬', module: 'warehouses',    keywords: 'location transfer مستودع' },
   { slug: 'pos',               url: '/pos',               icon: '🛍️', module: 'pos',           keywords: 'sale till cashier checkout بيع' },
   { slug: 'manufacturing',     url: '/manufacturing',     icon: '🏭', module: 'manufacturing', keywords: 'bom production mo factory build تصنيع' },
+  { slug: 'service',           url: '/service',           icon: '🔧', module: 'service',       keywords: 'repair maintenance install job work order equipment صيانة تصليح' },
   { slug: 'purchases',         url: '/purchases',         icon: '🛒', module: 'purchases',     keywords: 'po procurement شراء' },
   { slug: 'suppliers',         url: '/suppliers',         icon: '🏭', module: 'suppliers',     keywords: 'vendors موردين' },
   { slug: 'expenses',          url: '/expenses',          icon: '💸', module: 'expenses',      keywords: 'spending costs recurring مصروف' },
