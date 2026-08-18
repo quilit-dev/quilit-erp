@@ -22,6 +22,7 @@ from routers import reports, crm, planning, notifications
 from routers import approval_policies, approval_requests, hr, hr_contracts, recruitment, hr_activities, tax_rates, pos, cash, manufacturing
 from routers import assets, recurring, announcements, attachments, accounting, warehouses, platform, imports
 from routers import products
+from routers import service as service_router
 from routers import support as support_router
 from routers import categories as categories_router, promotions
 
@@ -245,6 +246,7 @@ app.include_router(accounting.router,         prefix="/api/accounting",         
 app.include_router(warehouses.router,         prefix="/api/warehouses",         tags=["warehouses"])
 app.include_router(platform.router,           prefix="/api/platform",           tags=["platform"])
 app.include_router(imports.router,            prefix="/api/imports",            tags=["imports"])
+app.include_router(service_router.router,     prefix="/api/service",            tags=["service"])
 app.include_router(support_router.router, prefix="/api/support",  tags=["support"])
 app.include_router(products.router,           prefix="/api/products",           tags=["products"])
 app.include_router(categories_router.router,  prefix="/api/categories",         tags=["categories"])
