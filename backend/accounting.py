@@ -63,7 +63,12 @@ AR           = "1100"   # Accounts Receivable
 INVENTORY    = "1200"   # Inventory (perpetual)
 ACC_DEP      = "1510"   # Accumulated Depreciation (contra-asset)
 AP           = "2000"   # Accounts Payable
-REVENUE      = "4000"   # Sales Revenue
+REVENUE      = "4000"   # Sales Revenue (goods)
+# Service revenue is kept apart from goods revenue so the income statement
+# can answer "what did maintenance earn us". A part sold on a service job
+# still credits 4000 — it is goods revenue whichever module rang it up;
+# only the labour/callout charge credits this.
+SERVICE_REVENUE = "4100"  # Service Revenue (labour, callouts, fees)
 FX_GAIN      = "4910"   # Foreign Exchange Gain (other income)
 COGS         = "5000"   # Cost of Goods Sold
 SALARIES     = "6000"   # Salaries & Wages

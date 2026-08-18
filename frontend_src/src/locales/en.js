@@ -600,6 +600,7 @@ const en = {
     '3000': "Owner's Equity",
     '3900': 'Retained Earnings',
     '4000': 'Sales Revenue',
+    '4100': 'Service Revenue',
     '4900': 'Other Income',
     '4910': 'Foreign Exchange Gain',
     '5000': 'Cost of Goods Sold',

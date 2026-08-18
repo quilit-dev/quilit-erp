@@ -32,7 +32,11 @@ describe('the locale dictionaries cover the seeded data', () => {
     const missingRoles    = Object.keys(en.roleNames).filter(k => !ar.roleNames[k]);
     expect(missingAccounts).toEqual([]);
     expect(missingRoles).toEqual([]);
-    expect(Object.keys(en.accountNames)).toHaveLength(30);
+    // 31 since migration 144f added 4100 Service Revenue. The count is a
+    // tripwire: it fails when the chart of accounts changes, which is the
+    // moment somebody has to decide whether the new account needs a name in
+    // both languages.
+    expect(Object.keys(en.accountNames)).toHaveLength(31);
     expect(Object.keys(en.roleNames)).toHaveLength(18);
     expect(Object.keys(en.enumValues).filter(k => !ar.enumValues[k])).toEqual([]);
   });
@@ -40,7 +44,7 @@ describe('the locale dictionaries cover the seeded data', () => {
   test('covers accounts seeded by later migrations too', () => {
     // The four multi-currency accounts (migration 120) live in a SECOND seed
     // list, which is how they were missed the first time and shipped English.
-    for (const code of ['1010', '4910', '6910', '6920']) {
+    for (const code of ['1010', '4910', '6910', '6920', '4100']) {
       expect(en.accountNames[code], `${code} missing from en`).toBeTruthy();
       expect(ar.accountNames[code], `${code} missing from ar`).toBeTruthy();
       expect(ar.accountNames[code]).not.toBe(en.accountNames[code]);

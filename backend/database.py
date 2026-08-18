@@ -3131,6 +3131,141 @@ def _run_migrations(conn, c):
                   "ON receipt_vouchers(invoice_id)")
         done("143a_receipt_vouchers")
 
+    # ── 144: service module — customer equipment and the jobs done on it ─────
+    # A machine is a real record rather than a text field on the job, so a
+    # customer's equipment carries its own service history.
+    if need("144a_service_equipment"):
+        c.execute("""
+            CREATE TABLE IF NOT EXISTS service_equipment (
+                id            INTEGER PRIMARY KEY AUTOINCREMENT,
+                client_id     INTEGER NOT NULL REFERENCES clients(id),
+                name          TEXT NOT NULL,
+                manufacturer  TEXT,
+                model         TEXT,
+                -- Deliberately NOT unique: serials collide across manufacturers
+                -- and arrive blank often enough that a constraint would block
+                -- legitimate data entry.
+                serial_number TEXT,
+                install_date  TEXT,
+                location      TEXT,
+                inventory_id  INTEGER REFERENCES inventory(id),
+                notes         TEXT,
+                branch_id     INTEGER REFERENCES warehouses(id),
+                created_at    TEXT NOT NULL,
+                archived_at   TEXT
+            )
+        """)
+        c.execute("CREATE INDEX IF NOT EXISTS idx_service_equipment_client "
+                  "ON service_equipment(client_id)")
+        c.execute("CREATE INDEX IF NOT EXISTS idx_service_equipment_serial "
+                  "ON service_equipment(serial_number)")
+        c.execute("CREATE INDEX IF NOT EXISTS idx_service_equipment_branch "
+                  "ON service_equipment(branch_id)")
+        done("144a_service_equipment")
+
+    # There is deliberately no 'Invoiced' status: whether a job has been billed
+    # is derived from invoices.service_job_id, so it cannot drift out of step
+    # when an invoice is voided.
+    if need("144b_service_jobs"):
+        c.execute("""
+            CREATE TABLE IF NOT EXISTS service_jobs (
+                id             INTEGER PRIMARY KEY AUTOINCREMENT,
+                job_number     TEXT NOT NULL UNIQUE,
+                client_id      INTEGER NOT NULL REFERENCES clients(id),
+                -- Nullable: a one-off callout need not be against a machine
+                -- the customer has registered.
+                equipment_id   INTEGER REFERENCES service_equipment(id),
+                job_type       TEXT NOT NULL DEFAULT 'Repair',
+                status         TEXT NOT NULL DEFAULT 'Draft',
+                priority       TEXT NOT NULL DEFAULT 'Normal',
+                scheduled_date TEXT,
+                completed_at   TEXT,
+                assigned_to    INTEGER REFERENCES users(id),
+                reported_fault TEXT,
+                work_done      TEXT,
+                -- One warehouse per job: a technician does not draw one gasket
+                -- from MAIN and another from BRANCH-B on the same visit.
+                warehouse_id   INTEGER REFERENCES warehouses(id),
+                branch_id      INTEGER REFERENCES warehouses(id),
+                parts_cost     REAL NOT NULL DEFAULT 0,
+                subtotal       REAL NOT NULL DEFAULT 0,
+                tax_total      REAL NOT NULL DEFAULT 0,
+                total          REAL NOT NULL DEFAULT 0,
+                cancel_reason  TEXT,
+                created_by     INTEGER,
+                created_at     TEXT NOT NULL,
+                updated_at     TEXT,
+                archived_at    TEXT
+            )
+        """)
+        for _col in ("status", "client_id", "equipment_id", "scheduled_date", "branch_id"):
+            c.execute(f"CREATE INDEX IF NOT EXISTS idx_service_jobs_{_col} "
+                      f"ON service_jobs({_col})")
+        done("144b_service_jobs")
+
+    # A line is either a stocked PART (consumes inventory, carries a cost) or a
+    # flat CHARGE (labour, callout, fee). No hours: the product decision was
+    # flat-fee labour, so there is nothing to multiply.
+    if need("144c_service_job_lines"):
+        c.execute("""
+            CREATE TABLE IF NOT EXISTS service_job_lines (
+                id           INTEGER PRIMARY KEY AUTOINCREMENT,
+                job_id       INTEGER NOT NULL REFERENCES service_jobs(id) ON DELETE CASCADE,
+                line_type    TEXT NOT NULL DEFAULT 'charge',
+                inventory_id INTEGER REFERENCES inventory(id),
+                name         TEXT NOT NULL,
+                quantity     REAL NOT NULL DEFAULT 1,
+                unit_price   REAL NOT NULL DEFAULT 0,
+                discount     REAL NOT NULL DEFAULT 0,
+                discount_pct REAL,
+                tax_rate_id  INTEGER REFERENCES tax_rates(id),
+                tax_rate     REAL,
+                tax_amount   REAL,
+                -- Cost snapshot, written when the part is actually consumed.
+                -- consumed_at non-NULL is the marker that stock and the ledger
+                -- have both been touched for this line.
+                unit_cost    REAL,
+                cost_total   REAL,
+                consumed_at  TEXT,
+                line_no      INTEGER NOT NULL DEFAULT 0
+            )
+        """)
+        c.execute("CREATE INDEX IF NOT EXISTS idx_service_job_lines_job "
+                  "ON service_job_lines(job_id)")
+        c.execute("CREATE INDEX IF NOT EXISTS idx_service_job_lines_item "
+                  "ON service_job_lines(inventory_id)")
+        done("144c_service_job_lines")
+
+    # The partial unique index is what makes "a job is invoiced at most once" a
+    # constraint rather than a code path — the same move as
+    # receipt_vouchers.UNIQUE(invoice_id).
+    add_col("144d_invoice_service_link", "invoices", "service_job_id",
+            "ALTER TABLE invoices ADD COLUMN service_job_id INTEGER "
+            "REFERENCES service_jobs(id)")
+    if need("144d_invoice_service_link_idx"):
+        if "invoices" in all_tables() and "service_job_id" in cols("invoices"):
+            c.execute("CREATE UNIQUE INDEX IF NOT EXISTS idx_invoices_service_job "
+                      "ON invoices(service_job_id) WHERE service_job_id IS NOT NULL")
+        done("144d_invoice_service_link_idx")
+
+    # Which revenue account a line credits when the invoice is PAID. NULL means
+    # 4000 Sales Revenue, so every existing row keeps its current behaviour.
+    add_col("144e_invoice_item_revenue_account", "invoice_items", "revenue_account",
+            "ALTER TABLE invoice_items ADD COLUMN revenue_account TEXT")
+
+    # Separating service revenue from goods revenue is the whole reason the
+    # owner asked for the split; without this account the income statement
+    # cannot answer "what did maintenance earn us".
+    if need("144f_account_4100"):
+        _ts = datetime.utcnow().strftime("%Y-%m-%d %H:%M:%S")
+        c.execute(
+            "INSERT OR IGNORE INTO chart_of_accounts "
+            "(code, name, type, subtype, normal_balance, is_system, is_active, created_at) "
+            "VALUES (?,?,?,?,?,1,1,?)",
+            ("4100", "Service Revenue", "Income", "Operating Income", "credit", _ts),
+        )
+        done("144f_account_4100")
+
     conn.commit()
 
 
@@ -3507,6 +3642,100 @@ def _ensure_pg_post_baseline(raw):
         """)
         cur.execute("CREATE INDEX IF NOT EXISTS idx_receipt_vouchers_invoice "
                     "ON receipt_vouchers(invoice_id)")
+        # 144 — service module. Customer equipment, the jobs done on it, and the
+        # lines those jobs carry. Mirrors migrations 144a-f in the SQLite chain;
+        # this branch is what reaches Postgres tenants provisioned before this
+        # release, which is the failure the three-places rule exists to prevent.
+        cur.execute("""
+            CREATE TABLE IF NOT EXISTS service_equipment (
+                id            INTEGER GENERATED BY DEFAULT AS IDENTITY PRIMARY KEY,
+                client_id     INTEGER NOT NULL REFERENCES clients(id),
+                name          TEXT NOT NULL,
+                manufacturer  TEXT,
+                model         TEXT,
+                serial_number TEXT,
+                install_date  TEXT,
+                location      TEXT,
+                inventory_id  INTEGER REFERENCES inventory(id),
+                notes         TEXT,
+                branch_id     INTEGER REFERENCES warehouses(id),
+                created_at    TEXT NOT NULL,
+                archived_at   TEXT
+            )
+        """)
+        cur.execute("CREATE INDEX IF NOT EXISTS idx_service_equipment_client "
+                    "ON service_equipment(client_id)")
+        cur.execute("CREATE INDEX IF NOT EXISTS idx_service_equipment_serial "
+                    "ON service_equipment(serial_number)")
+        cur.execute("CREATE INDEX IF NOT EXISTS idx_service_equipment_branch "
+                    "ON service_equipment(branch_id)")
+        cur.execute("""
+            CREATE TABLE IF NOT EXISTS service_jobs (
+                id             INTEGER GENERATED BY DEFAULT AS IDENTITY PRIMARY KEY,
+                job_number     TEXT NOT NULL UNIQUE,
+                client_id      INTEGER NOT NULL REFERENCES clients(id),
+                equipment_id   INTEGER REFERENCES service_equipment(id),
+                job_type       TEXT NOT NULL DEFAULT 'Repair',
+                status         TEXT NOT NULL DEFAULT 'Draft',
+                priority       TEXT NOT NULL DEFAULT 'Normal',
+                scheduled_date TEXT,
+                completed_at   TEXT,
+                assigned_to    INTEGER REFERENCES users(id),
+                reported_fault TEXT,
+                work_done      TEXT,
+                warehouse_id   INTEGER REFERENCES warehouses(id),
+                branch_id      INTEGER REFERENCES warehouses(id),
+                parts_cost     DOUBLE PRECISION NOT NULL DEFAULT 0,
+                subtotal       DOUBLE PRECISION NOT NULL DEFAULT 0,
+                tax_total      DOUBLE PRECISION NOT NULL DEFAULT 0,
+                total          DOUBLE PRECISION NOT NULL DEFAULT 0,
+                cancel_reason  TEXT,
+                created_by     INTEGER,
+                created_at     TEXT NOT NULL,
+                updated_at     TEXT,
+                archived_at    TEXT
+            )
+        """)
+        for _col in ("status", "client_id", "equipment_id", "scheduled_date", "branch_id"):
+            cur.execute(f"CREATE INDEX IF NOT EXISTS idx_service_jobs_{_col} "
+                        f"ON service_jobs({_col})")
+        cur.execute("""
+            CREATE TABLE IF NOT EXISTS service_job_lines (
+                id           INTEGER GENERATED BY DEFAULT AS IDENTITY PRIMARY KEY,
+                job_id       INTEGER NOT NULL REFERENCES service_jobs(id) ON DELETE CASCADE,
+                line_type    TEXT NOT NULL DEFAULT 'charge',
+                inventory_id INTEGER REFERENCES inventory(id),
+                name         TEXT NOT NULL,
+                quantity     DOUBLE PRECISION NOT NULL DEFAULT 1,
+                unit_price   DOUBLE PRECISION NOT NULL DEFAULT 0,
+                discount     DOUBLE PRECISION NOT NULL DEFAULT 0,
+                discount_pct DOUBLE PRECISION,
+                tax_rate_id  INTEGER REFERENCES tax_rates(id),
+                tax_rate     DOUBLE PRECISION,
+                tax_amount   DOUBLE PRECISION,
+                unit_cost    DOUBLE PRECISION,
+                cost_total   DOUBLE PRECISION,
+                consumed_at  TEXT,
+                line_no      INTEGER NOT NULL DEFAULT 0
+            )
+        """)
+        cur.execute("CREATE INDEX IF NOT EXISTS idx_service_job_lines_job "
+                    "ON service_job_lines(job_id)")
+        cur.execute("CREATE INDEX IF NOT EXISTS idx_service_job_lines_item "
+                    "ON service_job_lines(inventory_id)")
+        cur.execute("ALTER TABLE invoices ADD COLUMN IF NOT EXISTS service_job_id "
+                    "INTEGER REFERENCES service_jobs(id)")
+        # Partial unique index: one invoice per job, enforced by the database so
+        # a double-click cannot bill the same work twice.
+        cur.execute("CREATE UNIQUE INDEX IF NOT EXISTS idx_invoices_service_job "
+                    "ON invoices(service_job_id) WHERE service_job_id IS NOT NULL")
+        cur.execute("ALTER TABLE invoice_items ADD COLUMN IF NOT EXISTS revenue_account TEXT")
+        cur.execute(
+            "INSERT INTO chart_of_accounts "
+            "(code, name, type, subtype, normal_balance, is_system, is_active, created_at) "
+            "VALUES ('4100','Service Revenue','Income','Operating Income','credit',1,1,"
+            "to_char(now(),'YYYY-MM-DD HH24:MI:SS')) ON CONFLICT (code) DO NOTHING"
+        )
     raw.commit()
 
 
