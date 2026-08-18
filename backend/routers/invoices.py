@@ -737,7 +737,10 @@ def unvoid_invoice(
                 {"code": accounting.cash_account_for(pay["paid_currency"]),
                  "debit": float(pay["amount"]),
                  "memo": f"{pay['method']} ({pay['paid_currency'] or 'USD'})"},
-                {"code": accounting.REVENUE, "credit": float(pay["amount"])},
+                # Split the same way the original payment was, or a void
+                # followed by an unvoid would quietly move service revenue
+                # into the goods account.
+                *accounting.revenue_split(db, invoice_id, float(pay["amount"])),
             ],
             source_type="invoice_payment", source_id=pay["id"], created_by=user["id"],
             branch_id=inv["branch_id"],
@@ -855,7 +858,11 @@ def add_payment(
         lines=[
             {"code": accounting.cash_account_for(currency),
              "debit":  usd_amount, "memo": f"{data.method} ({currency})"},
-            {"code": accounting.REVENUE, "credit": usd_amount},
+            # Credited across revenue accounts in proportion to the
+            # invoice's line mix, so a service job's labour lands in 4100 and
+            # its parts in 4000. An invoice from anywhere else has no
+            # revenue_account on its lines and yields a single 4000 credit.
+            *accounting.revenue_split(db, invoice_id, usd_amount),
         ],
         source_type="invoice_payment", source_id=payment_id, created_by=user["id"],
         branch_id=inv["branch_id"],

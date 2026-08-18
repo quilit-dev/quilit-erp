@@ -228,6 +228,57 @@ def post_entry(db: sqlite3.Connection, *, entry_date: str, memo: str, lines: lis
     return je_id
 
 
+def revenue_split(db, invoice_id, amount):
+    """Credit lines for `amount` of revenue, split across revenue accounts in
+    proportion to the invoice's own line mix.
+
+    Revenue in this system is recognised on PAYMENT, not on invoicing, and a
+    payment can be partial. So a $1,000 invoice that is 40% parts and 60%
+    labour, paying $500, must credit $200 to goods and $300 to service.
+    Allocating "service first" would overstate one account on every part-paid
+    invoice and only come right at the end.
+
+    Lines are grouped by `invoice_items.revenue_account`; NULL means the
+    default sales revenue account, so an invoice raised anywhere else in the
+    system produces exactly one credit line to 4000 and behaves as it always
+    has. An itemless invoice does the same.
+
+    Rounding residue is added to the largest bucket, so the credits sum to
+    `amount` to the cent and the entry balances. Without that, a 1/3 split of
+    an odd figure loses a cent and post_entry rejects the whole entry.
+    """
+    amount = money(amount or 0)
+    try:
+        rows = db.execute(
+            "SELECT COALESCE(revenue_account, ?) AS acct, "
+            "       SUM(COALESCE(quantity,0) * COALESCE(unit_price,0) "
+            "           - COALESCE(discount,0) + COALESCE(tax_amount,0)) AS gross "
+            "FROM invoice_items WHERE invoice_id = ? GROUP BY 1",
+            (REVENUE, invoice_id),
+        ).fetchall()
+    except Exception:
+        # No invoice_items table on a very old install, or a read failure. One
+        # line to the default account is the safe answer: the entry still
+        # balances and the money is still recognised.
+        rows = []
+
+    buckets = [(r["acct"] or REVENUE, float(r["gross"] or 0)) for r in rows]
+    buckets = [(a, g) for a, g in buckets if g > 0]
+    if len(buckets) <= 1:
+        return [{"code": buckets[0][0] if buckets else REVENUE, "credit": amount}]
+
+    total = sum(g for _, g in buckets)
+    if total <= 0:
+        return [{"code": REVENUE, "credit": amount}]
+
+    lines = [{"code": a, "credit": money(amount * g / total)} for a, g in buckets]
+    residue = money(amount - sum(l["credit"] for l in lines))
+    if residue:
+        biggest = max(range(len(lines)), key=lambda i: lines[i]["credit"])
+        lines[biggest]["credit"] = money(lines[biggest]["credit"] + residue)
+    return [l for l in lines if l["credit"] > 0]
+
+
 def reverse_entry(db: sqlite3.Connection, je_id: int, *, entry_date=None,
                   memo=None, created_by=None):
     """Post a mirror entry that cancels `je_id` (debits↔credits) and links the
