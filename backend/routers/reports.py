@@ -803,3 +803,83 @@ def report_branch_comparison(
         "invoiced": round(sum(r["invoiced"] for r in out), 2),
     }
     return {"branches": out, "totals": totals, "start": start, "end": end}
+
+
+@router.get("/service-jobs")
+def report_service_jobs(
+    start: Optional[str] = Query(None),
+    end:   Optional[str] = Query(None),
+    status: Optional[str] = Query(None),
+    user=Depends(require_perm("reports", "view")),
+    db: sqlite3.Connection = Depends(get_db),
+):
+    """Job-by-job profitability, and what has not been billed.
+
+    The question the module exists to answer: is the service side making money,
+    and is any of it going uninvoiced. Revenue is the job's own total, cost is
+    the parts consumed at completion; labour has no cost line because labour is
+    a flat charge here rather than a timesheet.
+
+    `billed` comes from the invoice, not from a status on the job, so a voided
+    invoice correctly shows the work as unbilled again.
+    """
+    start = start or _year_start()
+    end   = end   or _today()
+
+    where = ["j.archived_at IS NULL",
+             "date(COALESCE(j.completed_at, j.scheduled_date, j.created_at)) BETWEEN ? AND ?"]
+    params: list = [start, end]
+    if status:
+        where.append("j.status = ?")
+        params.append(status)
+    bf, bp = branch_access.branch_filter(user, db, column="j.branch_id")
+    if bf:
+        where.append(bf[len(" AND "):])
+        params += bp
+
+    rows = db.execute(
+        "SELECT j.id, j.job_number, j.job_type, j.status, j.scheduled_date,"
+        "       j.completed_at, j.total, j.parts_cost,"
+        "       c.name AS client_name, e.name AS equipment_name,"
+        "       u.username AS technician,"
+        "       i.invoice_number, i.id AS invoice_id"
+        " FROM service_jobs j"
+        " LEFT JOIN clients c ON c.id = j.client_id"
+        " LEFT JOIN service_equipment e ON e.id = j.equipment_id"
+        " LEFT JOIN users u ON u.id = j.assigned_to"
+        " LEFT JOIN invoices i ON i.service_job_id = j.id AND i.voided_at IS NULL"
+        f" WHERE {' AND '.join(where)}"
+        " ORDER BY COALESCE(j.completed_at, j.scheduled_date, j.created_at) DESC",
+        params).fetchall()
+
+    out = []
+    for r in rows:
+        revenue = float(r["total"] or 0)
+        cost    = float(r["parts_cost"] or 0)
+        out.append({
+            "id": r["id"], "job_number": r["job_number"],
+            "job_type": r["job_type"], "status": r["status"],
+            "client_name": r["client_name"], "equipment_name": r["equipment_name"],
+            "technician": r["technician"],
+            "scheduled_date": r["scheduled_date"], "completed_at": r["completed_at"],
+            "revenue": round(revenue, 2), "parts_cost": round(cost, 2),
+            "margin": round(revenue - cost, 2),
+            # Percent is omitted rather than shown as 0 on a zero-revenue job:
+            # a draft with no lines is not a 0% margin, it is not yet a job.
+            "margin_pct": (round((revenue - cost) / revenue * 100, 1)
+                           if revenue else None),
+            "invoice_number": r["invoice_number"],
+            "billed": bool(r["invoice_id"]),
+        })
+
+    unbilled = [r for r in out if r["status"] == "Completed" and not r["billed"]]
+    totals = {
+        "jobs":       len(out),
+        "revenue":    round(sum(r["revenue"] for r in out), 2),
+        "parts_cost": round(sum(r["parts_cost"] for r in out), 2),
+        "margin":     round(sum(r["margin"] for r in out), 2),
+        # Completed work nobody has invoiced — money spent and not yet asked for.
+        "unbilled_count": len(unbilled),
+        "unbilled_value": round(sum(r["revenue"] for r in unbilled), 2),
+    }
+    return {"jobs": out, "totals": totals, "start": start, "end": end}

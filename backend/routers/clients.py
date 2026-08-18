@@ -2,7 +2,7 @@ from fastapi import APIRouter, Depends, HTTPException
 from pydantic import BaseModel
 from typing import Optional
 from database import get_db
-from permissions import require_perm
+from permissions import require_perm, can_view
 from routers.audit import log_action
 from utils import _now
 import sqlite3
@@ -112,6 +112,29 @@ def get_client(client_id: int, user=Depends(require_perm("clients", "view")), db
         (client_id,)
     ).fetchall()
 
+    # The customer's machines and the work done on them. Guarded by the module
+    # permission rather than the clients one: a salesperson who may read a client
+    # has no business reading their service history, and a tenant that has not
+    # licensed service has no such tables to read.
+    equipment, service_jobs = [], []
+    if can_view(user, db, "service"):
+        equipment = db.execute(
+            """SELECT id, name, manufacturer, model, serial_number, install_date,
+                      location
+               FROM service_equipment
+               WHERE client_id = ? AND archived_at IS NULL ORDER BY name""",
+            (client_id,)
+        ).fetchall()
+        service_jobs = db.execute(
+            """SELECT j.id, j.job_number, j.job_type, j.status, j.scheduled_date,
+                      j.completed_at, j.total, e.name AS equipment_name
+               FROM service_jobs j
+               LEFT JOIN service_equipment e ON e.id = j.equipment_id
+               WHERE j.client_id = ? AND j.archived_at IS NULL
+               ORDER BY COALESCE(j.completed_at, j.scheduled_date, j.created_at) DESC""",
+            (client_id,)
+        ).fetchall()
+
     # Documents attached to this client
     documents = db.execute(
         """SELECT id, record_type, record_id, title, created_at
@@ -128,6 +151,8 @@ def get_client(client_id: int, user=Depends(require_perm("clients", "view")), db
     result["quotations"] = [dict(q) for q in quotations]
     result["invoices"]   = [dict(i) for i in invoices]
     result["documents"]  = [dict(d) for d in documents]
+    result["equipment"]    = [dict(e) for e in equipment]
+    result["service_jobs"] = [dict(j) for j in service_jobs]
     result["stats"] = {
         "project_count":   len(projects),
         "quotation_count": len(quotations),

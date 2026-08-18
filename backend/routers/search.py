@@ -18,7 +18,7 @@ broken query stays diagnosable instead of being silently swallowed.
 import logging
 from fastapi import APIRouter, Depends, Query
 from database import get_db
-from permissions import require_auth
+from permissions import require_auth, can_view as permissions_can_view
 import branch_access
 import sqlite3
 
@@ -26,18 +26,9 @@ router = APIRouter()
 logger = logging.getLogger("erp.search")
 
 
-def _can(user: dict, db: sqlite3.Connection, module: str) -> bool:
-    """True if the caller may view `module` (superadmin bypasses)."""
-    if user.get("is_superadmin"):
-        return True
-    rid = user.get("role_id")
-    if not rid:
-        return False
-    p = db.execute(
-        "SELECT can_view FROM role_permissions WHERE role_id=? AND module=?",
-        (rid, module),
-    ).fetchone()
-    return bool(p and p["can_view"])
+# Module-view gate for showing/hiding a section. The shared implementation lives
+# in permissions.py; this alias keeps the call sites below unchanged.
+_can = permissions_can_view
 
 
 def _admin(user: dict) -> bool:
@@ -588,6 +579,48 @@ def search_all(
                 "subtitle": _join(r["asset_code"], r["category"], r["status"],
                                   _money(r["acquisition_cost"])),
                 "url": "/fixed-assets",
+            },
+        )
+
+    # ── Service — jobs and the equipment they are done on ─────────────────
+    # Both are searchable because a technician arrives knowing one of two
+    # things: the job number on the docket, or the machine in front of them.
+    if _can(user, db, "service"):
+        run(
+            "SELECT j.id, j.job_number, j.job_type, j.status, j.reported_fault,"
+            "       c.name AS client_name, e.name AS equipment_name"
+            " FROM service_jobs j"
+            " LEFT JOIN clients c ON c.id = j.client_id"
+            " LEFT JOIN service_equipment e ON e.id = j.equipment_id"
+            " WHERE j.archived_at IS NULL AND ("
+            "   j.job_number LIKE ? OR j.job_type LIKE ? OR j.status LIKE ?"
+            "   OR j.reported_fault LIKE ? OR j.work_done LIKE ?"
+            "   OR c.name LIKE ? OR e.name LIKE ?)"
+            " LIMIT ?",
+            (term, term, term, term, term, term, term, limit),
+            lambda r: {
+                "id": r["id"], "type": "service_job",
+                "title": r["job_number"] or "Service job",
+                "subtitle": _join(r["client_name"], r["equipment_name"],
+                                  r["job_type"], r["status"],
+                                  _clip(r["reported_fault"])),
+                "url": "/service",
+            },
+        )
+        run(
+            "SELECT e.id, e.name, e.manufacturer, e.model, e.serial_number,"
+            "       c.name AS client_name"
+            " FROM service_equipment e LEFT JOIN clients c ON c.id = e.client_id"
+            " WHERE e.archived_at IS NULL AND ("
+            "   e.name LIKE ? OR e.manufacturer LIKE ? OR e.model LIKE ?"
+            "   OR e.serial_number LIKE ? OR e.location LIKE ? OR c.name LIKE ?)"
+            " LIMIT ?",
+            (term, term, term, term, term, term, limit),
+            lambda r: {
+                "id": r["id"], "type": "equipment", "title": r["name"],
+                "subtitle": _join(r["client_name"], r["manufacturer"], r["model"],
+                                  r["serial_number"]),
+                "url": "/service",
             },
         )
 

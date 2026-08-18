@@ -55,6 +55,11 @@ NOTIFICATION_TYPE_MODULE = {
     # Manufacturing + Assets
     "production_completed":  "manufacturing",
     "asset_depreciated":     "assets",
+    # Field service. Mapped to the module so a tenant that has not licensed
+    # service never receives them — that filtering is the reason this table
+    # exists rather than a bare list of type names.
+    "service_job_scheduled": "service",
+    "service_job_completed": "service",
     # Cash + Finance + Accounting
     "cash_variance":         "cash",
     "recurring_generated":   "expenses",

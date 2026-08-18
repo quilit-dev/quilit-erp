@@ -103,6 +103,29 @@ def _resolve_user(user: dict, db: sqlite3.Connection) -> dict:
     }
 
 
+def can_view(user: dict, db: sqlite3.Connection, module: str) -> bool:
+    """True if the caller may VIEW `module`. Superadmin bypasses RBAC.
+
+    The non-raising counterpart to `check_perm`, for handlers that show or hide a
+    section rather than refuse a request — a dashboard tile, a global-search
+    section, a related-records block on a detail page. Those must degrade to
+    "not shown" instead of 403, because the request itself is legitimate.
+
+    Lived as a private `_can` in both dashboard.py and search.py; promoted here
+    when a third caller needed it, rather than copied a third time.
+    """
+    if user.get("is_superadmin"):
+        return True
+    rid = user.get("role_id")
+    if not rid:
+        return False
+    row = db.execute(
+        "SELECT can_view FROM role_permissions WHERE role_id=? AND module=?",
+        (rid, module),
+    ).fetchone()
+    return bool(row and row["can_view"])
+
+
 def check_perm(user: dict, db: sqlite3.Connection, module: str, action: str = "view") -> None:
     """Imperative permission check for handlers whose target module is only
     known at runtime (e.g. a generic endpoint keyed by a path parameter, like

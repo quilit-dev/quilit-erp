@@ -14,7 +14,7 @@ of the business rather than a stack of disconnected widgets.
 from fastapi import APIRouter, Depends
 from typing import Optional
 from database import get_db
-from permissions import require_perm
+from permissions import require_perm, can_view as permissions_can_view
 from utils import _today
 import branch_access
 import sqlite3
@@ -22,17 +22,9 @@ import sqlite3
 router = APIRouter()
 
 
-def _can(user, db, module):
-    """Module-view check used to gate each section. Superadmin bypasses."""
-    if user.get("is_superadmin"):
-        return True
-    rid = user.get("role_id")
-    if not rid:
-        return False
-    p = db.execute(
-        "SELECT can_view FROM role_permissions WHERE role_id=? AND module=?", (rid, module)
-    ).fetchone()
-    return bool(p and p["can_view"])
+# Module-view gate for showing/hiding a section. The shared implementation lives
+# in permissions.py; this alias keeps the call sites below unchanged.
+_can = permissions_can_view
 
 
 def _scalar(db: sqlite3.Connection, sql: str, params=()):
@@ -57,6 +49,8 @@ def dashboard(branch_id: Optional[int] = None,
     bf_i,  bp_i  = _bf("i.branch_id")   # invoices (alias i)
     bf_e,  bp_e  = _bf("branch_id")     # expenses
     bf_cd, bp_cd = _bf("branch_id")     # cash_drawers
+    bf_sj, bp_sj = _bf("branch_id")     # service jobs
+    bf_sa, bp_sa = _bf("j.branch_id")   # service jobs (alias j)
     bf_emp, bp_emp = _bf("branch_id")   # hr_employees
 
     # ── Module-view gates ────────────────────────────────────────────────
@@ -68,6 +62,7 @@ def dashboard(branch_id: Optional[int] = None,
     show_pos           = _can(user, db, "pos")
     show_cash          = _can(user, db, "cash")
     show_manufacturing = _can(user, db, "manufacturing")
+    show_service       = _can(user, db, "service")
     show_hr            = _can(user, db, "hr")
     show_recruitment   = _can(user, db, "recruitment")
     show_crm           = _can(user, db, "crm")
@@ -204,6 +199,40 @@ def dashboard(branch_id: Optional[int] = None,
             "in_flight":   in_flight,
             "in_progress": in_progress,
             "due_soon":    due_soon,
+        }
+
+    # ── Service: what is booked, what is overdue, what is unbilled ───────
+    # The three questions a service manager opens the system to answer. Unbilled
+    # matters most: completed work nobody has invoiced is money already spent
+    # and not yet asked for.
+    service_summary = None
+    if show_service:
+        open_jobs = _scalar(db,
+            "SELECT COUNT(*) FROM service_jobs"
+            " WHERE archived_at IS NULL"
+            "   AND status IN ('Draft','Scheduled','In Progress')" + bf_sj,
+            bp_sj,
+        )
+        due_today = _scalar(db,
+            "SELECT COUNT(*) FROM service_jobs"
+            " WHERE archived_at IS NULL"
+            "   AND status IN ('Scheduled','In Progress')"
+            "   AND scheduled_date IS NOT NULL"
+            "   AND date(scheduled_date) <= date('now')" + bf_sj,
+            bp_sj,
+        )
+        unbilled = _scalar(db,
+            "SELECT COUNT(*) FROM service_jobs j"
+            " WHERE j.archived_at IS NULL AND j.status = 'Completed'"
+            "   AND NOT EXISTS (SELECT 1 FROM invoices i"
+            "                   WHERE i.service_job_id = j.id"
+            "                     AND i.voided_at IS NULL)" + bf_sa,
+            bp_sa,
+        )
+        service_summary = {
+            "open_jobs": open_jobs,
+            "due_today": due_today,
+            "unbilled":  unbilled,
         }
 
     # ── HR: headcount + on-leave today + pending leave requests ──────────
@@ -421,6 +450,7 @@ def dashboard(branch_id: Optional[int] = None,
         "pos":              dict(pos_today) if pos_today else None,
         "cash":             cash_summary,
         "manufacturing":    mfg_summary,
+        "service":          service_summary,
         "hr":               hr_summary,
         "recruitment":      rec_summary,
         "crm":              crm_summary,
@@ -445,6 +475,7 @@ def dashboard(branch_id: Optional[int] = None,
             "pos":           show_pos,
             "cash":          show_cash,
             "manufacturing": show_manufacturing,
+            "service":       show_service,
             "hr":            show_hr,
             "recruitment":   show_recruitment,
             "crm":           show_crm,
