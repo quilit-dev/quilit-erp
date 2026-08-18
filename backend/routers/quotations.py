@@ -15,6 +15,7 @@ from database import get_db
 from permissions import require_perm
 from routers.audit import log_action
 from routers.promotions import apply_promotions_to_lines
+from types import SimpleNamespace
 from utils import _now, get_tax_context, resolve_line_tax, money, notify
 from routers.projects import bump_project_status
 from approval_engine import evaluate_and_apply
@@ -509,74 +510,58 @@ def convert_to_invoice(
             "invoice_number": existing_inv["invoice_number"],
         }
 
-    # Invoice number is derived from the new row's id (collision-free under
-    # concurrency) — see routers/invoices.py helpers. We insert with a
-    # placeholder first, then finalize once we have the id.
-    from routers.invoices import (_placeholder_invoice_number, _invoice_prefix,
-                                  _finalize_invoice_number)
-    prefix = _invoice_prefix(db)
-    now    = _now()
+    # Built by the shared constructor rather than by hand here. This function
+    # used to re-implement it, and drifted: no approval gate, no branch tag, and
+    # an item copy that dropped the discount, the inventory link and the
+    # promotion. Those are all fixed by going through one path.
+    #
+    # Lines are re-priced rather than having their tax snapshot copied.
+    # _price_quote_items and _price_items are the same algorithm, so an
+    # unchanged tax rate yields the identical figure; if the rate itself has
+    # since changed, invoicing at the current rate is the defensible answer and
+    # keeps subtotal + tax_total == amount true by construction.
+    from routers.invoices import build_invoice
 
-    # Auto-calculate due_date from payment_terms_days setting
-    terms_row = db.execute("SELECT value FROM settings WHERE key='payment_terms_days'").fetchone()
-    days = int(terms_row["value"]) if terms_row else 15
-    due_date = (datetime.utcnow() + timedelta(days=days)).strftime("%Y-%m-%d")
-
-    # Ensure invoice_items table exists
-    db.execute("""
-        CREATE TABLE IF NOT EXISTS invoice_items (
-            id         INTEGER PRIMARY KEY AUTOINCREMENT,
-            invoice_id INTEGER NOT NULL REFERENCES invoices(id) ON DELETE CASCADE,
-            name       TEXT    NOT NULL,
-            quantity   REAL    NOT NULL DEFAULT 1,
-            unit_price REAL    NOT NULL DEFAULT 0
-        )
-    """)
-
-    quote_subtotal = float(q["total"] or 0)
-    quote_tax      = float(q["tax_total"] or 0)
-    invoice_amount = round(quote_subtotal + quote_tax, 4)
-    cur = db.execute(
-        "INSERT INTO invoices "
-        "(invoice_number, quotation_id, project_id, client_id, amount, subtotal, tax_total, "
-        " due_date, notes, created_at) "
-        "VALUES (?,?,?,?,?,?,?,?,?,?)",
-        (_placeholder_invoice_number(), quote_id, q["project_id"], client_id,
-         invoice_amount, quote_subtotal, quote_tax, due_date,
-         f"From {q['quote_number']}", now),
-    )
-    inv_id = cur.lastrowid
-    inv_no = _finalize_invoice_number(db, inv_id, prefix)
-
-    # Copy all line items (with their tax snapshot) from quotation -> invoice
     quote_items = db.execute(
-        "SELECT name, quantity, unit_price, tax_rate_id, tax_rate, tax_amount "
+        "SELECT name, quantity, unit_price, discount, discount_pct, "
+        "       tax_rate_id, inventory_id "
         "FROM quotation_items WHERE quotation_id = ? ORDER BY id",
         (quote_id,),
     ).fetchall()
-    for item in quote_items:
-        db.execute(
-            "INSERT INTO invoice_items "
-            "(invoice_id, name, quantity, unit_price, tax_rate_id, tax_rate, tax_amount) "
-            "VALUES (?,?,?,?,?,?,?)",
-            (inv_id, item["name"], item["quantity"], item["unit_price"],
-             item["tax_rate_id"], item["tax_rate"], item["tax_amount"]),
-        )
+    items = [SimpleNamespace(**dict(r)) for r in quote_items]
+
+    res = build_invoice(
+        db, user=user,
+        client_id=client_id,
+        items=items,
+        amount=float(q["total"] or 0),        # fallback for an itemless quote
+        notes=f"From {q['quote_number']}",
+        quotation_id=quote_id,
+        project_id=q["project_id"],
+        branch_id=q["branch_id"],
+        # The customer was quoted these figures. Re-running promotions would
+        # either double-discount them or overwrite a hand-negotiated line.
+        apply_promos=False,
+    )
+    inv_id, inv_no = res["invoice_id"], res["invoice_number"]
 
     # Mark quotation as Accepted (if not already)
     db.execute(
         "UPDATE quotations SET status = 'Accepted' WHERE id = ? AND status != 'Accepted'",
         (quote_id,),
     )
-    # An invoice has been raised — the project (if any) moves to Invoiced.
-    bump_project_status(db, q["project_id"], "Invoiced")
+    # The project advance is build_invoice's job now: it is deferred when the
+    # invoice is parked for approval, which an unconditional bump here would
+    # have got wrong.
     log_action(db, user, "convert_to_invoice", "quotation", quote_id,
                q["quote_number"], {"invoice_number": inv_no})
     db.commit()
     return {
-        "message":        "Invoice created from quotation",
+        "message": ("Invoice pending approval" if res["pending_approval"]
+                    else "Invoice created from quotation"),
         "invoice_id":     inv_id,
         "invoice_number": inv_no,
+        "pending_approval": res["pending_approval"],
     }
 
 # ── Convert to Project (project-based workflow) ───────────────────────────
