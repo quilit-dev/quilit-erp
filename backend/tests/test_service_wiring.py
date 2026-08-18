@@ -28,6 +28,15 @@ def oven(client, acme):
         "model": "R-200", "serial_number": "SN-4471"}).json()["id"]
 
 
+@pytest.fixture(autouse=True)
+def manual_billing(client):
+    """Automatic invoicing is the default, so a completed job is billed at once
+    and the "awaiting invoice" surfaces are empty. These tests are about those
+    surfaces, which matter when a company bills by hand or voids an invoice — so
+    they turn the automatic path off and drive the manual one."""
+    client.put("/api/settings/", json={"service_auto_invoice": "0"})
+
+
 def _item(client, name, qty, cost, price):
     return client.post("/api/inventory/", json={
         "name": name, "quantity": qty, "unit_cost": cost, "sale_price": price,

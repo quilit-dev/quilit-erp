@@ -47,6 +47,10 @@ export default function EquipmentForm({ equipment, clients, onDone, onCancel }) 
 
   return (
     <form onSubmit={submit}>
+      {/* .modal-body carries the padding AND the scroll region:
+          .modal is `overflow: hidden` with a flex column, so content
+          placed outside this wrapper has no padding and cannot scroll. */}
+      <div className="modal-body">
       <div className="form-grid">
         <div className="form-group">
           <label>{t('common.client')} *</label>
@@ -87,6 +91,8 @@ export default function EquipmentForm({ equipment, clients, onDone, onCancel }) 
         <label>{t('common.notes')}</label>
         <textarea className="form-control" rows="2" value={form.notes} onChange={set('notes')} />
       </div>
+      </div>
+
       <div className="modal-footer">
         <button type="button" className="btn btn-secondary" onClick={onCancel}>
           {t('common.cancel')}

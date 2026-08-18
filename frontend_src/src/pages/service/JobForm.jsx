@@ -112,6 +112,10 @@ export default function JobForm({ job, clients, onDone, onCancel }) {
 
   return (
     <form onSubmit={submit}>
+      {/* .modal-body carries the padding AND the scroll region:
+          .modal is `overflow: hidden` with a flex column, so content
+          placed outside this wrapper has no padding and cannot scroll. */}
+      <div className="modal-body">
       <div className="form-grid">
         <div className="form-group">
           <label>{t('common.client')} *</label>
@@ -238,6 +242,8 @@ export default function JobForm({ job, clients, onDone, onCancel }) {
         <div style={{ marginInlineStart: 'auto', alignSelf: 'center' }}>
           <strong>{t('common.subtotal')}: {fmt(subtotal)}</strong>
         </div>
+      </div>
+
       </div>
 
       <div className="modal-footer">

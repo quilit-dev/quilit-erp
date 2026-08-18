@@ -707,11 +707,42 @@ def complete_job(
                title=f"Service job completed: {job['job_number']}",
                body=job["work_done"] or None,
                link="/service", entity_type="service_job", entity_id=job_id)
+    # Raise the invoice in the SAME transaction, if the company wants it. The
+    # work is done and priced, and the alternative is a completed job sitting
+    # unbilled because nobody pressed a second button. It is an ordinary draft
+    # invoice: editable afterwards, and voidable if the job was completed by
+    # mistake — voiding then makes the job billable again.
+    #
+    # A job with no lines has nothing to bill, so it is skipped rather than
+    # failing the completion: the work still happened.
+    invoice = None
+    auto = db.execute(
+        "SELECT value FROM settings WHERE key='service_auto_invoice'").fetchone()
+    wants_invoice = (auto["value"] if auto else "1") not in ("0", "", "false")
+    if wants_invoice and db.execute(
+            "SELECT 1 FROM service_job_lines WHERE job_id=?", (job_id,)).fetchone():
+        job = db.execute("SELECT * FROM service_jobs WHERE id=?", (job_id,)).fetchone()
+        try:
+            inv = _raise_invoice(db, job, user)
+            invoice = {"invoice_id": inv["invoice_id"],
+                       "invoice_number": inv["invoice_number"],
+                       "amount": inv["amount"],
+                       "pending_approval": inv["pending_approval"]}
+            log_action(db, user, "invoice", "service_job", job_id,
+                       job["job_number"], {"invoice_id": inv["invoice_id"],
+                                           "auto": True})
+        except HTTPException:
+            # Billing can legitimately refuse (an approval policy, a credit
+            # limit). The parts have already left the warehouse and the cost is
+            # posted, so the completion stands and the invoice can be raised by
+            # hand — failing the whole call would roll back a physical event.
+            invoice = None
+
     log_action(db, user, "complete", "service_job", job_id, job["job_number"],
                {"cogs": cogs_total, "parts": len(needed)})
     db.commit()
     return {"message": "Job completed", "status": ST_COMPLETED,
-            "parts_cost": cogs_total}
+            "parts_cost": cogs_total, "invoice": invoice}
 
 
 @router.post("/jobs/{job_id}/invoice")
@@ -743,9 +774,6 @@ def invoice_job(
     something arranged here: an invoice can be drafted, edited and voided, so it
     deliberately owns no stock movement.
     """
-    from routers.invoices import build_invoice
-    import accounting
-
     job = _get_job(db, job_id, user)
     if job["status"] != ST_COMPLETED:
         raise HTTPException(
@@ -758,6 +786,29 @@ def invoice_job(
         raise HTTPException(
             409, f"Job is already invoiced as {existing['invoice_number']}.")
 
+    inv = _raise_invoice(db, job, user)
+    log_action(db, user, "invoice", "service_job", job_id, job["job_number"],
+               {"invoice_id": inv["invoice_id"],
+                "invoice_number": inv["invoice_number"]})
+    db.commit()
+    return {"invoice_id": inv["invoice_id"],
+            "invoice_number": inv["invoice_number"],
+            "amount": inv["amount"],
+            "pending_approval": inv["pending_approval"],
+            "message": "Invoice raised"}
+
+
+def _raise_invoice(db, job, user):
+    """Build the invoice for a completed job. Does not commit — the caller owns
+    the transaction, so completing-and-invoicing is one atomic step.
+
+    Shared by the explicit endpoint and by automatic invoicing on completion:
+    two copies would be two places for the revenue-account mapping to drift.
+    """
+    from routers.invoices import build_invoice
+    import accounting
+
+    job_id = job["id"]
     lines = db.execute(
         "SELECT line_type, inventory_id, name, quantity, unit_price, discount, "
         "       discount_pct, tax_rate_id FROM service_job_lines "
@@ -774,7 +825,7 @@ def invoice_job(
                                 else accounting.SERVICE_REVENUE)
         items.append(SimpleNamespace(**d))
 
-    inv = build_invoice(
+    return build_invoice(
         db, user=user,
         client_id=job["client_id"],
         items=items,
@@ -783,15 +834,6 @@ def invoice_job(
         service_job_id=job_id,
         branch_id=job["branch_id"],
     )
-    log_action(db, user, "invoice", "service_job", job_id, job["job_number"],
-               {"invoice_id": inv["invoice_id"],
-                "invoice_number": inv["invoice_number"]})
-    db.commit()
-    return {"invoice_id": inv["invoice_id"],
-            "invoice_number": inv["invoice_number"],
-            "amount": inv["amount"],
-            "pending_approval": inv["pending_approval"],
-            "message": "Invoice raised"}
 
 
 @router.post("/jobs/{job_id}/reopen")

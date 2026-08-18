@@ -57,8 +57,12 @@ export default function Service() {
    *  reload are identical whichever button was pressed. */
   async function transition(fn, id, successMsg) {
     try {
-      await fn(id);
-      toast(successMsg);
+      const res = await fn(id);
+      // Completing may also raise the invoice (Settings → service auto-invoice).
+      // Say so, with the number: a silent invoice is one nobody knows to chase.
+      toast(res?.invoice?.invoice_number
+        ? `${successMsg} — ${t('service.invoiceRaised')}: ${res.invoice.invoice_number}`
+        : successMsg);
       reload();
       if (active?.id === id) setActive(await getServiceJob(id));
     } catch (err) {
@@ -234,6 +238,7 @@ export default function Service() {
 
       {modal === 'equipmentDetail' && active && (
         <Modal title={active.name} onClose={() => setModal(null)} size="modal-lg">
+          <div className="modal-body">
           <div className="form-grid">
             <div><label>{t('common.client')}</label><span>{active.client_name}</span></div>
             <div><label>{t('service.manufacturer')}</label><span>{active.manufacturer || '—'}</span></div>
@@ -263,6 +268,7 @@ export default function Service() {
               </tbody>
             </table>
           )}
+          </div>
         </Modal>
       )}
 
@@ -297,6 +303,10 @@ function JobDetail({ job, can, t, onEdit, onTransition, onInvoice }) {
 
   return (
     <>
+      {/* The scrolling, padded region. .modal is overflow:hidden, so anything
+          outside this cannot scroll and gets no padding — which is what made
+          the first version of these screens look unstyled. */}
+      <div className="modal-body">
       <div className="form-grid">
         <div><label>{t('common.client')}</label><span>{job.client_name}</span></div>
         <div><label>{t('service.equipment')}</label>
@@ -364,6 +374,8 @@ function JobDetail({ job, can, t, onEdit, onTransition, onInvoice }) {
           <strong>{t('service.billed')}:</strong> {job.invoice.invoice_number}
         </p>
       )}
+
+      </div>
 
       <div className="modal-footer" style={{ flexWrap: 'wrap', gap: 8 }}>
         <button className="btn btn-secondary"

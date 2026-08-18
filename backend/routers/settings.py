@@ -54,6 +54,12 @@ DEFAULTS = {
     # in the ledger and by the customer holding it.
     "receipt_voucher_prefix": "RV-",
     "service_job_prefix":  "SVC-",
+    # Raise the invoice automatically when a job is completed. On by default:
+    # the work is done and priced, and the alternative is a completed job
+    # sitting unbilled because nobody pressed a second button. The invoice is
+    # an ordinary draft — editable, and voidable if the job was completed by
+    # mistake.
+    "service_auto_invoice": "1",
     # Inventory cost-flow assumption: weighted_avg (default) / fifo / lifo.
     # Drives how cost-of-goods-sold is valued on every stock-OUT.
     "inventory_costing_method": "weighted_avg",
@@ -109,6 +115,7 @@ class SettingsUpdate(BaseModel):
     contract_prefix:    Optional[str] = None
     receipt_voucher_prefix: Optional[str] = None
     service_job_prefix:  Optional[str] = None
+    service_auto_invoice: Optional[str] = None
     inventory_costing_method: Optional[str] = None
     business_type:      Optional[str] = None
     payroll_tax_pct:             Optional[str] = None

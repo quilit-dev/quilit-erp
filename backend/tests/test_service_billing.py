@@ -29,6 +29,14 @@ def _item(client, name, qty, cost, price):
     }).json()["id"]
 
 
+@pytest.fixture(autouse=True)
+def manual_billing(client):
+    """Most tests here exercise the MANUAL invoice endpoint and the reopen
+    rules, so they turn automatic invoicing off. The automatic path — which is
+    the default — has its own section at the bottom."""
+    client.put("/api/settings/", json={"service_auto_invoice": "0"})
+
+
 def _completed_job(client, acme, items):
     body = {"client_id": acme, "job_type": "Repair", "items": items}
     job = client.post("/api/service/jobs", json=body).json()
@@ -260,3 +268,89 @@ def test_reopen_then_complete_again_is_net_correct(client, acme):
 
     assert _stock(client, belt) == pytest.approx(7)
     assert _balance(client, "5000") - cogs_before == pytest.approx(12)
+
+
+# ── Automatic invoicing, the default ─────────────────────────────────────────
+
+def _auto(client, on=True):
+    client.put("/api/settings/", json={"service_auto_invoice": "1" if on else "0"})
+
+
+def test_completing_a_job_invoices_it(client, acme):
+    """What the customer asked for: the work is done and priced, so the invoice
+    should not wait on somebody pressing a second button."""
+    _auto(client)
+    belt = _item(client, "Belt", 10, 4, 12)
+    job = client.post("/api/service/jobs", json={
+        "client_id": acme, "items": [_part(belt, "Belt", 3, 12),
+                                     _charge("Labour", 100)]}).json()
+
+    r = client.post(f"/api/service/jobs/{job['id']}/complete")
+
+    assert r.status_code == 200, r.text
+    assert r.json()["invoice"]["invoice_number"].startswith("INV-")
+    assert r.json()["invoice"]["amount"] == pytest.approx(136)
+
+
+def test_the_automatic_invoice_is_an_ordinary_editable_one(client, acme):
+    """It is a normal draft, not a locked document — the customer wants to edit
+    it afterwards."""
+    _auto(client)
+    job = client.post("/api/service/jobs", json={
+        "client_id": acme, "items": [_charge("Labour", 100)]}).json()
+    inv = client.post(f"/api/service/jobs/{job['id']}/complete").json()["invoice"]
+
+    edited = client.put(f"/api/invoices/{inv['invoice_id']}", json={
+        "client_id": acme, "amount": 150,
+        "items": [{"name": "Labour", "quantity": 1, "unit_price": 150}]})
+
+    assert edited.status_code == 200, edited.text
+
+
+def test_the_setting_turns_it_off(client, acme):
+    _auto(client, False)
+    job = client.post("/api/service/jobs", json={
+        "client_id": acme, "items": [_charge("Labour", 100)]}).json()
+
+    r = client.post(f"/api/service/jobs/{job['id']}/complete")
+
+    assert r.json()["invoice"] is None
+    assert client.get(f"/api/service/jobs/{job['id']}").json()["invoice"] is None
+
+
+def test_a_job_with_no_lines_completes_without_an_invoice(client, acme):
+    """Nothing to bill is not a reason to refuse the completion: the work still
+    happened."""
+    _auto(client)
+    job = client.post("/api/service/jobs", json={
+        "client_id": acme, "items": []}).json()
+
+    r = client.post(f"/api/service/jobs/{job['id']}/complete")
+
+    assert r.status_code == 200
+    assert r.json()["invoice"] is None
+
+
+def test_completing_is_still_one_invoice(client, acme):
+    """Auto-invoicing must not open a second route to double-billing."""
+    _auto(client)
+    job = client.post("/api/service/jobs", json={
+        "client_id": acme, "items": [_charge("Labour", 100)]}).json()
+    client.post(f"/api/service/jobs/{job['id']}/complete")
+
+    again = client.post(f"/api/service/jobs/{job['id']}/invoice")
+
+    assert again.status_code == 409
+
+
+def test_the_parts_still_leave_stock_exactly_once(client, acme):
+    """The invoice does not touch stock; completion does. Doing both in one
+    call must not change that."""
+    _auto(client)
+    belt = _item(client, "Belt", 10, 4, 12)
+    job = client.post("/api/service/jobs", json={
+        "client_id": acme, "items": [_part(belt, "Belt", 3, 12)]}).json()
+
+    client.post(f"/api/service/jobs/{job['id']}/complete")
+
+    assert _stock(client, belt) == pytest.approx(7)
