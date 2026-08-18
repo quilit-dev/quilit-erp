@@ -173,13 +173,13 @@ export default function JobForm({ job, clients, onDone, onCancel }) {
       </div>
 
       <h3>{t('service.partsAndCharges')}</h3>
-      <table className="line-table">
+      <table>
         <thead>
           <tr>
             <th style={{ width: '45%' }}>{t('common.description')}</th>
-            <th className="r">{t('common.quantity')}</th>
-            <th className="r">{t('common.unitPrice')}</th>
-            <th className="r">{t('common.total')}</th>
+            <th className="text-right">{t('common.quantity')}</th>
+            <th className="text-right">{t('common.unitPrice')}</th>
+            <th className="text-right">{t('common.total')}</th>
             <th />
           </tr>
         </thead>
@@ -206,15 +206,15 @@ export default function JobForm({ job, clients, onDone, onCancel }) {
                          onChange={e => setLine(i, { name: e.target.value })} required />
                 )}
               </td>
-              <td className="r">
+              <td className="text-right">
                 <NumberInput value={l.quantity}
                              onChange={e => setLine(i, { quantity: e.target.value })} />
               </td>
-              <td className="r">
+              <td className="text-right">
                 <NumberInput value={l.unit_price}
                              onChange={e => setLine(i, { unit_price: e.target.value })} />
               </td>
-              <td className="r">
+              <td className="text-right">
                 {fmt((Number(l.quantity) || 0) * (Number(l.unit_price) || 0))}
               </td>
               <td>
@@ -240,7 +240,7 @@ export default function JobForm({ job, clients, onDone, onCancel }) {
         </div>
       </div>
 
-      <div className="modal-actions">
+      <div className="modal-footer">
         <button type="button" className="btn btn-secondary" onClick={onCancel}>
           {t('common.cancel')}
         </button>

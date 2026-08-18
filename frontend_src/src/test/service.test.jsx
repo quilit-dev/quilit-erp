@@ -13,6 +13,8 @@ import serviceSrc from '../pages/Service.jsx?raw';
 import jobFormSrc from '../pages/service/JobForm.jsx?raw';
 import equipmentFormSrc from '../pages/service/EquipmentForm.jsx?raw';
 import { buildWorkOrderHTML } from '../utils/workOrder';
+import fs from 'node:fs';
+import path from 'node:path';
 
 // ── Reachability ─────────────────────────────────────────────────────────────
 
@@ -231,5 +233,41 @@ describe('every translation key the service screens use exists', () => {
       expect(en.service[k]).toBeTruthy();
       expect(ar.service[k]).toBeTruthy();
     }
+  });
+});
+
+// ── Styling ──────────────────────────────────────────────────────────────────
+
+describe('every class the page uses is a real class', () => {
+  test('no invented class names', () => {
+    // This shipped: the toggle used `className="tab"`, and the stylesheet
+    // defines `.tab-btn`. The buttons rendered as unstyled bordered text and
+    // every test passed, because nothing checked that a class exists.
+    const used = new Set();
+    for (const m of serviceSrc.matchAll(/className=(?:"([^"]+)"|\{`([^`]+)`\})/g)) {
+      const raw = (m[1] || m[2] || '')
+        .replace(/\$\{[^}]*\}/g, ' ')   // drop the interpolated halves
+        .split(/\s+/);
+      raw.filter(Boolean).forEach(c => used.add(c));
+    }
+    // Tokens ending in '-' are the static half of an interpolated name
+    // (`badge-${color}`) and cannot be checked from the source alone. Skipping
+    // them narrows what this catches to WHOLLY invented names — which is the
+    // bug it exists for: `tab`, `muted`, `r`, `page-head` were all complete
+    // class names that simply did not exist.
+    for (const c of [...used]) if (c.endsWith('-')) used.delete(c);
+
+    // Read from disk, not via `?raw`: vite.config sets `css: false` for tests,
+    // which stubs CSS imports to an empty string — so the bundler route would
+    // make this test silently pass on an empty stylesheet.
+    const cssSrc = fs.readFileSync(
+      path.resolve(__dirname, '../index.css'), 'utf8');
+    expect(cssSrc.length).toBeGreaterThan(1000);
+
+    const defined = new Set(
+      [...cssSrc.matchAll(/\.([a-zA-Z][a-zA-Z0-9_-]*)/g)].map(m => m[1]));
+    const missing = [...used].filter(c => !defined.has(c)).sort();
+
+    expect(missing).toEqual([]);
   });
 });

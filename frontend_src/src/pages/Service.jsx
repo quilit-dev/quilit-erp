@@ -70,16 +70,17 @@ export default function Service() {
   const error = jobs.error || equipment.error;
 
   return (
-    <div className="page">
-      <div className="page-head">
+    <div>
+      <div className="page-header">
         <h1>{t('service.title')}</h1>
         <div style={{ display: 'flex', gap: 8, alignItems: 'center' }}>
-          <div className="tabs">
-            <button className={`tab ${view === 'jobs' ? 'active' : ''}`}
-                    onClick={() => setView('jobs')}>{t('service.jobs')}</button>
-            <button className={`tab ${view === 'equipment' ? 'active' : ''}`}
-                    onClick={() => setView('equipment')}>{t('service.equipment')}</button>
-          </div>
+          {/* Same two-view toggle Inventory uses for Items/Lots. The `.tab`
+              class this first used does not exist — the stylesheet defines
+              `.tab-btn` — so the buttons rendered completely unstyled. */}
+          <button className={`btn btn-sm ${view === 'jobs' ? 'btn-primary' : 'btn-secondary'}`}
+                  onClick={() => setView('jobs')}>{t('service.jobs')}</button>
+          <button className={`btn btn-sm ${view === 'equipment' ? 'btn-primary' : 'btn-secondary'}`}
+                  onClick={() => setView('equipment')}>{t('service.equipment')}</button>
           {view === 'jobs' && can('service', 'create') && (
             <button className="btn btn-primary"
                     onClick={() => { setActive(null); setModal('job'); }}>
@@ -100,7 +101,7 @@ export default function Service() {
 
       {!busy && view === 'jobs' && (
         <>
-          <div className="filters">
+          <div className="filter-group">
             <select className="form-control" value={statusFilter}
                     onChange={e => setStatusFilter(e.target.value)}>
               <option value="">{t('common.all')}</option>
@@ -121,23 +122,24 @@ export default function Service() {
                     <th>{t('common.status')}</th>
                     <th>{t('service.scheduledDate')}</th>
                     <th>{t('service.assignedTo')}</th>
-                    <th className="r">{t('common.total')}</th>
+                    <th className="text-right">{t('common.total')}</th>
                     <th>{t('common.actions')}</th>
                   </tr>
                 </thead>
                 <tbody>
                   {jobs.data.map(j => (
                     <tr key={j.id}>
-                      <td><button className="link" onClick={() => open(j.id)}>{j.job_number}</button></td>
+                      <td><button style={{ fontWeight: 600, color: 'var(--accent)', background: 'none', border: 'none', cursor: 'pointer', padding: 0 }}
+                              onClick={() => open(j.id)}>{j.job_number}</button></td>
                       <td>{j.client_name}</td>
-                      <td>{j.equipment_name || <span className="muted">—</span>}</td>
+                      <td>{j.equipment_name || <span style={{ color: 'var(--text-3)' }}>—</span>}</td>
                       <td>{j.job_type}</td>
                       <td><span className={`badge badge-${STATUS_COLOR[j.status] || 'gray'}`}>
                         {t(`service.status${(j.status || '').replace(/\s/g, '')}`)}
                       </span></td>
-                      <td>{j.scheduled_date ? fmtDate(j.scheduled_date) : <span className="muted">—</span>}</td>
-                      <td>{j.assigned_name || <span className="muted">{t('service.unassigned')}</span>}</td>
-                      <td className="r">{fmt(j.total)}</td>
+                      <td>{j.scheduled_date ? fmtDate(j.scheduled_date) : <span style={{ color: 'var(--text-3)' }}>—</span>}</td>
+                      <td>{j.assigned_name || <span style={{ color: 'var(--text-3)' }}>{t('service.unassigned')}</span>}</td>
+                      <td className="text-right">{fmt(j.total)}</td>
                       <td>
                         {/* Invoiced state is derived from the invoice, so it
                             stays correct when one is voided. */}
@@ -168,7 +170,7 @@ export default function Service() {
                   <th>{t('service.model')}</th>
                   <th>{t('service.serialNumber')}</th>
                   <th>{t('service.location')}</th>
-                  <th className="r">{t('service.jobs')}</th>
+                  <th className="text-right">{t('service.jobs')}</th>
                   <th>{t('common.actions')}</th>
                 </tr>
               </thead>
@@ -177,11 +179,11 @@ export default function Service() {
                   <tr key={e.id}>
                     <td>{e.name}</td>
                     <td>{e.client_name}</td>
-                    <td>{e.manufacturer || <span className="muted">—</span>}</td>
-                    <td>{e.model || <span className="muted">—</span>}</td>
-                    <td>{e.serial_number || <span className="muted">—</span>}</td>
-                    <td>{e.location || <span className="muted">—</span>}</td>
-                    <td className="r">{e.job_count}</td>
+                    <td>{e.manufacturer || <span style={{ color: 'var(--text-3)' }}>—</span>}</td>
+                    <td>{e.model || <span style={{ color: 'var(--text-3)' }}>—</span>}</td>
+                    <td>{e.serial_number || <span style={{ color: 'var(--text-3)' }}>—</span>}</td>
+                    <td>{e.location || <span style={{ color: 'var(--text-3)' }}>—</span>}</td>
+                    <td className="text-right">{e.job_count}</td>
                     <td>
                       <div style={{ display: 'flex', gap: 6 }}>
                         <button className="btn btn-sm btn-secondary" onClick={async () => {
@@ -232,7 +234,7 @@ export default function Service() {
 
       {modal === 'equipmentDetail' && active && (
         <Modal title={active.name} onClose={() => setModal(null)} size="modal-lg">
-          <div className="detail-grid">
+          <div className="form-grid">
             <div><label>{t('common.client')}</label><span>{active.client_name}</span></div>
             <div><label>{t('service.manufacturer')}</label><span>{active.manufacturer || '—'}</span></div>
             <div><label>{t('service.model')}</label><span>{active.model || '—'}</span></div>
@@ -246,7 +248,7 @@ export default function Service() {
               <thead><tr>
                 <th>{t('service.jobNumber')}</th><th>{t('service.jobType')}</th>
                 <th>{t('common.status')}</th><th>{t('service.completedAt')}</th>
-                <th className="r">{t('common.total')}</th>
+                <th className="text-right">{t('common.total')}</th>
               </tr></thead>
               <tbody>
                 {active.jobs.map(j => (
@@ -255,7 +257,7 @@ export default function Service() {
                     <td>{j.job_type}</td>
                     <td>{t(`service.status${(j.status || '').replace(/\s/g, '')}`)}</td>
                     <td>{j.completed_at ? fmtDate(j.completed_at) : '—'}</td>
-                    <td className="r">{fmt(j.total)}</td>
+                    <td className="text-right">{fmt(j.total)}</td>
                   </tr>
                 ))}
               </tbody>
@@ -295,7 +297,7 @@ function JobDetail({ job, can, t, onEdit, onTransition, onInvoice }) {
 
   return (
     <>
-      <div className="detail-grid">
+      <div className="form-grid">
         <div><label>{t('common.client')}</label><span>{job.client_name}</span></div>
         <div><label>{t('service.equipment')}</label>
           <span>{job.equipment ? `${job.equipment.name}${job.equipment.serial_number ? ` (${job.equipment.serial_number})` : ''}` : '—'}</span></div>
@@ -320,8 +322,8 @@ function JobDetail({ job, can, t, onEdit, onTransition, onInvoice }) {
       <h3>{t('service.partsAndCharges')}</h3>
       <table>
         <thead><tr>
-          <th>{t('common.description')}</th><th className="r">{t('common.quantity')}</th>
-          <th className="r">{t('common.unitPrice')}</th><th className="r">{t('common.total')}</th>
+          <th>{t('common.description')}</th><th className="text-right">{t('common.quantity')}</th>
+          <th className="text-right">{t('common.unitPrice')}</th><th className="text-right">{t('common.total')}</th>
         </tr></thead>
         <tbody>
           {[...parts, ...charges].map(l => (
@@ -331,27 +333,27 @@ function JobDetail({ job, can, t, onEdit, onTransition, onInvoice }) {
                   {t(`service.${l.line_type}`)}
                 </span>{' '}{l.name}
               </td>
-              <td className="r">{l.quantity}</td>
-              <td className="r">{fmt(l.unit_price)}</td>
-              <td className="r">{fmt(l.quantity * l.unit_price)}</td>
+              <td className="text-right">{l.quantity}</td>
+              <td className="text-right">{fmt(l.unit_price)}</td>
+              <td className="text-right">{fmt(l.quantity * l.unit_price)}</td>
             </tr>
           ))}
         </tbody>
         <tfoot>
-          <tr><td colSpan="3" className="r">{t('common.subtotal')}</td>
-              <td className="r">{fmt(job.subtotal)}</td></tr>
+          <tr><td colSpan="3" className="text-right">{t('common.subtotal')}</td>
+              <td className="text-right">{fmt(job.subtotal)}</td></tr>
           {job.tax_total > 0 && (
-            <tr><td colSpan="3" className="r">{t('common.taxCol')}</td>
-                <td className="r">{fmt(job.tax_total)}</td></tr>
+            <tr><td colSpan="3" className="text-right">{t('common.taxCol')}</td>
+                <td className="text-right">{fmt(job.tax_total)}</td></tr>
           )}
-          <tr><td colSpan="3" className="r"><strong>{t('common.total')}</strong></td>
-              <td className="r"><strong>{fmt(job.total)}</strong></td></tr>
+          <tr><td colSpan="3" className="text-right"><strong>{t('common.total')}</strong></td>
+              <td className="text-right"><strong>{fmt(job.total)}</strong></td></tr>
           {job.status === 'Completed' && (
             <>
-              <tr><td colSpan="3" className="r">{t('service.partsCost')}</td>
-                  <td className="r">{fmt(job.parts_cost)}</td></tr>
-              <tr><td colSpan="3" className="r">{t('service.margin')}</td>
-                  <td className="r">{fmt((job.total || 0) - (job.parts_cost || 0))}</td></tr>
+              <tr><td colSpan="3" className="text-right">{t('service.partsCost')}</td>
+                  <td className="text-right">{fmt(job.parts_cost)}</td></tr>
+              <tr><td colSpan="3" className="text-right">{t('service.margin')}</td>
+                  <td className="text-right">{fmt((job.total || 0) - (job.parts_cost || 0))}</td></tr>
             </>
           )}
         </tfoot>
@@ -363,7 +365,7 @@ function JobDetail({ job, can, t, onEdit, onTransition, onInvoice }) {
         </p>
       )}
 
-      <div className="modal-actions" style={{ flexWrap: 'wrap', gap: 8 }}>
+      <div className="modal-footer" style={{ flexWrap: 'wrap', gap: 8 }}>
         <button className="btn btn-secondary"
                 onClick={() => printWorkOrder(job)}>{t('service.workOrder')}</button>
         {open && can('service', 'edit') && (

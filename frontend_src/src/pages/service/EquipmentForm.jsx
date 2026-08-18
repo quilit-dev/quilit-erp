@@ -87,7 +87,7 @@ export default function EquipmentForm({ equipment, clients, onDone, onCancel }) 
         <label>{t('common.notes')}</label>
         <textarea className="form-control" rows="2" value={form.notes} onChange={set('notes')} />
       </div>
-      <div className="modal-actions">
+      <div className="modal-footer">
         <button type="button" className="btn btn-secondary" onClick={onCancel}>
           {t('common.cancel')}
         </button>
