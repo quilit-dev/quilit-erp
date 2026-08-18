@@ -657,6 +657,7 @@ const ar = {
   enumValues: {
     // ── stock movement kinds (stock_movements.type) ──────────────────────
     "service":        "أمر خدمة",
+    "service_return": "إرجاع من أمر خدمة",
     "adjustment":     "تسوية",
     "sale":           "بيع",
     "return":         "مرتجع",

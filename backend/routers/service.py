@@ -714,6 +714,176 @@ def complete_job(
             "parts_cost": cogs_total}
 
 
+@router.post("/jobs/{job_id}/invoice")
+def invoice_job(
+    job_id: int,
+    user=Depends(require_perm("service", "create")),
+    db: sqlite3.Connection = Depends(get_db),
+):
+    """Raise the invoice for a completed job.
+
+    Goes through `invoices.build_invoice` rather than assembling rows here. That
+    is the only correct constructor: it applies the approval gate, the branch
+    tag, promotions, and the discount and tax columns. `quotations` once
+    hand-rolled its own copy and drifted away from all five, which is why the
+    constructor was extracted before this module was written.
+
+    Each line carries the revenue account its KIND belongs in — parts to 4000
+    Sales Revenue, labour and fees to 4100 Service Revenue — so when the invoice
+    is paid the split falls out of the line data instead of being guessed at.
+    Without it a repair shop's parts turnover and its labour income would land
+    in one undifferentiated total, which is the first thing they need to see
+    separately.
+
+    One live invoice per job, enforced by asking for it rather than trusting a
+    status flag: a voided invoice must leave the job billable again.
+
+    Invoicing does not touch stock, so the parts consumed at completion are not
+    decremented twice. That is `build_invoice`'s existing behaviour and not
+    something arranged here: an invoice can be drafted, edited and voided, so it
+    deliberately owns no stock movement.
+    """
+    from routers.invoices import build_invoice
+    import accounting
+
+    job = _get_job(db, job_id, user)
+    if job["status"] != ST_COMPLETED:
+        raise HTTPException(
+            400, "Only a completed job can be invoiced. Complete the work first.")
+
+    existing = db.execute(
+        "SELECT id, invoice_number FROM invoices "
+        "WHERE service_job_id=? AND voided_at IS NULL", (job_id,)).fetchone()
+    if existing:
+        raise HTTPException(
+            409, f"Job is already invoiced as {existing['invoice_number']}.")
+
+    lines = db.execute(
+        "SELECT line_type, inventory_id, name, quantity, unit_price, discount, "
+        "       discount_pct, tax_rate_id FROM service_job_lines "
+        "WHERE job_id=? ORDER BY line_no, id", (job_id,)).fetchall()
+    if not lines:
+        raise HTTPException(400, "This job has nothing to invoice.")
+
+    from types import SimpleNamespace
+    items = []
+    for r in lines:
+        d = dict(r)
+        kind = d.pop("line_type")
+        d["revenue_account"] = (accounting.REVENUE if kind == LINE_PART
+                                else accounting.SERVICE_REVENUE)
+        items.append(SimpleNamespace(**d))
+
+    inv = build_invoice(
+        db, user=user,
+        client_id=job["client_id"],
+        items=items,
+        notes=f"Service job {job['job_number']}"
+              + (f" — {job['work_done']}" if job["work_done"] else ""),
+        service_job_id=job_id,
+        branch_id=job["branch_id"],
+    )
+    log_action(db, user, "invoice", "service_job", job_id, job["job_number"],
+               {"invoice_id": inv["invoice_id"],
+                "invoice_number": inv["invoice_number"]})
+    db.commit()
+    return {"invoice_id": inv["invoice_id"],
+            "invoice_number": inv["invoice_number"],
+            "amount": inv["amount"],
+            "pending_approval": inv["pending_approval"],
+            "message": "Invoice raised"}
+
+
+@router.post("/jobs/{job_id}/reopen")
+def reopen_job(
+    job_id: int,
+    user=Depends(require_perm("service", "edit")),
+    db: sqlite3.Connection = Depends(get_db),
+):
+    """Undo a completion: give the parts back and reverse the cost.
+
+    A technician marks a job done, then finds the fault was something else. The
+    alternative to this endpoint is editing stock by hand, which leaves the
+    ledger describing parts that were never used.
+
+    Refused once the job is invoiced. Un-consuming parts a customer has been
+    billed for would leave an invoice for goods the warehouse still holds; the
+    invoice has to be voided first, which is a decision with its own audit
+    trail.
+    """
+    import accounting
+    import lots
+    import warehouse_access as wha
+    from utils import money
+
+    job = _get_job(db, job_id, user)
+    if job["status"] != ST_COMPLETED:
+        raise HTTPException(400, "Only a completed job can be reopened.")
+
+    billed = db.execute(
+        "SELECT invoice_number FROM invoices "
+        "WHERE service_job_id=? AND voided_at IS NULL", (job_id,)).fetchone()
+    if billed:
+        raise HTTPException(
+            409, f"Void invoice {billed['invoice_number']} before reopening this job.")
+
+    now = _now()
+    wid = wha.default_warehouse_id_for_row(db, job["warehouse_id"])
+    parts = db.execute(
+        "SELECT l.inventory_id, l.quantity, i.name, i.quantity AS on_hand "
+        "FROM service_job_lines l JOIN inventory i ON i.id = l.inventory_id "
+        "WHERE l.job_id=? AND l.line_type=?", (job_id, LINE_PART)).fetchall()
+
+    returned = {}
+    for p in parts:
+        returned[p["inventory_id"]] = returned.get(p["inventory_id"], 0) + float(p["quantity"] or 0)
+
+    for inv_id, qty in returned.items():
+        row = db.execute("SELECT name, quantity FROM inventory WHERE id=?",
+                         (inv_id,)).fetchone()
+        qty_before = float(row["quantity"])
+        qty_after = round(qty_before + qty, 6)
+        # Back in at the cost it left at, so returning a part cannot invent
+        # margin. add_layer values the stock-IN for fifo/lifo.
+        unit_cost = (job["parts_cost"] / sum(returned.values())
+                     if job["parts_cost"] and sum(returned.values()) else 0)
+        db.execute("UPDATE inventory SET quantity=? WHERE id=?", (qty_after, inv_id))
+        wha.credit_warehouse_stock(db, inventory_id=inv_id, warehouse_id=wid,
+                                   delta=qty)
+        lots.record_stock_in(db, inv_id, qty, unit_cost,
+                             source_type="service_reopen",
+                             source_ref=job["job_number"], now=now)
+        db.execute(
+            "INSERT INTO stock_movements "
+            "(inventory_id, type, delta, qty_before, qty_after, reference, note, "
+            " warehouse_id, created_at) VALUES (?,?,?,?,?,?,?,?,?)",
+            (inv_id, "service_return", qty, qty_before, qty_after,
+             job["job_number"], "Service job reopened", wid, now))
+
+    # Reverse through accounting.reverse_source rather than posting an opposite
+    # entry by hand. It mirrors the original and, crucially, marks it
+    # status='reversed'. post_entry is idempotent on (source_type, source_id)
+    # against the LIVE entry, so a hand-rolled opposite leaves the original
+    # posted — and completing the job again then silently posts nothing at all,
+    # leaving consumed parts with no cost against them. Found by the
+    # reopen-then-complete test.
+    cost = money(job["parts_cost"] or 0)
+    accounting.reverse_source(
+        db, "service_cogs", job_id,
+        entry_date=now[:10],
+        memo=f"Service parts returned — {job['job_number']}",
+        created_by=user["id"],
+    )
+
+    db.execute(
+        "UPDATE service_jobs SET status=?, completed_at=NULL, parts_cost=0, "
+        "updated_at=? WHERE id=?", (ST_PROGRESS, now, job_id))
+    log_action(db, user, "reopen", "service_job", job_id, job["job_number"],
+               {"reversed_cost": cost})
+    db.commit()
+    return {"message": "Job reopened", "status": ST_PROGRESS, "reversed_cost": cost}
+
+
 @router.post("/jobs/{job_id}/cancel")
 def cancel_job(
     job_id: int,

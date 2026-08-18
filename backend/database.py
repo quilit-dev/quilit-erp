@@ -3244,9 +3244,26 @@ def _run_migrations(conn, c):
             "REFERENCES service_jobs(id)")
     if need("144d_invoice_service_link_idx"):
         if "invoices" in all_tables() and "service_job_id" in cols("invoices"):
+            # One LIVE invoice per job. `voided_at IS NULL` is load-bearing:
+            # without it a voided invoice permanently blocks re-billing the job,
+            # and the module's rule is that voiding frees the work to be
+            # invoiced again.
             c.execute("CREATE UNIQUE INDEX IF NOT EXISTS idx_invoices_service_job "
-                      "ON invoices(service_job_id) WHERE service_job_id IS NOT NULL")
+                      "ON invoices(service_job_id) "
+                      "WHERE service_job_id IS NOT NULL AND voided_at IS NULL")
         done("144d_invoice_service_link_idx")
+
+    # 144d shipped this index without the voided_at predicate, which made a
+    # voided invoice block its job from ever being billed again. Recreated
+    # rather than amended in place, so a database that already ran 144d is
+    # corrected too.
+    if need("144g_invoice_service_link_idx_live_only"):
+        if "invoices" in all_tables() and "service_job_id" in cols("invoices"):
+            c.execute("DROP INDEX IF EXISTS idx_invoices_service_job")
+            c.execute("CREATE UNIQUE INDEX IF NOT EXISTS idx_invoices_service_job "
+                      "ON invoices(service_job_id) "
+                      "WHERE service_job_id IS NOT NULL AND voided_at IS NULL")
+        done("144g_invoice_service_link_idx_live_only")
 
     # Which revenue account a line credits when the invoice is PAID. NULL means
     # 4000 Sales Revenue, so every existing row keeps its current behaviour.
@@ -3725,10 +3742,14 @@ def _ensure_pg_post_baseline(raw):
                     "ON service_job_lines(inventory_id)")
         cur.execute("ALTER TABLE invoices ADD COLUMN IF NOT EXISTS service_job_id "
                     "INTEGER REFERENCES service_jobs(id)")
-        # Partial unique index: one invoice per job, enforced by the database so
-        # a double-click cannot bill the same work twice.
+        # Partial unique index: one LIVE invoice per job, enforced by the
+        # database so a double-click cannot bill the same work twice. The
+        # voided_at predicate is what lets a voided invoice free the job to be
+        # billed again; without it the void strands the work forever.
+        cur.execute("DROP INDEX IF EXISTS idx_invoices_service_job")
         cur.execute("CREATE UNIQUE INDEX IF NOT EXISTS idx_invoices_service_job "
-                    "ON invoices(service_job_id) WHERE service_job_id IS NOT NULL")
+                    "ON invoices(service_job_id) "
+                    "WHERE service_job_id IS NOT NULL AND voided_at IS NULL")
         cur.execute("ALTER TABLE invoice_items ADD COLUMN IF NOT EXISTS revenue_account TEXT")
         cur.execute(
             "INSERT INTO chart_of_accounts "

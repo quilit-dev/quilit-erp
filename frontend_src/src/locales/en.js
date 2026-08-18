@@ -660,6 +660,7 @@ const en = {
   enumValues: {
     // ── stock movement kinds (stock_movements.type) ──────────────────────
     "service":        "Service job",
+    "service_return": "Service return",
     "adjustment":     "Adjustment",
     "sale":           "Sale",
     "return":         "Return",
