@@ -46,6 +46,11 @@ _REQUIRES = {
     # Supply chain.
     "purchases":     {"inventory", "suppliers"},
     "manufacturing": {"inventory"},
+    # Service jobs are raised for a client, consume parts from stock and
+    # bill through an invoice. All three are load-bearing: without
+    # inventory a job cannot record the parts it used, and without
+    # invoices the work cannot be charged for.
+    "service":       {"clients", "invoices", "inventory"},
     "warehouses":    {"inventory"},
     # Delivery. Projects track budget vs actual: invoices in, expenses out.
     "projects":      {"clients", "invoices", "finance"},

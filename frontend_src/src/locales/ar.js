@@ -287,6 +287,7 @@ const ar = {
     promotions: 'العروض',
     warehouses: 'المستودعات',
     manufacturing: 'التصنيع',
+    service: 'الصيانة والخدمات',
     purchases: 'المشتريات',
     suppliers: 'الموردون',
     expenses: 'المصروفات',

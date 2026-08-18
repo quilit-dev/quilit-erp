@@ -37,12 +37,14 @@ const CORE_MODULES  = [
   'projects', 'planning',
   // Procurement / stock
   'suppliers', 'purchases', 'inventory', 'warehouses', 'manufacturing',
+  // Field service
+  'service',
   // Finance
   'expenses', 'assets', 'finance', 'cash', 'accounting', 'reports',
   // People
   'hr', 'hr_contracts', 'hr_activities', 'recruitment',
-  // Internal comms
-  'announcements',
+  // Client + internal comms
+  'communications', 'announcements',
 ];
 const ADMIN_MODULES = ['settings','users','roles','audit'];
 const MODULES_ORDER = [...CORE_MODULES, ...ADMIN_MODULES];
@@ -138,6 +140,8 @@ export default function RoleManagement() {
     expenses:      t('nav.expenses'),
     accounting:    t('nav.accounting'),
     reports:       t('nav.reports'),
+    service:       t('nav.service'),
+    communications: t('nav.communications'),
     crm:           t('nav.crm'),
     planning:      t('nav.planning'),
     pos:           t('nav.pos'),

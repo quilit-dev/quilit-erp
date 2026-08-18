@@ -4112,7 +4112,7 @@ def _seed_roles_and_admin(c):
         'inventory', 'purchases', 'suppliers', 'finance', 'expenses',
         'accounting',
         'reports', 'crm', 'planning', 'pos', 'cash', 'manufacturing',
-        'assets',
+        'assets', 'service',
         # Internal comms — view is broad (granted below to every role so
         # everyone can read announcements addressed to them); create/edit/
         # delete are restricted and granted explicitly per role.
@@ -4230,11 +4230,11 @@ def _seed_roles_and_admin(c):
             'clients': _VC, 'invoices': _V, 'inventory': _V,
         },
         'Project Manager': {
-            'dashboard': _V, 'projects': _VCEA, 'planning': _FULL, 'clients': _V,
+            'dashboard': _V, 'service': _VCE, 'projects': _VCEA, 'planning': _FULL, 'clients': _V,
             'quotations': _V, 'invoices': _V, 'expenses': _VC, 'reports': _V,
         },
         'Operations Manager': {
-            'dashboard': _V, 'projects': _VCE, 'planning': _VCE, 'inventory': _VCE,
+            'dashboard': _V, 'service': _VCED, 'projects': _VCE, 'planning': _VCE, 'inventory': _VCE,
             'purchases': _VCE, 'suppliers': _VCE, 'reports': _V, 'pos': _VCED,
             'manufacturing': _VCED, 'cash': _VCE, 'assets': _VCE,
         },

@@ -288,6 +288,7 @@ const en = {
     promotions: 'Promotions',
     warehouses: 'Warehouses',
     manufacturing: 'Manufacturing',
+    service: 'Service',
     purchases: 'Purchases',
     suppliers: 'Suppliers',
     expenses: 'Expenses',

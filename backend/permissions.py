@@ -16,6 +16,11 @@ MODULES = [
     'hr', 'hr_contracts', 'recruitment', 'hr_activities',
     'pos', 'cash',
     'manufacturing', 'assets',
+    # Field service — maintenance, installation and repair jobs against a
+    # customer's own equipment. Its own module because a business that only
+    # sells goods should not see it, and a business that only services should
+    # not be charged for manufacturing.
+    'service',
     # Client communications — emailing / WhatsApp-ing invoices and quotations,
     # plus the sent-log. Its own module so it can be licensed and priced
     # separately, and so a role can be allowed to view what was sent without

@@ -15,7 +15,7 @@ export const GROUPS = [
   { title: 'Sales & Customers', keys: ['clients', 'quotations', 'invoices', 'crm', 'communications'] },
   { title: 'Operations',        keys: ['inventory', 'warehouses', 'purchases', 'suppliers', 'manufacturing', 'pos'] },
   { title: 'Finance',           keys: ['finance', 'expenses', 'cash', 'assets', 'accounting', 'reports'] },
-  { title: 'Delivery',          keys: ['projects', 'planning'] },
+  { title: 'Delivery',          keys: ['projects', 'planning', 'service'] },
   { title: 'People',            keys: ['hr', 'hr_contracts', 'hr_activities', 'recruitment'] },
   { title: 'Workplace',         keys: ['announcements'] },
 ];
@@ -28,7 +28,7 @@ export const LABEL = {
   accounting: 'Accounting', reports: 'Reports', projects: 'Projects', planning: 'Planning',
   hr: 'HR & Payroll', hr_contracts: 'Contracts', hr_activities: 'HR Activities',
   recruitment: 'Recruitment', announcements: 'Announcements',
-  communications: 'Client Communications',
+  communications: 'Client Communications', service: 'Field Service',
 };
 
 export const label = (k) => LABEL[k] || k;
