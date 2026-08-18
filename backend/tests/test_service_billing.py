@@ -1,14 +1,11 @@
-"""Billing a service job, and undoing a completion.
+"""Billing a service, and undoing one recorded by mistake.
 
-The two operations that connect service work to the money already in the system.
-The invariants here are about not doing things twice and not stranding a
-customer's invoice:
+Recording a service raises its invoice in the same call. Cancelling reverses
+everything that recording did — the parts, the cost and the invoice — because a
+correction that undoes only part of it leaves two records disagreeing: an
+invoice for goods still on the shelf, or a cost with no work behind it.
 
-  * one live invoice per job, derived from the invoice rather than a status flag
-  * parts bill at their price and are NOT decremented a second time
-  * each line lands in the right revenue account, so parts and labour separate
-  * reopening gives the stock back and reverses the cost by an equal entry
-  * reopening is refused while a live invoice exists
+The one thing cancelling will not do is unwind money that has actually moved.
 """
 import pytest
 
@@ -29,22 +26,6 @@ def _item(client, name, qty, cost, price):
     }).json()["id"]
 
 
-@pytest.fixture(autouse=True)
-def manual_billing(client):
-    """Most tests here exercise the MANUAL invoice endpoint and the reopen
-    rules, so they turn automatic invoicing off. The automatic path — which is
-    the default — has its own section at the bottom."""
-    client.put("/api/settings/", json={"service_auto_invoice": "0"})
-
-
-def _completed_job(client, acme, items):
-    body = {"client_id": acme, "job_type": "Repair", "items": items}
-    job = client.post("/api/service/jobs", json=body).json()
-    r = client.post(f"/api/service/jobs/{job['id']}/complete")
-    assert r.status_code == 200, r.text
-    return job
-
-
 def _part(inv_id, name, qty, price):
     return {"line_type": "part", "inventory_id": inv_id, "name": name,
             "quantity": qty, "unit_price": price}
@@ -52,6 +33,13 @@ def _part(inv_id, name, qty, price):
 
 def _charge(name, price):
     return {"line_type": "charge", "name": name, "quantity": 1, "unit_price": price}
+
+
+def _service(client, acme, items):
+    r = client.post("/api/service/jobs", json={
+        "client_id": acme, "job_type": "Repair", "items": items})
+    assert r.status_code == 200, r.text
+    return r.json()
 
 
 def _stock(client, inv_id):
@@ -67,100 +55,97 @@ def _balance(client, code):
     return 0.0
 
 
-# ── Raising the invoice ──────────────────────────────────────────────────────
+def _auto(client, on=True):
+    client.put("/api/settings/", json={"service_auto_invoice": "1" if on else "0"})
 
-def test_a_completed_job_can_be_invoiced(client, acme):
+
+# ── Recording raises the invoice ─────────────────────────────────────────────
+
+def test_recording_a_service_invoices_it(client, acme):
+    """The whole point of the simplification: one action, and the customer is
+    billed."""
+    _auto(client)
     belt = _item(client, "Belt", 10, 4, 12)
-    job = _completed_job(client, acme, [_part(belt, "Belt", 3, 12),
-                                        _charge("Labour", 100)])
+
+    job = _service(client, acme, [_part(belt, "Belt", 3, 12), _charge("Labour", 100)])
+
+    assert job["invoice"]["invoice_number"].startswith("INV-")
+    assert job["invoice"]["amount"] == pytest.approx(136)
+    assert job["parts_cost"] == pytest.approx(12)
+
+
+def test_the_invoice_is_an_ordinary_editable_one(client, acme):
+    _auto(client)
+    job = _service(client, acme, [_charge("Labour", 100)])
+
+    edited = client.put(f"/api/invoices/{job['invoice']['invoice_id']}", json={
+        "client_id": acme, "amount": 150,
+        "items": [{"name": "Labour", "quantity": 1, "unit_price": 150}]})
+
+    assert edited.status_code == 200, edited.text
+
+
+def test_the_setting_turns_automatic_billing_off(client, acme):
+    _auto(client, False)
+
+    job = _service(client, acme, [_charge("Labour", 100)])
+
+    assert job["invoice"] is None
+    assert client.get(f"/api/service/jobs/{job['id']}").json()["invoice"] is None
+
+
+def test_an_unbilled_service_can_be_invoiced_by_hand(client, acme):
+    _auto(client, False)
+    job = _service(client, acme, [_charge("Labour", 100)])
 
     r = client.post(f"/api/service/jobs/{job['id']}/invoice")
 
     assert r.status_code == 200, r.text
-    assert r.json()["amount"] == pytest.approx(136)      # 36 parts + 100 labour
+    assert r.json()["amount"] == pytest.approx(100)
 
 
-def test_an_incomplete_job_cannot_be_invoiced(client, acme):
-    """Billing before the work is done would invoice parts still on the shelf."""
-    belt = _item(client, "Belt", 10, 4, 12)
-    job = client.post("/api/service/jobs", json={
-        "client_id": acme, "items": [_part(belt, "Belt", 3, 12)]}).json()
-
-    r = client.post(f"/api/service/jobs/{job['id']}/invoice")
-
-    assert r.status_code == 400
-    assert "completed" in r.json()["detail"].lower()
-
-
-def test_a_job_is_invoiced_once(client, acme):
-    job = _completed_job(client, acme, [_charge("Labour", 100)])
-    first = client.post(f"/api/service/jobs/{job['id']}/invoice")
-
-    second = client.post(f"/api/service/jobs/{job['id']}/invoice")
-
-    assert first.status_code == 200
-    assert second.status_code == 409
-    assert first.json()["invoice_number"] in second.json()["detail"]
-
-
-def test_voiding_the_invoice_makes_the_job_billable_again(client, acme):
-    """Billing state is derived from the invoice, not stored on the job, so a
-    void has to restore it without anything explicitly resetting a flag."""
-    job = _completed_job(client, acme, [_charge("Labour", 100)])
-    inv = client.post(f"/api/service/jobs/{job['id']}/invoice").json()
-
-    assert client.patch(f"/api/invoices/{inv['invoice_id']}/void",
-                       json={"reason": "wrong client"}).status_code == 200
+def test_a_service_is_invoiced_once(client, acme):
+    _auto(client)
+    job = _service(client, acme, [_charge("Labour", 100)])
 
     again = client.post(f"/api/service/jobs/{job['id']}/invoice")
-    assert again.status_code == 200, again.text
+
+    assert again.status_code == 409
+    assert job["invoice"]["invoice_number"] in again.json()["detail"]
 
 
-def test_the_job_reports_its_invoice(client, acme):
-    job = _completed_job(client, acme, [_charge("Labour", 100)])
-    inv = client.post(f"/api/service/jobs/{job['id']}/invoice").json()
+def test_a_service_with_no_lines_records_without_an_invoice(client, acme):
+    """Nothing to bill is not a reason to refuse the record."""
+    _auto(client)
 
-    d = client.get(f"/api/service/jobs/{job['id']}").json()
+    job = _service(client, acme, [])
 
-    assert d["invoice"]["invoice_number"] == inv["invoice_number"]
+    assert job["invoice"] is None
 
 
-def test_invoicing_does_not_consume_the_parts_again(client, acme):
-    """They left the warehouse at completion. An invoice owns no stock movement
-    — it can be drafted, edited and voided."""
+def test_the_parts_leave_stock_exactly_once(client, acme):
+    """The invoice owns no stock movement; recording does."""
+    _auto(client)
     belt = _item(client, "Belt", 10, 4, 12)
-    job = _completed_job(client, acme, [_part(belt, "Belt", 3, 12)])
-    after_completion = _stock(client, belt)
 
-    client.post(f"/api/service/jobs/{job['id']}/invoice")
+    _service(client, acme, [_part(belt, "Belt", 3, 12)])
 
-    assert _stock(client, belt) == pytest.approx(after_completion)
-    assert after_completion == pytest.approx(7)
-
-
-def test_an_empty_job_has_nothing_to_invoice(client, acme):
-    job = _completed_job(client, acme, [])
-
-    r = client.post(f"/api/service/jobs/{job['id']}/invoice")
-
-    assert r.status_code == 400
-    assert "nothing to invoice" in r.json()["detail"].lower()
+    assert _stock(client, belt) == pytest.approx(7)
 
 
 # ── The revenue split ────────────────────────────────────────────────────────
 
 def test_parts_and_labour_land_in_different_revenue_accounts(client, acme):
     """The reason 4100 exists. One undifferentiated total is the first thing a
-    repair shop needs broken apart."""
+    repair business needs broken apart."""
+    _auto(client)
     belt = _item(client, "Belt", 10, 4, 12)
     goods_before = _balance(client, "4000")
     service_before = _balance(client, "4100")
 
-    job = _completed_job(client, acme, [_part(belt, "Belt", 3, 12),
-                                        _charge("Labour", 100)])
-    inv = client.post(f"/api/service/jobs/{job['id']}/invoice").json()
-    client.post(f"/api/invoices/{inv['invoice_id']}/payments", json={
-        "amount": inv["amount"], "currency": "USD", "method": "Cash",
+    job = _service(client, acme, [_part(belt, "Belt", 3, 12), _charge("Labour", 100)])
+    client.post(f"/api/invoices/{job['invoice']['invoice_id']}/payments", json={
+        "amount": job["invoice"]["amount"], "currency": "USD", "method": "Cash",
         "idempotency_key": "svc-split-1"})
 
     # Revenue accounts are credits, so the balance moves negative.
@@ -171,51 +156,51 @@ def test_parts_and_labour_land_in_different_revenue_accounts(client, acme):
     assert service == pytest.approx(100), "labour belongs in Service Revenue"
 
 
-def test_a_labour_only_job_credits_only_service_revenue(client, acme):
+def test_a_labour_only_service_credits_only_service_revenue(client, acme):
+    _auto(client)
     goods_before = _balance(client, "4000")
 
-    job = _completed_job(client, acme, [_charge("Callout", 60)])
-    inv = client.post(f"/api/service/jobs/{job['id']}/invoice").json()
-    client.post(f"/api/invoices/{inv['invoice_id']}/payments", json={
-        "amount": inv["amount"], "currency": "USD", "method": "Cash",
+    job = _service(client, acme, [_charge("Callout", 60)])
+    client.post(f"/api/invoices/{job['invoice']['invoice_id']}/payments", json={
+        "amount": job["invoice"]["amount"], "currency": "USD", "method": "Cash",
         "idempotency_key": "svc-split-2"})
 
     assert _balance(client, "4000") == pytest.approx(goods_before)
 
 
-# ── Reopening ────────────────────────────────────────────────────────────────
+# ── Cancelling reverses all three ────────────────────────────────────────────
 
-def test_reopening_gives_the_parts_back(client, acme):
-    belt = _item(client, "Belt", 10, 4, 12)
-    job = _completed_job(client, acme, [_part(belt, "Belt", 3, 12)])
-    assert _stock(client, belt) == pytest.approx(7)
+def test_cancelling_voids_the_invoice(client, acme):
+    _auto(client)
+    job = _service(client, acme, [_charge("Labour", 100)])
 
-    r = client.post(f"/api/service/jobs/{job['id']}/reopen")
+    r = client.post(f"/api/service/jobs/{job['id']}/cancel", json={"reason": "wrong client"})
 
     assert r.status_code == 200, r.text
-    assert _stock(client, belt) == pytest.approx(10)
-    assert client.get(f"/api/service/jobs/{job['id']}").json()["status"] == "In Progress"
+    assert r.json()["voided_invoice"] == job["invoice"]["invoice_number"]
+    inv = client.get(f"/api/invoices/{job['invoice']['invoice_id']}").json()
+    assert inv["voided_at"], "the invoice is still live"
 
 
-def test_reopening_reverses_the_cost(client, acme):
+def test_cancelling_returns_the_parts_and_reverses_the_cost(client, acme):
+    _auto(client)
     belt = _item(client, "Belt", 10, 4, 12)
     cogs_before = _balance(client, "5000")
-    inv_before = _balance(client, "1200")
 
-    job = _completed_job(client, acme, [_part(belt, "Belt", 3, 12)])
-    client.post(f"/api/service/jobs/{job['id']}/reopen")
+    job = _service(client, acme, [_part(belt, "Belt", 3, 12)])
+    client.post(f"/api/service/jobs/{job['id']}/cancel", json={"reason": "mistake"})
 
-    # Net zero on both sides: the cost was recognised and then unrecognised.
+    assert _stock(client, belt) == pytest.approx(10)
     assert _balance(client, "5000") == pytest.approx(cogs_before)
-    assert _balance(client, "1200") == pytest.approx(inv_before)
 
 
 def test_the_reversal_is_an_entry_not_a_deletion(client, acme):
     """A posted period must stay auditable; deleting the original leaves a gap
     nobody can explain."""
+    _auto(client)
     belt = _item(client, "Belt", 10, 4, 12)
-    job = _completed_job(client, acme, [_part(belt, "Belt", 3, 12)])
-    client.post(f"/api/service/jobs/{job['id']}/reopen")
+    job = _service(client, acme, [_part(belt, "Belt", 3, 12)])
+    client.post(f"/api/service/jobs/{job['id']}/cancel", json={"reason": "mistake"})
 
     entries = client.get("/api/accounting/journal-entries").json()
     rows = entries.get("rows") if isinstance(entries, dict) else entries
@@ -225,132 +210,40 @@ def test_the_reversal_is_an_entry_not_a_deletion(client, acme):
     assert any("returned" in m for m in memos), "no reversing entry"
 
 
-def test_an_invoiced_job_cannot_be_reopened(client, acme):
-    """Un-consuming parts the customer has been billed for would leave an
-    invoice for goods the warehouse still holds."""
+def test_a_paid_service_cannot_be_cancelled(client, acme):
+    """Money has actually moved. Voiding would leave a payment against nothing,
+    so this is a refund conversation rather than a data-entry correction."""
+    _auto(client)
     belt = _item(client, "Belt", 10, 4, 12)
-    job = _completed_job(client, acme, [_part(belt, "Belt", 3, 12)])
-    inv = client.post(f"/api/service/jobs/{job['id']}/invoice").json()
+    job = _service(client, acme, [_part(belt, "Belt", 3, 12)])
+    client.post(f"/api/invoices/{job['invoice']['invoice_id']}/payments", json={
+        "amount": job["invoice"]["amount"], "currency": "USD", "method": "Cash",
+        "idempotency_key": "svc-paid-1"})
 
-    r = client.post(f"/api/service/jobs/{job['id']}/reopen")
+    r = client.post(f"/api/service/jobs/{job['id']}/cancel", json={"reason": "oops"})
 
     assert r.status_code == 409
-    assert inv["invoice_number"] in r.json()["detail"]
+    assert "payments against it" in r.json()["detail"]
     assert _stock(client, belt) == pytest.approx(7), "stock came back anyway"
 
 
-def test_voiding_the_invoice_allows_the_reopen(client, acme):
+def test_cancelling_an_unbilled_service_still_returns_the_parts(client, acme):
+    _auto(client, False)
     belt = _item(client, "Belt", 10, 4, 12)
-    job = _completed_job(client, acme, [_part(belt, "Belt", 3, 12)])
-    inv = client.post(f"/api/service/jobs/{job['id']}/invoice").json()
-    client.patch(f"/api/invoices/{inv['invoice_id']}/void", json={"reason": "wrong job"})
+    job = _service(client, acme, [_part(belt, "Belt", 3, 12)])
 
-    assert client.post(f"/api/service/jobs/{job['id']}/reopen").status_code == 200
+    r = client.post(f"/api/service/jobs/{job['id']}/cancel", json={"reason": "mistake"})
+
+    assert r.status_code == 200
+    assert r.json()["voided_invoice"] is None
     assert _stock(client, belt) == pytest.approx(10)
 
 
-def test_an_open_job_cannot_be_reopened(client, acme):
-    job = client.post("/api/service/jobs", json={
-        "client_id": acme, "items": [_charge("Labour", 50)]}).json()
-
-    assert client.post(f"/api/service/jobs/{job['id']}/reopen").status_code == 400
-
-
-def test_reopen_then_complete_again_is_net_correct(client, acme):
-    """The full round trip: the books must end where a single completion would
-    have left them, not at double the cost."""
-    belt = _item(client, "Belt", 10, 4, 12)
-    cogs_before = _balance(client, "5000")
-
-    job = _completed_job(client, acme, [_part(belt, "Belt", 3, 12)])
-    client.post(f"/api/service/jobs/{job['id']}/reopen")
-    client.post(f"/api/service/jobs/{job['id']}/complete")
-
-    assert _stock(client, belt) == pytest.approx(7)
-    assert _balance(client, "5000") - cogs_before == pytest.approx(12)
-
-
-# ── Automatic invoicing, the default ─────────────────────────────────────────
-
-def _auto(client, on=True):
-    client.put("/api/settings/", json={"service_auto_invoice": "1" if on else "0"})
-
-
-def test_completing_a_job_invoices_it(client, acme):
-    """What the customer asked for: the work is done and priced, so the invoice
-    should not wait on somebody pressing a second button."""
-    _auto(client)
-    belt = _item(client, "Belt", 10, 4, 12)
-    job = client.post("/api/service/jobs", json={
-        "client_id": acme, "items": [_part(belt, "Belt", 3, 12),
-                                     _charge("Labour", 100)]}).json()
-
-    r = client.post(f"/api/service/jobs/{job['id']}/complete")
-
-    assert r.status_code == 200, r.text
-    assert r.json()["invoice"]["invoice_number"].startswith("INV-")
-    assert r.json()["invoice"]["amount"] == pytest.approx(136)
-
-
-def test_the_automatic_invoice_is_an_ordinary_editable_one(client, acme):
-    """It is a normal draft, not a locked document — the customer wants to edit
-    it afterwards."""
-    _auto(client)
-    job = client.post("/api/service/jobs", json={
-        "client_id": acme, "items": [_charge("Labour", 100)]}).json()
-    inv = client.post(f"/api/service/jobs/{job['id']}/complete").json()["invoice"]
-
-    edited = client.put(f"/api/invoices/{inv['invoice_id']}", json={
-        "client_id": acme, "amount": 150,
-        "items": [{"name": "Labour", "quantity": 1, "unit_price": 150}]})
-
-    assert edited.status_code == 200, edited.text
-
-
-def test_the_setting_turns_it_off(client, acme):
+def test_a_cancelled_service_cannot_be_invoiced(client, acme):
     _auto(client, False)
-    job = client.post("/api/service/jobs", json={
-        "client_id": acme, "items": [_charge("Labour", 100)]}).json()
+    job = _service(client, acme, [_charge("Labour", 100)])
+    client.post(f"/api/service/jobs/{job['id']}/cancel", json={"reason": "mistake"})
 
-    r = client.post(f"/api/service/jobs/{job['id']}/complete")
+    r = client.post(f"/api/service/jobs/{job['id']}/invoice")
 
-    assert r.json()["invoice"] is None
-    assert client.get(f"/api/service/jobs/{job['id']}").json()["invoice"] is None
-
-
-def test_a_job_with_no_lines_completes_without_an_invoice(client, acme):
-    """Nothing to bill is not a reason to refuse the completion: the work still
-    happened."""
-    _auto(client)
-    job = client.post("/api/service/jobs", json={
-        "client_id": acme, "items": []}).json()
-
-    r = client.post(f"/api/service/jobs/{job['id']}/complete")
-
-    assert r.status_code == 200
-    assert r.json()["invoice"] is None
-
-
-def test_completing_is_still_one_invoice(client, acme):
-    """Auto-invoicing must not open a second route to double-billing."""
-    _auto(client)
-    job = client.post("/api/service/jobs", json={
-        "client_id": acme, "items": [_charge("Labour", 100)]}).json()
-    client.post(f"/api/service/jobs/{job['id']}/complete")
-
-    again = client.post(f"/api/service/jobs/{job['id']}/invoice")
-
-    assert again.status_code == 409
-
-
-def test_the_parts_still_leave_stock_exactly_once(client, acme):
-    """The invoice does not touch stock; completion does. Doing both in one
-    call must not change that."""
-    _auto(client)
-    belt = _item(client, "Belt", 10, 4, 12)
-    job = client.post("/api/service/jobs", json={
-        "client_id": acme, "items": [_part(belt, "Belt", 3, 12)]}).json()
-
-    client.post(f"/api/service/jobs/{job['id']}/complete")
-
-    assert _stock(client, belt) == pytest.approx(7)
+    assert r.status_code == 400

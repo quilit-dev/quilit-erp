@@ -9,34 +9,30 @@
  * anyway. Making them distinct here means the rejection never happens.
  */
 import { useEffect, useState } from 'react';
-import { createServiceJob, updateServiceJob, getInventory, getUsers,
+import { createServiceJob, getInventory, getUsers,
          getServiceEquipment } from '../../api/client';
 import { NumberInput, toast, fmt } from '../../components/shared';
 import { useLocale } from '../../hooks/useLocale.jsx';
 
 const JOB_TYPES = ['Installation', 'Maintenance', 'Repair', 'Inspection'];
-const PRIORITIES = ['Low', 'Normal', 'High'];
 
 const emptyPart = () => ({ line_type: 'part', inventory_id: '', name: '', quantity: 1, unit_price: 0 });
 const emptyCharge = () => ({ line_type: 'charge', inventory_id: null, name: '', quantity: 1, unit_price: 0 });
 
-export default function JobForm({ job, clients, onDone, onCancel }) {
+export default function JobForm({ clients, onDone, onCancel }) {
   const { t } = useLocale();
   const [form, setForm] = useState(() => ({
-    client_id: job?.client_id || '',
-    equipment_id: job?.equipment_id || '',
-    job_type: job?.job_type || 'Repair',
-    priority: job?.priority || 'Normal',
-    scheduled_date: job?.scheduled_date || '',
-    assigned_to: job?.assigned_to || '',
-    reported_fault: job?.reported_fault || '',
-    work_done: job?.work_done || '',
+    client_id: '',
+    equipment_id: '',
+    job_type: 'Repair',
+    // The work is already done; today is the common case, but a technician
+    // often writes up yesterday's visit this morning.
+    service_date: new Date().toISOString().slice(0, 10),
+    assigned_to: '',
+    reported_fault: '',
+    work_done: '',
   }));
-  const [lines, setLines] = useState(() =>
-    (job?.lines || []).map(l => ({
-      line_type: l.line_type, inventory_id: l.inventory_id || '',
-      name: l.name, quantity: l.quantity, unit_price: l.unit_price,
-    })));
+  const [lines, setLines] = useState([]);
   const [items, setItems] = useState([]);
   const [users, setUsers] = useState([]);
   const [equipment, setEquipment] = useState([]);
@@ -84,7 +80,7 @@ export default function JobForm({ job, clients, onDone, onCancel }) {
         client_id: Number(form.client_id),
         equipment_id: form.equipment_id ? Number(form.equipment_id) : null,
         assigned_to: form.assigned_to ? Number(form.assigned_to) : null,
-        scheduled_date: form.scheduled_date || null,
+        service_date: form.service_date || null,
         items: lines
           .filter(l => (l.name || '').trim())
           .map(l => ({
@@ -95,14 +91,10 @@ export default function JobForm({ job, clients, onDone, onCancel }) {
             unit_price: Number(l.unit_price) || 0,
           })),
       };
-      if (job?.id) {
-        await updateServiceJob(job.id, payload);
-        toast(t('service.jobUpdated'));
-      } else {
-        await createServiceJob(payload);
-        toast(t('service.jobCreated'));
-      }
-      onDone();
+      // Recording consumes the parts, posts their cost and raises the invoice
+      // in one call, so the response carries the invoice number to report.
+      const res = await createServiceJob(payload);
+      onDone(res);
     } catch (err) {
       toast(err.message, 'red');
     } finally {
@@ -144,15 +136,9 @@ export default function JobForm({ job, clients, onDone, onCancel }) {
           </select>
         </div>
         <div className="form-group">
-          <label>{t('service.priority')}</label>
-          <select className="form-control" value={form.priority} onChange={set('priority')}>
-            {PRIORITIES.map(x => <option key={x} value={x}>{x}</option>)}
-          </select>
-        </div>
-        <div className="form-group">
-          <label>{t('service.scheduledDate')}</label>
-          <input type="date" className="form-control" value={form.scheduled_date || ''}
-                 onChange={set('scheduled_date')} />
+          <label>{t('service.serviceDate')}</label>
+          <input type="date" className="form-control" value={form.service_date || ''}
+                 onChange={set('service_date')} />
         </div>
         <div className="form-group">
           <label>{t('service.assignedTo')}</label>
@@ -211,11 +197,11 @@ export default function JobForm({ job, clients, onDone, onCancel }) {
                 )}
               </td>
               <td className="text-right">
-                <NumberInput value={l.quantity}
+                <NumberInput className="form-control" value={l.quantity}
                              onChange={e => setLine(i, { quantity: e.target.value })} />
               </td>
               <td className="text-right">
-                <NumberInput value={l.unit_price}
+                <NumberInput className="form-control" value={l.unit_price}
                              onChange={e => setLine(i, { unit_price: e.target.value })} />
               </td>
               <td className="text-right">

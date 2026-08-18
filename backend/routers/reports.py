@@ -827,7 +827,7 @@ def report_service_jobs(
     end   = end   or _today()
 
     where = ["j.archived_at IS NULL",
-             "date(COALESCE(j.completed_at, j.scheduled_date, j.created_at)) BETWEEN ? AND ?"]
+             "date(COALESCE(j.completed_at, j.created_at)) BETWEEN ? AND ?"]
     params: list = [start, end]
     if status:
         where.append("j.status = ?")
@@ -838,7 +838,7 @@ def report_service_jobs(
         params += bp
 
     rows = db.execute(
-        "SELECT j.id, j.job_number, j.job_type, j.status, j.scheduled_date,"
+        "SELECT j.id, j.job_number, j.job_type, j.status,"
         "       j.completed_at, j.total, j.parts_cost,"
         "       c.name AS client_name, e.name AS equipment_name,"
         "       COALESCE(NULLIF(u.full_name, ''), u.username) AS technician,"
@@ -849,7 +849,7 @@ def report_service_jobs(
         " LEFT JOIN users u ON u.id = j.assigned_to"
         " LEFT JOIN invoices i ON i.service_job_id = j.id AND i.voided_at IS NULL"
         f" WHERE {' AND '.join(where)}"
-        " ORDER BY COALESCE(j.completed_at, j.scheduled_date, j.created_at) DESC",
+        " ORDER BY COALESCE(j.completed_at, j.created_at) DESC",
         params).fetchall()
 
     out = []
@@ -861,7 +861,7 @@ def report_service_jobs(
             "job_type": r["job_type"], "status": r["status"],
             "client_name": r["client_name"], "equipment_name": r["equipment_name"],
             "technician": r["technician"],
-            "scheduled_date": r["scheduled_date"], "completed_at": r["completed_at"],
+            "completed_at": r["completed_at"],
             "revenue": round(revenue, 2), "parts_cost": round(cost, 2),
             "margin": round(revenue - cost, 2),
             # Percent is omitted rather than shown as 0 on a zero-revenue job:

@@ -201,24 +201,17 @@ def dashboard(branch_id: Optional[int] = None,
             "due_soon":    due_soon,
         }
 
-    # ── Service: what is booked, what is overdue, what is unbilled ───────
-    # The three questions a service manager opens the system to answer. Unbilled
-    # matters most: completed work nobody has invoiced is money already spent
-    # and not yet asked for.
+    # ── Service: what was done recently, and what has not been billed ────
+    # A service is a record of completed work, so there is no queue to count.
+    # The two questions left are how much work is going through, and whether any
+    # of it is uninvoiced — money already spent on parts and not yet asked for.
     service_summary = None
     if show_service:
-        open_jobs = _scalar(db,
+        this_month = _scalar(db,
             "SELECT COUNT(*) FROM service_jobs"
-            " WHERE archived_at IS NULL"
-            "   AND status IN ('Draft','Scheduled','In Progress')" + bf_sj,
-            bp_sj,
-        )
-        due_today = _scalar(db,
-            "SELECT COUNT(*) FROM service_jobs"
-            " WHERE archived_at IS NULL"
-            "   AND status IN ('Scheduled','In Progress')"
-            "   AND scheduled_date IS NOT NULL"
-            "   AND date(scheduled_date) <= date('now')" + bf_sj,
+            " WHERE archived_at IS NULL AND status = 'Completed'"
+            "   AND date(COALESCE(completed_at, created_at))"
+            "       >= date('now','start of month')" + bf_sj,
             bp_sj,
         )
         unbilled = _scalar(db,
@@ -230,9 +223,8 @@ def dashboard(branch_id: Optional[int] = None,
             bp_sa,
         )
         service_summary = {
-            "open_jobs": open_jobs,
-            "due_today": due_today,
-            "unbilled":  unbilled,
+            "this_month": this_month,
+            "unbilled":   unbilled,
         }
 
     # ── HR: headcount + on-leave today + pending leave requests ──────────

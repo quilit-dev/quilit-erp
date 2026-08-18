@@ -693,8 +693,8 @@ print("  +4 resources, 4 BOMs (1 versioned), 6 orders incl. QC batch + partial r
 # ════════════════════════════════════════════════════════════════════════════
 header("Service")
 
-# The technician jobs get assigned to. Looked up rather than hardcoded, the same
-# way the warehouse-access grant below does it.
+# The technician services are attributed to. Looked up rather than hardcoded,
+# the same way the warehouse-access grant below does it.
 _tech_id = next((u["id"] for u in GET("/api/users/")
                  if u.get("username") == "u_operations_manager"), None)
 
@@ -723,11 +723,17 @@ for _cl, _name, _mfr, _model, _serial, _loc in _equip_seed:
     })["id"]
 
 
-def _job(cl, *, equipment=None, jtype="Repair", fault, parts=(), charges=(),
-         scheduled=None, priority="Normal", work_done=None):
-    """One service job. `parts` are (inventory-key, qty, price) drawn from
-    stock — priced explicitly, the way `_line` does it, because the create
-    response carries only the id. `charges` are (label, amount) flat fees."""
+def _service(cl, *, equipment=None, jtype="Repair", fault, parts=(), charges=(),
+             when=None, work_done=None):
+    """One recorded service.
+
+    `parts` are (inventory-key, qty, price) drawn from stock — priced
+    explicitly, the way `_line` does it, because the create response carries
+    only the id. `charges` are (label, amount) flat fees.
+
+    Recording consumes the parts, posts their cost and raises the invoice, so a
+    single call produces the whole chain.
+    """
     items = []
     for _key, _qty, _price in parts:
         items.append({"line_type": "part", "inventory_id": inv[_key]["id"],
@@ -736,12 +742,12 @@ def _job(cl, *, equipment=None, jtype="Repair", fault, parts=(), charges=(),
     for _label, _amount in charges:
         items.append({"line_type": "charge", "name": _label,
                       "quantity": 1, "unit_price": _amount})
-    body = {"client_id": CL[cl], "job_type": jtype, "priority": priority,
+    body = {"client_id": CL[cl], "job_type": jtype,
             "reported_fault": fault, "items": items}
     if equipment:
         body["equipment_id"] = EQ[equipment]
-    if scheduled:
-        body["scheduled_date"] = scheduled
+    if when:
+        body["service_date"] = when
     if work_done:
         body["work_done"] = work_done
     if _tech_id:
@@ -749,76 +755,67 @@ def _job(cl, *, equipment=None, jtype="Repair", fault, parts=(), charges=(),
     return POST("/api/service/jobs", body)
 
 
-# ── Open work, in each state a technician's list actually contains ──────────
-_draft = _job("Gamma", equipment="Chiller Unit", jtype="Inspection",
-              fault="Annual inspection due",
-              charges=[("Inspection visit", 90)])
+# ── Recorded and invoiced — the normal case. One is paid, so the parts/labour
+#    revenue split is visible in the ledger.
+_paid = _service("Alpha", equipment="Production Line A", jtype="Repair",
+                 fault="Line stopped mid-shift, drive fault",
+                 when=days_ago(9),
+                 work_done="Replaced drive component and realigned the belt. "
+                           "Ran a full cycle under load — no fault repeated.",
+                 parts=[("cmp_a", 1, 52.00), ("mat_a", 4, 5.80)],
+                 charges=[("Emergency callout", 120), ("Labour, 3h", 180)])
+if _paid.get("invoice"):
+    POST(f"/api/invoices/{_paid['invoice']['invoice_id']}/payments", {
+        "amount": _paid["invoice"]["amount"], "currency": "USD",
+        "method": "Bank Transfer", "idempotency_key": f"seed-svc-{_paid['id']}"})
 
-_sched = _job("Beta", equipment="Packing Machine", jtype="Maintenance",
-              fault="Scheduled 6-month service",
-              scheduled=days_ahead(4),
-              parts=[("mat_c", 2, 17.50)], charges=[("Service labour", 120)])
+_service("Alpha", equipment="Compressor Unit", jtype="Maintenance",
+         fault="Pressure dropping overnight", when=days_ago(24),
+         work_done="Replaced seals, pressure-tested to 8 bar.",
+         parts=[("mat_c", 1, 17.50)], charges=[("Labour, 2h", 120)])
 
-_started = _job("Delta", equipment="Conveyor Belt", jtype="Repair",
-                fault="Belt slipping under load", priority="High",
-                scheduled=days_ago(1),
-                parts=[("cmp_b", 1, 33.00)], charges=[("Callout", 60), ("Labour", 140)])
-POST(f"/api/service/jobs/{_started['id']}/start")
+_service("Beta", equipment="Packing Machine", jtype="Maintenance",
+         fault="Six-month service", when=days_ago(12),
+         work_done="Replaced wear parts, recalibrated the sealing jaw.",
+         parts=[("mat_c", 2, 17.50)], charges=[("Service labour", 120)])
 
-# ── Completed and invoiced — the normal end state. Completing consumes the
-#    parts, posts their cost, and (auto-invoice being on by default) raises the
-#    invoice, which is then paid so the revenue split shows in the ledger.
-_done = _job("Alpha", equipment="Production Line A", jtype="Repair",
-             fault="Line stopped mid-shift, drive fault",
-             scheduled=days_ago(9), priority="High",
-             work_done="Replaced drive component and realigned the belt. "
-                       "Ran a full cycle under load — no fault repeated.",
-             parts=[("cmp_a", 1, 52.00), ("mat_a", 4, 5.80)],
-             charges=[("Emergency callout", 120), ("Labour, 3h", 180)])
-_done_res = POST(f"/api/service/jobs/{_done['id']}/complete")
-if _done_res.get("invoice"):
-    POST(f"/api/invoices/{_done_res['invoice']['invoice_id']}/payments", {
-        "amount": _done_res["invoice"]["amount"], "currency": "USD",
-        "method": "Bank Transfer", "idempotency_key": f"seed-svc-{_done['id']}"})
+_service("Delta", equipment="Conveyor Belt", jtype="Repair",
+         fault="Belt slipping under load", when=days_ago(2),
+         work_done="Fitted a new tension roller and re-tracked the belt.",
+         parts=[("cmp_b", 1, 33.00)], charges=[("Callout", 60), ("Labour", 140)])
 
-_done2 = _job("Alpha", equipment="Compressor Unit", jtype="Maintenance",
-              fault="Pressure dropping overnight",
-              scheduled=days_ago(24),
-              work_done="Replaced seals, pressure-tested to 8 bar.",
-              parts=[("mat_c", 1, 17.50)], charges=[("Labour, 2h", 120)])
-POST(f"/api/service/jobs/{_done2['id']}/complete")
+_service("Gamma", equipment="Chiller Unit", jtype="Inspection",
+         fault="Annual inspection", when=days_ago(30),
+         work_done="Inspected; gas pressures within tolerance, no work needed.",
+         charges=[("Inspection visit", 90)])
 
-# ── Completed but NOT invoiced — the state the dashboard's "awaiting invoice"
-#    tile and the service report both exist to surface. Auto-invoicing has to
-#    be switched off around it, or there is nothing left unbilled to show.
+# ── An older service on a machine that already has one, so the equipment
+#    history has something to show — the reason equipment is a record at all.
+_service("Alpha", equipment="Production Line A", jtype="Maintenance",
+         fault="Routine service", when=days_ago(120),
+         work_done="Lubricated bearings, replaced filters, no faults found.",
+         parts=[("mat_b", 20, 0.10)], charges=[("Labour, 2h", 120)])
+
+# ── Recorded but not billed — what the dashboard's "awaiting invoice" tile and
+#    the report's unbilled total exist to surface. Automatic invoicing is the
+#    default, so it is switched off around this one and back on afterwards.
 PUT("/api/settings/", {"service_auto_invoice": "0"})
-_unbilled = _job("Epsilon", equipment="Generator 60kVA", jtype="Repair",
-                 fault="Fails to start on mains failure",
-                 scheduled=days_ago(3),
-                 work_done="Replaced starter relay; test-started three times.",
-                 parts=[("cmp_b", 1, 33.00)], charges=[("Labour, 1.5h", 90)])
-POST(f"/api/service/jobs/{_unbilled['id']}/complete")
+_service("Epsilon", equipment="Generator 60kVA", jtype="Repair",
+         fault="Fails to start on mains failure", when=days_ago(3),
+         work_done="Replaced starter relay; test-started three times.",
+         parts=[("cmp_b", 1, 33.00)], charges=[("Labour, 1.5h", 90)])
 PUT("/api/settings/", {"service_auto_invoice": "1"})
 
-# ── Cancelled — a job the customer called off before anyone travelled.
-_cancelled = _job("Delta", jtype="Installation",
-                  fault="Install second conveyor drive",
-                  charges=[("Installation, day rate", 400)])
-POST(f"/api/service/jobs/{_cancelled['id']}/cancel",
-     {"reason": "Customer deferred to next quarter"})
+# ── One cancelled, so the correction path is visible in the data: the parts
+#    went back, the cost was reversed and the invoice voided.
+_mistake = _service("Delta", jtype="Installation",
+                    fault="Install second conveyor drive", when=days_ago(6),
+                    charges=[("Installation, day rate", 400)])
+POST(f"/api/service/jobs/{_mistake['id']}/cancel",
+     {"reason": "Recorded against the wrong customer"})
 
-# ── An older completed job on the same machine, so at least one piece of
-#    equipment has a HISTORY rather than a single visit. That history is the
-#    reason equipment is a record instead of a text field on the job.
-_hist = _job("Alpha", equipment="Production Line A", jtype="Maintenance",
-             fault="Routine service",
-             scheduled=days_ago(120),
-             work_done="Lubricated bearings, replaced filters, no faults found.",
-             parts=[("mat_b", 20, 0.10)], charges=[("Labour, 2h", 120)])
-POST(f"/api/service/jobs/{_hist['id']}/complete")
-
-print(f"  +{len(EQ)} equipment; 7 jobs "
-      "(draft, scheduled, in progress, 3 completed incl. 1 unbilled, 1 cancelled)")
+print(f"  +{len(EQ)} equipment; 8 services "
+      "(6 invoiced incl. 1 paid, 1 unbilled, 1 cancelled)")
 
 
 header("Stock transfers")
@@ -1652,8 +1649,8 @@ print("   • Accounting → Ledger  — manual entries, loan, prepayments, FX")
 print("   • Accounting → Closing — two locked historical periods")
 print("   • Invoices             — every payment state including voided")
 print("   • Warehouses           — transfers in every status")
-print("   • Manufacturing        — QC batch, lots, partial completion
-   • Service              — equipment history, jobs in every state, one unbilled")
+print("   • Manufacturing        — QC batch, lots, partial completion")
+print("   • Service              — equipment history, recorded work, one unbilled")
 print("   • HR                   — contracts, payroll, leave, attendance")
 print("   • Recruitment          — pipeline from applicant to hired employee")
 print("   • Approvals            — one request pending finance review")
