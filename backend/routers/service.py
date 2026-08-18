@@ -592,6 +592,128 @@ def start_job(
     return {"message": "Job started", "status": ST_PROGRESS}
 
 
+@router.post("/jobs/{job_id}/complete")
+def complete_job(
+    job_id: int,
+    user=Depends(require_perm("service", "edit")),
+    db: sqlite3.Connection = Depends(get_db),
+):
+    """Mark the work done, consume its parts, and recognise the cost.
+
+    This is where a service job first touches the ledger. Two things happen and
+    they must not come apart:
+
+      * the parts physically leave the warehouse (inventory, per-warehouse
+        stock, and a stock_movements row so the history explains itself)
+      * their cost is recognised: DR 5000 Cost of Goods Sold / CR 1200 Inventory
+
+    Stock for EVERY part line is checked before anything is written. A job that
+    ran out of stock on its third line, having already consumed the first two,
+    would leave the ledger describing a job that never completed — so the whole
+    thing is refused up front instead.
+
+    Valuation goes through `lots.value_stock_out`, the same helper POS and
+    manufacturing use, so FIFO/LIFO/weighted-average and lot tracking behave
+    identically here. Writing a second cost calculation is how two modules come
+    to disagree about what the same item cost.
+
+    Revenue is NOT recognised here — see the module docstring. Completion is a
+    cost event; the revenue follows when the invoice is paid.
+    """
+    import accounting
+    import lots
+    import warehouse_access as wha
+    from utils import money
+
+    job = _get_job(db, job_id, user)
+    if job["status"] == ST_COMPLETED:
+        raise HTTPException(409, "Job is already completed.")
+    if job["status"] == ST_CANCELLED:
+        raise HTTPException(400, "A cancelled job cannot be completed.")
+
+    now = _now()
+    wid = wha.default_warehouse_id_for_row(db, job["warehouse_id"])
+
+    # ── Pre-flight: every part line, before a single write ───────────────────
+    parts = db.execute(
+        "SELECT l.id, l.inventory_id, l.quantity, i.name, i.quantity AS on_hand, "
+        "       i.unit, i.min_stock "
+        "FROM service_job_lines l JOIN inventory i ON i.id = l.inventory_id "
+        "WHERE l.job_id = ? AND l.line_type = ?", (job_id, LINE_PART)).fetchall()
+
+    # Several lines can draw the same item; the check has to be on the TOTAL, or
+    # two lines of 3 against 5 on hand would both pass and oversell the item.
+    needed = {}
+    for p in parts:
+        needed[p["inventory_id"]] = needed.get(p["inventory_id"], 0) + float(p["quantity"] or 0)
+    by_id = {p["inventory_id"]: p for p in parts}
+    short = [f"{by_id[i]['name']} (need {q}, have {by_id[i]['on_hand']})"
+             for i, q in needed.items() if float(by_id[i]["on_hand"] or 0) < q]
+    if short:
+        raise HTTPException(400, "Not enough stock to complete this job: "
+                                 + "; ".join(short))
+
+    # ── Consume ─────────────────────────────────────────────────────────────
+    cogs_total = 0.0
+    for inv_id, qty in needed.items():
+        row = by_id[inv_id]
+        qty_before = float(row["on_hand"])
+        qty_after = round(qty_before - qty, 6)
+        line_cogs = lots.value_stock_out(db, inv_id, qty, source_type="service",
+                                         source_ref=job["job_number"], now=now)
+        cogs_total += line_cogs
+        db.execute("UPDATE inventory SET quantity=? WHERE id=?", (qty_after, inv_id))
+        wha.credit_warehouse_stock(db, inventory_id=inv_id, warehouse_id=wid,
+                                   delta=-qty)
+        db.execute(
+            "INSERT INTO stock_movements "
+            "(inventory_id, type, delta, qty_before, qty_after, reference, note, "
+            " warehouse_id, created_at) VALUES (?,?,?,?,?,?,?,?,?)",
+            (inv_id, "service", -qty, qty_before, qty_after, job["job_number"],
+             "Service job parts", wid, now))
+        min_stock = float(row["min_stock"] or 0)
+        if min_stock > 0 and qty_after <= min_stock:
+            notify(db, type="low_stock",
+                   title=f"Low stock alert: {row['name']}",
+                   body=f"Only {qty_after} {row['unit'] or 'units'} remaining "
+                        f"(minimum: {min_stock})",
+                   link="/inventory", entity_type="inventory", entity_id=inv_id,
+                   dedup_hours=24)
+
+    cogs_total = money(cogs_total)
+
+    # ── Recognise the cost ──────────────────────────────────────────────────
+    # A labour-only job consumes nothing and has no cost to post; post_entry
+    # rejects an all-zero entry, so skip it rather than hand it one.
+    if cogs_total > 0:
+        accounting.post_entry(
+            db,
+            entry_date=now[:10],
+            memo=f"Service parts — {job['job_number']}",
+            lines=[
+                {"code": accounting.COGS,      "debit":  cogs_total},
+                {"code": accounting.INVENTORY, "credit": cogs_total},
+            ],
+            source_type="service_cogs", source_id=job_id,
+            created_by=user["id"], branch_id=job["branch_id"],
+        )
+
+    db.execute(
+        "UPDATE service_jobs SET status=?, completed_at=?, parts_cost=?, updated_at=? "
+        "WHERE id=?", (ST_COMPLETED, now, cogs_total, now, job_id))
+
+    if job["created_by"] and job["created_by"] != user["id"]:
+        notify(db, user_id=job["created_by"], type="service_job_completed",
+               title=f"Service job completed: {job['job_number']}",
+               body=job["work_done"] or None,
+               link="/service", entity_type="service_job", entity_id=job_id)
+    log_action(db, user, "complete", "service_job", job_id, job["job_number"],
+               {"cogs": cogs_total, "parts": len(needed)})
+    db.commit()
+    return {"message": "Job completed", "status": ST_COMPLETED,
+            "parts_cost": cogs_total}
+
+
 @router.post("/jobs/{job_id}/cancel")
 def cancel_job(
     job_id: int,

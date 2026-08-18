@@ -656,6 +656,7 @@ const ar = {
   // 'Contract') mean the same thing in each.
   enumValues: {
     // ── stock movement kinds (stock_movements.type) ──────────────────────
+    "service":        "أمر خدمة",
     "adjustment":     "تسوية",
     "sale":           "بيع",
     "return":         "مرتجع",

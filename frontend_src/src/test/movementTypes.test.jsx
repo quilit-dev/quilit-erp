@@ -19,7 +19,7 @@ import modalSrc from '../pages/inventory/MovementsModal.jsx?raw';
 //   manufacturing.py production, qc_release, qc_reject, qc_quarantine
 //   warehouses.py   transfer_in, transfer_out
 const MOVEMENT_TYPES = [
-  'adjustment', 'project_use', 'sale', 'return', 'purchase',
+  'adjustment', 'project_use', 'sale', 'return', 'purchase', 'service',
   'production', 'qc_release', 'qc_reject', 'qc_quarantine',
   'transfer_in', 'transfer_out',
 ];

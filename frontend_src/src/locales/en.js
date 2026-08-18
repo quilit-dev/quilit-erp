@@ -659,6 +659,7 @@ const en = {
   // 'Contract') mean the same thing in each.
   enumValues: {
     // ── stock movement kinds (stock_movements.type) ──────────────────────
+    "service":        "Service job",
     "adjustment":     "Adjustment",
     "sale":           "Sale",
     "return":         "Return",
