@@ -358,8 +358,16 @@ def test_pos_return_reverses_the_general_ledger(make_client, db):
 # FINDING-2 (fixed) ──────────────────────────────────────────────────────────
 def test_taxed_purchase_gl_inventory_matches_physical_value(make_client):
     """After buying 10 @ $10 + 11% VAT and selling all 10, GL Inventory
-    returns to zero: stock is carried ex-VAT (matching the cost layers) and
-    the input-VAT portion is expensed at purchase, not capitalised."""
+    returns to zero: stock is carried ex-VAT, matching the cost layers.
+
+    The input VAT is NOT capitalised into stock — that is the invariant this
+    test exists for and it is unchanged. What changed is where it goes instead:
+    it used to be expensed to 6900, which treats a reclaimable tax as a cost.
+    The business gets it back, so it debits the VAT control account and offsets
+    what is owed. That is what the manual specifies and what the VAT report
+    already assumed — the report nets input VAT off the liability, so expensing
+    it left the ledger disagreeing with the return.
+    """
     c = make_client("superadmin")
     _enable_vat(c)
     rid = _default_rate(c)
@@ -382,11 +390,13 @@ def test_taxed_purchase_gl_inventory_matches_physical_value(make_client):
     }).status_code == 200
 
     # Zero units on hand ⇒ the GL inventory account must also be zero, and the
-    # $11 input VAT sits in expense (6900), not in stock. Books stay balanced.
+    # $11 input VAT sits against the VAT control account, not in stock and not
+    # in expenses. Books stay balanced.
     assert c.get(f"/api/inventory/{item}").json()["quantity"] == pytest.approx(0)
     tb, bal = _tb(c)
     assert bal.get("1200", (0, 0))[0] == pytest.approx(0, abs=CENT)
-    assert bal["6900"][0] == pytest.approx(11, abs=CENT)
+    assert bal["2100"][0] == pytest.approx(11, abs=CENT), "input VAT should be reclaimable"
+    assert bal.get("6900", (0, 0))[0] == pytest.approx(0, abs=CENT),         "reclaimable VAT must not be booked as a cost"
     assert tb["balanced"] is True
 
 

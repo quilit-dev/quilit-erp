@@ -503,14 +503,25 @@ def create_expense(
     # Auto-post to the general ledger once the expense is actually recorded
     # (a pending-approval expense isn't recognised until it clears approval).
     if not needs_approval:
+        # An expense amount is tax-INCLUSIVE (see resolve_expense_tax), so the
+        # VAT inside it is recoverable and is not a cost. Debiting the gross to
+        # the expense account overstated costs by the tax and left the reclaim
+        # off the balance sheet; it is split out to the same VAT control account
+        # that output VAT credits, so the account's balance is the net position.
+        _exp_lines = [
+            {"code": accounting.expense_account_code(data.category, db),
+             "debit": money(gross - t_amt)},
+        ]
+        if t_amt > 0:
+            _exp_lines.append({"code": accounting.VAT_CONTROL, "debit": money(t_amt),
+                               "memo": "Input VAT"})
+        _exp_lines.append({"code": accounting.CASH, "credit": gross})
+
         accounting.post_entry(
             db,
             entry_date=(data.date or datetime.utcnow().strftime("%Y-%m-%d"))[:10],
             memo=f"{data.category}" + (f" — {data.description}" if data.description else ""),
-            lines=[
-                {"code": accounting.expense_account_code(data.category, db), "debit": gross},
-                {"code": accounting.CASH, "credit": gross},
-            ],
+            lines=_exp_lines,
             source_type="expense", source_id=expense_id, created_by=user["id"],
             branch_id=branch_id,
         )

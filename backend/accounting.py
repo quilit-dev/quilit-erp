@@ -71,6 +71,11 @@ REVENUE      = "4000"   # Sales Revenue (goods)
 SERVICE_REVENUE = "4100"  # Service Revenue (labour, callouts, fees)
 FX_GAIN      = "4910"   # Foreign Exchange Gain (other income)
 COGS         = "5000"   # Cost of Goods Sold
+# One VAT CONTROL account rather than separate payable/receivable ledgers.
+# Output VAT credits it, input VAT debits it, so its balance is what is actually
+# owed to (or reclaimable from) the authority — the same figure the VAT return
+# reports as net_vat, which makes reconciling the two a single comparison.
+VAT_CONTROL  = "2100"   # VAT Payable (net control account)
 SALARIES     = "6000"   # Salaries & Wages
 DEPRECIATION = "6300"   # Depreciation Expense
 CASH_SHORT_OVER = "6910"  # Cash Short & Over (operating expense)
@@ -229,8 +234,7 @@ def post_entry(db: sqlite3.Connection, *, entry_date: str, memo: str, lines: lis
 
 
 def revenue_split(db, invoice_id, amount):
-    """Credit lines for `amount` of revenue, split across revenue accounts in
-    proportion to the invoice's own line mix.
+    """The CREDIT side of a payment: revenue at net, plus the VAT collected.
 
     Revenue in this system is recognised on PAYMENT, not on invoicing, and a
     payment can be partial. So a $1,000 invoice that is 40% parts and 60%
@@ -238,21 +242,50 @@ def revenue_split(db, invoice_id, amount):
     Allocating "service first" would overstate one account on every part-paid
     invoice and only come right at the end.
 
+    VAT is carved out FIRST and credited to the VAT control account, because
+    the tax was never income: it is collected on the authority's behalf and
+    owed to them. Crediting it to revenue — which is what this did before —
+    overstated turnover by the tax rate on every sale and left the liability
+    off the balance sheet entirely. The VAT return was always computed from the
+    invoice records rather than the ledger, so filings were unaffected; the
+    error was confined to the P&L and balance sheet.
+
+    The carve-out is PROPORTIONAL to the payment, for the same reason the
+    revenue split is: half an invoice paid owes half its VAT.
+
     Lines are grouped by `invoice_items.revenue_account`; NULL means the
     default sales revenue account, so an invoice raised anywhere else in the
-    system produces exactly one credit line to 4000 and behaves as it always
-    has. An itemless invoice does the same.
+    system produces one credit to 4000 and behaves as it always has.
 
-    Rounding residue is added to the largest bucket, so the credits sum to
-    `amount` to the cent and the entry balances. Without that, a 1/3 split of
+    Rounding residue is added to the largest revenue bucket, so the credits sum
+    to `amount` to the cent and the entry balances. Without that, a 1/3 split of
     an odd figure loses a cent and post_entry rejects the whole entry.
     """
     amount = money(amount or 0)
+
+    # ── The VAT portion of THIS payment ──────────────────────────────────
+    vat = 0.0
+    try:
+        inv = db.execute(
+            "SELECT amount, tax_total FROM invoices WHERE id = ?",
+            (invoice_id,)).fetchone()
+        if inv:
+            total = float(inv["amount"] or 0)
+            tax_total = float(inv["tax_total"] or 0)
+            if total > 0 and tax_total > 0:
+                vat = money(amount * tax_total / total)
+    except Exception:
+        # A read failure must not stop the money being recognised. Falling back
+        # to zero VAT reproduces the old behaviour rather than losing the entry.
+        vat = 0.0
+
+    net = money(amount - vat)
+
     try:
         rows = db.execute(
             "SELECT COALESCE(revenue_account, ?) AS acct, "
             "       SUM(COALESCE(quantity,0) * COALESCE(unit_price,0) "
-            "           - COALESCE(discount,0) + COALESCE(tax_amount,0)) AS gross "
+            "           - COALESCE(discount,0)) AS net_gross "
             "FROM invoice_items WHERE invoice_id = ? GROUP BY 1",
             (REVENUE, invoice_id),
         ).fetchall()
@@ -262,21 +295,24 @@ def revenue_split(db, invoice_id, amount):
         # balances and the money is still recognised.
         rows = []
 
-    buckets = [(r["acct"] or REVENUE, float(r["gross"] or 0)) for r in rows]
+    buckets = [(r["acct"] or REVENUE, float(r["net_gross"] or 0)) for r in rows]
     buckets = [(a, g) for a, g in buckets if g > 0]
-    if len(buckets) <= 1:
-        return [{"code": buckets[0][0] if buckets else REVENUE, "credit": amount}]
+    total_net = sum(g for _, g in buckets)
 
-    total = sum(g for _, g in buckets)
-    if total <= 0:
-        return [{"code": REVENUE, "credit": amount}]
+    if len(buckets) <= 1 or total_net <= 0:
+        lines = [{"code": buckets[0][0] if buckets else REVENUE, "credit": net}]
+    else:
+        lines = [{"code": a, "credit": money(net * g / total_net)} for a, g in buckets]
+        residue = money(net - sum(l["credit"] for l in lines))
+        if residue:
+            biggest = max(range(len(lines)), key=lambda i: lines[i]["credit"])
+            lines[biggest]["credit"] = money(lines[biggest]["credit"] + residue)
 
-    lines = [{"code": a, "credit": money(amount * g / total)} for a, g in buckets]
-    residue = money(amount - sum(l["credit"] for l in lines))
-    if residue:
-        biggest = max(range(len(lines)), key=lambda i: lines[i]["credit"])
-        lines[biggest]["credit"] = money(lines[biggest]["credit"] + residue)
-    return [l for l in lines if l["credit"] > 0]
+    lines = [l for l in lines if l["credit"] > 0]
+    if vat > 0:
+        lines.append({"code": VAT_CONTROL, "credit": vat,
+                      "memo": "VAT collected"})
+    return lines
 
 
 def reverse_entry(db: sqlite3.Connection, je_id: int, *, entry_date=None,
