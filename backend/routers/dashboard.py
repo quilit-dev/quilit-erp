@@ -207,12 +207,18 @@ def dashboard(branch_id: Optional[int] = None,
     # of it is uninvoiced — money already spent on parts and not yet asked for.
     service_summary = None
     if show_service:
+        # The first of this month, computed in Python and BOUND, not written as
+        # date('now','start of month'). dialect.py deliberately refuses to
+        # translate 'start of month' — it leaves the SQLite text intact, which
+        # Postgres rejects with "function date(unknown, unknown) does not
+        # exist". That passes every SQLite test and 500s only in production,
+        # which is exactly what it did here.
+        _month_start = _today()[:8] + "01"   # first of the current month
         this_month = _scalar(db,
             "SELECT COUNT(*) FROM service_jobs"
             " WHERE archived_at IS NULL AND status = 'Completed'"
-            "   AND date(COALESCE(completed_at, created_at))"
-            "       >= date('now','start of month')" + bf_sj,
-            bp_sj,
+            "   AND date(COALESCE(completed_at, created_at)) >= ?" + bf_sj,
+            [_month_start] + list(bp_sj),
         )
         unbilled = _scalar(db,
             "SELECT COUNT(*) FROM service_jobs j"
