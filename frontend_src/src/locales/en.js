@@ -1617,6 +1617,7 @@ const en = {
     saleCompleted: 'Sale completed',
     receipt: 'Receipt',
     printReceipt: 'Print receipt',
+    printInvoice: 'Print invoice (A4)',
     newSale: 'New Sale',
     saleNumber: 'Sale #',
     status: 'Status',

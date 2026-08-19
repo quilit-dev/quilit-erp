@@ -1610,6 +1610,7 @@ const ar = {
     saleCompleted: 'تم إتمام البيع',
     receipt: 'الإيصال',
     printReceipt: 'طباعة الإيصال',
+    printInvoice: 'طباعة فاتورة (A4)',
     newSale: 'بيع جديد',
     saleNumber: 'رقم البيع',
     status: 'الحالة',

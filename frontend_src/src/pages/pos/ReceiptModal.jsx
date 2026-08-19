@@ -1,11 +1,15 @@
+import { useState } from 'react';
 import { useLocale } from '../../hooks/useLocale.jsx';
 import { useSettings } from '../../hooks/useSettings.jsx';
-import { Modal } from '../../components/shared';
+import { Modal, toast } from '../../components/shared';
+import { getInvoice } from '../../api/client';
+import { exportInvoicePDF } from '../../utils/exportUtils';
 
 function ReceiptModal({ sale, onClose }) {
   const { t, fmt, tCategory } = useLocale();
-  const { settings } = useSettings();
+  const { settings, displayCurrency, exchangeRate } = useSettings();
   const co = settings || {};
+  const [invoicing, setInvoicing] = useState(false);
 
   const now = new Date();
   const dateStr = now.toLocaleString(undefined, {
@@ -32,6 +36,35 @@ function ReceiptModal({ sale, onClose }) {
     window.print();
     // Safety net for browsers that don't fire afterprint reliably.
     setTimeout(cleanup, 1500);
+  }
+
+  /** Print the same A4 document the Invoices screen produces.
+   *
+   *  A thermal slip and a tax invoice are different documents for different
+   *  purposes: the roll is what the customer walks out with, the A4 is what a
+   *  business customer files or claims VAT against. Every POS sale already has
+   *  a real invoice behind it, so this fetches that record and hands it to the
+   *  ordinary invoice exporter rather than re-laying the sale out a second
+   *  time — one design, one set of company details, one tax presentation.
+   */
+  async function printInvoice() {
+    if (!sale.invoice_id) return;
+    setInvoicing(true);
+    try {
+      const full = await getInvoice(sale.invoice_id);
+      // A till sale usually has no client record. The exporter's generic
+      // fallback for that is "No client specified", which reads like a mistake
+      // on a document handed to the person who just paid — so name them the
+      // way the POS screen already does.
+      const billed = full.client_name || sale.client_name
+        ? full
+        : { ...full, client_name: t('pos.walkIn') };
+      await exportInvoicePDF(billed, { displayCurrency, exchangeRate });
+    } catch (err) {
+      toast(err.message, 'red');
+    } finally {
+      setInvoicing(false);
+    }
   }
 
   // Inline styles only — keeps the receipt visually isolated from the
@@ -169,6 +202,14 @@ function ReceiptModal({ sale, onClose }) {
 
       <div className="modal-footer">
         <button className="btn btn-secondary" onClick={doPrint}>{t('pos.printReceipt')}</button>
+        {/* Only offered when the sale actually has an invoice behind it — a
+            returned or legacy row may not, and a button that errors is worse
+            than one that is absent. */}
+        {sale.invoice_id && (
+          <button className="btn btn-secondary" onClick={printInvoice} disabled={invoicing}>
+            {invoicing ? t('common.loading') : t('pos.printInvoice')}
+          </button>
+        )}
         <button className="btn btn-primary" onClick={onClose}>{t('pos.newSale')}</button>
       </div>
     </Modal>
