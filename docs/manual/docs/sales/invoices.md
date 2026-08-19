@@ -193,6 +193,159 @@ disagree with the money.
 
 ---
 
+---
+
+---
+
+---
+
+## Your own terms & conditions
+
+**Settings → Document Settings → Invoice terms & conditions.** Whatever you type
+there prints at the foot of every invoice — payment terms, retention of title,
+a returns policy, whatever your business needs.
+
+It is a multi-line box and the line breaks are kept, so a short list stays a
+short list:
+
+```
+Payment due within 30 days of invoice date.
+Goods remain our property until paid in full.
+Returns accepted within 14 days with the original receipt.
+```
+
+Set it once and it applies to every invoice from then on, including the PDF you
+print and the copy your customer opens from a WhatsApp or email link. Leave it
+empty and nothing is printed — no stray heading.
+
+!!! note "Not the same as the closing note"
+    **Footer text**, just above it in the same panel, is a single closing line
+    that appears on invoices *and* quotations. Terms & conditions are a block,
+    and invoices only — a quotation already prints its own validity wording.
+
+---
+
+## What an unpaid invoice does to your books
+
+Raising an invoice records a **receivable** — what the customer owes you. It is
+an asset, and it appears on the balance sheet from the moment the invoice is
+raised, whether or not anyone has paid.
+
+Because revenue is recognised when the money arrives (see
+[Accounting](../finance/accounting.md)), the other side of that receivable is
+not income yet. It is held in **2400 Deferred Revenue** and released into
+revenue as each payment comes in.
+
+```mermaid
+flowchart TB
+    A["Invoice raised<br/>$2,000"] --> B["DR 1100 Receivable 2,000<br/>CR 2400 Deferred Revenue 2,000"]
+    B --> C["First payment<br/>$100"]
+    C --> D["DR 1000 Cash 100<br/>CR 1100 Receivable 100"]
+    C --> E["DR 2400 Deferred 100<br/>CR 4000 Revenue 100"]
+
+    style B fill:#eef2ff,stroke:#6366f1
+    style D fill:#dcfce7,stroke:#10b981
+    style E fill:#dcfce7,stroke:#10b981
+```
+
+After that first payment on a $2,000 invoice your balance sheet reads:
+
+| | |
+|---|---|
+| Cash & Bank | $100 |
+| Accounts Receivable | $1,900 |
+| **Total assets** | **$2,000** |
+| Deferred Revenue | $1,900 |
+
+The $1,900 the customer still owes you is now visible in the accounts, not only
+on the invoice. Your income statement is unchanged: it still reports the $100
+you actually collected.
+
+!!! note "Till sales work differently"
+    A POS sale is settled at the counter, so nobody owes anything and no
+    receivable is created — it goes straight to cash and revenue.
+
+When an invoice is **voided**, the receivable is reversed with it. Editing an
+unpaid invoice's total restates it. Paying an invoice in full leaves both
+`1100` and `2400` at zero for that invoice.
+
+---
+
+## Payment plans (instalments)
+
+When a customer agrees to pay over time — a machine settled across twelve
+months, a project with a deposit and three stages — record the agreement as a
+**payment plan** on the invoice rather than issuing one invoice per month.
+
+Open the invoice's **Payments** window and choose **Set up a plan**. Enter how
+many instalments, when the first is due, and whether they fall monthly,
+quarterly or yearly. Leave **Deposit** blank to divide the total equally, or
+enter it to record money down followed by equal instalments for the rest.
+
+```mermaid
+flowchart LR
+    INV["Invoice<br/>$1,200"] --> PLAN["Plan:<br/>4 x $300"]
+    PLAN --> I1["#1 — 15 Jan<br/>Paid ✅"]
+    PLAN --> I2["#2 — 15 Feb<br/>Paid ✅"]
+    PLAN --> I3["#3 — 15 Mar<br/>Overdue 🔴"]
+    PLAN --> I4["#4 — 15 Apr<br/>Due ⚪"]
+
+    style I1 fill:#dcfce7,stroke:#10b981
+    style I2 fill:#dcfce7,stroke:#10b981
+    style I3 fill:#fee2e2,stroke:#dc2626
+    style I4 fill:#f3f4f6,stroke:#9ca3af
+```
+
+### One invoice, several dates
+
+A plan is a **schedule**, not a set of invoices. The customer keeps one
+document, one reference to quote, and one VAT event. Splitting the debt into
+twelve invoices would split the revenue and the tax across twelve events and
+leave no single record of what was agreed.
+
+The plan always adds up to the invoice total to the cent. Where the division
+does not come out evenly — $1,000 over three — the final instalment carries the
+remainder ($333.33, $333.33, $333.34), so there is never a last instalment that
+cannot be settled.
+
+### Payments settle the oldest instalment first
+
+Record payments exactly as you would on any invoice. Which instalments are
+settled is worked out from the invoice's own payments each time it is read: pay
+$600 against four instalments of $300 and the first two are settled. Nothing is
+stored per instalment, so the plan can never disagree with the invoice balance
+shown beside it.
+
+!!! note "A payment cannot be earmarked for a particular month"
+    There is no "pay instalment 3" action. Money received is applied to the
+    oldest amount still owing, which is the normal rule for an instalment
+    agreement and the only one that needs no manual matching.
+
+### Chasing arrears
+
+Each missed instalment raises its own reminder naming that instalment and how
+many days late it is — not one reminder for the whole balance. The **Invoice
+Aging** report ages a planned invoice by its earliest unpaid instalment and
+splits it: the arrears sit in their real bucket while instalments not yet due
+stay under *Current*. One missed payment does not make the whole plan overdue.
+
+### What the customer sees
+
+The schedule is printed on the invoice PDF and on the share link they open from
+WhatsApp or email — each instalment, what has been paid against it, and what is
+still owed, with arrears called out. On an invoice with a plan the usual "full
+balance due by …" line is suppressed, because under a plan that date is the
+final instalment and the schedule already says what is owed when.
+
+### Changing a plan
+
+A plan can be re-cut or removed freely until the first payment arrives. After
+that it is locked: re-cutting twelve instalments into four after three have been
+paid would silently re-interpret what the customer has already settled. To
+change terms mid-plan, void the invoice and re-issue it.
+
+---
+
 ## Status — computed, not stored
 
 ```mermaid
@@ -216,8 +369,9 @@ truth.
 
 - Credit notes as a separate document. Use **Void** (with a reason) +
   re-issue.
-- Recurring billing schedules. Use **Recurring Expenses** template
-  pattern but for the receiving side, where the customer pays on a
-  schedule, the system relies on the operator to issue each invoice.
+- Recurring billing schedules — a *new* invoice raised every month for
+  ongoing work. That still relies on the operator issuing each one.
+  (A customer paying a *fixed* debt over time is a different thing and is
+  supported: see **Payment plans** above.)
 - Multi-currency invoice amounts. The amount is always USD; the
   multi-currency layer is at the payment level.

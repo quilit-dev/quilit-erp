@@ -6,7 +6,7 @@ import { useLocale } from '../hooks/useLocale.jsx';
 import InventoryFieldsManager from '../components/InventoryFieldsManager.jsx';
 import CategoriesManager from '../components/CategoriesManager.jsx';
 import { Icon } from '../components/shared';
-import { Section, Field, Input, Toggle, CURRENCIES } from './settings/ui';
+import { Section, Field, Input, Textarea, Toggle, CURRENCIES } from './settings/ui';
 import { TaxRatesSection } from './settings/TaxRatesSection';
 import UserManualSection from './settings/UserManualSection.jsx';
 
@@ -69,7 +69,7 @@ export default function Settings() {
     'inventory_costing_method', 'business_type',
     'payroll_tax_pct', 'payroll_nssf_employee_pct',
     'payroll_nssf_employer_pct', 'payroll_overtime_multiplier',
-    'footer_text', 'show_discount_col', 'show_tax_col',
+    'footer_text', 'invoice_terms', 'show_discount_col', 'show_tax_col',
     'show_barcode_col', 'show_total_words',
     'pos_receipt_width',
   ]);
@@ -474,6 +474,11 @@ export default function Settings() {
         <Section title={t('settings.documentSettings')} icon="file-text">
           <Field label={t('settings.footerText')}>
             <Input disabled={!isAdmin} value={form.footer_text || ''} onChange={set('footer_text')} />
+          </Field>
+          <Field label={t('settings.invoiceTerms')} hint={t('settings.invoiceTermsHint')}>
+            <Textarea disabled={!isAdmin} rows={6}
+              value={form.invoice_terms || ''} onChange={set('invoice_terms')}
+              placeholder={t('settings.invoiceTermsPlaceholder')} />
           </Field>
           <div style={{ display: 'flex', flexDirection: 'column', gap: 14, marginTop: 8 }}>
             <Toggle disabled={!isAdmin} label={t('settings.showDiscountCol')} checked={isOn('show_discount_col')} onChange={bool('show_discount_col')} />

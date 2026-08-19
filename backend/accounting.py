@@ -61,6 +61,12 @@ CASH         = "1000"   # Cash & Bank (functional currency — USD)
 CASH_LBP     = "1010"   # Cash — LBP (foreign currency monetary item)
 AR           = "1100"   # Accounts Receivable
 INVENTORY    = "1200"   # Inventory (perpetual)
+# A cost paid for a period that has not happened yet is an ASSET until it is
+# used up. Quarterly rent paid in January buys February and March as well;
+# charging the whole payment to January makes that month look bad and the next
+# two look good for no business reason, and the two months of occupancy the
+# business has already bought appear nowhere on the balance sheet.
+PREPAID      = "1300"   # Prepaid Expenses (paid in advance, not yet incurred)
 ACC_DEP      = "1510"   # Accumulated Depreciation (contra-asset)
 AP           = "2000"   # Accounts Payable
 REVENUE      = "4000"   # Sales Revenue (goods)
@@ -76,6 +82,25 @@ COGS         = "5000"   # Cost of Goods Sold
 # owed to (or reclaimable from) the authority — the same figure the VAT return
 # reports as net_vat, which makes reconciling the two a single comparison.
 VAT_CONTROL  = "2100"   # VAT Payable (net control account)
+# Raising an invoice creates a claim on the customer, and the ledger has to show
+# it: before this, an unpaid invoice existed nowhere in the books, so a business
+# that had delivered $2,000 of goods and collected $100 reported total assets of
+# $100. The missing $1,900 was tracked operationally (invoice `remaining`,
+# client `outstanding`, the aging report) but never reached the general ledger,
+# and the balance sheet understated the business by the whole receivable.
+#
+# Recognition stays CASH-BASIS, which is deliberate (see the module docstring).
+# So the credit side of the receivable cannot be revenue yet — it is money owed
+# TO the customer in goods already delivered but not yet earned in cash terms,
+# which is a liability until the cash arrives:
+#
+#     invoice raised    DR 1100 Receivable      CR 2400 Deferred Revenue
+#     payment received  DR 1000 Cash            CR 1100 Receivable
+#                       DR 2400 Deferred Rev    CR 4000 Revenue (+ 2100 VAT)
+#
+# The balance sheet is then complete at every point, while the income statement
+# and the VAT position move exactly as they did before.
+DEFERRED_REV = "2400"   # Deferred Revenue (invoiced, not yet earned in cash)
 SALARIES     = "6000"   # Salaries & Wages
 DEPRECIATION = "6300"   # Depreciation Expense
 CASH_SHORT_OVER = "6910"  # Cash Short & Over (operating expense)
@@ -313,6 +338,79 @@ def revenue_split(db, invoice_id, amount):
         lines.append({"code": VAT_CONTROL, "credit": vat,
                       "memo": "VAT collected"})
     return lines
+
+
+def post_receivable(db, invoice_id, *, invoice_number, amount, entry_date,
+                    created_by=None, branch_id=None):
+    """Book the claim created by raising an invoice.
+
+        DR 1100 Accounts Receivable
+          CR 2400 Deferred Revenue
+
+    Idempotent through post_entry's (source_type, source_id) guard, so calling
+    it twice for one invoice is a no-op rather than a double asset.
+
+    A zero-value invoice posts nothing: post_entry rejects an all-zero entry,
+    and there is no claim to record.
+    """
+    amount = money(amount or 0)
+    if amount <= 0:
+        return None
+    return post_entry(
+        db,
+        entry_date=entry_date,
+        memo=f"Invoice raised — {invoice_number}",
+        lines=[
+            {"code": AR,           "debit":  amount, "memo": "Customer receivable"},
+            {"code": DEFERRED_REV, "credit": amount, "memo": "Invoiced, not yet earned"},
+        ],
+        source_type="invoice", source_id=invoice_id,
+        created_by=created_by, branch_id=branch_id,
+    )
+
+
+def has_receivable(db, invoice_id) -> bool:
+    """True when this invoice carries a LIVE receivable entry.
+
+    This is what decides which shape a payment posts, and it is deliberately
+    not a date check. Invoices raised before this change have no receivable to
+    relieve, and POS sales never had one (a POS sale is settled at the till and
+    posts its own cash entry). Both must keep posting the original
+    cash-and-revenue pair, or a payment would credit a receivable that was
+    never debited and the trial balance would drift.
+    """
+    return source_entry(db, "invoice", invoice_id) is not None
+
+
+def payment_lines(db, invoice_id, *, cash_code, amount, method_memo=None):
+    """The journal lines for one payment against an invoice.
+
+    On an invoice carrying a receivable, a payment does two things at once:
+    it converts the claim into cash, and it earns the revenue that was being
+    held in deferred:
+
+        DR Cash            CR 1100 Receivable
+        DR 2400 Deferred   CR 4000/4100 Revenue (+ 2100 VAT)
+
+    Without a receivable (legacy invoices, POS) it stays the original single
+    movement, DR Cash CR Revenue, so nothing already in the books changes shape.
+
+    `revenue_split` carves VAT out of the payment and allocates the rest across
+    revenue accounts by line mix, exactly as before — VAT timing is untouched.
+    """
+    amount = money(amount)
+    revenue = list(revenue_split(db, invoice_id, amount))
+    cash = {"code": cash_code, "debit": amount, "memo": method_memo}
+
+    if not has_receivable(db, invoice_id):
+        return [cash, *revenue]
+
+    return [
+        cash,
+        {"code": AR, "credit": amount, "memo": "Receivable settled"},
+        {"code": DEFERRED_REV, "debit": amount, "memo": "Earned on receipt"},
+        *revenue,
+    ]
 
 
 def reverse_entry(db: sqlite3.Connection, je_id: int, *, entry_date=None,

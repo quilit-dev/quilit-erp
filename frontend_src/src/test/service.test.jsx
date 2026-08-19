@@ -12,6 +12,7 @@ import paletteSrc from '../components/CommandPalette.jsx?raw';
 import serviceSrc from '../pages/Service.jsx?raw';
 import jobFormSrc from '../pages/service/JobForm.jsx?raw';
 import equipmentFormSrc from '../pages/service/EquipmentForm.jsx?raw';
+import { buildWorkOrderHTML } from '../utils/workOrder';
 import fs from 'node:fs';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
@@ -76,19 +77,20 @@ describe('the page renders from translations, not literals', () => {
     expect(strippedComments).not.toMatch(/>\s*(Jobs|Equipment|Complete|Reopen)\s*</);
   });
 
-  test('the removed lifecycle leaves nothing behind', () => {
-    // Recording a service consumes, costs and invoices in one call. A leftover
-    // Start or Complete button would call an endpoint that no longer exists.
-    for (const gone of ['startServiceJob', 'completeServiceJob',
-                        'reopenServiceJob', 'scheduleServiceJob',
-                        'updateServiceJob', 'printWorkOrder']) {
-      expect(serviceSrc, gone).not.toContain(gone);
-    }
+  test('the status ladder is driven by one endpoint per transition', () => {
+    // A single "set status" call would let the UI skip the consumption that
+    // completing performs.
+    expect(serviceSrc).toMatch(/startServiceJob/);
+    expect(serviceSrc).toMatch(/completeServiceJob/);
+    expect(serviceSrc).toMatch(/reopenServiceJob/);
+    // Anchored to a CALL: `setStatusFilter` is the list filter and is fine.
+    expect(serviceSrc).not.toMatch(/setStatus\(|updateStatus\(/);
   });
 
-  test('cancelling asks first', () => {
-    // It returns stock, reverses the cost and voids the invoice.
-    expect(serviceSrc).toMatch(/cancelConfirm/);
+  test('completing and reopening both ask first', () => {
+    // Both move stock and post to the ledger.
+    expect(serviceSrc).toMatch(/completeConfirm/);
+    expect(serviceSrc).toMatch(/reopenConfirm/);
   });
 });
 
@@ -112,6 +114,60 @@ describe('the job form', () => {
     // Offering another customer's machines invites the mistake the backend
     // then rejects.
     expect(jobFormSrc).toMatch(/getServiceEquipment\(\{ client_id: form\.client_id \}\)/);
+  });
+});
+
+// ── Work order ───────────────────────────────────────────────────────────────
+
+const SETTINGS = { company_name: 'Acme Service', default_currency: 'USD' };
+
+const JOB = {
+  id: 1, job_number: 'SVC-2026-0001', job_type: 'Repair', priority: 'Normal',
+  status: 'Scheduled', client_name: 'Bakery Co', assigned_name: 'Sami',
+  scheduled_date: '2026-09-01', reported_fault: 'Fan not spinning',
+  equipment: { name: 'Bakery oven', model: 'R-200', serial_number: 'SN-4471' },
+  lines: [
+    { id: 1, line_type: 'part', name: 'Fan belt', quantity: 2, unit_price: 12 },
+    { id: 2, line_type: 'charge', name: 'Labour', quantity: 1, unit_price: 100 },
+  ],
+  subtotal: 124, tax_total: 0, total: 124,
+};
+
+const html = (job = JOB) => buildWorkOrderHTML(job, SETTINGS, null, {});
+
+describe('the work order', () => {
+  test('carries what a technician needs on site', () => {
+    const out = html();
+    expect(out).toContain('SVC-2026-0001');
+    expect(out).toContain('Bakery oven');
+    expect(out).toContain('SN-4471');          // check against the plate
+    expect(out).toContain('Fan not spinning');
+  });
+
+  test('leaves ruled space to write the visit up', () => {
+    // A blank box invites a scrawl in one corner; the lines are the point.
+    expect(html()).toContain('wo-rule');
+    expect(html()).toContain('Additional parts used');
+  });
+
+  test('hides prices until the job is completed', () => {
+    // A technician mid-visit should not be quoting figures nobody has agreed.
+    const before = html();
+    expect(before).not.toContain('124.00');
+
+    const after = html({ ...JOB, status: 'Completed' });
+    expect(after).toContain('124.00');
+  });
+
+  test('has somewhere for both signatures', () => {
+    const out = html();
+    expect(out).toContain('Technician');
+    expect(out).toContain('Customer signature');
+  });
+
+  test('is a work order, not an invoice', () => {
+    expect(html()).toContain('Work Order');
+    expect(html()).not.toMatch(/\bInvoice\b/);
   });
 });
 
@@ -162,9 +218,11 @@ describe('every translation key the service screens use exists', () => {
     expect(missingAr).toEqual([]);
   });
 
-  test('the two remaining status keys exist', () => {
-    // A service either happened or was recorded by mistake.
-    for (const key of ['statusCompleted', 'statusCancelled']) {
+  test('the dynamically built status keys all exist', () => {
+    // Built as `service.status${status.replace(/\s/g,'')}` from an API value,
+    // so no literal appears in the source for the checker above to find.
+    for (const s of ['Draft', 'Scheduled', 'In Progress', 'Completed', 'Cancelled']) {
+      const key = `status${s.replace(/\s/g, '')}`;
       expect(en.service[key], key).toBeTruthy();
       expect(ar.service[key], key).toBeTruthy();
     }
@@ -204,8 +262,7 @@ describe('every class the page uses is a real class', () => {
     // which stubs CSS imports to an empty string — so the bundler route would
     // make this test silently pass on an empty stylesheet.
     // `import.meta.url`, not __dirname: this file is an ES module and
-    // __dirname is not defined in one (eslint catches it; vitest happened to
-    // tolerate it via its CJS interop).
+    // __dirname is not defined in one.
     const here = path.dirname(fileURLToPath(import.meta.url));
     const cssSrc = fs.readFileSync(path.resolve(here, '../index.css'), 'utf8');
     expect(cssSrc.length).toBeGreaterThan(1000);

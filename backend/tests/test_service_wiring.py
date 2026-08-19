@@ -44,13 +44,10 @@ def _item(client, name, qty, cost, price):
 
 
 def _job(client, acme, items=None, **extra):
-    """Recording a service is one call — it consumes, costs and invoices."""
     body = {"client_id": acme, "job_type": "Repair",
             "reported_fault": "Fan seized", "items": items or []}
     body.update(extra)
-    r = client.post("/api/service/jobs", json=body)
-    assert r.status_code == 200, r.text
-    return r.json()
+    return client.post("/api/service/jobs", json=body).json()
 
 
 # ── Global search ────────────────────────────────────────────────────────────
@@ -89,22 +86,23 @@ def test_search_hides_service_from_a_role_without_it(as_role, client, acme, oven
 
 # ── Dashboard ────────────────────────────────────────────────────────────────
 
-def test_the_dashboard_counts_recent_and_unbilled_work(client, acme):
+def test_the_dashboard_counts_open_and_unbilled_work(client, acme):
     belt = _item(client, "Belt", 10, 4, 12)
-    _job(client, acme, [{"line_type": "charge", "name": "Labour",
-                         "quantity": 1, "unit_price": 50}])
-    _job(client, acme, [{"line_type": "part", "inventory_id": belt,
-                         "name": "Belt", "quantity": 1, "unit_price": 12}])
+    _job(client, acme)                                     # open
+    done = _job(client, acme, [{"line_type": "part", "inventory_id": belt,
+                                "name": "Belt", "quantity": 1, "unit_price": 12}])
+    client.post(f"/api/service/jobs/{done['id']}/complete")
 
     d = client.get("/api/dashboard/").json()
 
-    assert d["service"]["this_month"] == 2, "both services were recorded this month"
-    assert d["service"]["unbilled"] == 2, "work nobody has invoiced"
+    assert d["service"]["open_jobs"] == 1
+    assert d["service"]["unbilled"] == 1, "completed work nobody has invoiced"
 
 
 def test_invoicing_clears_the_unbilled_count(client, acme):
     job = _job(client, acme, [{"line_type": "charge", "name": "Labour",
                                "quantity": 1, "unit_price": 100}])
+    client.post(f"/api/service/jobs/{job['id']}/complete")
     assert client.get("/api/dashboard/").json()["service"]["unbilled"] == 1
 
     client.post(f"/api/service/jobs/{job['id']}/invoice")
@@ -130,6 +128,7 @@ def test_the_report_shows_margin_per_job(client, acme):
          "quantity": 3, "unit_price": 12},
         {"line_type": "charge", "name": "Labour", "quantity": 1, "unit_price": 100},
     ])
+    client.post(f"/api/service/jobs/{job['id']}/complete")
 
     rows = client.get("/api/reports/service-jobs").json()
 
@@ -143,6 +142,7 @@ def test_the_report_shows_margin_per_job(client, acme):
 def test_the_report_totals_the_unbilled_value(client, acme):
     job = _job(client, acme, [{"line_type": "charge", "name": "Labour",
                                "quantity": 1, "unit_price": 250}])
+    client.post(f"/api/service/jobs/{job['id']}/complete")
 
     totals = client.get("/api/reports/service-jobs").json()["totals"]
 
@@ -185,7 +185,7 @@ def test_a_client_record_hides_service_from_a_role_without_it(as_role, client, a
 
 # ── Notifications ────────────────────────────────────────────────────────────
 
-def test_recording_a_service_notifies_the_technician(client, acme, as_role):
+def test_assigning_a_job_notifies_the_technician(client, acme, as_role):
     tech = client.get("/api/users/").json()
     target = [u for u in tech if u["username"] == "u_ops_mgr"][0]
 
@@ -193,7 +193,7 @@ def test_recording_a_service_notifies_the_technician(client, acme, as_role):
 
     ops = as_role("Operations Manager")
     rows = ops.get("/api/notifications/").json()["notifications"]
-    assert any(n["type"] == "service_job_completed"
+    assert any(n["type"] == "service_job_scheduled"
                and job["job_number"] in (n.get("title") or "") for n in rows)
 
 
@@ -202,6 +202,7 @@ def test_the_service_notification_types_are_registered(client):
     licence would receive them."""
     from routers.notifications import NOTIFICATION_TYPE_MODULE
 
+    assert NOTIFICATION_TYPE_MODULE["service_job_scheduled"] == "service"
     assert NOTIFICATION_TYPE_MODULE["service_job_completed"] == "service"
 
 
@@ -211,15 +212,13 @@ def test_every_money_moving_action_is_audited(client, acme):
     belt = _item(client, "Belt", 10, 4, 12)
     job = _job(client, acme, [{"line_type": "part", "inventory_id": belt,
                                "name": "Belt", "quantity": 2, "unit_price": 12}])
-    # This file runs with automatic billing off (see the fixture), so the
-    # invoice is raised explicitly here — the point is that BOTH events are
-    # audited, however the invoice came to exist.
+    client.post(f"/api/service/jobs/{job['id']}/complete")
     client.post(f"/api/service/jobs/{job['id']}/invoice")
 
     rows = client.get("/api/audit/?module=service_job").json()["rows"]
     actions = {r["action"] for r in rows if r["record_id"] == job["id"]}
 
-    assert {"create", "invoice"} <= actions
+    assert {"create", "complete", "invoice"} <= actions
 
 
 # ── Stock history ────────────────────────────────────────────────────────────
@@ -229,6 +228,7 @@ def test_the_parts_history_names_the_job(client, acme):
     belt = _item(client, "Belt", 10, 4, 12)
     job = _job(client, acme, [{"line_type": "part", "inventory_id": belt,
                                "name": "Belt", "quantity": 2, "unit_price": 12}])
+    client.post(f"/api/service/jobs/{job['id']}/complete")
 
     moves = client.get(f"/api/inventory/{belt}/movements").json()
 

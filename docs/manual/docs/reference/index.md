@@ -5,7 +5,7 @@ Lists worth keeping open in a second tab.
 | Page | What it contains |
 |---|---|
 | [Permissions matrix](permissions.md) | 18 seeded roles × 27 modules × 5 actions in one printable grid |
-| [Chart of Accounts](chart-of-accounts.md) | The 30 seeded accounts + what posts to each |
+| [Chart of Accounts](chart-of-accounts.md) | The 32 seeded accounts + what posts to each |
 | [Module index](module-index.md) | Every module with a one-liner + page link |
 | [Glossary](glossary.md) | The business terms used throughout the manual |
 

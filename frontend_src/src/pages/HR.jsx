@@ -27,7 +27,7 @@ import { AttendanceTab } from './hr/AttendanceTab';
 import {
   EMPLOYMENT_TYPES, EMPLOYEE_STATUS, LEAVE_TYPES,
   EMP_STATUS_BADGE, LEAVE_STATUS_BADGE, PAYROLL_BADGE, CHANGE_BADGE, CHANGE_TYPES,
-  EMPTY_EMPLOYEE, EMPTY_DEPT, EMPTY_LEAVE,
+  EMPTY_EMPLOYEE, EMPTY_DEPT, EMPTY_LEAVE, PAY_TYPES,
   changeLabel, empStatusLabel, leaveStatusLabel, payrollStatusLabel,
 } from './hr/constants';
 // ── KPI card — matches the canonical pattern used across the rest of the
@@ -103,6 +103,8 @@ export default function HR() {
       hire_date:     e.hire_date || '',
       end_date:      e.end_date || '',
       salary:        e.salary ?? 0,
+      pay_type:      e.pay_type || 'Salaried',
+      hourly_rate:   e.hourly_rate ?? 0,
     });
     setEmpEditId(e.id);
     setEmpModal(true);
@@ -118,6 +120,7 @@ export default function HR() {
         department_id: empForm.department_id ? Number(empForm.department_id) : null,
         manager_id:    empForm.manager_id ? Number(empForm.manager_id) : null,
         salary:        Number(empForm.salary) || 0,
+        hourly_rate:   Number(empForm.hourly_rate) || 0,
         hire_date:     empForm.hire_date || null,
         end_date:      empForm.end_date || null,
         branch_id:     empForm.branch_id || null,
@@ -542,6 +545,27 @@ export default function HR() {
                     onChange={e => setEmpForm(f => ({ ...f, end_date: e.target.value }))} />
                 </div>
                 <div className="form-group">
+                  <label className="form-label">{t('hr.fldPayType')}</label>
+                  <select className="form-control" value={empForm.pay_type}
+                    onChange={e => setEmpForm(f => ({ ...f, pay_type: e.target.value }))}>
+                    {PAY_TYPES.map(x => (
+                      <option key={x} value={x}>{t(`hr.payType${x}`)}</option>
+                    ))}
+                  </select>
+                </div>
+                {empForm.pay_type === 'Hourly' && (
+                  <div className="form-group">
+                    <label className="form-label">{t('hr.fldHourlyRate')}</label>
+                    <NumberInput min="0" step="any" className="form-control"
+                      value={empForm.hourly_rate}
+                      onChange={e => setEmpForm(f => ({ ...f, hourly_rate: e.target.value }))} />
+                    <div style={{ fontSize: 11, color: 'var(--text-3)', marginTop: 3 }}>
+                      {t('hr.hourlyRateHint')}
+                    </div>
+                  </div>
+                )}
+                <div className="form-group"
+                  style={empForm.pay_type === 'Hourly' ? { display: 'none' } : undefined}>
                   <label className="form-label">{t('hr.fldSalary')}</label>
                   <NumberInput min="0" step="0.01" className="form-control" value={empForm.salary}
                     onChange={e => setEmpForm(f => ({ ...f, salary: e.target.value }))} />

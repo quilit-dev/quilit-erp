@@ -201,24 +201,25 @@ def dashboard(branch_id: Optional[int] = None,
             "due_soon":    due_soon,
         }
 
-    # ── Service: what was done recently, and what has not been billed ────
-    # A service is a record of completed work, so there is no queue to count.
-    # The two questions left are how much work is going through, and whether any
-    # of it is uninvoiced — money already spent on parts and not yet asked for.
+    # ── Service: what is booked, what is overdue, what is unbilled ───────
+    # The three questions a service manager opens the system to answer. Unbilled
+    # matters most: completed work nobody has invoiced is money already spent
+    # and not yet asked for.
     service_summary = None
     if show_service:
-        # The first of this month, computed in Python and BOUND, not written as
-        # date('now','start of month'). dialect.py deliberately refuses to
-        # translate 'start of month' — it leaves the SQLite text intact, which
-        # Postgres rejects with "function date(unknown, unknown) does not
-        # exist". That passes every SQLite test and 500s only in production,
-        # which is exactly what it did here.
-        _month_start = _today()[:8] + "01"   # first of the current month
-        this_month = _scalar(db,
+        open_jobs = _scalar(db,
             "SELECT COUNT(*) FROM service_jobs"
-            " WHERE archived_at IS NULL AND status = 'Completed'"
-            "   AND date(COALESCE(completed_at, created_at)) >= ?" + bf_sj,
-            [_month_start] + list(bp_sj),
+            " WHERE archived_at IS NULL"
+            "   AND status IN ('Draft','Scheduled','In Progress')" + bf_sj,
+            bp_sj,
+        )
+        due_today = _scalar(db,
+            "SELECT COUNT(*) FROM service_jobs"
+            " WHERE archived_at IS NULL"
+            "   AND status IN ('Scheduled','In Progress')"
+            "   AND scheduled_date IS NOT NULL"
+            "   AND date(scheduled_date) <= date('now')" + bf_sj,
+            bp_sj,
         )
         unbilled = _scalar(db,
             "SELECT COUNT(*) FROM service_jobs j"
@@ -229,8 +230,9 @@ def dashboard(branch_id: Optional[int] = None,
             bp_sa,
         )
         service_summary = {
-            "this_month": this_month,
-            "unbilled":   unbilled,
+            "open_jobs": open_jobs,
+            "due_today": due_today,
+            "unbilled":  unbilled,
         }
 
     # ── HR: headcount + on-leave today + pending leave requests ──────────

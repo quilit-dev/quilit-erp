@@ -18,6 +18,7 @@ from datetime import datetime, timedelta
 import calendar
 import sqlite3
 
+import accounting
 from database import get_db
 from permissions import require_perm
 from routers.audit import log_action
@@ -27,6 +28,15 @@ router = APIRouter()
 
 _FREQUENCIES = {'weekly', 'monthly', 'quarterly', 'annual'}
 _STEP = {'weekly': None, 'monthly': 1, 'quarterly': 3, 'annual': 12}
+
+# How many MONTHS of cost one occurrence actually buys. A quarterly rent payment
+# covers three months of occupancy; charging all of it to the month it was paid
+# makes that month look bad and the next two look good, for no business reason,
+# and leaves the occupancy already paid for off the balance sheet entirely.
+#
+# Weekly is deliberately 1: a week is not worth amortising, and splitting it
+# across a month boundary would produce fractions nobody asked for.
+_COVERS = {'weekly': 1, 'monthly': 1, 'quarterly': 3, 'annual': 12}
 
 
 # ── Models ──────────────────────────────────────────────────────────────────
@@ -118,8 +128,99 @@ def _tpl_or_404(db, tpl_id: int) -> dict:
     return dict(row)
 
 
+def _spread(net: float, months: int) -> list:
+    """`net` split across `months`, the residue landing on the LAST share.
+
+    The parts must sum to the whole exactly. $1,000 over three is 333.33,
+    333.33, 333.34 — spreading the rounding instead would leave the prepaid
+    account holding a cent for ever on every single template.
+    """
+    if months <= 1:
+        return [money(net)]
+    each = money(net / months)
+    shares = [each] * months
+    shares[-1] = money(net - each * (months - 1))
+    return shares
+
+
+def _post_occurrence(db, tpl, user, rows, gross, t_amt, entry_date, branch_id):
+    """Put one occurrence into the general ledger.
+
+    Recurring expenses previously reached the `expenses` table and stopped
+    there — no journal entry at all — so they showed in the cash-basis Finance
+    views and were invisible to the P&L, the trial balance and the balance
+    sheet. Manually entered expenses posted correctly; only the generated ones
+    did not.
+
+    A single-month occurrence posts exactly what the manual expense endpoint
+    posts, so nothing about monthly templates changes shape:
+
+        DR <expense account>   net
+        DR 2100 VAT control    input VAT
+          CR 1000 Cash                gross
+
+    A multi-month occurrence is paid in advance, so the cash buys an ASSET
+    first and the cost is released as each month is used up:
+
+        DR 1300 Prepaid        net          (on the payment date)
+        DR 2100 VAT control    input VAT     - reclaimable when paid, not spread
+          CR 1000 Cash                gross
+        DR <expense account>   net/N        (once per covered month)
+          CR 1300 Prepaid             net/N
+
+    Prepaid runs down to nil over the period, cash leaves once, and each month
+    carries its own share.
+    """
+    code = accounting.expense_account_code(tpl['category'], db)
+    memo = tpl['description'] or tpl['name']
+
+    if len(rows) == 1:
+        expense_id, _date, amount, share = rows[0]
+        lines = [{"code": code, "debit": share}]
+        if t_amt > 0:
+            lines.append({"code": accounting.VAT_CONTROL, "debit": t_amt,
+                          "memo": "Input VAT"})
+        lines.append({"code": accounting.CASH, "credit": gross})
+        accounting.post_entry(
+            db, entry_date=entry_date, memo=memo, lines=lines,
+            source_type="expense", source_id=expense_id,
+            created_by=user["id"], branch_id=branch_id)
+        return
+
+    net = money(sum(r[3] for r in rows))
+    pay_lines = [{"code": accounting.PREPAID, "debit": net,
+                  "memo": f"Paid in advance — {len(rows)} months"}]
+    if t_amt > 0:
+        pay_lines.append({"code": accounting.VAT_CONTROL, "debit": t_amt,
+                          "memo": "Input VAT"})
+    pay_lines.append({"code": accounting.CASH, "credit": gross})
+    # Keyed on the first expense row, which is unique per occurrence and is the
+    # row a reader would follow back from the ledger.
+    accounting.post_entry(
+        db, entry_date=entry_date, memo=f"{memo} — paid in advance",
+        lines=pay_lines,
+        source_type="prepaid_payment", source_id=rows[0][0],
+        created_by=user["id"], branch_id=branch_id)
+
+    for expense_id, row_date, _amount, share in rows:
+        accounting.post_entry(
+            db, entry_date=row_date,
+            memo=f"{memo} — {row_date[:7]}",
+            lines=[{"code": code, "debit": share},
+                   {"code": accounting.PREPAID, "credit": share}],
+            source_type="expense", source_id=expense_id,
+            created_by=user["id"], branch_id=branch_id)
+
+
 def _generate(db, tpl: dict, user: dict, now: str, today: str):
-    """Post every due occurrence of a template. Returns (generated, locked_stop)."""
+    """Post every due occurrence of a template. Returns (generated, locked_stop).
+
+    An occurrence covering several months produces one expense row PER MONTH,
+    each dated in the month it belongs to. Every Finance view already buckets
+    expenses by their own date, so they report the monthly share without a
+    single change to their queries — and the expense list shows the real
+    monthly cost rather than one lump in the month the bill arrived.
+    """
     ctx        = get_tax_context(db)
     cursor     = tpl['next_run_date']
     end        = tpl['end_date']
@@ -127,7 +228,10 @@ def _generate(db, tpl: dict, user: dict, now: str, today: str):
     locked_stop = None
     guard = 0
 
+    branch_id = tpl['branch_id'] if 'branch_id' in tpl.keys() else None
     gross = money(tpl['amount'])
+    months = _COVERS.get(tpl['frequency'], 1)
+
     while cursor <= today and guard < 600:
         if end and cursor > end:
             break
@@ -139,21 +243,52 @@ def _generate(db, tpl: dict, user: dict, now: str, today: str):
         # value could change between runs, and the engine snapshots the
         # rate that was effective on the day this occurrence is posted.
         t_rid, t_rate, t_amt = resolve_expense_tax(ctx, tpl['tax_rate_id'], gross)
-        cur = db.execute(
-            "INSERT INTO expenses (project_id, category, description, amount, date, "
-            " created_at, status, tax_rate_id, tax_rate, tax_amount, payment_method, "
-            " recurring_expense_id) "
-            "VALUES (?,?,?,?,?,?,'Recorded',?,?,?,?,?)",
-            (tpl['project_id'], tpl['category'],
-             tpl['description'] or tpl['name'], gross, cursor, now,
-             t_rid, t_rate, t_amt, tpl['payment_method'], tpl['id']),
+        shares = _spread(money(gross - t_amt), months)
+
+        rows = []
+        base = datetime.strptime(cursor, '%Y-%m-%d')
+        for idx, share in enumerate(shares):
+            row_date = _add_months(base, idx).strftime('%Y-%m-%d')
+            # The whole input VAT sits on the FIRST row, because it is
+            # reclaimable when the bill is paid rather than as the cost is
+            # used up. Spreading it would understate the reclaim for months.
+            row_tax_id   = t_rid  if idx == 0 else None
+            row_tax_rate = t_rate if idx == 0 else 0
+            row_tax_amt  = t_amt  if idx == 0 else 0
+            amount = money(share + (t_amt if idx == 0 else 0))
+            cur = db.execute(
+                "INSERT INTO expenses (project_id, category, description, amount, date, "
+                " created_at, status, tax_rate_id, tax_rate, tax_amount, payment_method, "
+                " recurring_expense_id) "
+                "VALUES (?,?,?,?,?,?,'Recorded',?,?,?,?,?)",
+                (tpl['project_id'], tpl['category'],
+                 tpl['description'] or tpl['name'], amount, row_date, now,
+                 row_tax_id, row_tax_rate, row_tax_amt, tpl['payment_method'], tpl['id']),
+            )
+            rows.append((cur.lastrowid, row_date, amount, share))
+
+        # Tie the rows together under the FIRST one's id, which is also what
+        # the prepaid payment entry is keyed on. Voiding any row can then find
+        # its siblings and the payment that created them.
+        occurrence_id = rows[0][0]
+        db.execute(
+            "UPDATE expenses SET recurring_occurrence_id=? WHERE id IN (%s)"
+            % ",".join("?" * len(rows)),
+            [occurrence_id] + [r[0] for r in rows],
         )
+
         if tpl['project_id']:
+            # The same total as before: the shares plus the tax add back to the
+            # gross, so a project's actual_cost is unchanged by the spreading.
             db.execute(
                 "UPDATE projects SET actual_cost = actual_cost + ? WHERE id=?",
                 (gross, tpl['project_id']),
             )
-        generated.append({"date": cursor, "expense_id": cur.lastrowid})
+
+        _post_occurrence(db, tpl, user, rows, gross, t_amt, cursor, branch_id)
+
+        generated.append({"date": cursor, "expense_id": rows[0][0],
+                          "amount": float(gross), "rows": len(rows)})
         cursor = _freq_next(cursor, tpl['frequency'])
 
     # Persist the advanced cursor. A template whose schedule has run past its
@@ -284,7 +419,10 @@ def run_recurring(
 
     generated, locked_stop = _generate(db, tpl, user, _now(), _today())
     if generated:
-        total = round(len(generated) * float(tpl['amount']), 2)
+        # Sum what was actually posted. One occurrence can now be several
+        # expense rows, so multiplying the count by the template amount
+        # would overstate a quarterly template threefold.
+        total = round(sum(g['amount'] for g in generated), 2)
         log_action(db, user, "generate", "recurring_expense", tpl_id, tpl['name'],
                    {"count": len(generated), "amount": total})
         # Global, expenses-gated alert — finance users see new costs hit the

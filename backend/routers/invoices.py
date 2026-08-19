@@ -25,6 +25,7 @@ from utils import _now, _today, get_tax_context, resolve_line_tax, money, notify
 import accounting
 import branch_access
 import line_items
+import installments
 import sqlite3
 import uuid
 from datetime import datetime, timedelta
@@ -390,6 +391,10 @@ def get_invoice(
     d["payments"] = [dict(p) for p in payments]
     d["items"]    = line_items.attach_barcodes(db, [dict(i) for i in items])
     d["amounts_locked"] = _has_payments(db, invoice_id)
+    # The plan, with each instalment's settled state derived from the payments
+    # already counted above — never stored, so it cannot disagree with them.
+    d["installments"] = installments.plan_for(db, invoice_id, d.get("total_paid") or 0)
+    d["next_due"] = installments.next_due(d["installments"])
     return d
 
 # ── Create ────────────────────────────────────────────────────────────────
@@ -521,6 +526,15 @@ def build_invoice(
     else:
         # Auto-advance the linked project's status to Invoiced (forward-only).
         bump_project_status(db, project_id, "Invoiced")
+        # Book the claim on the customer. Deferred until approval for a gated
+        # invoice: one parked in 'Pending Approval' takes no payments and may
+        # yet be rejected (which voids it), so it is not yet a receivable.
+        # approval_engine posts it on approval instead.
+        accounting.post_receivable(
+            db, invoice_id,
+            invoice_number=inv_no, amount=computed_amount,
+            entry_date=_now()[:10], created_by=user["id"], branch_id=branch_id,
+        )
 
     return {
         "invoice_id": invoice_id, "invoice_number": inv_no,
@@ -616,6 +630,22 @@ def update_invoice(
         if rows_updated == 0:
             raise HTTPException(409, "This invoice was modified by another user. Please refresh and try again.")
 
+        # Restate the receivable to the new total. Only reachable when the
+        # invoice has NO payments (amounts are locked once money arrives), so
+        # the old claim can be reversed outright rather than adjusted. Without
+        # this, editing a $2,000 invoice down to $500 would leave a $2,000
+        # asset on the balance sheet for ever.
+        if money(computed_amount or 0) != money(inv["amount"] or 0):
+            accounting.reverse_source(
+                db, "invoice", invoice_id,
+                memo=f"Restated — invoice {inv['invoice_number']} amended",
+                created_by=user["id"])
+            accounting.post_receivable(
+                db, invoice_id,
+                invoice_number=inv["invoice_number"], amount=computed_amount,
+                entry_date=_now()[:10], created_by=user["id"],
+                branch_id=inv["branch_id"])
+
         db.execute("DELETE FROM invoice_items WHERE invoice_id=?", (invoice_id,))
         for idx, item in enumerate(items):
             rid, rate, tax_amt = line_tax[idx]
@@ -680,6 +710,12 @@ def void_invoice(
         accounting.reverse_source(db, "invoice_payment", pay["id"],
                                   memo=f"Reversal — voided invoice {inv['invoice_number']}",
                                   created_by=user["id"])
+    # And the receivable itself. Reversing only the payments would leave the
+    # full claim and its deferred revenue standing on a voided invoice, so the
+    # balance sheet would keep asserting an asset the business no longer has.
+    accounting.reverse_source(db, "invoice", invoice_id,
+                              memo=f"Reversal — voided invoice {inv['invoice_number']}",
+                              created_by=user["id"])
     log_action(db, user, "void", "invoice", invoice_id,
                inv["invoice_number"], {"reason": data.reason or "Voided"})
     db.commit()
@@ -726,6 +762,14 @@ def unvoid_invoice(
     # and a fresh posting goes through — the GL history keeps all three
     # movements (original, reversal, re-recognition) for the audit trail.
     today = _now()[:10]
+    # The receivable first: payment_lines below asks whether a live one exists,
+    # so re-posting the payments before it would give them the legacy shape and
+    # leave the restored claim standing unrelieved for ever.
+    accounting.post_receivable(
+        db, invoice_id,
+        invoice_number=inv["invoice_number"], amount=float(inv["amount"] or 0),
+        entry_date=today, created_by=user["id"], branch_id=inv["branch_id"],
+    )
     for pay in db.execute(
         "SELECT * FROM invoice_payments WHERE invoice_id=?", (invoice_id,)
     ).fetchall():
@@ -733,15 +777,15 @@ def unvoid_invoice(
             db,
             entry_date=today,
             memo=f"Unvoid — payment re-recognised — {inv['invoice_number']}",
-            lines=[
-                {"code": accounting.cash_account_for(pay["paid_currency"]),
-                 "debit": float(pay["amount"]),
-                 "memo": f"{pay['method']} ({pay['paid_currency'] or 'USD'})"},
-                # Split the same way the original payment was, or a void
-                # followed by an unvoid would quietly move service revenue
-                # into the goods account.
-                *accounting.revenue_split(db, invoice_id, float(pay["amount"])),
-            ],
+            # Split the same way the original payment was, or a void followed
+            # by an unvoid would quietly move service revenue into the goods
+            # account.
+            lines=accounting.payment_lines(
+                db, invoice_id,
+                cash_code=accounting.cash_account_for(pay["paid_currency"]),
+                amount=float(pay["amount"]),
+                method_memo=f"{pay['method']} ({pay['paid_currency'] or 'USD'})",
+            ),
             source_type="invoice_payment", source_id=pay["id"], created_by=user["id"],
             branch_id=inv["branch_id"],
         )
@@ -855,15 +899,17 @@ def add_payment(
         db,
         entry_date=_now()[:10],
         memo=f"Payment received — {inv['invoice_number']}",
-        lines=[
-            {"code": accounting.cash_account_for(currency),
-             "debit":  usd_amount, "memo": f"{data.method} ({currency})"},
-            # Credited across revenue accounts in proportion to the
-            # invoice's line mix, so a service job's labour lands in 4100 and
-            # its parts in 4000. An invoice from anywhere else has no
-            # revenue_account on its lines and yields a single 4000 credit.
-            *accounting.revenue_split(db, invoice_id, usd_amount),
-        ],
+        # On an invoice carrying a receivable this both converts the claim to
+        # cash and earns the deferred revenue; on a legacy or POS invoice it
+        # stays the original DR Cash / CR Revenue pair. Revenue is still
+        # credited across accounts in proportion to the invoice's line mix, so
+        # a service job's labour lands in 4100 and its parts in 4000.
+        lines=accounting.payment_lines(
+            db, invoice_id,
+            cash_code=accounting.cash_account_for(currency),
+            amount=usd_amount,
+            method_memo=f"{data.method} ({currency})",
+        ),
         source_type="invoice_payment", source_id=payment_id, created_by=user["id"],
         branch_id=inv["branch_id"],
     )
@@ -966,6 +1012,114 @@ def delete_payment(
     return {"message": "Payment deleted"}
 
 # ── Receipt voucher (سند قبض) ─────────────────────────────────────────────
+class PlanBody(BaseModel):
+    count:        int
+    start_date:   str
+    frequency:    str = "monthly"       # monthly | quarterly | yearly
+    first_amount: Optional[float] = None
+    note:         Optional[str] = None
+
+
+@router.post("/{invoice_id}/plan")
+def create_plan(
+    invoice_id: int,
+    data: PlanBody,
+    user=Depends(require_perm("invoices", "edit")),
+    db: sqlite3.Connection = Depends(get_db),
+):
+    """Agree a payment schedule against this invoice.
+
+    The schedule must sum to the invoice total, which `build_schedule`
+    guarantees by putting the rounding residue on the final instalment. A plan
+    that does not add up leaves a last instalment nobody can settle.
+
+    Replacing an existing plan is allowed — renegotiation is normal — but not
+    once money has arrived against it: the instalments already settled would be
+    reinterpreted, and a customer who paid three of twelve would silently become
+    a customer who paid one of four. Cancel or re-raise the invoice instead.
+    """
+    inv = db.execute("SELECT * FROM invoices WHERE id=? AND archived_at IS NULL",
+                     (invoice_id,)).fetchone()
+    if not inv:
+        raise HTTPException(404, "Invoice not found")
+    branch_access.assert_can_view_branch(user, db, inv["branch_id"])
+    if inv["voided_at"]:
+        raise HTTPException(400, "A voided invoice cannot carry a payment plan.")
+
+    paid = _payment_total(db, invoice_id)
+    if paid > 0.005 and db.execute(
+            "SELECT 1 FROM invoice_installments WHERE invoice_id=?",
+            (invoice_id,)).fetchone():
+        raise HTTPException(
+            409, "Payments have already been made against this plan. "
+                 "Changing it now would re-interpret what has been settled.")
+
+    try:
+        rows = installments.build_schedule(
+            inv["amount"], data.count, data.start_date,
+            frequency=data.frequency, first_amount=data.first_amount)
+    except ValueError as e:
+        raise HTTPException(400, str(e))
+
+    now = _now()
+    db.execute("DELETE FROM invoice_installments WHERE invoice_id=?", (invoice_id,))
+    for seq, due, amount in rows:
+        db.execute(
+            "INSERT INTO invoice_installments "
+            "(invoice_id, seq, due_date, amount, note, created_at) "
+            "VALUES (?,?,?,?,?,?)",
+            (invoice_id, seq, due, amount, data.note, now))
+
+    # The invoice's own due date becomes the FINAL instalment, so anything still
+    # reading a single date (an export, an older report) says the plan ends
+    # then rather than claiming the whole balance was due on day one.
+    db.execute("UPDATE invoices SET due_date=? WHERE id=?", (rows[-1][1], invoice_id))
+
+    log_action(db, user, "plan", "invoice", invoice_id, inv["invoice_number"],
+               {"count": len(rows), "first_due": rows[0][1], "last_due": rows[-1][1]})
+    db.commit()
+    return {"message": "Payment plan created",
+            "installments": installments.plan_for(db, invoice_id, paid)}
+
+
+@router.get("/{invoice_id}/plan")
+def get_plan(
+    invoice_id: int,
+    user=Depends(require_perm("invoices", "view")),
+    db: sqlite3.Connection = Depends(get_db),
+):
+    inv = db.execute("SELECT branch_id FROM invoices WHERE id=?", (invoice_id,)).fetchone()
+    if not inv:
+        raise HTTPException(404, "Invoice not found")
+    branch_access.assert_can_view_branch(user, db, inv["branch_id"])
+    plan = installments.plan_for(db, invoice_id, _payment_total(db, invoice_id))
+    return {"installments": plan, "next_due": installments.next_due(plan)}
+
+
+@router.delete("/{invoice_id}/plan")
+def delete_plan(
+    invoice_id: int,
+    user=Depends(require_perm("invoices", "edit")),
+    db: sqlite3.Connection = Depends(get_db),
+):
+    """Drop the schedule. The invoice and its payments are untouched — only the
+    agreement about WHEN goes away, so the balance reverts to being due on the
+    invoice's own date."""
+    inv = db.execute("SELECT invoice_number, branch_id FROM invoices WHERE id=?",
+                     (invoice_id,)).fetchone()
+    if not inv:
+        raise HTTPException(404, "Invoice not found")
+    branch_access.assert_can_view_branch(user, db, inv["branch_id"])
+    if _payment_total(db, invoice_id) > 0.005:
+        raise HTTPException(
+            409, "Payments have been made against this plan; removing it would "
+                 "leave them unexplained.")
+    db.execute("DELETE FROM invoice_installments WHERE invoice_id=?", (invoice_id,))
+    log_action(db, user, "plan_removed", "invoice", invoice_id, inv["invoice_number"])
+    db.commit()
+    return {"message": "Payment plan removed"}
+
+
 @router.post("/{invoice_id}/receipt-voucher")
 def issue_receipt_voucher(
     invoice_id: int,

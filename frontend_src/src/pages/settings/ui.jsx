@@ -41,6 +41,18 @@ export const Input = ({ value, onChange, type = 'text', placeholder, disabled })
   />
 );
 
+export const Textarea = ({ value, onChange, placeholder, disabled, rows = 5 }) => (
+  <textarea
+    rows={rows}
+    value={value}
+    onChange={e => !disabled && onChange(e.target.value)}
+    placeholder={placeholder}
+    className="form-control"
+    disabled={disabled}
+    style={{ resize: 'vertical', ...(disabled ? { opacity: 0.6, cursor: 'not-allowed' } : {}) }}
+  />
+);
+
 export const Toggle = ({ label, checked, onChange, disabled }) => (
   <label style={{ display: 'flex', alignItems: 'center', gap: 10, cursor: disabled ? 'not-allowed' : 'pointer', userSelect: 'none', opacity: disabled ? 0.6 : 1 }}>
     <div

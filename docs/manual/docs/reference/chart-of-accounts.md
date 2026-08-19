@@ -1,14 +1,14 @@
 # Chart of Accounts
 
-The 30 seeded accounts plus what posts to each. Generated from the live
+The 32 seeded accounts plus what posts to each. Generated from the live
 database — these are the codes the GL engine actually uses.
 
 ## At a glance
 
 | Range | Section | Account count |
 |---|---|---|
-| 1000-1599 | Assets | 6 |
-| 2000-2299 | Liabilities | 3 |
+| 1000-1599 | Assets | 7 |
+| 2000-2499 | Liabilities | 4 |
 | 3000-3999 | Equity | 2 |
 | 4000-4999 | Income | 3 |
 | 5000-5999 | Cost of Goods Sold | 1 |
@@ -24,6 +24,7 @@ database — these are the codes the GL engine actually uses.
 | `1010` | Cash — LBP | Current Asset | LBP cash holdings |
 | `1100` | Accounts Receivable | Current Asset | Informational — system runs cash-basis |
 | `1200` | Inventory | Current Asset | Perpetual inventory — purchases DR here, sales DR COGS CR here |
+| `1300` | Prepaid Expenses | Current Asset | Holds a recurring cost that covers several months; released one month at a time |
 | `1500` | Fixed Assets | Non-Current Asset | Capital register at acquisition cost |
 | `1510` | Accumulated Depreciation | Contra Asset (credit-normal) | Auto-posted monthly from the monthly depreciation run |
 
@@ -34,6 +35,7 @@ database — these are the codes the GL engine actually uses.
 | `2000` | Accounts Payable | Current Liability | Informational |
 | `2100` | VAT Payable | Current Liability | Tax engine credits on output VAT; debits on input VAT |
 | `2200` | Payroll Liabilities | Current Liability | NSSF / PAYE accruals (informational) |
+| `2400` | Deferred Revenue | Current Liability | Credited when an invoice is raised; released to revenue as payments arrive |
 
 ### Equity (credit-normal)
 

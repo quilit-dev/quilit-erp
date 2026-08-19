@@ -19,6 +19,7 @@ from typing import Optional
 
 import communications as comms
 import line_items
+import installments
 from database import get_db
 from permissions import require_perm
 from utils import _now
@@ -98,7 +99,8 @@ def _company(db) -> dict:
               "company_country", "company_phone", "company_email", "company_website",
               "company_tax_number", "company_reg_number",
               "bank_name", "bank_account", "bank_iban", "bank_swift",
-              "default_currency", "currency", "footer_text", "payment_terms_days",
+              "default_currency", "currency", "footer_text", "invoice_terms",
+              "payment_terms_days",
               "tax_enabled", "default_tax_rate", "show_tax_col", "show_discount_col",
               "show_barcode_col", "show_total_words")
     # `preprinted_stationery` is deliberately NOT in that list, and adding it
@@ -474,6 +476,7 @@ def public_document(token: str, db: sqlite3.Connection = Depends(get_db)):
         pass
 
     payments = []
+    plan = []
     if share["entity_type"] == "invoice":
         try:
             rows = db.execute(
@@ -482,6 +485,16 @@ def public_document(token: str, db: sqlite3.Connection = Depends(get_db)):
             payments = [dict(r) for r in rows]
         except sqlite3.Error:
             payments = []
+        # The agreed schedule, if there is one. This is the customer's OWN
+        # arrangement and the single thing they most need from a link: what is
+        # due next and whether they are behind. Settlement is derived from the
+        # payments just read, so the plan cannot contradict the balance printed
+        # beside it.
+        try:
+            paid = sum(float(p.get("amount") or 0) for p in payments)
+            plan = installments.plan_for(db, share["entity_id"], paid)
+        except sqlite3.Error:
+            plan = []
 
     # An explicit allow-list, not `dict(doc)`. A SELECT * that later gains an
     # internal column (a margin, a cost, a private note) must not start leaking
@@ -517,6 +530,12 @@ def public_document(token: str, db: sqlite3.Connection = Depends(get_db)):
         "client": {"name": doc.get("client_name")},
         "company": company,
         "payments": payments,
+        # Dates and amounts only. The instalment row id is internal and buys the
+        # reader nothing, so it is dropped the same way inventory_id is below.
+        "installments": [{"seq": r["seq"], "due_date": r["due_date"],
+                          "amount": r["amount"], "paid": r["paid"],
+                          "remaining": r["remaining"], "status": r["status"]}
+                         for r in plan],
         # `barcode` is here and `inventory_id` is not, deliberately. The barcode
         # is printed on the customer's own copy when the company prints it; the
         # row id behind it is internal and tells an outsider nothing they need.

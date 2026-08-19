@@ -47,7 +47,15 @@ def _split_invoice(client, acme, parts=400.0, labour=600.0):
 
 
 def _credits(inv_id):
-    """Revenue credited per account, from the ledger, for one invoice."""
+    """Revenue credited per account, from the ledger, for one invoice.
+
+    Restricted to INCOME accounts, which is what this helper has always claimed
+    to return. A payment entry also credits 1100 Accounts Receivable now (the
+    payment converts the claim into cash as well as earning the revenue), and
+    without the filter that receivable credit shows up here as if it were
+    revenue. The split itself is unchanged — every expected figure below is
+    exactly what it was.
+    """
     import database
     with database.session() as db:
         rows = db.execute(
@@ -57,7 +65,7 @@ def _credits(inv_id):
             "JOIN chart_of_accounts a ON a.id = l.account_id "
             "WHERE e.source_type='invoice_payment' AND e.source_id IN "
             "  (SELECT id FROM invoice_payments WHERE invoice_id=?) "
-            "  AND l.credit > 0 GROUP BY 1", (inv_id,)).fetchall()
+            "  AND l.credit > 0 AND a.type = 'Income' GROUP BY 1", (inv_id,)).fetchall()
     return {r["code"]: round(float(r["c"] or 0), 2) for r in rows}
 
 

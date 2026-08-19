@@ -660,12 +660,24 @@ def apply_resolution(db: sqlite3.Connection, module: str, action: str,
     # (the router blocks them), so there is no ledger to reverse here.
     if module == "invoice":
         row = db.execute(
-            "SELECT project_id FROM invoices WHERE id=?", (entity_id,)
+            "SELECT project_id, invoice_number, amount, branch_id "
+            "FROM invoices WHERE id=?", (entity_id,)
         ).fetchone()
         if resolution == "approved":
             if row and row["project_id"]:
                 from routers.projects import bump_project_status   # lazy: avoid import cycle
                 bump_project_status(db, row["project_id"], "Invoiced")
+            # The receivable is booked HERE for a gated invoice, not at
+            # creation: one parked in 'Pending Approval' takes no payments and
+            # may still be rejected, so it is not yet a claim on anyone. See
+            # accounting.post_receivable.
+            if row:
+                import accounting
+                accounting.post_receivable(
+                    db, entity_id,
+                    invoice_number=row["invoice_number"],
+                    amount=float(row["amount"] or 0),
+                    entry_date=_now()[:10], branch_id=row["branch_id"])
         elif resolution == "rejected":
             db.execute(
                 "UPDATE invoices SET voided_at=?, void_reason=?, version=version+1 "

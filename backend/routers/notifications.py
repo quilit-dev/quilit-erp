@@ -120,6 +120,62 @@ def _gating_sql(gated: list) -> str:
     return f" AND NOT (user_id IS NULL AND type IN ({placeholders}))"
 
 
+def _plan_arrears(db, today: str) -> None:
+    """Notify once per OVERDUE INSTALMENT, not once per invoice.
+
+    Which instalments are outstanding is derived from cumulative payments (see
+    installments.allocate), so this reads the schedule and the invoice's total
+    paid and needs no allocation state of its own.
+
+    Deduped on the instalment's own entity id, so a client three months in
+    arrears produces three reminders that each name their month, rather than one
+    that names a lump sum.
+    """
+    import installments
+
+    try:
+        rows = db.execute(
+            """SELECT i.id AS invoice_id, i.invoice_number, c.name AS client_name,
+                      COALESCE((SELECT SUM(ip.amount) FROM invoice_payments ip
+                                WHERE ip.invoice_id = i.id), 0) AS paid
+               FROM invoices i
+               LEFT JOIN clients c ON c.id = i.client_id
+               WHERE i.voided_at IS NULL AND i.archived_at IS NULL
+                 AND EXISTS (SELECT 1 FROM invoice_installments ins
+                             WHERE ins.invoice_id = i.id
+                               AND ins.due_date < ?)""",
+            (today,),
+        ).fetchall()
+    except Exception:
+        # No such table on an install that has not migrated yet. Arrears
+        # reminders are not worth failing the notifications list over.
+        return
+
+    for inv in rows:
+        plan = installments.plan_for(db, inv["invoice_id"], inv["paid"], today=today)
+        for row in plan:
+            if row["status"] != installments.OVERDUE:
+                continue
+            days = 0
+            try:
+                from datetime import date
+                days = (date.fromisoformat(today[:10])
+                        - date.fromisoformat(str(row["due_date"])[:10])).days
+            except Exception:
+                pass
+            notify(
+                db,
+                type="installment_overdue",
+                title=f"Instalment {row['seq']} of {inv['invoice_number']} is overdue",
+                body=f"{inv['client_name'] or 'Unknown client'} — "
+                     f"${row['remaining']:,.2f} due {row['due_date']}, {days}d overdue",
+                link=f"/invoices/{inv['invoice_id']}",
+                entity_type="invoice_installment",
+                entity_id=row["id"],
+                dedup_hours=24,
+            )
+
+
 def _generate_system_notifications(db: sqlite3.Connection) -> None:
     """
     Lazily generate system-level notifications for conditions that don't have
@@ -128,14 +184,26 @@ def _generate_system_notifications(db: sqlite3.Connection) -> None:
     """
     today = _today()
 
+    # ── Overdue instalments ───────────────────────────────────────────────────
+    # An invoice on a payment plan is chased per INSTALMENT. Its own due_date is
+    # the last one, so an invoice-level sweep says nothing until the plan ends
+    # and then flags the entire balance at once — it cannot tell you which month
+    # was missed, which is the only thing worth knowing while a plan is running.
+    _plan_arrears(db, today)
+
     # ── Overdue invoices ──────────────────────────────────────────────────────
+    # Invoices WITHOUT a plan keep the original behaviour. Those with one are
+    # excluded here so a client mid-plan is not chased twice for the same money,
+    # once per instalment and once for the whole balance.
     overdue = db.execute(
         """SELECT i.id, i.invoice_number, i.amount, i.due_date, c.name AS client_name,
                   COALESCE((SELECT SUM(ip.amount) FROM invoice_payments ip WHERE ip.invoice_id = i.id), 0) AS paid
            FROM invoices i
            LEFT JOIN clients c ON c.id = i.client_id
            WHERE i.voided_at IS NULL AND i.archived_at IS NULL
-             AND i.due_date IS NOT NULL AND i.due_date < ?""",
+             AND i.due_date IS NOT NULL AND i.due_date < ?
+             AND NOT EXISTS (SELECT 1 FROM invoice_installments ins
+                             WHERE ins.invoice_id = i.id)""",
         (today,),
     ).fetchall()
 

@@ -316,6 +316,7 @@ export function buildCompany(s) {
     bankSwift:       s.bank_swift          || '',
     currency:        s.default_currency    || 'USD',
     footer:          s.footer_text         || '',
+    terms:           s.invoice_terms       || '',
     paymentDays:     parseInt(s.payment_terms_days || '15', 10),
     // ── Tax settings ──────────────────────────────────────────────────────
     taxRate:         parseFloat(s.default_tax_rate   || '0'),
@@ -678,6 +679,32 @@ export function buildInvoiceHTML(invoice, settings, logoDataURL = null, opts = {
     </tr>`
   ).join('');
 
+  // The agreed schedule, when there is one. The customer's own arrangement is
+  // the thing they most need from an invoice on a plan: what is due next, and
+  // whether they are behind. It goes in the SHARED template so it reaches the
+  // printed PDF and the share link alike -- a schedule the customer cannot see
+  // when they print the document is half a feature.
+  //
+  // The server derives each row's status from the payments listed below it, so
+  // the two blocks on this page cannot contradict each other.
+  const plan = invoice.installments || [];
+  const overdueRows = plan.filter(r => r.status === 'Overdue');
+  const planRows = plan.map(r =>
+    `<tr>
+      <td class="seq">${r.seq}</td>
+      <td${r.status === 'Overdue' ? ' style="color:#dc2626;font-weight:600"' : ''}>${fmtDate(r.due_date)}</td>
+      <td class="r">${USD(r.amount)}</td>
+      <td class="r" style="color:var(--green)">${USD(r.paid)}</td>
+      <td class="r"${Number(r.remaining) > 0.005 ? '' : ' style="color:var(--green)"'}>${USD(r.remaining)}</td>
+    </tr>`
+  ).join('');
+  const nextUnpaid = plan.find(r => Number(r.remaining) > 0.005);
+  const planNote = overdueRows.length
+    ? `<div class="band amber"><span class="band-label">&#9888; Overdue:</span> ${overdueRows.length} instalment${overdueRows.length > 1 ? 's' : ''} totalling ${USD(overdueRows.reduce((s, r) => s + Number(r.remaining || 0), 0))} ${overdueRows.length > 1 ? 'are' : 'is'} past due.</div>`
+    : nextUnpaid
+      ? `<div class="band"><span class="band-label">Next instalment:</span> ${USD(nextUnpaid.remaining)} by ${fmtDate(nextUnpaid.due_date)}.</div>`
+      : '';
+
   const extraTotalsRows = `
     <div class="totals-row"><span class="k">Paid</span><span class="v green">${USD(paid)}</span></div>
     <div class="totals-row"><span class="k">Balance</span><span class="v ${balance === 0 ? 'green' : 'red'}">${USD(balance)}</span></div>`;
@@ -692,12 +719,30 @@ export function buildInvoiceHTML(invoice, settings, logoDataURL = null, opts = {
 
   ${isPaid
     ? `<div class="band green"><span class="band-label">✓ Paid in Full:</span> Settled. Thank you for your prompt payment.</div>`
-    : isOverdue
-      ? `<div class="band amber"><span class="band-label">⚠ Overdue:</span> ${USD(balance)} was due on ${fmtDate(dueDate)}. Please remit immediately to avoid service interruption.</div>`
-      : `<div class="band"><span class="band-label">Due:</span> ${USD(balance)} by ${fmtDate(dueDate)} (Net ${C.paymentDays} days).</div>`
+    : plan.length
+      // Under a plan the balance is not owed on one date, and the invoice's own
+      // due_date is the LAST instalment. Saying "$12,000 due by December" beside
+      // a schedule of twelve monthly payments contradicts it, so the plan's own
+      // note below carries the message instead.
+      ? ''
+      : isOverdue
+        ? `<div class="band amber"><span class="band-label">⚠ Overdue:</span> ${USD(balance)} was due on ${fmtDate(dueDate)}. Please remit immediately to avoid service interruption.</div>`
+        : `<div class="band"><span class="band-label">Due:</span> ${USD(balance)} by ${fmtDate(dueDate)} (Net ${C.paymentDays} days).</div>`
   }
   ${invoice.notes ? `<div class="band"><span class="band-label">Notes:</span> ${invoice.notes}</div>` : ''}
   ${paymentInstructions(C)}
+
+  ${plan.length ? `
+  <div class="section-heading">Payment Plan</div>
+  <table>
+    <thead><tr>
+      <th style="width:5%">#</th><th style="width:25%">Due</th>
+      <th style="width:23%" class="r">Amount</th><th style="width:23%" class="r">Paid</th>
+      <th style="width:24%" class="r">Balance</th>
+    </tr></thead>
+    <tbody>${planRows}</tbody>
+  </table>
+  ${planNote}` : ''}
 
   ${payments.length ? `
   <div class="section-heading">Payment History</div>
@@ -710,6 +755,9 @@ export function buildInvoiceHTML(invoice, settings, logoDataURL = null, opts = {
     <tbody>${paymentRows}</tbody>
   </table>` : ''}
 
+  ${C.terms ? `
+  <div class="section-heading">Terms &amp; Conditions</div>
+  <div class="band" style="white-space:pre-wrap;display:block">${escape(C.terms)}</div>` : ''}
   ${C.footer ? `<div class="band"><span class="band-label">Note:</span> ${C.footer}</div>` : ''}`;
 
   const shell = docShell(theme, {

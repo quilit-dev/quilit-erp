@@ -93,7 +93,8 @@ it changed.
 
     The system adds one line per active employee, with.
 
-    - base salary from employee record
+    - base salary from employee record — or, for staff **paid by the hour**,
+      from the attendance recorded in the period (see below)
     - salary currency from the active contract
     - tax amount computed from settings tax brackets
     - nssf employee and nssf employer per settings
@@ -102,6 +103,47 @@ it changed.
 
     HR Manager edits per-line bonuses / deductions / overtime. The
     `total_*` fields on the run auto-recompute.
+
+    ### Paying someone by the hour
+
+    On the employee, set **Pay type** to *By the hour* and enter their
+    **hourly rate**. Leave the monthly salary at 0 — it is ignored for
+    hourly staff.
+
+    Record their hours as you go in HR → **Attendance**: one row per person
+    per day, with the hours in the Hours column. When you open a payroll run,
+    the system totals those hours across the period and works out the pay:
+
+    ```
+    base = hours recorded in the period  x  hourly rate
+    ```
+
+    So 21.5 hours at $12 is $258. Tax, NSSF and net are calculated from that
+    figure exactly as they are for a salary.
+
+    | | |
+    |---|---|
+    | Hours counted | Every attendance row in the period, whatever its status |
+    | A day marked Absent | Carries no hours, so it adds nothing |
+    | A Half-day | Counts the hours you entered — four, typically |
+
+    The **hours and the rate are stored on the payroll line**, not looked up
+    when the payslip is opened. A payslip keeps saying what it said the day it
+    was paid, even after you change the employee's rate or correct an
+    attendance day months later.
+
+    !!! note "Adjust the hours, not the total"
+        On an hourly line you edit the **hours**, and the total follows. The
+        total itself cannot be typed over — otherwise the payslip would show
+        hours and a rate that no longer multiply out to the amount paid, and
+        nothing on screen would say which of the three was the real one.
+
+        For a one-off correction that is not about hours — a make-up payment,
+        a deduction — use the **bonus** or **deduction** column, which is what
+        they are for.
+
+    Overtime works too, and uses the employee's real rate rather than the
+    monthly approximation applied to salaried staff.
 
     Then.
 
@@ -200,8 +242,10 @@ stateDiagram-v2
 
 ## What's NOT supported
 
-- Hourly time clock. The system records overtime hours per payroll line
-  but doesn't track clock-in/clock-out.
+- Clock-in / clock-out. Hourly staff are paid from the hours entered in
+  Attendance (a number per day), not from punch times — so the hours are
+  whatever someone recorded, and the system cannot tell you when they
+  arrived or left.
 - Per-employee bank account details. Bank transfer happens outside the
   system.
 - Multi-period payroll (e.g. weekly + monthly). One frequency per install.

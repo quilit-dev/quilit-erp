@@ -32,7 +32,7 @@ Five views.
 
 ## Quick reference
 
-- **30 seeded accounts** in the chart, code 1000-6920
+- **32 seeded accounts** in the chart, code 1000-6920
 - **Five account types**: `Asset`, `Liability`, `Equity`, `Income`, `Expense`
 - **Two normal balance sides**: `debit`, `credit`
 - **Auto-posted from**: invoice payments, POS sales, purchases (receipt),
@@ -135,19 +135,21 @@ Five views.
     Notice: **no role has `edit` or `delete`**. Manual JEs can't be edited
     or deleted by anyone — corrections are via reversal only.
 
-    ### The 30 seeded accounts
+    ### The 32 seeded accounts
 
     | Code | Name | Type | Normal | Used by |
     |---|---|---|---|---|
     | 1000 | Cash & Bank | Asset | DR | USD cash + bank balances |
     | 1010 | Cash — LBP | Asset | DR | LBP cash |
-    | 1100 | Accounts Receivable | Asset | DR | (informational only; system is cash-basis) |
+    | 1100 | Accounts Receivable | Asset | DR | Debited when an invoice is raised; relieved as payments arrive |
     | 1200 | Inventory | Asset | DR | Perpetual inventory |
+    | 1300 | Prepaid Expenses | Asset | DR | Multi-month recurring costs, released monthly |
     | 1500 | Fixed Assets | Asset | DR | Capital register |
     | 1510 | Accumulated Depreciation | Asset (contra) | CR | Auto-posted monthly |
     | 2000 | Accounts Payable | Liability | CR | (informational) |
     | 2100 | VAT Payable | Liability | CR | Tax engine outputs |
     | 2200 | Payroll Liabilities | Liability | CR | NSSF/PAYE accruals |
+    | 2400 | Deferred Revenue | Liability | CR | Invoiced but not yet collected |
     | 3000 | Owner's Equity | Equity | CR | Capital contributions |
     | 3900 | Retained Earnings | Equity | CR | Year-end closing target |
     | 4000 | Sales Revenue | Income | CR | All sales — POS, invoices |

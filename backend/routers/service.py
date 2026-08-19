@@ -6,25 +6,14 @@ entities:
 
   * **equipment** — a customer-owned machine. A real record rather than a text
     field on the job, so it accumulates a service history you can read back.
-  * **jobs** — one piece of work that HAS BEEN DONE, carrying lines that are
-    either a stocked PART (consumes inventory, has a cost) or a flat CHARGE
-    (labour, callout, fee).
-
-A job is a record of completed work, not a plan. Recording one consumes its
-parts, posts their cost and raises the invoice in a single step, because by the
-time anyone types it in the technician has already fitted the parts and gone
-home. There is no draft, no scheduling and no start/finish ladder: those states
-existed to describe work in flight, and this module does not track work in
-flight.
-
-The correction for a mistake is CANCEL, which puts the parts back, reverses the
-cost and voids the invoice. Editing is deliberately absent — the lines are the
-record of what was consumed and billed, and rewriting them after the fact would
-mean reconciling stock and the ledger against a moving target.
+  * **jobs** — a visit or piece of work against that machine, carrying lines
+    that are either a stocked PART (consumes inventory, has a cost) or a flat
+    CHARGE (labour, callout, fee).
 
 Deliberately absent: hours and timesheets (labour is flat-fee), maintenance
-contracts, scheduling, and a printed work order. Each was considered and left
-out to keep the module something a small business can actually use.
+contracts, and any scheduling board beyond a date and an assignee. Each was
+considered and left out to keep the module something a small business can
+actually use.
 
 **Revenue is recognised on payment, not on completion** — the same cash basis
 as the rest of the product. A completed but unpaid job therefore shows its parts
@@ -58,13 +47,16 @@ router = APIRouter()
 # describe the shape of the work, not a taxonomy a customer needs to extend. The
 # `categories` registry already exists if one ever does.
 JOB_TYPES = ("Installation", "Maintenance", "Repair", "Inspection")
+PRIORITIES = ("Low", "Normal", "High")
 
-# Two states, because a job either happened or was entered by mistake. The
-# values are unchanged from the longer ladder this replaced, so no stored row
-# needs rewriting.
+ST_DRAFT     = "Draft"
+ST_SCHEDULED = "Scheduled"
+ST_PROGRESS  = "In Progress"
 ST_COMPLETED = "Completed"
 ST_CANCELLED = "Cancelled"
 
+# States in which the job sheet may still be edited.
+_OPEN_STATES = (ST_DRAFT, ST_SCHEDULED, ST_PROGRESS)
 # There is no 'Invoiced' status: whether a job has been billed is derived from
 # invoices.service_job_id, so it cannot drift when an invoice is voided.
 
@@ -102,15 +94,19 @@ class JobBody(BaseModel):
     client_id:      int
     equipment_id:   Optional[int] = None
     job_type:       str = "Repair"
-    # When the work was done. Defaults to today, but is settable because a
-    # technician often writes up yesterday's visit this morning.
-    service_date:   Optional[str] = None
+    priority:       str = "Normal"
+    scheduled_date: Optional[str] = None
     assigned_to:    Optional[int] = None
     reported_fault: Optional[str] = None
     work_done:      Optional[str] = None
     warehouse_id:   Optional[int] = None
     branch_id:      Optional[int] = None
     items:          List[JobLine] = []
+
+
+class ScheduleBody(BaseModel):
+    scheduled_date: str
+    assigned_to:    Optional[int] = None
 
 
 class CancelBody(BaseModel):
@@ -247,149 +243,6 @@ def _job_dict(db, job) -> dict:
 
 # ── Equipment ────────────────────────────────────────────────────────────────
 
-def _wants_invoice(db) -> bool:
-    row = db.execute(
-        "SELECT value FROM settings WHERE key='service_auto_invoice'").fetchone()
-    return (row["value"] if row else "1") not in ("0", "", "false")
-
-
-def _part_totals(db, job_id: int) -> dict:
-    """{inventory_id: total quantity} across the job's part lines.
-
-    Summed per ITEM, not per line: two lines of three against five on hand must
-    fail the stock check together, or the item is oversold.
-    """
-    rows = db.execute(
-        "SELECT inventory_id, quantity FROM service_job_lines "
-        "WHERE job_id=? AND line_type=?", (job_id, LINE_PART)).fetchall()
-    totals: dict = {}
-    for r in rows:
-        totals[r["inventory_id"]] = totals.get(r["inventory_id"], 0) + float(r["quantity"] or 0)
-    return totals
-
-
-def _consume_parts(db, job, user, now: str) -> float:
-    """Take the job's parts out of stock and recognise their cost.
-
-    Every part is checked before a single write, so a service that cannot be
-    stocked is refused whole rather than half-recorded. Valuation goes through
-    `lots.value_stock_out`, the helper POS and manufacturing already use, so
-    FIFO/LIFO/weighted-average and lot tracking behave identically here — a
-    second cost calculation is how two modules come to disagree about what the
-    same item cost.
-    """
-    import accounting
-    import lots
-    import warehouse_access as wha
-    from utils import money
-
-    job_id = job["id"]
-    needed = _part_totals(db, job_id)
-    if not needed:
-        return 0.0
-
-    rows = {r["id"]: r for r in db.execute(
-        "SELECT id, name, quantity, unit, min_stock FROM inventory "
-        f"WHERE id IN ({','.join('?' * len(needed))})", tuple(needed)).fetchall()}
-    short = [f"{rows[i]['name']} (need {q}, have {rows[i]['quantity']})"
-             for i, q in needed.items()
-             if i in rows and float(rows[i]["quantity"] or 0) < q]
-    if short:
-        raise HTTPException(400, "Not enough stock for this service: " + "; ".join(short))
-
-    wid = wha.default_warehouse_id_for_row(db, job["warehouse_id"])
-    cogs_total = 0.0
-    for inv_id, qty in needed.items():
-        row = rows[inv_id]
-        qty_before = float(row["quantity"])
-        qty_after = round(qty_before - qty, 6)
-        cogs_total += lots.value_stock_out(db, inv_id, qty, source_type="service",
-                                           source_ref=job["job_number"], now=now)
-        db.execute("UPDATE inventory SET quantity=? WHERE id=?", (qty_after, inv_id))
-        wha.credit_warehouse_stock(db, inventory_id=inv_id, warehouse_id=wid, delta=-qty)
-        db.execute(
-            "INSERT INTO stock_movements "
-            "(inventory_id, type, delta, qty_before, qty_after, reference, note, "
-            " warehouse_id, created_at) VALUES (?,?,?,?,?,?,?,?,?)",
-            (inv_id, "service", -qty, qty_before, qty_after, job["job_number"],
-             "Service job parts", wid, now))
-        min_stock = float(row["min_stock"] or 0)
-        if min_stock > 0 and qty_after <= min_stock:
-            notify(db, type="low_stock",
-                   title=f"Low stock alert: {row['name']}",
-                   body=f"Only {qty_after} {row['unit'] or 'units'} remaining "
-                        f"(minimum: {min_stock})",
-                   link="/inventory", entity_type="inventory", entity_id=inv_id,
-                   dedup_hours=24)
-
-    cogs_total = money(cogs_total)
-    if cogs_total > 0:
-        accounting.post_entry(
-            db,
-            entry_date=now[:10],
-            memo=f"Service parts — {job['job_number']}",
-            lines=[
-                {"code": accounting.COGS,      "debit":  cogs_total},
-                {"code": accounting.INVENTORY, "credit": cogs_total},
-            ],
-            source_type="service_cogs", source_id=job_id,
-            created_by=user["id"], branch_id=job["branch_id"],
-        )
-    db.execute("UPDATE service_jobs SET parts_cost=?, updated_at=? WHERE id=?",
-               (cogs_total, now, job_id))
-    return cogs_total
-
-
-def _return_parts(db, job, user, now: str) -> float:
-    """Put the parts back and reverse the cost. The inverse of _consume_parts.
-
-    The reversal goes through accounting.reverse_source rather than an opposite
-    entry posted by hand: that helper also marks the original `reversed`, and
-    post_entry is idempotent against the LIVE entry — a hand-rolled opposite
-    leaves the original posted, so a later service on the same id would silently
-    post nothing.
-    """
-    import accounting
-    import lots
-    import warehouse_access as wha
-    from utils import money
-
-    job_id = job["id"]
-    returned = _part_totals(db, job_id)
-    wid = wha.default_warehouse_id_for_row(db, job["warehouse_id"])
-    cost = money(job["parts_cost"] or 0)
-    total_qty = sum(returned.values())
-
-    for inv_id, qty in returned.items():
-        row = db.execute("SELECT quantity FROM inventory WHERE id=?", (inv_id,)).fetchone()
-        if not row:
-            continue
-        qty_before = float(row["quantity"])
-        qty_after = round(qty_before + qty, 6)
-        # Back in at the cost it left at, so returning a part cannot invent
-        # margin.
-        unit_cost = (cost / total_qty) if total_qty else 0
-        db.execute("UPDATE inventory SET quantity=? WHERE id=?", (qty_after, inv_id))
-        wha.credit_warehouse_stock(db, inventory_id=inv_id, warehouse_id=wid, delta=qty)
-        lots.record_stock_in(db, inv_id, qty, unit_cost,
-                             source_type="service_cancel",
-                             source_ref=job["job_number"], now=now)
-        db.execute(
-            "INSERT INTO stock_movements "
-            "(inventory_id, type, delta, qty_before, qty_after, reference, note, "
-            " warehouse_id, created_at) VALUES (?,?,?,?,?,?,?,?,?)",
-            (inv_id, "service_return", qty, qty_before, qty_after,
-             job["job_number"], "Service cancelled", wid, now))
-
-    accounting.reverse_source(
-        db, "service_cogs", job_id,
-        entry_date=now[:10],
-        memo=f"Service parts returned — {job['job_number']}",
-        created_by=user["id"],
-    )
-    return cost
-
-
 @router.get("/equipment")
 def list_equipment(
     client_id: Optional[int] = None,
@@ -464,9 +317,9 @@ def get_equipment(
     # The service history — the whole reason equipment is a record rather than
     # a text field on the job.
     d["jobs"] = [dict(r) for r in db.execute(
-        "SELECT id, job_number, job_type, status, completed_at, total "
-        "FROM service_jobs WHERE equipment_id=? "
-        "ORDER BY COALESCE(completed_at, created_at) DESC", (eq_id,)).fetchall()]
+        "SELECT id, job_number, job_type, status, scheduled_date, completed_at, total "
+        "FROM service_jobs WHERE equipment_id=? ORDER BY COALESCE(completed_at, "
+        "  scheduled_date, created_at) DESC", (eq_id,)).fetchall()]
     return d
 
 
@@ -499,17 +352,14 @@ def archive_equipment(
     db: sqlite3.Connection = Depends(get_db),
 ):
     eq = _get_equipment(db, eq_id, user)
-    # Refuse while services still reference it: archiving the machine would
-    # orphan the history that is the reason for registering it at all. A
-    # cancelled service does not count — it was a mistake, not a visit.
-    live = db.execute(
-        "SELECT COUNT(*) AS n FROM service_jobs "
-        "WHERE equipment_id=? AND status <> ? AND archived_at IS NULL",
-        (eq_id, ST_CANCELLED)).fetchone()["n"]
-    if live:
+    # Refuse while work is outstanding: archiving the machine would strand the
+    # job that is about to be done on it.
+    open_jobs = db.execute(
+        "SELECT COUNT(*) AS n FROM service_jobs WHERE equipment_id=? AND status IN "
+        f"({','.join('?' * len(_OPEN_STATES))})", (eq_id, *_OPEN_STATES)).fetchone()["n"]
+    if open_jobs:
         raise HTTPException(
-            400, f"{live} service record(s) reference this equipment. "
-                 f"Archive them first.")
+            400, f"{open_jobs} open job(s) reference this equipment. Close them first.")
     db.execute("UPDATE service_equipment SET archived_at=? WHERE id=?", (_now(), eq_id))
     log_action(db, user, "archive", "service_equipment", eq_id, eq["name"])
     db.commit()
@@ -554,10 +404,10 @@ def list_jobs(
             where.append(f"{col} = ?")
             params.append(val)
     if date_from:
-        where.append("COALESCE(j.completed_at, j.created_at) >= ?")
+        where.append("COALESCE(j.scheduled_date, j.created_at) >= ?")
         params.append(date_from)
     if date_to:
-        where.append("COALESCE(j.completed_at, j.created_at) <= ?")
+        where.append("COALESCE(j.scheduled_date, j.created_at) <= ?")
         params.append(date_to)
     if search:
         like = f"%{search.strip()}%"
@@ -589,7 +439,7 @@ def list_jobs(
         "LEFT JOIN service_equipment e ON e.id = j.equipment_id "
         "LEFT JOIN users u ON u.id = j.assigned_to "
         f"WHERE {' AND '.join(where)} "
-        "ORDER BY COALESCE(j.completed_at, j.created_at) DESC, j.id DESC",
+        "ORDER BY COALESCE(j.scheduled_date, j.created_at) DESC, j.id DESC",
         params).fetchall()
     return [dict(r) for r in rows]
 
@@ -600,26 +450,12 @@ def create_job(
     user=Depends(require_perm("service", "create")),
     db: sqlite3.Connection = Depends(get_db),
 ):
-    """Record a completed service, in one step.
-
-    Everything happens together and in one transaction, because they describe a
-    single real event — the technician fitted the parts, so the stock is gone,
-    the cost is real and the customer owes for it:
-
-      * the job is written with its parts and charges
-      * the parts leave the warehouse and their cost is recognised
-        (DR 5000 Cost of Goods Sold / CR 1200 Inventory)
-      * the invoice is raised
-
-    Stock for every part is checked BEFORE anything is written, so a service
-    that cannot be stocked is refused whole rather than half-recorded.
-
-    Getting it wrong is corrected by cancelling, which reverses all three.
-    """
     if not db.execute("SELECT 1 FROM clients WHERE id=?", (data.client_id,)).fetchone():
         raise HTTPException(400, "Client not found")
     if data.job_type not in JOB_TYPES:
         raise HTTPException(400, f"Job type must be one of: {', '.join(JOB_TYPES)}")
+    if data.priority not in PRIORITIES:
+        raise HTTPException(400, f"Priority must be one of: {', '.join(PRIORITIES)}")
     if data.equipment_id:
         eq = _get_equipment(db, data.equipment_id, user)
         # Equipment belongs to a client; a job against someone else's machine is
@@ -636,59 +472,31 @@ def create_job(
     warehouse_id = warehouse_access.resolve_warehouse_id(user, db, data.warehouse_id)
     branch_id = branch_access.resolve_branch_id(user, db, data.branch_id)
     now = _now()
-    service_date = (data.service_date or now[:10])
-
     cur = db.execute(
         "INSERT INTO service_jobs "
-        "(job_number, client_id, equipment_id, job_type, status, "
-        " completed_at, assigned_to, reported_fault, work_done, warehouse_id, "
+        "(job_number, client_id, equipment_id, job_type, status, priority, "
+        " scheduled_date, assigned_to, reported_fault, work_done, warehouse_id, "
         " branch_id, created_by, created_at, updated_at) "
-        "VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?)",
+        "VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)",
         (_placeholder_number(), data.client_id, data.equipment_id, data.job_type,
-         ST_COMPLETED, service_date, data.assigned_to, data.reported_fault,
-         data.work_done, warehouse_id, branch_id, user["id"], now, now),
+         ST_SCHEDULED if data.scheduled_date else ST_DRAFT, data.priority,
+         data.scheduled_date, data.assigned_to, data.reported_fault, data.work_done,
+         warehouse_id, branch_id, user["id"], now, now),
     )
     job_id = cur.lastrowid
     number = _finalize_number(db, job_id, _job_prefix(db))
     _replace_lines(db, job_id, data.items)
     _reprice(db, job_id)
 
-    job = db.execute("SELECT * FROM service_jobs WHERE id=?", (job_id,)).fetchone()
-    parts_cost = _consume_parts(db, job, user, now)
-
-    invoice = None
-    if _wants_invoice(db) and data.items:
-        try:
-            inv = _raise_invoice(db, job, user)
-            invoice = {"invoice_id": inv["invoice_id"],
-                       "invoice_number": inv["invoice_number"],
-                       "amount": inv["amount"],
-                       "pending_approval": inv["pending_approval"]}
-            # Logged as its own action, not folded into the create entry.
-            # Raising an invoice is a distinct financial event, and an auditor
-            # scanning for "who billed this customer" looks for exactly that.
-            log_action(db, user, "invoice", "service_job", job_id, number,
-                       {"invoice_id": inv["invoice_id"],
-                        "invoice_number": inv["invoice_number"], "auto": True})
-        except HTTPException:
-            # Billing can legitimately refuse (an approval policy, a credit
-            # limit). The parts have already left the warehouse, so the service
-            # stands and the invoice can be raised by hand — failing the whole
-            # call would roll back a physical event.
-            invoice = None
-
-    if data.assigned_to and data.assigned_to != user["id"]:
-        notify(db, user_id=data.assigned_to, type="service_job_completed",
-               title=f"Service recorded: {number}",
-               body=data.work_done or data.reported_fault or None,
+    if data.assigned_to:
+        notify(db, user_id=data.assigned_to, type="service_job_scheduled",
+               title=f"Service job assigned: {number}",
+               body=data.reported_fault or None,
                link="/service", entity_type="service_job", entity_id=job_id)
     log_action(db, user, "create", "service_job", job_id, number,
-               {"client_id": data.client_id, "type": data.job_type,
-                "parts_cost": parts_cost,
-                "invoice_id": (invoice or {}).get("invoice_id")})
+               {"client_id": data.client_id, "type": data.job_type})
     db.commit()
-    return {"id": job_id, "job_number": number, "parts_cost": parts_cost,
-            "invoice": invoice, "message": "Service recorded"}
+    return {"id": job_id, "job_number": number, "message": "Service job created"}
 
 
 @router.get("/jobs/{job_id}")
@@ -698,6 +506,245 @@ def get_job(
     db: sqlite3.Connection = Depends(get_db),
 ):
     return _job_dict(db, _get_job(db, job_id, user))
+
+
+@router.put("/jobs/{job_id}")
+def update_job(
+    job_id: int,
+    data: JobBody,
+    user=Depends(require_perm("service", "edit")),
+    db: sqlite3.Connection = Depends(get_db),
+):
+    job = _get_job(db, job_id, user)
+    # A completed job's lines are the record of what was consumed and billed.
+    # Editing them after the fact would rewrite history the ledger already has.
+    if job["status"] not in _OPEN_STATES:
+        raise HTTPException(
+            409, f"A {job['status'].lower()} job can no longer be edited.")
+    if data.job_type not in JOB_TYPES:
+        raise HTTPException(400, f"Job type must be one of: {', '.join(JOB_TYPES)}")
+    if data.equipment_id:
+        eq = _get_equipment(db, data.equipment_id, user)
+        if eq["client_id"] != data.client_id:
+            raise HTTPException(400, "That equipment belongs to a different client.")
+    _validate_lines(db, data.items)
+
+    warehouse_id = warehouse_access.resolve_warehouse_id(user, db, data.warehouse_id)
+    db.execute(
+        "UPDATE service_jobs SET client_id=?, equipment_id=?, job_type=?, priority=?, "
+        "scheduled_date=?, assigned_to=?, reported_fault=?, work_done=?, "
+        "warehouse_id=?, updated_at=? WHERE id=?",
+        (data.client_id, data.equipment_id, data.job_type, data.priority,
+         data.scheduled_date, data.assigned_to, data.reported_fault, data.work_done,
+         warehouse_id, _now(), job_id),
+    )
+    _replace_lines(db, job_id, data.items)
+    totals = _reprice(db, job_id)
+    log_action(db, user, "update", "service_job", job_id, job["job_number"], totals)
+    db.commit()
+    return {"message": "Service job updated", **totals}
+
+
+# ── Status transitions ───────────────────────────────────────────────────────
+# One endpoint per transition, each validating the state it is coming FROM.
+# A single PATCH taking any status would let the UI walk a job straight from
+# Draft to Completed and skip the consumption that Completed is supposed to
+# perform.
+
+@router.post("/jobs/{job_id}/schedule")
+def schedule_job(
+    job_id: int,
+    data: ScheduleBody,
+    user=Depends(require_perm("service", "edit")),
+    db: sqlite3.Connection = Depends(get_db),
+):
+    job = _get_job(db, job_id, user)
+    if job["status"] not in (ST_DRAFT, ST_SCHEDULED):
+        raise HTTPException(400, f"Cannot schedule a job that is {job['status'].lower()}.")
+    assigned = data.assigned_to if data.assigned_to is not None else job["assigned_to"]
+    if assigned and not db.execute("SELECT 1 FROM users WHERE id=?", (assigned,)).fetchone():
+        raise HTTPException(400, "Assigned user not found")
+    db.execute(
+        "UPDATE service_jobs SET status=?, scheduled_date=?, assigned_to=?, updated_at=? "
+        "WHERE id=?", (ST_SCHEDULED, data.scheduled_date, assigned, _now(), job_id))
+    if assigned and assigned != job["assigned_to"]:
+        notify(db, user_id=assigned, type="service_job_scheduled",
+               title=f"Service job assigned: {job['job_number']}",
+               body=f"Scheduled for {data.scheduled_date}",
+               link="/service", entity_type="service_job", entity_id=job_id)
+    log_action(db, user, "schedule", "service_job", job_id, job["job_number"],
+               {"scheduled_date": data.scheduled_date})
+    db.commit()
+    return {"message": "Job scheduled", "status": ST_SCHEDULED}
+
+
+@router.post("/jobs/{job_id}/start")
+def start_job(
+    job_id: int,
+    user=Depends(require_perm("service", "edit")),
+    db: sqlite3.Connection = Depends(get_db),
+):
+    job = _get_job(db, job_id, user)
+    if job["status"] not in (ST_DRAFT, ST_SCHEDULED):
+        raise HTTPException(400, f"Cannot start a job that is {job['status'].lower()}.")
+    db.execute("UPDATE service_jobs SET status=?, updated_at=? WHERE id=?",
+               (ST_PROGRESS, _now(), job_id))
+    log_action(db, user, "start", "service_job", job_id, job["job_number"])
+    db.commit()
+    return {"message": "Job started", "status": ST_PROGRESS}
+
+
+@router.post("/jobs/{job_id}/complete")
+def complete_job(
+    job_id: int,
+    user=Depends(require_perm("service", "edit")),
+    db: sqlite3.Connection = Depends(get_db),
+):
+    """Mark the work done, consume its parts, and recognise the cost.
+
+    This is where a service job first touches the ledger. Two things happen and
+    they must not come apart:
+
+      * the parts physically leave the warehouse (inventory, per-warehouse
+        stock, and a stock_movements row so the history explains itself)
+      * their cost is recognised: DR 5000 Cost of Goods Sold / CR 1200 Inventory
+
+    Stock for EVERY part line is checked before anything is written. A job that
+    ran out of stock on its third line, having already consumed the first two,
+    would leave the ledger describing a job that never completed — so the whole
+    thing is refused up front instead.
+
+    Valuation goes through `lots.value_stock_out`, the same helper POS and
+    manufacturing use, so FIFO/LIFO/weighted-average and lot tracking behave
+    identically here. Writing a second cost calculation is how two modules come
+    to disagree about what the same item cost.
+
+    Revenue is NOT recognised here — see the module docstring. Completion is a
+    cost event; the revenue follows when the invoice is paid.
+    """
+    import accounting
+    import lots
+    import warehouse_access as wha
+    from utils import money
+
+    job = _get_job(db, job_id, user)
+    if job["status"] == ST_COMPLETED:
+        raise HTTPException(409, "Job is already completed.")
+    if job["status"] == ST_CANCELLED:
+        raise HTTPException(400, "A cancelled job cannot be completed.")
+
+    now = _now()
+    wid = wha.default_warehouse_id_for_row(db, job["warehouse_id"])
+
+    # ── Pre-flight: every part line, before a single write ───────────────────
+    parts = db.execute(
+        "SELECT l.id, l.inventory_id, l.quantity, i.name, i.quantity AS on_hand, "
+        "       i.unit, i.min_stock "
+        "FROM service_job_lines l JOIN inventory i ON i.id = l.inventory_id "
+        "WHERE l.job_id = ? AND l.line_type = ?", (job_id, LINE_PART)).fetchall()
+
+    # Several lines can draw the same item; the check has to be on the TOTAL, or
+    # two lines of 3 against 5 on hand would both pass and oversell the item.
+    needed = {}
+    for p in parts:
+        needed[p["inventory_id"]] = needed.get(p["inventory_id"], 0) + float(p["quantity"] or 0)
+    by_id = {p["inventory_id"]: p for p in parts}
+    short = [f"{by_id[i]['name']} (need {q}, have {by_id[i]['on_hand']})"
+             for i, q in needed.items() if float(by_id[i]["on_hand"] or 0) < q]
+    if short:
+        raise HTTPException(400, "Not enough stock to complete this job: "
+                                 + "; ".join(short))
+
+    # ── Consume ─────────────────────────────────────────────────────────────
+    cogs_total = 0.0
+    for inv_id, qty in needed.items():
+        row = by_id[inv_id]
+        qty_before = float(row["on_hand"])
+        qty_after = round(qty_before - qty, 6)
+        line_cogs = lots.value_stock_out(db, inv_id, qty, source_type="service",
+                                         source_ref=job["job_number"], now=now)
+        cogs_total += line_cogs
+        db.execute("UPDATE inventory SET quantity=? WHERE id=?", (qty_after, inv_id))
+        wha.credit_warehouse_stock(db, inventory_id=inv_id, warehouse_id=wid,
+                                   delta=-qty)
+        db.execute(
+            "INSERT INTO stock_movements "
+            "(inventory_id, type, delta, qty_before, qty_after, reference, note, "
+            " warehouse_id, created_at) VALUES (?,?,?,?,?,?,?,?,?)",
+            (inv_id, "service", -qty, qty_before, qty_after, job["job_number"],
+             "Service job parts", wid, now))
+        min_stock = float(row["min_stock"] or 0)
+        if min_stock > 0 and qty_after <= min_stock:
+            notify(db, type="low_stock",
+                   title=f"Low stock alert: {row['name']}",
+                   body=f"Only {qty_after} {row['unit'] or 'units'} remaining "
+                        f"(minimum: {min_stock})",
+                   link="/inventory", entity_type="inventory", entity_id=inv_id,
+                   dedup_hours=24)
+
+    cogs_total = money(cogs_total)
+
+    # ── Recognise the cost ──────────────────────────────────────────────────
+    # A labour-only job consumes nothing and has no cost to post; post_entry
+    # rejects an all-zero entry, so skip it rather than hand it one.
+    if cogs_total > 0:
+        accounting.post_entry(
+            db,
+            entry_date=now[:10],
+            memo=f"Service parts — {job['job_number']}",
+            lines=[
+                {"code": accounting.COGS,      "debit":  cogs_total},
+                {"code": accounting.INVENTORY, "credit": cogs_total},
+            ],
+            source_type="service_cogs", source_id=job_id,
+            created_by=user["id"], branch_id=job["branch_id"],
+        )
+
+    db.execute(
+        "UPDATE service_jobs SET status=?, completed_at=?, parts_cost=?, updated_at=? "
+        "WHERE id=?", (ST_COMPLETED, now, cogs_total, now, job_id))
+
+    if job["created_by"] and job["created_by"] != user["id"]:
+        notify(db, user_id=job["created_by"], type="service_job_completed",
+               title=f"Service job completed: {job['job_number']}",
+               body=job["work_done"] or None,
+               link="/service", entity_type="service_job", entity_id=job_id)
+    # Raise the invoice in the SAME transaction, if the company wants it. The
+    # work is done and priced, and the alternative is a completed job sitting
+    # unbilled because nobody pressed a second button. It is an ordinary draft
+    # invoice: editable afterwards, and voidable if the job was completed by
+    # mistake — voiding then makes the job billable again.
+    #
+    # A job with no lines has nothing to bill, so it is skipped rather than
+    # failing the completion: the work still happened.
+    invoice = None
+    auto = db.execute(
+        "SELECT value FROM settings WHERE key='service_auto_invoice'").fetchone()
+    wants_invoice = (auto["value"] if auto else "1") not in ("0", "", "false")
+    if wants_invoice and db.execute(
+            "SELECT 1 FROM service_job_lines WHERE job_id=?", (job_id,)).fetchone():
+        job = db.execute("SELECT * FROM service_jobs WHERE id=?", (job_id,)).fetchone()
+        try:
+            inv = _raise_invoice(db, job, user)
+            invoice = {"invoice_id": inv["invoice_id"],
+                       "invoice_number": inv["invoice_number"],
+                       "amount": inv["amount"],
+                       "pending_approval": inv["pending_approval"]}
+            log_action(db, user, "invoice", "service_job", job_id,
+                       job["job_number"], {"invoice_id": inv["invoice_id"],
+                                           "auto": True})
+        except HTTPException:
+            # Billing can legitimately refuse (an approval policy, a credit
+            # limit). The parts have already left the warehouse and the cost is
+            # posted, so the completion stands and the invoice can be raised by
+            # hand — failing the whole call would roll back a physical event.
+            invoice = None
+
+    log_action(db, user, "complete", "service_job", job_id, job["job_number"],
+               {"cogs": cogs_total, "parts": len(needed)})
+    db.commit()
+    return {"message": "Job completed", "status": ST_COMPLETED,
+            "parts_cost": cogs_total, "invoice": invoice}
 
 
 @router.post("/jobs/{job_id}/invoice")
@@ -730,8 +777,9 @@ def invoice_job(
     deliberately owns no stock movement.
     """
     job = _get_job(db, job_id, user)
-    if job["status"] == ST_CANCELLED:
-        raise HTTPException(400, "A cancelled service cannot be invoiced.")
+    if job["status"] != ST_COMPLETED:
+        raise HTTPException(
+            400, "Only a completed job can be invoiced. Complete the work first.")
 
     existing = db.execute(
         "SELECT id, invoice_number FROM invoices "
@@ -790,6 +838,96 @@ def _raise_invoice(db, job, user):
     )
 
 
+@router.post("/jobs/{job_id}/reopen")
+def reopen_job(
+    job_id: int,
+    user=Depends(require_perm("service", "edit")),
+    db: sqlite3.Connection = Depends(get_db),
+):
+    """Undo a completion: give the parts back and reverse the cost.
+
+    A technician marks a job done, then finds the fault was something else. The
+    alternative to this endpoint is editing stock by hand, which leaves the
+    ledger describing parts that were never used.
+
+    Refused once the job is invoiced. Un-consuming parts a customer has been
+    billed for would leave an invoice for goods the warehouse still holds; the
+    invoice has to be voided first, which is a decision with its own audit
+    trail.
+    """
+    import accounting
+    import lots
+    import warehouse_access as wha
+    from utils import money
+
+    job = _get_job(db, job_id, user)
+    if job["status"] != ST_COMPLETED:
+        raise HTTPException(400, "Only a completed job can be reopened.")
+
+    billed = db.execute(
+        "SELECT invoice_number FROM invoices "
+        "WHERE service_job_id=? AND voided_at IS NULL", (job_id,)).fetchone()
+    if billed:
+        raise HTTPException(
+            409, f"Void invoice {billed['invoice_number']} before reopening this job.")
+
+    now = _now()
+    wid = wha.default_warehouse_id_for_row(db, job["warehouse_id"])
+    parts = db.execute(
+        "SELECT l.inventory_id, l.quantity, i.name, i.quantity AS on_hand "
+        "FROM service_job_lines l JOIN inventory i ON i.id = l.inventory_id "
+        "WHERE l.job_id=? AND l.line_type=?", (job_id, LINE_PART)).fetchall()
+
+    returned = {}
+    for p in parts:
+        returned[p["inventory_id"]] = returned.get(p["inventory_id"], 0) + float(p["quantity"] or 0)
+
+    for inv_id, qty in returned.items():
+        row = db.execute("SELECT name, quantity FROM inventory WHERE id=?",
+                         (inv_id,)).fetchone()
+        qty_before = float(row["quantity"])
+        qty_after = round(qty_before + qty, 6)
+        # Back in at the cost it left at, so returning a part cannot invent
+        # margin. add_layer values the stock-IN for fifo/lifo.
+        unit_cost = (job["parts_cost"] / sum(returned.values())
+                     if job["parts_cost"] and sum(returned.values()) else 0)
+        db.execute("UPDATE inventory SET quantity=? WHERE id=?", (qty_after, inv_id))
+        wha.credit_warehouse_stock(db, inventory_id=inv_id, warehouse_id=wid,
+                                   delta=qty)
+        lots.record_stock_in(db, inv_id, qty, unit_cost,
+                             source_type="service_reopen",
+                             source_ref=job["job_number"], now=now)
+        db.execute(
+            "INSERT INTO stock_movements "
+            "(inventory_id, type, delta, qty_before, qty_after, reference, note, "
+            " warehouse_id, created_at) VALUES (?,?,?,?,?,?,?,?,?)",
+            (inv_id, "service_return", qty, qty_before, qty_after,
+             job["job_number"], "Service job reopened", wid, now))
+
+    # Reverse through accounting.reverse_source rather than posting an opposite
+    # entry by hand. It mirrors the original and, crucially, marks it
+    # status='reversed'. post_entry is idempotent on (source_type, source_id)
+    # against the LIVE entry, so a hand-rolled opposite leaves the original
+    # posted — and completing the job again then silently posts nothing at all,
+    # leaving consumed parts with no cost against them. Found by the
+    # reopen-then-complete test.
+    cost = money(job["parts_cost"] or 0)
+    accounting.reverse_source(
+        db, "service_cogs", job_id,
+        entry_date=now[:10],
+        memo=f"Service parts returned — {job['job_number']}",
+        created_by=user["id"],
+    )
+
+    db.execute(
+        "UPDATE service_jobs SET status=?, completed_at=NULL, parts_cost=0, "
+        "updated_at=? WHERE id=?", (ST_PROGRESS, now, job_id))
+    log_action(db, user, "reopen", "service_job", job_id, job["job_number"],
+               {"reversed_cost": cost})
+    db.commit()
+    return {"message": "Job reopened", "status": ST_PROGRESS, "reversed_cost": cost}
+
+
 @router.post("/jobs/{job_id}/cancel")
 def cancel_job(
     job_id: int,
@@ -797,57 +935,23 @@ def cancel_job(
     user=Depends(require_perm("service", "delete")),
     db: sqlite3.Connection = Depends(get_db),
 ):
-    """Undo a service recorded by mistake, completely.
+    """Cancel a job that has not been completed.
 
-    The only correction this module offers, and it reverses all three things
-    recording did: the parts go back into stock, their cost is reversed, and the
-    invoice is voided. Anything less would leave two records disagreeing — an
-    invoice for goods still on the shelf, or a cost with no work behind it.
-
-    Editing is deliberately not offered instead. The lines are the record of
-    what was consumed and billed, so changing them would mean reconciling stock
-    and the ledger against a moving target; cancelling and re-recording is one
-    step longer and always correct.
+    Cancelling a COMPLETED job is a different operation: it has to give back the
+    stock and reverse the cost that completion posted. That path is handled
+    below once consumption exists.
     """
     job = _get_job(db, job_id, user)
     if job["status"] == ST_CANCELLED:
-        raise HTTPException(400, "This service is already cancelled.")
-
-    now = _now()
-    invoice = db.execute(
-        "SELECT id, invoice_number, "
-        "  (SELECT COALESCE(SUM(amount), 0) FROM invoice_payments p "
-        "   WHERE p.invoice_id = i.id) AS paid "
-        "FROM invoices i WHERE service_job_id=? AND voided_at IS NULL",
-        (job_id,)).fetchone()
-
-    # A paid invoice is a refund conversation, not a data-entry correction. The
-    # money has moved and voiding would leave a payment against nothing.
-    if invoice and float(invoice["paid"] or 0) > 0:
-        raise HTTPException(
-            409, f"Invoice {invoice['invoice_number']} has payments against it. "
-                 f"Refund or void it first, then cancel this service.")
-
-    returned_cost = _return_parts(db, job, user, now)
-    db.execute("UPDATE service_jobs SET status=?, cancel_reason=?, parts_cost=0, "
-               "updated_at=? WHERE id=?",
-               (ST_CANCELLED, data.reason or "Cancelled", now, job_id))
-
-    # Voided LAST, because void_invoice commits. Doing it first would mean a
-    # failure in the stock return left an invoice already voided against parts
-    # still consumed; this way the whole correction lands in one commit.
-    if invoice:
-        from routers.invoices import void_invoice, VoidRequest
-        void_invoice(invoice["id"],
-                     VoidRequest(reason=f"Service {job['job_number']} cancelled"),
-                     user=user, db=db)
+        raise HTTPException(400, "Job is already cancelled.")
+    if job["status"] == ST_COMPLETED:
+        raise HTTPException(400, "Completed jobs cannot be cancelled yet.")
+    db.execute("UPDATE service_jobs SET status=?, cancel_reason=?, updated_at=? "
+               "WHERE id=?", (ST_CANCELLED, data.reason or "Cancelled", _now(), job_id))
     log_action(db, user, "cancel", "service_job", job_id, job["job_number"],
-               {"reason": data.reason, "reversed_cost": returned_cost,
-                "voided_invoice": invoice["invoice_number"] if invoice else None})
+               {"reason": data.reason})
     db.commit()
-    return {"message": "Service cancelled", "status": ST_CANCELLED,
-            "reversed_cost": returned_cost,
-            "voided_invoice": invoice["invoice_number"] if invoice else None}
+    return {"message": "Job cancelled", "status": ST_CANCELLED}
 
 
 @router.patch("/jobs/{job_id}/archive")

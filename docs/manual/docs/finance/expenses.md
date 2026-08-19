@@ -75,7 +75,7 @@ the expense each time it falls due, so nobody has to remember.
     |---|---|
     | Name | E.g. "Office rent" |
     | Category | Maps to a GL account |
-    | Amount | The recurring amount in USD |
+    | Amount | The amount charged **each time it runs**, in USD — a quarterly template at $3,000 costs $12,000 a year |
     | Frequency | `monthly`, `quarterly`, `annual` |
     | Start date | First occurrence |
     | End date | Optional — leave blank for indefinite |
@@ -88,12 +88,61 @@ the expense each time it falls due, so nobody has to remember.
     On a scheduled tick (or manual **Run due**), the system.
 
     1. Finds templates with a next run date of today or earlier, still switched on
-    2. For each: creates a real expense with the template's
-       values + recurring expense id linking back
+    2. For each: creates a real expense **for every month the payment covers**,
+       carrying the template's values + recurring expense id linking back
     3. Updates the template's last generated date and bumps
        next run date by the frequency
 
     You can pause a template by switching it off without deleting it.
+
+    ### Quarterly and annual costs are spread over the months they cover
+
+    A quarterly rent of $3,000 paid in January buys January, February **and**
+    March. Charging it all to January would make January look bad and the next
+    two months look good, for no business reason — so the system records
+    $1,000 in each of the three months instead.
+
+    | Month | Expense recorded |
+    |---|---:|
+    | January | $1,000 |
+    | February | $1,000 |
+    | March | $1,000 |
+
+    Monthly and weekly templates are untouched: one month of cost buys one
+    month, so they stay a single row.
+
+    Where the amount does not divide evenly, the **last** month carries the
+    remainder — $1,000 over three is $333.33, $333.33, $333.34 — so the parts
+    always add back to exactly what was paid.
+
+    !!! note "The money still leaves the bank once"
+        Spreading changes when the **cost** is recognised, never when the cash
+        moved. The full $3,000 leaves Cash in January. The two months you have
+        paid for but not yet used are held in **1300 Prepaid Expenses**, an
+        asset on the balance sheet, and released one month at a time:
+
+        ```
+        DR 1300 Prepaid Expenses   3,000     (January, when paid)
+          CR 1000 Cash & Bank             3,000
+
+        DR 6100 Rent               1,000     (once per covered month)
+          CR 1300 Prepaid Expenses        1,000
+        ```
+
+        Any VAT on the bill is reclaimed in full in the month you paid it,
+        because that is when it becomes recoverable — it is not spread.
+
+    !!! warning "Voiding one month voids the whole payment"
+        A spread bill is **one payment**, so voiding any of its monthly entries
+        undoes all of them and returns the money. Voiding February alone is not
+        offered, because the money moved once: reversing only that month would
+        leave the prepayment sitting on the balance sheet with nothing left to
+        release it.
+
+        The confirmation tells you how many entries will go before you commit,
+        and every month being reversed has to be in an open accounting period.
+        If you need to adjust a single month rather than cancel the bill — a
+        partial refund, say — that is a separate expense or credit, not a void.
 
 === "Administrator's view"
 

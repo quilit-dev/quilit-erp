@@ -136,7 +136,7 @@ function PayrollRunPanel({ runId, canEdit, canApprove, canDelete, onClose, onCha
             <thead>
               <tr>
                 <th>{t('hr.colEmployee2')}</th>
-                <th style={{ textAlign: 'right', width: 100 }}>{t('hr.colBase')}</th>
+                <th style={{ textAlign: 'right', width: 110 }}>{t('hr.colBaseOrHours')}</th>
                 <th style={{ textAlign: 'right', width: 90  }}>{t('hr.colBonus')}</th>
                 <th style={{ textAlign: 'right', width: 110 }}>{t('hr.colOtShort')}</th>
                 <th style={{ textAlign: 'right', width: 90  }}>{t('hr.colDeductShort')}</th>
@@ -181,7 +181,15 @@ function PayrollLineRow({ line, editable, onPatch }) {
   const [deduct,  setDeduct]  = useState(numStr(line.deductions));
   const [otHours, setOtHours] = useState(numStr(line.overtime_hours));
   const [otAmt,   setOtAmt]   = useState(numStr(line.overtime_amount));
+  const [hours,   setHours]   = useState(numStr(line.hours_worked));
   const [dirty,   setDirty]   = useState(false);
+
+  // An hourly employee's total is hours x rate, so the hours are what you edit
+  // and the total is shown as the result. Sending base_salary for one of these
+  // is refused by the API, precisely so the figure on the payslip can never
+  // stop matching the hours printed beside it.
+  const rate = Number(line.hourly_rate || 0);
+  const isHourly = rate > 0 || Number(line.hours_worked || 0) > 0;
 
   // Re-sync from the server after an autosave (the panel refetches silently) —
   // e.g. overtime amount the API computed from hours. Runs only when the stored
@@ -192,8 +200,10 @@ function PayrollLineRow({ line, editable, onPatch }) {
     setDeduct(numStr(line.deductions));
     setOtHours(numStr(line.overtime_hours));
     setOtAmt(numStr(line.overtime_amount));
+    setHours(numStr(line.hours_worked));
     setDirty(false);
-  }, [line.base_salary, line.bonuses, line.deductions, line.overtime_hours, line.overtime_amount]);
+  }, [line.base_salary, line.bonuses, line.deductions, line.overtime_hours,
+      line.overtime_amount, line.hours_worked]);
 
   const edit = (setter) => (e) => { setter(e.target.value); setDirty(true); };
 
@@ -202,7 +212,10 @@ function PayrollLineRow({ line, editable, onPatch }) {
   function commit(patch = {}) {
     if (!dirty) return;
     onPatch({
-      base_salary:     Number(base)   || 0,
+      // base_salary is deliberately absent for an hourly line — the API
+      // recomputes it from the hours and refuses an explicit total.
+      ...(isHourly ? { hours_worked: Number(hours) || 0 }
+                   : { base_salary:  Number(base)  || 0 }),
       bonuses:         Number(bonus)  || 0,
       deductions:      Number(deduct) || 0,
       overtime_hours:  Number(otHours) || 0,
@@ -218,10 +231,24 @@ function PayrollLineRow({ line, editable, onPatch }) {
         <div style={{ fontSize: 11, color: 'var(--text-3)' }}>{line.job_title}{line.department_name ? ` · ${line.department_name}` : ''}</div>
       </td>
       <td>
-        {editable
-          ? <NumberInput step="0.01" min="0" placeholder="0" className="form-control" style={{ textAlign: 'right', padding: '4px 6px' }}
-                   value={base} onChange={edit(setBase)} onBlur={() => commit()} />
-          : <div style={{ textAlign: 'right' }}>{fmt(line.base_salary || 0)}</div>}
+        {isHourly ? (
+          <>
+            {editable
+              ? <NumberInput step="0.25" min="0" placeholder="0" className="form-control"
+                       style={{ textAlign: 'right', padding: '4px 6px' }}
+                       value={hours} onChange={edit(setHours)} onBlur={() => commit()} />
+              : <div style={{ textAlign: 'right' }}>{Number(line.hours_worked || 0)}h</div>}
+            {/* The working, so the figure is never a bare number nobody can check. */}
+            <div style={{ fontSize: 11, color: 'var(--text-3)', textAlign: 'right', marginTop: 2 }}>
+              {t('hr.hoursAtRate', { rate: fmt(rate), total: fmt(line.base_salary || 0) })}
+            </div>
+          </>
+        ) : (
+          editable
+            ? <NumberInput step="0.01" min="0" placeholder="0" className="form-control" style={{ textAlign: 'right', padding: '4px 6px' }}
+                     value={base} onChange={edit(setBase)} onBlur={() => commit()} />
+            : <div style={{ textAlign: 'right' }}>{fmt(line.base_salary || 0)}</div>
+        )}
       </td>
       <td>
         {editable

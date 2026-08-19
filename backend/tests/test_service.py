@@ -1,12 +1,10 @@
-"""Service — a record of completed work, and the equipment it was done on.
+"""Service jobs and the equipment they are done on.
 
-The module is deliberately one action wide: recording a service consumes its
-parts, posts their cost and raises the invoice together, because they describe
-one real event. Cancelling reverses all three. There is no draft, no schedule
-and no start/finish ladder, so there are no transitions to test — only that
-recording does everything, and cancelling undoes everything.
-
-The money invariants live in test_service_money.py and test_service_billing.py.
+Covers the module up to but not including the financial effects: creation,
+validation, the status ladder, and the scoping every module here is expected to
+honour. The consumption and billing invariants live in test_service_money.py,
+because those are the ones that can quietly corrupt the ledger and deserve to
+fail loudly on their own.
 """
 import pytest
 
@@ -31,13 +29,9 @@ def oven(client, acme):
     return r.json()["id"]
 
 
-def _charge(name, price):
-    return {"line_type": "charge", "name": name, "quantity": 1, "unit_price": price}
-
-
-def _service(client, acme, **extra):
+def _job(client, acme, **extra):
     body = {"client_id": acme, "job_type": "Repair",
-            "reported_fault": "Fan not spinning", "items": [_charge("Labour", 100)]}
+            "reported_fault": "Fan not spinning", "items": []}
     body.update(extra)
     r = client.post("/api/service/jobs", json=body)
     assert r.status_code == 200, r.text
@@ -70,29 +64,26 @@ def test_two_machines_may_share_a_serial(client, acme):
 
 
 def test_equipment_carries_its_service_history(client, acme, oven):
-    """The reason equipment is a record and not a text field on the service."""
-    a = _service(client, acme, equipment_id=oven, reported_fault="Fan")
-    b = _service(client, acme, equipment_id=oven, reported_fault="Thermostat")
+    """The reason equipment is a record and not a text field on the job."""
+    a = _job(client, acme, equipment_id=oven, reported_fault="Fan")
+    b = _job(client, acme, equipment_id=oven, reported_fault="Thermostat")
 
     history = client.get(f"/api/service/equipment/{oven}").json()["jobs"]
 
     assert {j["id"] for j in history} == {a["id"], b["id"]}
 
 
-def test_equipment_with_history_cannot_be_archived(client, acme, oven):
-    """Archiving would orphan the history that is the reason for registering
-    the machine at all."""
-    _service(client, acme, equipment_id=oven)
+def test_equipment_in_use_cannot_be_archived(client, acme, oven):
+    _job(client, acme, equipment_id=oven)
 
     r = client.patch(f"/api/service/equipment/{oven}/archive")
 
     assert r.status_code == 400
-    assert "reference this equipment" in r.json()["detail"]
+    assert "open job" in r.json()["detail"].lower()
 
 
-def test_a_cancelled_service_does_not_block_archiving(client, acme, oven):
-    """It was a mistake, not a visit."""
-    job = _service(client, acme, equipment_id=oven)
+def test_equipment_can_be_archived_once_work_is_closed(client, acme, oven):
+    job = _job(client, acme, equipment_id=oven)
     client.post(f"/api/service/jobs/{job['id']}/cancel", json={"reason": "duplicate"})
 
     assert client.patch(f"/api/service/equipment/{oven}/archive").status_code == 200
@@ -100,48 +91,42 @@ def test_a_cancelled_service_does_not_block_archiving(client, acme, oven):
     assert client.patch(f"/api/service/equipment/{oven}/unarchive").status_code == 200
 
 
-# ── Recording a service ──────────────────────────────────────────────────────
+# ── Jobs ─────────────────────────────────────────────────────────────────────
 
-def test_a_service_gets_a_numbered_reference(client, acme):
-    job = _service(client, acme)
+def test_a_job_gets_a_numbered_reference(client, acme):
+    job = _job(client, acme)
 
     assert job["job_number"].startswith("SVC-")
-    # Derived from the row id, so two concurrent records cannot collide.
+    # Derived from the row id, so two concurrent creates cannot collide.
     assert job["job_number"].endswith(f"{job['id']:04d}")
 
 
 def test_the_number_prefix_is_a_setting(client, acme):
     assert client.put("/api/settings/", json={"service_job_prefix": "WO-"}).status_code == 200
 
-    assert _service(client, acme)["job_number"].startswith("WO-")
+    assert _job(client, acme)["job_number"].startswith("WO-")
 
 
-def test_a_service_is_complete_the_moment_it_is_recorded(client, acme):
-    """There is no draft: by the time anyone types it in, the work is done."""
-    job = _service(client, acme)
+def test_a_job_scheduled_at_creation_starts_scheduled(client, acme):
+    plain = _job(client, acme)
+    dated = _job(client, acme, scheduled_date="2026-09-01")
 
-    assert client.get(f"/api/service/jobs/{job['id']}").json()["status"] == "Completed"
-
-
-def test_the_service_date_defaults_to_today_and_is_settable(client, acme):
-    """A technician often writes up yesterday's visit this morning."""
-    today = _service(client, acme)
-    dated = _service(client, acme, service_date="2026-01-15")
-
-    assert client.get(f"/api/service/jobs/{today['id']}").json()["completed_at"]
-    assert client.get(
-        f"/api/service/jobs/{dated['id']}").json()["completed_at"] == "2026-01-15"
+    assert client.get(f"/api/service/jobs/{plain['id']}").json()["status"] == "Draft"
+    assert client.get(f"/api/service/jobs/{dated['id']}").json()["status"] == "Scheduled"
 
 
-def test_a_service_totals_its_lines(client, acme):
-    job = _service(client, acme, items=[_charge("Callout", 50), _charge("Labour", 120)])
+def test_a_job_totals_its_lines(client, acme):
+    job = _job(client, acme, items=[
+        {"line_type": "charge", "name": "Callout", "quantity": 1, "unit_price": 50},
+        {"line_type": "charge", "name": "Labour",  "quantity": 1, "unit_price": 120},
+    ])
     d = client.get(f"/api/service/jobs/{job['id']}").json()
 
     assert d["subtotal"] == pytest.approx(170)
     assert d["total"] == pytest.approx(d["subtotal"] + d["tax_total"])
 
 
-def test_equipment_must_belong_to_the_service_s_client(client, acme, oven):
+def test_equipment_must_belong_to_the_job_s_client(client, acme, oven):
     other = client.post("/api/clients/", json={"name": "Other Co"}).json()["id"]
 
     r = client.post("/api/service/jobs", json={
@@ -151,7 +136,7 @@ def test_equipment_must_belong_to_the_service_s_client(client, acme, oven):
     assert "different client" in r.json()["detail"]
 
 
-def test_an_unknown_service_type_is_refused(client, acme):
+def test_an_unknown_job_type_is_refused(client, acme):
     r = client.post("/api/service/jobs", json={
         "client_id": acme, "job_type": "Demolition", "items": []})
     assert r.status_code == 400
@@ -193,61 +178,68 @@ def test_a_part_line_needs_a_positive_quantity(client, acme):
     assert r.status_code == 400
 
 
-# ── The lifecycle that no longer exists ──────────────────────────────────────
+# ── The status ladder ────────────────────────────────────────────────────────
 
-@pytest.mark.parametrize("path", ["schedule", "start", "complete", "reopen"])
-def test_the_removed_transitions_are_gone(client, acme, path):
-    """The ladder was replaced by a single record-and-invoice step. These must
-    not linger as half-working endpoints."""
-    job = _service(client, acme)
+def test_the_happy_path_walks_draft_to_completed(client, acme):
+    job = _job(client, acme)
+    jid = job["id"]
 
-    r = client.post(f"/api/service/jobs/{job['id']}/{path}", json={})
-
-    assert r.status_code in (404, 405), f"{path} still responds"
-
-
-def test_a_recorded_service_cannot_be_edited(client, acme):
-    """Its lines are the record of what was consumed and billed. Cancelling and
-    re-recording is the correction."""
-    job = _service(client, acme)
-
-    r = client.put(f"/api/service/jobs/{job['id']}",
-                   json={"client_id": acme, "items": []})
-
-    assert r.status_code in (404, 405)
+    assert client.post(f"/api/service/jobs/{jid}/schedule",
+                       json={"scheduled_date": "2026-09-01"}).status_code == 200
+    assert client.post(f"/api/service/jobs/{jid}/start").status_code == 200
+    assert client.get(f"/api/service/jobs/{jid}").json()["status"] == "In Progress"
 
 
-# ── Cancelling ───────────────────────────────────────────────────────────────
+def test_a_started_job_cannot_be_started_again(client, acme):
+    jid = _job(client, acme)["id"]
+    client.post(f"/api/service/jobs/{jid}/start")
 
-def test_cancelling_marks_it_cancelled(client, acme):
-    job = _service(client, acme)
+    r = client.post(f"/api/service/jobs/{jid}/start")
 
-    r = client.post(f"/api/service/jobs/{job['id']}/cancel",
-                    json={"reason": "wrong customer"})
-
-    assert r.status_code == 200
-    assert client.get(f"/api/service/jobs/{job['id']}").json()["status"] == "Cancelled"
+    assert r.status_code == 400
+    assert "in progress" in r.json()["detail"].lower()
 
 
-def test_cancelling_twice_is_refused(client, acme):
-    job = _service(client, acme)
-    client.post(f"/api/service/jobs/{job['id']}/cancel", json={"reason": "x"})
+def test_a_cancelled_job_cannot_be_scheduled(client, acme):
+    jid = _job(client, acme)["id"]
+    client.post(f"/api/service/jobs/{jid}/cancel", json={"reason": "customer declined"})
 
-    again = client.post(f"/api/service/jobs/{job['id']}/cancel", json={"reason": "x"})
+    r = client.post(f"/api/service/jobs/{jid}/schedule",
+                    json={"scheduled_date": "2026-09-01"})
 
-    assert again.status_code == 400
-    assert "already cancelled" in again.json()["detail"].lower()
+    assert r.status_code == 400
 
 
-# ── Filters ──────────────────────────────────────────────────────────────────
+def test_a_closed_job_can_no_longer_be_edited(client, acme):
+    """Its lines are the record of what was consumed and billed."""
+    jid = _job(client, acme)["id"]
+    client.post(f"/api/service/jobs/{jid}/cancel", json={"reason": "duplicate"})
 
-def test_services_can_be_filtered_by_client(client, acme):
+    r = client.put(f"/api/service/jobs/{jid}", json={
+        "client_id": acme, "job_type": "Repair", "items": []})
+
+    assert r.status_code == 409
+
+
+# ── Filters the module exists to answer ──────────────────────────────────────
+
+def test_jobs_can_be_filtered_by_status_and_client(client, acme):
     other = client.post("/api/clients/", json={"name": "Other Co"}).json()["id"]
-    mine = _service(client, acme)["id"]
-    _service(client, other)
+    mine = _job(client, acme)["id"]
+    _job(client, other)
 
     assert [j["id"] for j in client.get(
         f"/api/service/jobs?client_id={acme}").json()] == [mine]
+    assert [j["id"] for j in client.get(
+        "/api/service/jobs?status=Draft").json()] != []
+
+
+def test_a_job_reports_whether_it_has_been_invoiced(client, acme):
+    """Billing state is derived from the invoice, never stored, so it cannot
+    drift when an invoice is voided."""
+    jid = _job(client, acme)["id"]
+
+    assert client.get(f"/api/service/jobs/{jid}").json()["invoice"] is None
 
 
 # ── Access control ───────────────────────────────────────────────────────────
@@ -263,16 +255,17 @@ def test_a_role_without_the_module_is_refused(as_role, acme):
 
 
 def test_the_role_that_runs_service_work_can_use_it(as_role, acme):
+    """The other half: a seeded grant that does not actually work is the same
+    as no grant at all."""
     ops = as_role("Operations Manager")
 
     assert ops.get("/api/service/jobs").status_code == 200
     created = ops.post("/api/service/jobs", json={
-        "client_id": acme, "job_type": "Maintenance",
-        "items": [_charge("Labour", 50)]})
+        "client_id": acme, "job_type": "Maintenance", "items": []})
     assert created.status_code == 200, created.text
 
 
-def test_a_read_only_role_cannot_record(as_role, acme):
+def test_a_read_only_role_cannot_create(as_role, acme):
     viewer = as_role("Viewer")
 
     assert viewer.get("/api/service/jobs").status_code == 200
@@ -280,6 +273,6 @@ def test_a_read_only_role_cannot_record(as_role, acme):
                        json={"client_id": acme, "items": []}).status_code == 403
 
 
-def test_an_unknown_service_is_a_404(client):
+def test_an_unknown_job_is_a_404(client):
     assert client.get("/api/service/jobs/999999").status_code == 404
     assert client.get("/api/service/equipment/999999").status_code == 404

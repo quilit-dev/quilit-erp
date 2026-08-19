@@ -27,13 +27,11 @@ def _item(client, name, qty, cost, price):
     }).json()["id"]
 
 
-def _job(client, acme, items, expect=200, **extra):
-    """Recording a service consumes its parts and posts their cost in the same
-    call — there is no separate completion step to trigger it."""
+def _job(client, acme, items, **extra):
     body = {"client_id": acme, "job_type": "Repair", "items": items}
     body.update(extra)
     r = client.post("/api/service/jobs", json=body)
-    assert r.status_code == expect, r.text
+    assert r.status_code == 200, r.text
     return r.json()
 
 
@@ -66,62 +64,67 @@ def test_completing_a_job_takes_the_parts_out_of_stock(client, acme):
     belt = _item(client, "Belt", 10, 4, 12)
     job = _job(client, acme, [_part(belt, "Belt", 3, 12)])
 
+    assert client.post(f"/api/service/jobs/{job['id']}/complete").status_code == 200
+
     assert _stock(client, belt) == pytest.approx(7)
 
 
 def test_a_labour_only_job_consumes_nothing(client, acme):
     job = _job(client, acme, [_charge("Labour", 150)])
 
-    assert job["parts_cost"] == 0
+    r = client.post(f"/api/service/jobs/{job['id']}/complete")
+
+    assert r.status_code == 200
+    assert r.json()["parts_cost"] == 0
 
 
 def test_the_cost_recognised_is_the_cost_of_the_parts(client, acme):
     belt = _item(client, "Belt", 10, 4, 12)
     job = _job(client, acme, [_part(belt, "Belt", 3, 12), _charge("Labour", 100)])
 
-    cogs = job["parts_cost"]
+    cogs = client.post(f"/api/service/jobs/{job['id']}/complete").json()["parts_cost"]
 
     # 3 units at the 4.00 COST, never the 12.00 sale price.
     assert cogs == pytest.approx(12)
 
 
-def test_each_record_consumes_once(client, acme):
-    """Recording is the only thing that moves stock, and it happens once per
-    service. Two services for the same work are two consumptions — which is
-    correct, and why cancelling exists to undo one."""
+def test_completion_is_not_repeatable(client, acme):
+    """The invariant that matters most: a second completion would consume the
+    parts twice and post the cost twice."""
     belt = _item(client, "Belt", 10, 4, 12)
+    job = _job(client, acme, [_part(belt, "Belt", 3, 12)])
+    client.post(f"/api/service/jobs/{job['id']}/complete")
 
-    _job(client, acme, [_part(belt, "Belt", 3, 12)])
+    again = client.post(f"/api/service/jobs/{job['id']}/complete")
 
-    assert _stock(client, belt) == pytest.approx(7)
+    assert again.status_code == 409
+    assert _stock(client, belt) == pytest.approx(7), "stock moved twice"
 
 
-def test_a_service_it_cannot_stock_is_refused_whole(client, acme):
-    """All or nothing. Consuming the first line and failing on the second would
-    leave stock gone for a service that was never recorded."""
+def test_a_job_it_cannot_stock_consumes_nothing_at_all(client, acme):
+    """All or nothing. A job that ran out on its second line having consumed the
+    first would leave the ledger describing a job that never completed."""
     plenty = _item(client, "Belt", 10, 4, 12)
     scarce = _item(client, "Bearing", 1, 20, 60)
+    job = _job(client, acme, [_part(plenty, "Belt", 2, 12),
+                              _part(scarce, "Bearing", 5, 60)])
 
-    r = client.post("/api/service/jobs", json={
-        "client_id": acme, "job_type": "Repair",
-        "items": [_part(plenty, "Belt", 2, 12), _part(scarce, "Bearing", 5, 60)]})
+    r = client.post(f"/api/service/jobs/{job['id']}/complete")
 
     assert r.status_code == 400
     assert "not enough stock" in r.json()["detail"].lower()
     assert _stock(client, plenty) == pytest.approx(10), "the first line was consumed"
     assert _stock(client, scarce) == pytest.approx(1)
-    # And no half-written service left behind.
-    assert client.get("/api/service/jobs").json() == []
+    assert client.get(f"/api/service/jobs/{job['id']}").json()["status"] != "Completed"
 
 
 def test_two_lines_of_the_same_part_are_checked_together(client, acme):
     """Checking each line against on-hand separately would let 3 + 3 pass
     against 5 on hand and oversell the item."""
     belt = _item(client, "Belt", 5, 4, 12)
+    job = _job(client, acme, [_part(belt, "Belt", 3, 12), _part(belt, "Belt", 3, 12)])
 
-    r = client.post("/api/service/jobs", json={
-        "client_id": acme, "job_type": "Repair",
-        "items": [_part(belt, "Belt", 3, 12), _part(belt, "Belt", 3, 12)]})
+    r = client.post(f"/api/service/jobs/{job['id']}/complete")
 
     assert r.status_code == 400
     assert _stock(client, belt) == pytest.approx(5)
@@ -130,6 +133,7 @@ def test_two_lines_of_the_same_part_are_checked_together(client, acme):
 def test_consumption_leaves_a_readable_stock_movement(client, acme):
     belt = _item(client, "Belt", 10, 4, 12)
     job = _job(client, acme, [_part(belt, "Belt", 3, 12)])
+    client.post(f"/api/service/jobs/{job['id']}/complete")
 
     moves = client.get(f"/api/inventory/{belt}/movements").json()
     mine = [m for m in moves if m["type"] == "service"]
@@ -150,6 +154,7 @@ def test_completion_posts_cost_and_no_revenue(client, acme):
     rev_before = _balance(client, "4000") + _balance(client, "4100")
 
     job = _job(client, acme, [_part(belt, "Belt", 3, 12), _charge("Labour", 100)])
+    client.post(f"/api/service/jobs/{job['id']}/complete")
 
     assert _balance(client, "5000") - cogs_before == pytest.approx(12)
     assert (_balance(client, "4000")
@@ -161,6 +166,7 @@ def test_the_cost_entry_credits_inventory_by_the_same_amount(client, acme):
     inv_before = _balance(client, "1200")
 
     job = _job(client, acme, [_part(belt, "Belt", 3, 12)])
+    client.post(f"/api/service/jobs/{job['id']}/complete")
 
     # DR COGS / CR Inventory — the asset falls by exactly what the cost rose by.
     assert _balance(client, "1200") - inv_before == pytest.approx(-12)
@@ -170,6 +176,8 @@ def test_a_labour_only_job_posts_no_entry(client, acme):
     """post_entry rejects an all-zero entry, so it must not be handed one."""
     before = _balance(client, "5000")
     job = _job(client, acme, [_charge("Labour", 150)])
+
+    assert client.post(f"/api/service/jobs/{job['id']}/complete").status_code == 200
 
     assert _balance(client, "5000") == pytest.approx(before)
 
@@ -183,6 +191,7 @@ def test_stock_leaving_and_cost_posted_never_disagree(client, acme):
 
     for qty in (1, 5, 3):
         job = _job(client, acme, [_part(belt, "Belt", qty, 12)])
+        client.post(f"/api/service/jobs/{job['id']}/complete")
 
     units_gone = stock_before - _stock(client, belt)
 
@@ -194,6 +203,7 @@ def test_the_job_records_the_cost_it_posted(client, acme):
     """So a manager can read margin off the job without opening the GL."""
     belt = _item(client, "Belt", 10, 4, 12)
     job = _job(client, acme, [_part(belt, "Belt", 3, 12), _charge("Labour", 100)])
+    client.post(f"/api/service/jobs/{job['id']}/complete")
 
     d = client.get(f"/api/service/jobs/{job['id']}").json()
 
@@ -202,25 +212,10 @@ def test_the_job_records_the_cost_it_posted(client, acme):
     assert d["total"] == pytest.approx(d["subtotal"] + d["tax_total"])
 
 
-def test_cancelling_puts_the_parts_back(client, acme):
+def test_a_cancelled_job_cannot_be_completed(client, acme):
     belt = _item(client, "Belt", 10, 4, 12)
     job = _job(client, acme, [_part(belt, "Belt", 3, 12)])
-    assert _stock(client, belt) == pytest.approx(7)
+    client.post(f"/api/service/jobs/{job['id']}/cancel", json={"reason": "declined"})
 
-    r = client.post(f"/api/service/jobs/{job['id']}/cancel", json={"reason": "mistake"})
-
-    assert r.status_code == 200, r.text
+    assert client.post(f"/api/service/jobs/{job['id']}/complete").status_code == 400
     assert _stock(client, belt) == pytest.approx(10)
-
-
-def test_cancelling_reverses_the_cost(client, acme):
-    """Net zero on both sides: the cost was recognised and then unrecognised."""
-    belt = _item(client, "Belt", 10, 4, 12)
-    cogs_before = _balance(client, "5000")
-    inv_before = _balance(client, "1200")
-
-    job = _job(client, acme, [_part(belt, "Belt", 3, 12)])
-    client.post(f"/api/service/jobs/{job['id']}/cancel", json={"reason": "mistake"})
-
-    assert _balance(client, "5000") == pytest.approx(cogs_before)
-    assert _balance(client, "1200") == pytest.approx(inv_before)

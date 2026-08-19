@@ -158,6 +158,13 @@ export const voidInvoice       = (id, reason) => api.patch(`/api/invoices/${id}/
 // one per printing. See backend/routers/invoices.py:issue_receipt_voucher.
 export const issueReceiptVoucher = (id) => api.post(`/api/invoices/${id}/receipt-voucher`);
 export const unvoidInvoice     = (id)         => api.patch(`/api/invoices/${id}/unvoid`);
+// Payment plans. The schedule is stored; which instalments are SETTLED is
+// derived from the invoice's payments on every read, so it can never disagree
+// with the balance. See backend/installments.py.
+export const getPaymentPlan    = (id)    => api.get(`/api/invoices/${id}/plan`);
+export const createPaymentPlan = (id, d) => api.post(`/api/invoices/${id}/plan`, d);
+export const deletePaymentPlan = (id)    => api.delete(`/api/invoices/${id}/plan`);
+
 export const addInvoicePayment    = (id, d)       => api.post(`/api/invoices/${id}/payments`, d);
 export const deleteInvoicePayment = (invId, payId) => api.delete(`/api/invoices/${invId}/payments/${payId}`);
 
@@ -759,9 +766,14 @@ export const unarchiveServiceEquipment = (id)   => api.patch(`/api/service/equip
 export const getServiceJobs   = (params = {}, s) => api.get(`/api/service/jobs${_qs(params)}`, s);
 export const getServiceJob    = (id)        => api.get(`/api/service/jobs/${id}`);
 export const createServiceJob = (d)         => api.post('/api/service/jobs', d);
-// Recording a service consumes its parts, posts their cost and raises the
-// invoice in one call; cancelling reverses all three. There are no other
-// transitions, which is the whole shape of this module.
+export const updateServiceJob = (id, d)     => api.put(`/api/service/jobs/${id}`, d);
+// One endpoint per transition, mirroring the backend: a single "set status"
+// call would let the UI walk a job to Completed and skip the parts consumption
+// that Completed performs.
+export const scheduleServiceJob = (id, d)   => api.post(`/api/service/jobs/${id}/schedule`, d);
+export const startServiceJob    = (id)      => api.post(`/api/service/jobs/${id}/start`);
+export const completeServiceJob = (id)      => api.post(`/api/service/jobs/${id}/complete`);
+export const reopenServiceJob   = (id)      => api.post(`/api/service/jobs/${id}/reopen`);
 export const cancelServiceJob   = (id, d)   => api.post(`/api/service/jobs/${id}/cancel`, d);
 export const invoiceServiceJob  = (id)      => api.post(`/api/service/jobs/${id}/invoice`);
 export const archiveServiceJob   = (id)     => api.patch(`/api/service/jobs/${id}/archive`);

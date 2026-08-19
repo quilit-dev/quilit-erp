@@ -102,10 +102,22 @@ function TransactionsPanel() {
     finally { setSaving(false); }
   }
 
+  // How many rows this void will actually take with it. A quarterly or annual
+  // bill is one payment split across the months it covers, and the server
+  // unwinds the whole payment — so the count has to be on screen BEFORE the
+  // click, not discovered afterwards.
+  const voidGroupSize = useMemo(() => {
+    const g = voidTarget?.recurring_occurrence_id;
+    if (!g) return 1;
+    const n = (expenses || []).filter(
+      e => e.recurring_occurrence_id === g && !e.voided_at).length;
+    return n || 1;
+  }, [voidTarget, expenses]);
+
   async function handleVoid() {
     try {
-      await voidExpense(voidTarget.id, voidReason.trim() || null);
-      toast(t('expenses.expenseVoided'));
+      const res = await voidExpense(voidTarget.id, voidReason.trim() || null);
+      toast(res?.message || t('expenses.expenseVoided'));
       setVoidTarget(null);
       setVoidReason('');
       reload();
@@ -431,6 +443,18 @@ function TransactionsPanel() {
             <p style={{ fontSize: 14, color: 'var(--text-2)', marginBottom: 14 }}>
               {t('expenses.voidMsg')}
             </p>
+            {voidGroupSize > 1 && (
+              <div style={{
+                display: 'flex', gap: 10, padding: '12px 14px',
+                background: '#fef3c7', border: '1px solid #f59e0b',
+                borderRadius: 8, marginBottom: 16,
+              }}>
+                <span style={{ fontSize: 18 }}>⚠️</span>
+                <span style={{ fontSize: 13, color: '#78350f' }}>
+                  {t('expenses.voidWholePayment', { count: voidGroupSize })}
+                </span>
+              </div>
+            )}
             <div className="form-group">
               <input
                 className="form-control"

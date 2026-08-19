@@ -2358,11 +2358,13 @@ def _run_migrations(conn, c):
             ("1000", "Cash & Bank",              "Asset",     "debit",  "Current Asset"),
             ("1100", "Accounts Receivable",      "Asset",     "debit",  "Current Asset"),
             ("1200", "Inventory",                "Asset",     "debit",  "Current Asset"),
+            ("1300", "Prepaid Expenses",         "Asset",     "debit",  "Current Asset"),
             ("1500", "Fixed Assets",             "Asset",     "debit",  "Non-Current Asset"),
             ("1510", "Accumulated Depreciation", "Asset",     "credit", "Contra Asset"),
             ("2000", "Accounts Payable",         "Liability", "credit", "Current Liability"),
             ("2100", "VAT Payable",              "Liability", "credit", "Current Liability"),
             ("2200", "Payroll Liabilities",      "Liability", "credit", "Current Liability"),
+            ("2400", "Deferred Revenue",          "Liability", "credit", "Current Liability"),
             ("3000", "Owner's Equity",           "Equity",    "credit", "Equity"),
             ("3900", "Retained Earnings",        "Equity",    "credit", "Equity"),
             ("4000", "Sales Revenue",            "Income",    "credit", "Operating Income"),
@@ -3283,6 +3285,86 @@ def _run_migrations(conn, c):
         )
         done("144f_account_4100")
 
+    # Raising an invoice now books a receivable, and cash-basis recognition means
+    # its credit side is a liability until the money arrives. Without this
+    # account that posting has nowhere to land and every invoice would 500.
+    if need("146_account_2400"):
+        _ts = datetime.utcnow().strftime("%Y-%m-%d %H:%M:%S")
+        c.execute(
+            "INSERT OR IGNORE INTO chart_of_accounts "
+            "(code, name, type, subtype, normal_balance, is_system, is_active, created_at) "
+            "VALUES (?,?,?,?,?,1,1,?)",
+            ("2400", "Deferred Revenue", "Liability", "Current Liability", "credit", _ts),
+        )
+        done("146_account_2400")
+
+    # Hourly staff. `salary` has always meant a MONTHLY figure, so an employee
+    # paid by the hour had nowhere to record their rate and payroll had nothing
+    # to work from — the month's pay had to be multiplied out by hand and typed
+    # over the prefilled figure, every month, with nothing recording how it was
+    # reached.
+    add_col("149a_employee_pay_type", "hr_employees", "pay_type",
+            "ALTER TABLE hr_employees ADD COLUMN pay_type TEXT DEFAULT 'Salaried'")
+    add_col("149b_employee_hourly_rate", "hr_employees", "hourly_rate",
+            "ALTER TABLE hr_employees ADD COLUMN hourly_rate REAL DEFAULT 0")
+    # Stored ON the line, not recomputed at read time: a payslip has to keep
+    # saying what it said the day it was paid, even after the employee's rate
+    # changes or an attendance day is corrected.
+    add_col("149c_payroll_line_hours", "hr_payroll_lines", "hours_worked",
+            "ALTER TABLE hr_payroll_lines ADD COLUMN hours_worked REAL DEFAULT 0")
+    add_col("149d_payroll_line_rate", "hr_payroll_lines", "hourly_rate",
+            "ALTER TABLE hr_payroll_lines ADD COLUMN hourly_rate REAL DEFAULT 0")
+
+    # Which expense rows came from ONE recurring payment. A quarterly bill now
+    # produces three monthly rows, and they are a single real event: voiding one
+    # has to undo the payment behind all three, or the prepayment it created is
+    # stranded on the balance sheet with nothing left to release it.
+    add_col("148_expense_occurrence", "expenses", "recurring_occurrence_id",
+            "ALTER TABLE expenses ADD COLUMN recurring_occurrence_id INTEGER")
+
+    # Recurring costs that cover several months are held here and released one
+    # month at a time, so the account has to exist before the first quarterly
+    # template runs or the posting has nowhere to land.
+    if need("147_account_1300"):
+        _ts = datetime.utcnow().strftime("%Y-%m-%d %H:%M:%S")
+        c.execute(
+            "INSERT OR IGNORE INTO chart_of_accounts "
+            "(code, name, type, subtype, normal_balance, is_system, is_active, created_at) "
+            "VALUES (?,?,?,?,?,1,1,?)",
+            ("1300", "Prepaid Expenses", "Asset", "Current Asset", "debit", _ts),
+        )
+        done("147_account_1300")
+
+    # ── 145: instalment plans — an agreed schedule against ONE invoice ───────
+    # A plan is a schedule, not a set of invoices. Revenue and VAT are already
+    # recognised on payment and already proportional, so an instalment needs no
+    # accounting of its own; what it needs is a due date the arrears reporting
+    # can see, which a single invoice-level due_date cannot express.
+    #
+    # There is deliberately NO status column and no allocation table. Which
+    # instalments are settled is derived by comparing cumulative paid against
+    # cumulative scheduled, so the only number of record stays the invoice's own
+    # total_paid and the two cannot drift apart.
+    if need("145a_invoice_installments"):
+        c.execute("""
+            CREATE TABLE IF NOT EXISTS invoice_installments (
+                id          INTEGER PRIMARY KEY AUTOINCREMENT,
+                invoice_id  INTEGER NOT NULL REFERENCES invoices(id) ON DELETE CASCADE,
+                seq         INTEGER NOT NULL,
+                due_date    TEXT NOT NULL,
+                amount      REAL NOT NULL,
+                note        TEXT,
+                created_at  TEXT NOT NULL
+            )
+        """)
+        c.execute("CREATE UNIQUE INDEX IF NOT EXISTS idx_installments_invoice_seq "
+                  "ON invoice_installments(invoice_id, seq)")
+        # The arrears sweep walks unpaid instalments by date across every
+        # invoice, so that is the index it needs.
+        c.execute("CREATE INDEX IF NOT EXISTS idx_installments_due "
+                  "ON invoice_installments(due_date)")
+        done("145a_invoice_installments")
+
     conn.commit()
 
 
@@ -3740,6 +3822,21 @@ def _ensure_pg_post_baseline(raw):
                     "ON service_job_lines(job_id)")
         cur.execute("CREATE INDEX IF NOT EXISTS idx_service_job_lines_item "
                     "ON service_job_lines(inventory_id)")
+        cur.execute("""
+            CREATE TABLE IF NOT EXISTS invoice_installments (
+                id          INTEGER GENERATED BY DEFAULT AS IDENTITY PRIMARY KEY,
+                invoice_id  INTEGER NOT NULL REFERENCES invoices(id) ON DELETE CASCADE,
+                seq         INTEGER NOT NULL,
+                due_date    TEXT NOT NULL,
+                amount      DOUBLE PRECISION NOT NULL,
+                note        TEXT,
+                created_at  TEXT NOT NULL
+            )
+        """)
+        cur.execute("CREATE UNIQUE INDEX IF NOT EXISTS idx_installments_invoice_seq "
+                    "ON invoice_installments(invoice_id, seq)")
+        cur.execute("CREATE INDEX IF NOT EXISTS idx_installments_due "
+                    "ON invoice_installments(due_date)")
         cur.execute("ALTER TABLE invoices ADD COLUMN IF NOT EXISTS service_job_id "
                     "INTEGER REFERENCES service_jobs(id)")
         # Partial unique index: one LIVE invoice per job, enforced by the
@@ -3751,10 +3848,32 @@ def _ensure_pg_post_baseline(raw):
                     "ON invoices(service_job_id) "
                     "WHERE service_job_id IS NOT NULL AND voided_at IS NULL")
         cur.execute("ALTER TABLE invoice_items ADD COLUMN IF NOT EXISTS revenue_account TEXT")
+        cur.execute("ALTER TABLE expenses ADD COLUMN IF NOT EXISTS "
+                    "recurring_occurrence_id INTEGER")
+        cur.execute("ALTER TABLE hr_employees ADD COLUMN IF NOT EXISTS "
+                    "pay_type TEXT DEFAULT 'Salaried'")
+        cur.execute("ALTER TABLE hr_employees ADD COLUMN IF NOT EXISTS "
+                    "hourly_rate DOUBLE PRECISION DEFAULT 0")
+        cur.execute("ALTER TABLE hr_payroll_lines ADD COLUMN IF NOT EXISTS "
+                    "hours_worked DOUBLE PRECISION DEFAULT 0")
+        cur.execute("ALTER TABLE hr_payroll_lines ADD COLUMN IF NOT EXISTS "
+                    "hourly_rate DOUBLE PRECISION DEFAULT 0")
         cur.execute(
             "INSERT INTO chart_of_accounts "
             "(code, name, type, subtype, normal_balance, is_system, is_active, created_at) "
             "VALUES ('4100','Service Revenue','Income','Operating Income','credit',1,1,"
+            "to_char(now(),'YYYY-MM-DD HH24:MI:SS')) ON CONFLICT (code) DO NOTHING"
+        )
+        cur.execute(
+            "INSERT INTO chart_of_accounts "
+            "(code, name, type, subtype, normal_balance, is_system, is_active, created_at) "
+            "VALUES ('2400','Deferred Revenue','Liability','Current Liability','credit',1,1,"
+            "to_char(now(),'YYYY-MM-DD HH24:MI:SS')) ON CONFLICT (code) DO NOTHING"
+        )
+        cur.execute(
+            "INSERT INTO chart_of_accounts "
+            "(code, name, type, subtype, normal_balance, is_system, is_active, created_at) "
+            "VALUES ('1300','Prepaid Expenses','Asset','Current Asset','debit',1,1,"
             "to_char(now(),'YYYY-MM-DD HH24:MI:SS')) ON CONFLICT (code) DO NOTHING"
         )
     raw.commit()

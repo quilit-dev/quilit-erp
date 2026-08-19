@@ -69,11 +69,20 @@ def test_invoice_void_unvoid_round_trips_the_ledger(make_client, db):
               params={"start": "2000-01-01", "end": "2099-12-31"}).json()
     assert s["income"] == pytest.approx(500, abs=CENT)
 
-    # The audit trail keeps all three ledger movements (post, reversal, repost).
+    # The audit trail keeps every ledger movement: the payment, its reversal,
+    # the reversal of the invoice's own receivable, and the re-post on unvoid.
+    # Four rather than three because voiding an invoice now also reverses the
+    # claim it created — leaving that standing would keep asserting an asset the
+    # business no longer has.
     n = db.execute(
         "SELECT COUNT(*) n FROM journal_entries "
         "WHERE source_type IN ('invoice_payment', 'reversal')").fetchone()["n"]
-    assert n == 3
+    assert n == 4
+
+    # And the round trip really is a round trip: the receivable and its deferred
+    # revenue are both back to nil on a fully paid invoice.
+    assert _tb_balance(c, "1100")[0] - _tb_balance(c, "1100")[1] == pytest.approx(0, abs=CENT)
+    assert _tb_balance(c, "2400")[0] - _tb_balance(c, "2400")[1] == pytest.approx(0, abs=CENT)
 
     # A second void → unvoid cycle must work too (no idempotency-key residue).
     assert c.patch(f"/api/invoices/{iid}/void",

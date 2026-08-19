@@ -38,7 +38,7 @@ expenses on payment. The system's Finance dashboard uses this. Contrast
 with **accrual basis**.
 
 **Chart of Accounts (COA)** — The catalogue of all GL accounts with their
-type, normal balance, and code. 30 seeded accounts ship with the system.
+type, normal balance, and code. 32 seeded accounts ship with the system.
 
 **COGS (Cost of Goods Sold)** — Direct cost of items sold. Account 5000.
 Posted on every sale of a stock-backed item via `DR COGS / CR Inventory`.

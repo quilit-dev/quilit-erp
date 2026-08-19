@@ -55,13 +55,20 @@ def test_invoice_payment_posts_balanced_entry(make_client):
     assert resp["total"] == 1
     assert len(entries) == 1
     je = entries[0]
-    assert je["total_debit"] == pytest.approx(1000)
-    assert je["total_credit"] == pytest.approx(1000)
+    # Four legs, not two. A payment against an invoice carrying a receivable
+    # does two things at once: it turns the claim into cash, and it earns the
+    # revenue that was being held in deferred. So the entry totals twice the
+    # payment while still balancing, which is the property this test is named
+    # for and the one that matters.
+    assert je["total_debit"] == pytest.approx(je["total_credit"])
+    assert je["total_debit"] == pytest.approx(2000)
 
     full = c.get(f"/api/accounting/journal-entries/{je['id']}").json()
     by_code = {l["account_code"]: l for l in full["lines"]}
     assert by_code["1000"]["debit"] == pytest.approx(1000)    # DR Cash
     assert by_code["4000"]["credit"] == pytest.approx(1000)   # CR Revenue
+    assert by_code["1100"]["credit"] == pytest.approx(1000)   # CR Receivable settled
+    assert by_code["2400"]["debit"] == pytest.approx(1000)    # DR Deferred, now earned
 
 
 def test_trial_balance_and_balance_sheet_balance(make_client):

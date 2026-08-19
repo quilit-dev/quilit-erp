@@ -91,8 +91,15 @@ function AgingReport({ t }) {
                     const ov = inv.days_overdue || 0;
                     const ovColor = ov === 0 ? 'var(--green)' : ov <= 30 ? 'var(--yellow)' : ov <= 60 ? 'var(--orange, #e67e22)' : 'var(--red)';
                     return (
-                      <tr key={inv.id}>
-                        <td className="td-primary">{inv.invoice_number}</td>
+                      <tr key={inv.row_key || inv.id}>
+                        <td className="td-primary">
+                          {inv.invoice_number}
+                          {inv.plan_note && (
+                            <div style={{ fontSize: 11, color: 'var(--text-3)', fontWeight: 400 }}>
+                              {inv.plan_note}
+                            </div>
+                          )}
+                        </td>
                         <td>{inv.client_name || '—'}</td>
                         <td>{inv.project_name || '—'}</td>
                         <td style={{ textAlign: 'right' }}>{fmt(inv.amount)}</td>

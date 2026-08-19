@@ -1,20 +1,19 @@
 /**
- * Service — repairs, maintenance and installations that have been carried out.
+ * Service — maintenance, installation and repair jobs.
  *
- * Two tabs because the module has two nouns: the SERVICES done, and the customer
- * EQUIPMENT they were done on. Equipment is a record rather than a text field,
- * so a machine accumulates a history you can read back.
+ * Two tabs because the module has two nouns: the JOBS being done, and the
+ * customer EQUIPMENT they are done on. Equipment is a record rather than a text
+ * field on the job, so a machine accumulates a history you can read back.
  *
- * A service is a record of completed work, not a plan. Recording one consumes
- * its parts, posts their cost and raises the invoice in a single step — so the
- * only other action here is Cancel, which reverses all three. There is no draft,
- * no schedule and no start/finish ladder, because this module does not track
- * work in flight.
+ * Status is driven by one endpoint per transition rather than a status dropdown.
+ * That mirrors the backend deliberately: completing a job consumes stock and
+ * posts its cost, so it is an action with consequences, not a field to edit.
  */
 import { useState } from 'react';
 import { useData } from '../hooks/useData';
 import {
-  getServiceJobs, getServiceJob, cancelServiceJob, invoiceServiceJob,
+  getServiceJobs, getServiceJob, startServiceJob, completeServiceJob,
+  reopenServiceJob, invoiceServiceJob,
   getServiceEquipment, getServiceEquipmentOne, getClients,
 } from '../api/client';
 import {
@@ -25,6 +24,12 @@ import { useLocale } from '../hooks/useLocale.jsx';
 import { usePermissions } from '../hooks/usePermissions';
 import JobForm from './service/JobForm.jsx';
 import EquipmentForm from './service/EquipmentForm.jsx';
+import { printWorkOrder } from '../utils/workOrder';
+
+const STATUS_COLOR = {
+  Draft: 'gray', Scheduled: 'blue', 'In Progress': 'yellow',
+  Completed: 'green', Cancelled: 'red',
+};
 
 export default function Service() {
   const { t } = useLocale();
@@ -32,9 +37,10 @@ export default function Service() {
   const [view, setView] = useState('jobs');
   const [modal, setModal] = useState(null);
   const [active, setActive] = useState(null);
-  const [cancelling, setCancelling] = useState(null);
+  const [statusFilter, setStatusFilter] = useState('');
 
-  const jobs = useData(getServiceJobs, []);
+  const jobs = useData(() => getServiceJobs(statusFilter ? { status: statusFilter } : {}),
+                       [statusFilter]);
   const equipment = useData(getServiceEquipment, []);
   const clients = useData(getClients, []);
 
@@ -47,18 +53,20 @@ export default function Service() {
     } catch (err) { toast(err.message, 'red'); }
   }
 
-  async function doCancel(id) {
+  /** Every transition goes through here so the confirm, the toast and the
+   *  reload are identical whichever button was pressed. */
+  async function transition(fn, id, successMsg) {
     try {
-      const r = await cancelServiceJob(id, { reason: t('service.cancelledByUser') });
-      toast(r.voided_invoice
-        ? `${t('service.cancelled')} — ${t('service.invoiceVoided')}: ${r.voided_invoice}`
-        : t('service.cancelled'));
-      setCancelling(null);
-      setModal(null);
+      const res = await fn(id);
+      // Completing may also raise the invoice (Settings → service auto-invoice).
+      // Say so, with the number: a silent invoice is one nobody knows to chase.
+      toast(res?.invoice?.invoice_number
+        ? `${successMsg} — ${t('service.invoiceRaised')}: ${res.invoice.invoice_number}`
+        : successMsg);
       reload();
+      if (active?.id === id) setActive(await getServiceJob(id));
     } catch (err) {
       toast(err.message, 'red');
-      setCancelling(null);
     }
   }
 
@@ -70,6 +78,9 @@ export default function Service() {
       <div className="page-header">
         <h1>{t('service.title')}</h1>
         <div style={{ display: 'flex', gap: 8, alignItems: 'center' }}>
+          {/* Same two-view toggle Inventory uses for Items/Lots. The `.tab`
+              class this first used does not exist — the stylesheet defines
+              `.tab-btn` — so the buttons rendered completely unstyled. */}
           <button className={`btn btn-sm ${view === 'jobs' ? 'btn-primary' : 'btn-secondary'}`}
                   onClick={() => setView('jobs')}>{t('service.jobs')}</button>
           <button className={`btn btn-sm ${view === 'equipment' ? 'btn-primary' : 'btn-secondary'}`}
@@ -93,54 +104,62 @@ export default function Service() {
       {busy && <LoadingSpinner />}
 
       {!busy && view === 'jobs' && (
-        !jobs.data?.length ? <EmptyState message={t('service.noJobs')} /> : (
-          <div className="table-wrap">
-            <table>
-              <thead>
-                <tr>
-                  <th>{t('service.jobNumber')}</th>
-                  <th>{t('common.client')}</th>
-                  <th>{t('service.equipment')}</th>
-                  <th>{t('service.jobType')}</th>
-                  <th>{t('service.serviceDate')}</th>
-                  <th>{t('service.assignedTo')}</th>
-                  <th className="text-right">{t('common.total')}</th>
-                  <th>{t('common.status')}</th>
-                </tr>
-              </thead>
-              <tbody>
-                {jobs.data.map(j => (
-                  <tr key={j.id}>
-                    <td>
-                      <button style={{ fontWeight: 600, color: 'var(--accent)',
-                                       background: 'none', border: 'none',
-                                       cursor: 'pointer', padding: 0 }}
-                              onClick={() => open(j.id)}>{j.job_number}</button>
-                    </td>
-                    <td>{j.client_name}</td>
-                    <td>{j.equipment_name || <span style={{ color: 'var(--text-3)' }}>—</span>}</td>
-                    <td>{j.job_type}</td>
-                    <td>{j.completed_at ? fmtDate(j.completed_at)
-                                        : <span style={{ color: 'var(--text-3)' }}>—</span>}</td>
-                    <td>{j.assigned_name || <span style={{ color: 'var(--text-3)' }}>{t('service.unassigned')}</span>}</td>
-                    <td className="text-right">{fmt(j.total)}</td>
-                    <td>
-                      {/* Billed state is derived from the invoice, so it stays
-                          correct when one is voided. */}
-                      {j.status === 'Cancelled'
-                        ? <span className="badge badge-red">{t('service.statusCancelled')}</span>
-                        : (
+        <>
+          <div className="filter-group">
+            <select className="form-control" value={statusFilter}
+                    onChange={e => setStatusFilter(e.target.value)}>
+              <option value="">{t('common.all')}</option>
+              {['Draft', 'Scheduled', 'In Progress', 'Completed', 'Cancelled'].map(s => (
+                <option key={s} value={s}>{t(`service.status${s.replace(/\s/g, '')}`)}</option>
+              ))}
+            </select>
+          </div>
+          {!jobs.data?.length ? <EmptyState message={t('service.noJobs')} /> : (
+            <div className="table-wrap">
+              <table>
+                <thead>
+                  <tr>
+                    <th>{t('service.jobNumber')}</th>
+                    <th>{t('common.client')}</th>
+                    <th>{t('service.equipment')}</th>
+                    <th>{t('service.jobType')}</th>
+                    <th>{t('common.status')}</th>
+                    <th>{t('service.scheduledDate')}</th>
+                    <th>{t('service.assignedTo')}</th>
+                    <th className="text-right">{t('common.total')}</th>
+                    <th>{t('common.actions')}</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {jobs.data.map(j => (
+                    <tr key={j.id}>
+                      <td><button style={{ fontWeight: 600, color: 'var(--accent)', background: 'none', border: 'none', cursor: 'pointer', padding: 0 }}
+                              onClick={() => open(j.id)}>{j.job_number}</button></td>
+                      <td>{j.client_name}</td>
+                      <td>{j.equipment_name || <span style={{ color: 'var(--text-3)' }}>—</span>}</td>
+                      <td>{j.job_type}</td>
+                      <td><span className={`badge badge-${STATUS_COLOR[j.status] || 'gray'}`}>
+                        {t(`service.status${(j.status || '').replace(/\s/g, '')}`)}
+                      </span></td>
+                      <td>{j.scheduled_date ? fmtDate(j.scheduled_date) : <span style={{ color: 'var(--text-3)' }}>—</span>}</td>
+                      <td>{j.assigned_name || <span style={{ color: 'var(--text-3)' }}>{t('service.unassigned')}</span>}</td>
+                      <td className="text-right">{fmt(j.total)}</td>
+                      <td>
+                        {/* Invoiced state is derived from the invoice, so it
+                            stays correct when one is voided. */}
+                        {j.status === 'Completed' && (
                           <span className={`badge badge-${j.invoice_id ? 'green' : 'yellow'}`}>
                             {j.invoice_id ? t('service.billed') : t('service.unbilled')}
                           </span>
                         )}
-                    </td>
-                  </tr>
-                ))}
-              </tbody>
-            </table>
-          </div>
-        )
+                      </td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            </div>
+          )}
+        </>
       )}
 
       {!busy && view === 'equipment' && (
@@ -194,16 +213,12 @@ export default function Service() {
       )}
 
       {modal === 'job' && (
-        <Modal title={t('service.newJob')} onClose={() => setModal(null)} size="modal-lg">
+        <Modal title={active ? t('service.jobs') : t('service.newJob')}
+               onClose={() => setModal(null)} size="modal-lg">
           <JobForm
+            job={active}
             clients={clients.data || []}
-            onDone={(res) => {
-              setModal(null);
-              reload();
-              toast(res?.invoice?.invoice_number
-                ? `${t('service.jobCreated')} — ${t('service.invoiceRaised')}: ${res.invoice.invoice_number}`
-                : t('service.jobCreated'));
-            }}
+            onDone={() => { setModal(null); reload(); }}
             onCancel={() => setModal(null)}
           />
         </Modal>
@@ -224,103 +239,87 @@ export default function Service() {
       {modal === 'equipmentDetail' && active && (
         <Modal title={active.name} onClose={() => setModal(null)} size="modal-lg">
           <div className="modal-body">
-            <div className="form-grid">
-              <Row label={t('common.client')} value={active.client_name} />
-              <Row label={t('service.manufacturer')} value={active.manufacturer} />
-              <Row label={t('service.model')} value={active.model} />
-              <Row label={t('service.serialNumber')} value={active.serial_number} />
-              <Row label={t('service.installDate')}
-                   value={active.install_date ? fmtDate(active.install_date) : null} />
-              <Row label={t('service.location')} value={active.location} />
-            </div>
-            <h3>{t('service.serviceHistory')}</h3>
-            {!active.jobs?.length ? <EmptyState message={t('service.noJobs')} /> : (
-              <table>
-                <thead><tr>
-                  <th>{t('service.jobNumber')}</th><th>{t('service.jobType')}</th>
-                  <th>{t('service.serviceDate')}</th>
-                  <th className="text-right">{t('common.total')}</th>
-                </tr></thead>
-                <tbody>
-                  {active.jobs.map(j => (
-                    <tr key={j.id}>
-                      <td>{j.job_number}</td>
-                      <td>{j.job_type}</td>
-                      <td>{j.completed_at ? fmtDate(j.completed_at) : '—'}</td>
-                      <td className="text-right">{fmt(j.total)}</td>
-                    </tr>
-                  ))}
-                </tbody>
-              </table>
-            )}
+          <div className="form-grid">
+            <div><label>{t('common.client')}</label><span>{active.client_name}</span></div>
+            <div><label>{t('service.manufacturer')}</label><span>{active.manufacturer || '—'}</span></div>
+            <div><label>{t('service.model')}</label><span>{active.model || '—'}</span></div>
+            <div><label>{t('service.serialNumber')}</label><span>{active.serial_number || '—'}</span></div>
+            <div><label>{t('service.installDate')}</label><span>{active.install_date ? fmtDate(active.install_date) : '—'}</span></div>
+            <div><label>{t('service.location')}</label><span>{active.location || '—'}</span></div>
+          </div>
+          <h3 style={{ marginTop: 20 }}>{t('service.serviceHistory')}</h3>
+          {!active.jobs?.length ? <EmptyState message={t('service.noJobs')} /> : (
+            <table>
+              <thead><tr>
+                <th>{t('service.jobNumber')}</th><th>{t('service.jobType')}</th>
+                <th>{t('common.status')}</th><th>{t('service.completedAt')}</th>
+                <th className="text-right">{t('common.total')}</th>
+              </tr></thead>
+              <tbody>
+                {active.jobs.map(j => (
+                  <tr key={j.id}>
+                    <td>{j.job_number}</td>
+                    <td>{j.job_type}</td>
+                    <td>{t(`service.status${(j.status || '').replace(/\s/g, '')}`)}</td>
+                    <td>{j.completed_at ? fmtDate(j.completed_at) : '—'}</td>
+                    <td className="text-right">{fmt(j.total)}</td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          )}
           </div>
         </Modal>
       )}
 
       {modal === 'detail' && active && (
         <Modal title={active.job_number} onClose={() => setModal(null)} size="modal-lg">
-          <JobDetail job={active} t={t} />
-          <div className="modal-footer" style={{ flexWrap: 'wrap', gap: 8 }}>
-            {active.status !== 'Cancelled' && !active.invoice && can('service', 'create') && (
-              <button className="btn btn-secondary" onClick={async () => {
-                try {
-                  const r = await invoiceServiceJob(active.id);
-                  toast(`${t('service.invoiceRaised')}: ${r.invoice_number}`);
-                  reload();
-                  setActive(await getServiceJob(active.id));
-                } catch (err) { toast(err.message, 'red'); }
-              }}>{t('service.raiseInvoice')}</button>
-            )}
-            {active.status !== 'Cancelled' && can('service', 'delete') && (
-              <button className="btn btn-danger"
-                      onClick={() => setCancelling(active.id)}>
-                {t('service.cancel')}
-              </button>
-            )}
-          </div>
+          <JobDetail
+            job={active}
+            can={can}
+            t={t}
+            onEdit={() => setModal('job')}
+            onTransition={transition}
+            onInvoice={async () => {
+              try {
+                const r = await invoiceServiceJob(active.id);
+                toast(`${t('service.invoiceRaised')}: ${r.invoice_number}`);
+                reload();
+                setActive(await getServiceJob(active.id));
+              } catch (err) { toast(err.message, 'red'); }
+            }}
+          />
         </Modal>
       )}
-
-      {cancelling && (
-        <ConfirmModal
-          message={t('service.cancelConfirm')}
-          confirmLabel={t('service.cancel')}
-          confirmClass="btn-danger"
-          onConfirm={() => doCancel(cancelling)}
-          onCancel={() => setCancelling(null)}
-        />
-      )}
     </div>
   );
 }
 
-/** One label/value pair in a detail grid. `.form-group` is what stacks the
- *  label above its value — without it the two run together on screen. */
-function Row({ label, value }) {
-  return (
-    <div className="form-group">
-      <label className="form-label">{label}</label>
-      <span>{value || '—'}</span>
-    </div>
-  );
-}
-
-/** The service record: what was wrong, what was done, what it cost. */
-function JobDetail({ job, t }) {
+/** The job sheet: what was asked for, what was done, what it cost. */
+function JobDetail({ job, can, t, onEdit, onTransition, onInvoice }) {
+  const open = ['Draft', 'Scheduled', 'In Progress'].includes(job.status);
   const parts = (job.lines || []).filter(l => l.line_type === 'part');
   const charges = (job.lines || []).filter(l => l.line_type === 'charge');
 
   return (
-    <div className="modal-body">
+    <>
+      {/* The scrolling, padded region. .modal is overflow:hidden, so anything
+          outside this cannot scroll and gets no padding — which is what made
+          the first version of these screens look unstyled. */}
+      <div className="modal-body">
       <div className="form-grid">
-        <Row label={t('common.client')} value={job.client_name} />
-        <Row label={t('service.equipment')}
-             value={job.equipment
-               ? `${job.equipment.name}${job.equipment.serial_number ? ` (${job.equipment.serial_number})` : ''}`
-               : null} />
-        <Row label={t('service.jobType')} value={job.job_type} />
-        <Row label={t('service.serviceDate')}
-             value={job.completed_at ? fmtDate(job.completed_at) : null} />
+        <div><label>{t('common.client')}</label><span>{job.client_name}</span></div>
+        <div><label>{t('service.equipment')}</label>
+          <span>{job.equipment ? `${job.equipment.name}${job.equipment.serial_number ? ` (${job.equipment.serial_number})` : ''}` : '—'}</span></div>
+        <div><label>{t('service.jobType')}</label><span>{job.job_type}</span></div>
+        <div><label>{t('common.status')}</label>
+          <span className={`badge badge-${STATUS_COLOR[job.status] || 'gray'}`}>
+            {t(`service.status${(job.status || '').replace(/\s/g, '')}`)}
+          </span></div>
+        <div><label>{t('service.scheduledDate')}</label>
+          <span>{job.scheduled_date ? fmtDate(job.scheduled_date) : '—'}</span></div>
+        <div><label>{t('service.completedAt')}</label>
+          <span>{job.completed_at ? fmtDate(job.completed_at) : '—'}</span></div>
       </div>
 
       {job.reported_fault && (
@@ -329,18 +328,12 @@ function JobDetail({ job, t }) {
       {job.work_done && (
         <p><strong>{t('service.workDone')}:</strong> {job.work_done}</p>
       )}
-      {job.status === 'Cancelled' && (
-        <p><span className="badge badge-red">{t('service.statusCancelled')}</span>{' '}
-          {job.cancel_reason}</p>
-      )}
 
       <h3>{t('service.partsAndCharges')}</h3>
       <table>
         <thead><tr>
-          <th>{t('common.description')}</th>
-          <th className="text-right">{t('common.quantity')}</th>
-          <th className="text-right">{t('common.unitPrice')}</th>
-          <th className="text-right">{t('common.total')}</th>
+          <th>{t('common.description')}</th><th className="text-right">{t('common.quantity')}</th>
+          <th className="text-right">{t('common.unitPrice')}</th><th className="text-right">{t('common.total')}</th>
         </tr></thead>
         <tbody>
           {[...parts, ...charges].map(l => (
@@ -365,7 +358,7 @@ function JobDetail({ job, t }) {
           )}
           <tr><td colSpan="3" className="text-right"><strong>{t('common.total')}</strong></td>
               <td className="text-right"><strong>{fmt(job.total)}</strong></td></tr>
-          {job.status !== 'Cancelled' && (
+          {job.status === 'Completed' && (
             <>
               <tr><td colSpan="3" className="text-right">{t('service.partsCost')}</td>
                   <td className="text-right">{fmt(job.parts_cost)}</td></tr>
@@ -381,6 +374,62 @@ function JobDetail({ job, t }) {
           <strong>{t('service.billed')}:</strong> {job.invoice.invoice_number}
         </p>
       )}
-    </div>
+
+      </div>
+
+      <div className="modal-footer" style={{ flexWrap: 'wrap', gap: 8 }}>
+        <button className="btn btn-secondary"
+                onClick={() => printWorkOrder(job)}>{t('service.workOrder')}</button>
+        {open && can('service', 'edit') && (
+          <button className="btn btn-secondary" onClick={onEdit}>{t('common.edit')}</button>
+        )}
+        {['Draft', 'Scheduled'].includes(job.status) && can('service', 'edit') && (
+          <button className="btn btn-secondary"
+                  onClick={() => onTransition(startServiceJob, job.id, t('service.start'))}>
+            {t('service.start')}
+          </button>
+        )}
+        {open && can('service', 'edit') && (
+          <ConfirmButton
+            className="btn btn-primary"
+            label={t('service.complete')}
+            message={t('service.completeConfirm')}
+            onConfirm={() => onTransition(completeServiceJob, job.id, t('service.jobCompleted'))}
+          />
+        )}
+        {job.status === 'Completed' && !job.invoice && can('service', 'create') && (
+          <button className="btn btn-primary" onClick={onInvoice}>
+            {t('service.raiseInvoice')}
+          </button>
+        )}
+        {job.status === 'Completed' && !job.invoice && can('service', 'edit') && (
+          <ConfirmButton
+            className="btn btn-secondary"
+            label={t('service.reopen')}
+            message={t('service.reopenConfirm')}
+            onConfirm={() => onTransition(reopenServiceJob, job.id, t('service.jobReopened'))}
+          />
+        )}
+      </div>
+    </>
+  );
+}
+
+/** A button that asks first. Completing and reopening both move stock and post
+ *  to the ledger, so neither should be one careless click away. */
+function ConfirmButton({ className, label, message, onConfirm }) {
+  const [asking, setAsking] = useState(false);
+  return (
+    <>
+      <button className={className} onClick={() => setAsking(true)}>{label}</button>
+      {asking && (
+        <ConfirmModal
+          message={message}
+          confirmLabel={label}
+          onConfirm={() => { setAsking(false); onConfirm(); }}
+          onCancel={() => setAsking(false)}
+        />
+      )}
+    </>
   );
 }

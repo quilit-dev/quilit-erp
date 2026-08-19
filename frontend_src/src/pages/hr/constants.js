@@ -21,11 +21,17 @@ export const CHANGE_TYPES = [
   '', 'raise', 'promotion', 'demotion', 'role_change', 'transfer', 'adjustment',
 ];
 
+// How someone is PAID, separate from what contract they hold: a part-timer
+// can be on a fixed monthly salary and a full-timer paid by the hour.
+export const PAY_TYPES = ['Salaried', 'Hourly'];
+
 export const EMPTY_EMPLOYEE = {
   full_name: '', job_title: '', department_id: '', employment_type: 'Full-time',
   status: 'Active', hire_date: '', end_date: '', email: '', phone: '',
   salary: 0, manager_id: '', address: '', notes: '', branch_id: '',
   change_type: '', change_reason: '',
+  pay_type: 'Salaried',
+  hourly_rate: 0,
 };
 export const EMPTY_DEPT  = { name: '', description: '' };
 export const EMPTY_LEAVE = { employee_id: '', leave_type: 'Annual', start_date: '', end_date: '', reason: '' };

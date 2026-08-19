@@ -17,6 +17,7 @@ import InventoryCombobox, { salePriceInBase } from '../components/InventoryCombo
 import { useLocale } from '../hooks/useLocale.jsx';
 import { usePermissions } from '../hooks/usePermissions';
 import Attachments from '../components/Attachments.jsx';
+import PaymentPlan from './invoices/PaymentPlan.jsx';
 import { useRecordExport } from '../hooks/useRecordExport';
 import { useFocusId } from '../hooks/useFocusId';
 const METHODS    = ['Cash', 'Bank Transfer', 'Cheque', 'Card', 'Other'];
@@ -943,6 +944,14 @@ export default function Invoices() {
                   </table>
                 )}
               </>
+            )}
+
+            {!payModal.voided_at && (
+              <PaymentPlan
+                invoice={payModal}
+                canEdit={can('invoices', 'edit')}
+                onChange={async () => { setPayModal(await getInvoice(payModal.id)); }}
+              />
             )}
 
             <div style={{ marginTop: 20, paddingTop: 16, borderTop: '1px solid var(--border)' }}>

@@ -174,6 +174,9 @@ const statusColors = {
   Inquiry: 'gray', 'Quotation Sent': 'blue', Approved: 'accent',
   'In Progress': 'blue', Completed: 'green', Invoiced: 'accent',
   Unpaid: 'red', Partial: 'yellow', Paid: 'green',
+  // Instalment statuses. Overdue was already translatable but had no colour,
+  // so it rendered grey — the one status that most needs to be red.
+  Overdue: 'red', Due: 'gray',
   low: 'red', ok: 'green',
   Ordered: 'blue', Received: 'accent', 'Paid (PO)': 'green',
   Voided: 'red', Cancelled: 'red',

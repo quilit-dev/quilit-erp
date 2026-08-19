@@ -4,10 +4,11 @@ Reports router — cross-entity analytical reports for business intelligence.
 from fastapi import APIRouter, Depends, Query
 from database import get_db
 from permissions import require_perm
-from utils import get_tax_context
+from utils import get_tax_context, money
 from datetime import date
 from typing import Optional
 import branch_access
+import installments
 import sqlite3
 
 router = APIRouter()
@@ -282,10 +283,58 @@ def report_invoice_aging(
 
     buckets = {"current": [], "1_30": [], "31_60": [], "61_90": [], "over_90": []}
 
+    def _place(row, overdue):
+        row["days_overdue"] = max(0, overdue)
+        if overdue <= 0:
+            buckets["current"].append(row)
+        elif overdue <= 30:
+            buckets["1_30"].append(row)
+        elif overdue <= 60:
+            buckets["31_60"].append(row)
+        elif overdue <= 90:
+            buckets["61_90"].append(row)
+        else:
+            buckets["over_90"].append(row)
+
     for inv in invoices:
         d = dict(inv)
         d["remaining"] = d["amount"] - d["paid_amount"]
         d["days_overdue"] = 0
+        d["row_key"] = str(d["id"])
+
+        # An invoice on a payment plan cannot be aged by its own due_date: that
+        # date is the FINAL instalment, so a client who has missed three months
+        # reads as current until the plan ends, and then the entire balance ages
+        # at once. Aged by instalment instead, and SPLIT — the arrears sit in
+        # their real bucket while money not yet due stays in `current`. Putting
+        # the whole balance in the arrears bucket would report the full plan as
+        # overdue the day one payment is late.
+        plan = installments.plan_for(db, d["id"], d["paid_amount"],
+                                     today=today.isoformat())
+        if plan:
+            arrears  = [r for r in plan if r["status"] == installments.OVERDUE]
+            upcoming = money(sum(r["remaining"] for r in plan
+                                 if r["status"] != installments.OVERDUE))
+            if arrears:
+                oldest = arrears[0]
+                a = dict(d)
+                a["row_key"]      = f"{d['id']}-arrears"
+                a["remaining"]    = money(sum(r["remaining"] for r in arrears))
+                a["due_date"]     = oldest["due_date"]
+                a["installments"] = len(arrears)
+                a["plan_note"]    = f"instalment {oldest['seq']} of {len(plan)}"
+                _place(a, (today - dt.fromisoformat(
+                    str(oldest["due_date"])[:10]).date()).days)
+            if upcoming > 0.005:
+                nxt = installments.next_due(
+                    [r for r in plan if r["status"] != installments.OVERDUE])
+                u = dict(d)
+                u["row_key"]   = f"{d['id']}-upcoming"
+                u["remaining"] = upcoming
+                u["due_date"]  = nxt["due_date"] if nxt else d["due_date"]
+                u["plan_note"] = "on a payment plan"
+                _place(u, 0)
+            continue
 
         if not d["due_date"]:
             buckets["current"].append(d)
@@ -298,18 +347,7 @@ def report_invoice_aging(
             buckets["current"].append(d)
             continue
 
-        d["days_overdue"] = max(0, overdue)
-
-        if overdue <= 0:
-            buckets["current"].append(d)
-        elif overdue <= 30:
-            buckets["1_30"].append(d)
-        elif overdue <= 60:
-            buckets["31_60"].append(d)
-        elif overdue <= 90:
-            buckets["61_90"].append(d)
-        else:
-            buckets["over_90"].append(d)
+        _place(d, overdue)
 
     summary = {
         k: {"count": len(v), "total": round(sum(x["remaining"] for x in v), 2)}
@@ -827,7 +865,7 @@ def report_service_jobs(
     end   = end   or _today()
 
     where = ["j.archived_at IS NULL",
-             "date(COALESCE(j.completed_at, j.created_at)) BETWEEN ? AND ?"]
+             "date(COALESCE(j.completed_at, j.scheduled_date, j.created_at)) BETWEEN ? AND ?"]
     params: list = [start, end]
     if status:
         where.append("j.status = ?")
@@ -838,7 +876,7 @@ def report_service_jobs(
         params += bp
 
     rows = db.execute(
-        "SELECT j.id, j.job_number, j.job_type, j.status,"
+        "SELECT j.id, j.job_number, j.job_type, j.status, j.scheduled_date,"
         "       j.completed_at, j.total, j.parts_cost,"
         "       c.name AS client_name, e.name AS equipment_name,"
         "       COALESCE(NULLIF(u.full_name, ''), u.username) AS technician,"
@@ -849,7 +887,7 @@ def report_service_jobs(
         " LEFT JOIN users u ON u.id = j.assigned_to"
         " LEFT JOIN invoices i ON i.service_job_id = j.id AND i.voided_at IS NULL"
         f" WHERE {' AND '.join(where)}"
-        " ORDER BY COALESCE(j.completed_at, j.created_at) DESC",
+        " ORDER BY COALESCE(j.completed_at, j.scheduled_date, j.created_at) DESC",
         params).fetchall()
 
     out = []
@@ -861,7 +899,7 @@ def report_service_jobs(
             "job_type": r["job_type"], "status": r["status"],
             "client_name": r["client_name"], "equipment_name": r["equipment_name"],
             "technician": r["technician"],
-            "completed_at": r["completed_at"],
+            "scheduled_date": r["scheduled_date"], "completed_at": r["completed_at"],
             "revenue": round(revenue, 2), "parts_cost": round(cost, 2),
             "margin": round(revenue - cost, 2),
             # Percent is omitted rather than shown as 0 on a zero-revenue job:

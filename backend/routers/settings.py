@@ -123,6 +123,10 @@ class SettingsUpdate(BaseModel):
     payroll_nssf_employer_pct:   Optional[str] = None
     payroll_overtime_multiplier: Optional[str] = None
     footer_text:        Optional[str] = None
+    # Free text printed at the foot of every invoice. Multi-line, unlike
+    # footer_text, which is a single closing note — terms run to a paragraph or
+    # a short list and the line breaks are part of the meaning.
+    invoice_terms:      Optional[str] = None
     show_discount_col:  Optional[str] = None
     show_tax_col:       Optional[str] = None
     show_barcode_col:   Optional[str] = None

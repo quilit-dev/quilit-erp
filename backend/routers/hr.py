@@ -63,6 +63,12 @@ router = APIRouter()
 
 # ── Reference values ──────────────────────────────────────────────────────────
 EMPLOYMENT_TYPES = {"Full-time", "Part-time", "Contract", "Intern"}
+
+# How the person is PAID, which is a separate question from what kind of
+# contract they hold: a part-timer can be on a fixed monthly salary and a
+# full-timer can be paid by the hour. `salary` has always meant a monthly
+# figure, so an hourly employee keeps 0 there and carries a rate instead.
+PAY_TYPES = {"Salaried", "Hourly"}
 EMPLOYEE_STATUS  = {"Active", "On Leave", "Terminated"}
 LEAVE_TYPES      = {"Annual", "Sick", "Unpaid", "Maternity", "Paternity", "Bereavement", "Other"}
 CHANGE_TYPES     = {"hire", "raise", "promotion", "demotion", "role_change",
@@ -96,6 +102,8 @@ class EmployeeBody(BaseModel):
     email:           Optional[str] = None
     phone:           Optional[str] = None
     salary:          float         = 0
+    pay_type:        str           = "Salaried"
+    hourly_rate:     float         = 0
     manager_id:      Optional[int] = None
     user_id:         Optional[int] = None
     address:         Optional[str] = None
@@ -118,6 +126,18 @@ class EmployeeBody(BaseModel):
         if not (v or "").strip():
             raise ValueError("Employee name is required")
         return v.strip()
+
+    @validator("pay_type")
+    def _valid_pay_type(cls, v):
+        if v not in PAY_TYPES:
+            raise ValueError("Pay type must be one of: " + ", ".join(sorted(PAY_TYPES)))
+        return v
+
+    @validator("hourly_rate")
+    def _rate_not_negative(cls, v):
+        if float(v or 0) < 0:
+            raise ValueError("Hourly rate cannot be negative")
+        return v
 
     @validator("employment_type")
     def _valid_type(cls, v):
@@ -263,6 +283,8 @@ class PayrollLineUpdate(BaseModel):
     deductions:       Optional[float] = None
     overtime_hours:   Optional[float] = None
     overtime_amount:  Optional[float] = None
+    hours_worked:     Optional[float] = None
+    hourly_rate:      Optional[float] = None
     notes:            Optional[str]   = None
 
     @validator("base_salary", "bonuses", "deductions",
@@ -290,6 +312,29 @@ def _payroll_settings(db: sqlite3.Connection) -> dict:
         "nssf_employer_pct":   _f("payroll_nssf_employer_pct"),
         "overtime_multiplier": _f("payroll_overtime_multiplier") or 1.5,
     }
+
+
+def _hours_worked(db, employee_id, period_start, period_end) -> float:
+    """Hours recorded for one employee across a payroll period.
+
+    Every attendance row in the window counts, whatever its status. The `hours`
+    field IS the record of hours worked — a day marked Absent carries no hours,
+    a Half-day carries four — so filtering by status here would second-guess
+    what the person entering it already said. Paid leave with hours against it
+    is therefore paid, which is the behaviour you want and the reason not to
+    hard-code a policy.
+    """
+    row = db.execute(
+        "SELECT COALESCE(SUM(hours), 0) AS h FROM hr_attendance "
+        "WHERE employee_id = ? AND date >= ? AND date <= ?",
+        (employee_id, period_start, period_end),
+    ).fetchone()
+    return round(float(row["h"] or 0), 2)
+
+
+def _hourly_base(hours, rate) -> float:
+    """What an hourly employee earned before bonuses and deductions."""
+    return round(float(hours or 0) * float(rate or 0), 2)
 
 
 def _compute_payroll_line(base, bonus, deduct, overtime_amount, settings):
@@ -616,6 +661,9 @@ def get_employee(
     result["payroll_history"] = [
         dict(r) for r in db.execute(
             """SELECT pl.id, pl.base_salary, pl.bonuses, pl.deductions, pl.net_amount,
+                      -- the working behind an hourly total, so the payslip can
+                      -- show "38h x $12" rather than a bare figure
+                      pl.hours_worked, pl.hourly_rate,
                       pl.notes, pr.id AS run_id, pr.period_start, pr.period_end,
                       pr.status, pr.paid_at
                FROM hr_payroll_lines pl
@@ -639,12 +687,13 @@ def create_employee(
     cur = db.execute(
         """INSERT INTO hr_employees
                (full_name, job_title, department_id, employment_type, status,
-                hire_date, end_date, email, phone, salary, manager_id, user_id,
-                address, notes, created_at, branch_id)
-           VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)""",
+                hire_date, end_date, email, phone, salary, pay_type, hourly_rate,
+                manager_id, user_id, address, notes, created_at, branch_id)
+           VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)""",
         (data.full_name, data.job_title, data.department_id, data.employment_type,
          data.status, data.hire_date or None, data.end_date or None, data.email,
-         data.phone, data.salary, data.manager_id, data.user_id, data.address,
+         data.phone, data.salary, data.pay_type, data.hourly_rate,
+         data.manager_id, data.user_id, data.address,
          data.notes, _now(), branch_id),
     )
     emp_id = cur.lastrowid
@@ -704,12 +753,14 @@ def update_employee(
     db.execute(
         """UPDATE hr_employees SET
                full_name=?, job_title=?, department_id=?, employment_type=?, status=?,
-               hire_date=?, end_date=?, email=?, phone=?, salary=?, manager_id=?,
+               hire_date=?, end_date=?, email=?, phone=?, salary=?,
+               pay_type=?, hourly_rate=?, manager_id=?,
                user_id=?, address=?, notes=?
            WHERE id=?""",
         (data.full_name, data.job_title, data.department_id, data.employment_type,
          data.status, data.hire_date or None, data.end_date or None, data.email,
-         data.phone, data.salary, data.manager_id, data.user_id, data.address,
+         data.phone, data.salary, data.pay_type, data.hourly_rate,
+         data.manager_id, data.user_id, data.address,
          data.notes, emp_id),
     )
 
@@ -1292,11 +1343,21 @@ def create_payroll_run(
     run_id = cur.lastrowid
     settings = _payroll_settings(db)
     employees = db.execute(
-        "SELECT id, salary FROM hr_employees "
+        "SELECT id, salary, pay_type, hourly_rate FROM hr_employees "
         "WHERE archived_at IS NULL AND status != 'Terminated'"
     ).fetchall()
     for e in employees:
-        base   = float(e["salary"] or 0)
+        # An hourly employee's pay comes from the attendance already recorded
+        # for the period, not from `salary` — which for them is 0. The hours
+        # and the rate are stored on the line so the payslip shows the working
+        # and stays true after the rate changes or a day is corrected.
+        hours = rate = 0.0
+        if (e["pay_type"] or "Salaried") == "Hourly":
+            hours = _hours_worked(db, e["id"], data.period_start, data.period_end)
+            rate  = float(e["hourly_rate"] or 0)
+            base  = _hourly_base(hours, rate)
+        else:
+            base = float(e["salary"] or 0)
         breakd = _compute_payroll_line(base, 0, 0, 0, settings)
         # Snapshot the salary currency from the employee's most recent ACTIVE
         # contract (F-6 audit fix). Falls back to USD if no contract row
@@ -1313,11 +1374,11 @@ def create_payroll_run(
         db.execute(
             """INSERT INTO hr_payroll_lines
                (payroll_run_id, employee_id, base_salary, bonuses, deductions,
-                overtime_hours, overtime_amount,
+                overtime_hours, overtime_amount, hours_worked, hourly_rate,
                 gross_total, tax_amount, nssf_employee, nssf_employer,
                 net_amount, salary_currency, created_at)
-               VALUES (?,?,?,0,0,0,0,?,?,?,?,?,?,?)""",
-            (run_id, e["id"], base,
+               VALUES (?,?,?,0,0,0,0,?,?,?,?,?,?,?,?,?)""",
+            (run_id, e["id"], base, hours, rate,
              breakd["gross_total"], breakd["tax_amount"],
              breakd["nssf_employee"], breakd["nssf_employer"],
              breakd["net_amount"], line_currency, now),
@@ -1339,9 +1400,10 @@ def update_payroll_line(
 ):
     """Tweak a single line's amounts. Disallowed once the run is Paid."""
     row = db.execute(
-        """SELECT pl.*, pr.status AS run_status
+        """SELECT pl.*, pr.status AS run_status, e.pay_type
            FROM hr_payroll_lines pl
            JOIN hr_payroll_runs  pr ON pr.id = pl.payroll_run_id
+           JOIN hr_employees     e  ON e.id  = pl.employee_id
            WHERE pl.id=?""",
         (line_id,),
     ).fetchone()
@@ -1350,20 +1412,47 @@ def update_payroll_line(
     if row["run_status"] in ("Paid", "Cancelled"):
         raise HTTPException(400, f"Cannot edit a {row['run_status']} run.")
 
-    base   = float(data.base_salary if data.base_salary is not None else row["base_salary"])
     bonus  = float(data.bonuses     if data.bonuses     is not None else row["bonuses"])
     deduct = float(data.deductions  if data.deductions  is not None else row["deductions"])
     ot_hrs = float(data.overtime_hours  if data.overtime_hours  is not None else (row["overtime_hours"] or 0))
+
+    # An hourly line's total is DERIVED from hours × rate, so those are what you
+    # edit. Letting the base be overwritten directly would leave the payslip
+    # showing hours and a rate that no longer multiply out to the amount paid,
+    # and nothing on screen would say which of the three was the real one.
+    # A one-off correction belongs in bonuses or deductions, which is what they
+    # are for.
+    hours = float(data.hours_worked if data.hours_worked is not None else (row["hours_worked"] or 0))
+    rate  = float(data.hourly_rate  if data.hourly_rate  is not None else (row["hourly_rate"] or 0))
+    # Taken from the EMPLOYEE, not inferred from the line's own numbers. An
+    # hourly employee whose rate has not been set yet has a line of all zeros,
+    # which is indistinguishable from a salaried one — and guessing wrong there
+    # would hand back a directly editable total on exactly the record that most
+    # needs its working shown.
+    is_hourly = (row["pay_type"] or "Salaried") == "Hourly"
+
+    if is_hourly:
+        if data.base_salary is not None:
+            raise HTTPException(
+                400, "This employee is paid by the hour, so the total comes from "
+                     "hours \u00d7 rate. Adjust the hours or the rate, or use a "
+                     "bonus or deduction for a one-off correction.")
+        if hours < 0 or rate < 0:
+            raise HTTPException(400, "Hours and rate cannot be negative.")
+        base = _hourly_base(hours, rate)
+    else:
+        base = float(data.base_salary if data.base_salary is not None else row["base_salary"])
 
     # If the caller supplied an explicit overtime_amount, use it. Otherwise
     # derive from hours × hourly_rate × multiplier so the UX can be either
     # "just enter the dollars" or "enter hours and let the engine compute".
     if data.overtime_amount is not None:
         ot_amt = float(data.overtime_amount)
-    elif ot_hrs > 0 and base > 0:
+    elif ot_hrs > 0 and (rate > 0 or base > 0):
         settings_for_rate = _payroll_settings(db)
-        # Approximate hourly rate: monthly base ÷ 173.33 (40h × 4.33wks).
-        hourly = base / 173.33
+        # An hourly employee HAS a real rate, so use it. Only a salaried one
+        # needs the approximation: monthly base ÷ 173.33 (40h × 4.33wks).
+        hourly = rate if rate > 0 else base / 173.33
         ot_amt = round(ot_hrs * hourly * settings_for_rate["overtime_multiplier"], 2)
     else:
         ot_amt = float(row["overtime_amount"] or 0)
@@ -1377,10 +1466,11 @@ def update_payroll_line(
         """UPDATE hr_payroll_lines SET
            base_salary=?, bonuses=?, deductions=?,
            overtime_hours=?, overtime_amount=?,
+           hours_worked=?, hourly_rate=?,
            gross_total=?, tax_amount=?, nssf_employee=?, nssf_employer=?,
            net_amount=?, notes=?
            WHERE id=?""",
-        (base, bonus, deduct, ot_hrs, ot_amt,
+        (base, bonus, deduct, ot_hrs, ot_amt, hours, rate,
          breakd["gross_total"], breakd["tax_amount"],
          breakd["nssf_employee"], breakd["nssf_employer"],
          breakd["net_amount"], notes, line_id),
