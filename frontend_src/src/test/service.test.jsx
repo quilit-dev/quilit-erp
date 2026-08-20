@@ -308,6 +308,45 @@ describe('fields are actually styled', () => {
 
 // ── Finding a job ────────────────────────────────────────────────────────────
 
+describe('the filter row is laid out like the other modules', () => {
+  // .form-control is width:100%. Dropped into a flex row without an explicit
+  // width, every control expands to fill the line and each one ends up on a
+  // row of its own — which is exactly how this shipped: a search box, two date
+  // pickers and two buttons each spanning the full page width.
+  const searchBar = serviceSrc.slice(
+    serviceSrc.indexOf('className="search-bar"'),
+    serviceSrc.indexOf('</div>', serviceSrc.indexOf('common.clear')));
+
+  test('the search bar is the shared pattern, not a bespoke row', () => {
+    expect(searchBar).toBeTruthy();
+    expect(serviceSrc).toContain('className="search-input-wrap"');
+    expect(serviceSrc).toContain('className="form-control search-input"');
+    // .filter-group was used by this page alone and constrains nothing.
+    expect(serviceSrc).not.toContain('filter-group');
+  });
+
+  test('every control in it has a width, or is the one that flexes', () => {
+    // Split on the tag name: JSX attributes contain arrow functions, so a
+    // [^>] character class stops at the '>' of '=>' and never reaches '/>'.
+    const tagsFor = (name) => searchBar.split(`<${name}`).slice(1)
+      .map(chunk => chunk.slice(0, chunk.search(/\/>|>/)));
+
+    const controls = [...tagsFor('select'), ...tagsFor('input')]
+      .filter(tag => tag.includes('form-control'));
+    expect(controls.length).toBeGreaterThan(2);
+
+    const unsized = controls.filter(
+      tag => !/style=\{\{\s*width:/.test(tag) && !tag.includes('search-input'));
+    expect(unsized, 'control(s) that will span the whole row').toEqual([]);
+  });
+
+  test('the flexible one is the search box', () => {
+    // It should take the leftover space rather than a fixed width, the same
+    // way the invoice and client lists do it.
+    expect(searchBar).toMatch(/flex: '1 1 200px'/);
+  });
+});
+
 describe('the jobs list can be searched and sorted', () => {
   test('the search box is debounced', () => {
     // Without it every keystroke fires a request while typing a client name.

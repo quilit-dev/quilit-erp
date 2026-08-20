@@ -121,36 +121,48 @@ export default function Service() {
 
       {!busy && view === 'jobs' && (
         <>
-          <div className="filter-group">
-            <input className="form-control" style={{ minWidth: 200 }}
-                   value={search} onChange={e => setSearch(e.target.value)}
-                   placeholder={t('service.searchPlaceholder')} />
-            <select className="form-control" value={statusFilter}
-                    onChange={e => setStatusFilter(e.target.value)}>
-              <option value="">{t('common.all')}</option>
-              {['Draft', 'Scheduled', 'In Progress', 'Completed', 'Cancelled'].map(s => (
-                <option key={s} value={s}>{t(`service.status${s.replace(/\s/g, '')}`)}</option>
-              ))}
-            </select>
-            <input type="date" className="form-control" value={dateFrom}
-                   onChange={e => setDateFrom(e.target.value)}
-                   title={t('service.dateFrom')} />
-            <input type="date" className="form-control" value={dateTo}
-                   onChange={e => setDateTo(e.target.value)}
-                   title={t('service.dateTo')} />
-            {/* One button rather than a select: there are only two directions,
-                and it says which one is active rather than which to choose. */}
-            <button type="button" className="btn btn-secondary"
-                    onClick={() => setSort(v => (v === 'desc' ? 'asc' : 'desc'))}>
-              {sort === 'desc' ? t('service.sortNewest') : t('service.sortOldest')}
-            </button>
-            {(search || dateFrom || dateTo || statusFilter) && (
-              <button type="button" className="btn btn-secondary"
-                      onClick={() => { setSearch(''); setDateFrom(''); setDateTo('');
-                                       setStatusFilter(''); }}>
-                {t('common.clear')}
+        <div className="card">
+          {/* The same search-bar the other list screens use. .form-control is
+              width:100%, so every control needs an explicit width or each one
+              claims a whole row of the flex line — which is what an unconstrained
+              flex row did here. */}
+          <div className="card-header" style={{ flexDirection: 'column', alignItems: 'stretch', gap: 10 }}>
+            <div className="search-bar" style={{ margin: 0, flexWrap: 'wrap' }}>
+              <div className="search-input-wrap" style={{ flex: '1 1 200px', minWidth: 180 }}>
+                <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><circle cx="11" cy="11" r="8"/><line x1="21" y1="21" x2="16.65" y2="16.65"/></svg>
+                <input className="form-control search-input"
+                       placeholder={t('service.searchPlaceholder')}
+                       value={search} onChange={e => setSearch(e.target.value)} />
+              </div>
+              <select className="form-control" style={{ width: 150 }} value={statusFilter}
+                      onChange={e => setStatusFilter(e.target.value)}>
+                <option value="">{t('common.all')}</option>
+                {['Draft', 'Scheduled', 'In Progress', 'Completed', 'Cancelled'].map(s => (
+                  <option key={s} value={s}>{t(`service.status${s.replace(/\s/g, '')}`)}</option>
+                ))}
+              </select>
+              <input type="date" className="form-control" style={{ width: 150 }}
+                     value={dateFrom} onChange={e => setDateFrom(e.target.value)}
+                     title={t('service.dateFrom')} aria-label={t('service.dateFrom')} />
+              <input type="date" className="form-control" style={{ width: 150 }}
+                     value={dateTo} onChange={e => setDateTo(e.target.value)}
+                     title={t('service.dateTo')} aria-label={t('service.dateTo')} />
+              {/* One button rather than a select: there are only two directions,
+                  and it says which one is active rather than which to choose. */}
+              <button type="button" className="btn btn-secondary btn-sm"
+                      style={{ whiteSpace: 'nowrap' }}
+                      onClick={() => setSort(v => (v === 'desc' ? 'asc' : 'desc'))}>
+                {sort === 'desc' ? t('service.sortNewest') : t('service.sortOldest')}
               </button>
-            )}
+              {(search || dateFrom || dateTo || statusFilter) && (
+                <button type="button" className="btn btn-secondary btn-sm"
+                        style={{ whiteSpace: 'nowrap' }}
+                        onClick={() => { setSearch(''); setDateFrom(''); setDateTo('');
+                                         setStatusFilter(''); }}>
+                  ✕ {t('common.clear')}
+                </button>
+              )}
+            </div>
           </div>
           {!jobs.data?.length ? <EmptyState message={t('service.noJobs')} /> : (
             <div className="table-wrap">
@@ -197,6 +209,7 @@ export default function Service() {
               </table>
             </div>
           )}
+        </div>
         </>
       )}
 
