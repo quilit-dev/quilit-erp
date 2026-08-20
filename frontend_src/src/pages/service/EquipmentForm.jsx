@@ -53,7 +53,7 @@ export default function EquipmentForm({ equipment, clients, onDone, onCancel }) 
       <div className="modal-body">
       <div className="form-grid">
         <div className="form-group">
-          <label>{t('common.client')} *</label>
+          <label className="form-label">{t('common.client')} *</label>
           <select className="form-control" value={form.client_id}
                   onChange={set('client_id')} required>
             <option value="">—</option>
@@ -61,34 +61,34 @@ export default function EquipmentForm({ equipment, clients, onDone, onCancel }) 
           </select>
         </div>
         <div className="form-group">
-          <label>{t('common.name')} *</label>
+          <label className="form-label">{t('common.name')} *</label>
           <input className="form-control" value={form.name}
                  onChange={set('name')} required />
         </div>
         <div className="form-group">
-          <label>{t('service.manufacturer')}</label>
+          <label className="form-label">{t('service.manufacturer')}</label>
           <input className="form-control" value={form.manufacturer} onChange={set('manufacturer')} />
         </div>
         <div className="form-group">
-          <label>{t('service.model')}</label>
+          <label className="form-label">{t('service.model')}</label>
           <input className="form-control" value={form.model} onChange={set('model')} />
         </div>
         <div className="form-group">
-          <label>{t('service.serialNumber')}</label>
+          <label className="form-label">{t('service.serialNumber')}</label>
           <input className="form-control" value={form.serial_number} onChange={set('serial_number')} />
         </div>
         <div className="form-group">
-          <label>{t('service.installDate')}</label>
+          <label className="form-label">{t('service.installDate')}</label>
           <input type="date" className="form-control" value={form.install_date || ''}
                  onChange={set('install_date')} />
         </div>
         <div className="form-group">
-          <label>{t('service.location')}</label>
+          <label className="form-label">{t('service.location')}</label>
           <input className="form-control" value={form.location} onChange={set('location')} />
         </div>
       </div>
       <div className="form-group">
-        <label>{t('common.notes')}</label>
+        <label className="form-label">{t('common.notes')}</label>
         <textarea className="form-control" rows="2" value={form.notes} onChange={set('notes')} />
       </div>
       </div>

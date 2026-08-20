@@ -278,12 +278,19 @@ describe('every class the page uses is a real class', () => {
 // ── Styling that has now regressed twice ─────────────────────────────────────
 
 describe('fields are actually styled', () => {
-  test('no detail field uses a bare label', () => {
-    // A bare <label> has no styling of its own and a bare <div> stacks nothing,
-    // so the label ran straight into its value on screen: "ClientAli",
-    // "StatusIn Progress". This shipped twice, on both detail panels.
-    expect(serviceSrc).not.toContain('<div><label>');
-    expect(serviceSrc).not.toMatch(/<label>\{t\(/);
+  test.each([
+    ['Service page', () => serviceSrc],
+    ['job form',     () => jobFormSrc],
+    ['equipment form', () => equipmentFormSrc],
+  ])('%s classes every label', (_label, get) => {
+    // An unclassed label has no CSS rule at all, so it renders as plain body
+    // text. On the detail panels the wrapper stacked nothing either, gluing
+    // each label to its value: "ClientAli", "StatusIn Progress". In the forms
+    // the wrapper is a form-group, so they stacked but rendered in the wrong
+    // face — every other form in the app is small-caps.
+    const src = get();
+    expect(src).not.toContain('<div><label>');
+    expect(src).not.toMatch(/<label>\s*\{?t\(/);
   });
 
   test('every input in the job form carries a className', () => {
@@ -313,9 +320,10 @@ describe('the filter row is laid out like the other modules', () => {
   // width, every control expands to fill the line and each one ends up on a
   // row of its own — which is exactly how this shipped: a search box, two date
   // pickers and two buttons each spanning the full page width.
-  const searchBar = serviceSrc.slice(
-    serviceSrc.indexOf('className="search-bar"'),
-    serviceSrc.indexOf('</div>', serviceSrc.indexOf('common.clear')));
+  // Both bars on the page: the jobs one and the equipment one.
+  const bars = serviceSrc.split('className="search-bar"').slice(1)
+    .map(chunk => chunk.slice(0, chunk.indexOf('</div>', chunk.indexOf('common.clear'))));
+  const searchBar = bars[0];
 
   test('the search bar is the shared pattern, not a bespoke row', () => {
     expect(searchBar).toBeTruthy();
@@ -325,15 +333,22 @@ describe('the filter row is laid out like the other modules', () => {
     expect(serviceSrc).not.toContain('filter-group');
   });
 
-  test('every control in it has a width, or is the one that flexes', () => {
+  test('both bars exist \u2014 jobs and equipment', () => {
+    // The equipment list used to be a bare table with no card and no search,
+    // the only list screen in the app that was.
+    expect(bars.length).toBe(2);
+  });
+
+  test('every control in them has a width, or is the one that flexes', () => {
     // Split on the tag name: JSX attributes contain arrow functions, so a
     // [^>] character class stops at the '>' of '=>' and never reaches '/>'.
-    const tagsFor = (name) => searchBar.split(`<${name}`).slice(1)
+    const tagsFor = (bar, name) => bar.split(`<${name}`).slice(1)
       .map(chunk => chunk.slice(0, chunk.search(/\/>|>/)));
 
-    const controls = [...tagsFor('select'), ...tagsFor('input')]
-      .filter(tag => tag.includes('form-control'));
-    expect(controls.length).toBeGreaterThan(2);
+    const controls = bars.flatMap(
+      bar => [...tagsFor(bar, 'select'), ...tagsFor(bar, 'input')]
+    ).filter(tag => tag.includes('form-control'));
+    expect(controls.length).toBeGreaterThan(3);
 
     const unsized = controls.filter(
       tag => !/style=\{\{\s*width:/.test(tag) && !tag.includes('search-input'));

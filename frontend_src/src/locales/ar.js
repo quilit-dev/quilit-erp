@@ -1263,6 +1263,7 @@ const ar = {
   },
 
   service: {
+    equipmentSearchPlaceholder: 'ابحث بالاسم أو الطراز أو الرقم التسلسلي…',
     searchPlaceholder: 'ابحث برقم المهمة أو العميل أو العطل…',
     dateFrom: 'من تاريخ',
     dateTo: 'إلى تاريخ',

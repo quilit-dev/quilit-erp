@@ -1724,6 +1724,13 @@ textarea.form-control {
   display: inline-flex;
   align-items: center;
 }
+/* Controls in a search bar were flush against each other — the rule above sets
+   no gap, so a filter row with a search box, two date pickers and two buttons
+   ran them all together with nothing between. Applies to every screen that
+   uses the pattern (invoices, clients, projects, quotations, service).
+   .search-input-wrap is deliberately excluded: its only other child is the
+   magnifier, which is absolutely positioned and out of flow. */
+.search-bar { gap: 8px; }
 .search-input {
   width: 240px;
   padding: 7px 10px 7px 32px;

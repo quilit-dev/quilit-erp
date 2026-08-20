@@ -1269,6 +1269,7 @@ const en = {
   },
 
   service: {
+    equipmentSearchPlaceholder: 'Search name, model or serial…',
     searchPlaceholder: 'Search job no., client or fault…',
     dateFrom: 'From date',
     dateTo: 'To date',

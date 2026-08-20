@@ -118,7 +118,7 @@ export default function JobForm({ job, clients, onDone, onCancel }) {
       <div className="modal-body">
       <div className="form-grid">
         <div className="form-group">
-          <label>{t('common.client')} *</label>
+          <label className="form-label">{t('common.client')} *</label>
           <select className="form-control" value={form.client_id}
                   onChange={set('client_id')} required>
             <option value="">—</option>
@@ -126,7 +126,7 @@ export default function JobForm({ job, clients, onDone, onCancel }) {
           </select>
         </div>
         <div className="form-group">
-          <label>{t('service.equipment')}</label>
+          <label className="form-label">{t('service.equipment')}</label>
           <select className="form-control" value={form.equipment_id}
                   onChange={set('equipment_id')} disabled={!form.client_id}>
             <option value="">—</option>
@@ -138,24 +138,24 @@ export default function JobForm({ job, clients, onDone, onCancel }) {
           </select>
         </div>
         <div className="form-group">
-          <label>{t('service.jobType')}</label>
+          <label className="form-label">{t('service.jobType')}</label>
           <select className="form-control" value={form.job_type} onChange={set('job_type')}>
             {JOB_TYPES.map(x => <option key={x} value={x}>{x}</option>)}
           </select>
         </div>
         <div className="form-group">
-          <label>{t('service.priority')}</label>
+          <label className="form-label">{t('service.priority')}</label>
           <select className="form-control" value={form.priority} onChange={set('priority')}>
             {PRIORITIES.map(x => <option key={x} value={x}>{x}</option>)}
           </select>
         </div>
         <div className="form-group">
-          <label>{t('service.scheduledDate')}</label>
+          <label className="form-label">{t('service.scheduledDate')}</label>
           <input type="date" className="form-control" value={form.scheduled_date || ''}
                  onChange={set('scheduled_date')} />
         </div>
         <div className="form-group">
-          <label>{t('service.assignedTo')}</label>
+          <label className="form-label">{t('service.assignedTo')}</label>
           <select className="form-control" value={form.assigned_to} onChange={set('assigned_to')}>
             <option value="">{t('service.unassigned')}</option>
             {users.map(u => (
@@ -166,12 +166,12 @@ export default function JobForm({ job, clients, onDone, onCancel }) {
       </div>
 
       <div className="form-group">
-        <label>{t('service.reportedFault')}</label>
+        <label className="form-label">{t('service.reportedFault')}</label>
         <textarea className="form-control" rows="2" value={form.reported_fault || ''}
                   onChange={set('reported_fault')} />
       </div>
       <div className="form-group">
-        <label>{t('service.workDone')}</label>
+        <label className="form-label">{t('service.workDone')}</label>
         <textarea className="form-control" rows="2" value={form.work_done || ''}
                   onChange={set('work_done')} />
       </div>

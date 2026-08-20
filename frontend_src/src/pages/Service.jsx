@@ -57,7 +57,19 @@ export default function Service() {
     ...(dateTo ? { date_to: dateTo } : {}),
     sort,
   }), [statusFilter, searchTerm, dateFrom, dateTo, sort]);
-  const equipment = useData(getServiceEquipment, []);
+  // Its own search, debounced like the jobs one above. Only this list reads
+  // `equipment.data`; the job form fetches its own, scoped to the chosen
+  // client, so narrowing here cannot starve the form's dropdown.
+  const [equipSearch, setEquipSearch] = useState('');
+  const [equipSearchTerm, setEquipSearchTerm] = useState('');
+  useEffect(() => {
+    const id = setTimeout(() => setEquipSearchTerm(equipSearch.trim()), 300);
+    return () => clearTimeout(id);
+  }, [equipSearch]);
+
+  const equipment = useData(
+    () => getServiceEquipment(equipSearchTerm ? { search: equipSearchTerm } : {}),
+    [equipSearchTerm]);
   const clients = useData(getClients, []);
 
   const reload = () => { jobs.reload(); equipment.reload(); };
@@ -214,7 +226,28 @@ export default function Service() {
       )}
 
       {!busy && view === 'equipment' && (
-        !equipment.data?.length ? <EmptyState message={t('service.noEquipment')} /> : (
+        <div className="card">
+          {/* Same shape as the jobs list above and every other list screen.
+              .form-control is width:100%, so the search input flexes inside
+              .search-input-wrap rather than being left to span the row. */}
+          <div className="card-header" style={{ flexDirection: 'column', alignItems: 'stretch', gap: 10 }}>
+            <div className="search-bar" style={{ margin: 0, flexWrap: 'wrap' }}>
+              <div className="search-input-wrap" style={{ flex: '1 1 200px', minWidth: 180 }}>
+                <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><circle cx="11" cy="11" r="8"/><line x1="21" y1="21" x2="16.65" y2="16.65"/></svg>
+                <input className="form-control search-input"
+                       placeholder={t('service.equipmentSearchPlaceholder')}
+                       value={equipSearch} onChange={e => setEquipSearch(e.target.value)} />
+              </div>
+              {equipSearch && (
+                <button type="button" className="btn btn-secondary btn-sm"
+                        style={{ whiteSpace: 'nowrap' }}
+                        onClick={() => setEquipSearch('')}>
+                  ✕ {t('common.clear')}
+                </button>
+              )}
+            </div>
+          </div>
+          {!equipment.data?.length ? <EmptyState message={t('service.noEquipment')} /> : (
           <div className="table-wrap">
             <table>
               <thead>
@@ -260,7 +293,8 @@ export default function Service() {
               </tbody>
             </table>
           </div>
-        )
+          )}
+        </div>
       )}
 
       {modal === 'job' && (
