@@ -1263,6 +1263,11 @@ const ar = {
   },
 
   service: {
+    searchPlaceholder: 'ابحث برقم المهمة أو العميل أو العطل…',
+    dateFrom: 'من تاريخ',
+    dateTo: 'إلى تاريخ',
+    sortNewest: 'الأحدث أولاً',
+    sortOldest: 'الأقدم أولاً',
     title:            'الصيانة والخدمات',
     jobs:             'أوامر الخدمة',
     equipment:        'المعدات',

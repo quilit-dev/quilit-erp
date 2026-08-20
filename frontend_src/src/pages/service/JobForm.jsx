@@ -210,12 +210,19 @@ export default function JobForm({ job, clients, onDone, onCancel }) {
                          onChange={e => setLine(i, { name: e.target.value })} required />
                 )}
               </td>
+              {/* NumberInput adds no class of its own — it spreads props onto a
+                  bare input — so without form-control these two rendered
+                  unstyled next to the styled name field beside them. */}
               <td className="text-right">
-                <NumberInput value={l.quantity}
+                <NumberInput className="form-control" min="0" step="any"
+                             style={{ textAlign: 'right' }}
+                             value={l.quantity}
                              onChange={e => setLine(i, { quantity: e.target.value })} />
               </td>
               <td className="text-right">
-                <NumberInput value={l.unit_price}
+                <NumberInput className="form-control" min="0" step="any"
+                             style={{ textAlign: 'right' }}
+                             value={l.unit_price}
                              onChange={e => setLine(i, { unit_price: e.target.value })} />
               </td>
               <td className="text-right">

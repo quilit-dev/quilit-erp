@@ -276,3 +276,83 @@ def test_a_read_only_role_cannot_create(as_role, acme):
 def test_an_unknown_job_is_a_404(client):
     assert client.get("/api/service/jobs/999999").status_code == 404
     assert client.get("/api/service/equipment/999999").status_code == 404
+
+
+# ── Finding a job in a long list ─────────────────────────────────────────────
+
+def _job_on(client, cid, day, fault):
+    r = client.post("/api/service/jobs", json={
+        "client_id": cid, "job_type": "Repair",
+        "reported_fault": fault, "scheduled_date": day})
+    assert r.status_code == 200, r.text
+    return r.json()["id"]
+
+
+def test_jobs_sort_newest_first_by_default(make_client):
+    """The default a dispatcher wants: what is happening now, at the top."""
+    c = make_client("superadmin")
+    cid = c.post("/api/clients/", json={"name": "Sort Co"}).json()["id"]
+    _job_on(c, cid, "2026-01-10", "oldest")
+    _job_on(c, cid, "2026-06-10", "newest")
+
+    rows = c.get("/api/service/jobs").json()
+
+    dates = [r["scheduled_date"] for r in rows]
+    assert dates == sorted(dates, reverse=True)
+
+
+def test_jobs_can_be_sorted_oldest_first(make_client):
+    """The other direction, for working through a backlog."""
+    c = make_client("superadmin")
+    cid = c.post("/api/clients/", json={"name": "Sort Co"}).json()["id"]
+    _job_on(c, cid, "2026-01-10", "oldest")
+    _job_on(c, cid, "2026-06-10", "newest")
+
+    rows = c.get("/api/service/jobs?sort=asc").json()
+
+    dates = [r["scheduled_date"] for r in rows]
+    assert dates == sorted(dates)
+
+
+def test_an_unknown_sort_value_falls_back_to_newest(make_client):
+    """`sort` reaches ORDER BY, which takes no bind parameter, so it is mapped
+    from a fixed pair rather than interpolated. Anything unrecognised — or
+    injected — has to land on the default, not in the SQL."""
+    c = make_client("superadmin")
+    cid = c.post("/api/clients/", json={"name": "Sort Co"}).json()["id"]
+    _job_on(c, cid, "2026-01-10", "oldest")
+    _job_on(c, cid, "2026-06-10", "newest")
+
+    rows = c.get("/api/service/jobs?sort=; DROP TABLE service_jobs--").json()
+
+    dates = [r["scheduled_date"] for r in rows]
+    assert dates == sorted(dates, reverse=True)
+    # And the table is still there.
+    assert c.get("/api/service/jobs").status_code == 200
+
+
+def test_jobs_can_be_searched_by_client_and_fault(make_client):
+    c = make_client("superadmin")
+    a = c.post("/api/clients/", json={"name": "Beirut Bakery"}).json()["id"]
+    b = c.post("/api/clients/", json={"name": "Tripoli Textiles"}).json()["id"]
+    _job_on(c, a, "2026-03-01", "oven thermostat")
+    _job_on(c, b, "2026-03-02", "loom belt")
+
+    by_client = c.get("/api/service/jobs?search=Bakery").json()
+    by_fault  = c.get("/api/service/jobs?search=thermostat").json()
+
+    assert [j["client_name"] for j in by_client] == ["Beirut Bakery"]
+    assert len(by_fault) == 1
+    assert "thermostat" in by_fault[0]["reported_fault"]
+
+
+def test_jobs_can_be_filtered_to_a_date_range(make_client):
+    c = make_client("superadmin")
+    cid = c.post("/api/clients/", json={"name": "Range Co"}).json()["id"]
+    _job_on(c, cid, "2026-01-15", "january")
+    _job_on(c, cid, "2026-03-15", "march")
+    _job_on(c, cid, "2026-06-15", "june")
+
+    rows = c.get("/api/service/jobs?date_from=2026-02-01&date_to=2026-04-30").json()
+
+    assert [r["reported_fault"] for r in rows] == ["march"]

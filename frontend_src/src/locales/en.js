@@ -1269,6 +1269,11 @@ const en = {
   },
 
   service: {
+    searchPlaceholder: 'Search job no., client or fault…',
+    dateFrom: 'From date',
+    dateTo: 'To date',
+    sortNewest: 'Newest first',
+    sortOldest: 'Oldest first',
     title:            'Service',
     jobs:             'Jobs',
     equipment:        'Equipment',

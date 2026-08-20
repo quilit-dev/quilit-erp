@@ -9,7 +9,7 @@
  * That mirrors the backend deliberately: completing a job consumes stock and
  * posts its cost, so it is an action with consequences, not a field to edit.
  */
-import { useState } from 'react';
+import { useState, useEffect } from 'react';
 import { useData } from '../hooks/useData';
 import {
   getServiceJobs, getServiceJob, startServiceJob, completeServiceJob,
@@ -38,9 +38,25 @@ export default function Service() {
   const [modal, setModal] = useState(null);
   const [active, setActive] = useState(null);
   const [statusFilter, setStatusFilter] = useState('');
+  const [search,   setSearch]   = useState('');
+  const [dateFrom, setDateFrom] = useState('');
+  const [dateTo,   setDateTo]   = useState('');
+  const [sort,     setSort]     = useState('desc');
 
-  const jobs = useData(() => getServiceJobs(statusFilter ? { status: statusFilter } : {}),
-                       [statusFilter]);
+  // Debounced so typing a client name doesn't fire a request per keystroke.
+  const [searchTerm, setSearchTerm] = useState('');
+  useEffect(() => {
+    const id = setTimeout(() => setSearchTerm(search.trim()), 300);
+    return () => clearTimeout(id);
+  }, [search]);
+
+  const jobs = useData(() => getServiceJobs({
+    ...(statusFilter ? { status: statusFilter } : {}),
+    ...(searchTerm ? { search: searchTerm } : {}),
+    ...(dateFrom ? { date_from: dateFrom } : {}),
+    ...(dateTo ? { date_to: dateTo } : {}),
+    sort,
+  }), [statusFilter, searchTerm, dateFrom, dateTo, sort]);
   const equipment = useData(getServiceEquipment, []);
   const clients = useData(getClients, []);
 
@@ -106,6 +122,9 @@ export default function Service() {
       {!busy && view === 'jobs' && (
         <>
           <div className="filter-group">
+            <input className="form-control" style={{ minWidth: 200 }}
+                   value={search} onChange={e => setSearch(e.target.value)}
+                   placeholder={t('service.searchPlaceholder')} />
             <select className="form-control" value={statusFilter}
                     onChange={e => setStatusFilter(e.target.value)}>
               <option value="">{t('common.all')}</option>
@@ -113,6 +132,25 @@ export default function Service() {
                 <option key={s} value={s}>{t(`service.status${s.replace(/\s/g, '')}`)}</option>
               ))}
             </select>
+            <input type="date" className="form-control" value={dateFrom}
+                   onChange={e => setDateFrom(e.target.value)}
+                   title={t('service.dateFrom')} />
+            <input type="date" className="form-control" value={dateTo}
+                   onChange={e => setDateTo(e.target.value)}
+                   title={t('service.dateTo')} />
+            {/* One button rather than a select: there are only two directions,
+                and it says which one is active rather than which to choose. */}
+            <button type="button" className="btn btn-secondary"
+                    onClick={() => setSort(v => (v === 'desc' ? 'asc' : 'desc'))}>
+              {sort === 'desc' ? t('service.sortNewest') : t('service.sortOldest')}
+            </button>
+            {(search || dateFrom || dateTo || statusFilter) && (
+              <button type="button" className="btn btn-secondary"
+                      onClick={() => { setSearch(''); setDateFrom(''); setDateTo('');
+                                       setStatusFilter(''); }}>
+                {t('common.clear')}
+              </button>
+            )}
           </div>
           {!jobs.data?.length ? <EmptyState message={t('service.noJobs')} /> : (
             <div className="table-wrap">
@@ -240,12 +278,24 @@ export default function Service() {
         <Modal title={active.name} onClose={() => setModal(null)} size="modal-lg">
           <div className="modal-body">
           <div className="form-grid">
-            <div><label>{t('common.client')}</label><span>{active.client_name}</span></div>
-            <div><label>{t('service.manufacturer')}</label><span>{active.manufacturer || '—'}</span></div>
-            <div><label>{t('service.model')}</label><span>{active.model || '—'}</span></div>
-            <div><label>{t('service.serialNumber')}</label><span>{active.serial_number || '—'}</span></div>
-            <div><label>{t('service.installDate')}</label><span>{active.install_date ? fmtDate(active.install_date) : '—'}</span></div>
-            <div><label>{t('service.location')}</label><span>{active.location || '—'}</span></div>
+            <div className="form-group">
+              <label className="form-label">{t('common.client')}</label>
+              <span>{active.client_name}</span></div>
+            <div className="form-group">
+              <label className="form-label">{t('service.manufacturer')}</label>
+              <span>{active.manufacturer || '—'}</span></div>
+            <div className="form-group">
+              <label className="form-label">{t('service.model')}</label>
+              <span>{active.model || '—'}</span></div>
+            <div className="form-group">
+              <label className="form-label">{t('service.serialNumber')}</label>
+              <span>{active.serial_number || '—'}</span></div>
+            <div className="form-group">
+              <label className="form-label">{t('service.installDate')}</label>
+              <span>{active.install_date ? fmtDate(active.install_date) : '—'}</span></div>
+            <div className="form-group">
+              <label className="form-label">{t('service.location')}</label>
+              <span>{active.location || '—'}</span></div>
           </div>
           <h3 style={{ marginTop: 20 }}>{t('service.serviceHistory')}</h3>
           {!active.jobs?.length ? <EmptyState message={t('service.noJobs')} /> : (
@@ -307,18 +357,29 @@ function JobDetail({ job, can, t, onEdit, onTransition, onInvoice }) {
           outside this cannot scroll and gets no padding — which is what made
           the first version of these screens look unstyled. */}
       <div className="modal-body">
+      {/* Each field is a .form-group with a .form-label. An unclassed label has
+          no styling of its own and an unclassed wrapper stacks nothing, so the
+          label ran straight into its value: "ClientAli", "StatusIn Progress". */}
       <div className="form-grid">
-        <div><label>{t('common.client')}</label><span>{job.client_name}</span></div>
-        <div><label>{t('service.equipment')}</label>
+        <div className="form-group">
+          <label className="form-label">{t('common.client')}</label>
+          <span>{job.client_name}</span></div>
+        <div className="form-group">
+          <label className="form-label">{t('service.equipment')}</label>
           <span>{job.equipment ? `${job.equipment.name}${job.equipment.serial_number ? ` (${job.equipment.serial_number})` : ''}` : '—'}</span></div>
-        <div><label>{t('service.jobType')}</label><span>{job.job_type}</span></div>
-        <div><label>{t('common.status')}</label>
-          <span className={`badge badge-${STATUS_COLOR[job.status] || 'gray'}`}>
+        <div className="form-group">
+          <label className="form-label">{t('service.jobType')}</label>
+          <span>{job.job_type}</span></div>
+        <div className="form-group">
+          <label className="form-label">{t('common.status')}</label>
+          <span><span className={`badge badge-${STATUS_COLOR[job.status] || 'gray'}`}>
             {t(`service.status${(job.status || '').replace(/\s/g, '')}`)}
-          </span></div>
-        <div><label>{t('service.scheduledDate')}</label>
+          </span></span></div>
+        <div className="form-group">
+          <label className="form-label">{t('service.scheduledDate')}</label>
           <span>{job.scheduled_date ? fmtDate(job.scheduled_date) : '—'}</span></div>
-        <div><label>{t('service.completedAt')}</label>
+        <div className="form-group">
+          <label className="form-label">{t('service.completedAt')}</label>
           <span>{job.completed_at ? fmtDate(job.completed_at) : '—'}</span></div>
       </div>
 

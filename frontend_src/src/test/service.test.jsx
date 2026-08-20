@@ -274,3 +274,62 @@ describe('every class the page uses is a real class', () => {
     expect(missing).toEqual([]);
   });
 });
+
+// ── Styling that has now regressed twice ─────────────────────────────────────
+
+describe('fields are actually styled', () => {
+  test('no detail field uses a bare label', () => {
+    // A bare <label> has no styling of its own and a bare <div> stacks nothing,
+    // so the label ran straight into its value on screen: "ClientAli",
+    // "StatusIn Progress". This shipped twice, on both detail panels.
+    expect(serviceSrc).not.toContain('<div><label>');
+    expect(serviceSrc).not.toMatch(/<label>\{t\(/);
+  });
+
+  test('every input in the job form carries a className', () => {
+    // NumberInput spreads props onto a bare <input> and adds no class of its
+    // own, so quantity and unit price rendered unstyled beside the styled name
+    // field next to them. Also shipped twice.
+    //
+    // Split on the tag name rather than matching the whole tag with a regex:
+    // JSX attributes contain arrow functions, so any [^>] class stops at the
+    // '>' of '=>' and never reaches the closing '/>'.
+    const tagsFor = (name) => jobFormSrc.split(`<${name}`).slice(1)
+      .map(chunk => chunk.slice(0, chunk.indexOf('/>')))
+      .filter(tag => tag.length > 0);
+
+    const tags = [...tagsFor('NumberInput'), ...tagsFor('input')];
+    expect(tags.length).toBeGreaterThan(2);
+
+    const unstyled = tags.filter(tag => !tag.includes('className='));
+    expect(unstyled, 'input(s) rendering with no class').toEqual([]);
+  });
+});
+
+// ── Finding a job ────────────────────────────────────────────────────────────
+
+describe('the jobs list can be searched and sorted', () => {
+  test('the search box is debounced', () => {
+    // Without it every keystroke fires a request while typing a client name.
+    expect(serviceSrc).toMatch(/setTimeout\(\(\) => setSearchTerm/);
+  });
+
+  test('search, dates and sort all reach the query', () => {
+    for (const key of ['search:', 'date_from:', 'date_to:', 'sort,']) {
+      expect(serviceSrc, key).toContain(key);
+    }
+  });
+
+  test('the sort toggle flips between the two directions', () => {
+    expect(serviceSrc).toMatch(/v === 'desc' \? 'asc' : 'desc'/);
+  });
+
+  test('the filter labels exist in both languages', () => {
+    for (const dict of [en, ar]) {
+      for (const k of ['searchPlaceholder', 'dateFrom', 'dateTo',
+                       'sortNewest', 'sortOldest']) {
+        expect(dict.service[k], k).toBeTruthy();
+      }
+    }
+  });
+});

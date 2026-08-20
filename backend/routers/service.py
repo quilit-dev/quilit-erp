@@ -390,6 +390,7 @@ def list_jobs(
     date_from: Optional[str] = None,
     date_to: Optional[str] = None,
     search: Optional[str] = None,
+    sort: str = "desc",
     uninvoiced: bool = False,
     include_archived: bool = False,
     user=Depends(require_perm("service", "view")),
@@ -427,6 +428,8 @@ def list_jobs(
         where.append(bf[len(" AND "):])
         params += bp
 
+    direction = "ASC" if str(sort).lower() in ("asc", "oldest") else "DESC"
+
     rows = db.execute(
         "SELECT j.*, c.name AS client_name, e.name AS equipment_name, "
         # The person's name, not their login: a job list read by a
@@ -439,7 +442,11 @@ def list_jobs(
         "LEFT JOIN service_equipment e ON e.id = j.equipment_id "
         "LEFT JOIN users u ON u.id = j.assigned_to "
         f"WHERE {' AND '.join(where)} "
-        "ORDER BY COALESCE(j.scheduled_date, j.created_at) DESC, j.id DESC",
+        # Newest or oldest first, by the date the list already shows. The
+        # direction is mapped from a fixed pair, never interpolated from the
+        # request — it reaches ORDER BY, which takes no bind parameter.
+        f"ORDER BY COALESCE(j.scheduled_date, j.created_at) {direction}, "
+        f"j.id {direction}",
         params).fetchall()
     return [dict(r) for r in rows]
 
