@@ -34,6 +34,13 @@ MODULES = [
     # admin page at all?). Per-warehouse row-level access is enforced
     # separately via user_warehouse_access (see warehouse_access.py).
     'warehouses',
+    # What stock COST to buy, as opposed to what it sells for. A field-level
+    # concern rather than a screen: there is no Costs page, and every module
+    # below stays reachable without it — the cost columns are simply absent
+    # from the response. Modelled as a permission key so it inherits the role
+    # editor, the seeded matrix and check_perm rather than growing a parallel
+    # mechanism. Only the `view` action is meaningful.
+    'costs',
 ]
 ADMIN_MODULES = ['settings', 'users', 'roles', 'audit']
 ALL_MODULES   = MODULES + ADMIN_MODULES
@@ -159,6 +166,22 @@ def check_perm(user: dict, db: sqlite3.Connection, module: str, action: str = "v
             status_code=403,
             detail=f"You don't have '{action}' access to '{module}'."
         )
+
+
+def can(user: dict, db: sqlite3.Connection, module: str, action: str = "view") -> bool:
+    """Non-raising sibling of check_perm, for shaping a response rather than
+    refusing it.
+
+    Hiding a field is not the same as refusing a request: the caller is allowed
+    the endpoint and merely gets less of it back, so the permission has to be a
+    question rather than a gate. Same rules as check_perm — the module paywall
+    first, then the superadmin bypass, then the role row.
+    """
+    try:
+        check_perm(user, db, module, action)
+        return True
+    except HTTPException:
+        return False
 
 
 def require_perm(module: str, action: str = "view"):

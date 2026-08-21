@@ -3298,6 +3298,26 @@ def _run_migrations(conn, c):
         )
         done("146_account_2400")
 
+    # Grant the new `costs` capability on upgrade. Without this every existing
+    # install silently loses cost everywhere the moment the stripping lands —
+    # including for the owner, who would have no way to grant it back except by
+    # editing each role by hand.
+    if need("150_costs_capability"):
+        for _role in ('Business Owner', 'Branch Manager', 'Manager',
+                      'Finance Manager', 'Accountant', 'Auditor',
+                      'Procurement Officer', 'Inventory',
+                      'Production Manager', 'Operations Manager'):
+            row = c.execute("SELECT id FROM roles WHERE name=?", (_role,)).fetchone()
+            if not row:
+                continue
+            c.execute(
+                "INSERT INTO role_permissions "
+                "(role_id, module, can_view, can_create, can_edit, can_delete, can_approve) "
+                "VALUES (?,?,1,0,0,0,0) "
+                "ON CONFLICT(role_id, module) DO NOTHING",
+                (row[0], 'costs'))
+        done("150_costs_capability")
+
     # Hourly staff. `salary` has always meant a MONTHLY figure, so an employee
     # paid by the hour had nowhere to record their rate and payroll had nothing
     # to work from — the month's pay had to be multiplied out by hand and typed
@@ -4423,6 +4443,22 @@ def _seed_roles_and_admin(c):
     for role_name, perms in ROLE_PERMS.items():
         for mod, tup in perms.items():
             _set_perm(role_name, mod, *tup)
+
+    # What stock COST to buy. Granted explicitly for the same reason HR is,
+    # one line below: the blanket loop above hands every MODULES entry to
+    # Viewer as well as Auditor, and a general read-only account is precisely
+    # what an owner wants kept away from cost prices.
+    #
+    # Two groups get it. Finance-facing roles, because the ledger cannot hide
+    # it anyway — a trial balance with COGS suppressed does not balance, so
+    # anyone reading the accounts can see cost regardless. And cost-AUTHORING
+    # roles, because purchase orders and BOMs are entered in cost terms:
+    # withholding it there does not hide information, it stops the work.
+    for _cost_role in ('Business Owner', 'Branch Manager', 'Manager',
+                       'Finance Manager', 'Accountant', 'Auditor',
+                       'Procurement Officer', 'Inventory',
+                       'Production Manager', 'Operations Manager'):
+        _set_perm(_cost_role, 'costs', *_V)
 
     # HR holds sensitive data (salaries, contracts, applicant CVs, internal
     # touchpoints) — granted explicitly rather than via the blanket Viewer

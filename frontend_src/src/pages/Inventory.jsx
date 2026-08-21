@@ -5,6 +5,7 @@ import { usePersistedState } from '../hooks/usePersistedState';
 import { useSortPaginate } from '../hooks/useSortPaginate';
 import { useLocale } from '../hooks/useLocale.jsx';
 import { useCategories } from '../hooks/useCategories';
+import { usePermissions } from '../hooks/usePermissions';
 import { useFocusId } from '../hooks/useFocusId';
 import {
   createInventoryItem, updateInventoryItem,
@@ -141,6 +142,11 @@ export default function Inventory() {
     } catch (err) { toast(err.message, 'red'); }
   }
 
+  // The server strips cost for roles without the capability, so these
+  // columns would otherwise render as blank cells rather than being absent.
+  const { can } = usePermissions();
+  const showCost = can('costs');
+
   const regInvCats = useCategories('inventory');
   const allKnownCats = [...new Set([...regInvCats, ...categories, ...items.map(i => i.category).filter(Boolean)])];
   const totalValue   = items.reduce((s, i) => s + (i.quantity * i.unit_cost), 0);
@@ -196,8 +202,10 @@ export default function Inventory() {
           )}
         </td>
         <td>{item.min_stock} {item.unit}</td>
-        <td>${fmtNum(item.unit_cost)}</td>
-        <td style={{ fontWeight: 600 }}>${fmtNum(item.quantity * item.unit_cost)}</td>
+        {showCost && <td>${fmtNum(item.unit_cost)}</td>}
+        {showCost && (
+          <td style={{ fontWeight: 600 }}>${fmtNum(item.quantity * item.unit_cost)}</td>
+        )}
         <td>{item.supplier || <span style={{ color: 'var(--text-3)' }}>—</span>}</td>
         <td>
           <div style={{ display: 'flex', gap: 6 }}>
@@ -273,7 +281,9 @@ export default function Inventory() {
         <div>
           <h1 className="page-title">{t('inventory.title')}</h1>
           <p className="page-subtitle">
-            {t('inventory.totalItems', { count: items.length })} · {t('common.totalValue')}: ${fmtNum(totalValue)}
+            {t('inventory.totalItems', { count: items.length })}
+            {/* Stock value is quantity x cost, so it divides back out. */}
+            {showCost && <> · {t('common.totalValue')}: ${fmtNum(totalValue)}</>}
             {lowCount > 0 && <span style={{ color: 'var(--red)', marginLeft: 8 }}>· ⚠ {lowCount} {t('inventory.lowStock')}</span>}
           </p>
         </div>
@@ -356,8 +366,8 @@ export default function Inventory() {
                   <SortableTh label={t('inventory.typeHeader')} sortKey="product_type" currentKey={sortKey} currentDir={sortDir} onSort={requestSort} />
                   <SortableTh label={t('inventory.stockHeader')} sortKey="quantity" currentKey={sortKey} currentDir={sortDir} onSort={requestSort} />
                   <SortableTh label={t('inventory.minStock')} sortKey="min_stock"  currentKey={sortKey} currentDir={sortDir} onSort={requestSort} />
-                  <SortableTh label={t('inventory.unitCost')} sortKey="unit_cost"  currentKey={sortKey} currentDir={sortDir} onSort={requestSort} />
-                  <th>{t('inventory.totalValueHeader')}</th>
+                  {showCost && <SortableTh label={t('inventory.unitCost')} sortKey="unit_cost"  currentKey={sortKey} currentDir={sortDir} onSort={requestSort} />}
+                  {showCost && <th>{t('inventory.totalValueHeader')}</th>}
                   <SortableTh label={t('common.supplier')}    sortKey="supplier"   currentKey={sortKey} currentDir={sortDir} onSort={requestSort} />
                   <th>{t('common.actions')}</th>
                 </tr>

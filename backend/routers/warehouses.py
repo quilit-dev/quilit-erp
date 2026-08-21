@@ -23,6 +23,7 @@ from fastapi import APIRouter, Depends, HTTPException
 from pydantic import BaseModel, Field
 from database import get_db
 from permissions import require_perm, require_auth
+import costs
 from routers.audit import log_action
 from utils import _now, notify
 import warehouse_access as wha
@@ -913,4 +914,4 @@ def warehouse_stock(
         d = dict(r)
         d["value"] = round(d["value"] or 0, 2)
         out.append(d)
-    return out
+    return costs.strip(out, user, db)

@@ -2644,6 +2644,8 @@ const ar = {
     usersPlural: 'مستخدمين',
     userSingular: 'مستخدم',
     system: 'نظام',
+    moduleCosts: 'أسعار التكلفة',
+    moduleCostsHint: 'رؤية تكلفة شراء المخزون. بدونها يعمل الموظفون بأسعار البيع فقط.',
     actionView:    'عرض',
     actionCreate:  'إنشاء',
     actionEdit:    'تعديل',

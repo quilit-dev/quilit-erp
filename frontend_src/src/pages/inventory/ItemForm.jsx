@@ -1,5 +1,6 @@
 import { useState } from 'react';
 import { useLocale } from '../../hooks/useLocale.jsx';
+import { usePermissions } from '../../hooks/usePermissions';
 import { useCategories } from '../../hooks/useCategories';
 import { useSettings } from '../../hooks/useSettings.jsx';
 import { NumberInput, SupplierCombobox, swallowScannerEnter } from '../../components/shared';
@@ -7,6 +8,8 @@ import { UNITS, PRODUCT_TYPES, fmtNum } from './ui';
 
 function ItemForm({ initial = {}, knownCategories = [], suppliers = [], onSave, onCancel, saving }) {
   const { t, tCategory, tEnumValue } = useLocale();
+  const { can } = usePermissions();
+  const showCost = can('costs');
   const { exchangeRate } = useSettings();
   const rate = Number(exchangeRate?.rate) || 0;
   const hasRate = rate > 0;
@@ -109,6 +112,10 @@ function ItemForm({ initial = {}, knownCategories = [], suppliers = [], onSave, 
               value={form.min_stock} onChange={e => set('min_stock', e.target.value)} />
           </div>
 
+          {/* Hidden without the capability, and the server ignores any cost in
+              the payload from such a user and keeps what is stored — so an
+              absent field cannot post back as 0 and wipe the item's cost. */}
+          {showCost && (
           <div className="form-group">
             <label className="form-label">{t('inventory.unitCostLabel')}</label>
             <div style={{ display: 'flex', gap: 6 }}>
@@ -126,6 +133,7 @@ function ItemForm({ initial = {}, knownCategories = [], suppliers = [], onSave, 
                   {t('inventory.costLockedToUsd')} {equiv(form.unit_cost, form.cost_currency)}
                 </div>}
           </div>
+          )}
 
           <div className="form-group">
             <label className="form-label">{t('inventory.salePriceLabel')}</label>

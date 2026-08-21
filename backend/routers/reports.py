@@ -9,6 +9,7 @@ from datetime import date
 from typing import Optional
 import branch_access
 import installments
+import costs
 import sqlite3
 
 router = APIRouter()
@@ -723,11 +724,14 @@ def report_inventory_by_warehouse(
         "qty_total": round(sum(float(r["qty_total"] or 0) for r in rows), 2),
         "value":     round(sum(float(r["value"]     or 0) for r in rows), 2),
     }
-    return {
+    # Stock valuation IS quantity x unit cost, so both the per-item cost and
+    # the value it produces have to go — a value column divides straight back
+    # out to the cost it was meant to conceal.
+    return costs.strip({
         "warehouses": rows,
         "totals":     totals,
         "top_skus":   [dict(s) for s in top_skus],
-    }
+    }, user, db)
 
 
 @router.get("/inventory-by-attribute")

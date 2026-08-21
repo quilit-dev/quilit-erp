@@ -29,8 +29,14 @@ reads in `routers/` (see `_REQUIRES` notes), not from intuition.
 #     it would silently corrupt a customer's books the day they did buy it,
 #     so the engine always runs; what is sold is the accounting SURFACE
 #     (chart of accounts, journals, statements, period close).
+#   * costs — permission to see what stock COST to buy, as opposed to what it
+#     sells for. A field-level capability rather than a screen: there is no
+#     Costs page to sell, and withholding it leaves every module reachable with
+#     the cost columns simply absent. Always on so the paywall never takes an
+#     owner's own cost prices away; who sees it is an RBAC decision.
 ALWAYS_ON = frozenset({
     "dashboard", "users", "roles", "settings", "audit", "accounting",
+    "costs",
 })
 
 # module -> modules it cannot function without.

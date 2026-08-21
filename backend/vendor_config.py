@@ -65,7 +65,11 @@ _MODULE_PARENT = {
 # System / admin permission keys that are never part of the module paywall.
 # They are gated separately (require_admin / require_superadmin) and must keep
 # working regardless of which business modules a customer purchased.
-_ALWAYS_ON = {"dashboard", "users", "roles"}
+# `costs` is a field-level capability, not a purchasable screen — it has no
+# sidebar entry, so it never appears in a vendor's ENABLED_MODULES list. Absent
+# from this set, module_allowed() would paywall it on every licensed install and
+# the OWNER would lose sight of their own cost prices.
+_ALWAYS_ON = {"dashboard", "users", "roles", "costs"}
 
 
 def enabled_modules_set():

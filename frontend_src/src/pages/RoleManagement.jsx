@@ -41,6 +41,9 @@ const CORE_MODULES  = [
   'service',
   // Finance
   'expenses', 'assets', 'finance', 'cash', 'accounting', 'reports',
+  // Cost visibility — a field-level capability, not a screen. Withhold it and
+  // the modules above stay reachable; their cost columns simply are not there.
+  'costs',
   // People
   'hr', 'hr_contracts', 'hr_activities', 'recruitment',
   // Client + internal comms
@@ -140,6 +143,8 @@ export default function RoleManagement() {
     expenses:      t('nav.expenses'),
     accounting:    t('nav.accounting'),
     reports:       t('nav.reports'),
+    // No nav entry of its own — it is a capability, not a screen.
+    costs:         t('roles.moduleCosts'),
     service:       t('nav.service'),
     communications: t('nav.communications'),
     crm:           t('nav.crm'),

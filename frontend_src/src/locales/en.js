@@ -2656,6 +2656,8 @@ const en = {
     userSingular: 'user',
     subtitle2: 'Define what each role can see and do across the system.',
     system: 'System',
+    moduleCosts: 'Cost prices',
+    moduleCostsHint: 'See what stock cost to buy. Withhold it and staff work in selling prices only.',
     actionView:    'View',
     actionCreate:  'Create',
     actionEdit:    'Edit',

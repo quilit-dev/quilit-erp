@@ -211,9 +211,66 @@ flowchart TD
 | **Auditor** | Standard | Read-only across **everything** |
 | **Viewer** | Standard | Read-only sidebar nav, no detail access |
 
+## Hiding cost prices
+
+Most permissions decide which **screens** a role can reach. **Cost prices** is
+different: it decides whether a role sees what stock *cost to buy*, as opposed
+to what it *sells for*. Withhold it and every screen stays reachable — the cost
+columns are simply not there.
+
+Grant or withhold it in **Roles** like any other permission. Only *View*
+matters.
+
+```mermaid
+flowchart LR
+    A["Cashier opens<br/>Inventory"] --> B{Has Cost prices?}
+    B -->|No| C["Name, stock,<br/>selling price"]
+    B -->|Yes| D["...plus unit cost<br/>and stock value"]
+
+    style C fill:#eef2ff,stroke:#6366f1
+    style D fill:#dcfce7,stroke:#10b981
+```
+
+The figures are removed **on the server**, not hidden in the browser, so they
+are not in the page for someone to find in a developer console.
+
+### Who keeps it by default
+
+| Keeps it | Why |
+|---|---|
+| Business Owner, Branch Manager, Manager | Run the business |
+| Finance Manager, Accountant, Auditor | The accounts show cost regardless — see below |
+| Procurement Officer, Inventory, Operations Manager, Production Manager | Purchase orders and BOMs are *entered* as costs |
+
+Everyone else — Sales, Cashier, Project Manager, CRM, HR, Viewer — works in
+selling prices only.
+
+!!! note "Editing an item without it is safe"
+    Someone without Cost prices can still rename an item or fix its category.
+    The cost field is not on their form, and the system keeps the stored figure
+    rather than taking the blank as zero — which would wipe the item's cost and
+    every stock valuation built on it.
+
+### What it does not hide
+
+Cost stays visible to anyone who can read the **accounts**. A trial balance
+with Cost of Goods Sold removed would not balance, and an unbalanced trial
+balance is worse than a visible cost figure — so roles with accounting access
+keep Cost prices to match.
+
+Anyone who can see both a sale and its profit can also work backwards to the
+cost. This raises the wall from *a column on the screen* to *a deliberate
+reconstruction by someone with finance access*, which is usually what an owner
+wants — but it is worth knowing it is not a vault.
+
+---
+
 ## Things that are deliberately NOT supported
 
 - Permission grants directly to users (only to roles). Keeps the matrix small
   and auditable.
 - Conditional permissions ("only on Mondays"). Doesn't suit SMEs.
 - Time-limited permissions. Switch a user off instead.
+- Field-level permissions in general. **Cost prices** above is the one
+  exception, added because hiding margins from shop-floor staff is a common
+  request; the rest of the matrix stays screen-level on purpose.

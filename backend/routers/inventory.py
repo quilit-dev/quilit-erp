@@ -3,6 +3,7 @@ from pydantic import BaseModel
 from typing import Optional
 from database import get_db
 from permissions import require_perm, require_auth
+import costs
 from routers.audit import log_action
 from utils import _now, notify, validate_int_qty
 import costing
@@ -111,7 +112,7 @@ def list_inventory(search: Optional[str] = None, category: Optional[str] = None,
             attrs.setdefault(a["inventory_id"], {})[a["name"]] = a["value"]
         for r in out:
             r["attributes"] = attrs.get(r["id"], {})
-    return out
+    return costs.strip(out, user, db)
 
 @router.get("/categories")
 def get_categories(user=Depends(require_auth), db: sqlite3.Connection = Depends(get_db)):
@@ -147,7 +148,7 @@ def list_lots(
         if expiring and d["expiry_status"] not in ("expired", "expiring"):
             continue
         out.append(d)
-    return out
+    return costs.strip(out, user, db)
 
 
 @router.get("/lots/{lot_id}")
@@ -184,7 +185,7 @@ def get_lot(
         "JOIN inventory_lots il ON c.lot_id = il.id "
         "JOIN inventory ii      ON il.inventory_id = ii.id "
         "WHERE c.output_lot_id=? ORDER BY c.id", (lot_id,)).fetchall()]
-    return d
+    return costs.strip(d, user, db)
 
 
 @router.get("/{item_id}")
@@ -192,7 +193,7 @@ def get_item(item_id: int, user=Depends(require_perm("inventory", "view")), db: 
     row = db.execute("SELECT * FROM inventory WHERE id = ? AND archived_at IS NULL", (item_id,)).fetchone()
     if not row:
         raise HTTPException(404, "Item not found")
-    return dict(row)
+    return costs.strip(dict(row), user, db)
 
 @router.get("/{item_id}/by-warehouse")
 def get_item_by_warehouse(
@@ -219,7 +220,7 @@ def get_item_by_warehouse(
         "ORDER BY w.is_default DESC, w.code",
         (item_id,),
     ).fetchall()
-    return [dict(r) for r in rows]
+    return costs.strip([dict(r) for r in rows], user, db)
 
 @router.get("/{item_id}/movements")
 def get_movements(item_id: int, user=Depends(require_perm("inventory", "view")), db: sqlite3.Connection = Depends(get_db)):
@@ -335,6 +336,15 @@ def update_item(item_id: int, data: InventoryCreate, user=Depends(require_perm("
     if ptype and ptype not in _PRODUCT_TYPES:
         raise HTTPException(400, "Invalid product type.")
     price_currency, unit_cost = _resolve_item_currencies(data, db)
+    # A user who cannot SEE cost cannot set it either, and their form has no
+    # field to send — so whatever arrives is ignored and the stored figure is
+    # kept. Trusting the payload here is how an absent field posts back as 0
+    # and silently zeroes an item's cost, taking stock valuation and every
+    # future COGS posting with it. They can still rename the item.
+    if not costs.visible(user, db):
+        _kept = db.execute("SELECT unit_cost FROM inventory WHERE id=?", (item_id,)).fetchone()
+        if _kept is not None:
+            unit_cost = _kept["unit_cost"]
     # quantity is managed exclusively via /stock — never overwritten by edit
     db.execute(
         "UPDATE inventory SET name=?, category=?, product_type=?, min_stock=?, unit_cost=?, sale_price=?, price_currency=?, supplier=?, unit=?, barcode=?, lot_tracked=?, shelf_life_days=? WHERE id=?",
