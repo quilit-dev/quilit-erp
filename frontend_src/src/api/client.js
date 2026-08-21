@@ -119,6 +119,10 @@ export const unarchiveClient = (id) => api.patch(`/api/clients/${id}/unarchive`)
 export const getClient       = (id) => api.get(`/api/clients/${id}`);
 // Statement of account: charges, payments and a running balance over a
 // window, with everything before it folded into the opening balance.
+// One payment against the customer, settling their oldest invoices first.
+// The server splits it into one invoice_payments row per invoice touched.
+export const recordCustomerPayment = (id, body) =>
+  api.post(`/api/clients/${id}/payments`, body);
 export const getClientStatement = (id, params = {}) =>
   api.get(`/api/clients/${id}/statement${_qs(params)}`);
 export const createClient    = (d) => api.post('/api/clients/', d);

@@ -531,7 +531,19 @@ export default function Invoices() {
                   const exporting = exportLoading[inv.id] || receiptLoading[inv.id];
                   return (
                     <tr key={inv.id}>
-                      <td className="td-primary text-mono">{inv.invoice_number}</td>
+                      <td className="td-primary text-mono">
+                        {inv.invoice_number}
+                        {/* One number series across every source now, so where
+                            an invoice came from is a caption rather than a
+                            prefix. 'sales' is the ordinary case and says
+                            nothing. */}
+                        {inv.source_type && inv.source_type !== 'sales' && (
+                          <div style={{ fontSize: 11, color: 'var(--text-3)', fontWeight: 400 }}>
+                            {t(`clients.source${inv.source_type.charAt(0).toUpperCase()}${inv.source_type.slice(1)}`)}
+                            {inv.source_reference ? ` · ${inv.source_reference}` : ''}
+                          </div>
+                        )}
+                      </td>
                       <td className="text-mono" style={{ fontSize:12, color:'var(--text-3)' }}>
                         {inv.quote_number || '—'}
                       </td>

@@ -8,6 +8,7 @@ import { useLocale } from '../hooks/useLocale.jsx';
 import { usePermissions } from '../hooks/usePermissions';
 import Attachments from '../components/Attachments.jsx';
 import StatementTab from './clients/StatementTab.jsx';
+import CustomerPaymentModal from './clients/CustomerPaymentModal.jsx';
 import { openSafeHtmlDocument } from '../utils/exportUtils';
 
 function StatCard({ label, value, sub, color }) {
@@ -60,6 +61,7 @@ export default function ClientDetail() {
   const [loading,   setLoading]   = useState(true);
   const [error,     setError]     = useState(null);
   const [tab,       setTab]       = useState('overview');
+  const [payOpen,   setPayOpen]   = useState(false);
 
   const TABS = [
     { key: 'overview',   label: t('clients.overview') },
@@ -126,7 +128,21 @@ export default function ClientDetail() {
             {client.phone && <span>📞 {client.phone}</span>}
           </p>
         </div>
+        {can('invoices', 'create') && (
+          <button className="btn btn-primary" onClick={() => setPayOpen(true)}>
+            {t('invoices.recordPayment')}
+          </button>
+        )}
       </div>
+
+      {payOpen && (
+        <CustomerPaymentModal
+          client={client}
+          invoices={invoices}
+          onClose={() => setPayOpen(false)}
+          onDone={() => getClient(id).then(setClient).catch(() => {})}
+        />
+      )}
 
       {/* KPI row */}
       <div className="stats-grid" style={{ marginBottom: 24 }}>
