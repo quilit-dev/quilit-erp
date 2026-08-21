@@ -3298,6 +3298,36 @@ def _run_migrations(conn, c):
         )
         done("146_account_2400")
 
+    # ── 151: account roles ────────────────────────────────────────────────
+    # Which account plays which PART, rather than which number it happens to
+    # have. The postings say "the receivable account"; this table says what
+    # that is for this tenant.
+    #
+    # It exists because the chart of accounts is not universal. Lebanon's
+    # statutory plan puts customers in class 4 and cash in class 5, where this
+    # chart uses 1100 and 1000 — and the digits do not merely differ, they mean
+    # different things: 1 is equity there and assets here. Hardcoding "1100"
+    # across the backend made one chart the only chart.
+    #
+    # Seeded with exactly the codes the constants in accounting.py already use,
+    # so nothing about existing behaviour changes on upgrade. A tenant on a
+    # different chart re-points the roles; the posting code never learns which
+    # chart it is on.
+    if need("151_account_roles"):
+        c.execute("""
+            CREATE TABLE IF NOT EXISTS account_roles (
+                role       TEXT PRIMARY KEY,
+                code       TEXT NOT NULL,
+                updated_at TEXT
+            )
+        """)
+        _ts = datetime.utcnow().strftime("%Y-%m-%d %H:%M:%S")
+        for _role, _code in _DEFAULT_ACCOUNT_ROLES:
+            c.execute(
+                "INSERT OR IGNORE INTO account_roles (role, code, updated_at) "
+                "VALUES (?,?,?)", (_role, _code, _ts))
+        done("151_account_roles")
+
     # Grant the new `costs` capability on upgrade. Without this every existing
     # install silently loses cost everywhere the moment the stripping lands —
     # including for the owner, who would have no way to grant it back except by
@@ -3879,6 +3909,14 @@ def _ensure_pg_post_baseline(raw):
         cur.execute("ALTER TABLE hr_payroll_lines ADD COLUMN IF NOT EXISTS "
                     "hourly_rate DOUBLE PRECISION DEFAULT 0")
         cur.execute(
+            "CREATE TABLE IF NOT EXISTS account_roles "
+            "(role TEXT PRIMARY KEY, code TEXT NOT NULL, updated_at TEXT)")
+        for _role, _code in _DEFAULT_ACCOUNT_ROLES:
+            cur.execute(
+                "INSERT INTO account_roles (role, code, updated_at) "
+                "VALUES (%s, %s, to_char(now(),'YYYY-MM-DD HH24:MI:SS')) "
+                "ON CONFLICT (role) DO NOTHING", (_role, _code))
+        cur.execute(
             "INSERT INTO chart_of_accounts "
             "(code, name, type, subtype, normal_balance, is_system, is_active, created_at) "
             "VALUES ('4100','Service Revenue','Income','Operating Income','credit',1,1,"
@@ -4255,6 +4293,40 @@ def _seed_categories(c):
                 "VALUES (?,?,?,1,?) ON CONFLICT(domain, name) DO NOTHING",
                 (domain, name, i, now),
             )
+
+
+# Role -> account code for the DEFAULT chart. These are exactly the codes the
+# constants in accounting.py have always used; the table is the indirection, not
+# a change of mind about which account does what.
+#
+# Three VAT roles rather than one: this chart nets input and output VAT into a
+# single control account (2100) and all three therefore point at it, but the
+# Lebanese plan separates deductible VAT on charges (4426) from VAT due on
+# revenue (4427) with a settlement account (4425). Splitting the role now means
+# that chart needs no special case later.
+_DEFAULT_ACCOUNT_ROLES = [
+    ("cash",              "1000"),
+    ("cash_lbp",          "1010"),
+    ("receivable",        "1100"),
+    ("inventory",         "1200"),
+    ("prepaid",           "1300"),
+    ("accumulated_dep",   "1510"),
+    ("payable",           "2000"),
+    ("vat_control",       "2100"),
+    ("vat_input",         "2100"),
+    ("vat_output",        "2100"),
+    ("deferred_revenue",  "2400"),
+    ("retained_earnings", "3900"),
+    ("revenue",           "4000"),
+    ("service_revenue",   "4100"),
+    ("fx_gain",           "4910"),
+    ("cogs",              "5000"),
+    ("salaries",          "6000"),
+    ("depreciation",      "6300"),
+    ("other_expense",     "6900"),
+    ("cash_short_over",   "6910"),
+    ("fx_loss",           "6920"),
+]
 
 
 def _seed_roles_and_admin(c):

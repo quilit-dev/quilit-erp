@@ -101,6 +101,7 @@ VAT_CONTROL  = "2100"   # VAT Payable (net control account)
 # The balance sheet is then complete at every point, while the income statement
 # and the VAT position move exactly as they did before.
 DEFERRED_REV = "2400"   # Deferred Revenue (invoiced, not yet earned in cash)
+RETAINED_EARNINGS = "3900"  # Retained Earnings (year-end closing target)
 SALARIES     = "6000"   # Salaries & Wages
 DEPRECIATION = "6300"   # Depreciation Expense
 CASH_SHORT_OVER = "6910"  # Cash Short & Over (operating expense)
@@ -141,6 +142,51 @@ _CREDIT_NORMAL  = {"Liability", "Equity", "Income"}  # balance = credit − debi
 
 
 # ── Account lookup ───────────────────────────────────────────────────────────
+# ── Which account plays which part ───────────────────────────────────────────
+# The constants above are this chart's answer. They are not everyone's: Lebanon's
+# statutory plan puts customers in class 4 and cash in class 5, and the digits do
+# not merely differ — 1 is equity there and assets here. So postings ask for the
+# account that plays a ROLE and the tenant's chart says which one that is.
+#
+# The constants remain the DEFAULT answer, and a tenant with no mapping row gets
+# them. That way an install whose migration has not run yet, or a role nobody
+# has mapped, still posts to the account it always did instead of failing.
+_ROLE_DEFAULTS = {
+    "cash": CASH,                     "cash_lbp": CASH_LBP,
+    "receivable": AR,                 "inventory": INVENTORY,
+    "prepaid": PREPAID,               "accumulated_dep": ACC_DEP,
+    "payable": AP,                    "vat_control": VAT_CONTROL,
+    "vat_input": VAT_CONTROL,         "vat_output": VAT_CONTROL,
+    "deferred_revenue": DEFERRED_REV, "retained_earnings": RETAINED_EARNINGS,
+    "revenue": REVENUE,               "service_revenue": SERVICE_REVENUE,
+    "fx_gain": FX_GAIN,               "cogs": COGS,
+    "salaries": SALARIES,             "depreciation": DEPRECIATION,
+    "other_expense": OTHER_EXPENSE,   "cash_short_over": CASH_SHORT_OVER,
+    "fx_loss": FX_LOSS,
+}
+
+
+def code(db, role: str) -> str:
+    """The account code playing `role` in this tenant's chart.
+
+    Deliberately uncached. Under schema-per-tenant a module-level cache would
+    hand one customer another's mapping, and this is a primary-key lookup on a
+    21-row table — the wrong thing to optimise.
+    """
+    try:
+        row = db.execute(
+            "SELECT code FROM account_roles WHERE role = ?", (role,)).fetchone()
+        if row and row["code"]:
+            return row["code"]
+    except Exception:
+        # No such table yet on an install mid-upgrade. The default is right.
+        pass
+    try:
+        return _ROLE_DEFAULTS[role]
+    except KeyError:
+        raise ValueError(f"Unknown account role {role!r}")
+
+
 def account_id_for(db: sqlite3.Connection, code: str) -> int:
     row = db.execute("SELECT id FROM chart_of_accounts WHERE code=?", (code,)).fetchone()
     if not row:
@@ -783,7 +829,6 @@ def general_ledger(db: sqlite3.Connection, account_id: int, start: str = None,
 
 
 # ── Financial-year closing ───────────────────────────────────────────────────
-RETAINED_EARNINGS = "3900"
 
 
 def is_year_closed(db: sqlite3.Connection, year) -> bool:
