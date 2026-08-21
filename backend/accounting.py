@@ -154,6 +154,7 @@ _CREDIT_NORMAL  = {"Liability", "Equity", "Income"}  # balance = credit − debi
 # has mapped, still posts to the account it always did instead of failing.
 _ROLE_DEFAULTS = {
     "cash": CASH,                     "cash_lbp": CASH_LBP,
+    "bank": CASH,
     "receivable": AR,                 "inventory": INVENTORY,
     "prepaid": PREPAID,               "accumulated_dep": ACC_DEP,
     "payable": AP,                    "vat_control": VAT_CONTROL,
@@ -912,3 +913,38 @@ def reopen_fiscal_year(db: sqlite3.Connection, year, created_by=None):
         "UPDATE fiscal_years SET status='open', closed_at=NULL, closed_by=NULL, "
         " closing_entry_id=NULL WHERE year=?", (year,))
     return {"year": year, "status": "open"}
+
+
+def bank_account_code(db, bank_account_id=None, currency=None) -> str:
+    """The ledger account a bank movement belongs in.
+
+    A named bank account carries its own code, so its balance can be reconciled
+    against the statement the bank sends. Without one — an older payment, or a
+    tenant that has not set any up — this falls back to the `bank` role, which
+    is where every bank movement used to go.
+    """
+    if bank_account_id:
+        try:
+            row = db.execute(
+                "SELECT account_code FROM bank_accounts WHERE id = ?",
+                (bank_account_id,)).fetchone()
+        except Exception:
+            row = None
+        if row and row["account_code"]:
+            return row["account_code"]
+    return code(db, "bank")
+
+
+def money_account_for(db, *, method=None, currency=None, bank_account_id=None) -> str:
+    """Where money tendered by `method` in `currency` lands.
+
+    One question asked in one place. Cash follows the currency — each has its
+    own account so a balance in a currency that is not the functional one can be
+    revalued without unpicking it from the rest. Anything settled through a bank
+    follows the account it went through.
+    """
+    if bank_account_id:
+        return bank_account_code(db, bank_account_id)
+    if method and str(method).strip().lower() in ("bank transfer", "bank", "cheque", "card"):
+        return code(db, "bank")
+    return cash_account_for(db, currency)

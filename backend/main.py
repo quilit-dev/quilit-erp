@@ -19,7 +19,7 @@ from routers import communications as communications_router
 from routers import pdf as pdf_router
 from routers import purchases, settings, documents, suppliers, audit, users, roles, search
 from routers import reports, crm, planning, notifications
-from routers import approval_policies, approval_requests, hr, hr_contracts, recruitment, hr_activities, tax_rates, pos, cash, manufacturing
+from routers import approval_policies, approval_requests, hr, hr_contracts, recruitment, hr_activities, tax_rates, pos, cash, manufacturing, banks
 from routers import assets, recurring, announcements, attachments, accounting, warehouses, platform, imports
 from routers import products
 from routers import service as service_router
@@ -237,6 +237,7 @@ app.include_router(hr_activities.router,     prefix="/api/hr-activities",      t
 app.include_router(tax_rates.router,         prefix="/api/tax-rates",          tags=["tax"])
 app.include_router(pos.router,               prefix="/api/pos",                tags=["pos"])
 app.include_router(cash.router,              prefix="/api/cash",               tags=["cash"])
+app.include_router(banks.router,             prefix="/api/banks",              tags=["banks"])
 app.include_router(manufacturing.router,     prefix="/api/manufacturing",      tags=["manufacturing"])
 app.include_router(assets.router,            prefix="/api/assets",             tags=["assets"])
 app.include_router(recurring.router,         prefix="/api/recurring-expenses", tags=["expenses"])

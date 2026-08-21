@@ -213,6 +213,7 @@ LOCAL_SUBACCOUNTS = [
 # refinement the tax engine has the information for and does not do yet.
 ROLES = {
     "cash":              "5312",   # functional currency
+    "bank":              "512",    # 53 الصندوق is notes; 512 بنوك is the bank
     "cash_lbp":          "5311",
     "receivable":        "4111",
     "inventory":         "37",

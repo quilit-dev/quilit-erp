@@ -3298,18 +3298,6 @@ def _run_migrations(conn, c):
         )
         done("146_account_2400")
 
-    # An account name in Arabic, and whether it may be posted to. Lebanon's
-    # statutory chart is published in Arabic and is a TREE: 41 is the customer
-    # heading, 4111 is the account a sale actually lands in. Posting to a
-    # heading would double-count it against its own children.
-    #
-    # Both default to today's behaviour — no Arabic name, everything postable —
-    # so the existing flat chart is unaffected.
-    add_col("152a_coa_name_ar", "chart_of_accounts", "name_ar",
-            "ALTER TABLE chart_of_accounts ADD COLUMN name_ar TEXT")
-    add_col("152b_coa_postable", "chart_of_accounts", "is_postable",
-            "ALTER TABLE chart_of_accounts ADD COLUMN is_postable INTEGER NOT NULL DEFAULT 1")
-
     # ── 151: account roles ────────────────────────────────────────────────
     # Which account plays which PART, rather than which number it happens to
     # have. The postings say "the receivable account"; this table says what
@@ -3339,6 +3327,92 @@ def _run_migrations(conn, c):
                 "INSERT OR IGNORE INTO account_roles (role, code, updated_at) "
                 "VALUES (?,?,?)", (_role, _code, _ts))
         done("151_account_roles")
+
+    # An account name in Arabic, and whether it may be posted to. Lebanon's
+    # statutory chart is published in Arabic and is a TREE: 41 is the customer
+    # heading, 4111 is the account a sale actually lands in. Posting to a
+    # heading would double-count it against its own children.
+    #
+    # Both default to today's behaviour — no Arabic name, everything postable —
+    # so the existing flat chart is unaffected.
+    add_col("152a_coa_name_ar", "chart_of_accounts", "name_ar",
+            "ALTER TABLE chart_of_accounts ADD COLUMN name_ar TEXT")
+    add_col("152b_coa_postable", "chart_of_accounts", "is_postable",
+            "ALTER TABLE chart_of_accounts ADD COLUMN is_postable INTEGER NOT NULL DEFAULT 1")
+
+    # ── 153: rates get a currency and a date they take effect ─────────────
+    # The table held one rate — LBP per USD, latest wins. Two things were
+    # missing: which currency a rate is for, and the date from which it
+    # applies. A transaction dated last month should convert at last month's
+    # rate, not at whatever was typed in this morning.
+    #
+    # Both columns are additive and defaulted so existing rows keep their
+    # meaning: every rate already recorded is an LBP rate, effective the day it
+    # was entered. Nothing already converted is restated — amounts are stored
+    # in USD, so history is fixed at the moment it was written and this only
+    # changes which rate a NEW conversion picks up.
+    add_col("153a_rate_currency", "exchange_rates", "currency",
+            "ALTER TABLE exchange_rates ADD COLUMN currency TEXT NOT NULL DEFAULT 'LBP'")
+    add_col("153b_rate_effective", "exchange_rates", "effective_date",
+            "ALTER TABLE exchange_rates ADD COLUMN effective_date TEXT")
+    if need("153c_rate_effective_backfill"):
+        if "exchange_rates" in all_tables():
+            c.execute(
+                "UPDATE exchange_rates SET effective_date = substr(created_at, 1, 10) "
+                "WHERE effective_date IS NULL AND created_at IS NOT NULL")
+            c.execute("CREATE INDEX IF NOT EXISTS idx_exchange_rates_lookup "
+                      "ON exchange_rates(currency, effective_date)")
+        done("153c_rate_effective_backfill")
+
+    # ── 154: bank accounts ────────────────────────────────────────────────
+    # Where money actually sits. Cash drawers already answer this for notes in
+    # a till; a bank transfer had nowhere to say WHICH account it landed in,
+    # so every bank movement piled into one ledger line and no balance could be
+    # reconciled against a statement.
+    #
+    # Each account carries its own chart code, so postings land per account
+    # rather than in a shared "Cash & Bank". On Lebanon's chart these are
+    # sub-accounts of 512 بنوك, which is how that plan expects a business to
+    # keep more than one.
+    if need("154a_bank_accounts"):
+        c.execute("""
+            CREATE TABLE IF NOT EXISTS bank_accounts (
+                id             INTEGER PRIMARY KEY AUTOINCREMENT,
+                name           TEXT    NOT NULL,
+                bank_name      TEXT,
+                account_number TEXT,
+                iban           TEXT,
+                swift          TEXT,
+                currency       TEXT    NOT NULL DEFAULT 'USD',
+                account_code   TEXT,
+                opening_balance REAL   NOT NULL DEFAULT 0,
+                is_active      INTEGER NOT NULL DEFAULT 1,
+                notes          TEXT,
+                branch_id      INTEGER,
+                archived_at    TEXT,
+                created_at     TEXT    NOT NULL
+            )
+        """)
+        c.execute("CREATE INDEX IF NOT EXISTS idx_bank_accounts_active "
+                  "ON bank_accounts(is_active)")
+        done("154a_bank_accounts")
+
+    # Which bank account a movement went through. Nullable throughout: every
+    # payment and expense already recorded predates the question, and a cash
+    # sale never has an answer.
+    add_col("154b_payment_bank", "invoice_payments", "bank_account_id",
+            "ALTER TABLE invoice_payments ADD COLUMN bank_account_id INTEGER")
+    add_col("154c_expense_bank", "expenses", "bank_account_id",
+            "ALTER TABLE expenses ADD COLUMN bank_account_id INTEGER")
+
+    # The bank role. This chart merges cash and bank into 1000 "Cash & Bank",
+    # so that is where it points until a tenant separates them; Lebanon's plan
+    # keeps 53 الصندوق apart from 512 بنوك and points it at the latter.
+    if need("154d_bank_role"):
+        _ts = datetime.utcnow().strftime("%Y-%m-%d %H:%M:%S")
+        c.execute("INSERT OR IGNORE INTO account_roles (role, code, updated_at) "
+                  "VALUES ('bank', '1000', ?)", (_ts,))
+        done("154d_bank_role")
 
     # Grant the new `costs` capability on upgrade. Without this every existing
     # install silently loses cost everywhere the moment the stripping lands —
@@ -3920,6 +3994,28 @@ def _ensure_pg_post_baseline(raw):
                     "hours_worked DOUBLE PRECISION DEFAULT 0")
         cur.execute("ALTER TABLE hr_payroll_lines ADD COLUMN IF NOT EXISTS "
                     "hourly_rate DOUBLE PRECISION DEFAULT 0")
+        cur.execute("ALTER TABLE exchange_rates ADD COLUMN IF NOT EXISTS "
+                    "currency TEXT NOT NULL DEFAULT 'LBP'")
+        cur.execute("ALTER TABLE exchange_rates ADD COLUMN IF NOT EXISTS "
+                    "effective_date TEXT")
+        cur.execute("""CREATE TABLE IF NOT EXISTS bank_accounts (
+            id SERIAL PRIMARY KEY, name TEXT NOT NULL, bank_name TEXT,
+            account_number TEXT, iban TEXT, swift TEXT,
+            currency TEXT NOT NULL DEFAULT 'USD', account_code TEXT,
+            opening_balance DOUBLE PRECISION NOT NULL DEFAULT 0,
+            is_active INTEGER NOT NULL DEFAULT 1, notes TEXT,
+            branch_id INTEGER, archived_at TEXT, created_at TEXT NOT NULL)""")
+        cur.execute("ALTER TABLE invoice_payments ADD COLUMN IF NOT EXISTS "
+                    "bank_account_id INTEGER")
+        cur.execute("ALTER TABLE expenses ADD COLUMN IF NOT EXISTS "
+                    "bank_account_id INTEGER")
+        cur.execute("INSERT INTO account_roles (role, code, updated_at) "
+                    "VALUES ('bank', '1000', to_char(now(),'YYYY-MM-DD HH24:MI:SS')) "
+                    "ON CONFLICT (role) DO NOTHING")
+        cur.execute("UPDATE exchange_rates SET effective_date = substr(created_at, 1, 10) "
+                    "WHERE effective_date IS NULL AND created_at IS NOT NULL")
+        cur.execute("CREATE INDEX IF NOT EXISTS idx_exchange_rates_lookup "
+                    "ON exchange_rates(currency, effective_date)")
         cur.execute("ALTER TABLE chart_of_accounts ADD COLUMN IF NOT EXISTS name_ar TEXT")
         cur.execute("ALTER TABLE chart_of_accounts ADD COLUMN IF NOT EXISTS "
                     "is_postable INTEGER NOT NULL DEFAULT 1")
@@ -4321,6 +4417,7 @@ def _seed_categories(c):
 # that chart needs no special case later.
 _DEFAULT_ACCOUNT_ROLES = [
     ("cash",              "1000"),
+    ("bank",              "1000"),
     ("cash_lbp",          "1010"),
     ("receivable",        "1100"),
     ("inventory",         "1200"),
