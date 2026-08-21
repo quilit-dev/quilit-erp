@@ -2,7 +2,7 @@ import { useState, useEffect } from 'react';
 import * as XLSX from 'xlsx';
 import { LoadingSpinner, ErrorAlert, fmt } from '../../components/shared';
 import { getInventoryByWarehouseReport } from '../../api/client';
-import { StatCard } from './charts';
+import { exportReportPDF } from '../../utils/exportUtils.js';
 
 function WarehouseValuationReport({ t }) {
   const [data, setData]       = useState(null);
@@ -66,6 +66,28 @@ function WarehouseValuationReport({ t }) {
     XLSX.writeFile(wb, `Inventory-by-Warehouse-${new Date().toISOString().slice(0,10)}.xlsx`);
   }
 
+  // PDF of the valuation table. The workbook above carries two sheets, which
+  // a PDF cannot; this prints the one that gets circulated.
+  function exportPdf() {
+    exportReportPDF({
+      title:    t('reports.whTitle'),
+      subtitle: t('reports.whSubtitle'),
+      filename: `Inventory-by-Warehouse-${new Date().toISOString().slice(0, 10)}.pdf`,
+      columns: [
+        { label: t('reports.whCode'),      value: w => w.code, align: 'left' },
+        { label: t('reports.whWarehouse'), value: w => w.name, align: 'left' },
+        { label: t('reports.whType'),      value: w => TYPE_LABEL[w.type] || w.type, align: 'left' },
+        { label: t('reports.whSkus'),      value: w => w.sku_count, align: 'right' },
+        { label: t('reports.whQuantity'),  value: w => w.qty_total, align: 'right' },
+        { label: t('reports.whValueUsd'),  value: w => w.value, align: 'right' },
+      ],
+      rows: warehouses,
+      totals: { label: t('reports.whTotalGl'),
+                columns: [null, null, null, totals.sku_count,
+                          totals.qty_total, totals.value] },
+    });
+  }
+
   return (
     <div style={{ display: 'flex', flexDirection: 'column', gap: 16 }}>
       <div className="card">
@@ -74,7 +96,11 @@ function WarehouseValuationReport({ t }) {
             <div className="card-title">{t('reports.whTitle')}</div>
             <div className="card-subtitle">{t('reports.whSubtitle')}</div>
           </div>
-          <button className="btn btn-sm btn-outline" onClick={exportXlsx}>{t('reports.whExport')}</button>
+          <div style={{ display: 'inline-flex', gap: 6 }}>
+            <button className="btn btn-sm btn-outline" onClick={exportXlsx}>{t('reports.whExport')}</button>
+            <button className="btn btn-sm btn-outline" onClick={exportPdf}
+                    disabled={!warehouses.length}>{t('reports.exportPDF')}</button>
+          </div>
         </div>
         <div className="table-wrap">
           <table>
@@ -160,10 +186,5 @@ function WarehouseValuationReport({ t }) {
 }
 
 
-/**
- * Inventory by Attribute — rolls up stock across product variants by an
- * attribute value (units & valuation per Size, per Color, …). Answers the
- * apparel/electronics question "how much do I hold in each size/storage?".
- */
 
 export { WarehouseValuationReport };

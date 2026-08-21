@@ -43,9 +43,12 @@ def _template(client, **kw):
     # `end_date` bounds the run to ONE occurrence. Without it _generate catches
     # up every occurrence due since start_date, so the row count would depend
     # on the real date the suite happens to run.
+    # These tests are ABOUT spreading, so they ask for it. It is off by default
+    # now: a cost that merely recurs belongs in the month it was incurred, and
+    # only one genuinely paid in advance is spread across the months it buys.
     body = {"name": "Office Rent", "category": "Rent", "amount": 3000,
             "frequency": "quarterly", "start_date": "2026-01-15",
-            "end_date": "2026-01-31"}
+            "end_date": "2026-01-31", "spread_across_period": True}
     body.update(kw)
     r = client.post("/api/recurring-expenses/", json=body)
     assert r.status_code == 200, r.text
@@ -391,3 +394,54 @@ def test_an_archived_month_is_still_unwound(client):
     assert bal.get("1300", 0) == pytest.approx(0, abs=0.005)
     assert bal.get("1000", 0) == pytest.approx(0, abs=0.005)
     assert balanced
+
+
+# ── The default: recognise it where it was incurred ──────────────────────────
+
+def test_by_default_a_quarterly_cost_lands_in_the_month_it_was_paid(client):
+    """A cost that merely recurs is not paid in advance. Splitting it across
+    the quarter moved expense out of the month that actually incurred it."""
+    tpl = _template(client, spread_across_period=False)
+    _run(client, tpl)
+
+    rows = _expenses(client)
+    assert len(rows) == 1
+    assert rows[0][1] == pytest.approx(3000)
+
+
+def test_the_default_posts_no_prepayment(client):
+    """Nothing is held in advance, so nothing sits in the prepaid account."""
+    tpl = _template(client, spread_across_period=False)
+    _run(client, tpl)
+
+    bal, balanced = _tb(client, as_of="2027-12-31")
+    assert bal.get("1300", 0) == pytest.approx(0, abs=0.005)
+    assert bal.get("6100", 0) == pytest.approx(3000, abs=0.01)
+    assert balanced
+
+
+def test_spreading_is_off_unless_asked_for(client, db):
+    """The column defaults to 0, so every template already recorded keeps
+    recognising in full from here on."""
+    tpl = _template(client)
+    row = db.execute("SELECT spread_across_period FROM recurring_expenses "
+                     "WHERE id=?", (tpl,)).fetchone()
+    assert row["spread_across_period"] == 1
+
+    plain = _template(client, name="Electricity", spread_across_period=False)
+    row = db.execute("SELECT spread_across_period FROM recurring_expenses "
+                     "WHERE id=?", (plain,)).fetchone()
+    assert row["spread_across_period"] == 0
+
+
+def test_a_monthly_cost_is_unaffected_either_way(client):
+    """One month covers one month. Spreading it has nothing to divide."""
+    for spread in (True, False):
+        tpl = _template(client, name=f"Rent {spread}", frequency="monthly",
+                        start_date="2026-01-15", end_date="2026-01-31",
+                        amount=1000, spread_across_period=spread)
+        _run(client, tpl)
+
+    rows = _expenses(client)
+    assert len(rows) == 2
+    assert all(r[1] == pytest.approx(1000) for r in rows)

@@ -19,6 +19,8 @@ const EMPTY_FORM = {
   name: '', category: 'Rent', description: '', amount: '',
   frequency: 'monthly', start_date: new Date().toISOString().slice(0, 10),
   end_date: '', project_id: '', payment_method: '', tax_rate_id: null,
+  // Off by default: recognise the cost on the date it is paid.
+  spread_across_period: false,
 };
 
 export default function RecurringExpensesPanel() {
@@ -53,6 +55,7 @@ export default function RecurringExpensesPanel() {
       project_id: tpl.project_id ? String(tpl.project_id) : '',
       payment_method: tpl.payment_method || '',
       tax_rate_id: tpl.tax_rate_id ?? null,
+      spread_across_period: !!tpl.spread_across_period,
     });
     setEditId(tpl.id);
     setModal(true);
@@ -307,6 +310,22 @@ export default function RecurringExpensesPanel() {
                     {FREQUENCIES.map(fr => <option key={fr} value={fr}>{t(`recurring.freq_${fr}`)}</option>)}
                   </select>
                 </div>
+                {['quarterly', 'annual'].includes(form.frequency) && (
+                  <div className="form-group form-full">
+                    <label className="form-label">{t('recurring.fldRecognition')}</label>
+                    <label style={{ display: 'flex', alignItems: 'center', gap: 8,
+                                    fontSize: 13.5, paddingTop: 4 }}>
+                      <input type="checkbox" checked={!!form.spread_across_period}
+                        onChange={e => setForm(f => ({ ...f, spread_across_period: e.target.checked }))} />
+                      {t('recurring.spreadLabel')}
+                    </label>
+                    <div style={{ fontSize: 11, color: 'var(--text-3)', marginTop: 3 }}>
+                      {form.spread_across_period
+                        ? t('recurring.spreadOnHint')
+                        : t('recurring.spreadOffHint')}
+                    </div>
+                  </div>
+                )}
                 <div className="form-group">
                   <label className="form-label">{t('recurring.fldStartDate')} *</label>
                   <input type="date" className="form-control" required value={form.start_date}

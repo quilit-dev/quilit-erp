@@ -1,7 +1,7 @@
 import { useState, useEffect } from 'react';
 import { LoadingSpinner, ErrorAlert, fmt } from '../../components/shared';
 import { getBranchComparison } from '../../api/client';
-import { StatCard } from './charts';
+import { ExportButtons } from './charts';
 
 function BranchComparisonReport({ params, t }) {
   const [data, setData]       = useState(null);
@@ -22,8 +22,28 @@ function BranchComparisonReport({ params, t }) {
   const rows   = data?.branches || [];
   const totals = data?.totals || { income: 0, expenses: 0, profit: 0, invoiced: 0 };
 
+  // The same columns the table draws, so the PDF and the spreadsheet say
+  // exactly what the screen says. The totals row travels with them.
+  const columns = [
+    { label: t('nav.branch'),        value: r => r.name,       align: 'left' },
+    { label: t('reports.income'),    value: r => r.income,     align: 'right' },
+    { label: t('reports.expenses'),  value: r => r.expenses,   align: 'right' },
+    { label: t('reports.profit'),    value: r => r.profit,     align: 'right' },
+    { label: t('reports.invoiced'),  value: r => r.invoiced,   align: 'right' },
+  ];
+
   return (
     <div className="card">
+      <div className="card-header">
+        <div className="card-title">{t('reports.branchComparison')}</div>
+        <ExportButtons
+          rows={rows} columns={columns} baseName="branch-comparison"
+          pdfTitle={t('reports.branchComparison')}
+          totals={{ label: t('reports.total'),
+                    columns: [null, totals.income, totals.expenses,
+                              totals.profit, totals.invoiced] }}
+          t={t} />
+      </div>
       <div className="card-body">
         <div className="table-responsive">
           <table className="table">

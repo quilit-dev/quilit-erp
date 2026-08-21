@@ -15,7 +15,6 @@ import { ExpensesReport } from './reports/ExpensesReport';
 import { PipelineReport } from './reports/PipelineReport';
 import { BranchComparisonReport } from './reports/BranchComparisonReport';
 import { WarehouseValuationReport } from './reports/WarehouseValuationReport';
-import { AttributeBreakdownReport } from './reports/AttributeBreakdownReport';
 
 export default function Reports() {
   const { t } = useLocale();
@@ -61,7 +60,6 @@ export default function Reports() {
     { key: 'pipeline',    label: t('reports.pipeline')       },
     { key: 'vat',         label: t('reports.vat')            },
     { key: 'whValuation', label: t('reports.whValuation') || 'Inventory by Warehouse' },
-    { key: 'attributes',  label: t('reports.byAttribute') || 'Inventory by Attribute' },
     ...(multiBranch ? [{ key: 'branches', label: t('reports.branchComparison') }] : []),
   ];
 
@@ -109,7 +107,6 @@ export default function Reports() {
       {activeReport === 'pipeline'  && <PipelineReport   params={appliedRange} t={t} />}
       {activeReport === 'vat'       && <VatReport        params={appliedRange} t={t} />}
       {activeReport === 'whValuation' && <WarehouseValuationReport t={t} />}
-      {activeReport === 'attributes' && <AttributeBreakdownReport t={t} />}
       {activeReport === 'branches'  && <BranchComparisonReport params={appliedRange} t={t} />}
     </div>
   );

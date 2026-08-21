@@ -218,24 +218,6 @@ def test_too_many_variants_rejected(make_client):
 
 
 # ── Slice 3: report, import, setup ──────────────────────────────────────────
-def test_inventory_by_attribute_report(make_client):
-    c = make_client("superadmin")
-    c.post("/api/products/", json={
-        "name": "Tee", "sale_price": 10, "unit_cost": 4, "initial_quantity": 3,
-        "axes": [{"name": "Size", "values": ["S", "M"]}],
-    })
-    r = c.get("/api/reports/inventory-by-attribute?attribute=Size")
-    assert r.status_code == 200, r.text
-    body = r.json()
-    assert "Size" in body["attributes"]
-    assert body["selected"] == "Size"
-    vals = {row["attr_value"]: row for row in body["rows"]}
-    assert set(vals) == {"S", "M"}
-    assert vals["S"]["qty_total"] == 3
-    # Value = qty × unit_cost (3 × 4) per size.
-    assert vals["S"]["value_usd"] == pytest.approx(12)
-
-
 def test_variant_aware_import_groups_products(make_client, db):
     c = make_client("superadmin")
     rows = [

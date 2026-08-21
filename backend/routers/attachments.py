@@ -45,6 +45,11 @@ ENTITY_REGISTRY = {
     "clients":    ("clients",      "id", "clients"),
     "quotations": ("quotations",   "id", "quotations"),
     "inventory":  ("inventory",    "id", "inventory"),
+    # Field service. A job carries the photo of the fault and the signed
+    # worksheet; the equipment carries its manual and warranty, which
+    # outlive any single visit.
+    "service_jobs":      ("service_jobs",      "id", "service"),
+    "service_equipment": ("service_equipment", "id", "service"),
 }
 
 MAX_FILE_BYTES = 15 * 1024 * 1024   # 15 MB per file

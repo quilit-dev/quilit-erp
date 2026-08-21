@@ -3454,6 +3454,20 @@ def _run_migrations(conn, c):
     add_col("156b_invoice_source_ref", "invoices", "source_reference",
             "ALTER TABLE invoices ADD COLUMN source_reference TEXT")
 
+    # ── 157: recurring costs recognise in full unless told otherwise ───────
+    # A quarterly bill was always split across the three months it covered,
+    # with the unexpired part held in prepaid. That is right for something
+    # genuinely paid in advance — insurance, a year of rent — and wrong for a
+    # cost that simply recurs, where the expense belongs in the month it was
+    # incurred.
+    #
+    # It becomes a choice per template, defaulting to OFF: full recognition on
+    # the payment date. Occurrences already generated keep their prepaid
+    # entries; this changes what happens next, not what happened.
+    add_col("157_recurring_spread", "recurring_expenses", "spread_across_period",
+            "ALTER TABLE recurring_expenses ADD COLUMN spread_across_period "
+            "INTEGER NOT NULL DEFAULT 0")
+
     # Backfill from what the rows already say. Nothing is renumbered: every
     # invoice keeps the number it was issued under, printed and possibly filed
     # with an accountant. This only records what each one already was.
@@ -4082,6 +4096,8 @@ def _ensure_pg_post_baseline(raw):
                     "bank_account_id INTEGER")
         cur.execute("ALTER TABLE invoices ADD COLUMN IF NOT EXISTS source_type TEXT")
         cur.execute("ALTER TABLE invoices ADD COLUMN IF NOT EXISTS source_reference TEXT")
+        cur.execute("ALTER TABLE recurring_expenses ADD COLUMN IF NOT EXISTS "
+                    "spread_across_period INTEGER NOT NULL DEFAULT 0")
         cur.execute("UPDATE invoices SET source_type='pos' WHERE source_type IS NULL "
                     "AND id IN (SELECT invoice_id FROM pos_sales)")
         cur.execute("UPDATE invoices SET source_type='service', source_reference = "

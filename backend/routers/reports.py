@@ -734,46 +734,6 @@ def report_inventory_by_warehouse(
     }, user, db)
 
 
-@router.get("/inventory-by-attribute")
-def report_inventory_by_attribute(
-    attribute: Optional[str] = None,
-    user=Depends(require_perm("reports", "view")),
-    db: sqlite3.Connection = Depends(get_db),
-):
-    """Stock roll-up across product variants, grouped by an attribute value
-    (e.g. units & valuation by Size, or by Color). Powers the apparel/
-    electronics question "how much stock do I hold in each size?".
-
-    `attributes` lists every attribute name currently in use so the UI can
-    offer a picker; `rows` is the breakdown for the selected one (defaults to
-    the first available)."""
-    names = [r["name"] for r in db.execute(
-        "SELECT DISTINCT name FROM item_attributes ORDER BY name"
-    ).fetchall()]
-    selected = attribute if attribute in names else (names[0] if names else None)
-
-    rows = []
-    if selected:
-        rows = [dict(r) for r in db.execute(
-            "SELECT ia.value AS attr_value, "
-            "       COUNT(DISTINCT i.id)                  AS sku_count, "
-            "       COALESCE(SUM(i.quantity), 0)          AS qty_total, "
-            "       COALESCE(SUM(i.quantity * COALESCE(i.unit_cost, 0)), 0) AS value_usd "
-            "FROM item_attributes ia "
-            "JOIN inventory i ON i.id = ia.inventory_id "
-            "WHERE ia.name = ? AND i.archived_at IS NULL AND i.deleted_at IS NULL "
-            "GROUP BY ia.value ORDER BY qty_total DESC",
-            (selected,),
-        ).fetchall()]
-
-    totals = {
-        "qty_total": round(sum(float(r["qty_total"]  or 0) for r in rows), 2),
-        "value_usd": round(sum(float(r["value_usd"]  or 0) for r in rows), 2),
-    }
-    return {"attributes": names, "selected": selected, "rows": rows, "totals": totals}
-
-
-# ── Branch comparison (multi-branch) ────────────────────────────────────────
 @router.get("/branch-comparison")
 def report_branch_comparison(
     start: Optional[str] = Query(None),

@@ -51,6 +51,8 @@ class RecurringIn(BaseModel):
     project_id:     Optional[int] = None
     payment_method: Optional[str] = None
     tax_rate_id:    Optional[int] = None
+    # Off by default: recognise in full on the date it is paid.
+    spread_across_period: bool = False
 
     @validator('amount')
     def _amount_positive(cls, v):
@@ -230,7 +232,12 @@ def _generate(db, tpl: dict, user: dict, now: str, today: str):
 
     branch_id = tpl['branch_id'] if 'branch_id' in tpl.keys() else None
     gross = money(tpl['amount'])
-    months = _COVERS.get(tpl['frequency'], 1)
+    # A cost that merely recurs belongs in the month it was incurred.
+    # Only one genuinely paid in advance is spread across the months it
+    # buys, and that is the template's own decision.
+    spread = bool(tpl['spread_across_period']
+                  if 'spread_across_period' in tpl.keys() else 0)
+    months = _COVERS.get(tpl['frequency'], 1) if spread else 1
 
     while cursor <= today and guard < 600:
         if end and cursor > end:
@@ -350,12 +357,13 @@ def create_recurring(
     cur = db.execute(
         "INSERT INTO recurring_expenses "
         " (name, category, description, amount, frequency, start_date, end_date, "
-        "  next_run_date, project_id, payment_method, tax_rate_id, is_active, "
-        "  created_by, created_at) "
-        "VALUES (?,?,?,?,?,?,?,?,?,?,?,1,?,?)",
+        "  next_run_date, project_id, payment_method, tax_rate_id, "
+        "  spread_across_period, is_active, created_by, created_at) "
+        "VALUES (?,?,?,?,?,?,?,?,?,?,?,?,1,?,?)",
         (data.name, data.category, data.description, data.amount, data.frequency,
          data.start_date, data.end_date, data.start_date, data.project_id,
-         data.payment_method, data.tax_rate_id, user['id'], now),
+         data.payment_method, data.tax_rate_id,
+         1 if data.spread_across_period else 0, user['id'], now),
     )
     tpl_id = cur.lastrowid
     log_action(db, user, "create", "recurring_expense", tpl_id, data.name,
@@ -380,10 +388,11 @@ def update_recurring(
     db.execute(
         "UPDATE recurring_expenses SET name=?, category=?, description=?, amount=?, "
         " frequency=?, start_date=?, end_date=?, next_run_date=?, project_id=?, "
-        " payment_method=?, tax_rate_id=? WHERE id=?",
+        " payment_method=?, tax_rate_id=?, spread_across_period=? WHERE id=?",
         (data.name, data.category, data.description, data.amount, data.frequency,
          data.start_date, data.end_date, next_run, data.project_id,
-         data.payment_method, data.tax_rate_id, tpl_id),
+         data.payment_method, data.tax_rate_id,
+         1 if data.spread_across_period else 0, tpl_id),
     )
     log_action(db, user, "update", "recurring_expense", tpl_id, data.name)
     db.commit()

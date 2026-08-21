@@ -18,9 +18,10 @@ import {
 } from '../api/client';
 import {
   LoadingSpinner, ErrorAlert, EmptyState, Modal, ConfirmModal,
-  fmt, fmtDate, toast,
+  ExportButton, fmt, fmtDate, toast,
 } from '../components/shared';
 import { useLocale } from '../hooks/useLocale.jsx';
+import Attachments from '../components/Attachments.jsx';
 import { usePermissions } from '../hooks/usePermissions';
 import JobForm from './service/JobForm.jsx';
 import EquipmentForm from './service/EquipmentForm.jsx';
@@ -74,6 +75,32 @@ export default function Service() {
 
   const reload = () => { jobs.reload(); equipment.reload(); };
 
+  // Exported straight from the rows on screen: both lists are filtered on the
+  // server, so the export carries the same search, dates and status the
+  // operator is looking at. Status is exported in English — the sheet is a
+  // data file, not the screen.
+  const jobExport = (jobs.data || []).map(j => ({
+    'Job Number':     j.job_number,
+    Client:           j.client_name,
+    Equipment:        j.equipment_name || '',
+    Type:             j.job_type,
+    Status:           j.status,
+    'Scheduled Date': j.scheduled_date ? fmtDate(j.scheduled_date) : '',
+    'Assigned To':    j.assigned_name || '',
+    Total:            j.total,
+    Invoiced:         j.invoice_id ? 'Yes' : 'No',
+  }));
+
+  const equipmentExport = (equipment.data || []).map(e => ({
+    Name:            e.name,
+    Client:          e.client_name,
+    Manufacturer:    e.manufacturer  || '',
+    Model:           e.model         || '',
+    'Serial Number': e.serial_number || '',
+    Location:        e.location      || '',
+    Jobs:            e.job_count,
+  }));
+
   async function open(id) {
     try {
       setActive(await getServiceJob(id));
@@ -113,6 +140,10 @@ export default function Service() {
                   onClick={() => setView('jobs')}>{t('service.jobs')}</button>
           <button className={`btn btn-sm ${view === 'equipment' ? 'btn-primary' : 'btn-secondary'}`}
                   onClick={() => setView('equipment')}>{t('service.equipment')}</button>
+          {view === 'jobs'
+            ? <ExportButton data={jobExport} filename="ServiceJobs" sheetName="Jobs" />
+            : <ExportButton data={equipmentExport} filename="ServiceEquipment"
+                            sheetName="Equipment" />}
           {view === 'jobs' && can('service', 'create') && (
             <button className="btn btn-primary"
                     onClick={() => { setActive(null); setModal('job'); }}>
@@ -365,6 +396,11 @@ export default function Service() {
               </tbody>
             </table>
           )}
+
+          <div style={{ marginTop: 20, paddingTop: 16, borderTop: '1px solid var(--border)' }}>
+            <Attachments entityType="service_equipment" entityId={active.id}
+                         canEdit={can('service', 'edit')} />
+          </div>
           </div>
         </Modal>
       )}
@@ -482,6 +518,11 @@ function JobDetail({ job, can, t, onEdit, onTransition, onInvoice }) {
           <strong>{t('service.billed')}:</strong> {job.invoice.invoice_number}
         </p>
       )}
+
+      <div style={{ marginTop: 20, paddingTop: 16, borderTop: '1px solid var(--border)' }}>
+        <Attachments entityType="service_jobs" entityId={job.id}
+                     canEdit={can('service', 'edit')} />
+      </div>
 
       </div>
 

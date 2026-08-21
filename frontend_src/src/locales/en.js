@@ -2163,6 +2163,10 @@ const en = {
   },
 
   recurring: {
+    fldRecognition: 'Recognition',
+    spreadLabel: 'Spread across the period it covers',
+    spreadOnHint: 'Paid in advance: the cost is divided across the months it buys, and the unexpired part is held as a prepayment.',
+    spreadOffHint: 'The whole cost is recognised on the date it is paid.',
     title: 'Recurring Expenses',
     subtitle: 'Templates for fixed costs — rent, salaries, subscriptions',
     addTemplate: '+ New Recurring',
