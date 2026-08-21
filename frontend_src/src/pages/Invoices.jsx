@@ -17,6 +17,7 @@ import InventoryCombobox, { salePriceInBase } from '../components/InventoryCombo
 import { useLocale } from '../hooks/useLocale.jsx';
 import { usePermissions } from '../hooks/usePermissions';
 import Attachments from '../components/Attachments.jsx';
+import DocumentPostings from '../components/DocumentPostings.jsx';
 import PaymentPlan from './invoices/PaymentPlan.jsx';
 import { useRecordExport } from '../hooks/useRecordExport';
 import { useFocusId } from '../hooks/useFocusId';
@@ -968,6 +969,7 @@ export default function Invoices() {
 
             <div style={{ marginTop: 20, paddingTop: 16, borderTop: '1px solid var(--border)' }}>
               <Attachments entityType="invoices" entityId={payModal.id} canEdit={can('invoices', 'edit')} />
+              <DocumentPostings document="invoice" id={payModal.id} />
             </div>
           </div>
           <div className="modal-footer">

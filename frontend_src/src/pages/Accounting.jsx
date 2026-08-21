@@ -24,7 +24,7 @@
 //                        gets one click to the rows that matter.
 
 
-import { useState } from 'react';
+import { useState, useEffect } from 'react';
 import { useLocale } from '../hooks/useLocale.jsx';
 import { usePermissions } from '../hooks/usePermissions';
 
@@ -32,6 +32,7 @@ import { usePermissions } from '../hooks/usePermissions';
 // (tab bar + permission wiring).
 import { Overview } from './accounting/Overview';
 import { Accounts } from './accounting/Accounts';
+import { useSearchParams } from 'react-router-dom';
 import { Journal } from './accounting/Journal';
 import { Ledger } from './accounting/Ledger';
 import { TrialBalance } from './accounting/TrialBalance';
@@ -44,7 +45,19 @@ export default function Accounting() {
   const { can } = usePermissions();
   const canEdit = can('accounting', 'edit');
   const canCreate = can('accounting', 'create');
-  const [tab, setTab] = useState('overview');
+  // Global search deep-links here as `?tab=journal&focus=<id>`. Landing on
+  // Overview when someone searched for an entry is the same as not finding it.
+  const [params, setParams] = useSearchParams();
+  const urlTab = params.get('tab');
+  const [tab, setTabState] = useState(urlTab || 'overview');
+  useEffect(() => { if (urlTab) setTabState(urlTab); }, [urlTab]);
+
+  function setTab(next) {
+    setTabState(next);
+    // Changing tab by hand drops the deep link, so a refresh does not reopen
+    // a record the operator has already closed.
+    if (params.has('tab') || params.has('focus')) setParams({}, { replace: true });
+  }
 
   const TABS = [
     ['overview', t('accounting.overview')],

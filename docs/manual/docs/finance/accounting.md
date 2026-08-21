@@ -93,6 +93,25 @@ Five views.
     Must satisfy `Assets = Liabilities + Equity + Net Income`. Footer
     shows ✓ Balanced or ⚠ Not balanced.
 
+    ### Finding an entry
+
+    Accounting → **Journal Entries**. Beside the date range, source and status
+    filters:
+
+    | Control | What it searches |
+    |---|---|
+    | Search box | Entry number, memo, source type, **the accounts on the lines**, and the line memos |
+    | Account | Everything that touched one account, without leaving the journal |
+    | Min / Max | Entry totals within a range — for finding "that posting for about 4,000" |
+
+    Searching an account name finds every entry that touched it, which is
+    usually what you meant rather than an entry number you do not know.
+    **Clear** resets all of them at once.
+
+    The global search (top of any screen) reaches journal entries and accounts
+    too, and opens what you picked: an entry opens its detail, an account opens
+    its ledger.
+
     ### Posting an entry by hand
 
     Accounting → **Journal Entries** → **+ New entry**.
@@ -240,10 +259,25 @@ Five views.
 
     ### Source-event tracing
 
-    Every entry points back to what caused it. Trace one back
-    to its source.
+    Every entry points back to what caused it, and you can follow it in
+    either direction without leaving the screen you are on.
 
-    Then look up source record in the appropriate table based on source.
+    **From a posting to the document.** Open any entry in the Journal. Under
+    the memo it names the document it came from — the invoice number, the PO
+    number — as a link. Click it and you land on that document. Entries with
+    no document behind them (manual entries, the year-end close, an FX
+    revaluation) say so instead of offering a link that goes nowhere, as does
+    an entry whose document has since been removed.
+
+    **From a document to its postings.** Invoices, expenses and purchase
+    orders each carry a **View accounting** panel. Open it and you get every
+    entry that document produced, with its lines — an invoice usually has
+    more than one: the revenue posting, the cost of goods when it came from
+    the till, and one more for each payment against it. Reversed entries are
+    shown and marked rather than hidden. The panel only appears for people
+    with permission to read the ledger.
+
+    The table below is the underlying mapping, for reference.
 
     | Source | What kind of document it came from |
     |---|---|

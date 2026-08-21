@@ -18,6 +18,7 @@ from routers.finance import _check_period_locked
 from utils import _now
 import accounting
 import branch_access
+import gl_source
 import sqlite3
 
 router = APIRouter()
@@ -166,6 +167,9 @@ def list_journal_entries(
     source_type: Optional[str] = None,
     status:      Optional[str] = None,
     q_text:      Optional[str] = None,
+    account_id:  Optional[int] = None,
+    min_amount:  Optional[float] = None,
+    max_amount:  Optional[float] = None,
     branch_id:   Optional[int] = None,
     sort:        str = "entry_date",     # entry_date | entry_number | total_debit | source_type | status
     direction:   str = "desc",           # asc | desc
@@ -197,11 +201,30 @@ def list_journal_entries(
     if status:
         where.append("je.status = ?"); params.append(status)
     if q_text:
-        # Match on entry_number OR memo. Both are operator-visible and the
-        # most common things a user types into the search box.
+        # An accountant searching the journal is rarely looking for an entry
+        # number. They are looking for a name — an account, a supplier written
+        # into a line memo — or for the document the posting came from. All of
+        # those live on the lines or on the source, not on the header, so the
+        # search reaches into them.
         like = f"%{q_text.strip()}%"
-        where.append("(je.entry_number LIKE ? OR je.memo LIKE ?)")
-        params += [like, like]
+        where.append(
+            "(je.entry_number LIKE ? OR je.memo LIKE ? OR je.source_type LIKE ?"
+            " OR EXISTS (SELECT 1 FROM journal_entry_lines l"
+            "            JOIN chart_of_accounts a ON a.id = l.account_id"
+            "            WHERE l.journal_entry_id = je.id"
+            "              AND (a.code LIKE ? OR a.name LIKE ? OR l.memo LIKE ?)))")
+        params += [like] * 6
+    if account_id:
+        # "Everything that touched 4111" — the question the ledger answers one
+        # account at a time, asked from the journal instead.
+        where.append("EXISTS (SELECT 1 FROM journal_entry_lines l "
+                     "WHERE l.journal_entry_id = je.id AND l.account_id = ?)")
+        params.append(int(account_id))
+    # Amount bounds run against the entry total, which equals its debit side.
+    if min_amount is not None:
+        where.append("je.total_debit >= ?"); params.append(float(min_amount))
+    if max_amount is not None:
+        where.append("je.total_debit <= ?"); params.append(float(max_amount))
     # Branch scoping: scoped users see only their branch's entries.
     bf, bp = branch_access.branch_filter(user, db, column="je.branch_id", selected=branch_id)
     if bf:
@@ -224,6 +247,15 @@ def list_journal_entries(
         [*params, max(1, min(int(limit or 50), 500)), max(0, int(offset or 0))],
     ).fetchall()
 
+    # Each row resolves its own origin, so the list can name the document
+    # rather than only its source type. One page of rows, so the extra reads
+    # are bounded by the page size and not by the size of the ledger.
+    out = []
+    for r in rows:
+        d = dict(r)
+        d["source"] = gl_source.describe(db, r["source_type"], r["source_id"])
+        out.append(d)
+
     # Distinct source types are stable across pages — exposed alongside the
     # rows so the UI's filter dropdown stays accurate without an extra call.
     source_types = [r["source_type"] for r in db.execute(
@@ -232,7 +264,7 @@ def list_journal_entries(
     ).fetchall()]
 
     return {
-        "rows":         [dict(r) for r in rows],
+        "rows":         out,
         "total":        total,
         "limit":        max(1, min(int(limit or 50), 500)),
         "offset":       max(0, int(offset or 0)),
@@ -262,7 +294,60 @@ def get_journal_entry(
     ).fetchall()
     result = dict(je)
     result["lines"] = [dict(r) for r in lines]
+    # Where this posting came from, and where to go to look at it.
+    result["source"] = gl_source.describe(db, je["source_type"], je["source_id"])
     return result
+
+
+@router.get("/for/{document}/{doc_id}")
+def entries_for_document(
+    document: str,
+    doc_id:   int,
+    user=Depends(require_perm("accounting", "view")),
+    db: sqlite3.Connection = Depends(get_db),
+):
+    """Every journal entry one document produced, newest first.
+
+    The question an operator asks of an invoice is "what did this do to the
+    books?", and the answer is rarely one entry: an invoice raises revenue,
+    relieves cost of goods when it came from the till, and gains another entry
+    for every payment against it. Reversals are included and marked rather than
+    hidden — an entry that was reversed is part of the story.
+    """
+    if document not in gl_source.DOCUMENTS:
+        raise HTTPException(404, "Unknown document type")
+
+    pairs = gl_source.postings_for(db, document, doc_id)
+    if not pairs:
+        return {"document": document, "id": doc_id, "entries": []}
+
+    clause = " OR ".join(["(je.source_type=? AND je.source_id=?)"] * len(pairs))
+    params = [v for pair in pairs for v in pair]
+
+    rows = db.execute(
+        f"SELECT je.*, u.full_name AS created_by_name FROM journal_entries je "
+        f"LEFT JOIN users u ON je.created_by = u.id "
+        f"WHERE {clause} ORDER BY je.entry_date DESC, je.id DESC",
+        params,
+    ).fetchall()
+
+    # Branch scoping applies here exactly as it does to the journal list: a
+    # scoped user must not read another branch's postings through a document.
+    entries = []
+    for r in rows:
+        try:
+            branch_access.assert_can_view_branch(user, db, r["branch_id"])
+        except HTTPException:
+            continue
+        e = dict(r)
+        e["lines"] = [dict(l) for l in db.execute(
+            "SELECT l.*, a.code AS account_code, a.name AS account_name, "
+            "a.type AS account_type FROM journal_entry_lines l "
+            "JOIN chart_of_accounts a ON a.id = l.account_id "
+            "WHERE l.journal_entry_id=? ORDER BY l.line_no, l.id", (r["id"],))]
+        entries.append(e)
+
+    return {"document": document, "id": doc_id, "entries": entries}
 
 
 @router.post("/journal-entries")

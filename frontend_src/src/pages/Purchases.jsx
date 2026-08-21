@@ -17,6 +17,7 @@ import { usePermissions } from '../hooks/usePermissions';
 import { useWarehouses } from '../hooks/useWarehouses';
 import { useFocusId } from '../hooks/useFocusId';
 import Attachments from '../components/Attachments.jsx';
+import DocumentPostings from '../components/DocumentPostings.jsx';
 
 import { fmtNum } from '../utils/format';
 
@@ -756,6 +757,7 @@ export default function Purchases() {
           />
           <div style={{ padding: '16px 20px', borderTop: '1px solid var(--border)' }}>
             <Attachments entityType="purchases" entityId={activePurchase.id} canEdit={can('purchases', 'edit')} />
+            <DocumentPostings document="purchase" id={activePurchase.id} />
           </div>
         </Modal>
       )}

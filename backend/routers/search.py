@@ -635,7 +635,9 @@ def search_all(
             lambda r: {
                 "id": r["id"], "type": "account", "title": _join(r["code"], r["name"]),
                 "subtitle": _join((r["type"] or "").title(), r["subtype"]),
-                "url": "/accounting",
+                # Its ledger, which is what you want when you search an
+                # account — not the Overview tab, where it does not appear.
+                "url": f"/accounting?tab=ledger&focus={r['id']}",
             },
         )
 
@@ -649,7 +651,7 @@ def search_all(
                 "id": r["id"], "type": "journal",
                 "title": r["entry_number"] or f"Entry #{r['id']}",
                 "subtitle": _join(r["entry_date"], _clip(r["memo"]), r["status"]),
-                "url": "/accounting",
+                "url": f"/accounting?tab=journal&focus={r['id']}",
             },
         )
 

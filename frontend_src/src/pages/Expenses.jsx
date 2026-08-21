@@ -13,6 +13,7 @@ import { useCategories } from '../hooks/useCategories';
 import { useSettings } from '../hooks/useSettings.jsx';
 import { usePermissions } from '../hooks/usePermissions';
 import Attachments from '../components/Attachments.jsx';
+import DocumentPostings from '../components/DocumentPostings.jsx';
 import RecurringExpensesPanel from '../components/RecurringExpensesPanel';
 
 function TransactionsPanel() {
@@ -424,6 +425,7 @@ function TransactionsPanel() {
               {editId && (
                 <div style={{ marginTop: 8, paddingTop: 14, borderTop: '1px solid var(--border)' }}>
                   <Attachments entityType="expenses" entityId={editId} canEdit={can('expenses', 'edit')} />
+                  <DocumentPostings document="expense" id={editId} />
                 </div>
               )}
             </div>

@@ -14,6 +14,14 @@ const ar = {
     uploadError: 'فشل الرفع.',
   },
   accounting: {
+    allAccounts: 'كل الحسابات',
+    minAmount: 'الحد الأدنى',
+    maxAmount: 'الحد الأقصى',
+    fromDocument: 'من',
+    documentGone: 'لم يعد موجوداً',
+    viewPostings: 'عرض القيود المحاسبية',
+    postingsFor: 'القيود المحاسبية لهذا المستند',
+    noPostings: 'لم يصل هذا المستند إلى دفتر الأستاذ.',
     title: 'المحاسبة',
     subtitle: 'دليل الحسابات، القيود، الأستاذ والقوائم المالية',
     overview: 'نظرة عامة', accounts: 'دليل الحسابات', journal: 'دفتر اليومية',
@@ -669,6 +677,14 @@ const ar = {
   // and `categories` above: the few words shared across domains ('Other',
   // 'Contract') mean the same thing in each.
   enumValues: {
+    pos_cogs: 'كلفة مبيعات نقطة البيع',
+    service_cogs: 'كلفة أعمال الصيانة',
+    prepaid_payment: 'مدفوع مقدماً',
+    closing: 'إقفال السنة',
+    reversal: 'قيد عكسي',
+    fx_revaluation: 'إعادة تقييم العملات',
+    sales: 'مبيعات',
+    pos: 'نقطة البيع',
     // ── stock movement kinds (stock_movements.type) ──────────────────────
     "service":        "أمر خدمة",
     "service_return": "إرجاع من أمر خدمة",
@@ -2749,6 +2765,8 @@ const ar = {
   },
 
   reports: {
+    revenueBySource: 'الإيراد حسب المصدر',
+    activeClients: 'العملاء الناشطون',
     clientRevenue: 'إيرادات العملاء',
     expenseAnalysis: 'تحليل المصروفات',
     title: 'التقارير',

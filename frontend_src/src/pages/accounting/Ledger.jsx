@@ -1,4 +1,5 @@
 import { useState, useEffect, useMemo } from 'react';
+import { useFocusId } from '../../hooks/useFocusId';
 import { getAccounts, getGeneralLedger } from '../../api/client';
 import { LoadingSpinner, toast } from '../../components/shared';
 import { monthStartISO, todayISO } from './constants';
@@ -27,6 +28,15 @@ function Ledger({ t, tAccount, fmt, fmtDate }) {
     getGeneralLedger({ account_id: accountId, start, end }).then(setData).catch(e => toast(e.message, 'red'));
   }, [accountId, start, end]);
   useEffect(() => { setPage(1); }, [accountId, start, end, sort, dir, pageSize]);
+
+  // Global search deep-links to ?tab=ledger&focus=<account id>: searching
+  // for an account should open its ledger, not the account picker.
+  const [focusId, clearFocus] = useFocusId();
+  useEffect(() => {
+    if (focusId == null) return;
+    setAccountId(String(focusId));
+    clearFocus();
+  }, [focusId]);
 
   function onSort(key) {
     if (sort === key) setDir(d => d === 'asc' ? 'desc' : 'asc');

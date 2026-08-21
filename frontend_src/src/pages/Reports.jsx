@@ -17,7 +17,7 @@ import { BranchComparisonReport } from './reports/BranchComparisonReport';
 import { WarehouseValuationReport } from './reports/WarehouseValuationReport';
 
 export default function Reports() {
-  const { t } = useLocale();
+  const { t, tEnumValue } = useLocale();
   const [activeReport, setActiveReport] = usePersistedState('reports_active', 'financial');
   // Branch comparison tab appears only for global users (superadmin / owner)
   // who can actually see more than one branch.
@@ -101,7 +101,7 @@ export default function Reports() {
       {/* Report content — full width */}
       {activeReport === 'financial' && <FinancialReport params={appliedRange} t={t} />}
       {activeReport === 'projects'  && <ProjectsReport  params={appliedRange} t={t} />}
-      {activeReport === 'clients'   && <ClientsReport   params={appliedRange} t={t} />}
+      {activeReport === 'clients'   && <ClientsReport   params={appliedRange} t={t} tEnumValue={tEnumValue} />}
       {activeReport === 'aging'     && <AgingReport      t={t} />}
       {activeReport === 'expenses'  && <ExpensesReport   params={appliedRange} t={t} />}
       {activeReport === 'pipeline'  && <PipelineReport   params={appliedRange} t={t} />}

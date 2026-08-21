@@ -14,6 +14,14 @@ const en = {
     uploadError: 'Upload failed.',
   },
   accounting: {
+    allAccounts: 'All accounts',
+    minAmount: 'Min',
+    maxAmount: 'Max',
+    fromDocument: 'From',
+    documentGone: 'no longer present',
+    viewPostings: 'View accounting',
+    postingsFor: 'Accounting behind this document',
+    noPostings: 'This document has not reached the ledger.',
     title: 'Accounting',
     subtitle: 'Chart of accounts, journal, ledger and financial statements',
     overview: 'Overview', accounts: 'Chart of Accounts', journal: 'Journal',
@@ -672,6 +680,14 @@ const en = {
   // and `categories` above: the few words shared across domains ('Other',
   // 'Contract') mean the same thing in each.
   enumValues: {
+    pos_cogs: 'POS cost of goods',
+    service_cogs: 'Service cost of goods',
+    prepaid_payment: 'Paid in advance',
+    closing: 'Year-end close',
+    reversal: 'Reversal',
+    fx_revaluation: 'FX revaluation',
+    sales: 'Sales',
+    pos: 'Point of sale',
     // ── stock movement kinds (stock_movements.type) ──────────────────────
     "service":        "Service job",
     "service_return": "Service return",
@@ -2761,6 +2777,8 @@ const en = {
   },
 
   reports: {
+    revenueBySource: 'Revenue by source',
+    activeClients: 'Active clients',
     clientRevenue: 'Client Revenue',
     expenseAnalysis: 'Expense Analysis',
     title: 'Reports',

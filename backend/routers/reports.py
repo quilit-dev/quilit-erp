@@ -201,28 +201,49 @@ def report_projects(
 def report_clients(
     start: Optional[str] = Query(None),
     end:   Optional[str] = Query(None),
+    branch_id: Optional[int] = Query(None),
     user=Depends(require_perm("reports", "view")),
     db: sqlite3.Connection = Depends(get_db),
 ):
+    """Revenue by customer, and where each customer's revenue came from.
+
+    Revenue is cash — the money actually received in the period — because that
+    is when this system recognises it. `total_invoiced` sits beside it as the
+    billing figure, and the two differing is the point of the outstanding
+    column, not a discrepancy.
+
+    Branch-scoped like every other financial report: a scoped manager reads
+    their own branch's customers and nobody else's. Payments carry no branch of
+    their own, so they inherit the branch of the invoice they settled.
+    """
     start = start or _year_start()
     end   = end   or _today()
 
+    bf_i, bp_i = branch_access.branch_filter(user, db, column="i.branch_id",
+                                             selected=branch_id)
+    bf_inv, bp_inv = branch_access.branch_filter(user, db, column="inv.branch_id",
+                                                 selected=branch_id)
+    bf_i2, bp_i2 = branch_access.branch_filter(user, db, column="i2.branch_id",
+                                               selected=branch_id)
+    bf_q, bp_q = branch_access.branch_filter(user, db, column="q.branch_id",
+                                             selected=branch_id)
+
     rows = db.execute(
-        """SELECT
+        f"""SELECT
                c.id, c.name, c.company, c.type,
                COUNT(DISTINCT p.id) AS project_count,
                COALESCE((
                    SELECT SUM(i.amount) FROM invoices i
                    WHERE i.client_id = c.id
                      AND i.voided_at IS NULL AND i.archived_at IS NULL
-                     AND DATE(i.created_at) BETWEEN ? AND ?
+                     AND DATE(i.created_at) BETWEEN ? AND ?{bf_i}
                ), 0) AS total_invoiced,
                COALESCE((
                    SELECT SUM(ip.amount) FROM invoice_payments ip
                    JOIN invoices i2 ON ip.invoice_id = i2.id
                    WHERE i2.client_id = c.id
                      AND i2.voided_at IS NULL AND i2.archived_at IS NULL
-                     AND DATE(ip.paid_at) BETWEEN ? AND ?
+                     AND DATE(ip.paid_at) BETWEEN ? AND ?{bf_i2}
                ), 0) AS total_paid,
                COUNT(DISTINCT inv.id) AS invoice_count,
                COUNT(DISTINCT q.id) AS quote_count
@@ -231,20 +252,39 @@ def report_clients(
                ON p.client_id = c.id AND p.archived_at IS NULL
            LEFT JOIN invoices inv
                ON inv.client_id = c.id AND inv.voided_at IS NULL AND inv.archived_at IS NULL
-               AND DATE(inv.created_at) BETWEEN ? AND ?
+               AND DATE(inv.created_at) BETWEEN ? AND ?{bf_inv}
            LEFT JOIN quotations q
                ON q.client_id = c.id AND q.archived_at IS NULL
-               AND DATE(q.created_at) BETWEEN ? AND ?
+               AND DATE(q.created_at) BETWEEN ? AND ?{bf_q}
            WHERE c.archived_at IS NULL
            GROUP BY c.id
            ORDER BY total_paid DESC""",
-        (start, end, start, end, start, end, start, end),
+        (start, end, *bp_i, start, end, *bp_i2,
+         start, end, *bp_inv, start, end, *bp_q),
     ).fetchall()
+
+    # Where the money came from. Cash-basis, so it groups the payments by the
+    # source of the invoice they settled — a customer who pays at the till and
+    # again on account shows up under both.
+    by_source: dict[int, dict[str, float]] = {}
+    for r in db.execute(
+        f"""SELECT i2.client_id AS cid,
+                   COALESCE(i2.source_type, 'sales') AS src,
+                   SUM(ip.amount) AS amount
+            FROM invoice_payments ip
+            JOIN invoices i2 ON ip.invoice_id = i2.id
+            WHERE i2.voided_at IS NULL AND i2.archived_at IS NULL
+              AND DATE(ip.paid_at) BETWEEN ? AND ?{bf_i2}
+            GROUP BY i2.client_id, src""",
+        (start, end, *bp_i2),
+    ).fetchall():
+        by_source.setdefault(r["cid"], {})[r["src"]] = round(r["amount"] or 0, 2)
 
     result = []
     for r in rows:
         d = dict(r)
         d["outstanding"] = max(0, d["total_invoiced"] - d["total_paid"])
+        d["revenue_by_source"] = by_source.get(d["id"], {})
         result.append(d)
 
     return result

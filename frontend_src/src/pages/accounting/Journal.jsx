@@ -1,4 +1,6 @@
 import { useState, useEffect, useCallback } from 'react';
+import { Link } from 'react-router-dom';
+import { useFocusId } from '../../hooks/useFocusId';
 import {
   getAccounts, getJournalEntries, getJournalEntry,
   createJournalEntry, reverseJournalEntry,
@@ -18,6 +20,10 @@ function Journal({ t, tAccount, tEnumValue, fmt, fmtDate, canCreate, canEdit }) 
   const [sourceType, setSourceType]     = useState('');
   const [status,     setStatus]         = useState('');
   const [search,     setSearch]         = useState('');
+  const [accountId,  setAccountId]      = useState('');
+  const [minAmount,  setMinAmount]      = useState('');
+  const [maxAmount,  setMaxAmount]      = useState('');
+  const [accounts,   setAccounts]       = useState([]);
   const [sort, setSort] = useState('entry_date');
   const [dir,  setDir]  = useState('desc');
   const [page,     setPage]     = useState(1);
@@ -31,25 +37,43 @@ function Journal({ t, tAccount, tEnumValue, fmt, fmtDate, canCreate, canEdit }) 
 
   // Reset to page 1 when any filter/sort/page-size changes — otherwise the
   // operator could be looking at page 3 of a 1-page filtered result.
-  useEffect(() => { setPage(1); }, [start, end, sourceType, status, search, sort, dir, pageSize]);
+  useEffect(() => { setPage(1); }, [start, end, sourceType, status, search,
+                                    accountId, minAmount, maxAmount, sort, dir, pageSize]);
+
+  // The account filter needs the chart; it is small and changes rarely.
+  useEffect(() => { getAccounts({ active: true }).then(setAccounts).catch(() => {}); }, []);
 
   const load = useCallback(() => {
     setLoading(true);
     getJournalEntries({
       start, end, source_type: sourceType, status, q_text: search,
+      ...(accountId ? { account_id: accountId } : {}),
+      ...(minAmount !== '' ? { min_amount: minAmount } : {}),
+      ...(maxAmount !== '' ? { max_amount: maxAmount } : {}),
       sort, direction: dir,
       limit: pageSize, offset: (page - 1) * pageSize,
     })
       .then(setData)
       .catch(e => toast(e.message, 'red'))
       .finally(() => setLoading(false));
-  }, [start, end, sourceType, status, search, sort, dir, page, pageSize]);
+  }, [start, end, sourceType, status, search, accountId, minAmount, maxAmount,
+      sort, dir, page, pageSize]);
   useEffect(() => { load(); }, [load]);
 
   function onSort(key) {
     if (sort === key) setDir(d => d === 'asc' ? 'desc' : 'asc');
     else { setSort(key); setDir('desc'); }
   }
+
+  // Arriving from the global search as ?tab=journal&focus=<id>. The entry may
+  // be on any page of any date range, so it is fetched directly rather than
+  // hunted for in the rows on screen.
+  const [focusId, clearFocus] = useFocusId();
+  useEffect(() => {
+    if (focusId == null) return;
+    getJournalEntry(focusId).then(setDetail).catch(e => toast(e.message, 'red'));
+    clearFocus();
+  }, [focusId]);
 
   async function openDetail(id) {
     try { setDetail(await getJournalEntry(id)); } catch (e) { toast(e.message, 'red'); }
@@ -90,6 +114,27 @@ function Journal({ t, tAccount, tEnumValue, fmt, fmtDate, canCreate, canEdit }) 
         <input className="form-control" style={{ minWidth: 180, flex: 1 }}
           placeholder={t('accounting.searchEntries') + '…'}
           value={search} onChange={e => setSearch(e.target.value)} />
+        {/* "Everything that touched 4111, between 500 and 5,000" — the two
+            questions the journal could not previously be asked. */}
+        <select className="form-control" style={{ width: 190 }} value={accountId}
+          onChange={e => setAccountId(e.target.value)}>
+          <option value="">{t('accounting.allAccounts')}</option>
+          {accounts.map(a => <option key={a.id} value={a.id}>{a.code} — {tAccount(a)}</option>)}
+        </select>
+        <NumberInput className="form-control" style={{ width: 110 }} min="0" step="0.01"
+          placeholder={t('accounting.minAmount')}
+          value={minAmount} onChange={e => setMinAmount(e.target.value)} />
+        <NumberInput className="form-control" style={{ width: 110 }} min="0" step="0.01"
+          placeholder={t('accounting.maxAmount')}
+          value={maxAmount} onChange={e => setMaxAmount(e.target.value)} />
+        {(search || accountId || minAmount !== '' || maxAmount !== '' || sourceType || status) && (
+          <button type="button" className="btn btn-secondary btn-sm"
+            style={{ whiteSpace: 'nowrap' }}
+            onClick={() => { setSearch(''); setAccountId(''); setMinAmount('');
+                             setMaxAmount(''); setSourceType(''); setStatus(''); }}>
+            ✕ {t('common.clear')}
+          </button>
+        )}
       </div>
 
       {loading && !data ? <LoadingSpinner /> : rows.length === 0 ? (
@@ -112,7 +157,16 @@ function Journal({ t, tAccount, tEnumValue, fmt, fmtDate, canCreate, canEdit }) 
                   <td className="text-mono">{e.entry_number}</td>
                   <td>{fmtDate(e.entry_date)}</td>
                   <td className="td-primary">{e.memo}</td>
-                  <td><span className="badge badge-gray">{e.source_type || 'manual'}</span></td>
+                  <td>
+                    <span className="badge badge-gray">{tEnumValue(e.source_type || 'manual')}</span>
+                    {/* The document number, so the ledger reads as documents
+                        rather than as source-type codes. */}
+                    {e.source?.label && (
+                      <div style={{ fontSize: 11, color: 'var(--text-3)', marginTop: 2 }}>
+                        {e.source.label}
+                      </div>
+                    )}
+                  </td>
                   <td style={{ textAlign: 'right', fontWeight: 600 }}>{fmt(e.total_debit)}</td>
                   <td style={{ textAlign: 'right', fontWeight: 600 }}>{fmt(e.total_credit)}</td>
                   <td>
@@ -131,7 +185,7 @@ function Journal({ t, tAccount, tEnumValue, fmt, fmtDate, canCreate, canEdit }) 
         onPage={setPage} onSize={setPageSize} t={t} />
 
       {detail && (
-        <EntryDetail tAccount={tAccount} entry={detail} t={t} fmt={fmt} fmtDate={fmtDate} canEdit={canEdit}
+        <EntryDetail tAccount={tAccount} tEnumValue={tEnumValue} entry={detail} t={t} fmt={fmt} fmtDate={fmtDate} canEdit={canEdit}
           onClose={() => setDetail(null)} onReverse={() => setConfirmRev(detail.id)} />
       )}
       {adding && (
@@ -147,12 +201,35 @@ function Journal({ t, tAccount, tEnumValue, fmt, fmtDate, canCreate, canEdit }) 
   );
 }
 
-function EntryDetail({ entry, t, tAccount, fmt, fmtDate, canEdit, onClose, onReverse }) {
+function EntryDetail({ entry, t, tAccount, tEnumValue, fmt, fmtDate, canEdit, onClose, onReverse }) {
   const reversible = entry.status === 'posted' && !entry.reversed_by;
   return (
     <Modal title={`${entry.entry_number} · ${fmtDate(entry.entry_date)}`} onClose={onClose} size="modal-lg">
       <div className="modal-body">
         <p style={{ fontSize: 13, color: 'var(--text-2)', marginTop: 0 }}>{entry.memo}</p>
+        {entry.source && (
+          <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginBottom: 12,
+                        fontSize: 13 }}>
+            <span style={{ color: 'var(--text-3)' }}>{t('accounting.fromDocument')}:</span>
+            {entry.source.route ? (
+              <Link to={entry.source.route} onClick={onClose}
+                style={{ color: 'var(--accent)', fontWeight: 600 }}>
+                {entry.source.label}
+              </Link>
+            ) : (
+              /* No route: the document is gone, or was never a document. Say
+                 so rather than offering a link that goes nowhere. */
+              <span>
+                {entry.source.label || tEnumValue(entry.source.type)}
+                {entry.source.exists === false && (
+                  <span style={{ color: 'var(--text-3)', marginInlineStart: 6 }}>
+                    ({t('accounting.documentGone')})
+                  </span>
+                )}
+              </span>
+            )}
+          </div>
+        )}
         <div className="table-wrap">
           <table>
             <thead><tr>

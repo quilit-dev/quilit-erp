@@ -342,3 +342,35 @@ def test_writes_are_forced_into_the_callers_own_branch(world, db):
         "client_id": world["client_id"], "branch_id": 1,
         "items": [{"name": "PLANTED", "quantity": 1, "unit_price": 1}]})
     assert r.status_code == 403, r.text
+
+
+def test_cannot_read_another_branchs_postings_through_its_document(world):
+    """The drill-through endpoint takes a document id and hands back journal
+    entries. Without scoping it is a second door onto another branch's books —
+    amounts, accounts and dates — reached from an invoice that 404s directly."""
+    inv = world["invoice"]["id"]
+
+    mine  = world["alice"].get(f"/api/accounting/for/invoice/{inv}").json()
+    theirs = world["bob"].get(f"/api/accounting/for/invoice/{inv}")
+
+    assert mine["entries"], "the branch's own owner must still see them"
+    # Not a 404: the document may legitimately span branches. What must not
+    # happen is another branch's entries coming back in the list.
+    assert theirs.status_code in (200, 403, 404)
+    if theirs.status_code == 200:
+        assert theirs.json()["entries"] == []
+
+
+def test_the_clients_report_does_not_total_another_branchs_revenue(world):
+    """Every other financial report is branch-scoped. This one lists revenue
+    per client across the whole company, so a scoped manager reads another
+    branch's takings — by customer name — from a report they are allowed to
+    open."""
+    mine = world["alice"].get("/api/reports/clients").json()
+    theirs = world["bob"].get("/api/reports/clients").json()
+
+    alice_total = sum(c["total_invoiced"] for c in mine)
+    bob_total   = sum(c["total_invoiced"] for c in theirs)
+
+    assert alice_total > 0, "the branch's own manager must still see their own"
+    assert bob_total == 0, "another branch's invoicing must not appear"

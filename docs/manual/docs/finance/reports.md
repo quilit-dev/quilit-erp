@@ -86,10 +86,23 @@ already has.
 
     - Total billed
     - Total received
+    - **Revenue by source** — which part of the business earned it
     - Open A/R
     - Last activity date
 
-    Use case: top-customer recognition, A/R follow-up.
+    Revenue here is money **received** in the period, not invoiced, because
+    that is when this system recognises it. Billed sits beside it, and the
+    two differing is what the Open A/R column is for.
+
+    The source breakdown splits a customer's receipts by where they came from
+    — the counter, an account sale, a service job, a project. A customer who
+    buys both ways is two relationships, and the total alone hid that.
+
+    Branch-scoped: a manager assigned to one branch reads their own branch's
+    customers.
+
+    Use case: top-customer recognition, A/R follow-up, and seeing which
+    channel a customer actually buys through.
 
     ### Invoice Aging
 

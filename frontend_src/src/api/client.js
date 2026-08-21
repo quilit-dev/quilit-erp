@@ -688,6 +688,8 @@ export const getJournalEntries    = (params = {}) => api.get(`/api/accounting/jo
 export const getJournalEntry      = (id)     => api.get(`/api/accounting/journal-entries/${id}`);
 export const createJournalEntry   = (d)      => api.post('/api/accounting/journal-entries', d);
 export const reverseJournalEntry  = (id)     => api.post(`/api/accounting/journal-entries/${id}/reverse`);
+// Every posting one document produced — the other direction from the journal.
+export const getDocumentPostings  = (doc, id) => api.get(`/api/accounting/for/${doc}/${id}`);
 export const getGeneralLedger     = (params = {}) => api.get(`/api/accounting/general-ledger${_qs(params)}`);
 export const getTrialBalance      = (params = {}) => api.get(`/api/accounting/trial-balance${_qs(params)}`);
 export const getBalanceSheet      = (params = {}) => api.get(`/api/accounting/balance-sheet${_qs(params)}`);
