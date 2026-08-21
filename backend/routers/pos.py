@@ -488,7 +488,16 @@ def checkout(
          data.note or "POS sale", now, session["warehouse_id"]),
     )
     invoice_id = cur.lastrowid
-    inv_no = _finalize_invoice_number(db, invoice_id, _pos_invoice_prefix(db))
+    # POS draws from the SAME series as every other invoice now. Its origin is
+    # recorded as `pos` instead of being spelled into the number, so the
+    # document a customer holds is an invoice like any other and the till sale
+    # behind it is still findable.
+    #
+    # `pos_invoice_prefix` is deliberately no longer consulted. Invoices already
+    # issued under it keep their numbers — the number is stored, not derived.
+    from routers.invoices import _invoice_prefix
+    inv_no = _finalize_invoice_number(db, invoice_id, _invoice_prefix(db),
+                                      "pos", f"POS-{invoice_id}")
 
     # 10. Invoice line items — normalised to the exclusive form (unit_price =
     #     post-discount NET unit price) so every existing invoice / VAT /

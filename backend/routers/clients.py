@@ -7,6 +7,9 @@ from routers.audit import log_action
 from utils import _now, money
 import sqlite3
 
+import accounting
+import currency as currency_mod
+
 router = APIRouter()
 
 VAT_STATUSES = ("subject", "exempt")
@@ -369,4 +372,138 @@ def client_statement(client_id: int,
         "total_charged": charged,
         "total_paid": paid,
         "closing_balance": money(opening + charged - paid),
+    }
+
+
+# ══════════════════════════════════════════════════════════════════════════════
+# SETTLING SEVERAL INVOICES AT ONCE
+# ══════════════════════════════════════════════════════════════════════════════
+class CustomerPayment(BaseModel):
+    amount:          float
+    method:          str = "Cash"
+    currency:        str = "USD"
+    exchange_rate:   Optional[float] = None
+    note:            Optional[str] = None
+    cash_drawer_id:  Optional[int] = None
+    bank_account_id: Optional[int] = None
+    idempotency_key: Optional[str] = None
+
+    @validator("amount")
+    def _positive(cls, v):
+        if float(v or 0) <= 0:
+            raise ValueError("A payment must be for more than nothing.")
+        return v
+
+
+@router.post("/{client_id}/payments")
+def record_customer_payment(
+    client_id: int,
+    data: CustomerPayment,
+    user=Depends(require_perm("invoices", "create")),
+    db: sqlite3.Connection = Depends(get_db),
+):
+    """Take one payment against a customer and settle their oldest bills first.
+
+    A customer hands over money for "the account", not for invoice #114. Making
+    the operator split it themselves is how the wrong invoice gets marked paid
+    and an old one sits open for months.
+
+    Allocation is oldest-first, which is the ordinary rule and the one that
+    keeps a ledger tidy: it clears the debt most likely to be chased. The
+    payment is broken into one `invoice_payments` row per invoice it touches,
+    so every balance, statement and ledger posting in the system keeps working
+    exactly as it did — nothing downstream learns a new concept.
+
+    Overpayment is refused rather than parked. A credit balance is a real
+    accounting object with its own rules, and inventing one here as a side
+    effect of a rounding difference would be worse than asking.
+    """
+    row = db.execute("SELECT id, name FROM clients WHERE id=? AND deleted_at IS NULL",
+                     (client_id,)).fetchone()
+    if not row:
+        raise HTTPException(404, "Client not found")
+
+    if data.idempotency_key and db.execute(
+            "SELECT 1 FROM invoice_payments WHERE idempotency_key=?",
+            (data.idempotency_key,)).fetchone():
+        raise HTTPException(409, "This payment was already recorded (duplicate submission).")
+
+    usd = currency_mod.to_usd(data.amount, data.currency, db, data.exchange_rate)
+    rate = (currency_mod.resolve_rate(db, data.exchange_rate, data.currency)
+            if (data.currency or "USD").upper() != "USD" else None)
+
+    # Oldest first. An invoice awaiting approval is a draft and takes no money;
+    # a voided one is not owed.
+    open_invoices = db.execute(
+        """SELECT i.id, i.invoice_number, i.amount, i.branch_id,
+                  COALESCE((SELECT SUM(p.amount) FROM invoice_payments p
+                            WHERE p.invoice_id = i.id), 0) AS paid
+             FROM invoices i
+            WHERE i.client_id = ? AND i.voided_at IS NULL AND i.archived_at IS NULL
+              AND COALESCE(i.approval_status,'') != 'Pending Approval'
+         ORDER BY COALESCE(i.due_date, i.created_at), i.id""",
+        (client_id,)).fetchall()
+
+    owing = [(r, money(float(r["amount"]) - float(r["paid"]))) for r in open_invoices]
+    owing = [(r, d) for r, d in owing if d > 0.005]
+    total_owed = money(sum(d for _, d in owing))
+
+    if not owing:
+        raise HTTPException(400, f"{row['name']} has nothing outstanding.")
+    if usd > total_owed + 0.005:
+        raise HTTPException(
+            400,
+            f"{money(usd):,.2f} is more than the {total_owed:,.2f} outstanding. "
+            "Reduce the amount, or raise an invoice for the difference first.")
+
+    left, allocated = usd, []
+    for inv, due in owing:
+        if left <= 0.005:
+            break
+        take = money(min(left, due))
+        left = money(left - take)
+        # Per-invoice rows, so every balance and statement in the system keeps
+        # reading the same way it always has.
+        pay_cur = db.execute(
+            "INSERT INTO invoice_payments "
+            "(invoice_id, amount, method, note, paid_at, idempotency_key, "
+            " paid_currency, paid_amount, exchange_rate, cash_drawer_id, bank_account_id) "
+            "VALUES (?,?,?,?,?,?,?,?,?,?,?)",
+            (inv["id"], take, data.method, data.note, _now(),
+             # Only the first row carries the key: it identifies the operator's
+             # single submission, and the column is unique.
+             data.idempotency_key if not allocated else None,
+             (data.currency or "USD").upper(),
+             currency_mod.from_usd(take, data.currency, db, data.exchange_rate)
+             if (data.currency or "USD").upper() != "USD" else take,
+             rate, data.cash_drawer_id, data.bank_account_id))
+        accounting.post_entry(
+            db,
+            entry_date=_now()[:10],
+            memo=f"Payment received — {inv['invoice_number']}",
+            lines=accounting.payment_lines(
+                db, inv["id"],
+                cash_code=accounting.money_account_for(
+                    db, method=data.method, currency=data.currency,
+                    bank_account_id=data.bank_account_id),
+                amount=take,
+                method_memo=f"{data.method} ({(data.currency or 'USD').upper()})"),
+            source_type="invoice_payment", source_id=pay_cur.lastrowid,
+            created_by=user["id"], branch_id=inv["branch_id"])
+        allocated.append({
+            "invoice_id": inv["id"], "invoice_number": inv["invoice_number"],
+            "applied": take, "was_owing": due,
+            "now_owing": money(due - take), "settled": (due - take) <= 0.005,
+        })
+
+    log_action(db, user, "payment", "client", client_id, row["name"],
+               {"amount": money(usd), "invoices": len(allocated),
+                "currency": (data.currency or "USD").upper()})
+    db.commit()
+    return {
+        "message": f"{money(usd):,.2f} applied across {len(allocated)} invoice(s)",
+        "client": {"id": client_id, "name": row["name"]},
+        "amount": money(usd),
+        "allocated": allocated,
+        "still_outstanding": money(total_owed - usd),
     }

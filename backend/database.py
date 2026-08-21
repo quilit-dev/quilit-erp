@@ -3440,6 +3440,51 @@ def _run_migrations(conn, c):
     add_col("155f_client_inst_freq", "clients", "default_installment_frequency",
             "ALTER TABLE clients ADD COLUMN default_installment_frequency TEXT")
 
+    # ── 156: an invoice remembers where it came from ──────────────────────
+    # Sales, POS, service and projects all raise invoices into one table and
+    # one id sequence — the number has always been derived from the row id, so
+    # they never actually collided. What differed was the PREFIX, which made
+    # the origin part of the document's identity: renumber a POS sale and you
+    # have changed what the customer's receipt says.
+    #
+    # Origin moves into its own two columns instead, so one number series can
+    # run across every source while a POS sale is still identifiable as one.
+    add_col("156a_invoice_source_type", "invoices", "source_type",
+            "ALTER TABLE invoices ADD COLUMN source_type TEXT")
+    add_col("156b_invoice_source_ref", "invoices", "source_reference",
+            "ALTER TABLE invoices ADD COLUMN source_reference TEXT")
+
+    # Backfill from what the rows already say. Nothing is renumbered: every
+    # invoice keeps the number it was issued under, printed and possibly filed
+    # with an accountant. This only records what each one already was.
+    if need("156c_invoice_source_backfill"):
+        if "invoices" in all_tables():
+            if "pos_sales" in all_tables():
+                c.execute(
+                    "UPDATE invoices SET source_type='pos' "
+                    " WHERE source_type IS NULL AND id IN "
+                    "   (SELECT invoice_id FROM pos_sales)")
+            if "service_jobs" in all_tables():
+                c.execute(
+                    "UPDATE invoices SET source_type='service', "
+                    "  source_reference = (SELECT j.job_number FROM service_jobs j "
+                    "                       WHERE j.id = invoices.service_job_id) "
+                    " WHERE source_type IS NULL AND service_job_id IS NOT NULL")
+            if "quotations" in all_tables():
+                c.execute(
+                    "UPDATE invoices SET source_type='quotation', "
+                    "  source_reference = (SELECT q.quote_number FROM quotations q "
+                    "                       WHERE q.id = invoices.quotation_id) "
+                    " WHERE source_type IS NULL AND quotation_id IS NOT NULL")
+            c.execute(
+                "UPDATE invoices SET source_type='project' "
+                " WHERE source_type IS NULL AND project_id IS NOT NULL")
+            # Everything left was raised directly on the Invoices screen.
+            c.execute("UPDATE invoices SET source_type='sales' WHERE source_type IS NULL")
+            c.execute("CREATE INDEX IF NOT EXISTS idx_invoices_source "
+                      "ON invoices(source_type)")
+        done("156c_invoice_source_backfill")
+
     # Grant the new `costs` capability on upgrade. Without this every existing
     # install silently loses cost everywhere the moment the stripping lands —
     # including for the owner, who would have no way to grant it back except by
@@ -4035,6 +4080,20 @@ def _ensure_pg_post_baseline(raw):
                     "bank_account_id INTEGER")
         cur.execute("ALTER TABLE expenses ADD COLUMN IF NOT EXISTS "
                     "bank_account_id INTEGER")
+        cur.execute("ALTER TABLE invoices ADD COLUMN IF NOT EXISTS source_type TEXT")
+        cur.execute("ALTER TABLE invoices ADD COLUMN IF NOT EXISTS source_reference TEXT")
+        cur.execute("UPDATE invoices SET source_type='pos' WHERE source_type IS NULL "
+                    "AND id IN (SELECT invoice_id FROM pos_sales)")
+        cur.execute("UPDATE invoices SET source_type='service', source_reference = "
+                    "(SELECT j.job_number FROM service_jobs j WHERE j.id = invoices.service_job_id) "
+                    "WHERE source_type IS NULL AND service_job_id IS NOT NULL")
+        cur.execute("UPDATE invoices SET source_type='quotation', source_reference = "
+                    "(SELECT q.quote_number FROM quotations q WHERE q.id = invoices.quotation_id) "
+                    "WHERE source_type IS NULL AND quotation_id IS NOT NULL")
+        cur.execute("UPDATE invoices SET source_type='project' "
+                    "WHERE source_type IS NULL AND project_id IS NOT NULL")
+        cur.execute("UPDATE invoices SET source_type='sales' WHERE source_type IS NULL")
+        cur.execute("CREATE INDEX IF NOT EXISTS idx_invoices_source ON invoices(source_type)")
         for _sql in (
             "ALTER TABLE clients ADD COLUMN IF NOT EXISTS financial_id TEXT",
             "ALTER TABLE clients ADD COLUMN IF NOT EXISTS preferred_currency TEXT",

@@ -57,13 +57,34 @@ def test_a_month_end_start_does_not_skip_february():
                                        "2026-04-30", "2026-05-31"]
 
 
-def test_a_deposit_then_the_rest():
-    """The common arrangement: money down, remainder over N months."""
+def test_a_deposit_does_not_eat_an_instalment():
+    """Money down, then N months — the deposit is NOT one of the N.
+
+    Asking for four instalments with a deposit used to produce the deposit and
+    three payments, so agreeing "$400 now then four months" quietly wrote a
+    schedule nobody had agreed to.
+    """
     rows = installments.build_schedule(1000, 4, "2026-01-10", first_amount=400)
 
-    assert [a for _, _, a in rows] == [400, 200, 200, 200]
-    assert [d for _, d, _ in rows] == ["2026-01-10", "2026-02-10",
-                                       "2026-03-10", "2026-04-10"]
+    assert [a for _, _, a in rows] == [400, 150, 150, 150, 150]
+    assert [d for _, d, _ in rows] == ["2026-01-10", "2026-02-10", "2026-03-10",
+                                       "2026-04-10", "2026-05-10"]
+    assert sum(a for _, _, a in rows) == pytest.approx(1000, abs=0.001)
+
+
+def test_the_instalments_run_consecutively_after_the_deposit():
+    """No gap: the deposit is taken today and the first instalment is next
+    period, not the one after."""
+    rows = installments.build_schedule(900, 3, "2026-01-31", first_amount=300)
+
+    assert [d for _, d, _ in rows] == ["2026-01-31", "2026-02-28",
+                                       "2026-03-31", "2026-04-30"]
+
+
+def test_a_deposit_covering_everything_is_refused():
+    """Nothing left to spread — that is a payment, not a plan."""
+    with pytest.raises(ValueError, match="nothing to spread"):
+        installments.build_schedule(1000, 3, "2026-01-10", first_amount=1000)
 
 
 def test_quarterly_and_yearly_step_by_their_period():

@@ -69,8 +69,11 @@ def build_schedule(total, count, start, frequency="monthly", first_amount=None):
     instalment nobody can settle, so the residue has to land somewhere explicit
     rather than being spread and hoped for.
 
-    `first_amount` covers the common deposit-then-instalments arrangement: the
-    deposit is instalment one and the remainder is divided across the rest.
+    `first_amount` covers the common deposit-then-instalments arrangement. The
+    deposit is taken on the start date and `count` instalments follow it, so
+    "$400 down then four monthly" is five rows: the deposit is not one of the
+    four. It carries seq 1 and the instalments run from seq 2, which keeps a
+    plan's rows numbered in the order the customer pays them.
     """
     total = money(total)
     if count < 1:
@@ -89,13 +92,19 @@ def build_schedule(total, count, start, frequency="monthly", first_amount=None):
     if first is not None:
         if first <= 0 or first > total:
             raise ValueError("The first payment must be between zero and the total.")
-        if count == 1 and abs(first - total) > _CENT:
-            raise ValueError("A single-instalment plan must equal the total.")
+        if abs(first - total) <= _CENT:
+            raise ValueError(
+                "A deposit covering the whole invoice leaves nothing to spread. "
+                "Record it as a payment instead of a plan.")
 
     rows = []
-    if first is not None and count > 1:
+    if first is not None:
+        # The deposit does not eat an instalment. Asking for four instalments
+        # with money down means the deposit AND four payments — it used to mean
+        # the deposit and three, so agreeing "$400 now then four months" quietly
+        # produced a schedule nobody had agreed to.
         rows.append((1, start, first))
-        rest, remaining_count, offset = money(total - first), count - 1, 1
+        rest, remaining_count, offset = money(total - first), count, 1
     else:
         rest, remaining_count, offset = total, count, 0
 

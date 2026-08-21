@@ -80,7 +80,14 @@ def test_checkout_creates_invoice_and_payment(make_client):
     inv = c.get(f"/api/invoices/{body['invoice_id']}").json()
     assert inv["payment_status"] == "Paid"
     assert inv["amount"] == pytest.approx(15)
-    assert inv["invoice_number"].startswith("POS-")
+    # One number series across every source. A till sale is an invoice like any
+    # other and is identified by where it came from, not by its prefix — the
+    # prefix used to make origin part of the document's identity, which is why
+    # a POS number could never be unified without changing what the customer
+    # already holds.
+    assert inv["invoice_number"].startswith("INV-")
+    assert inv["source_type"] == "pos"
+    assert inv["source_reference"]
 
 
 def test_custom_priced_unregistered_item_sells(make_client, db):

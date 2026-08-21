@@ -129,11 +129,25 @@ def _invoice_prefix(db) -> str:
     # Empty or unset → default "INV-" (preserves prior behavior exactly).
     return get_setting(db, "invoice_prefix") or "INV-"
 
-def _finalize_invoice_number(db, invoice_id: int, prefix: str) -> str:
+def _finalize_invoice_number(db, invoice_id: int, prefix: str,
+                             source_type: str = None, source_reference: str = None) -> str:
     """Set the real, collision-free number on a freshly-inserted invoice row.
-    Call right after the INSERT (before commit). Returns the number assigned."""
-    inv_no = f"{prefix}{datetime.utcnow().year}-{invoice_id:04d}"
-    db.execute("UPDATE invoices SET invoice_number=? WHERE id=?", (inv_no, invoice_id))
+    Call right after the INSERT (before commit). Returns the number assigned.
+
+    The sequence has always been the row id, so sales, POS, service and project
+    invoices never collided — they only wore different prefixes. Origin now
+    lives in `source_type` / `source_reference` instead, which is what lets one
+    number series run across all of them while a POS sale stays identifiable.
+
+    Six digits rather than four. Invoices already issued keep the number they
+    were issued under: the number is stored, not derived at read time, so
+    widening it changes nothing that has already been printed.
+    """
+    inv_no = f"{prefix}{datetime.utcnow().year}-{invoice_id:06d}"
+    db.execute(
+        "UPDATE invoices SET invoice_number=?, source_type=COALESCE(?, source_type), "
+        " source_reference=COALESCE(?, source_reference) WHERE id=?",
+        (inv_no, source_type, source_reference, invoice_id))
     return inv_no
 
 def _apply_pending(row: dict) -> None:
@@ -488,7 +502,23 @@ def build_invoice(
          branch_id),
     )
     invoice_id = cur.lastrowid
-    inv_no     = _finalize_invoice_number(db, invoice_id, _invoice_prefix(db))
+    # Which of them raised this. Derived from the link the caller already
+    # passed rather than a new argument every call site would have to remember.
+    if service_job_id:
+        _src = "service"
+        _ref = (db.execute("SELECT job_number FROM service_jobs WHERE id=?",
+                           (service_job_id,)).fetchone() or {})
+        _ref = _ref["job_number"] if _ref else None
+    elif quotation_id:
+        _src = "quotation"
+        _ref = (db.execute("SELECT quote_number FROM quotations WHERE id=?",
+                           (quotation_id,)).fetchone() or {})
+        _ref = _ref["quote_number"] if _ref else None
+    elif project_id:
+        _src, _ref = "project", None
+    else:
+        _src, _ref = "sales", None
+    inv_no     = _finalize_invoice_number(db, invoice_id, _invoice_prefix(db), _src, _ref)
     for idx, item in enumerate(items):
         rid, rate, tax_amt = line_tax[idx]
         db.execute(
