@@ -9,6 +9,11 @@ every part-paid invoice.
 The other half of this is arithmetic: the credits must sum to the payment to
 the cent, or post_entry rejects the entry as unbalanced and the payment fails.
 """
+import pytest as _pytest
+
+# Part of the Critical Regression Suite: run with `-m critical`.
+pytestmark = _pytest.mark.critical
+
 import pytest
 
 import accounting

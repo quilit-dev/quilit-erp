@@ -16,6 +16,11 @@ on any machine without a database. It cannot prove the two schemas are
 identical — only that columns known to matter are mentioned in both places —
 but it turns a silent production break into a failing test.
 """
+import pytest as _pytest
+
+# Part of the Critical Regression Suite: run with `-m critical`.
+pytestmark = _pytest.mark.critical
+
 import pathlib
 import re
 

@@ -23,6 +23,11 @@ translator; only the ones that come out unchanged are treated as unsupported and
 scanned for. That keeps the guard correct as the translator improves, with no
 list to maintain by hand.
 """
+import pytest as _pytest
+
+# Part of the Critical Regression Suite: run with `-m critical`.
+pytestmark = _pytest.mark.critical
+
 import pathlib
 import re
 

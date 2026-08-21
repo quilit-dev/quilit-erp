@@ -26,6 +26,11 @@ ledger holds the unexpired part in 1300 Prepaid Expenses:
 Every Finance view already buckets expenses by their own date, so they report
 the monthly share with no change to their queries.
 """
+import pytest as _pytest
+
+# Part of the Critical Regression Suite: run with `-m critical`.
+pytestmark = _pytest.mark.critical
+
 import pytest
 
 

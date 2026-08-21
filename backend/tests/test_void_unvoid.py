@@ -16,6 +16,11 @@ Quotations:
   * A voided quotation is inert: no edit, no convert-to-invoice, no
     convert-to-project, and the Voided status cannot be set via PUT.
 """
+import pytest as _pytest
+
+# Part of the Critical Regression Suite: run with `-m critical`.
+pytestmark = _pytest.mark.critical
+
 import uuid
 
 import pytest

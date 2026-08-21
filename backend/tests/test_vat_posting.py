@@ -13,6 +13,11 @@ One VAT CONTROL account is used for both directions: output VAT credits it,
 input VAT debits it, so its balance IS the net position and can be compared
 directly against the return.
 """
+import pytest as _pytest
+
+# Part of the Critical Regression Suite: run with `-m critical`.
+pytestmark = _pytest.mark.critical
+
 import pytest
 
 

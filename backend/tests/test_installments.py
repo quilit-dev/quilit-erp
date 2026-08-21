@@ -15,6 +15,11 @@ Two things are worth pinning hardest, because both are silent when wrong:
     reversal or an edit — so the tests exercise it through real payments rather
     than by calling the allocator with made-up numbers.
 """
+import pytest as _pytest
+
+# Part of the Critical Regression Suite: run with `-m critical`.
+pytestmark = _pytest.mark.critical
+
 from datetime import date, timedelta
 
 import pytest

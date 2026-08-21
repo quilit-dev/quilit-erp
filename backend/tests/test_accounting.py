@@ -5,6 +5,11 @@ events, manual entries, reversals, and the financial statements.
 The headline guarantee: the GL Income Statement reconciles with the cash-basis
 Finance dashboard, and every statement balances by construction.
 """
+import pytest as _pytest
+
+# Part of the Critical Regression Suite: run with `-m critical`.
+pytestmark = _pytest.mark.critical
+
 import uuid
 import pytest
 

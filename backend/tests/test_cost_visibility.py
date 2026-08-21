@@ -18,6 +18,11 @@ Two things these tests care about more than the hiding itself:
     BOMs are authored as costs; withholding it there does not hide information,
     it stops the job.
 """
+import pytest as _pytest
+
+# Part of the Critical Regression Suite: run with `-m critical`.
+pytestmark = _pytest.mark.critical
+
 import pytest
 
 

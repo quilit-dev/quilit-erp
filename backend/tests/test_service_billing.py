@@ -10,6 +10,11 @@ customer's invoice:
   * reopening gives the stock back and reverses the cost by an equal entry
   * reopening is refused while a live invoice exists
 """
+import pytest as _pytest
+
+# Part of the Critical Regression Suite: run with `-m critical`.
+pytestmark = _pytest.mark.critical
+
 import pytest
 
 

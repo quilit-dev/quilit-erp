@@ -14,6 +14,7 @@ tests run without bleeding state into their neighbours.
 """
 import os
 import sys
+import shutil
 import sqlite3
 import pathlib
 
@@ -21,6 +22,7 @@ import pathlib
 _TESTS_DIR   = pathlib.Path(__file__).resolve().parent
 _BACKEND_DIR = _TESTS_DIR.parent
 _TEST_DB     = _TESTS_DIR / "_test_erp.db"
+_TEMPLATE_DB = _TESTS_DIR / "_test_erp_template.db"
 
 os.environ.setdefault("SECRET_KEY", "test-only-secret-key-not-for-production-0123456789abcd")
 os.environ["DB_PATH"]       = str(_TEST_DB)
@@ -132,15 +134,42 @@ def _rebuild_db():
         finally:
             raw.close()
     else:
+        # SQLite gets the same treatment Postgres already had: build the schema,
+        # migrations, roles and canonical users ONCE, then clone that file per
+        # test. Rebuilding it every time cost ~0.7s -- roughly 150 migrations, a
+        # role/permission matrix and a bcrypt hash -- which across the suite was
+        # most of its runtime, and none of it varies between tests.
+        #
+        # Isolation is unchanged: every test still starts from a pristine
+        # database, byte for byte the same one.
+        global _sqlite_template_built
+        if not _sqlite_template_built:
+            _build_sqlite_template()
+            _sqlite_template_built = True
         _wipe_db_files()
-        database.init_db()                   # schema, migrations, 14 roles, 'admin'
-        conn = sqlite3.connect(str(_TEST_DB))
-        conn.row_factory = sqlite3.Row
-        try:
-            seed_test_users(conn)
-            conn.commit()
-        finally:
-            conn.close()
+        shutil.copyfile(_TEMPLATE_DB, _TEST_DB)
+
+
+_sqlite_template_built = False
+
+
+def _build_sqlite_template():
+    """Build the canonical database once and freeze it as the clone source."""
+    _wipe_db_files()
+    database.init_db()                   # schema, migrations, 18 roles, 'admin'
+    conn = sqlite3.connect(str(_TEST_DB))
+    conn.row_factory = sqlite3.Row
+    try:
+        seed_test_users(conn)
+        conn.commit()
+        # The database runs in WAL mode, so committed pages can still be sitting
+        # in the -wal sidecar. Copying the main file without folding them back
+        # in would clone a database missing its most recent writes -- the test
+        # users among them.
+        conn.execute("PRAGMA wal_checkpoint(TRUNCATE)")
+    finally:
+        conn.close()
+    shutil.copyfile(_TEST_DB, _TEMPLATE_DB)
 
 
 # ── 3. Fixtures ──────────────────────────────────────────────────────────────

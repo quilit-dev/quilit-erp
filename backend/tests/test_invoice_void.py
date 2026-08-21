@@ -8,6 +8,11 @@ that was itself wrong: invoices are project revenue and never feed
 actual_cost (only expenses do, see routers/finance.py), so the block was
 removed outright.
 """
+import pytest as _pytest
+
+# Part of the Critical Regression Suite: run with `-m critical`.
+pytestmark = _pytest.mark.critical
+
 import uuid
 
 

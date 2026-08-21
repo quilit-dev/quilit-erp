@@ -19,6 +19,11 @@ point, and the income statement and VAT position move EXACTLY as they did
 before. The second half matters as much as the first — this change must not
 restate a single figure anyone has already reported.
 """
+import pytest as _pytest
+
+# Part of the Critical Regression Suite: run with `-m critical`.
+pytestmark = _pytest.mark.critical
+
 import uuid
 
 import pytest

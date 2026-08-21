@@ -6,6 +6,11 @@ stock movements in ONE atomic transaction. These tests prove that a sale
 deducts stock correctly, that an over-sell rolls the whole transaction back,
 and that returns restock inventory and void the invoice.
 """
+import pytest as _pytest
+
+# Part of the Critical Regression Suite: run with `-m critical`.
+pytestmark = _pytest.mark.critical
+
 import uuid
 from datetime import datetime
 
