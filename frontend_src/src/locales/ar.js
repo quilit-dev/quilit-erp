@@ -2173,6 +2173,20 @@ const ar = {
     cannotEditVoided: 'لا يمكن تعديل مصروف ملغى',
   },
 
+  reservations: {
+    title: 'محجوز للعملاء',
+    reserve: 'حجز',
+    release: 'إلغاء الحجز',
+    released: 'تم إلغاء الحجز',
+    held: 'تم حجز الكمية',
+    none: 'لا يوجد شيء محجوز لعميل.',
+    needClient: 'اختر العميل الذي يُحجز له.',
+    chooseClient: 'اختر عميلاً…',
+    tooMuch: 'المتاح للحجز {{available}} فقط.',
+    availableOf: 'متاح {{available}} من {{total}} {{unit}}',
+    availableShort: 'متاح {{qty}}',
+    productionHolds: 'و{{qty}} محجوز لأوامر إنتاج مؤكّدة.',
+  },
   recurring: {
     fldRecognition: 'الاعتراف بالكلفة',
     spreadLabel: 'توزيعها على الفترة التي تغطيها',

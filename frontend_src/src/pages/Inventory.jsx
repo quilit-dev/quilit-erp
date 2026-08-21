@@ -7,6 +7,7 @@ import { useLocale } from '../hooks/useLocale.jsx';
 import { useCategories } from '../hooks/useCategories';
 import { usePermissions } from '../hooks/usePermissions';
 import { useFocusId } from '../hooks/useFocusId';
+import StockReservations from '../components/StockReservations.jsx';
 import {
   createInventoryItem, updateInventoryItem,
   archiveInventoryItem, unarchiveInventoryItem, getSuppliers, createProduct,
@@ -198,6 +199,11 @@ export default function Inventory() {
           {item.reserved_quantity > 0 && (
             <div style={{ fontSize: 10, color: 'var(--text-3)', fontWeight: 400 }}>
               {t('inventory.reservedQty', { qty: item.reserved_quantity })}
+              {/* On hand is not what can be promised to the next customer. */}
+              {' · '}
+              {t('reservations.availableShort', {
+                qty: Math.round((item.quantity - item.reserved_quantity) * 1e6) / 1e6,
+              })}
             </div>
           )}
         </td>
@@ -269,6 +275,7 @@ export default function Inventory() {
     // ── read-only: derived or system-managed ──
     row['Variant'] = i.variant_label || '';
     row['Reserved'] = i.reserved_quantity || 0;
+    row['Available'] = Math.round(((i.quantity || 0) - (i.reserved_quantity || 0)) * 1e6) / 1e6;
     row['Quarantine'] = i.quarantine_quantity || 0;
     row['Total value'] = fmtNum((i.quantity || 0) * (i.unit_cost || 0));
     row['Status'] = i.min_stock > 0 && i.quantity <= i.min_stock ? 'Low Stock' : 'OK';
@@ -435,6 +442,9 @@ export default function Inventory() {
       {modal === 'stock' && activeItem && (
         <Modal title={t('inventory.adjustStockTitle', { name: activeItem.name })} onClose={() => setModal(null)}>
           <StockForm item={activeItem} onDone={() => { setModal(null); load(); }} onCancel={() => setModal(null)} />
+          <div style={{ padding: '0 18px 18px' }}>
+            <StockReservations item={activeItem} onChanged={load} />
+          </div>
         </Modal>
       )}
       {modal === 'history' && activeItem && (

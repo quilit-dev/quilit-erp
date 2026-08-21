@@ -2183,6 +2183,20 @@ const en = {
     cannotEditVoided: 'Cannot edit a voided expense',
   },
 
+  reservations: {
+    title: 'Reserved for customers',
+    reserve: 'Reserve',
+    release: 'Release',
+    released: 'Reservation released',
+    held: 'Stock reserved',
+    none: 'Nothing is being held for a customer.',
+    needClient: 'Choose the customer this is being held for.',
+    chooseClient: 'Choose a customer…',
+    tooMuch: 'Only {{available}} is free to reserve.',
+    availableOf: '{{available}} of {{total}} {{unit}} available',
+    availableShort: '{{qty}} available',
+    productionHolds: '{{qty}} more is committed to confirmed production orders.',
+  },
   recurring: {
     fldRecognition: 'Recognition',
     spreadLabel: 'Spread across the period it covers',

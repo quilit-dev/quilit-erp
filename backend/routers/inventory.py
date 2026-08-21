@@ -9,6 +9,7 @@ from utils import _now, notify, validate_int_qty
 import costing
 import currency
 import lots
+import reservations
 import sqlite3
 
 router = APIRouter()
@@ -188,12 +189,118 @@ def get_lot(
     return costs.strip(d, user, db)
 
 
+class ReservationCreate(BaseModel):
+    inventory_id: int
+    client_id:    int
+    quantity:     float
+    note:         Optional[str] = None
+    warehouse_id: Optional[int] = None
+
+
+class ReservationClose(BaseModel):
+    note: Optional[str] = None
+
+
+@router.post("/reservations")
+def create_reservation(
+    data: ReservationCreate,
+    user=Depends(require_perm("inventory", "edit")),
+    db: sqlite3.Connection = Depends(get_db),
+):
+    """Hold stock for a named customer.
+
+    Nothing is posted: the goods are still on hand and still ours. What changes
+    is that nobody else can sell them.
+    """
+    if not db.execute("SELECT 1 FROM clients WHERE id=? AND deleted_at IS NULL",
+                      (data.client_id,)).fetchone():
+        raise HTTPException(400, "Client not found")
+    try:
+        rid = reservations.hold(
+            db, inventory_id=data.inventory_id, client_id=data.client_id,
+            quantity=data.quantity, note=data.note,
+            warehouse_id=data.warehouse_id, created_by=user["id"])
+    except ValueError as e:
+        raise HTTPException(400, str(e))
+
+    item = db.execute("SELECT name FROM inventory WHERE id=?",
+                      (data.inventory_id,)).fetchone()
+    log_action(db, user, "reserve", "inventory", data.inventory_id, item["name"],
+               {"quantity": data.quantity, "client_id": data.client_id})
+    db.commit()
+    return {"id": rid, "message": "Stock reserved",
+            "available": reservations.available(db, data.inventory_id)}
+
+
+@router.get("/reservations")
+def list_reservations(
+    inventory_id: Optional[int] = None,
+    client_id:    Optional[int] = None,
+    status:       Optional[str] = "held",
+    user=Depends(require_perm("inventory", "view")),
+    db: sqlite3.Connection = Depends(get_db),
+):
+    """Who is holding what. `status=all` includes closed reservations."""
+    where, params = ["1=1"], []
+    if inventory_id is not None:
+        where.append("r.inventory_id=?"); params.append(inventory_id)
+    if client_id is not None:
+        where.append("r.client_id=?"); params.append(client_id)
+    if status and status != "all":
+        where.append("r.status=?"); params.append(status)
+
+    rows = db.execute(
+        f"SELECT r.*, i.name AS item_name, i.unit, c.name AS client_name, "
+        f"       u.full_name AS created_by_name "
+        f"FROM stock_reservations r "
+        f"JOIN inventory i ON i.id = r.inventory_id "
+        f"LEFT JOIN clients c ON c.id = r.client_id "
+        f"LEFT JOIN users u ON u.id = r.created_by "
+        f"WHERE {' AND '.join(where)} ORDER BY r.id DESC LIMIT 500",
+        params,
+    ).fetchall()
+    return [dict(r) for r in rows]
+
+
+@router.patch("/reservations/{reservation_id}/release")
+def release_reservation(
+    reservation_id: int,
+    data: ReservationClose,
+    user=Depends(require_perm("inventory", "edit")),
+    db: sqlite3.Connection = Depends(get_db),
+):
+    """Give the stock back to general availability.
+
+    Releasing an already-closed reservation is a no-op rather than an error:
+    two operators pressing the same button must not free the stock twice.
+    """
+    try:
+        changed = reservations.close(db, reservation_id, status=reservations.RELEASED,
+                                     closed_by=user["id"])
+    except ValueError as e:
+        raise HTTPException(404, str(e))
+
+    row = db.execute("SELECT inventory_id FROM stock_reservations WHERE id=?",
+                     (reservation_id,)).fetchone()
+    if changed:
+        log_action(db, user, "release", "inventory", row["inventory_id"],
+                   f"Reservation #{reservation_id}", {"note": data.note})
+    db.commit()
+    return {"message": "Reservation released" if changed
+                       else "Reservation was already closed",
+            "available": reservations.available(db, row["inventory_id"])}
+
+
 @router.get("/{item_id}")
 def get_item(item_id: int, user=Depends(require_perm("inventory", "view")), db: sqlite3.Connection = Depends(get_db)):
     row = db.execute("SELECT * FROM inventory WHERE id = ? AND archived_at IS NULL", (item_id,)).fetchone()
     if not row:
         raise HTTPException(404, "Item not found")
-    return costs.strip(dict(row), user, db)
+    d = dict(row)
+    # On hand is not the same as sellable once anything is spoken for, and the
+    # difference is the number an operator promising a delivery date needs.
+    d["available_quantity"] = reservations.available(db, item_id)
+    return costs.strip(d, user, db)
 
 @router.get("/{item_id}/by-warehouse")
 def get_item_by_warehouse(

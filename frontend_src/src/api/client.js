@@ -179,6 +179,10 @@ export const deleteInvoicePayment = (invId, payId) => api.delete(`/api/invoices/
 // Inventory
 export const getInventory           = (params = {}, s) => api.get(`/api/inventory/${_qs(params)}`, s);
 export const getInventoryByWarehouse = (itemId) => api.get(`/api/inventory/${itemId}/by-warehouse`);
+// Stock held for a named customer — who, how much, and giving it back.
+export const getStockReservations    = (params = {}) => api.get(`/api/inventory/reservations${_qs(params)}`);
+export const createStockReservation  = (d)    => api.post('/api/inventory/reservations', d);
+export const releaseStockReservation = (id, d) => api.patch(`/api/inventory/reservations/${id}/release`, d);
 export const getInventoryByWarehouseReport = () => api.get('/api/reports/inventory-by-warehouse');
 export const createInventoryItem    = (d)    => api.post('/api/inventory/', d);
 export const updateInventoryItem    = (id, d) => api.put(`/api/inventory/${id}`, d);

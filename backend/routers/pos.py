@@ -30,6 +30,7 @@ import costing
 import lots
 import accounting
 import installments
+import reservations
 import branch_access
 from routers.promotions import best_promo_for
 import sqlite3
@@ -371,11 +372,24 @@ def checkout(
         ).fetchone()
         if not row:
             raise HTTPException(400, f"Inventory item #{inv_id} not found.")
-        if round(float(row["quantity"]) - qty_needed, 6) < 0:
+        # On hand is not what may be sold. Stock reserved for a customer, or
+        # committed to a confirmed production order, is spoken for — and the
+        # till used to ignore that entirely, so the factory found out its
+        # material had been sold when it went to build.
+        #
+        # The buyer's OWN reservation is theirs to collect, so it is added
+        # back: holding eight for someone and then refusing to sell them eight
+        # would be the reservation working against the person it was for.
+        sellable = round(
+            reservations.available(db, inv_id)
+            + reservations.held_for(db, inv_id, data.client_id), 6)
+        if round(sellable - qty_needed, 6) < 0:
             raise HTTPException(
                 400,
                 f"Insufficient stock for '{row['name']}': "
-                f"{row['quantity']} available, {qty_needed} requested.",
+                f"{sellable:g} available, {qty_needed:g} requested."
+                + (f" ({float(row['reserved_quantity'] or 0):g} reserved.)"
+                   if float(row["reserved_quantity"] or 0) > 0 else ""),
             )
         stock_rows[inv_id] = row
 
@@ -683,6 +697,18 @@ def checkout(
             source_type="pos_cogs", source_id=invoice_id, created_by=user["id"],
             branch_id=session["warehouse_id"],
         )
+
+    # 12b. The customer collecting stock held for them consumes that hold.
+    #      Without this the goods leave and the reservation stays behind, so
+    #      the item is permanently short by whatever was collected. Draws only
+    #      from THIS customer's holds, oldest first; anyone else's are never
+    #      touched, and buying more than was reserved simply takes the surplus
+    #      from free stock.
+    if data.client_id is not None:
+        for inv_id, qty in needed.items():
+            reservations.consume(db, inventory_id=inv_id,
+                                 client_id=data.client_id, quantity=qty,
+                                 closed_by=user["id"])
 
     # 13. POS sale record (carries the sale's discount + cost-of-goods-sold).
     ps = db.execute(

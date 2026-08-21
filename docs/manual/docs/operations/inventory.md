@@ -186,12 +186,37 @@ through whatever actually happened, so there is always a record of why.
 
     | Balance | Bumps when | Drains when |
     |---|---|---|
-    | reserved quantity | Production order confirmed | Production order completed or cancelled |
+    | reserved quantity | Production order confirmed, **or stock held for a customer** | Order completed or cancelled; reservation released or collected |
     | quarantine quantity | QC quarantine on a finished batch | Inspector resolves the QC |
 
-    They're informational — the **available** quantity for selling is
-    `quantity - reserved - quarantine`, but the system computes that
-    on-the-fly; it's not a stored column.
+    **Available** — what may actually be sold — is `quantity - reserved`, and
+    the till enforces it. Reserved stock is not on offer to anyone else.
+
+    ### Holding stock for a customer
+
+    Inventory → the item → **Adjust stock** carries a **Reserved for
+    customers** panel. Choose the customer, the quantity and a note, and the
+    goods are set aside.
+
+    - **The goods stay on hand.** A reservation moves nothing and posts
+      nothing: the stock is still in the building and still yours. It is only
+      spoken for.
+    - **Nobody else can sell it.** The counter refuses a sale that would eat
+      into someone's hold, and says how much is genuinely available.
+    - **The customer who reserved it can collect it.** Selling to them draws
+      their own holds down, oldest first, and never touches anyone else's. If
+      they collect only part, the rest stays held.
+    - **Cost is recognised on collection**, because collection is the sale.
+      Holding costs nothing and earns nothing.
+
+    Every hold says who it is for, so releasing one is a decision about a named
+    customer rather than arithmetic on a total. Releasing an already-released
+    hold does nothing, so two people pressing the button cannot free the stock
+    twice.
+
+    Where the item's reserved figure exceeds what the panel lists, the
+    difference is material committed to confirmed production orders — the panel
+    says so rather than leaving an unexplained gap.
 
     ### Product types
 
