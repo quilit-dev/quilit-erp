@@ -34,7 +34,9 @@ function SaleDetailModal({ saleId, canReturn, onClose, onReturned }) {
           <>
             <div style={{ fontSize: 13, color: 'var(--text-2)', marginBottom: 10 }}>
               {sale.client_name || t('pos.walkIn')} · {fmtDate(sale.created_at)} · {sale.cashier_name}
-              {' · '}<Badge status={sale.status === 'returned' ? 'Rejected' : 'Paid'} />
+              {' · '}<Badge status={sale.status === 'returned' ? 'Rejected'
+                : sale.payment_status === 'Paid' || !sale.payment_status ? 'Paid'
+                : 'Pending'} />
             </div>
             <table className="table" style={{ fontSize: 13 }}>
               <thead>

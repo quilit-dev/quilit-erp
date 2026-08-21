@@ -29,6 +29,7 @@ from utils import _now, _today, notify, get_tax_context, resolve_inclusive_tax, 
 import costing
 import lots
 import accounting
+import installments
 import branch_access
 from routers.promotions import best_promo_for
 import sqlite3
@@ -64,6 +65,21 @@ class PosCartItem(BaseModel):
     line_type:    str = "product"
 
 
+class PosInstallmentPlan(BaseModel):
+    """A sale the customer takes away today and pays for over time.
+
+    The goods leave at the till — that is what an instalment sale is here — so
+    nothing about the stock path changes. What changes is the money: only the
+    down payment is taken now, and the rest becomes a receivable with agreed
+    due dates behind it.
+    """
+    down_payment: float = 0
+    count:        int                       # instalments AFTER the deposit
+    frequency:    str = "monthly"
+    start_date:   Optional[str] = None      # first instalment; default next period
+    note:         Optional[str] = None
+
+
 class PosCheckout(BaseModel):
     client_id:       Optional[int] = None
     items:           list[PosCartItem]
@@ -75,6 +91,7 @@ class PosCheckout(BaseModel):
     cash_drawer_id:  Optional[int] = None   # drawer a cash sale belongs to
     idempotency_key: str
     note:            Optional[str] = None
+    installment_plan: Optional[PosInstallmentPlan] = None
 
 
 class PosReturn(BaseModel):
@@ -310,6 +327,19 @@ def checkout(
     ).fetchone():
         raise HTTPException(400, "Client not found")
 
+    # 3a. An instalment sale is credit. Credit needs somebody to extend it to —
+    #     an anonymous walk-in leaves a receivable nobody can chase.
+    plan = data.installment_plan
+    if plan is not None:
+        if data.client_id is None:
+            raise HTTPException(
+                400, "An instalment sale needs a customer: the balance is owed "
+                     "by someone.")
+        if plan.count < 1:
+            raise HTTPException(400, "A plan needs at least one instalment.")
+        if plan.down_payment < 0:
+            raise HTTPException(400, "The down payment cannot be negative.")
+
     # 4. Idempotency — a repeated submit (same key) is rejected before any write.
     if not data.idempotency_key:
         raise HTTPException(400, "An idempotency key is required.")
@@ -455,9 +485,20 @@ def checkout(
     item_eff_cost  = {}   # inventory_id → effective unit cost for this sale
     if grand_total <= 0:
         raise HTTPException(400, "Sale total must be positive.")
-    total_in_currency = grand_total if currency == "USD" else round(grand_total * rate, 2)
+    # On an instalment sale only the deposit is taken at the till; the rest is
+    # owed. Everywhere below, `due_now` is what the customer hands over and
+    # `grand_total` stays what the sale was worth.
+    if plan is not None:
+        due_now = money(plan.down_payment)
+        if due_now >= grand_total - 0.005:
+            raise HTTPException(
+                400, "The down payment covers the whole sale. Record it as an "
+                     "ordinary sale rather than a plan.")
+    else:
+        due_now = grand_total
+    total_in_currency = due_now if currency == "USD" else round(due_now * rate, 2)
 
-    # 8. Payment must cover the total.
+    # 8. Payment must cover the total (the deposit, on an instalment sale).
     method = (data.payment_method or "Cash").strip() or "Cash"
     # A cash sale may be attributed to a specific cash drawer.
     pos_drawer_id = data.cash_drawer_id if method.lower() == "cash" else None
@@ -514,16 +555,31 @@ def checkout(
         )
         invoice_item_ids.append(ic.lastrowid)
 
-    # 11. Payment — the sale is settled in full immediately.
-    pay_cur = db.execute(
-        "INSERT INTO invoice_payments "
-        "(invoice_id, amount, method, note, paid_at, idempotency_key, "
-        " paid_currency, paid_amount, exchange_rate, cash_drawer_id) "
-        "VALUES (?,?,?,?,?,?,?,?,?,?)",
-        (invoice_id, grand_total, method, "POS sale", now, data.idempotency_key,
-         currency, total_in_currency, rate, pos_drawer_id),
-    )
-    payment_id = pay_cur.lastrowid
+    # 10a. On an instalment sale the balance is a claim on the customer, so the
+    #      invoice carries a receivable exactly as an ordinary credit invoice
+    #      does. This is what makes the deposit — and every instalment after it
+    #      — post through the normal payment path instead of the till's
+    #      settled-in-full shortcut. No new accounts, no new posting shapes.
+    if plan is not None:
+        accounting.post_receivable(
+            db, invoice_id, invoice_number=inv_no, amount=grand_total,
+            entry_date=now[:10], created_by=user["id"],
+            branch_id=session["warehouse_id"])
+
+    # 11. Payment — the whole sale at the till, or the deposit on a plan.
+    payment_id = None
+    if due_now > 0.005:
+        pay_cur = db.execute(
+            "INSERT INTO invoice_payments "
+            "(invoice_id, amount, method, note, paid_at, idempotency_key, "
+            " paid_currency, paid_amount, exchange_rate, cash_drawer_id) "
+            "VALUES (?,?,?,?,?,?,?,?,?,?)",
+            (invoice_id, due_now, method,
+             "POS deposit" if plan is not None else "POS sale",
+             now, data.idempotency_key,
+             currency, total_in_currency, rate, pos_drawer_id),
+        )
+        payment_id = pay_cur.lastrowid
 
     # 11a. Auto-post the sale to the General Ledger (F-1 audit fix).
     # Cash sale recognition (cash-basis):
@@ -535,18 +591,32 @@ def checkout(
     # Idempotent by (source_type, source_id) — a re-run of POS checkout would
     # only ever happen via the idempotency key on the payment, but belt-and-
     # braces: accounting.post_entry already de-dups on the same key.
-    accounting.post_entry(
-        db,
-        entry_date=now[:10],
-        memo=f"POS sale — {inv_no}",
-        lines=[
-            {"code": accounting.cash_account_for(db, currency),
-             "debit": grand_total, "memo": f"{method} ({currency})"},
-            {"code": accounting.REVENUE, "credit": grand_total},
-        ],
-        source_type="invoice_payment", source_id=payment_id, created_by=user["id"],
-        branch_id=session["warehouse_id"],
-    )
+    #
+    # An instalment sale takes the receivable branch instead: `payment_lines`
+    # sees the receivable posted above and turns the deposit into cash against
+    # the claim, earning only the part of the revenue that was actually
+    # received. The rest stays in deferred until the customer pays it.
+    if payment_id is not None:
+        cash_code = accounting.cash_account_for(db, currency)
+        lines_for_payment = (
+            accounting.payment_lines(
+                db, invoice_id, cash_code=cash_code, amount=due_now,
+                method_memo=f"{method} ({currency})")
+            if plan is not None else
+            [{"code": cash_code, "debit": grand_total,
+              "memo": f"{method} ({currency})"},
+             {"code": accounting.REVENUE, "credit": grand_total}]
+        )
+        accounting.post_entry(
+            db,
+            entry_date=now[:10],
+            memo=(f"POS deposit — {inv_no}" if plan is not None
+                  else f"POS sale — {inv_no}"),
+            lines=lines_for_payment,
+            source_type="invoice_payment", source_id=payment_id,
+            created_by=user["id"],
+            branch_id=session["warehouse_id"],
+        )
 
     # 12. Real-time stock deduction. COGS for each item is drawn here so it
     #     honours the costing method (FIFO/LIFO from cost layers; weighted
@@ -652,9 +722,37 @@ def checkout(
         db.execute("UPDATE promotions SET used_quantity = used_quantity + ? WHERE id = ?",
                    (used, pid))
 
+    # 14b. The agreed schedule, written through the same engine the invoice
+    #      screen uses — one plan model, so arrears reporting, the customer
+    #      statement and the plan view all read a POS plan without knowing it
+    #      came from a till.
+    plan_rows = []
+    if plan is not None:
+        try:
+            plan_rows = installments.build_schedule(
+                grand_total, plan.count,
+                plan.start_date or today,
+                frequency=plan.frequency,
+                first_amount=due_now if due_now > 0.005 else None)
+        except ValueError as e:
+            raise HTTPException(400, str(e))
+        for seq, due, amount in plan_rows:
+            db.execute(
+                "INSERT INTO invoice_installments "
+                "(invoice_id, seq, due_date, amount, note, created_at) "
+                "VALUES (?,?,?,?,?,?)",
+                (invoice_id, seq, due, amount, plan.note, now))
+        # The invoice's own due date becomes the final instalment, so anything
+        # still reading a single date says the plan ends then rather than
+        # claiming the whole balance was due the day it was sold.
+        db.execute("UPDATE invoices SET due_date=? WHERE id=?",
+                   (plan_rows[-1][1], invoice_id))
+
     # 15. Audit + single commit.
     log_action(db, user, "create", "pos", pos_sale_id, inv_no,
-               {"total": grand_total, "method": method, "currency": currency})
+               {"total": grand_total, "method": method, "currency": currency,
+                **({"plan": len(plan_rows), "deposit": due_now}
+                   if plan is not None else {})})
     db.commit()
     return {
         "id":             pos_sale_id,
@@ -665,9 +763,14 @@ def checkout(
         "discount_total": discount_total,
         "cogs_total":     cogs_total,
         "total":          grand_total,
+        "paid_now":       due_now,
+        "balance":        money(grand_total - due_now),
         "change_given":   change_given,
-        "payment_status": "Paid",
-        "message":        "Sale completed",
+        "payment_status": "Paid" if plan is None else "Partial",
+        "installments":   [{"seq": s, "due_date": str(d), "amount": a}
+                           for s, d, a in plan_rows],
+        "message":        "Sale completed" if plan is None
+                          else "Sale completed on a payment plan",
     }
 
 
@@ -679,7 +782,15 @@ def list_sales(
     user=Depends(require_perm("pos", "view")),
     db: sqlite3.Connection = Depends(get_db),
 ):
-    query  = ("SELECT ps.*, i.invoice_number, c.name AS client_name "
+    # `amount_paid` comes from the invoice, not from pos_sales: an instalment
+    # sale keeps being paid long after the till closed, so the row's own
+    # tendered figure stops being the answer the moment the customer pays
+    # again. Without this the history calls every sale Paid, including ones
+    # still carrying a balance.
+    query  = ("SELECT ps.*, i.invoice_number, c.name AS client_name, "
+              "       COALESCE(("
+              "         SELECT SUM(p.amount) FROM invoice_payments p "
+              "         WHERE p.invoice_id = i.id), 0) AS amount_paid "
               "FROM pos_sales ps "
               "JOIN invoices i ON ps.invoice_id = i.id "
               "LEFT JOIN clients c ON i.client_id = c.id WHERE 1=1")
@@ -694,7 +805,18 @@ def list_sales(
     bf, bp = branch_access.branch_filter(user, db, column="i.branch_id")
     query += bf; params += bp
     query += " ORDER BY ps.id DESC LIMIT 200"
-    return [dict(r) for r in db.execute(query, params).fetchall()]
+
+    rows = []
+    for r in db.execute(query, params).fetchall():
+        d = dict(r)
+        d["balance"] = money((d.get("total_usd") or 0) - (d.get("amount_paid") or 0))
+        d["payment_status"] = (
+            "Returned" if d.get("status") == "returned"
+            else "Paid" if d["balance"] <= 0.005
+            else "Partial" if (d.get("amount_paid") or 0) > 0.005
+            else "Unpaid")
+        rows.append(d)
+    return rows
 
 
 @router.get("/sales/{sale_id}")
@@ -781,6 +903,17 @@ def return_sale(
     accounting.reverse_source(db, "pos_cogs", inv["id"],
                               memo=f"POS return COGS — {inv['invoice_number']}",
                               created_by=user["id"])
+    # An instalment sale also raised a receivable. Left standing, the books
+    # would keep a claim on a customer who has handed the goods back, and the
+    # deferred revenue behind it would never clear. A no-op on an ordinary
+    # till sale, which never had one.
+    accounting.reverse_source(db, "invoice", inv["id"],
+                              memo=f"POS return — {inv['invoice_number']}",
+                              created_by=user["id"])
+    # The agreed schedule goes with it: the arrears sweep walks unpaid
+    # instalments by date and would chase a returned sale every month. The
+    # void is the record that this happened; the schedule is not.
+    db.execute("DELETE FROM invoice_installments WHERE invoice_id=?", (inv["id"],))
 
     # Restock every inventory-backed line, returning the goods to the same
     # warehouse the original sale was deducted from (the session's warehouse).

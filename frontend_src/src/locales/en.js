@@ -1664,6 +1664,11 @@ const en = {
   },
 
   pos: {
+    payByInstalments: 'Pay by instalments',
+    instalmentsHint: 'The customer takes the goods today and pays the rest over the agreed months. Only the deposit is collected now.',
+    balanceOwed: 'Balance owed',
+    planNeedsCustomer: 'An instalment sale needs a customer: the balance is owed by someone.',
+    planDepositTooBig: 'The deposit covers the whole sale. Complete it as an ordinary sale instead.',
     lineDiscount: 'Disc',
     noItems: 'No items',
     receiptNumber: 'Receipt',

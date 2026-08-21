@@ -6,7 +6,7 @@ import { getInvoice } from '../../api/client';
 import { exportInvoicePDF } from '../../utils/exportUtils';
 
 function ReceiptModal({ sale, onClose }) {
-  const { t, fmt, tCategory } = useLocale();
+  const { t, fmt, fmtDate, tCategory } = useLocale();
   const { settings, displayCurrency, exchangeRate } = useSettings();
   const co = settings || {};
   const [invoicing, setInvoicing] = useState(false);
@@ -185,6 +185,23 @@ function ReceiptModal({ sale, onClose }) {
           {isCash && (sale.change_given || 0) > 0 && (
             <Row label={t('pos.change')}
                  value={fmt(sale.change_given)} bold />
+          )}
+
+          {/* An instalment sale: the customer is walking out with the goods
+              owing money, and the receipt is the only thing they take with
+              them saying so — and saying when each payment falls due. */}
+          {(sale.installments || []).length > 0 && (
+            <>
+              <Divider />
+              <Row label={t('installments.deposit')} value={fmt(sale.paid_now)} />
+              <Row label={t('pos.balanceOwed')} value={fmt(sale.balance)} bold />
+              <div style={{ fontSize: 10, color: '#555', marginTop: 6, marginBottom: 2 }}>
+                {t('installments.title')}
+              </div>
+              {sale.installments.slice(1).map(i => (
+                <Row key={i.seq} label={fmtDate(i.due_date)} value={fmt(i.amount)} />
+              ))}
+            </>
           )}
 
           {/* Footer */}

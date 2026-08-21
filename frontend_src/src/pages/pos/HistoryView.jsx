@@ -31,7 +31,8 @@ function HistoryView({ canReturn }) {
     Total_LBP:     s.total_lbp || 0,
     Discount:      s.discount_total || 0,
     COGS:          s.cogs_total || 0,
-    Status:        s.status === 'returned' ? 'Returned' : 'Paid',
+    Status:        s.payment_status || (s.status === 'returned' ? 'Returned' : 'Paid'),
+    Balance:       s.balance || 0,
     Date:          fmtDate(s.created_at),
   }));
 
@@ -68,7 +69,18 @@ function HistoryView({ canReturn }) {
               <td>{s.cashier_name}</td>
               <td>{s.payment_method}</td>
               <td>{fmt(s.total_usd)}</td>
-              <td><Badge status={s.status === 'returned' ? 'Rejected' : 'Paid'} /></td>
+              <td>
+                <Badge status={s.status === 'returned' ? 'Rejected'
+                  : s.payment_status === 'Paid' || !s.payment_status ? 'Paid'
+                  : 'Pending'} />
+                {/* A sale still owing money says how much, on the screen
+                    the owner reviews the day with. */}
+                {s.balance > 0.005 && s.status !== 'returned' && (
+                  <div style={{ fontSize: 11, color: 'var(--red)', marginTop: 2 }}>
+                    {fmt(s.balance)}
+                  </div>
+                )}
+              </td>
               <td>{fmtDate(s.created_at)}</td>
               <td>
                 <button className="btn btn-secondary btn-sm" onClick={() => setOpenId(s.id)}>

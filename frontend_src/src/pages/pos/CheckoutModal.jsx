@@ -15,20 +15,40 @@ function CheckoutModal({ pricing, clients, drawers, defaultCurrency = 'USD', onC
   const [currency, setCurrency] = useState(defaultCurrency === 'LBP' ? 'LBP' : 'USD');
   const [rate, setRate] = useState(exchangeRate?.rate ? String(exchangeRate.rate) : '');
   const [tendered, setTendered] = useState('');
+  // An instalment sale: the customer takes the goods today and pays the rest
+  // over the agreed months. Only the deposit is collected at the till.
+  const [onPlan, setOnPlan] = useState(false);
+  const [deposit, setDeposit] = useState('');
+  const [planCount, setPlanCount] = useState('4');
+  const [planFreq, setPlanFreq] = useState('monthly');
+  const [planStart, setPlanStart] = useState('');
   const [busy, setBusy] = useState(false);
   const _defDrawer = drawers.find(d => d.auto_capture) || drawers[0];
   const [drawerId, setDrawerId] = useState(_defDrawer ? String(_defDrawer.id) : '');
 
   const fxRate = parseFloat(rate) || 0;
-  const totalInCurrency = currency === 'LBP' ? pricing.total * (fxRate || 0) : pricing.total;
+  const depositNum = parseFloat(deposit) || 0;
+  // What the customer hands over now: the whole sale, or the deposit on a plan.
+  const dueNow = onPlan ? depositNum : pricing.total;
+  const totalInCurrency = currency === 'LBP' ? dueNow * (fxRate || 0) : dueNow;
   const tenderedNum = parseFloat(tendered) || 0;
   const change = method === 'Cash' ? tenderedNum - totalInCurrency : 0;
+  const balance = Math.round((pricing.total - dueNow) * 100) / 100;
+
+  // Refused by the server too — checked here so the cashier is told which part
+  // is wrong rather than getting a bare 400 with a queue behind them.
+  const planProblem = !onPlan ? null
+    : !clientId ? t('pos.planNeedsCustomer')
+    : depositNum >= pricing.total ? t('pos.planDepositTooBig')
+    : Number(planCount) < 1 ? t('installments.needCount')
+    : null;
 
   async function confirm() {
     if (currency === 'LBP' && fxRate <= 0) { toast(t('pos.exchangeRate'), 'red'); return; }
     if (method === 'Cash' && tenderedNum + 0.01 < totalInCurrency) {
       toast(t('pos.amountTendered'), 'red'); return;
     }
+    if (planProblem) { toast(planProblem, 'red'); return; }
     setBusy(true);
     try {
       const res = await posCheckout({
@@ -41,6 +61,14 @@ function CheckoutModal({ pricing, clients, drawers, defaultCurrency = 'USD', onC
         amount_tendered: method === 'Cash' ? tenderedNum : totalInCurrency,
         cash_drawer_id: method === 'Cash' && drawerId ? Number(drawerId) : null,
         idempotency_key: crypto.randomUUID(),
+        ...(onPlan ? {
+          installment_plan: {
+            down_payment: depositNum,
+            count:        Number(planCount),
+            frequency:    planFreq,
+            start_date:   planStart || null,
+          },
+        } : {}),
       });
       // The checkout endpoint returns only totals + ids. Stitch in the
       // presentation data the receipt needs (line items, client name,
@@ -87,6 +115,60 @@ function CheckoutModal({ pricing, clients, drawers, defaultCurrency = 'USD', onC
               {clients.map(c => <option key={c.id} value={c.id}>{c.name}</option>)}
             </select>
           </div>
+          <div className="form-group form-full">
+            <label style={{ display: 'flex', alignItems: 'center', gap: 8, fontSize: 13.5 }}>
+              <input type="checkbox" checked={onPlan}
+                onChange={e => { setOnPlan(e.target.checked); setTendered(''); }} />
+              {t('pos.payByInstalments')}
+            </label>
+            {onPlan && (
+              <div style={{ fontSize: 11, color: 'var(--text-3)', marginTop: 3 }}>
+                {t('pos.instalmentsHint')}
+              </div>
+            )}
+          </div>
+          {onPlan && (
+            <>
+              <div className="form-group">
+                <label className="form-label">{t('installments.deposit')}</label>
+                <NumberInput className="form-control" step="0.01" min="0"
+                  value={deposit} onChange={e => setDeposit(e.target.value)} />
+              </div>
+              <div className="form-group">
+                <label className="form-label">{t('installments.count')}</label>
+                <NumberInput className="form-control" step="1" min="1"
+                  value={planCount} onChange={e => setPlanCount(e.target.value)} />
+              </div>
+              <div className="form-group">
+                <label className="form-label">{t('installments.frequency')}</label>
+                <select className="form-control" value={planFreq}
+                  onChange={e => setPlanFreq(e.target.value)}>
+                  <option value="monthly">{t('installments.monthly')}</option>
+                  <option value="quarterly">{t('installments.quarterly')}</option>
+                  <option value="yearly">{t('installments.yearly')}</option>
+                </select>
+              </div>
+              <div className="form-group">
+                <label className="form-label">{t('installments.firstDue')}</label>
+                <input type="date" className="form-control" value={planStart}
+                  onChange={e => setPlanStart(e.target.value)} />
+              </div>
+              <div className="form-group form-full">
+                {/* The balance is the number the customer will ask about. */}
+                <div style={{ display: 'flex', justifyContent: 'space-between',
+                              padding: '8px 12px', borderRadius: 6,
+                              background: 'var(--bg-2)', fontSize: 13 }}>
+                  <span>{t('pos.balanceOwed')}</span>
+                  <strong>{fmt(balance)}</strong>
+                </div>
+                {planProblem && (
+                  <div style={{ color: 'var(--red)', fontSize: 12, marginTop: 6 }}>
+                    {planProblem}
+                  </div>
+                )}
+              </div>
+            </>
+          )}
           <div className="form-group">
             <label className="form-label">{t('pos.paymentMethod')}</label>
             <select className="form-control" value={method} onChange={e => setMethod(e.target.value)}>
@@ -120,7 +202,7 @@ function CheckoutModal({ pricing, clients, drawers, defaultCurrency = 'USD', onC
           {method === 'Cash' && (
             <div className="form-group form-full">
               <label className="form-label">
-                {t('pos.amountTendered')} ({currency}) — {t('pos.total')}: {num(totalInCurrency)}
+                {t('pos.amountTendered')} ({currency}) — {onPlan ? t('installments.deposit') : t('pos.total')}: {num(totalInCurrency)}
               </label>
               <NumberInput className="form-control" step="any" min="0" value={tendered}
                 onChange={e => setTendered(e.target.value)} autoFocus />
@@ -136,7 +218,7 @@ function CheckoutModal({ pricing, clients, drawers, defaultCurrency = 'USD', onC
       </div>
       <div className="modal-footer">
         <button className="btn btn-secondary" onClick={onClose}>{t('common.cancel')}</button>
-        <button className="btn btn-primary" disabled={busy} onClick={confirm}>
+        <button className="btn btn-primary" disabled={busy || !!planProblem} onClick={confirm}>
           {busy ? t('common.saving') : t('pos.completeSale')}
         </button>
       </div>

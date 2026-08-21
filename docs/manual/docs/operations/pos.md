@@ -185,6 +185,44 @@ anything.
 
 ---
 
+    ### Selling on instalments
+
+    The customer takes the goods today and pays the rest over agreed months.
+
+    At **Checkout**, pick the customer — an instalment sale needs one, because
+    the balance is owed by somebody — then tick **Pay by instalments** and fill
+    in:
+
+    | Field | Notes |
+    |---|---|
+    | Deposit | What they hand over now. The till asks for this, not the full price |
+    | Instalments | How many payments follow the deposit. Four means a deposit and four |
+    | Every | Month, quarter or year |
+    | First due | When the first instalment falls due |
+
+    The balance is shown before you commit, and the receipt the customer takes
+    away carries the deposit, the balance and every due date.
+
+    What happens behind it:
+
+    - **The goods leave.** Stock is deducted and its cost recognised at the
+      till, exactly as on any other sale.
+    - **The balance becomes a receivable** against the customer, the same way a
+      credit invoice works. It shows on their statement and in the aging report.
+    - **Only the deposit is revenue.** Revenue is recognised as money arrives,
+      so a $300 sale with $100 down earns $100 now and the rest as they pay.
+    - **The drawer expects the deposit**, not the sale price, so the register
+      still balances at close.
+
+    Later payments are taken like any other invoice payment — from the
+    customer's record, or against the invoice itself. The plan is the ordinary
+    payment plan, so the invoice screen, the customer statement and the arrears
+    reporting all read it without knowing it came from a till.
+
+    Returning an instalment sale voids it whole: the goods come back, the
+    receivable is cancelled, and the schedule stops so nobody is chased for a
+    sale that was undone.
+
 ## Session lifecycle
 
 ```mermaid
@@ -247,8 +285,10 @@ browser goes through the OS print dialog like any other page.
 
 ## What's NOT supported (deliberately)
 
-- Layaway / partial-payment over multiple sessions. POS is for over-the-
-  counter; for staged payments use the regular invoices module.
+- Layaway — the customer paying in advance and collecting later. An
+  instalment sale here hands the goods over on the day (see **Selling on
+  instalments** above); holding stock against a customer who has not taken
+  it is a different arrangement and is not supported.
 - Cashier login per checkout. The session is opened by the cashier and
   every checkout in that session is attributed to them.
 - Per-line return (partial returns). Returns void the entire original
