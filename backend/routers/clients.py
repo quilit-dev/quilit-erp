@@ -1,13 +1,17 @@
 from fastapi import APIRouter, Depends, HTTPException
-from pydantic import BaseModel
+from pydantic import BaseModel, validator
 from typing import Optional
 from database import get_db
 from permissions import require_perm, can_view
 from routers.audit import log_action
-from utils import _now
+from utils import _now, money
 import sqlite3
 
 router = APIRouter()
+
+VAT_STATUSES = ("subject", "exempt")
+INSTALMENT_FREQUENCIES = ("monthly", "quarterly", "yearly")
+
 
 class ClientCreate(BaseModel):
     name: str
@@ -17,6 +21,47 @@ class ClientCreate(BaseModel):
     address: Optional[str] = None
     type: Optional[str] = "private"
     notes: Optional[str] = None
+    # What the tax authority knows them as. Printed on their documents.
+    financial_id: Optional[str] = None
+    # None means "whatever the company bills in", so changing the company
+    # currency does not orphan every customer record.
+    preferred_currency: Optional[str] = None
+    vat_status: str = "subject"
+    # A DEFAULT for their invoices, not a rule those invoices must obey.
+    allow_installments: bool = False
+    default_installment_count: Optional[int] = None
+    default_installment_frequency: Optional[str] = None
+
+    @validator("vat_status")
+    def _known_vat_status(cls, v):
+        if (v or "subject").lower() not in VAT_STATUSES:
+            raise ValueError("VAT status must be one of: " + ", ".join(VAT_STATUSES))
+        return (v or "subject").lower()
+
+    @validator("preferred_currency")
+    def _known_currency(cls, v):
+        if v in (None, ""):
+            return None
+        import currency as currency_mod
+        if not currency_mod.is_supported(v):
+            raise ValueError("Currency must be one of: "
+                             + ", ".join(currency_mod.SUPPORTED))
+        return v.upper()
+
+    @validator("default_installment_frequency")
+    def _known_frequency(cls, v):
+        if v in (None, ""):
+            return None
+        if v.lower() not in INSTALMENT_FREQUENCIES:
+            raise ValueError("Frequency must be one of: "
+                             + ", ".join(INSTALMENT_FREQUENCIES))
+        return v.lower()
+
+    @validator("default_installment_count")
+    def _sensible_count(cls, v):
+        if v is not None and int(v) < 1:
+            raise ValueError("An instalment plan needs at least one instalment.")
+        return v
 
 class ArchiveRequest(BaseModel):
     reason: Optional[str] = None
@@ -168,8 +213,13 @@ def get_client(client_id: int, user=Depends(require_perm("clients", "view")), db
 def create_client(data: ClientCreate, user=Depends(require_perm("clients", "create")), db: sqlite3.Connection = Depends(get_db)):
     now = _now()
     c = db.execute(
-        "INSERT INTO clients (name, company, phone, email, address, type, notes, created_at) VALUES (?,?,?,?,?,?,?,?)",
-        (data.name, data.company, data.phone, data.email, data.address, data.type, data.notes, now)
+        "INSERT INTO clients (name, company, phone, email, address, type, notes, "
+        "financial_id, preferred_currency, vat_status, allow_installments, default_installment_count, default_installment_frequency, created_at) "
+        "VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?)",
+        (data.name, data.company, data.phone, data.email, data.address, data.type,
+         data.notes, data.financial_id, data.preferred_currency, data.vat_status,
+         1 if data.allow_installments else 0,
+         data.default_installment_count, data.default_installment_frequency, now)
     )
     log_action(db, user, "create", "client", c.lastrowid, data.name)
     db.commit()
@@ -183,8 +233,14 @@ def update_client(client_id: int, data: ClientCreate, user=Depends(require_perm(
     ).fetchone():
         raise HTTPException(404, "Client not found")
     db.execute(
-        "UPDATE clients SET name=?, company=?, phone=?, email=?, address=?, type=?, notes=? WHERE id=?",
-        (data.name, data.company, data.phone, data.email, data.address, data.type, data.notes, client_id)
+        "UPDATE clients SET name=?, company=?, phone=?, email=?, address=?, type=?, "
+        " notes=?, financial_id=?, preferred_currency=?, vat_status=?, "
+        " allow_installments=?, default_installment_count=?, "
+        " default_installment_frequency=? WHERE id=?",
+        (data.name, data.company, data.phone, data.email, data.address, data.type,
+         data.notes, data.financial_id, data.preferred_currency, data.vat_status,
+         1 if data.allow_installments else 0,
+         data.default_installment_count, data.default_installment_frequency, client_id)
     )
     log_action(db, user, "update", "client", client_id, data.name)
     db.commit()
@@ -220,3 +276,97 @@ def unarchive_client(client_id: int, user=Depends(require_perm("clients", "edit"
     log_action(db, user, "unarchive", "client", client_id, row["name"])
     db.commit()
     return {"message": "Client restored from archive"}
+
+
+@router.get("/{client_id}/statement")
+def client_statement(client_id: int,
+                     start: Optional[str] = None, end: Optional[str] = None,
+                     user=Depends(require_perm("clients", "view")),
+                     db: sqlite3.Connection = Depends(get_db)):
+    """A statement of account: what was invoiced, what was paid, what is left.
+
+    One chronological run of movements with a running balance, which is the
+    document a customer asks for when they want to know why they owe what they
+    owe. Built from invoices and their payments rather than from the ledger:
+    the ledger knows the totals but not which invoice a payment settled, and
+    that is the whole question a statement answers.
+
+    An opening balance carries in everything before `start`, so a period
+    statement still adds up rather than beginning mid-story.
+    """
+    row = db.execute(
+        "SELECT id, name, company, financial_id, preferred_currency, vat_status "
+        "FROM clients WHERE id=? AND deleted_at IS NULL", (client_id,)).fetchone()
+    if not row:
+        raise HTTPException(404, "Client not found")
+
+    invoices = db.execute(
+        "SELECT id, invoice_number, created_at, amount, voided_at "
+        "FROM invoices WHERE client_id=? AND archived_at IS NULL "
+        "ORDER BY created_at, id", (client_id,)).fetchall()
+    live = [i for i in invoices if not i["voided_at"]]
+    ids = [i["id"] for i in live]
+
+    payments = []
+    if ids:
+        ph = ",".join("?" * len(ids))
+        payments = db.execute(
+            f"SELECT p.id, p.invoice_id, p.amount, p.method, p.paid_at, "
+            f"       p.paid_currency, p.paid_amount, i.invoice_number "
+            f"FROM invoice_payments p JOIN invoices i ON i.id = p.invoice_id "
+            f"WHERE p.invoice_id IN ({ph}) ORDER BY p.paid_at, p.id", ids).fetchall()
+
+    # One list of movements: an invoice adds to what is owed, a payment reduces
+    # it. Sorted together so the running balance reads the way it happened.
+    movements = []
+    for i in live:
+        movements.append({
+            "date": (i["created_at"] or "")[:10], "_ts": i["created_at"] or "",
+            "type": "invoice",
+            "reference": i["invoice_number"], "invoice_id": i["id"],
+            "description": f"Invoice {i['invoice_number']}",
+            "charged": money(i["amount"]), "paid": 0.0,
+        })
+    for p in payments:
+        movements.append({
+            "date": (p["paid_at"] or "")[:10], "_ts": p["paid_at"] or "",
+            "type": "payment",
+            "reference": p["invoice_number"], "invoice_id": p["invoice_id"],
+            "description": f"Payment — {p['method'] or 'Cash'}"
+                           + (f" ({p['paid_currency']})" if p["paid_currency"] not in (None, "USD") else ""),
+            "charged": 0.0, "paid": money(p["amount"]),
+        })
+    # Ordered by when it actually happened, not merely by day: several
+    # movements on one date must read in sequence or the running balance tells
+    # a story that did not occur. The type only breaks a tie between two
+    # identical timestamps, where an invoice necessarily precedes its payment.
+    movements.sort(key=lambda m: (m["_ts"], 0 if m["type"] == "invoice" else 1))
+
+    opening = 0.0
+    if start:
+        before = [m for m in movements if m["date"] < start[:10]]
+        opening = money(sum(m["charged"] - m["paid"] for m in before))
+        movements = [m for m in movements if m["date"] >= start[:10]]
+    if end:
+        movements = [m for m in movements if m["date"] <= end[:10]]
+
+    balance = opening
+    for m in movements:
+        m.pop("_ts", None)
+        balance = money(balance + m["charged"] - m["paid"])
+        m["balance"] = balance
+
+    charged = money(sum(m["charged"] for m in movements))
+    paid = money(sum(m["paid"] for m in movements))
+    return {
+        "client": {"id": row["id"], "name": row["name"], "company": row["company"],
+                   "financial_id": row["financial_id"],
+                   "preferred_currency": row["preferred_currency"],
+                   "vat_status": row["vat_status"]},
+        "start": start, "end": end,
+        "opening_balance": opening,
+        "movements": movements,
+        "total_charged": charged,
+        "total_paid": paid,
+        "closing_balance": money(opening + charged - paid),
+    }

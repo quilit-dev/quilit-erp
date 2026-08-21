@@ -3414,6 +3414,32 @@ def _run_migrations(conn, c):
                   "VALUES ('bank', '1000', ?)", (_ts,))
         done("154d_bank_role")
 
+    # ── 155: what the books need to know about a customer ─────────────────
+    # Four things an invoice cannot be raised properly without, all of which
+    # were being carried in someone's head or in the notes field.
+    #
+    # Every column defaults to today's behaviour: no financial id, the company's
+    # own currency, VAT charged as normal, instalments not offered. An existing
+    # customer is unchanged in every respect until somebody edits them.
+    add_col("155a_client_financial_id", "clients", "financial_id",
+            "ALTER TABLE clients ADD COLUMN financial_id TEXT")
+    # NULL means "whatever the company bills in" rather than a hardcoded USD,
+    # so changing the company currency does not orphan every customer.
+    add_col("155b_client_currency", "clients", "preferred_currency",
+            "ALTER TABLE clients ADD COLUMN preferred_currency TEXT")
+    # 'subject' is the default because it is the status of nearly every customer
+    # and the one the system has always assumed. An exempt customer is the
+    # exception being made expressible.
+    add_col("155c_client_vat_status", "clients", "vat_status",
+            "ALTER TABLE clients ADD COLUMN vat_status TEXT NOT NULL DEFAULT 'subject'")
+    # A default the invoice may override, not a rule it must obey.
+    add_col("155d_client_installments", "clients", "allow_installments",
+            "ALTER TABLE clients ADD COLUMN allow_installments INTEGER NOT NULL DEFAULT 0")
+    add_col("155e_client_inst_count", "clients", "default_installment_count",
+            "ALTER TABLE clients ADD COLUMN default_installment_count INTEGER")
+    add_col("155f_client_inst_freq", "clients", "default_installment_frequency",
+            "ALTER TABLE clients ADD COLUMN default_installment_frequency TEXT")
+
     # Grant the new `costs` capability on upgrade. Without this every existing
     # install silently loses cost everywhere the moment the stripping lands —
     # including for the owner, who would have no way to grant it back except by
@@ -4009,6 +4035,15 @@ def _ensure_pg_post_baseline(raw):
                     "bank_account_id INTEGER")
         cur.execute("ALTER TABLE expenses ADD COLUMN IF NOT EXISTS "
                     "bank_account_id INTEGER")
+        for _sql in (
+            "ALTER TABLE clients ADD COLUMN IF NOT EXISTS financial_id TEXT",
+            "ALTER TABLE clients ADD COLUMN IF NOT EXISTS preferred_currency TEXT",
+            "ALTER TABLE clients ADD COLUMN IF NOT EXISTS vat_status TEXT NOT NULL DEFAULT 'subject'",
+            "ALTER TABLE clients ADD COLUMN IF NOT EXISTS allow_installments INTEGER NOT NULL DEFAULT 0",
+            "ALTER TABLE clients ADD COLUMN IF NOT EXISTS default_installment_count INTEGER",
+            "ALTER TABLE clients ADD COLUMN IF NOT EXISTS default_installment_frequency TEXT",
+        ):
+            cur.execute(_sql)
         cur.execute("INSERT INTO account_roles (role, code, updated_at) "
                     "VALUES ('bank', '1000', to_char(now(),'YYYY-MM-DD HH24:MI:SS')) "
                     "ON CONFLICT (role) DO NOTHING")

@@ -84,13 +84,34 @@ def money(v) -> float:
     return float(Decimal(str(v)).quantize(_TWO_PLACES, rounding=ROUND_HALF_UP))
 
 
-def get_tax_context(db: sqlite3.Connection) -> dict:
+# A customer who is not subject to VAT. Stored on the customer because it is a
+# fact about them, not about any one sale.
+VAT_EXEMPT = "exempt"
+
+
+def get_tax_context(db: sqlite3.Connection, client_id=None) -> dict:
     """Resolve the active tax configuration once per request.
 
-    Returns {enabled, rates: {id: {rate, tax_type, name}}, default_id}.
+    Returns {enabled, rates: {id: {rate, tax_type, name}}, default_id, exempt}.
+
+    Pass `client_id` when the document has a customer. A customer registered as
+    exempt is charged no VAT whatever the line rates say, which is expressed by
+    disabling the engine for that document — every resolver already returns zero
+    tax when it is off, so the exemption reaches the totals, the printed
+    document and the VAT return through one place rather than seven.
     """
     en = db.execute("SELECT value FROM settings WHERE key='tax_enabled'").fetchone()
     enabled = bool(en and en["value"] == "1")
+    exempt = False
+    if enabled and client_id:
+        try:
+            row = db.execute(
+                "SELECT vat_status FROM clients WHERE id = ?", (client_id,)).fetchone()
+            exempt = bool(row and (row["vat_status"] or "").lower() == VAT_EXEMPT)
+        except Exception:
+            exempt = False          # column not migrated yet — charge as before
+        if exempt:
+            enabled = False
     rates, default_id = {}, None
     try:
         for r in db.execute(
@@ -102,7 +123,8 @@ def get_tax_context(db: sqlite3.Connection) -> dict:
                 default_id = r["id"]
     except sqlite3.OperationalError:
         pass  # tax_rates table not migrated yet
-    return {"enabled": enabled, "rates": rates, "default_id": default_id}
+    return {"enabled": enabled, "rates": rates, "default_id": default_id,
+            "exempt": exempt}
 
 
 def _pick_rate(ctx: dict, tax_rate_id, *, fallback_default: bool):

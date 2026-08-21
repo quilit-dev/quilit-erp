@@ -178,7 +178,7 @@ def _has_payments(db, invoice_id: int) -> bool:
     ).fetchone()
     return row[0] > 0
 
-def _price_items(db, items, fallback_amount):
+def _price_items(db, items, fallback_amount, client_id=None):
     """Roll up invoice line totals with per-line tax AND per-line discount.
 
     Per-line net is computed as `qty * unit_price - discount`, floored at 0.
@@ -190,7 +190,9 @@ def _price_items(db, items, fallback_amount):
     Returns (subtotal, tax_total, grand_total, line_tax) where line_tax is a
     list parallel to `items` of (tax_rate_id, tax_rate, tax_amount).
     """
-    ctx = get_tax_context(db)
+    # The customer decides whether VAT applies at all: one registered as
+    # exempt is charged none, whatever the line rates say.
+    ctx = get_tax_context(db, client_id)
     line_tax = []
     if items:
         subtotal = tax_total = 0.0
@@ -460,7 +462,8 @@ def build_invoice(
     # drafted, edited and voided, so metering it would burn units of a promotion
     # the customer may never receive. POS stays the metered channel.
     promo_ids = apply_promotions_to_lines(db, items) if apply_promos else []
-    subtotal, tax_total, computed_amount, line_tax = _price_items(db, items, amount)
+    subtotal, tax_total, computed_amount, line_tax = _price_items(
+        db, items, amount, client_id)
     if computed_amount <= 0:
         raise HTTPException(400, "Invoice amount must be positive")
 
@@ -616,7 +619,8 @@ def update_invoice(
     else:
         items    = data.items or []
         promo_ids = apply_promotions_to_lines(db, items)
-        subtotal, tax_total, computed_amount, line_tax = _price_items(db, items, data.amount)
+        subtotal, tax_total, computed_amount, line_tax = _price_items(
+            db, items, data.amount, data.client_id)
 
         rows_updated = db.execute(
             "UPDATE invoices "

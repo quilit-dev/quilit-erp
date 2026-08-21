@@ -68,7 +68,7 @@ class QuoteItem(BaseModel):
     tax_rate_id: Optional[int] = None
 
 
-def _price_quote_items(db, items):
+def _price_quote_items(db, items, client_id=None):
     """Roll up quotation line totals with per-line tax AND per-line discount.
 
     Net per line is `qty * unit_price - discount`, floored at 0 so a typo
@@ -78,7 +78,10 @@ def _price_quote_items(db, items):
 
     Returns (subtotal, tax_total, line_tax) — line_tax parallel to `items`.
     """
-    ctx = get_tax_context(db)
+    # Exempt customers are quoted the same way they will be invoiced —
+    # a quote showing VAT the invoice will not charge loses the sale a
+    # different way than one that undercharges.
+    ctx = get_tax_context(db, client_id)
     subtotal = tax_total = 0.0
     line_tax = []
     for it in items:
@@ -262,7 +265,7 @@ def create_quotation(
     # sale. The discount is snapshotted onto the line, so ending the promotion
     # later cannot silently reprice a quote already sent to a client.
     promo_ids = apply_promotions_to_lines(db, data.items)
-    total, tax_total, line_tax = _price_quote_items(db, data.items)
+    total, tax_total, line_tax = _price_quote_items(db, data.items, data.client_id)
     qn    = _next_quote_number(db)
     now   = _now()
 
@@ -355,7 +358,7 @@ def update_quotation(
         raise HTTPException(400, "Use the Void action to void a quotation.")
 
     promo_ids = apply_promotions_to_lines(db, data.items)
-    total, tax_total, line_tax = _price_quote_items(db, data.items)
+    total, tax_total, line_tax = _price_quote_items(db, data.items, data.client_id)
     invoice_amount = round(total + tax_total, 4)
 
     # Check if this quotation has already been converted to an invoice.
