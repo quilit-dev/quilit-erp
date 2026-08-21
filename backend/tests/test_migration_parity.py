@@ -37,6 +37,13 @@ _REQUIRED = [
     ("quotation_items", "inventory_id"),
     ("quotation_items", "promotion_id"),
     ("quotation_items", "discount_pct"),
+    # Where an invoice came from, so a POS or service document stays traceable
+    # once every invoice draws from one number series.
+    ("invoices", "source_type"),
+    ("invoices", "source_reference"),
+    ("invoices", "service_job_id"),
+    # Whether a recurring cost is spread across the period it covers.
+    ("recurring_expenses", "spread_across_period"),
 ]
 
 
@@ -45,6 +52,10 @@ _REQUIRED = [
 # production only.
 _REQUIRED_TABLES = [
     "company_logo",
+    # A payment plan against one invoice.
+    "invoice_installments",
+    # Stock held for a named customer.
+    "stock_reservations",
 ]
 
 
