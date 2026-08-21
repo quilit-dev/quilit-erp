@@ -7,6 +7,7 @@ import {
 import { useLocale } from '../hooks/useLocale.jsx';
 import { usePermissions } from '../hooks/usePermissions';
 import Attachments from '../components/Attachments.jsx';
+import StatementTab from './clients/StatementTab.jsx';
 import { openSafeHtmlDocument } from '../utils/exportUtils';
 
 function StatCard({ label, value, sub, color }) {
@@ -65,6 +66,7 @@ export default function ClientDetail() {
     { key: 'projects',   label: t('nav.projects') },
     { key: 'quotations', label: t('nav.quotations') },
     { key: 'invoices',   label: t('nav.invoices') },
+    { key: 'statement',  label: t('clients.statement') },
   ];
 
   useEffect(() => {
@@ -254,6 +256,8 @@ export default function ClientDetail() {
       )}
 
       {/* Invoices — paid_amount is now computed by backend via invoice_payments JOIN */}
+      {tab === 'statement' && <StatementTab clientId={id} />}
+
       {tab === 'invoices' && (
         <div className="card">
           <div className="card-header"><span className="card-title">{t('clients.invoicesCount', { count: invoices.length })}</span></div>

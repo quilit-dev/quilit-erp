@@ -5,12 +5,21 @@ import { useServerList } from '../hooks/useServerList';
 import { getClients, createClient, updateClient, archiveClient, unarchiveClient } from '../api/client';
 import {
   LoadingSpinner, ErrorAlert, EmptyState, Modal, ConfirmModal,
-  ExportButton, fmtDate, toast, SortableTh, Pagination
+  ExportButton, fmtDate, toast, SortableTh, Pagination, NumberInput
 } from '../components/shared';
+import { CURRENCIES } from './settings/ui';
 import { useLocale } from '../hooks/useLocale.jsx';
 import ImportWizard from '../components/ImportWizard';
 
-const EMPTY = { name: '', company: '', phone: '', email: '', address: '', type: 'private', notes: '' };
+const EMPTY = {
+  name: '', company: '', phone: '', email: '', address: '', type: 'private', notes: '',
+  // Blank, not 'USD': empty means "whatever the company bills in", which is
+  // what the API stores as NULL so changing the company currency does not
+  // orphan every customer record.
+  financial_id: '', preferred_currency: '', vat_status: 'subject',
+  allow_installments: false, default_installment_count: '',
+  default_installment_frequency: '',
+};
 
 export default function Clients() {
   const navigate = useNavigate();
@@ -35,14 +44,35 @@ export default function Clients() {
 
 
   function openCreate()  { setForm(EMPTY); setEditId(null); setModal('form'); }
-  function openEdit(c)   { setForm({ ...c }); setEditId(c.id); setModal('form'); }
+  function openEdit(c)   {
+    // A stored row carries NULLs where the form wants empty strings.
+    setForm({
+      ...EMPTY, ...c,
+      financial_id: c.financial_id || '',
+      preferred_currency: c.preferred_currency || '',
+      vat_status: c.vat_status || 'subject',
+      allow_installments: !!c.allow_installments,
+      default_installment_count: c.default_installment_count ?? '',
+      default_installment_frequency: c.default_installment_frequency || '',
+    });
+    setEditId(c.id); setModal('form');
+  }
 
   async function handleSave(e) {
     e.preventDefault();
     setSaving(true);
     try {
-      if (editId) { await updateClient(editId, form); toast(t('clients.clientUpdated')); }
-      else        { await createClient(form);          toast(t('clients.clientCreated')); }
+      // '' means unset; the API takes null for that.
+      const payload = {
+        ...form,
+        preferred_currency: form.preferred_currency || null,
+        default_installment_frequency: form.default_installment_frequency || null,
+        default_installment_count: form.default_installment_count === ''
+          ? null : Number(form.default_installment_count),
+        allow_installments: !!form.allow_installments,
+      };
+      if (editId) { await updateClient(editId, payload); toast(t('clients.clientUpdated')); }
+      else        { await createClient(payload);       toast(t('clients.clientCreated')); }
       setModal(null);
       reload();
     } catch (err) { toast(err.message, 'red'); }
@@ -217,6 +247,77 @@ export default function Clients() {
                   <textarea className="form-control" rows={2} value={form.notes || ''}
                     onChange={e => setForm(f => ({ ...f, notes: e.target.value }))} />
                 </div>
+
+                {/* What the books need, kept apart from the contact details
+                    above because it is a different conversation. Same divider
+                    the invoice payment panel uses — there is no section-heading
+                    class in this stylesheet. */}
+                <div className="form-full" style={{ marginTop: 6, paddingTop: 14,
+                                                    borderTop: '1px solid var(--border)' }}>
+                  <span style={{ fontWeight: 600, fontSize: 13 }}>
+                    {t('clients.billingHeading')}
+                  </span>
+                </div>
+
+                <div className="form-group">
+                  <label className="form-label">{t('clients.financialId')}</label>
+                  <input className="form-control" value={form.financial_id || ''}
+                    onChange={e => setForm(f => ({ ...f, financial_id: e.target.value }))} />
+                </div>
+                <div className="form-group">
+                  <label className="form-label">{t('clients.preferredCurrency')}</label>
+                  <select className="form-control" value={form.preferred_currency || ''}
+                    onChange={e => setForm(f => ({ ...f, preferred_currency: e.target.value }))}>
+                    <option value="">{t('clients.currencyCompanyDefault')}</option>
+                    {CURRENCIES.map(c => <option key={c} value={c}>{c}</option>)}
+                  </select>
+                </div>
+                <div className="form-group">
+                  <label className="form-label">{t('clients.vatStatus')}</label>
+                  <select className="form-control" value={form.vat_status || 'subject'}
+                    onChange={e => setForm(f => ({ ...f, vat_status: e.target.value }))}>
+                    <option value="subject">{t('clients.vatSubject')}</option>
+                    <option value="exempt">{t('clients.vatExempt')}</option>
+                  </select>
+                  {form.vat_status === 'exempt' && (
+                    <div style={{ fontSize: 11, color: 'var(--text-3)', marginTop: 3 }}>
+                      {t('clients.vatExemptHint')}
+                    </div>
+                  )}
+                </div>
+                <div className="form-group">
+                  <label className="form-label">{t('clients.installments')}</label>
+                  <label style={{ display: 'flex', alignItems: 'center', gap: 8,
+                                  fontSize: 13.5, paddingTop: 7 }}>
+                    <input type="checkbox" checked={!!form.allow_installments}
+                      onChange={e => setForm(f => ({ ...f, allow_installments: e.target.checked }))} />
+                    {t('clients.allowInstallments')}
+                  </label>
+                </div>
+                {form.allow_installments && (
+                  <>
+                    <div className="form-group">
+                      <label className="form-label">{t('clients.defaultCount')}</label>
+                      <NumberInput className="form-control" min="1" step="1"
+                        value={form.default_installment_count}
+                        onChange={e => setForm(f => ({ ...f, default_installment_count: e.target.value }))} />
+                    </div>
+                    <div className="form-group">
+                      <label className="form-label">{t('clients.defaultFrequency')}</label>
+                      <select className="form-control"
+                        value={form.default_installment_frequency || ''}
+                        onChange={e => setForm(f => ({ ...f, default_installment_frequency: e.target.value }))}>
+                        <option value="">—</option>
+                        <option value="monthly">{t('installments.monthly')}</option>
+                        <option value="quarterly">{t('installments.quarterly')}</option>
+                        <option value="yearly">{t('installments.yearly')}</option>
+                      </select>
+                    </div>
+                    <div className="form-full" style={{ fontSize: 11, color: 'var(--text-3)' }}>
+                      {t('clients.installmentsHint')}
+                    </div>
+                  </>
+                )}
               </div>
             </div>
             <div className="modal-footer">

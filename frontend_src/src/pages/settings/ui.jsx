@@ -76,4 +76,6 @@ export const Toggle = ({ label, checked, onChange, disabled }) => (
 );
 
 // Lebanon SMB market: USD functional currency + LBP secondary only.
-export const CURRENCIES = ['USD', 'LBP'];
+// Mirrors currency.SUPPORTED on the backend. EUR arrived with the
+// effective-dated rates and needs a rate configured before it converts.
+export const CURRENCIES = ['USD', 'LBP', 'EUR'];

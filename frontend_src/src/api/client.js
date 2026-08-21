@@ -117,6 +117,10 @@ export const getDashboard = (s) => api.get('/api/dashboard/', s);
 export const getClients      = (params = {}, s) => api.get(`/api/clients/${_qs(params)}`, s);
 export const unarchiveClient = (id) => api.patch(`/api/clients/${id}/unarchive`);
 export const getClient       = (id) => api.get(`/api/clients/${id}`);
+// Statement of account: charges, payments and a running balance over a
+// window, with everything before it folded into the opening balance.
+export const getClientStatement = (id, params = {}) =>
+  api.get(`/api/clients/${id}/statement${_qs(params)}`);
 export const createClient    = (d) => api.post('/api/clients/', d);
 export const updateClient    = (id, d) => api.put(`/api/clients/${id}`, d);
 export const archiveClient   = (id, reason) => api.patch(`/api/clients/${id}/archive`, { reason });
