@@ -1604,7 +1604,7 @@ def mark_payroll_run_paid(
             "memo": f"{ccy} {amt:,.2f}" + (f" @ {spot:,.0f}" if ccy != "USD" else ""),
         })
         cash_lines.append({
-            "code": accounting.cash_account_for(ccy), "credit": amt_usd,
+            "code": accounting.cash_account_for(db, ccy), "credit": amt_usd,
         })
     total_usd = round(total_usd, 2)
     if total_usd <= 0:

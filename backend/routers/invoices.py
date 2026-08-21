@@ -782,7 +782,7 @@ def unvoid_invoice(
             # account.
             lines=accounting.payment_lines(
                 db, invoice_id,
-                cash_code=accounting.cash_account_for(pay["paid_currency"]),
+                cash_code=accounting.cash_account_for(db, pay["paid_currency"]),
                 amount=float(pay["amount"]),
                 method_memo=f"{pay['method']} ({pay['paid_currency'] or 'USD'})",
             ),
@@ -906,7 +906,7 @@ def add_payment(
         # a service job's labour lands in 4100 and its parts in 4000.
         lines=accounting.payment_lines(
             db, invoice_id,
-            cash_code=accounting.cash_account_for(currency),
+            cash_code=accounting.cash_account_for(db, currency),
             amount=usd_amount,
             method_memo=f"{data.method} ({currency})",
         ),

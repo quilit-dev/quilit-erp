@@ -531,7 +531,7 @@ def checkout(
         entry_date=now[:10],
         memo=f"POS sale — {inv_no}",
         lines=[
-            {"code": accounting.cash_account_for(currency),
+            {"code": accounting.cash_account_for(db, currency),
              "debit": grand_total, "memo": f"{method} ({currency})"},
             {"code": accounting.REVENUE, "credit": grand_total},
         ],

@@ -3298,6 +3298,18 @@ def _run_migrations(conn, c):
         )
         done("146_account_2400")
 
+    # An account name in Arabic, and whether it may be posted to. Lebanon's
+    # statutory chart is published in Arabic and is a TREE: 41 is the customer
+    # heading, 4111 is the account a sale actually lands in. Posting to a
+    # heading would double-count it against its own children.
+    #
+    # Both default to today's behaviour — no Arabic name, everything postable —
+    # so the existing flat chart is unaffected.
+    add_col("152a_coa_name_ar", "chart_of_accounts", "name_ar",
+            "ALTER TABLE chart_of_accounts ADD COLUMN name_ar TEXT")
+    add_col("152b_coa_postable", "chart_of_accounts", "is_postable",
+            "ALTER TABLE chart_of_accounts ADD COLUMN is_postable INTEGER NOT NULL DEFAULT 1")
+
     # ── 151: account roles ────────────────────────────────────────────────
     # Which account plays which PART, rather than which number it happens to
     # have. The postings say "the receivable account"; this table says what
@@ -3908,6 +3920,9 @@ def _ensure_pg_post_baseline(raw):
                     "hours_worked DOUBLE PRECISION DEFAULT 0")
         cur.execute("ALTER TABLE hr_payroll_lines ADD COLUMN IF NOT EXISTS "
                     "hourly_rate DOUBLE PRECISION DEFAULT 0")
+        cur.execute("ALTER TABLE chart_of_accounts ADD COLUMN IF NOT EXISTS name_ar TEXT")
+        cur.execute("ALTER TABLE chart_of_accounts ADD COLUMN IF NOT EXISTS "
+                    "is_postable INTEGER NOT NULL DEFAULT 1")
         cur.execute(
             "CREATE TABLE IF NOT EXISTS account_roles "
             "(role TEXT PRIMARY KEY, code TEXT NOT NULL, updated_at TEXT)")

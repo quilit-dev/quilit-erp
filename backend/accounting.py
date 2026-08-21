@@ -109,13 +109,14 @@ FX_LOSS      = "6920"   # Foreign Exchange Loss (other expense)
 OTHER_EXPENSE = "6900"  # General & Other Expense
 
 
-def cash_account_for(currency: str) -> str:
+def cash_account_for(db, currency: str) -> str:
     """Return the Chart-of-Accounts code that should hold cash tendered in
     `currency`. Centralised so every module routes LBP to 1010 and USD to 1000
     consistently — otherwise mixing them silently in '1000 Cash & Bank' breaks
     IAS 21 (monetary items in a non-functional currency must be tracked and
     revalued at the spot rate). Unknown currencies fall back to USD."""
-    return CASH_LBP if (currency or "").upper() == "LBP" else CASH
+    role = "cash_lbp" if (currency or "").upper() == "LBP" else "cash"
+    return code(db, role)
 
 # Expense-category → ledger account code. Mirrors finance._VALID_EXPENSE_CATEGORIES.
 CATEGORY_ACCOUNTS = {
@@ -358,7 +359,7 @@ def revenue_split(db, invoice_id, amount):
             "       SUM(COALESCE(quantity,0) * COALESCE(unit_price,0) "
             "           - COALESCE(discount,0)) AS net_gross "
             "FROM invoice_items WHERE invoice_id = ? GROUP BY 1",
-            (REVENUE, invoice_id),
+            (code(db, "revenue"), invoice_id),
         ).fetchall()
     except Exception:
         # No invoice_items table on a very old install, or a read failure. One
@@ -366,12 +367,12 @@ def revenue_split(db, invoice_id, amount):
         # balances and the money is still recognised.
         rows = []
 
-    buckets = [(r["acct"] or REVENUE, float(r["net_gross"] or 0)) for r in rows]
+    buckets = [(r["acct"] or code(db, "revenue"), float(r["net_gross"] or 0)) for r in rows]
     buckets = [(a, g) for a, g in buckets if g > 0]
     total_net = sum(g for _, g in buckets)
 
     if len(buckets) <= 1 or total_net <= 0:
-        lines = [{"code": buckets[0][0] if buckets else REVENUE, "credit": net}]
+        lines = [{"code": buckets[0][0] if buckets else code(db, "revenue"), "credit": net}]
     else:
         lines = [{"code": a, "credit": money(net * g / total_net)} for a, g in buckets]
         residue = money(net - sum(l["credit"] for l in lines))
@@ -381,7 +382,7 @@ def revenue_split(db, invoice_id, amount):
 
     lines = [l for l in lines if l["credit"] > 0]
     if vat > 0:
-        lines.append({"code": VAT_CONTROL, "credit": vat,
+        lines.append({"code": code(db, "vat_output"), "credit": vat,
                       "memo": "VAT collected"})
     return lines
 
@@ -407,8 +408,10 @@ def post_receivable(db, invoice_id, *, invoice_number, amount, entry_date,
         entry_date=entry_date,
         memo=f"Invoice raised — {invoice_number}",
         lines=[
-            {"code": AR,           "debit":  amount, "memo": "Customer receivable"},
-            {"code": DEFERRED_REV, "credit": amount, "memo": "Invoiced, not yet earned"},
+            {"code": code(db, "receivable"), "debit": amount,
+             "memo": "Customer receivable"},
+            {"code": code(db, "deferred_revenue"), "credit": amount,
+             "memo": "Invoiced, not yet earned"},
         ],
         source_type="invoice", source_id=invoice_id,
         created_by=created_by, branch_id=branch_id,
@@ -453,8 +456,10 @@ def payment_lines(db, invoice_id, *, cash_code, amount, method_memo=None):
 
     return [
         cash,
-        {"code": AR, "credit": amount, "memo": "Receivable settled"},
-        {"code": DEFERRED_REV, "debit": amount, "memo": "Earned on receipt"},
+        {"code": code(db, "receivable"), "credit": amount,
+         "memo": "Receivable settled"},
+        {"code": code(db, "deferred_revenue"), "debit": amount,
+         "memo": "Earned on receipt"},
         *revenue,
     ]
 

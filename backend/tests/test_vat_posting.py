@@ -212,15 +212,25 @@ def test_purchase_input_vat_also_reaches_the_control_account(client, vat_rate):
     assert 'accounting.OTHER_EXPENSE, "debit": tax_part' not in src
 
 
-def test_all_three_posting_sites_use_the_same_account():
+def test_all_three_posting_sites_use_the_same_account(db):
     """Sales, expenses and purchases must agree, or the control account no
-    longer equals the return and reconciling is guesswork."""
+    longer equals the return and reconciling is guesswork.
+
+    Asserted on where the roles RESOLVE rather than on the source text. Sales
+    now asks for the `vat_output` role, which on this chart is the same 2100
+    the other two use — but on Lebanon's chart output VAT (4427) is deliberately
+    a different account from deductible VAT on charges (4426), so a test that
+    demanded one literal everywhere would forbid the correct behaviour there.
+    """
     import inspect
     import accounting
     import routers.finance as finance_src
     import routers.purchases as purchases_src
 
     assert accounting.VAT_CONTROL == "2100"
-    assert "VAT_CONTROL" in inspect.getsource(accounting.revenue_split)
+    # On the default chart all three VAT roles are the one control account.
+    assert accounting.code(db, "vat_output") == accounting.VAT_CONTROL
+    assert accounting.code(db, "vat_input") == accounting.VAT_CONTROL
+    # Expenses and purchases still route their input VAT to it.
     assert "accounting.VAT_CONTROL" in inspect.getsource(finance_src)
     assert "accounting.VAT_CONTROL" in inspect.getsource(purchases_src)
