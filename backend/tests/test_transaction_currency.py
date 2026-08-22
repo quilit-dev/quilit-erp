@@ -177,3 +177,109 @@ def test_the_currency_can_be_given_explicitly_against_the_customers_default(
 
     assert body["currency"] == "USD"
     assert body["amount"] == _pytest.approx(300)
+
+
+# ── Settling in a currency that has moved ────────────────────────────────────
+
+def _pay(client, inv, amount, currency="EUR", **kw):
+    body = {"amount": amount, "currency": currency, "method": "Cash",
+            "idempotency_key": str(uuid.uuid4())}
+    body.update(kw)
+    return client.post(f"/api/invoices/{inv}/payments", json=body)
+
+
+def test_paying_the_agreed_euro_in_full_clears_the_invoice(client, euro_customer, db):
+    """The customer owes EUR 5,000. They pay EUR 5,000. Nothing is outstanding
+    — whatever the dollar did in between."""
+    inv = _id(_invoice(client, euro_customer, 5000))
+    # The euro weakens: 1 EUR = 1.05 USD rather than 1.10.
+    db.execute("INSERT INTO exchange_rates (currency, rate, effective_date, created_at) "
+               "VALUES ('EUR', 0.952381, '2026-01-01', '2026-01-01')")
+    db.commit()
+
+    r = _pay(client, inv, 5000, exchange_rate=0.952381)
+
+    assert r.status_code == 200, r.text
+    body = client.get(f"/api/invoices/{inv}").json()
+    assert body["remaining"] == _pytest.approx(0, abs=0.01)
+
+
+def test_the_shortfall_is_posted_as_a_realised_loss(client, euro_customer, db):
+    """A 5,500 claim that brought in 5,250 of cash left the company 250 worse
+    off. That is a loss, not a rounding error, and the books have to say so."""
+    inv = _id(_invoice(client, euro_customer, 5000))
+    db.execute("INSERT INTO exchange_rates (currency, rate, effective_date, created_at) "
+               "VALUES ('EUR', 0.952381, '2026-01-01', '2026-01-01')")
+    db.commit()
+
+    _pay(client, inv, 5000, exchange_rate=0.952381)
+
+    entries = client.get(f"/api/accounting/for/invoice/{inv}").json()["entries"]
+    payment = next(e for e in entries if e["source_type"] == "invoice_payment")
+    fx = [l for l in payment["lines"] if l["account_code"] in ("6920", "4910")]
+    assert fx, "no exchange difference was posted"
+    assert fx[0]["debit"] == _pytest.approx(250, abs=0.02)   # 6920, a loss
+    assert client.get("/api/accounting/trial-balance").json()["balanced"]
+
+
+def test_a_stronger_euro_posts_a_gain(client, euro_customer, db):
+    inv = _id(_invoice(client, euro_customer, 5000))
+    # 1 EUR = 1.20 USD.
+    db.execute("INSERT INTO exchange_rates (currency, rate, effective_date, created_at) "
+               "VALUES ('EUR', 0.833333, '2026-01-01', '2026-01-01')")
+    db.commit()
+
+    _pay(client, inv, 5000, exchange_rate=0.833333)
+
+    entries = client.get(f"/api/accounting/for/invoice/{inv}").json()["entries"]
+    payment = next(e for e in entries if e["source_type"] == "invoice_payment")
+    gain = [l for l in payment["lines"] if l["account_code"] == "4910"]
+    assert gain and gain[0]["credit"] == _pytest.approx(500, abs=0.02)
+    assert client.get("/api/accounting/trial-balance").json()["balanced"]
+
+
+def test_the_receivable_is_fully_relieved(client, euro_customer, db):
+    """The point of relieving at the recognition rate. Relieve at the
+    settlement rate instead and the receivable carries a balance for a debt
+    the customer has paid, for ever."""
+    inv = _id(_invoice(client, euro_customer, 5000))
+    db.execute("INSERT INTO exchange_rates (currency, rate, effective_date, created_at) "
+               "VALUES ('EUR', 0.952381, '2026-01-01', '2026-01-01')")
+    db.commit()
+
+    _pay(client, inv, 5000, exchange_rate=0.952381)
+
+    tb = client.get("/api/accounting/trial-balance").json()
+    ar = next((r for r in tb["rows"] if r["code"] == "1100"), None)
+    outstanding = 0 if not ar else round(float(ar["debit"]) - float(ar["credit"]), 2)
+    assert outstanding == _pytest.approx(0, abs=0.02)
+
+
+def test_the_payment_records_what_it_settled_and_what_it_cost(client,
+                                                              euro_customer, db):
+    inv = _id(_invoice(client, euro_customer, 5000))
+    db.execute("INSERT INTO exchange_rates (currency, rate, effective_date, created_at) "
+               "VALUES ('EUR', 0.952381, '2026-01-01', '2026-01-01')")
+    db.commit()
+
+    _pay(client, inv, 5000, exchange_rate=0.952381)
+
+    row = db.execute("SELECT * FROM invoice_payments WHERE invoice_id=?",
+                     (inv,)).fetchone()
+    assert row["txn_amount"] == _pytest.approx(5000)       # euro settled
+    assert row["paid_amount"] == _pytest.approx(5000)      # euro handed over
+    assert row["amount"] == _pytest.approx(5500, abs=0.01)  # claim relieved
+    assert row["fx_difference"] == _pytest.approx(-250, abs=0.02)
+
+
+def test_a_dollar_invoice_posts_no_exchange_difference(client, dollar_customer):
+    """The shape of an ordinary payment must not change at all."""
+    inv = _id(_invoice(client, dollar_customer, 400))
+
+    _pay(client, inv, 400, currency="USD")
+
+    entries = client.get(f"/api/accounting/for/invoice/{inv}").json()["entries"]
+    payment = next(e for e in entries if e["source_type"] == "invoice_payment")
+    assert not [l for l in payment["lines"]
+                if l["account_code"] in ("6920", "4910")]
+    assert client.get(f"/api/invoices/{inv}").json()["remaining"] == _pytest.approx(0)

@@ -442,7 +442,8 @@ def has_receivable(db, invoice_id) -> bool:
     return source_entry(db, "invoice", invoice_id) is not None
 
 
-def payment_lines(db, invoice_id, *, cash_code, amount, method_memo=None):
+def payment_lines(db, invoice_id, *, cash_code, amount, method_memo=None,
+                  obligation=None):
     """The journal lines for one payment against an invoice.
 
     On an invoice carrying a receivable, a payment does two things at once:
@@ -457,22 +458,41 @@ def payment_lines(db, invoice_id, *, cash_code, amount, method_memo=None):
 
     `revenue_split` carves VAT out of the payment and allocates the rest across
     revenue accounts by line mix, exactly as before — VAT timing is untouched.
+
+    `obligation` is what the payment relieves of the receivable, which differs
+    from the cash received only on an invoice denominated in another currency:
+    the claim was raised at the rate on the day it was recognised and has to be
+    relieved at that same rate, or a balance is left behind that never clears.
+    The difference between the two is a realised exchange gain or loss on the
+    day the money arrived. Omitted, it equals the cash and the shape is exactly
+    what it has always been.
     """
     amount = money(amount)
-    revenue = list(revenue_split(db, invoice_id, amount))
+    obligation = money(amount if obligation is None else obligation)
     cash = {"code": cash_code, "debit": amount, "memo": method_memo}
 
     if not has_receivable(db, invoice_id):
-        return [cash, *revenue]
+        return [cash, *revenue_split(db, invoice_id, amount)]
 
-    return [
+    # Revenue is earned to the value the claim was carried at, because that is
+    # what was put into deferred when the invoice was raised.
+    lines = [
         cash,
-        {"code": code(db, "receivable"), "credit": amount,
+        {"code": code(db, "receivable"), "credit": obligation,
          "memo": "Receivable settled"},
-        {"code": code(db, "deferred_revenue"), "debit": amount,
+        {"code": code(db, "deferred_revenue"), "debit": obligation,
          "memo": "Earned on receipt"},
-        *revenue,
+        *revenue_split(db, invoice_id, obligation),
     ]
+
+    fx = money(amount - obligation)
+    if fx > 0:
+        lines.append({"code": code(db, "fx_gain"), "credit": fx,
+                      "memo": "Exchange gain on settlement"})
+    elif fx < 0:
+        lines.append({"code": code(db, "fx_loss"), "debit": -fx,
+                      "memo": "Exchange loss on settlement"})
+    return lines
 
 
 def reverse_entry(db: sqlite3.Connection, je_id: int, *, entry_date=None,

@@ -122,3 +122,67 @@ def _get(row, key):
         return row[key]
     except (KeyError, IndexError, TypeError):
         return None
+
+
+# ── Settling a foreign invoice ───────────────────────────────────────────────
+# An invoice recognised at one rate and paid at another leaves a difference,
+# and that difference is a realised gain or loss on the day the money arrives.
+# It is not a rounding error to be swept up: EUR 5,000 recognised at 1.10 is a
+# claim for USD 5,500, and if it settles when the euro is worth 1.05 the
+# company received USD 5,250 for a 5,500 claim and is USD 250 worse off.
+#
+# Three currencies can be in play and they are worth naming apart:
+#
+#   invoice currency    what the customer owes.        EUR
+#   tender currency     what they actually handed over. could be USD
+#   base currency       what the books are kept in.     USD
+
+def settle(db: sqlite3.Connection, *, invoice_currency, invoice_rate,
+           tender_currency, tender_amount, tender_rate, on_date=None) -> dict:
+    """Work out what one payment settles, and what it costs in exchange.
+
+    Returns the obligation settled in the invoice's currency, that obligation
+    valued at the rate the invoice was RECOGNISED at (which is what relieves
+    the receivable), the base value of the money actually received, and the
+    difference between the two.
+
+    A positive difference is a gain: more cash arrived than the claim was
+    carried at.
+    """
+    invoice_currency = (invoice_currency or base_currency()).upper()
+    tender_currency = (tender_currency or base_currency()).upper()
+    invoice_rate = float(invoice_rate or 1)
+
+    # What the money is worth in the company's own currency — the cash that
+    # actually landed, which is what the bank or the till really received.
+    cash_base = to_base(tender_amount, tender_rate or 1)
+
+    if tender_currency == invoice_currency:
+        # The ordinary case: they paid in the currency they were billed in, so
+        # the obligation settled is exactly what they handed over.
+        txn_settled = money(tender_amount)
+    else:
+        # They paid in something else. How much of the debt that clears is a
+        # question about today's rate between the two, and the honest route is
+        # through base: cash_base is what it is worth now, and the debt is
+        # denominated at the invoice's own currency.
+        rate_now = (1.0 if invoice_currency == base_currency()
+                    else currency_mod.rate_on(db, invoice_currency, on_date))
+        if not rate_now or rate_now <= 0:
+            raise RateUnavailable(
+                f"No {invoice_currency} rate is configured for "
+                f"{on_date or 'today'}, so it cannot be said how much of this "
+                f"{invoice_currency} invoice a {tender_currency} payment "
+                "settles.")
+        txn_settled = money(cash_base * float(rate_now))
+
+    # The receivable was raised at the recognition rate, so that is the rate it
+    # has to be relieved at. Anything else leaves a balance that never clears.
+    obligation_base = to_base(txn_settled, invoice_rate)
+
+    return {
+        "txn_settled": txn_settled,
+        "obligation_base": obligation_base,
+        "cash_base": cash_base,
+        "fx_difference": money(cash_base - obligation_base),
+    }

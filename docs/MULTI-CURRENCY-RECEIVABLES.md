@@ -121,12 +121,36 @@ Done:
   written down, the ledger posting in base. A customer set to a currency with
   no rate is refused, by name.
 
+- Realised FX on settlement. `denomination.settle()` works out what a payment
+  clears of the debt and what it cost in exchange; `payment_lines` posts the
+  difference to FX gain or loss. The architecture closes: a euro invoice paid
+  in full in euro leaves nothing outstanding, in either currency.
+
+### How a payment is recorded
+
+Three figures, and confusing them is how this goes wrong:
+
+| Column | Means |
+|---|---|
+| `paid_amount` + `paid_currency` | what the customer physically handed over |
+| `txn_amount` | how much of the debt that cleared, in the invoice's currency |
+| `amount` | that obligation valued at the rate the invoice was RECOGNISED at |
+| `fx_difference` | cash received in base, minus `amount` |
+
+`amount` is the obligation and not the cash, deliberately. "Remaining" is
+`invoices.amount - SUM(invoice_payments.amount)` in forty places, and a foreign
+invoice paid in full has to reach zero in every one of them without any of them
+being touched.
+
+The receivable is relieved at the **recognition** rate for the same reason.
+Relieve it at the settlement rate and the claim carries a balance, for ever,
+for a debt the customer has paid.
+
+For an invoice in the company's own currency all three figures are the same
+number, which is why nothing already on the books changes.
+
 Still to do:
 
-- **Realised FX on settlement.** An invoice recognised at one rate and settled
-  at another leaves a difference that must post as a realised gain or loss.
-  Without it a euro invoice paid in full in euro leaves a base-currency
-  receivable that never clears. This is the piece that closes the architecture.
 - Quotation → invoice carrying the currency through (columns exist, not wired).
 - Service jobs and projects (columns exist for service, not wired).
 - POS — a till sale in a foreign currency.

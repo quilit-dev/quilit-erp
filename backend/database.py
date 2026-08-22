@@ -3717,6 +3717,23 @@ def _run_migrations(conn, c):
     add_col("161_quotation_items_txn_tax", "quotation_items", "txn_tax_amount",
             "ALTER TABLE quotation_items ADD COLUMN txn_tax_amount REAL")
 
+    # ── 162: how much of the invoice's own currency a payment settled ─────
+    # `amount` is the base value of the OBLIGATION settled — the debt measured
+    # at the rate the invoice was recognised at. It has to stay that, because
+    # "remaining" is `amount - SUM(payments.amount)` in forty places and a
+    # foreign invoice paid in full has to reach zero.
+    #
+    # What the customer actually handed over is already recorded, in
+    # paid_currency and paid_amount. The difference between the two is the
+    # realised exchange gain or loss, and it is posted, not swept up.
+    #
+    # For an invoice in the company's own currency the two are the same
+    # number, which is why nothing already on the books changes.
+    add_col("162_payment_txn_amount", "invoice_payments", "txn_amount",
+            "ALTER TABLE invoice_payments ADD COLUMN txn_amount REAL")
+    add_col("162_payment_fx", "invoice_payments", "fx_difference",
+            "ALTER TABLE invoice_payments ADD COLUMN fx_difference REAL")
+
     # ── 159b: the instalment flag starts as it has always behaved ─────────
     # `allow_installments` was added defaulting to 0, which is correct for a
     # new column and wrong as a starting state: before it existed, every
@@ -4316,6 +4333,12 @@ def _ensure_pg_post_baseline(raw):
                         f"txn_unit_price DOUBLE PRECISION")
             cur.execute(f"ALTER TABLE {_t} ADD COLUMN IF NOT EXISTS "
                         f"txn_tax_amount DOUBLE PRECISION")
+        # 162: the obligation a payment settled, in the invoice's currency,
+        # and the realised exchange difference against what was handed over.
+        cur.execute("ALTER TABLE invoice_payments ADD COLUMN IF NOT EXISTS "
+                    "txn_amount DOUBLE PRECISION")
+        cur.execute("ALTER TABLE invoice_payments ADD COLUMN IF NOT EXISTS "
+                    "fx_difference DOUBLE PRECISION")
         # 159b: existing customers keep the permission they already had — see
         # the SQLite chain for why. Guarded by the marker so it runs once: a
         # re-run would re-enable a customer an admin had deliberately stopped.

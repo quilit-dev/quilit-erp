@@ -34,6 +34,16 @@ from datetime import datetime, timedelta
 
 router = APIRouter()
 
+def _col(row, key):
+    """Read a column that may be absent from this row — an older SELECT, or a
+    tenant whose migration has not run yet. Absent reads as None, which every
+    caller here treats as "the company's own currency"."""
+    try:
+        return row[key]
+    except (KeyError, IndexError, TypeError):
+        return None
+
+
 def _payment_total(db, invoice_id: int) -> float:
     row = db.execute(
         "SELECT COALESCE(SUM(amount), 0) AS total FROM invoice_payments WHERE invoice_id = ?",
@@ -981,13 +991,30 @@ def add_payment(
         if existing:
             raise HTTPException(409, "This payment was already recorded (duplicate submission).")
 
+    # What this payment settles of the debt, and what it costs in exchange.
+    # On an invoice in the company's own currency every figure here is the same
+    # number the code has always used, so nothing about that path changes.
+    try:
+        s = denomination.settle(
+            db,
+            invoice_currency=_col(inv, "currency"),
+            invoice_rate=_col(inv, "exchange_rate"),
+            tender_currency=currency, tender_amount=data.amount,
+            tender_rate=rate, on_date=_today())
+    except denomination.RateUnavailable as e:
+        raise HTTPException(400, str(e))
+
     total_paid = _payment_total(db, invoice_id)
     remaining  = money(float(inv["amount"]) - total_paid)
 
-    if usd_amount > remaining + 0.001:
+    # Measured against the OBLIGATION, not the cash. A euro invoice settled
+    # when the euro has weakened brings in less cash than the claim was carried
+    # at, and comparing the cash would refuse the payment that clears it.
+    if s["obligation_base"] > remaining + 0.001:
         raise HTTPException(
             400,
-            f"Payment ${usd_amount:.2f} exceeds remaining balance ${remaining:.2f}",
+            f"Payment ${s['obligation_base']:.2f} exceeds remaining balance "
+            f"${remaining:.2f}",
         )
 
     # A cash payment may be attributed to a specific cash drawer.
@@ -999,10 +1026,15 @@ def add_payment(
     pay_cur = db.execute(
         "INSERT INTO invoice_payments "
         "(invoice_id, amount, method, note, paid_at, idempotency_key, "
-        " paid_currency, paid_amount, exchange_rate, cash_drawer_id) "
-        "VALUES (?,?,?,?,?,?,?,?,?,?)",
-        (invoice_id, usd_amount, data.method, data.note, _now(), data.idempotency_key,
-         currency, paid_amount, rate, drawer_id),
+        " paid_currency, paid_amount, exchange_rate, cash_drawer_id, "
+        " txn_amount, fx_difference) "
+        "VALUES (?,?,?,?,?,?,?,?,?,?,?,?)",
+        # `amount` is the obligation settled, valued at the rate the invoice was
+        # recognised at — so `amount - SUM(payments)` still reaches zero when
+        # the customer has paid in full, in all forty places that ask.
+        (invoice_id, s["obligation_base"], data.method, data.note, _now(),
+         data.idempotency_key, currency, paid_amount, rate, drawer_id,
+         s["txn_settled"], s["fx_difference"]),
     )
     payment_id = pay_cur.lastrowid
 
@@ -1023,7 +1055,8 @@ def add_payment(
         lines=accounting.payment_lines(
             db, invoice_id,
             cash_code=accounting.cash_account_for(db, currency),
-            amount=usd_amount,
+            amount=s["cash_base"],
+            obligation=s["obligation_base"],
             method_memo=f"{data.method} ({currency})",
         ),
         source_type="invoice_payment", source_id=payment_id, created_by=user["id"],
