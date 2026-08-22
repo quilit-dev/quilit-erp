@@ -45,14 +45,70 @@ project, invoice, payment, and activity for that customer in one place.
 
     ### The 360° detail
 
-    Five tabs.
+    Six tabs, in this order.
 
-    1. **Overview** — contact details, recent activities, totals
-    2. **Quotations** — every quote ever issued to this client (linked to
+    1. **Overview** — contact details, **billing terms**, recent activity,
+       totals and attachments
+    2. **Projects** — every project for this client (linked back)
+    3. **Quotations** — every quote ever issued to this client (linked to
        the source quote)
-    3. **Projects** — every project for this client (linked back)
     4. **Invoices** — every invoice + payment status (linked back)
-    5. **Activities** — CRM activities logged against the client
+    5. **Payments** — what they have paid, as they paid it, with the receipt
+    6. **Statement** — the running account over a date range, exportable
+
+    ### Billing terms
+
+    Four fields on the client that change what the rest of the system offers.
+
+    | Field | What it does |
+    |---|---|
+    | **Financial ID** | The customer's tax registration number. Printed on their documents |
+    | **Preferred currency** | Pre-selects this currency when you take a payment from them. It does **not** change the currency the invoice is issued in — invoices stay in the company currency. At the till it applies only where the register can take that currency (dollars and pounds); a customer who prefers euro is left on the default rather than being put into a currency checkout would refuse |
+    | **VAT status** | Whether they are subject to VAT or exempt |
+    | **Allow instalments** | Whether this customer may be put on a payment plan |
+
+    **Allow instalments** is a credit decision about that customer. With it
+    off, neither the invoice screen nor the till offers a plan, and both
+    refuse one if asked anyway — the message names the customer and says to
+    change it on their record. Turning it off does **not** disturb a plan they
+    are already halfway through; it decides what happens next.
+
+    Every customer already on your books was set to *allowed* when this became
+    enforceable, because that is what they were before the field existed, and a
+    new customer starts allowed for the same reason. Unticking it is always a
+    deliberate act.
+
+    Set **instalments** and **every** alongside it and those become the
+    starting figures whenever a plan is set up for them — on an invoice or at
+    the counter. They are a starting point: whatever the operator types over
+    them wins.
+
+    ### Taking a payment for the account
+
+    A customer pays "for the account", not for invoice #114. Open their record
+    → **Record payment**, enter what they handed over, and the system settles
+    their **oldest invoices first**, splitting the money across as many as it
+    reaches. The screen previews exactly which invoices it will touch before
+    you commit, and shows what actually happened afterwards.
+
+    Overpayment is refused rather than parked: a credit balance is a real
+    thing with its own rules, and inventing one as a side effect of a rounding
+    difference would be worse than asking.
+
+    ### The receipt
+
+    Press **Receipt Voucher** on the confirmation, and the customer gets one
+    bilingual slip naming **every invoice their money reached** and the amount
+    applied to each.
+
+    The number is issued once and never changes. Print it again — from the
+    **Payments** tab, any time later — and it is the same receipt on fresh
+    paper, not a second claim on the same money. Paid in pounds, the slip
+    shows the pounds they handed over as well as the converted figure.
+
+    This is a different document from the receipt voucher on an **invoice**,
+    which states what has been paid against that one invoice to date. Both
+    exist; use the payment one when the customer paid for the account.
 
     ### Adding a client manually
 

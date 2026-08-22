@@ -777,6 +777,7 @@ const ar = {
     removeTitle: 'حذف هذا السطر.',
   },
   installments: {
+    notApproved: 'هذا الزبون غير معتمد للتقسيط. فعّل الخيار في بطاقته لعرض خطة دفع.',
     title: '\u062e\u0637\u0629 \u0627\u0644\u0633\u062f\u0627\u062f',
     none: '\u0644\u0627 \u062a\u0648\u062c\u062f \u062e\u0637\u0629 \u0633\u062f\u0627\u062f. \u0627\u0644\u0631\u0635\u064a\u062f \u0628\u0627\u0644\u0643\u0627\u0645\u0644 \u0645\u0633\u062a\u062d\u0642 \u0641\u064a \u062a\u0627\u0631\u064a\u062e \u0627\u0644\u0641\u0627\u062a\u0648\u0631\u0629.',
     setUp: '\u0625\u0646\u0634\u0627\u0621 \u062e\u0637\u0629',
@@ -1064,6 +1065,13 @@ const ar = {
   },
 
   clients: {
+    paymentsReceived: 'الدفعات',
+    noPayments: 'لا توجد دفعات مسجلة لهذا الزبون بعد.',
+    appliedTo: 'مسددة على',
+    planDefault: '{{count}} دفعة، كل {{frequency}}',
+    notOnTerms: 'غير معتمد للتقسيط',
+    onTerms: 'معتمد للتقسيط',
+    currencyHint: 'يُحدّد هذه العملة مسبقاً عند قبض دفعة منه. الفواتير تبقى بعملة الشركة.',
     paymentRecorded: 'تم تسجيل الدفعة',
     owesTotal: '{{name}} عليه {{amount}} على فواتيره المفتوحة.',
     willSettle: 'ستسدد هذه الدفعة',
@@ -1739,6 +1747,7 @@ const ar = {
   },
 
   invoices: {
+    printReceipt: 'طباعة السند',
     title: 'الفواتير',
     totalInvoices: '{{count}} فاتورة إجمالاً',
     addInvoice: '+ فاتورة جديدة',

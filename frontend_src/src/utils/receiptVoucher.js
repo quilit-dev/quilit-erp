@@ -118,6 +118,9 @@ const RV_CSS = `
 }
 .rv-payments th { font-weight: 700; }
 .rv-payments td.r, .rv-payments th.r { text-align: right; }
+/* The total line on a payment covering several invoices: the figure a
+   customer checks against what they handed over. */
+.rv-payments tr.rv-total td { border-top: 0.6pt solid currentColor; }
 
 .rv-signs { display: flex; justify-content: space-between; gap: 8mm; margin-top: 16mm; }
 .rv-sign { flex: 1 1 0; text-align: center; font-size: 9px; }
@@ -255,5 +258,133 @@ export async function printReceiptVoucher(invoice, voucher, opts = {}) {
   const { html, number } = buildReceiptVoucherHTML(
     invoice, voucher, settings, logoDataURL, opts);
   await saveDocumentSnapshot('invoice', invoice, `Receipt ${number}`, html);
+  printHTML(html, `Receipt_${number}.pdf`);
+}
+
+
+/**
+ * Receipt voucher for one CUSTOMER payment — سند قبض.
+ *
+ * The same slip, for the thing the customer actually did. They hand over one
+ * sum for "the account"; the system settles their oldest invoices first and
+ * splits it into one row per invoice. The per-invoice voucher above can only
+ * describe one of those, so a customer paying across five invoices went home
+ * with either five slips or none.
+ *
+ * This names every invoice the money reached, in the order it was applied, and
+ * carries the same server-issued number on every reprint.
+ */
+export function buildPaymentVoucherHTML(payment, settings, logoDataURL = null,
+                                        opts = {}) {
+  const C     = buildCompany(settings);
+  const CC    = currencyContext(C, opts);
+  const theme = themeFor(settings);
+
+  const allocated = payment.allocated || [];
+  const total     = Number(payment.amount) || 0;
+  const printedAt = new Date().toISOString();
+  const client    = payment.client?.name || payment.client_name || '';
+
+  // The words describe the figure the voucher PRINTS, which is the converted
+  // one — the same rule the per-invoice voucher follows.
+  const words = amountInWords(CC.conv(total), CC.code);
+
+  // What they paid in, when that was not the company currency. A receipt that
+  // shows only the USD equivalent is not a receipt for what was handed over.
+  const tendered = payment.currency && payment.currency !== C.currency
+    ? `${esc(payment.currency)} ${Number(payment.paid_amount || 0).toLocaleString()}`
+    : '';
+
+  const forWhat = allocated.length === 1
+    ? `Invoice ${esc(allocated[0].invoice_number || '—')}`
+    : `${allocated.length} invoices — see below`;
+
+  const table = allocated.length ? `
+  <div class="rv-payments">
+    <table>
+      <thead><tr>
+        <th>${stack('Invoice', 'الفاتورة')}</th>
+        <th class="r">${stack('Applied', 'المسدد')}</th>
+      </tr></thead>
+      <tbody>${allocated.map(a => `<tr>
+        <td>${esc(a.invoice_number || '—')}</td>
+        <td class="r">${CC.money(a.applied)}</td>
+      </tr>`).join('')}
+      <tr class="rv-total">
+        <td><strong>${stack('Total', 'المجموع')}</strong></td>
+        <td class="r"><strong>${CC.money(total)}</strong></td>
+      </tr></tbody>
+    </table>
+  </div>` : '';
+
+  const bodyHtml = `
+<div class="rv">
+  <div class="rv-title">
+    <span class="rv-ar">سند قبض</span>
+    <span class="rv-en">Receipt Voucher</span>
+  </div>
+
+  <div class="rv-head">
+    <div class="rv-meta">
+      <div><span class="rv-key">No. <i>رقم</i></span><strong>${esc(payment.number || '—')}</strong></div>
+      <div><span class="rv-key">Date <i>التاريخ</i></span>${fmtDate(payment.created_at || printedAt)}</div>
+    </div>
+    <div class="rv-amount">
+      <div class="rv-fig">${CC.money(total)}</div>
+      <div class="rv-date">${fmtDate(payment.created_at || printedAt)}</div>
+    </div>
+  </div>
+
+  <div class="rv-line">
+    ${row('Received from Mr./Messrs', 'استلمنا من السيد / السادة', esc(client))}
+    ${row('The sum of', 'مبلغ وقدره',
+          `<span class="rv-words">${esc(words)}</span>`)}
+    ${row('Cash / Cheque No.', 'نقداً / بموجب شيك رقم', esc(payment.method || ''))}
+    ${tendered ? row('Tendered', 'المبلغ المقبوض', tendered) : row('Bank', 'بنك')}
+    ${row('For', 'وذلك عن', forWhat)}
+  </div>
+
+  ${table}
+
+  <div class="rv-signs">
+    <div class="rv-sign"><div class="rv-rule"></div>
+      <span class="rv-en">Prepared By</span><span class="rv-ar">أعدها</span></div>
+    <div class="rv-sign"><div class="rv-rule"></div>
+      <span class="rv-en">Received By</span><span class="rv-ar">المستلم</span></div>
+    <div class="rv-sign"><div class="rv-rule"></div>
+      <span class="rv-en">Manager Sign</span><span class="rv-ar">توقيع المدير</span></div>
+  </div>
+
+  <div class="rv-printed">
+    Printed ${fmtDate(printedAt)} — covering ${allocated.length}
+    ${allocated.length === 1 ? 'invoice' : 'invoices'}
+  </div>
+</div>`;
+
+  const sheet = (!theme)
+    ? `<div class="page">${bodyHtml}</div>`
+    : `<div class="page">
+  <table class="hj-sheet">
+    <thead><tr><td>${C.preprinted ? '' : theme.sheet(C, logoDataURL)}</td></tr></thead>
+    <tbody><tr><td>${theme.open}${bodyHtml}${theme.close}</td></tr></tbody>
+    <tfoot><tr><td></td></tr></tfoot>
+  </table>
+</div>`;
+
+  const html = `<!DOCTYPE html><html lang="en"><head><meta charset="UTF-8">
+<title>Receipt ${esc(payment.number || '')}</title>
+<style>${SHARED_CSS}${theme ? theme.css : ''}${RV_CSS}</style></head><body>
+${sheet}
+</body></html>`;
+
+  return { html, number: payment.number || '' };
+}
+
+/** Fetch what the template needs and open the print dialog. */
+export async function printPaymentVoucher(payment, opts = {}) {
+  const [logoDataURL, settings] = await Promise.all([getLogoDataURL(), getSettings()]);
+  const { html, number } = buildPaymentVoucherHTML(payment, settings, logoDataURL, opts);
+  await saveDocumentSnapshot('client', { id: payment.client?.id, ...payment },
+                             `Receipt ${number}`, html);
   printHTML(html, `Receipt_${number}.pdf`);
 }

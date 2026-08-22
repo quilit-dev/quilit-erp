@@ -1,4 +1,4 @@
-import { useState } from 'react';
+import { useState, useEffect } from 'react';
 import { useLocale } from '../../hooks/useLocale.jsx';
 import { useSettings } from '../../hooks/useSettings.jsx';
 import { Modal, toast, NumberInput } from '../../components/shared';
@@ -22,9 +22,25 @@ function CheckoutModal({ pricing, clients, drawers, defaultCurrency = 'USD', onC
   const [planCount, setPlanCount] = useState('4');
   const [planFreq, setPlanFreq] = useState('monthly');
   const [planStart, setPlanStart] = useState('');
+  const [planTouched, setPlanTouched] = useState(false);
   const [busy, setBusy] = useState(false);
   const _defDrawer = drawers.find(d => d.auto_capture) || drawers[0];
   const [drawerId, setDrawerId] = useState(_defDrawer ? String(_defDrawer.id) : '');
+
+  // Choosing a customer brings their agreed plan shape with it, until the
+  // cashier types over it — then their choice wins for the rest of the sale.
+  useEffect(() => {
+    if (planTouched || !customer) return;
+    if (customer.default_installment_count)
+      setPlanCount(String(customer.default_installment_count));
+    if (customer.default_installment_frequency)
+      setPlanFreq(customer.default_installment_frequency);
+    // The currency they settle in, when the till supports it. POS takes USD
+    // and LBP only, so a customer who prefers EUR is left on the default
+    // rather than being defaulted into a currency checkout would refuse.
+    if (['USD', 'LBP'].includes(customer.preferred_currency))
+      setCurrency(customer.preferred_currency);
+  }, [customer, planTouched]);
 
   const fxRate = parseFloat(rate) || 0;
   const depositNum = parseFloat(deposit) || 0;
@@ -37,8 +53,15 @@ function CheckoutModal({ pricing, clients, drawers, defaultCurrency = 'USD', onC
 
   // Refused by the server too — checked here so the cashier is told which part
   // is wrong rather than getting a bare 400 with a queue behind them.
+  // The customer's own terms: whether they may buy on credit, and the shape
+  // they usually agree to. A customer record without the field (an older
+  // payload) is treated as allowed, so nothing silently disappears.
+  const customer = clients.find(c => String(c.id) === String(clientId));
+  const notApproved = !!customer && customer.allow_installments === 0;
+
   const planProblem = !onPlan ? null
     : !clientId ? t('pos.planNeedsCustomer')
+    : notApproved ? t('installments.notApproved')
     : depositNum >= pricing.total ? t('pos.planDepositTooBig')
     : Number(planCount) < 1 ? t('installments.needCount')
     : null;
@@ -137,12 +160,12 @@ function CheckoutModal({ pricing, clients, drawers, defaultCurrency = 'USD', onC
               <div className="form-group">
                 <label className="form-label">{t('installments.count')}</label>
                 <NumberInput className="form-control" step="1" min="1"
-                  value={planCount} onChange={e => setPlanCount(e.target.value)} />
+                  value={planCount} onChange={e => { setPlanTouched(true); setPlanCount(e.target.value); }} />
               </div>
               <div className="form-group">
                 <label className="form-label">{t('installments.frequency')}</label>
                 <select className="form-control" value={planFreq}
-                  onChange={e => setPlanFreq(e.target.value)}>
+                  onChange={e => { setPlanTouched(true); setPlanFreq(e.target.value); }}>
                   <option value="monthly">{t('installments.monthly')}</option>
                   <option value="quarterly">{t('installments.quarterly')}</option>
                   <option value="yearly">{t('installments.yearly')}</option>

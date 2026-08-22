@@ -9,7 +9,8 @@
 // server's answer is what actually happens, and it is shown afterwards — the
 // preview is a courtesy, not the decision.
 import { useState, useMemo } from 'react';
-import { recordCustomerPayment } from '../../api/client';
+import { recordCustomerPayment, issuePaymentVoucher } from '../../api/client';
+import { printPaymentVoucher } from '../../utils/receiptVoucher';
 import { Modal, NumberInput, fmt, fmtDate, toast } from '../../components/shared';
 import { CURRENCIES } from '../settings/ui';
 import { useLocale } from '../../hooks/useLocale.jsx';
@@ -20,11 +21,16 @@ export default function CustomerPaymentModal({ client, invoices, onClose, onDone
   const { t, tEnumValue } = useLocale();
   const [amount, setAmount] = useState('');
   const [method, setMethod] = useState('Cash');
-  const [ccy, setCcy] = useState('USD');
+  // The currency this customer settles in, when one is recorded against
+  // them. It is a starting point, not a constraint — they can hand over
+  // anything and the operator changes it.
+  const [ccy, setCcy] = useState(
+    CURRENCIES.includes(client?.preferred_currency) ? client.preferred_currency : 'USD');
   const [rate, setRate] = useState('');
   const [note, setNote] = useState('');
   const [saving, setSaving] = useState(false);
   const [result, setResult] = useState(null);
+  const [printing, setPrinting] = useState(false);
 
   // Same rule the server uses: oldest first, by due date then id. Drafts and
   // voided invoices are not owed and never appear.
@@ -74,6 +80,21 @@ export default function CustomerPaymentModal({ client, invoices, onClose, onDone
     }
   }
 
+  // The customer is standing there waiting for the slip. The number comes
+  // from the server and is the same on every reprint, so pressing this twice
+  // hands out one receipt printed twice — not two receipts.
+  async function printVoucher() {
+    setPrinting(true);
+    try {
+      const voucher = await issuePaymentVoucher(result.payment_id);
+      await printPaymentVoucher(voucher);
+    } catch (err) {
+      toast(err.message, 'red');
+    } finally {
+      setPrinting(false);
+    }
+  }
+
   // Once it has happened, show what actually happened rather than the preview.
   if (result) {
     return (
@@ -108,6 +129,11 @@ export default function CustomerPaymentModal({ client, invoices, onClose, onDone
           )}
         </div>
         <div className="modal-footer">
+          {result.payment_id && (
+            <button className="btn btn-secondary" onClick={printVoucher} disabled={printing}>
+              {printing ? t('common.saving') : `🧾 ${t('invoices.receiptVoucher')}`}
+            </button>
+          )}
           <button className="btn btn-primary" onClick={onClose}>{t('common.close')}</button>
         </div>
       </Modal>

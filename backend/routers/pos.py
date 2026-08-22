@@ -336,6 +336,14 @@ def checkout(
             raise HTTPException(
                 400, "An instalment sale needs a customer: the balance is owed "
                      "by someone.")
+        cli = db.execute(
+            "SELECT name, COALESCE(allow_installments, 0) AS allowed, "
+            "       default_installment_count, default_installment_frequency "
+            "FROM clients WHERE id=?", (data.client_id,)).fetchone()
+        if cli and not cli["allowed"]:
+            raise HTTPException(
+                400, f"{cli['name']} is not approved for instalments. "
+                     "Enable it on the customer first if that has changed.")
         if plan.count < 1:
             raise HTTPException(400, "A plan needs at least one instalment.")
         if plan.down_payment < 0:

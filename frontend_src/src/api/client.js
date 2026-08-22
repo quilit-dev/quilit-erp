@@ -165,6 +165,10 @@ export const voidInvoice       = (id, reason) => api.patch(`/api/invoices/${id}/
 // thereafter — the voucher is one reprintable document per invoice, not a new
 // one per printing. See backend/routers/invoices.py:issue_receipt_voucher.
 export const issueReceiptVoucher = (id) => api.post(`/api/invoices/${id}/receipt-voucher`);
+// The same, for one CUSTOMER payment: a single receipt naming every
+// invoice the money reached. Also allocates once and reprints the same.
+export const listCustomerPayments = (id) => api.get(`/api/clients/${id}/payments`);
+export const issuePaymentVoucher  = (id) => api.post(`/api/clients/payments/${id}/voucher`);
 export const unvoidInvoice     = (id)         => api.patch(`/api/invoices/${id}/unvoid`);
 // Payment plans. The schedule is stored; which instalments are SETTLED is
 // derived from the invoice's payments on every read, so it can never disagree

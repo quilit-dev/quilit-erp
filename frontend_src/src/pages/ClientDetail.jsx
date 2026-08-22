@@ -8,6 +8,7 @@ import { useLocale } from '../hooks/useLocale.jsx';
 import { usePermissions } from '../hooks/usePermissions';
 import Attachments from '../components/Attachments.jsx';
 import StatementTab from './clients/StatementTab.jsx';
+import PaymentsTab from './clients/PaymentsTab.jsx';
 import CustomerPaymentModal from './clients/CustomerPaymentModal.jsx';
 import { openSafeHtmlDocument } from '../utils/exportUtils';
 
@@ -68,6 +69,7 @@ export default function ClientDetail() {
     { key: 'projects',   label: t('nav.projects') },
     { key: 'quotations', label: t('nav.quotations') },
     { key: 'invoices',   label: t('nav.invoices') },
+    { key: 'payments',   label: t('clients.paymentsReceived') },
     { key: 'statement',  label: t('clients.statement') },
   ];
 
@@ -179,6 +181,23 @@ export default function ClientDetail() {
                 [t('clients.phone'),   client.phone],
                 [t('clients.address'), client.address],
                 [t('clients.since'),   fmtDate(client.created_at)],
+                // The billing details. Recorded on the client and, until now,
+                // shown nowhere — so an operator filled them in and they
+                // vanished.
+                [t('clients.financialId'),      client.financial_id],
+                [t('clients.preferredCurrency'), client.preferred_currency],
+                [t('clients.vatStatus'),
+                  client.vat_status === 'exempt' ? t('clients.vatExempt')
+                    : client.vat_status ? t('clients.vatSubject') : null],
+                [t('installments.title'),
+                  client.allow_installments
+                    ? (client.default_installment_count
+                        ? t('clients.planDefault', {
+                            count: client.default_installment_count,
+                            frequency: t(`installments.${client.default_installment_frequency || 'monthly'}`),
+                          })
+                        : t('common.yes'))
+                    : t('clients.notOnTerms')],
               ].filter(([, v]) => v).map(([label, val]) => (
                 <div key={label} style={{ display: 'flex', gap: 12, marginBottom: 10, fontSize: 13 }}>
                   <span style={{ minWidth: 80, color: 'var(--text-3)', fontWeight: 500 }}>{label}</span>
@@ -272,6 +291,7 @@ export default function ClientDetail() {
       )}
 
       {/* Invoices — paid_amount is now computed by backend via invoice_payments JOIN */}
+      {tab === 'payments' && <PaymentsTab clientId={id} />}
       {tab === 'statement' && <StatementTab clientId={id} />}
 
       {tab === 'invoices' && (

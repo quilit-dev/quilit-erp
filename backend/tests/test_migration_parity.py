@@ -44,6 +44,9 @@ _REQUIRED = [
     ("invoices", "service_job_id"),
     # Whether a recurring cost is spread across the period it covers.
     ("recurring_expenses", "spread_across_period"),
+    # Which payment an allocation row belongs to, so a receipt can be written
+    # for the payment the customer actually made.
+    ("invoice_payments", "customer_payment_id"),
 ]
 
 
@@ -56,6 +59,8 @@ _REQUIRED_TABLES = [
     "invoice_installments",
     # Stock held for a named customer.
     "stock_reservations",
+    # One payment, however many invoices it settled.
+    "customer_payments",
 ]
 
 

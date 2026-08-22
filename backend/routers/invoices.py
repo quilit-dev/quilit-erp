@@ -381,6 +381,10 @@ def get_invoice(
     row = db.execute(
         """SELECT i.*, p.name AS project_name,
                   c.name AS client_name, c.phone AS client_phone, c.email AS client_email,
+                  c.allow_installments AS client_allow_installments,
+                  c.default_installment_count AS client_installment_count,
+                  c.default_installment_frequency AS client_installment_frequency,
+                  c.preferred_currency AS client_preferred_currency,
                   q.quote_number
            FROM invoices i
            LEFT JOIN projects   p ON i.project_id   = p.id
@@ -1079,6 +1083,19 @@ def create_plan(
     branch_access.assert_can_view_branch(user, db, inv["branch_id"])
     if inv["voided_at"]:
         raise HTTPException(400, "A voided invoice cannot carry a payment plan.")
+
+    # The customer's own terms decide whether they may be put on a plan at all.
+    # Unticked is a deliberate credit decision about that customer, not a
+    # default — every customer already on the books was set to allowed when the
+    # flag became enforceable.
+    if inv["client_id"]:
+        cli = db.execute(
+            "SELECT name, COALESCE(allow_installments, 0) AS allowed "
+            "FROM clients WHERE id=?", (inv["client_id"],)).fetchone()
+        if cli and not cli["allowed"]:
+            raise HTTPException(
+                400, f"{cli['name']} is not approved for instalments. "
+                     "Enable it on the customer first if that has changed.")
 
     paid = _payment_total(db, invoice_id)
     if paid > 0.005 and db.execute(

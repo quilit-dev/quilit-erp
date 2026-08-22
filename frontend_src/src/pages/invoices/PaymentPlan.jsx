@@ -23,9 +23,20 @@ export default function PaymentPlan({ invoice, canEdit, onChange }) {
   const [open,     setOpen]     = useState(false);
   const [busy,     setBusy]     = useState(false);
   const [confirm,  setConfirm]  = useState(false);
+  // Prefilled from the terms recorded against this customer, so the shape
+  // they usually agree to is already in the boxes.
   const [form,     setForm]     = useState({
-    count: '', start_date: today(), frequency: 'monthly', first_amount: '',
+    count:      invoice.client_installment_count ?? '',
+    start_date: today(),
+    frequency:  invoice.client_installment_frequency || 'monthly',
+    first_amount: '',
   });
+
+  // Whether this customer may be put on a plan at all. The server refuses it
+  // either way; saying so here means the operator is not offered something
+  // that cannot happen. `undefined` means an older payload that did not carry
+  // the field — treated as allowed, so nothing disappears.
+  const allowed = invoice.client_allow_installments !== 0;
 
   const total = Number(invoice.amount) || 0;
   const paid  = Number(invoice.total_paid) || 0;
@@ -86,7 +97,7 @@ export default function PaymentPlan({ invoice, canEdit, onChange }) {
           </span>
         )}
         <div style={{ marginLeft: 'auto', display: 'flex', gap: 6 }}>
-          {canEdit && plan.length === 0 && !open && (
+          {canEdit && plan.length === 0 && !open && allowed && (
             <button className="btn btn-sm btn-secondary" onClick={() => setOpen(true)}>
               {t('installments.setUp')}
             </button>
@@ -106,7 +117,11 @@ export default function PaymentPlan({ invoice, canEdit, onChange }) {
       </div>
 
       {plan.length === 0 && !open && (
-        <p style={{ color: 'var(--text-3)', fontSize: 13 }}>{t('installments.none')}</p>
+        <p style={{ color: 'var(--text-3)', fontSize: 13 }}>
+          {/* Not an error — a decision somebody made about this customer, and
+              the message says where to change it. */}
+          {allowed ? t('installments.none') : t('installments.notApproved')}
+        </p>
       )}
 
       {open && (

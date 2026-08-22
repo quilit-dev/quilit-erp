@@ -1,6 +1,7 @@
 from fastapi import APIRouter, Depends, HTTPException
 from pydantic import BaseModel, validator
 from typing import Optional
+from datetime import datetime
 from database import get_db
 from permissions import require_perm, can_view
 from routers.audit import log_action
@@ -8,6 +9,7 @@ from utils import _now, money
 import sqlite3
 
 import accounting
+import branch_access
 import currency as currency_mod
 
 router = APIRouter()
@@ -31,7 +33,7 @@ class ClientCreate(BaseModel):
     preferred_currency: Optional[str] = None
     vat_status: str = "subject"
     # A DEFAULT for their invoices, not a rule those invoices must obey.
-    allow_installments: bool = False
+    allow_installments: bool = True
     default_installment_count: Optional[int] = None
     default_installment_frequency: Optional[str] = None
 
@@ -395,6 +397,102 @@ class CustomerPayment(BaseModel):
         return v
 
 
+@router.get("/{client_id}/payments")
+def list_customer_payments(
+    client_id: int,
+    user=Depends(require_perm("invoices", "view")),
+    db: sqlite3.Connection = Depends(get_db),
+):
+    """Payments this customer has made against their account, newest first.
+
+    One row per payment as the customer made it, with the invoices it reached
+    — not one row per allocation, which is how the ledger stores it and not
+    how anybody remembers paying.
+    """
+    if not db.execute("SELECT 1 FROM clients WHERE id=? AND deleted_at IS NULL",
+                      (client_id,)).fetchone():
+        raise HTTPException(404, "Client not found")
+
+    rows = []
+    for p in db.execute(
+        "SELECT * FROM customer_payments WHERE client_id=? ORDER BY id DESC",
+        (client_id,),
+    ).fetchall():
+        d = dict(p)
+        d["allocated"] = [dict(a) for a in db.execute(
+            "SELECT ip.invoice_id, ip.amount AS applied, i.invoice_number "
+            "FROM invoice_payments ip JOIN invoices i ON i.id = ip.invoice_id "
+            "WHERE ip.customer_payment_id=? ORDER BY ip.id", (p["id"],))]
+        rows.append(d)
+    return rows
+
+
+@router.post("/payments/{payment_id}/voucher")
+def issue_payment_voucher(
+    payment_id: int,
+    user=Depends(require_perm("invoices", "view")),
+    db: sqlite3.Connection = Depends(get_db),
+):
+    """The voucher number for one customer payment, allocating it on first use.
+
+    The SAME number every time, exactly as the per-invoice voucher works: a
+    receipt is one document that gets reprinted, and minting a fresh number per
+    printing would leave a customer holding two receipts for money handed over
+    once. The unique index on the column makes that unrepresentable.
+
+    `view` rather than a write permission: printing the receipt for a payment
+    you are already allowed to see should not need more, and the uniqueness
+    bounds what the write can do to one row.
+    """
+    pay = db.execute(
+        "SELECT p.*, c.name AS client_name FROM customer_payments p "
+        "LEFT JOIN clients c ON c.id = p.client_id WHERE p.id=?",
+        (payment_id,)).fetchone()
+    if not pay:
+        raise HTTPException(404, "Payment not found")
+
+    allocated = [dict(a) for a in db.execute(
+        "SELECT ip.invoice_id, ip.amount AS applied, i.invoice_number, i.branch_id "
+        "FROM invoice_payments ip JOIN invoices i ON i.id = ip.invoice_id "
+        "WHERE ip.customer_payment_id=? ORDER BY ip.id", (payment_id,))]
+
+    # Branch scoping, as everywhere else: a scoped user must not read another
+    # branch's receipts by guessing a payment id.
+    for a in allocated:
+        branch_access.assert_can_view_branch(user, db, a["branch_id"])
+
+    body = {
+        "id": pay["id"],
+        "client": {"id": pay["client_id"], "name": pay["client_name"]},
+        "amount": pay["amount"],
+        "currency": pay["currency"],
+        "paid_amount": pay["paid_amount"],
+        "exchange_rate": pay["exchange_rate"],
+        "method": pay["method"],
+        "note": pay["note"],
+        "created_at": pay["created_at"],
+        "allocated": [{k: a[k] for k in ("invoice_id", "invoice_number", "applied")}
+                      for a in allocated],
+    }
+
+    if pay["voucher_number"]:
+        return {**body, "number": pay["voucher_number"], "issued": False}
+
+    from utils import get_setting
+    prefix = get_setting(db, "receipt_voucher_prefix") or "RV-"
+    # Derived from the row's own id, as invoice and invoice-voucher numbers are:
+    # unique by construction, so two concurrent issues cannot collide the way a
+    # MAX()+1 read-then-write would.
+    number = f"{prefix}{datetime.utcnow().year}-C{payment_id:04d}"
+    db.execute("UPDATE customer_payments SET voucher_number=? WHERE id=?",
+               (number, payment_id))
+    log_action(db, user, "issue_payment_voucher", "client", pay["client_id"],
+               pay["client_name"], {"number": number, "amount": pay["amount"],
+                                    "invoices": len(allocated)})
+    db.commit()
+    return {**body, "number": number, "issued": True}
+
+
 @router.post("/{client_id}/payments")
 def record_customer_payment(
     client_id: int,
@@ -456,6 +554,19 @@ def record_customer_payment(
             f"{money(usd):,.2f} is more than the {total_owed:,.2f} outstanding. "
             "Reduce the amount, or raise an invoice for the difference first.")
 
+    # The payment itself, before its allocations. A customer handed over one
+    # sum; the split into per-invoice rows is bookkeeping, and the receipt they
+    # are given has to describe the sum.
+    batch_cur = db.execute(
+        "INSERT INTO customer_payments "
+        "(client_id, amount, currency, paid_amount, exchange_rate, method, note, "
+        " created_at, created_by) VALUES (?,?,?,?,?,?,?,?,?)",
+        (client_id, usd, (data.currency or "USD").upper(),
+         currency_mod.from_usd(usd, data.currency, db, data.exchange_rate)
+         if (data.currency or "USD").upper() != "USD" else usd,
+         rate, data.method, data.note, _now(), user["id"]))
+    batch_id = batch_cur.lastrowid
+
     left, allocated = usd, []
     for inv, due in owing:
         if left <= 0.005:
@@ -467,8 +578,9 @@ def record_customer_payment(
         pay_cur = db.execute(
             "INSERT INTO invoice_payments "
             "(invoice_id, amount, method, note, paid_at, idempotency_key, "
-            " paid_currency, paid_amount, exchange_rate, cash_drawer_id, bank_account_id) "
-            "VALUES (?,?,?,?,?,?,?,?,?,?,?)",
+            " paid_currency, paid_amount, exchange_rate, cash_drawer_id, "
+            " bank_account_id, customer_payment_id) "
+            "VALUES (?,?,?,?,?,?,?,?,?,?,?,?)",
             (inv["id"], take, data.method, data.note, _now(),
              # Only the first row carries the key: it identifies the operator's
              # single submission, and the column is unique.
@@ -476,7 +588,7 @@ def record_customer_payment(
              (data.currency or "USD").upper(),
              currency_mod.from_usd(take, data.currency, db, data.exchange_rate)
              if (data.currency or "USD").upper() != "USD" else take,
-             rate, data.cash_drawer_id, data.bank_account_id))
+             rate, data.cash_drawer_id, data.bank_account_id, batch_id))
         accounting.post_entry(
             db,
             entry_date=_now()[:10],
@@ -503,6 +615,8 @@ def record_customer_payment(
     return {
         "message": f"{money(usd):,.2f} applied across {len(allocated)} invoice(s)",
         "client": {"id": client_id, "name": row["name"]},
+        # The id the receipt is written against.
+        "payment_id": batch_id,
         "amount": money(usd),
         "allocated": allocated,
         "still_outstanding": money(total_owed - usd),

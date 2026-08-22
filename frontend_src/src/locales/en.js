@@ -780,6 +780,7 @@ const en = {
     removeTitle: 'Remove this line.',
   },
   installments: {
+    notApproved: 'This customer is not approved for instalments. Turn it on in their record to offer a plan.',
     title: 'Payment Plan',
     none: 'No payment plan. The full balance is due on the invoice date.',
     setUp: 'Set up a plan',
@@ -1070,6 +1071,13 @@ const en = {
   },
 
   clients: {
+    paymentsReceived: 'Payments',
+    noPayments: 'No payments recorded against this customer yet.',
+    appliedTo: 'Applied to',
+    planDefault: '{{count}} instalments, every {{frequency}}',
+    notOnTerms: 'Not approved for instalments',
+    onTerms: 'Approved for instalments',
+    currencyHint: 'Pre-selects this currency when taking a payment from them. Invoices stay in the company currency.',
     paymentRecorded: 'Payment recorded',
     owesTotal: '{{name}} owes {{amount}} across their open invoices.',
     willSettle: 'This payment will settle',
@@ -1749,6 +1757,7 @@ const en = {
   },
 
   invoices: {
+    printReceipt: 'Print receipt',
     title: 'Invoices',
     totalInvoices: '{{count}} total invoices',
     addInvoice: '+ New Invoice',
