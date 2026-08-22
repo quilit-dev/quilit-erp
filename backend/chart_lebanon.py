@@ -302,3 +302,46 @@ def install(db, *, force=False):
             "updated_at=excluded.updated_at",
             (role, code, now))
     return len(all_accounts())
+
+
+def status(db) -> dict:
+    """Whether this tenant is on this chart, and whether it could move.
+
+    Written so the screen can say something true rather than offering a button
+    that fails. "You cannot switch" with no reason is the kind of message that
+    turns into a phone call.
+    """
+    ours = {a[0] for a in all_accounts()}
+    present = {r["code"] for r in db.execute(
+        "SELECT code FROM chart_of_accounts").fetchall()}
+    active = {r["code"] for r in db.execute(
+        "SELECT code FROM chart_of_accounts WHERE is_active=1").fetchall()}
+    roles = {r["role"]: r["code"] for r in db.execute(
+        "SELECT role, code FROM account_roles").fetchall()}
+
+    seeded = ours & present
+    # On the chart means more than having the accounts: the roles have to point
+    # at them, because that is what decides where a posting actually lands.
+    pointed = sum(1 for role, code in ROLES.items() if roles.get(role) == code)
+    installed = len(seeded) == len(ours) and pointed == len(ROLES)
+
+    posted = db.execute(
+        "SELECT COUNT(*) AS n FROM journal_entry_lines").fetchone()["n"]
+
+    return {
+        "key": "lebanon",
+        "name": "Lebanese General Accounting Plan",
+        "name_ar": "النظام المحاسبي العام اللبناني",
+        "installed": installed,
+        "accounts_total": len(ours),
+        "accounts_present": len(seeded),
+        "roles_pointed": pointed,
+        "roles_total": len(ROLES),
+        # Accounts from another chart still on the books, which is what the
+        # install would retire.
+        "foreign_active": sorted(active - ours),
+        "posted_lines": posted,
+        # A tenant that has never posted can move freely. One that has needs
+        # the cutover ceremony, and the screen has to say so.
+        "clean": posted == 0,
+    }

@@ -19,6 +19,7 @@ from utils import _now
 import accounting
 import branch_access
 import currency as currency_mod
+import chart_lebanon
 import fx_differences
 import gl_source
 import sqlite3
@@ -64,6 +65,84 @@ def list_accounts(
         q += " AND is_active=?"; params.append(1 if active else 0)
     q += " ORDER BY code"
     return [dict(r) for r in db.execute(q, params).fetchall()]
+
+
+@router.get("/chart")
+def chart_status(
+    user=Depends(require_perm("accounting", "view")),
+    db: sqlite3.Connection = Depends(get_db),
+):
+    """Which chart of accounts this tenant is on, and whether it can move.
+
+    The default chart is the one every tenant starts on. The Lebanese plan is
+    the statutory one — class 1 is capital there and 4 is third parties, so it
+    is not a renaming of the default but a different tree.
+    """
+    lb = chart_lebanon.status(db)
+    return {
+        "current": "lebanon" if lb["installed"] else "default",
+        "charts": [
+            {"key": "default", "name": "Default chart",
+             "name_ar": "دليل الحسابات الافتراضي",
+             "installed": not lb["installed"]},
+            lb,
+        ],
+    }
+
+
+class ChartInstall(BaseModel):
+    # Typing the phrase is the ceremony. A tenant with posted entries is being
+    # asked to confirm something an accountant should have decided.
+    confirm: Optional[str] = None
+
+
+@router.post("/chart/lebanon/install")
+def install_lebanese_chart(
+    data: ChartInstall,
+    user=Depends(require_perm("accounting", "edit")),
+    db: sqlite3.Connection = Depends(get_db),
+):
+    """Put this tenant on the Lebanese General Accounting Plan.
+
+    Seeds the statutory accounts, re-points every posting role at them, and
+    deactivates the accounts of the chart being left. Nothing is deleted: an
+    account is what historical entries point at, so retiring one keeps the old
+    ledger readable while stopping the tenant being offered two charts at once.
+
+    On a tenant that has already posted this needs the confirmation phrase.
+    Switching mid-life does not corrupt anything — old entries keep pointing
+    where they were posted — but the tenant then has balances spread across two
+    charts and no statement that reads correctly until the balances are brought
+    across as an opening entry. That is a decision with an accountant in the
+    room; the phrase is there so it cannot be a stray click.
+    """
+    st = chart_lebanon.status(db)
+    if st["installed"]:
+        return {"message": "Already on the Lebanese chart.", **st}
+
+    force = False
+    if not st["clean"]:
+        if (data.confirm or "").strip().upper() != "SWITCH CHART":
+            raise HTTPException(
+                400,
+                f"This tenant has {st['posted_lines']} posted journal lines. "
+                "Switching now leaves its balances split across two charts "
+                "until they are brought across as an opening entry — do that "
+                "with your accountant. To proceed anyway, type SWITCH CHART "
+                "to confirm.")
+        force = True
+
+    try:
+        seeded = chart_lebanon.install(db, force=force)
+    except ValueError as e:
+        raise HTTPException(400, str(e))
+
+    log_action(db, user, "install_chart", "accounting", 0,
+               "Lebanese General Accounting Plan",
+               {"accounts": seeded, "forced": force,
+                "posted_lines_at_switch": st["posted_lines"]})
+    db.commit()
+    return {"message": f"Installed {seeded} accounts.", **chart_lebanon.status(db)}
 
 
 @router.post("/accounts")

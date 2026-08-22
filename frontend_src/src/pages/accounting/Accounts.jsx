@@ -4,6 +4,7 @@ import { LoadingSpinner, Modal, ConfirmModal, toast } from '../../components/sha
 import ImportWizard from '../../components/ImportWizard';
 import { ACCOUNT_TYPES } from './constants';
 import { SortableTh, Pager } from './ui';
+import { ChartPicker } from './ChartPicker';
 
 // ── Chart of Accounts ────────────────────────────────────────────────────────
 //
@@ -96,7 +97,14 @@ function Accounts({ t, tAccount, tEnumValue, canCreate, canEdit, can }) {
   return (
     <div className="card">
       <div className="card-header" style={{ display: 'flex', justifyContent: 'space-between', flexWrap: 'wrap', gap: 8 }}>
-        <span className="card-title">{t('accounting.accounts')}</span>
+        <div>
+          <span className="card-title">{t('accounting.accounts')}</span>
+          {/* Which chart these accounts belong to — the first thing to know
+              when reading them, and the only place to change it. */}
+          <div style={{ marginTop: 4 }}>
+            <ChartPicker t={t} canEdit={canEdit} onInstalled={load} />
+          </div>
+        </div>
         <div style={{ display: 'flex', gap: 8, alignItems: 'center', flexWrap: 'wrap' }}>
           <input className="form-control" style={{ width: 200 }} placeholder={t('common.search') + '…'}
             value={search} onChange={e => setSearch(e.target.value)} />
