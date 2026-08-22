@@ -81,12 +81,20 @@ export function LocaleProvider({ children }) {
     const code  = isRow ? (account.code ?? account.account_code) : account;
     const name  = isRow ? (account.name ?? account.account_name ?? '')
                         : (fallbackName ?? '');
+    // A chart that ships its own Arabic wins outright. Lebanon's plan is
+    // published in Arabic and the names are stored beside the English ones, so
+    // the dictionary below — which only knows the default chart's codes — has
+    // nothing useful to say about them.
+    if (isRTL && isRow) {
+      const own = account.name_ar ?? account.account_name_ar;
+      if (own) return own;
+    }
     if (code == null) return name;
     const key = String(code);
     if (!isRow && fallbackName == null) return locale.accountNames?.[key] ?? key;
     if (en.accountNames?.[key] !== name) return name;   // renamed by the owner
     return locale.accountNames?.[key] ?? name;
-  }, [locale]);
+  }, [locale, isRTL]);
 
   // Translate a seeded role name (also stored in the database in English).
   // Roles the owner created are absent from the dictionary and pass through.

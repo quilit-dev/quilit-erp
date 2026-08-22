@@ -193,3 +193,87 @@ def test_it_needs_permission_to_change_the_books(as_role):
     r = as_role("Sales").post("/api/accounting/chart/lebanon/install", json={})
 
     assert r.status_code == 403
+
+
+# ── The statements have to speak the chart in use ────────────────────────────
+
+def _trade(client, amount=500):
+    cid = client.post("/api/clients/", json={"name": "Statement Co"}).json()["id"]
+    r = client.post("/api/invoices/", json={
+        "client_id": cid, "amount": 0, "due_date": "2026-06-30",
+        "items": [{"name": "Item", "quantity": 1, "unit_price": amount}]}).json()
+    inv = r.get("invoice_id") or r.get("id")
+    import uuid
+    client.post(f"/api/invoices/{inv}/payments", json={
+        "amount": amount, "currency": "USD", "method": "Cash",
+        "idempotency_key": str(uuid.uuid4())})
+    return inv
+
+
+def test_the_trial_balance_shows_the_statutory_accounts(client):
+    _install(client)
+    _trade(client)
+
+    codes = {r["code"] for r in
+             client.get("/api/accounting/trial-balance").json()["rows"]}
+
+    assert {"4111", "5312", "7011"} <= codes
+
+
+def test_the_income_statement_shows_them(client):
+    _install(client)
+    _trade(client)
+
+    body = client.get("/api/accounting/income-statement",
+                      params={"start": "2000-01-01", "end": "2099-12-31"}).json()
+
+    assert {r["code"] for r in body["income"]} == {"7011"}
+
+
+def test_the_cash_flow_finds_the_cash(client):
+    """It looked for cash between codes 1000 and 1099 — the default chart's
+    idea of where cash lives. On this plan cash is 5311/5312/5313, so it found
+    none and reported the whole statement as zeroes."""
+    _install(client)
+    _trade(client, 500)
+
+    body = client.get("/api/accounting/cash-flow",
+                      params={"start": "2000-01-01", "end": "2099-12-31"}).json()
+
+    assert body["closing_cash"] == _pytest.approx(500, abs=0.01)
+    assert body["net_change"] == _pytest.approx(500, abs=0.01)
+
+
+def test_the_cash_flow_still_works_on_the_default_chart(client):
+    """The regression that would matter most: every tenant that has not
+    switched."""
+    _trade(client, 250)
+
+    body = client.get("/api/accounting/cash-flow",
+                      params={"start": "2000-01-01", "end": "2099-12-31"}).json()
+
+    assert body["closing_cash"] == _pytest.approx(250, abs=0.01)
+
+
+def test_every_statement_carries_the_arabic_name(client):
+    """The plan is published in Arabic. A statement that only carries the
+    English cannot be read in Arabic however the interface is set."""
+    _install(client)
+    _trade(client)
+
+    tb = client.get("/api/accounting/trial-balance").json()
+    row = next(r for r in tb["rows"] if r["code"] == "4111")
+    assert row.get("name_ar"), "the trial balance dropped the Arabic name"
+    assert any("؀" <= ch <= "ۿ" for ch in row["name_ar"])
+
+    inc = client.get("/api/accounting/income-statement",
+                     params={"start": "2000-01-01", "end": "2099-12-31"}).json()
+    assert inc["income"][0].get("name_ar")
+
+    cf = client.get("/api/accounting/cash-flow",
+                    params={"start": "2000-01-01", "end": "2099-12-31"}).json()
+    lines = [l for b in ("operating", "investing", "financing")
+             for l in (cf.get(b) or [])]
+    assert lines, "the cash-flow statement had no lines to check"
+    for line in lines:
+        assert line.get("name_ar"), f"{line['code']} lost its Arabic name"

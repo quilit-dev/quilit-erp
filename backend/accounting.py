@@ -534,6 +534,15 @@ def reverse_source(db: sqlite3.Connection, source_type: str, source_id: int, **k
 
 
 # ── Reports ────────────────────────────────────────────────────────────────
+def _col(row, key):
+    """Read a column that may be absent from this row — an older SELECT, or a
+    tenant whose migration has not run. Absent reads as None."""
+    try:
+        return row[key]
+    except (KeyError, IndexError, TypeError):
+        return None
+
+
 def _signed_balance(acct_type: str, debit: float, credit: float) -> float:
     """Net balance in the account's natural sign (positive = normal side)."""
     if acct_type in _DEBIT_NORMAL:
@@ -557,7 +566,7 @@ def trial_balance(db: sqlite3.Connection, as_of: str = None, branch_id=None):
     # Filter lines INSIDE the join so excluded entries don't contribute to the
     # sums; the outer LEFT JOIN still keeps zero-activity accounts out via HAVING.
     rows = db.execute(
-        f"""SELECT a.id, a.code, a.name, a.type, a.normal_balance,
+        f"""SELECT a.id, a.code, a.name, a.name_ar, a.type, a.normal_balance,
                    COALESCE(SUM(x.debit),0)  AS debit,
                    COALESCE(SUM(x.credit),0) AS credit
             FROM chart_of_accounts a
@@ -590,7 +599,8 @@ def trial_balance(db: sqlite3.Connection, as_of: str = None, branch_id=None):
         if bal < 0:
             dr, cr = (0.0, -bal) if r["normal_balance"] == "debit" else (-bal, 0.0)
         td += max(dr, 0); tc += max(cr, 0)
-        out.append({"code": r["code"], "name": r["name"], "type": r["type"],
+        out.append({"code": r["code"], "name": r["name"],
+                    "name_ar": _col(r, "name_ar"), "type": r["type"],
                     "debit": round(max(dr, 0), 2), "credit": round(max(cr, 0), 2)})
     return {"rows": out, "total_debit": round(td, 2), "total_credit": round(tc, 2),
             "balanced": abs(td - tc) < 0.01, "as_of": as_of}
@@ -623,7 +633,7 @@ def _type_totals(db: sqlite3.Connection, start: str = None, end: str = None,
     # Filter lines INSIDE the join so excluded entries (out of range / closing)
     # don't contribute to the sums; the outer LEFT JOIN keeps zero accounts.
     rows = db.execute(
-        f"""SELECT a.code, a.name, a.type, a.subtype, a.normal_balance,
+        f"""SELECT a.code, a.name, a.name_ar, a.type, a.subtype, a.normal_balance,
                    COALESCE(SUM(x.debit),0)  AS debit,
                    COALESCE(SUM(x.credit),0) AS credit
             FROM chart_of_accounts a
@@ -640,7 +650,8 @@ def _type_totals(db: sqlite3.Connection, start: str = None, end: str = None,
     result = []
     for r in rows:
         bal = _signed_balance(r["type"], float(r["debit"]), float(r["credit"]))
-        result.append({"code": r["code"], "name": r["name"], "type": r["type"],
+        result.append({"code": r["code"], "name": r["name"],
+                       "name_ar": _col(r, "name_ar"), "type": r["type"],
                        "subtype": r["subtype"], "balance": bal})
     return result
 
@@ -700,10 +711,40 @@ def balance_sheet(db: sqlite3.Connection, as_of: str, branch_id=None):
 # side of any cash-touching entry exactly equals −Δcash for that entry.
 
 def _cash_account_ids(db: sqlite3.Connection) -> list:
+    """Which accounts ARE cash, for the cash-flow statement.
+
+    Asked of the roles rather than of a code range. The range this used —
+    everything from 1000 to 1099 — is the default chart's idea of where cash
+    lives, and on Lebanon's plan cash is 5311/5312/5313 and the banks are 512.
+    A statement that finds no cash accounts reports no cash: the whole
+    statement came back zeroes on a chart it had never heard of.
+
+    Every bank account the operator has created is included by its own ledger
+    code, and so is anything filed underneath one of the money accounts, since
+    a bank account is a child of the bank account in the tree.
+    """
+    codes = set()
+    for role in ("cash", "cash_lbp", "cash_eur", "bank"):
+        try:
+            codes.add(code(db, role))
+        except Exception:
+            pass
+    try:
+        for r in db.execute(
+            "SELECT account_code FROM bank_accounts "
+            "WHERE account_code IS NOT NULL").fetchall():
+            codes.add(r["account_code"])
+    except sqlite3.Error:
+        pass
+    if not codes:
+        return []
+
+    ph = ",".join("?" * len(codes))
+    args = sorted(codes)
     rows = db.execute(
-        "SELECT id FROM chart_of_accounts "
-        "WHERE type='Asset' AND LENGTH(code)=4 AND code >= '1000' AND code < '1100'"
-    ).fetchall()
+        f"SELECT id FROM chart_of_accounts "
+        f"WHERE code IN ({ph}) OR parent_code IN ({ph})",
+        args + args).fetchall()
     return [r["id"] for r in rows]
 
 
@@ -759,7 +800,7 @@ def cash_flow_statement(db: sqlite3.Connection, start: str, end: str, branch_id=
     if cash_ids:
         ph = ",".join("?" for _ in cash_ids)
         rows = db.execute(
-            f"""SELECT a.code, a.name, a.type, a.subtype,
+            f"""SELECT a.code, a.name, a.name_ar, a.type, a.subtype,
                        COALESCE(SUM(l.debit),0)  AS debit,
                        COALESCE(SUM(l.credit),0) AS credit
                 FROM journal_entry_lines l
@@ -783,7 +824,8 @@ def cash_flow_statement(db: sqlite3.Connection, start: str, end: str, branch_id=
             if amount == 0:
                 continue
             buckets[_cf_activity(r["type"], r["subtype"])].append(
-                {"code": r["code"], "name": r["name"], "amount": amount})
+                {"code": r["code"], "name": r["name"],
+                 "name_ar": _col(r, "name_ar"), "amount": amount})
 
     def _section(name):
         items = buckets[name]

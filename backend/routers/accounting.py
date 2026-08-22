@@ -368,7 +368,9 @@ def get_journal_entry(
         raise HTTPException(404, "Journal entry not found")
     branch_access.assert_can_view_branch(user, db, je["branch_id"])
     lines = db.execute(
-        "SELECT l.*, a.code AS account_code, a.name AS account_name, a.type AS account_type "
+        "SELECT l.*, a.code AS account_code, a.name AS account_name, "
+            "a.name_ar AS account_name_ar, "
+        "a.name_ar AS account_name_ar, a.type AS account_type "
         "FROM journal_entry_lines l JOIN chart_of_accounts a ON a.id = l.account_id "
         "WHERE l.journal_entry_id=? ORDER BY l.line_no, l.id",
         (je_id,),
@@ -423,6 +425,7 @@ def entries_for_document(
         e = dict(r)
         e["lines"] = [dict(l) for l in db.execute(
             "SELECT l.*, a.code AS account_code, a.name AS account_name, "
+            "a.name_ar AS account_name_ar, "
             "a.type AS account_type FROM journal_entry_lines l "
             "JOIN chart_of_accounts a ON a.id = l.account_id "
             "WHERE l.journal_entry_id=? ORDER BY l.line_no, l.id", (r["id"],))]
