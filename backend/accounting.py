@@ -59,6 +59,7 @@ def clamp_posting_date(period_end: str) -> str:
 # ── Stable system-account codes (seeded in migrations 104 + 120) ────────────
 CASH         = "1000"   # Cash & Bank (functional currency — USD)
 CASH_LBP     = "1010"   # Cash — LBP (foreign currency monetary item)
+CASH_EUR     = "1020"   # Cash — EUR (foreign currency monetary item)
 AR           = "1100"   # Accounts Receivable
 INVENTORY    = "1200"   # Inventory (perpetual)
 # A cost paid for a period that has not happened yet is an ASSET until it is
@@ -109,13 +110,21 @@ FX_LOSS      = "6920"   # Foreign Exchange Loss (other expense)
 OTHER_EXPENSE = "6900"  # General & Other Expense
 
 
+# One entry per currency that is not the functional one. A currency missing
+# from here lands in the functional cash account, which is what happened to
+# euro: accepted as tender, posted into the dollar account, and impossible to
+# revalue afterwards without unpicking it from the dollars.
+_CASH_ROLE_BY_CURRENCY = {"LBP": "cash_lbp", "EUR": "cash_eur"}
+
+
 def cash_account_for(db, currency: str) -> str:
     """Return the Chart-of-Accounts code that should hold cash tendered in
     `currency`. Centralised so every module routes LBP to 1010 and USD to 1000
     consistently — otherwise mixing them silently in '1000 Cash & Bank' breaks
     IAS 21 (monetary items in a non-functional currency must be tracked and
     revalued at the spot rate). Unknown currencies fall back to USD."""
-    role = "cash_lbp" if (currency or "").upper() == "LBP" else "cash"
+    cur = (currency or "").upper()
+    role = _CASH_ROLE_BY_CURRENCY.get(cur, "cash")
     return code(db, role)
 
 # Expense-category → ledger account code. Mirrors finance._VALID_EXPENSE_CATEGORIES.
@@ -154,6 +163,7 @@ _CREDIT_NORMAL  = {"Liability", "Equity", "Income"}  # balance = credit − debi
 # has mapped, still posts to the account it always did instead of failing.
 _ROLE_DEFAULTS = {
     "cash": CASH,                     "cash_lbp": CASH_LBP,
+    "cash_eur": CASH_EUR,
     "bank": CASH,
     "receivable": AR,                 "inventory": INVENTORY,
     "prepaid": PREPAID,               "accumulated_dep": ACC_DEP,

@@ -23,6 +23,7 @@ from routers.projects import bump_project_status
 from approval_engine import evaluate_and_apply
 from utils import _now, _today, get_tax_context, resolve_line_tax, money, notify
 import accounting
+import currency as currency_mod
 import branch_access
 import line_items
 import installments
@@ -847,33 +848,36 @@ def add_payment(
     # `amount` is what the client tendered, in `currency`. The invoice balance
     # is always tracked in USD, so an LBP payment is converted at the rate the
     # user supplies; `usd_amount` is what reduces the balance.
-    currency = (data.currency or "USD").upper()
-    if currency not in ("USD", "LBP"):
-        raise HTTPException(400, "Unsupported payment currency")
-    if currency == "LBP":
-        # F-9 audit fix: if the caller omits exchange_rate, fall back to the
-        # latest rate stored in `exchange_rates` so manual data entry can't
-        # accidentally apply yesterday's rate or no rate at all. The supplied
-        # rate still takes precedence (and is stored on the payment) so an
-        # accountant can override when a contract dictates a different rate.
-        if not data.exchange_rate or data.exchange_rate <= 0:
-            rate_row = db.execute(
-                "SELECT rate FROM exchange_rates ORDER BY id DESC LIMIT 1"
-            ).fetchone()
-            if not rate_row or not rate_row["rate"]:
-                raise HTTPException(
-                    400,
-                    "An exchange rate is required for LBP payments. No rate is "
-                    "configured — set one in Settings → Exchange Rate first."
-                )
-            rate = float(rate_row["rate"])
-        else:
-            rate = float(data.exchange_rate)
-        usd_amount  = money(data.amount / rate)
-        paid_amount = data.amount
-    else:
+    currency = (data.currency or currency_mod.FUNCTIONAL).upper()
+    if currency not in currency_mod.SUPPORTED:
+        raise HTTPException(
+            400, f"Unsupported payment currency '{currency}'. This system "
+                 "handles " + ", ".join(currency_mod.SUPPORTED) + ".")
+    if currency == currency_mod.FUNCTIONAL:
         rate        = None
         usd_amount  = money(data.amount)
+        paid_amount = data.amount
+    else:
+        # Any currency that is not the functional one needs a rate. The caller's
+        # takes precedence and is stored on the payment, so an accountant can
+        # override when a contract dictates a different one; otherwise the rate
+        # in force for THAT currency is used.
+        #
+        # It used to read the newest row of any currency, which was correct
+        # while pounds were the only foreign currency and silently wrong the
+        # moment a second one existed — a euro rate would have been applied to
+        # a pound payment.
+        if data.exchange_rate and data.exchange_rate > 0:
+            rate = float(data.exchange_rate)
+        else:
+            rate = currency_mod.rate_on(db, currency)
+        if not rate or rate <= 0:
+            raise HTTPException(
+                400,
+                f"An exchange rate is required for {currency} payments. No "
+                f"{currency} rate is configured — set one in Settings → "
+                "Exchange Rate first.")
+        usd_amount  = money(data.amount / rate)
         paid_amount = data.amount
     if usd_amount <= 0:
         raise HTTPException(400, "Payment amount must be positive")

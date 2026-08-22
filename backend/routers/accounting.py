@@ -18,6 +18,7 @@ from routers.finance import _check_period_locked
 from utils import _now
 import accounting
 import branch_access
+import currency as currency_mod
 import gl_source
 import sqlite3
 
@@ -610,9 +611,66 @@ def reopen_fiscal_year(
 # current physical LBP count (total LBP across drawers) and we translate to USD.
 
 class RevalueIn(BaseModel):
-    counted_lbp: float       # total LBP physically held across all drawers
+    # One count per foreign currency held as notes. Both optional: a shop that
+    # holds only pounds sends only pounds, and the request that worked before
+    # euro existed still works.
+    counted_lbp: Optional[float] = None
+    counted_eur: Optional[float] = None
     as_of:        Optional[str] = None    # posting date; defaults to today
     note:         Optional[str] = None
+
+
+def _revalue_one(db, *, currency, counted, posting_date, note, user):
+    """Mark one foreign cash account to the spot rate. Returns the outcome.
+
+    The same arithmetic for every currency: what the notes are worth today
+    against what the books say they were worth when they arrived.
+    """
+    spot = currency_mod.rate_on(db, currency, posting_date)
+    if not spot or spot <= 0:
+        raise HTTPException(
+            400,
+            f"No {currency} exchange rate configured. Set it in Settings → "
+            f"Exchange Rate before running FX revaluation.")
+
+    counted_usd = round(float(counted) / spot, 2)
+    acct = accounting.cash_account_for(db, currency)
+    acct_id = accounting.account_id_for(db, acct)
+    book_row = db.execute(
+        "SELECT COALESCE(SUM(l.debit) - SUM(l.credit), 0) AS bal "
+        "FROM journal_entry_lines l "
+        "JOIN journal_entries je ON je.id = l.journal_entry_id "
+        "WHERE l.account_id = ? AND je.status='posted'",
+        (acct_id,),
+    ).fetchone()
+    book_usd = round(float(book_row["bal"] or 0), 2)
+    delta = round(counted_usd - book_usd, 2)
+
+    result = {"currency": currency, "rate": spot, "book_usd": book_usd,
+              "counted_usd": counted_usd, "delta": delta,
+              "journal_entry_id": None}
+    if abs(delta) < 0.01:
+        return result
+
+    memo = f"FX revaluation — {currency} cash @ {spot:,.4g} on {posting_date}"
+    if note:
+        memo += f" — {note}"
+    counted_memo = f"Counted {float(counted):,.0f} {currency}"
+    if delta > 0:
+        # Gain: the notes became worth more dollars.
+        lines = [{"code": acct, "debit": delta, "memo": counted_memo},
+                 {"code": accounting.FX_GAIN, "credit": delta}]
+    else:
+        lines = [{"code": accounting.FX_LOSS, "debit": abs(delta),
+                  "memo": counted_memo},
+                 {"code": acct, "credit": abs(delta)}]
+
+    # Each currency posts its own entry, so a reader sees which currency moved
+    # rather than one netted figure covering two.
+    result["journal_entry_id"] = accounting.post_entry(
+        db, entry_date=posting_date, memo=memo, lines=lines,
+        source_type="fx_revaluation", source_id=None, created_by=user["id"])
+    return result
 
 
 @router.post("/fx-revaluation")
@@ -621,66 +679,48 @@ def post_fx_revaluation(
     user=Depends(require_perm("accounting", "create")),
     db: sqlite3.Connection = Depends(get_db),
 ):
-    """Mark the LBP cash account to the current spot rate and book the
-    difference as FX gain/loss. Run this at period close (monthly is typical)."""
-    if data.counted_lbp < 0:
-        raise HTTPException(400, "Counted LBP cannot be negative.")
-    rate_row = db.execute(
-        "SELECT rate FROM exchange_rates ORDER BY id DESC LIMIT 1"
-    ).fetchone()
-    if not rate_row or not rate_row["rate"] or rate_row["rate"] <= 0:
-        raise HTTPException(
-            400,
-            "No exchange rate configured. Set the LBP→USD rate in Settings → "
-            "Exchange Rate before running FX revaluation."
-        )
-    spot = float(rate_row["rate"])
+    """Mark foreign cash to the current spot rate and book the difference as FX
+    gain/loss. Run this at period close (monthly is typical).
+
+    Every currency that is not the functional one is revalued the same way, and
+    each has its own cash account precisely so its balance can be marked
+    without unpicking it from the dollars.
+    """
+    counts = [("LBP", data.counted_lbp), ("EUR", data.counted_eur)]
+    supplied = [(c, v) for c, v in counts if v is not None]
+    if not supplied:
+        raise HTTPException(400, "Give the amount counted in at least one "
+                                 "foreign currency.")
+    for cur, val in supplied:
+        if val < 0:
+            raise HTTPException(400, f"Counted {cur} cannot be negative.")
+
     posting_date = (data.as_of or accounting._now())[:10]
     _check_period_locked(db, posting_date)
 
-    # USD-equivalent of the LBP cash actually counted
-    counted_usd = round(float(data.counted_lbp) / spot, 2)
-    # USD-equivalent currently on the books (signed balance of 1010 Cash — LBP)
-    lbp_acct_id = accounting.account_id_for(db, accounting.CASH_LBP)
-    book_row = db.execute(
-        "SELECT COALESCE(SUM(l.debit) - SUM(l.credit), 0) AS bal "
-        "FROM journal_entry_lines l "
-        "JOIN journal_entries je ON je.id = l.journal_entry_id "
-        "WHERE l.account_id = ? AND je.status='posted'",
-        (lbp_acct_id,),
-    ).fetchone()
-    book_usd = round(float(book_row["bal"] or 0), 2)
-    delta = round(counted_usd - book_usd, 2)
-    if abs(delta) < 0.01:
-        return {"message": "No FX adjustment needed.",
-                "counted_usd": counted_usd, "book_usd": book_usd, "delta": 0,
-                "rate": spot}
+    results = [_revalue_one(db, currency=cur, counted=val,
+                            posting_date=posting_date, note=data.note, user=user)
+               for cur, val in supplied]
 
-    memo = f"FX revaluation — LBP cash @ {spot:,.0f} on {posting_date}"
-    if data.note:
-        memo += f" — {data.note}"
-    if delta > 0:
-        # Gain: LBP became worth more USD
-        lines = [
-            {"code": accounting.CASH_LBP, "debit":  delta,
-             "memo": f"Counted {data.counted_lbp:,.0f} LBP"},
-            {"code": accounting.FX_GAIN,  "credit": delta},
-        ]
-    else:
-        # Loss
-        lines = [
-            {"code": accounting.FX_LOSS,  "debit":  abs(delta),
-             "memo": f"Counted {data.counted_lbp:,.0f} LBP"},
-            {"code": accounting.CASH_LBP, "credit": abs(delta)},
-        ]
-    je_id = accounting.post_entry(
-        db, entry_date=posting_date, memo=memo, lines=lines,
-        source_type="fx_revaluation", source_id=None, created_by=user["id"],
-    )
-    log_action(db, user, "fx_revalue", "accounting", je_id, memo,
-               {"counted_lbp": data.counted_lbp, "rate": spot,
-                "book_usd": book_usd, "counted_usd": counted_usd, "delta": delta})
+    posted = [r for r in results if r["journal_entry_id"]]
+    for r in posted:
+        log_action(db, user, "fx_revalue", "accounting", r["journal_entry_id"],
+                   f"{r['currency']} revaluation",
+                   {"currency": r["currency"], "rate": r["rate"],
+                    "book_usd": r["book_usd"], "counted_usd": r["counted_usd"],
+                    "delta": r["delta"]})
     db.commit()
-    return {"message": "FX revaluation posted.",
-            "journal_entry_id": je_id, "rate": spot,
-            "book_usd": book_usd, "counted_usd": counted_usd, "delta": delta}
+
+    body = {
+        "message": ("No FX adjustment needed." if not posted
+                    else "FX revaluation posted."),
+        "results": results,
+    }
+    # The original callers asked about pounds and read these at the top level.
+    # Kept so nothing that already works has to change.
+    lbp = next((r for r in results if r["currency"] == "LBP"), None)
+    if lbp:
+        body.update({"journal_entry_id": lbp["journal_entry_id"],
+                     "rate": lbp["rate"], "book_usd": lbp["book_usd"],
+                     "counted_usd": lbp["counted_usd"], "delta": lbp["delta"]})
+    return body

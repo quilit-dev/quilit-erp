@@ -3656,6 +3656,24 @@ def _run_migrations(conn, c):
                   "WHERE voucher_number IS NOT NULL")
         done("159_customer_payments")
 
+    # ── 160: euro cash gets its own account ───────────────────────────────
+    # EUR was accepted as tender but had nowhere to land, so euro notes posted
+    # into the dollar cash account — mixing a non-functional currency into the
+    # functional one, which is the exact IAS 21 problem the LBP account exists
+    # to avoid. Nothing already posted is moved: this is where euro goes from
+    # here, and a balance sitting in 1000 from before stays where the books
+    # say it went.
+    if need("160_cash_eur"):
+        _ts160 = datetime.utcnow().strftime("%Y-%m-%d %H:%M:%S")
+        c.execute(
+            "INSERT OR IGNORE INTO chart_of_accounts "
+            "(code, name, type, subtype, normal_balance, is_system, is_active, created_at) "
+            "VALUES ('1020','Cash — EUR','Asset','Current Asset','debit',1,1,?)",
+            (_ts160,))
+        c.execute("INSERT OR IGNORE INTO account_roles (role, code, updated_at) "
+                  "VALUES ('cash_eur','1020',?)", (_ts160,))
+        done("160_cash_eur")
+
     add_col("159a_payment_batch", "invoice_payments", "customer_payment_id",
             "ALTER TABLE invoice_payments ADD COLUMN customer_payment_id INTEGER "
             "REFERENCES customer_payments(id)")
@@ -4231,6 +4249,16 @@ def _ensure_pg_post_baseline(raw):
                     "WHERE voucher_number IS NOT NULL")
         cur.execute("ALTER TABLE invoice_payments ADD COLUMN IF NOT EXISTS "
                     "customer_payment_id INTEGER")
+        # 160: euro cash gets its own account, so a euro balance can be
+        # revalued without unpicking it from the dollars.
+        cur.execute(
+            "INSERT INTO chart_of_accounts "
+            "(code, name, type, subtype, normal_balance, is_system, is_active, created_at) "
+            "VALUES ('1020','Cash — EUR','Asset','Current Asset','debit',true,true,now()::text) "
+            "ON CONFLICT (code) DO NOTHING")
+        cur.execute("INSERT INTO account_roles (role, code, updated_at) "
+                    "VALUES ('cash_eur','1020',now()::text) "
+                    "ON CONFLICT (role) DO NOTHING")
         # 159b: existing customers keep the permission they already had — see
         # the SQLite chain for why. Guarded by the marker so it runs once: a
         # re-run would re-enable a customer an admin had deliberately stopped.
@@ -4672,6 +4700,7 @@ _DEFAULT_ACCOUNT_ROLES = [
     ("cash",              "1000"),
     ("bank",              "1000"),
     ("cash_lbp",          "1010"),
+    ("cash_eur",          "1020"),
     ("receivable",        "1100"),
     ("inventory",         "1200"),
     ("prepaid",           "1300"),

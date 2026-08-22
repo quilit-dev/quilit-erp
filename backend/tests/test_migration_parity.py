@@ -64,6 +64,22 @@ _REQUIRED_TABLES = [
 ]
 
 
+# Chart accounts and role mappings added after the baseline. An account that
+# reaches SQLite alone means postings on the hosted deployment land somewhere
+# else — silently, and only for the currency nobody tested.
+_REQUIRED_LITERALS = [
+    "1020",        # Cash — EUR
+    "cash_eur",    # the role that points at it
+]
+
+
+@pytest.mark.parametrize("literal", _REQUIRED_LITERALS)
+def test_literal_reaches_both_backends(source, pg_block, literal):
+    chain = source[:source.index("def _ensure_pg_post_baseline(")]
+    assert literal in chain, f"{literal} missing from the SQLite chain"
+    assert literal in pg_block, f"{literal} missing from the PostgreSQL path"
+
+
 @pytest.fixture(scope="module")
 def source() -> str:
     return _DB.read_text(encoding="utf-8")

@@ -21,6 +21,7 @@ import DocumentPostings from '../components/DocumentPostings.jsx';
 import PaymentPlan from './invoices/PaymentPlan.jsx';
 import { useRecordExport } from '../hooks/useRecordExport';
 import { useFocusId } from '../hooks/useFocusId';
+import { CURRENCIES } from './settings/ui';
 const METHODS    = ['Cash', 'Bank Transfer', 'Cheque', 'Card', 'Other'];
 // `discount` (in functional currency) is opt-in via Settings → "Enable
 // per-line discounts". When the toggle is off the field stays 0 and the
@@ -382,9 +383,9 @@ export default function Invoices() {
     e.preventDefault();
     const amt = Number(payForm.amount);
     if (!amt || amt <= 0) { toast('Enter a valid amount', 'red'); return; }
-    const currency = payForm.currency === 'LBP' ? 'LBP' : 'USD';
+    const currency = CURRENCIES.includes(payForm.currency) ? payForm.currency : 'USD';
     let exchange_rate = null;
-    if (currency === 'LBP') {
+    if (currency !== 'USD') {
       exchange_rate = Number(payForm.rate);
       if (!exchange_rate || exchange_rate <= 0) {
         toast(t('invoices.rateRequired'), 'red'); return;
@@ -839,7 +840,8 @@ export default function Invoices() {
                 )}
 
                 {(payModal.remaining ?? 0) > 0.001 && (() => {
-                  const payInLbp  = payForm.currency === 'LBP';
+                  // Any foreign tender, not pounds specifically.
+                  const payInLbp  = payForm.currency !== 'USD';
                   const rateNum   = Number(payForm.rate);
                   const amtNum    = Number(payForm.amount);
                   const usdEquiv  = payInLbp && rateNum > 0 ? amtNum / rateNum : 0;
@@ -852,10 +854,19 @@ export default function Invoices() {
                         <select className="form-control" value={payForm.currency}
                           onChange={e => setPayForm(f => ({
                             ...f, currency: e.target.value,
-                            rate: e.target.value === 'LBP' ? (f.rate || exchangeRate?.rate || '') : f.rate,
+                            // The stored rate is the pound rate; only pounds may
+                            // inherit it. Another currency starts blank so nobody
+                            // pays euro at the pound rate by accident.
+                            rate: e.target.value === 'LBP' ? (f.rate || exchangeRate?.rate || '')
+                              : e.target.value === 'USD' ? f.rate : '',
                           }))}>
-                          <option value="USD">{exchangeRate.base || 'USD'}</option>
-                          <option value="LBP">{exchangeRate.secondary || 'LBP'}</option>
+                          {CURRENCIES.map(cur => (
+                            <option key={cur} value={cur}>
+                              {cur === 'USD' ? (exchangeRate.base || 'USD')
+                                : cur === 'LBP' ? (exchangeRate.secondary || 'LBP')
+                                : cur}
+                            </option>
+                          ))}
                         </select>
                       </div>
                     )}

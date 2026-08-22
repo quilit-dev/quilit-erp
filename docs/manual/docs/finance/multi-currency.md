@@ -26,12 +26,17 @@ single-currency books.
 ## Quick reference
 
 - **Functional currency**: USD
-- **Secondary currency**: LBP
-- **Rate format**: `LBP per 1 USD` (e.g. 89,000)
+- **Foreign currencies accepted**: LBP, EUR
+- **Rate format**: units per 1 USD (LBP e.g. 89,000; EUR e.g. 0.92)
 - **Rate history**: every rate you set is kept, with who set it and any note
-- **Default fallback**: latest stored rate
-- **Two cash accounts**: `1000 Cash & Bank` (USD) + `1010 Cash — LBP`
+- **Default fallback**: the latest rate **for that currency**
+- **A cash account per currency**: `1000 Cash & Bank` (USD), `1010 Cash — LBP`,
+  `1020 Cash — EUR`
 - **FX gain/loss accounts**: `4910 FX Gain` and `6920 FX Loss`
+
+Each foreign currency has its own cash account for one reason: a balance held
+in a currency that is not the functional one has to be marked to the closing
+rate, and that is impossible once it has been mixed into the dollars.
 
 ---
 
@@ -149,10 +154,42 @@ single-currency books.
 
 ## What's NOT supported
 
-- Currencies beyond USD + LBP. Adding EUR or GBP is a vendor-level
-  extension (new cash account + adjustments to cash account for).
+- Currencies beyond USD, LBP and EUR. Adding one is a small vendor-level
+  change: a cash account, a role pointing at it, and an entry in the
+  currency map.
+- **Euro at the till.** The register counts dollars and pounds at close, so
+  euro is not offered as POS tender — it would create a cash balance nobody
+  counts. Euro is taken on invoice payments and on account payments.
+- **Buying in euro.** Purchase and product costing accept dollars and pounds.
 - Auto-pull live rates from a feed. Manual entry is the supported path —
   reflects the deliberate decision to record the rate the customer
   actually used, not whatever Reuters said.
-- LBP-denominated invoices. Sales documents are always in USD; the
-  multi-currency layer is at the payment level.
+- **Invoices denominated in a foreign currency.** Sales documents are always
+  in USD; the multi-currency layer is at the payment level. A customer who
+  owes you €1,000 — rather than owing you dollars and paying in euro — cannot
+  be represented, and the difference when the rate moves has nowhere to go.
+  See the note below.
+
+---
+
+## "My customer has an account in euro"
+
+Two different things go by that name, and only one of them is supported.
+
+**They pay in euro; the deal is in dollars.** The invoice says $1,000 and they
+hand over €920 at the day's rate. The debt is a dollar debt and the euro is
+just the notes. This works: set their **preferred currency** to EUR on the
+client record and the payment screen opens in euro. The euro lands in
+`1020 Cash — EUR`, and there is no exchange exposure — whatever the euro
+converted to at the moment you received it *is* the settlement.
+
+**The debt itself is in euro.** You agreed €1,000 and they owe €1,000 whatever
+the dollar does. **This is not supported.** The invoice would be stored as its
+dollar equivalent on the day, and when they pay the agreed euro months later at
+a different rate it converts to a different dollar figure — so the invoice sits
+short forever, or the payment is refused as an overpayment. That gap is a real
+exchange gain or loss and there is nowhere in the books to put it.
+
+If that is your arrangement, agree a fixed rate with the customer and invoice
+in dollars at that rate. It turns the second case into the first deliberately,
+and both sides know what was agreed.

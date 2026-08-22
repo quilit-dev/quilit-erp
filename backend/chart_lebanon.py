@@ -215,6 +215,7 @@ ROLES = {
     "cash":              "5312",   # functional currency
     "bank":              "512",    # 53 الصندوق is notes; 512 بنوك is the bank
     "cash_lbp":          "5311",
+    "cash_eur":          "5313",
     "receivable":        "4111",
     "inventory":         "37",
     "prepaid":           "472",
