@@ -74,7 +74,7 @@ function usePromoPreview(items, enabled) {
 // `discount_auto` stays true until a person edits the field.
 const EMPTY_ITEM = { name: '', quantity: 1, unit_price: 0, discount_pct: '',
                      discount_auto: true, inventory_id: null, tax_rate_id: null };
-const EMPTY_FORM = { quotation_id: '', project_id: '', client_id: '', due_date: '', notes: '', branch_id: '', items: [{ ...EMPTY_ITEM }] };
+const EMPTY_FORM = { quotation_id: '', project_id: '', client_id: '', due_date: '', notes: '', branch_id: '', currency: '', exchange_rate: '', items: [{ ...EMPTY_ITEM }] };
 import { ActionMenu } from './invoices/ActionMenu';
 
 export default function Invoices() {
@@ -108,6 +108,7 @@ export default function Invoices() {
 
   // Global-search deep link (?focus=<id>) → open that invoice's detail.
   const [focusId, clearFocus] = useFocusId();
+
   useEffect(() => {
     if (focusId == null) return;
     // Fetched by id rather than looked up in the loaded rows. The list is one
@@ -146,6 +147,12 @@ export default function Invoices() {
 
   const [formModal,     setFormModal]     = useState(false);
   const [form,          setForm]          = useState(EMPTY_FORM);
+
+  // What this invoice will be billed in: whatever was picked, or failing that
+  // the customer's own currency, or failing that the company's.
+  const billingCurrency = (clients || [])
+    .find(c => String(c.id) === String(form.client_id))?.preferred_currency || '';
+  const invoiceCurrency = form.currency || billingCurrency || 'USD';
   // What the server WILL apply on save, shown live so the running total the
   // operator quotes matches the document that gets stored.
   const promoLines = usePromoPreview(form.items, true);
@@ -316,6 +323,11 @@ export default function Invoices() {
         due_date:     form.due_date || null,
         notes:        form.notes    || null,
         branch_id:    form.branch_id || null,
+        // Blank means "whatever this customer is billed in" — the server reads
+        // their preference. Sending a currency only when one was chosen keeps
+        // that decision in one place.
+        currency:      form.currency || null,
+        exchange_rate: form.exchange_rate === '' ? null : Number(form.exchange_rate),
         items:        (form.items || []).map(i => ({
           name: i.name,
           quantity: Number(i.quantity)||0,
@@ -601,6 +613,45 @@ export default function Invoices() {
                     {(clients||[]).map(c => <option key={c.id} value={c.id}>{c.name}</option>)}
                   </select>
                 </div>
+                {/* The currency the deal is struck in. Left on the
+                    customer's own, it needs no thought; changed, the prices
+                    typed below are read as that currency. */}
+                <div className="form-group">
+                  <label className="form-label">{t('invoices.currencyLabel')}</label>
+                  <select className="form-control" value={form.currency || ''}
+                    onChange={e => setForm(f => ({ ...f, currency: e.target.value,
+                                                  exchange_rate: '' }))}>
+                    <option value="">
+                      {billingCurrency
+                        ? t('invoices.customersCurrency', { currency: billingCurrency })
+                        : t('invoices.companyCurrency')}
+                    </option>
+                    {CURRENCIES.map(c => <option key={c} value={c}>{c}</option>)}
+                  </select>
+                </div>
+                {invoiceCurrency && invoiceCurrency !== 'USD' && (
+                  <div className="form-group">
+                    {/* The direction is on the label because it is not
+                        guessable: the same rate reads as 1.10 one way round
+                        and 0.909091 the other, and entering one for the other
+                        is a twenty per cent error on the whole invoice. */}
+                    <label className="form-label">
+                      {t('invoices.rateFor', { currency: invoiceCurrency })}
+                    </label>
+                    <NumberInput className="form-control" step="any" min="0"
+                      placeholder={t('invoices.rateFromSettings')}
+                      value={form.exchange_rate}
+                      onChange={e => setForm(f => ({ ...f, exchange_rate: e.target.value }))} />
+                    <div style={{ fontSize: 11, color: 'var(--text-3)', marginTop: 3 }}>
+                      {form.exchange_rate && Number(form.exchange_rate) > 0
+                        ? t('invoices.rateReads', {
+                            currency: invoiceCurrency,
+                            value: (1 / Number(form.exchange_rate)).toFixed(4),
+                          })
+                        : t('invoices.rateBlankHint')}
+                    </div>
+                  </div>
+                )}
                 <div className="form-group">
                   <label className="form-label">{t('invoices.projectLabel')}</label>
                   <select className="form-control" value={form.project_id||''}

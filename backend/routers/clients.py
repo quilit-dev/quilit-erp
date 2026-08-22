@@ -11,6 +11,7 @@ import sqlite3
 import accounting
 import branch_access
 import currency as currency_mod
+import denomination
 
 router = APIRouter()
 
@@ -306,18 +307,30 @@ def client_statement(client_id: int,
         raise HTTPException(404, "Client not found")
 
     invoices = db.execute(
-        "SELECT id, invoice_number, created_at, amount, voided_at "
+        "SELECT id, invoice_number, created_at, amount, voided_at, "
+        "       currency, exchange_rate, txn_amount "
         "FROM invoices WHERE client_id=? AND archived_at IS NULL "
         "ORDER BY created_at, id", (client_id,)).fetchall()
     live = [i for i in invoices if not i["voided_at"]]
     ids = [i["id"] for i in live]
+
+    # A statement is a document the customer reads, so it is written in the
+    # currency they were billed in — but only when that can be done exactly.
+    # Where their invoices span currencies, a single running balance in one of
+    # them would need rate assumptions the statement cannot justify, so it
+    # falls back to the company's own currency and says which it used.
+    seen = {(i["currency"] or denomination.base_currency()).upper() for i in live}
+    mixed = len(seen) > 1
+    stmt_currency = (next(iter(seen)) if len(seen) == 1
+                     else denomination.base_currency())
+    in_txn = stmt_currency != denomination.base_currency()
 
     payments = []
     if ids:
         ph = ",".join("?" * len(ids))
         payments = db.execute(
             f"SELECT p.id, p.invoice_id, p.amount, p.method, p.paid_at, "
-            f"       p.paid_currency, p.paid_amount, i.invoice_number "
+            f"       p.paid_currency, p.paid_amount, p.txn_amount, i.invoice_number "
             f"FROM invoice_payments p JOIN invoices i ON i.id = p.invoice_id "
             f"WHERE p.invoice_id IN ({ph}) ORDER BY p.paid_at, p.id", ids).fetchall()
 
@@ -330,7 +343,13 @@ def client_statement(client_id: int,
             "type": "invoice",
             "reference": i["invoice_number"], "invoice_id": i["id"],
             "description": f"Invoice {i['invoice_number']}",
-            "charged": money(i["amount"]), "paid": 0.0,
+            # The figure the customer agreed, when the statement is in their
+            # currency; the company's figure otherwise. Both travel, so a
+            # reader that wants the other one has it.
+            "charged": money(i["txn_amount"] if in_txn and i["txn_amount"] is not None
+                             else i["amount"]),
+            "paid": 0.0,
+            "base_charged": money(i["amount"]), "base_paid": 0.0,
         })
     for p in payments:
         movements.append({
@@ -339,7 +358,10 @@ def client_statement(client_id: int,
             "reference": p["invoice_number"], "invoice_id": p["invoice_id"],
             "description": f"Payment — {p['method'] or 'Cash'}"
                            + (f" ({p['paid_currency']})" if p["paid_currency"] not in (None, "USD") else ""),
-            "charged": 0.0, "paid": money(p["amount"]),
+            "charged": 0.0,
+            "paid": money(p["txn_amount"] if in_txn and p["txn_amount"] is not None
+                          else p["amount"]),
+            "base_charged": 0.0, "base_paid": money(p["amount"]),
         })
     # Ordered by when it actually happened, not merely by day: several
     # movements on one date must read in sequence or the running balance tells
@@ -369,6 +391,13 @@ def client_statement(client_id: int,
                    "preferred_currency": row["preferred_currency"],
                    "vat_status": row["vat_status"]},
         "start": start, "end": end,
+        # What the figures on this statement are denominated in, so the reader
+        # formats them as what they are rather than assuming dollars.
+        "currency": stmt_currency,
+        "base_currency": denomination.base_currency(),
+        # True when this customer has been billed in more than one currency,
+        # which is why the statement fell back to the company's own.
+        "mixed_currencies": mixed,
         "opening_balance": opening,
         "movements": movements,
         "total_charged": charged,

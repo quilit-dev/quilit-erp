@@ -283,3 +283,57 @@ def test_a_dollar_invoice_posts_no_exchange_difference(client, dollar_customer):
     assert not [l for l in payment["lines"]
                 if l["account_code"] in ("6920", "4910")]
     assert client.get(f"/api/invoices/{inv}").json()["remaining"] == _pytest.approx(0)
+
+
+# ── The statement the customer reads ─────────────────────────────────────────
+
+def test_the_statement_is_written_in_the_customers_currency(client, euro_customer, db):
+    """The document they asked for, in the money they were billed in."""
+    inv = _id(_invoice(client, euro_customer, 5000))
+    db.execute("INSERT INTO exchange_rates (currency, rate, effective_date, created_at) "
+               "VALUES ('EUR', 0.952381, '2026-01-01', '2026-01-01')")
+    db.commit()
+    _pay(client, inv, 2000, exchange_rate=0.952381)
+
+    st = client.get(f"/api/clients/{euro_customer}/statement").json()
+
+    assert st["currency"] == "EUR"
+    assert st["total_charged"] == _pytest.approx(5000)
+    assert st["total_paid"] == _pytest.approx(2000)
+    assert st["closing_balance"] == _pytest.approx(3000)
+
+
+def test_the_company_figures_travel_beside_them(client, euro_customer):
+    """Same statement, both readings: the customer's and the company's."""
+    _invoice(client, euro_customer, 5000)
+
+    st = client.get(f"/api/clients/{euro_customer}/statement").json()
+
+    charge = next(m for m in st["movements"] if m["type"] == "invoice")
+    assert charge["charged"] == _pytest.approx(5000)        # euro
+    assert charge["base_charged"] == _pytest.approx(5500, abs=0.01)  # dollars
+
+
+def test_a_dollar_customers_statement_is_unchanged(client, dollar_customer):
+    _invoice(client, dollar_customer, 120)
+
+    st = client.get(f"/api/clients/{dollar_customer}/statement").json()
+
+    assert st["currency"] == "USD"
+    assert st["mixed_currencies"] is False
+    assert st["total_charged"] == _pytest.approx(120)
+
+
+def test_a_customer_billed_in_two_currencies_falls_back_to_the_company_currency(
+        client, euro_customer):
+    """A single running balance across currencies would need rate assumptions
+    the statement cannot justify. It says which currency it used instead."""
+    _invoice(client, euro_customer, 1000)                 # EUR
+    _invoice(client, euro_customer, 500, currency="USD")  # USD
+
+    st = client.get(f"/api/clients/{euro_customer}/statement").json()
+
+    assert st["mixed_currencies"] is True
+    assert st["currency"] == "USD"
+    # 1000 EUR is 1100 USD, plus 500.
+    assert st["total_charged"] == _pytest.approx(1600, abs=0.02)

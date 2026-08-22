@@ -1758,6 +1758,13 @@ const ar = {
   },
 
   invoices: {
+    currencyLabel: 'الفوترة بـ',
+    customersCurrency: 'عملة الزبون ({{currency}})',
+    companyCurrency: 'عملة الشركة',
+    rateFor: 'السعر — {{currency}} لكل 1 دولار',
+    rateFromSettings: 'من الإعدادات',
+    rateReads: '1 {{currency}} = {{value}} دولار',
+    rateBlankHint: 'اتركه فارغاً لاستعمال السعر المضبوط لهذه العملة.',
     printReceipt: 'طباعة السند',
     title: 'الفواتير',
     totalInvoices: '{{count}} فاتورة إجمالاً',

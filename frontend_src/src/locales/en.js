@@ -1768,6 +1768,13 @@ const en = {
   },
 
   invoices: {
+    currencyLabel: 'Billed in',
+    customersCurrency: "Customer's currency ({{currency}})",
+    companyCurrency: 'Company currency',
+    rateFor: 'Rate — {{currency}} per 1 USD',
+    rateFromSettings: 'from Settings',
+    rateReads: '1 {{currency}} = {{value}} USD',
+    rateBlankHint: 'Leave blank to use the rate configured for this currency.',
     printReceipt: 'Print receipt',
     title: 'Invoices',
     totalInvoices: '{{count}} total invoices',
