@@ -143,3 +143,43 @@ def test_postgres_path_uses_if_not_exists(pg_block):
     alters = re.findall(r"ALTER TABLE[^\"']*", pg_block)
     missing = [a for a in alters if "IF NOT EXISTS" not in a]
     assert not missing, f"non-idempotent ALTER in the Postgres path: {missing}"
+
+
+# ── Ordering inside the PostgreSQL path ──────────────────────────────────────
+# `_ensure_pg_post_baseline` is one long linear block, and statements that
+# WRITE to a table had drifted above the line that CREATES it. On a database
+# that already had the table nothing failed, so the only place it showed was a
+# genuinely fresh Postgres — which is exactly what a new deployment is.
+#
+# These read the block as text. They cannot prove the SQL is valid, but they
+# catch the two mistakes that actually happened.
+
+_WRITE = re.compile(r"(?:INSERT INTO|UPDATE)\s+([a-z_]+)", re.I)
+_CREATE = re.compile(r"CREATE TABLE IF NOT EXISTS\s+([a-z_]+)", re.I)
+
+
+def test_nothing_writes_to_a_table_before_it_is_created(pg_block):
+    created = {}
+    for m in _CREATE.finditer(pg_block):
+        created.setdefault(m.group(1).lower(), m.start())
+
+    too_early = []
+    for m in _WRITE.finditer(pg_block):
+        table = m.group(1).lower()
+        if table in created and m.start() < created[table]:
+            too_early.append((table, m.start(), created[table]))
+
+    assert too_early == [], (
+        "these are written to before the CREATE that makes them: "
+        + ", ".join(t for t, _, _ in too_early))
+
+
+def test_no_boolean_literals_where_the_column_is_an_integer(pg_block):
+    """`is_system` and `is_active` are INTEGER in this schema, mirroring
+    SQLite. Passing `true` raises DatatypeMismatch and the app never starts."""
+    offenders = [
+        line.strip() for line in pg_block.splitlines()
+        if "chart_of_accounts" in line or "'debit'" in line or "'credit'" in line
+        if ",true," in line.replace(" ", "") or ",false," in line.replace(" ", "")
+    ]
+    assert offenders == [], offenders
