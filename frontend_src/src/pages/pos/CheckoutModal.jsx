@@ -27,6 +27,12 @@ function CheckoutModal({ pricing, clients, drawers, defaultCurrency = 'USD', onC
   const _defDrawer = drawers.find(d => d.auto_capture) || drawers[0];
   const [drawerId, setDrawerId] = useState(_defDrawer ? String(_defDrawer.id) : '');
 
+  // The customer's own terms: whether they may buy on credit, and the shape
+  // they usually agree to. A customer record without the field (an older
+  // payload) is treated as allowed, so nothing silently disappears.
+  const customer = clients.find(c => String(c.id) === String(clientId));
+  const notApproved = !!customer && customer.allow_installments === 0;
+
   // Choosing a customer brings their agreed plan shape with it, until the
   // cashier types over it — then their choice wins for the rest of the sale.
   useEffect(() => {
@@ -53,12 +59,6 @@ function CheckoutModal({ pricing, clients, drawers, defaultCurrency = 'USD', onC
 
   // Refused by the server too — checked here so the cashier is told which part
   // is wrong rather than getting a bare 400 with a queue behind them.
-  // The customer's own terms: whether they may buy on credit, and the shape
-  // they usually agree to. A customer record without the field (an older
-  // payload) is treated as allowed, so nothing silently disappears.
-  const customer = clients.find(c => String(c.id) === String(clientId));
-  const notApproved = !!customer && customer.allow_installments === 0;
-
   const planProblem = !onPlan ? null
     : !clientId ? t('pos.planNeedsCustomer')
     : notApproved ? t('installments.notApproved')
