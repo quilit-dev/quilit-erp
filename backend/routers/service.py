@@ -842,6 +842,11 @@ def _raise_invoice(db, job, user):
               + (f" — {job['work_done']}" if job["work_done"] else ""),
         service_job_id=job_id,
         branch_id=job["branch_id"],
+        # A job's parts come off the company's own price list and its labour is
+        # charged at the company's own rates, both in the company's currency.
+        # Billing a customer in euro converts that at the day's rate; it does
+        # not mean the technician was typing euro.
+        prices_in_base=True,
     )
 
 

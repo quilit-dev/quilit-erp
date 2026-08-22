@@ -460,3 +460,46 @@ def test_the_trial_balance_is_in_one_currency(client, euro_customer):
     assert tb["balanced"]
     ar = next(r for r in tb["rows"] if r["code"] == "1100")
     assert float(ar["debit"]) == _pytest.approx(5500, abs=0.02)
+
+
+# ── Work priced from the company's own list ──────────────────────────────────
+
+def test_a_service_job_bills_a_euro_customer_in_euro(client, euro_customer, db):
+    """A technician does not type euro. The parts come off the company's price
+    list in dollars and the customer is billed the euro equivalent at the day's
+    rate — which is what a business with a dollar price list does."""
+    eq = client.post("/api/service/equipment", json={
+        "client_id": euro_customer, "name": "Machine"}).json()["id"]
+    job = client.post("/api/service/jobs", json={
+        "client_id": euro_customer, "equipment_id": eq,
+        "job_type": "Repair",
+        "items": [{"line_type": "charge", "name": "Labour",
+                   "quantity": 1, "unit_price": 1100}]}).json()["id"]
+
+    client.post(f"/api/service/jobs/{job}/start", json={})
+    # Completing raises the invoice: the shop has auto-invoicing on by default.
+    done = client.post(f"/api/service/jobs/{job}/complete", json={})
+    assert done.status_code == 200, done.text
+
+    inv_id = done.json()["invoice"]["invoice_id"]
+    inv = client.get(f"/api/invoices/{inv_id}").json()
+    assert inv["currency"] == "EUR"
+    # $1,100 on the price list is €1,000 at 1.10.
+    assert inv["txn_amount"] == _pytest.approx(1000, abs=0.02)
+    assert inv["amount"] == _pytest.approx(1100, abs=0.02)
+
+
+def test_a_service_job_for_a_dollar_customer_is_unchanged(client, dollar_customer):
+    eq = client.post("/api/service/equipment", json={
+        "client_id": dollar_customer, "name": "Machine"}).json()["id"]
+    job = client.post("/api/service/jobs", json={
+        "client_id": dollar_customer, "equipment_id": eq, "job_type": "Repair",
+        "items": [{"line_type": "charge", "name": "Labour",
+                   "quantity": 1, "unit_price": 300}]}).json()["id"]
+
+    client.post(f"/api/service/jobs/{job}/start", json={})
+    done = client.post(f"/api/service/jobs/{job}/complete", json={})
+
+    inv = client.get(f"/api/invoices/{done.json()['invoice']['invoice_id']}").json()
+    assert inv["currency"] == "USD"
+    assert inv["amount"] == _pytest.approx(300)

@@ -210,6 +210,23 @@ def _has_payments(db, invoice_id: int) -> bool:
     ).fetchone()
     return row[0] > 0
 
+def _in_txn(item, fx_rate):
+    """One base-priced line restated in the currency the customer is billed in.
+
+    For prices that came off the company's own list rather than out of a
+    negotiation — a service job's parts, a till sale — where the base figure is
+    the original and the customer's is derived from it.
+    """
+    from types import SimpleNamespace
+    fields = {k: getattr(item, k, None) for k in
+              ("name", "quantity", "unit_price", "discount", "discount_pct",
+               "tax_rate_id", "inventory_id", "revenue_account")}
+    fields["unit_price"] = denomination.to_txn(fields.get("unit_price") or 0, fx_rate)
+    if fields.get("discount"):
+        fields["discount"] = denomination.to_txn(fields["discount"], fx_rate)
+    return SimpleNamespace(**fields)
+
+
 def _in_base(item, fx_rate):
     """One line restated in the base currency.
 
@@ -468,6 +485,7 @@ def build_invoice(
     gate_approval=True,
     currency=None,
     exchange_rate=None,
+    prices_in_base=False,
 ):
     """Create one invoice and its item rows. The single correct way to raise an
     invoice from anywhere in the system.
@@ -545,20 +563,35 @@ def build_invoice(
     # base lines not summing to the base total, and the revenue split reads the
     # lines. Pricing each side from its own prices keeps both internally
     # consistent, and for a base-currency invoice the second pass is the first.
-    txn_subtotal, txn_tax_total, txn_amount, txn_line_tax = _price_items(
-        db, items, amount, client_id)
-    if txn_amount <= 0:
-        raise HTTPException(400, "Invoice amount must be positive")
-
-    if denomination.is_base(txn_currency):
-        subtotal, tax_total, computed_amount, line_tax = (
-            txn_subtotal, txn_tax_total, txn_amount, txn_line_tax)
+    #
+    # `prices_in_base` says which side the caller's prices are on. An operator
+    # typing a negotiated figure is quoting the customer's currency. A service
+    # job or a till sale is not: its prices came off the company's own price
+    # list, in the company's own currency, and billing a European customer
+    # means converting that list at the day's rate — which is what any business
+    # with a dollar price list does.
+    if prices_in_base or denomination.is_base(txn_currency):
         base_items = items
+        subtotal, tax_total, computed_amount, line_tax = _price_items(
+            db, items, amount, client_id)
+        if denomination.is_base(txn_currency):
+            txn_subtotal, txn_tax_total, txn_amount, txn_line_tax = (
+                subtotal, tax_total, computed_amount, line_tax)
+        else:
+            txn_items = [_in_txn(it, fx_rate) for it in items]
+            txn_subtotal, txn_tax_total, txn_amount, txn_line_tax = _price_items(
+                db, txn_items, denomination.to_txn(amount, fx_rate) if amount else amount,
+                client_id)
+            items = txn_items      # the line rows print the customer's price
     else:
+        txn_subtotal, txn_tax_total, txn_amount, txn_line_tax = _price_items(
+            db, items, amount, client_id)
         base_items = [_in_base(it, fx_rate) for it in items]
         subtotal, tax_total, computed_amount, line_tax = _price_items(
             db, base_items, denomination.to_base(amount, fx_rate) if amount else amount,
             client_id)
+    if txn_amount <= 0:
+        raise HTTPException(400, "Invoice amount must be positive")
     if computed_amount <= 0:
         raise HTTPException(400, "Invoice amount must be positive")
 
