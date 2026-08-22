@@ -47,6 +47,16 @@ _REQUIRED = [
     # Which payment an allocation row belongs to, so a receipt can be written
     # for the payment the customer actually made.
     ("invoice_payments", "customer_payment_id"),
+    # The currency a sales document was agreed in, beside its base figures.
+    ("invoices", "currency"),
+    ("invoices", "exchange_rate"),
+    ("invoices", "txn_amount"),
+    ("invoice_items", "txn_unit_price"),
+    ("quotations", "currency"),
+    ("quotations", "txn_total"),
+    ("quotation_items", "txn_unit_price"),
+    ("service_jobs", "currency"),
+    ("service_jobs", "txn_total"),
 ]
 
 

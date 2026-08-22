@@ -1,6 +1,7 @@
 # Multi-currency receivables — a future project
 
-**Status: deferred, deliberately. Not started. Do not implement piecemeal.**
+**Status: IN PROGRESS.** Activated 2026-08-22. The storage architecture and the
+invoice are built; the rest of the lifecycle follows. See "Where it stands".
 
 This records the agreed direction so whoever picks it up does not have to
 re-derive it, and so nobody bolts half of it onto the invoice table in passing.
@@ -65,3 +66,71 @@ not a feature.
 
 The foundations are there. The denomination is not, and adding it halfway is
 worse than not adding it at all.
+
+
+---
+
+## The storage decision
+
+Every money column that exists today keeps its meaning: **the base (functional)
+currency**, which is what the ledger, every report, every balance and every
+posting already read. Not one of those readers changes.
+
+Beside them sit the transaction figures:
+
+| Table | Added |
+|---|---|
+| `invoices` | `currency`, `exchange_rate`, `txn_amount`, `txn_subtotal`, `txn_tax_total` |
+| `invoice_items` | `txn_unit_price`, `txn_tax_amount` |
+| `quotations` | `currency`, `exchange_rate`, `txn_total`, `txn_tax_total` |
+| `quotation_items` | `txn_unit_price`, `txn_tax_amount` |
+| `service_jobs` | `currency`, `exchange_rate`, `txn_total`, `txn_subtotal`, `txn_tax_total` |
+
+`invoice_payments` and `purchases` already worked this way — `amount` in base,
+`paid_currency`/`paid_amount`/`exchange_rate` alongside. This extends a
+convention the codebase already proved rather than inventing one.
+
+**A NULL `txn_` column means the document is denominated in the base currency
+and the base figure is the original.** That is true of every row written before
+this existed, so no historical row is touched at all — not even to backfill.
+
+**The rate is stored on the document and never looked up again.** A rate
+entered next month cannot restate an invoice issued today. A receivable that
+changes value whenever somebody edits a rate table is not a receivable.
+
+**Pricing runs twice, once per side.** Converting the totals afterwards leaves
+the base lines not summing to the base total, and `revenue_split` reads the
+lines. Each side is priced from its own prices, so each is internally
+consistent; for a base-currency document the second pass is the first.
+
+## Rate direction
+
+Rates are stored as **units of the currency per one unit of base** — LBP
+89,000, EUR 0.909091. Written the other way ("1 EUR = 1.10 USD") the same rate
+reads as 1.10, and entering that where 0.909091 is meant is a 21% error. The
+convention is not negotiable — inverting it would restate every LBP rate on the
+books — so the UI must label the direction on the field.
+
+## Where it stands
+
+Done:
+
+- The storage architecture, in both backends, with the parity guard extended.
+- `denomination.py` — one place that resolves a currency and locks a rate.
+- Invoices: raised in the customer's currency, both figures stored, the rate
+  written down, the ledger posting in base. A customer set to a currency with
+  no rate is refused, by name.
+
+Still to do:
+
+- **Realised FX on settlement.** An invoice recognised at one rate and settled
+  at another leaves a difference that must post as a realised gain or loss.
+  Without it a euro invoice paid in full in euro leaves a base-currency
+  receivable that never clears. This is the piece that closes the architecture.
+- Quotation → invoice carrying the currency through (columns exist, not wired).
+- Service jobs and projects (columns exist for service, not wired).
+- POS — a till sale in a foreign currency.
+- Customer-facing display: invoice screen, printed documents, statement,
+  receipt voucher, all in the transaction currency.
+- Reports and dashboards: confirm every aggregate reads base, and label any
+  customer-facing list that mixes currencies.

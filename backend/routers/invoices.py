@@ -24,6 +24,7 @@ from approval_engine import evaluate_and_apply
 from utils import _now, _today, get_tax_context, resolve_line_tax, money, notify
 import accounting
 import currency as currency_mod
+import denomination
 import branch_access
 import line_items
 import installments
@@ -99,6 +100,12 @@ class InvoiceCreate(BaseModel):
     items:        Optional[list[InvoiceItemCreate]] = None
     version:      Optional[int]  = None   # required on PUT for optimistic locking
     branch_id:    Optional[int]  = None   # branch == warehouse; resolved on create
+    # The currency the deal was struck in. Omitted, the customer's own is used;
+    # omitted with no customer preference, the company's. `exchange_rate` is a
+    # negotiated rate — given, it is stored as given rather than replaced by
+    # the table's figure.
+    currency:      Optional[str]   = None
+    exchange_rate: Optional[float] = None
 
 class PaymentCreate(BaseModel):
     amount:           float                   # value tendered, expressed in `currency`
@@ -192,6 +199,23 @@ def _has_payments(db, invoice_id: int) -> bool:
         "SELECT COUNT(*) FROM invoice_payments WHERE invoice_id = ?", (invoice_id,)
     ).fetchone()
     return row[0] > 0
+
+def _in_base(item, fx_rate):
+    """One line restated in the base currency.
+
+    A copy, never a mutation: `items` is what the customer agreed and is
+    written to the document as such. Only unit price and any cash discount
+    convert — quantities, tax rates and ids are currency-free.
+    """
+    from types import SimpleNamespace
+    fields = {k: getattr(item, k, None) for k in
+              ("name", "quantity", "unit_price", "discount", "discount_pct",
+               "tax_rate_id", "inventory_id", "revenue_account")}
+    fields["unit_price"] = denomination.to_base(fields.get("unit_price") or 0, fx_rate)
+    if fields.get("discount"):
+        fields["discount"] = denomination.to_base(fields["discount"], fx_rate)
+    return SimpleNamespace(**fields)
+
 
 def _price_items(db, items, fallback_amount, client_id=None):
     """Roll up invoice line totals with per-line tax AND per-line discount.
@@ -432,6 +456,8 @@ def build_invoice(
     branch_id=None,
     apply_promos=True,
     gate_approval=True,
+    currency=None,
+    exchange_rate=None,
 ):
     """Create one invoice and its item rows. The single correct way to raise an
     invoice from anywhere in the system.
@@ -481,8 +507,48 @@ def build_invoice(
     # drafted, edited and voided, so metering it would burn units of a promotion
     # the customer may never receive. POS stays the metered channel.
     promo_ids = apply_promotions_to_lines(db, items) if apply_promos else []
-    subtotal, tax_total, computed_amount, line_tax = _price_items(
+
+    # The prices on the lines are in the currency the deal was struck in —
+    # that is what the operator typed and what the customer agreed. Where no
+    # currency is given, the customer's own is used, falling back to the
+    # company's; either way an all-base invoice behaves exactly as before.
+    client_name = None
+    if currency is None and client_id is not None:
+        row = db.execute("SELECT name, preferred_currency FROM clients WHERE id=?",
+                         (client_id,)).fetchone()
+        if row:
+            currency, client_name = row["preferred_currency"], row["name"]
+    try:
+        txn_currency, fx_rate = denomination.resolve(
+            db, currency, on_date=_today(), rate=exchange_rate)
+    except denomination.RateUnavailable as e:
+        # Name the customer. Without it this reads as a system fault rather
+        # than "this customer is set to a currency you have no rate for", and
+        # the operator has no idea which of the two things to go and fix.
+        detail = str(e)
+        if client_name:
+            detail = (f"{client_name} is set to be invoiced in {currency}. "
+                      + detail)
+        raise HTTPException(400, detail)
+
+    # Priced twice, deliberately. Converting the totals afterwards leaves the
+    # base lines not summing to the base total, and the revenue split reads the
+    # lines. Pricing each side from its own prices keeps both internally
+    # consistent, and for a base-currency invoice the second pass is the first.
+    txn_subtotal, txn_tax_total, txn_amount, txn_line_tax = _price_items(
         db, items, amount, client_id)
+    if txn_amount <= 0:
+        raise HTTPException(400, "Invoice amount must be positive")
+
+    if denomination.is_base(txn_currency):
+        subtotal, tax_total, computed_amount, line_tax = (
+            txn_subtotal, txn_tax_total, txn_amount, txn_line_tax)
+        base_items = items
+    else:
+        base_items = [_in_base(it, fx_rate) for it in items]
+        subtotal, tax_total, computed_amount, line_tax = _price_items(
+            db, base_items, denomination.to_base(amount, fx_rate) if amount else amount,
+            client_id)
     if computed_amount <= 0:
         raise HTTPException(400, "Invoice amount must be positive")
 
@@ -500,11 +566,15 @@ def build_invoice(
     cur = db.execute(
         "INSERT INTO invoices "
         "(invoice_number, quotation_id, project_id, service_job_id, client_id, amount, "
-        " subtotal, tax_total, due_date, notes, created_at, version, branch_id) "
-        "VALUES (?,?,?,?,?,?,?,?,?,?,?,1,?)",
+        " subtotal, tax_total, due_date, notes, created_at, version, branch_id, "
+        " currency, exchange_rate, txn_amount, txn_subtotal, txn_tax_total) "
+        "VALUES (?,?,?,?,?,?,?,?,?,?,?,1,?,?,?,?,?,?)",
         (_placeholder_invoice_number(), quotation_id, project_id, service_job_id,
          client_id, computed_amount, subtotal, tax_total, due_date, notes, now,
-         branch_id),
+         branch_id,
+         # The rate is written down here and never looked up again: a rate
+         # entered next month must not restate an invoice issued today.
+         txn_currency, fx_rate, txn_amount, txn_subtotal, txn_tax_total),
     )
     invoice_id = cur.lastrowid
     # Which of them raised this. Derived from the link the caller already
@@ -526,21 +596,24 @@ def build_invoice(
     inv_no     = _finalize_invoice_number(db, invoice_id, _invoice_prefix(db), _src, _ref)
     for idx, item in enumerate(items):
         rid, rate, tax_amt = line_tax[idx]
+        base_item = base_items[idx]
+        _, _, txn_tax_amt = txn_line_tax[idx]
         db.execute(
             "INSERT INTO invoice_items "
             "(invoice_id, name, quantity, unit_price, discount, discount_pct, "
             " tax_rate_id, tax_rate, tax_amount, inventory_id, promotion_id, "
-            " revenue_account) "
-            "VALUES (?,?,?,?,?,?,?,?,?,?,?,?)",
-            (invoice_id, item.name, item.quantity, item.unit_price,
-             float(getattr(item, "discount", 0) or 0),
+            " revenue_account, txn_unit_price, txn_tax_amount) "
+            "VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?)",
+            (invoice_id, item.name, item.quantity, base_item.unit_price,
+             float(getattr(base_item, "discount", 0) or 0),
              getattr(item, "discount_pct", None),
              rid, rate, tax_amt,
              getattr(item, "inventory_id", None),
              promo_ids[idx] if idx < len(promo_ids) else None,
              # NULL means 4000 Sales Revenue. Only a service labour charge sets
              # this, so every other caller keeps today's behaviour exactly.
-             getattr(item, "revenue_account", None)),
+             getattr(item, "revenue_account", None),
+             item.unit_price, txn_tax_amt),
         )
 
     # An active policy can gate the invoice behind approval. A gated invoice is
@@ -593,6 +666,7 @@ def create_invoice(
         due_date=data.due_date, notes=data.notes,
         quotation_id=data.quotation_id, project_id=data.project_id,
         branch_id=data.branch_id,
+        currency=data.currency, exchange_rate=data.exchange_rate,
     )
     log_action(db, user, "create", "invoice", res["invoice_id"],
                res["invoice_number"], {"amount": res["amount"]})

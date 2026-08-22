@@ -3678,6 +3678,45 @@ def _run_migrations(conn, c):
             "ALTER TABLE invoice_payments ADD COLUMN customer_payment_id INTEGER "
             "REFERENCES customer_payments(id)")
 
+    # ── 161: a sales document remembers the currency it was agreed in ─────
+    # The money columns on these tables are the BASE (functional) currency and
+    # they stay that way. Forty-odd readers — the ledger, every report, every
+    # balance — go on reading them and go on being right.
+    #
+    # What is added beside them is the currency the customer actually agreed,
+    # the amounts in that currency, and the rate used to translate them at the
+    # moment the document was recognised. That rate is stored, never
+    # re-derived, so a rate entered next month cannot restate a document
+    # issued today.
+    #
+    # A NULL txn_ column means the document is denominated in the base currency
+    # and the base figure IS the original — which is true of every row already
+    # on the books. Nothing historical is written to at all.
+    for _tbl, _cols in (
+        ("invoices", ("txn_amount", "txn_subtotal", "txn_tax_total")),
+        ("quotations", ("txn_total", "txn_tax_total")),
+        ("service_jobs", ("txn_total", "txn_subtotal", "txn_tax_total")),
+    ):
+        add_col(f"161_{_tbl}_currency", _tbl, "currency",
+                f"ALTER TABLE {_tbl} ADD COLUMN currency TEXT")
+        add_col(f"161_{_tbl}_rate", _tbl, "exchange_rate",
+                f"ALTER TABLE {_tbl} ADD COLUMN exchange_rate REAL")
+        for _c in _cols:
+            add_col(f"161_{_tbl}_{_c}", _tbl, _c,
+                    f"ALTER TABLE {_tbl} ADD COLUMN {_c} REAL")
+
+    # Line prices too: dividing a base price back by the rate does not
+    # reliably reproduce the figure the customer was quoted, and the lines
+    # would stop summing to the total they are printed under.
+    add_col("161_invoice_items_txn", "invoice_items", "txn_unit_price",
+            "ALTER TABLE invoice_items ADD COLUMN txn_unit_price REAL")
+    add_col("161_invoice_items_txn_tax", "invoice_items", "txn_tax_amount",
+            "ALTER TABLE invoice_items ADD COLUMN txn_tax_amount REAL")
+    add_col("161_quotation_items_txn", "quotation_items", "txn_unit_price",
+            "ALTER TABLE quotation_items ADD COLUMN txn_unit_price REAL")
+    add_col("161_quotation_items_txn_tax", "quotation_items", "txn_tax_amount",
+            "ALTER TABLE quotation_items ADD COLUMN txn_tax_amount REAL")
+
     # ── 159b: the instalment flag starts as it has always behaved ─────────
     # `allow_installments` was added defaulting to 0, which is correct for a
     # new column and wrong as a starting state: before it existed, every
@@ -4259,6 +4298,24 @@ def _ensure_pg_post_baseline(raw):
         cur.execute("INSERT INTO account_roles (role, code, updated_at) "
                     "VALUES ('cash_eur','1020',now()::text) "
                     "ON CONFLICT (role) DO NOTHING")
+        # 161: the currency a sales document was agreed in, beside the base
+        # figures rather than instead of them.
+        for _t, _cs in (
+            ("invoices", ("txn_amount", "txn_subtotal", "txn_tax_total")),
+            ("quotations", ("txn_total", "txn_tax_total")),
+            ("service_jobs", ("txn_total", "txn_subtotal", "txn_tax_total")),
+        ):
+            cur.execute(f"ALTER TABLE {_t} ADD COLUMN IF NOT EXISTS currency TEXT")
+            cur.execute(f"ALTER TABLE {_t} ADD COLUMN IF NOT EXISTS "
+                        f"exchange_rate DOUBLE PRECISION")
+            for _c in _cs:
+                cur.execute(f"ALTER TABLE {_t} ADD COLUMN IF NOT EXISTS "
+                            f"{_c} DOUBLE PRECISION")
+        for _t in ("invoice_items", "quotation_items"):
+            cur.execute(f"ALTER TABLE {_t} ADD COLUMN IF NOT EXISTS "
+                        f"txn_unit_price DOUBLE PRECISION")
+            cur.execute(f"ALTER TABLE {_t} ADD COLUMN IF NOT EXISTS "
+                        f"txn_tax_amount DOUBLE PRECISION")
         # 159b: existing customers keep the permission they already had — see
         # the SQLite chain for why. Guarded by the marker so it runs once: a
         # re-run would re-enable a customer an admin had deliberately stopped.

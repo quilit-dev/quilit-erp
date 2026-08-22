@@ -153,9 +153,15 @@ def test_a_plan_already_agreed_is_not_disturbed_by_withdrawing_permission(client
 
 # ── The terms travel to where they are needed ────────────────────────────────
 
-def test_the_invoice_carries_the_customers_terms(client):
+def test_the_invoice_carries_the_customers_terms(client, db):
     """The screen that offers a plan has to know whether this customer may have
     one, and what shape they usually agree to."""
+    # A customer set to euro is now INVOICED in euro, so the rate has to exist
+    # before one can be raised for them. Without it the invoice is refused —
+    # deliberately, since a euro invoice has no base value without a rate.
+    db.execute("INSERT INTO exchange_rates (currency, rate, effective_date, created_at) "
+               "VALUES ('EUR', 0.9, '2020-01-01', '2020-01-01')")
+    db.commit()
     cid = _client(client, allow_installments=True, default_installment_count=6,
                   default_installment_frequency="monthly",
                   preferred_currency="EUR")
