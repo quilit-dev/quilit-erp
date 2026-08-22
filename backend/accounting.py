@@ -226,7 +226,34 @@ def expense_account_code(category: str, db: sqlite3.Connection = None) -> str:
                 return row["account_code"]
         except Exception:
             pass
-    return CATEGORY_ACCOUNTS.get(category, OTHER_EXPENSE)
+
+    # The chart the tenant is actually on gets asked next. Lebanon's plan has
+    # one "other external charges" where this one has rent, utilities and
+    # transport separately, so its categories land differently.
+    chosen = None
+    if db is not None:
+        try:
+            import chart_lebanon
+            if code(db, "revenue") == chart_lebanon.ROLES["revenue"]:
+                chosen = chart_lebanon.CATEGORY_ACCOUNTS.get(category)
+        except Exception:
+            chosen = None
+    chosen = chosen or CATEGORY_ACCOUNTS.get(category, OTHER_EXPENSE)
+
+    # Whatever was chosen, it has to be an account this chart actually has.
+    # Otherwise an expense lands on a retired account from a chart the business
+    # left, which is exactly the drift this is meant to prevent — and it does
+    # so silently, because both sides of the entry post consistently.
+    if db is not None:
+        try:
+            live = db.execute(
+                "SELECT 1 FROM chart_of_accounts WHERE code=? AND is_active=1",
+                (chosen,)).fetchone()
+            if not live:
+                return code(db, "other_expense")
+        except Exception:
+            pass
+    return chosen
 
 
 # ── Posting ──────────────────────────────────────────────────────────────────

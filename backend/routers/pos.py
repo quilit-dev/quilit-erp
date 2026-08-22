@@ -655,7 +655,7 @@ def checkout(
             if plan is not None else
             [{"code": cash_code, "debit": grand_total,
               "memo": f"{method} ({currency})"},
-             {"code": accounting.REVENUE, "credit": grand_total}]
+             {"code": accounting.code(db, "revenue"), "credit": grand_total}]
         )
         accounting.post_entry(
             db,
@@ -727,8 +727,8 @@ def checkout(
             entry_date=now[:10],
             memo=f"POS COGS — {inv_no}",
             lines=[
-                {"code": accounting.COGS,      "debit":  cogs_total},
-                {"code": accounting.INVENTORY, "credit": cogs_total},
+                {"code": accounting.code(db, "cogs"),      "debit":  cogs_total},
+                {"code": accounting.code(db, "inventory"), "credit": cogs_total},
             ],
             source_type="pos_cogs", source_id=invoice_id, created_by=user["id"],
             branch_id=session["warehouse_id"],

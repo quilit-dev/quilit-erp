@@ -230,8 +230,8 @@ def _post_depreciation(db, asset: dict, target_period: str, user: dict, now: str
             entry_date=post_date,
             memo=f"Depreciation — {asset['name']} ({cursor})",
             lines=[
-                {"code": accounting.DEPRECIATION, "debit":  amount},
-                {"code": accounting.ACC_DEP,      "credit": amount},
+                {"code": accounting.code(db, "depreciation"), "debit":  amount},
+                {"code": accounting.code(db, "accumulated_dep"),      "credit": amount},
             ],
             source_type="depreciation", source_id=expense_id, created_by=user['id'],
         )

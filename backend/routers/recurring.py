@@ -180,9 +180,9 @@ def _post_occurrence(db, tpl, user, rows, gross, t_amt, entry_date, branch_id):
         expense_id, _date, amount, share = rows[0]
         lines = [{"code": code, "debit": share}]
         if t_amt > 0:
-            lines.append({"code": accounting.VAT_CONTROL, "debit": t_amt,
+            lines.append({"code": accounting.code(db, "vat_control"), "debit": t_amt,
                           "memo": "Input VAT"})
-        lines.append({"code": accounting.CASH, "credit": gross})
+        lines.append({"code": accounting.code(db, "cash"), "credit": gross})
         accounting.post_entry(
             db, entry_date=entry_date, memo=memo, lines=lines,
             source_type="expense", source_id=expense_id,
@@ -190,12 +190,12 @@ def _post_occurrence(db, tpl, user, rows, gross, t_amt, entry_date, branch_id):
         return
 
     net = money(sum(r[3] for r in rows))
-    pay_lines = [{"code": accounting.PREPAID, "debit": net,
+    pay_lines = [{"code": accounting.code(db, "prepaid"), "debit": net,
                   "memo": f"Paid in advance — {len(rows)} months"}]
     if t_amt > 0:
-        pay_lines.append({"code": accounting.VAT_CONTROL, "debit": t_amt,
+        pay_lines.append({"code": accounting.code(db, "vat_control"), "debit": t_amt,
                           "memo": "Input VAT"})
-    pay_lines.append({"code": accounting.CASH, "credit": gross})
+    pay_lines.append({"code": accounting.code(db, "cash"), "credit": gross})
     # Keyed on the first expense row, which is unique per occurrence and is the
     # row a reader would follow back from the ledger.
     accounting.post_entry(
@@ -209,7 +209,7 @@ def _post_occurrence(db, tpl, user, rows, gross, t_amt, entry_date, branch_id):
             db, entry_date=row_date,
             memo=f"{memo} — {row_date[:7]}",
             lines=[{"code": code, "debit": share},
-                   {"code": accounting.PREPAID, "credit": share}],
+                   {"code": accounting.code(db, "prepaid"), "credit": share}],
             source_type="expense", source_id=expense_id,
             created_by=user["id"], branch_id=branch_id)
 

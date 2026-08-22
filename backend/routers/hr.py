@@ -1600,7 +1600,7 @@ def mark_payroll_run_paid(
             )
         total_usd += amt_usd
         gl_lines.append({
-            "code": accounting.SALARIES, "debit": amt_usd,
+            "code": accounting.code(db, "salaries"), "debit": amt_usd,
             "memo": f"{ccy} {amt:,.2f}" + (f" @ {spot:,.0f}" if ccy != "USD" else ""),
         })
         cash_lines.append({

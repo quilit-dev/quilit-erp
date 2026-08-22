@@ -700,8 +700,8 @@ def complete_job(
             entry_date=now[:10],
             memo=f"Service parts — {job['job_number']}",
             lines=[
-                {"code": accounting.COGS,      "debit":  cogs_total},
-                {"code": accounting.INVENTORY, "credit": cogs_total},
+                {"code": accounting.code(db, "cogs"),      "debit":  cogs_total},
+                {"code": accounting.code(db, "inventory"), "credit": cogs_total},
             ],
             source_type="service_cogs", source_id=job_id,
             created_by=user["id"], branch_id=job["branch_id"],
@@ -830,8 +830,8 @@ def _raise_invoice(db, job, user):
     for r in lines:
         d = dict(r)
         kind = d.pop("line_type")
-        d["revenue_account"] = (accounting.REVENUE if kind == LINE_PART
-                                else accounting.SERVICE_REVENUE)
+        d["revenue_account"] = (accounting.code(db, "revenue") if kind == LINE_PART
+                                else accounting.code(db, "service_revenue"))
         items.append(SimpleNamespace(**d))
 
     return build_invoice(

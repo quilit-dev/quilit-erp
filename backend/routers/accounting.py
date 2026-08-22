@@ -742,9 +742,9 @@ def _revalue_one(db, *, currency, counted, posting_date, note, user):
     if delta > 0:
         # Gain: the notes became worth more dollars.
         lines = [{"code": acct, "debit": delta, "memo": counted_memo},
-                 {"code": accounting.FX_GAIN, "credit": delta}]
+                 {"code": accounting.code(db, "fx_gain"), "credit": delta}]
     else:
-        lines = [{"code": accounting.FX_LOSS, "debit": abs(delta),
+        lines = [{"code": accounting.code(db, "fx_loss"), "debit": abs(delta),
                   "memo": counted_memo},
                  {"code": acct, "credit": abs(delta)}]
 

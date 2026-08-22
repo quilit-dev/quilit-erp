@@ -557,9 +557,9 @@ def create_expense(
              "debit": money(gross - t_amt)},
         ]
         if t_amt > 0:
-            _exp_lines.append({"code": accounting.VAT_CONTROL, "debit": money(t_amt),
+            _exp_lines.append({"code": accounting.code(db, "vat_control"), "debit": money(t_amt),
                                "memo": "Input VAT"})
-        _exp_lines.append({"code": accounting.CASH, "credit": gross})
+        _exp_lines.append({"code": accounting.code(db, "cash"), "credit": gross})
 
         accounting.post_entry(
             db,

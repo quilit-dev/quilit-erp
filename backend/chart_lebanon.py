@@ -345,3 +345,31 @@ def status(db) -> dict:
         # the cutover ceremony, and the screen has to say so.
         "clean": posted == 0,
     }
+
+
+# Which account an expense category lands on, on this chart.
+#
+# The plan's charge accounts are coarser than the default chart's: it has one
+# "other external charges" where the default has rent, utilities, transport and
+# subscriptions as separate accounts. So several categories share an account
+# here, which is how the plan is meant to be used.
+#
+# THESE ARE A JUDGEMENT, not something the published plan states. An owner who
+# wants a category somewhere else sets it in Settings → Categories, and that
+# mapping wins over this one.
+CATEGORY_ACCOUNTS = {
+    "Labour":        "631",    # wages and salaries
+    "Salary":        "631",
+    "Materials":     "6011",   # merchandise purchases
+    "Purchase":      "6011",
+    "Equipment":     "62",     # other external charges
+    "Transport":     "62",
+    "Subcontractor": "62",
+    "Rent":          "62",
+    "Utilities":     "62",
+    "Subscription":  "62",
+    "Insurance":     "62",
+    "Permits":       "64",     # taxes, duties and similar payments
+    "Depreciation":  "6512",
+    "Other":         "661",    # other administrative charges
+}

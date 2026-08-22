@@ -449,7 +449,7 @@ def close_reconciliation(
         magnitude = round(abs(amount_usd), 2)
         if amount_usd < 0:   # till short → loss
             lines = [
-                {"code": accounting.CASH_SHORT_OVER, "debit":  magnitude,
+                {"code": accounting.code(db, "cash_short_over"), "debit":  magnitude,
                  "memo": f"Till short ({currency_label})"},
                 {"code": cash_code,                  "credit": magnitude},
             ]
@@ -457,7 +457,7 @@ def close_reconciliation(
             lines = [
                 {"code": cash_code,                  "debit":  magnitude,
                  "memo": f"Till over ({currency_label})"},
-                {"code": accounting.CASH_SHORT_OVER, "credit": magnitude},
+                {"code": accounting.code(db, "cash_short_over"), "credit": magnitude},
             ]
         accounting.post_entry(
             db, entry_date=rec["business_date"][:10],
@@ -466,9 +466,9 @@ def close_reconciliation(
             source_id=rec_id, created_by=user["id"],
         )
 
-    _post_variance(variance_usd, accounting.CASH, "USD")
+    _post_variance(variance_usd, accounting.code(db, "cash"), "USD")
     if lbp_rate and lbp_rate > 0:
-        _post_variance(round(variance_lbp / lbp_rate, 2), accounting.CASH_LBP, "LBP")
+        _post_variance(round(variance_lbp / lbp_rate, 2), accounting.code(db, "cash_lbp"), "LBP")
     # If no rate is set we skip the LBP GL post — better than picking a
     # fake rate. The till-side variance is still recorded on the
     # reconciliation row and surfaced in the notification below.

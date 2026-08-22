@@ -207,8 +207,11 @@ def test_purchase_input_vat_also_reaches_the_control_account(client, vat_rate):
     import routers.purchases as purchases_src
     import inspect
 
+    # Asserted on the ROLE, not on a constant. Naming the constant pinned the
+    # default chart's code into the source and would forbid a tenant on
+    # another chart from routing its input VAT correctly.
     src = inspect.getsource(purchases_src)
-    assert "accounting.VAT_CONTROL" in src, "purchase VAT does not reach 2100"
+    assert 'code(db, "vat_control")' in src, "purchase VAT does not reach the control account"
     assert 'accounting.OTHER_EXPENSE, "debit": tax_part' not in src
 
 
@@ -231,6 +234,7 @@ def test_all_three_posting_sites_use_the_same_account(db):
     # On the default chart all three VAT roles are the one control account.
     assert accounting.code(db, "vat_output") == accounting.VAT_CONTROL
     assert accounting.code(db, "vat_input") == accounting.VAT_CONTROL
-    # Expenses and purchases still route their input VAT to it.
-    assert "accounting.VAT_CONTROL" in inspect.getsource(finance_src)
-    assert "accounting.VAT_CONTROL" in inspect.getsource(purchases_src)
+    # Expenses and purchases route their input VAT through the same role, so
+    # they follow whichever account plays it on the tenant's own chart.
+    assert 'code(db, "vat_control")' in inspect.getsource(finance_src)
+    assert 'code(db, "vat_control")' in inspect.getsource(purchases_src)

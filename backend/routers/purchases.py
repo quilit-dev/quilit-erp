@@ -493,15 +493,15 @@ def _record_expense(purchase_id: int, db: sqlite3.Connection):
     # The GL is the accrual source of truth; the cash-basis dashboard is the
     # cash-flow view. They legitimately differ for inventory purchases.
     tax_part = money(tax_amt)
-    lines = [{"code": accounting.INVENTORY, "debit": money(gross - tax_part)}]
+    lines = [{"code": accounting.code(db, "inventory"), "debit": money(gross - tax_part)}]
     if tax_part > 0:
         # The VAT control account, not an expense: input VAT is reclaimable,
         # so it offsets what is owed rather than costing the business
         # anything. Debiting Other Expenses overstated costs and understated
         # the reclaim — the same error the sales side made in reverse.
-        lines.append({"code": accounting.VAT_CONTROL, "debit": tax_part,
+        lines.append({"code": accounting.code(db, "vat_control"), "debit": tax_part,
                       "memo": f"Input VAT — {row['po_number']}"})
-    lines.append({"code": accounting.CASH, "credit": gross})
+    lines.append({"code": accounting.code(db, "cash"), "credit": gross})
     accounting.post_entry(
         db,
         entry_date=now[:10],
