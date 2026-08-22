@@ -100,22 +100,31 @@ rate, and that is impossible once it has been mixed into the dollars.
 
     Once a month, after locking everything else, before the period lock.
 
-    1. Count the physical LBP across all drawers
-    2. Go to **Accounting → FX revaluation**, enter the counted amount
-       and the date, and save
-    3. The system marks `1010 Cash — LBP` to the current spot rate and
-       posts the delta:
-       - LBP weakened → loss → DR 6920 / CR 1010
-       - LBP strengthened → gain → DR 1010 / CR 4910
+    1. Count the physical notes you hold in each foreign currency
+    2. Go to **Accounting → FX Revaluation**, enter what you counted for each
+       currency and the date, and post
+    3. The system marks each currency's cash account to the rate in force on
+       that date and posts the difference:
+       - the currency weakened → loss → DR 6920 / CR the cash account
+       - the currency strengthened → gain → DR the cash account / CR 4910
+
+    Leave a currency blank and it is not touched — only what you counted is
+    revalued. Each currency gets its **own** journal entry, so the ledger
+    shows which one moved rather than one netted figure covering both.
+
+    The screen shows what the books said, what the notes are worth today, and
+    the difference, after posting. The entry cannot be edited afterwards, only
+    reversed — so it asks before writing.
 
 
 
-    ### The five multi-currency accounts
+    ### The multi-currency accounts
 
     | Code | Name | Role |
     |---|---|---|
     | 1000 | Cash & Bank | USD cash + bank balances |
     | 1010 | Cash — LBP | LBP cash holdings |
+    | 1020 | Cash — EUR | EUR cash holdings |
     | 4910 | Foreign Exchange Gain | Realised + unrealised gains |
     | 6910 | Cash Short & Over | Till variances |
     | 6920 | Foreign Exchange Loss | Realised + unrealised losses |

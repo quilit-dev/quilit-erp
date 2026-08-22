@@ -698,6 +698,8 @@ export const createJournalEntry   = (d)      => api.post('/api/accounting/journa
 export const reverseJournalEntry  = (id)     => api.post(`/api/accounting/journal-entries/${id}/reverse`);
 // Every posting one document produced — the other direction from the journal.
 export const getDocumentPostings  = (doc, id) => api.get(`/api/accounting/for/${doc}/${id}`);
+// Mark foreign cash to the closing rate and book the difference (IAS 21).
+export const postFxRevaluation    = (d)      => api.post('/api/accounting/fx-revaluation', d);
 export const getGeneralLedger     = (params = {}) => api.get(`/api/accounting/general-ledger${_qs(params)}`);
 export const getTrialBalance      = (params = {}) => api.get(`/api/accounting/trial-balance${_qs(params)}`);
 export const getBalanceSheet      = (params = {}) => api.get(`/api/accounting/balance-sheet${_qs(params)}`);
