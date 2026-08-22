@@ -86,6 +86,35 @@ export function currencyContext(C, opts) {
   };
 }
 
+/**
+ * A document prints in the currency it was agreed in.
+ *
+ * An invoice raised in euro says EUR 5,000, not the $5,500 the company carries
+ * it at — that dollar figure is for the company's own books and means nothing
+ * to the customer holding the paper. The record carries both, so this simply
+ * chooses the customer's side and hands back lines priced in it.
+ *
+ * Returns null when the document is in the company's own currency, which is
+ * every document raised before currencies existed and most of them after.
+ * Callers fall back to what they always did.
+ */
+export function inTransactionCurrency(doc, items, C) {
+  const code = String(doc?.currency || '').toUpperCase();
+  if (!code || code === (C?.currency || 'USD')) return null;
+  // Without per-line agreed prices the lines and the total would disagree,
+  // and a document whose lines do not add up to its total is worse than one
+  // printed in the wrong currency.
+  const priced = (items || []).map(it => (
+    it?.txn_unit_price == null ? null : {
+      ...it,
+      unit_price: it.txn_unit_price,
+      tax_amount: it.txn_tax_amount != null ? it.txn_tax_amount : it.tax_amount,
+    }
+  ));
+  if (priced.some(p => p === null)) return null;
+  return { code, items: priced };
+}
+
 export const fmtDate = (d) => {
   if (!d) return '—';
   const dt = new Date(d);
@@ -523,10 +552,15 @@ function totalWordsHTML(theme, total, CC, C) {
 /** The quotation document as an HTML string — see buildInvoiceHTML. */
 export function buildQuotationHTML(quotation, settings, logoDataURL = null, opts = {}) {
   const C  = buildCompany(settings);
-  const CC = currencyContext(C, opts);
+  const txn = inTransactionCurrency(quotation, quotation.items || [], C);
+  const CC  = txn
+    ? { useLbp: false, rate: 1, code: txn.code,
+        money: (v) => fmtCurrency(Number(v) || 0, txn.code),
+        conv:  (v) => Number(v) || 0 }
+    : currencyContext(C, opts);
   USD = CC.money;
 
-  const items          = quotation.items || [];
+  const items          = txn ? txn.items : (quotation.items || []);
   const docDiscountPct = Number(quotation.discount_pct || 0);
   const { subtotal, totalDiscount, totalTax, grandTotal } = aggregateLines(items, C, docDiscountPct);
 
@@ -639,15 +673,26 @@ export async function exportQuotationPDF(quotation, opts = {}) {
  */
 export function buildInvoiceHTML(invoice, settings, logoDataURL = null, opts = {}) {
   const C  = buildCompany(settings);
-  const CC = currencyContext(C, opts);
+  // A document raised in another currency prints in that one. The company's
+  // "show everything in pounds" toggle is a view over ITS OWN figures and does
+  // not apply — converting a euro invoice through a pound rate would produce a
+  // number nobody agreed to.
+  const txn = inTransactionCurrency(invoice, invoice.items || [], C);
+  const CC  = txn
+    ? { useLbp: false, rate: 1, code: txn.code,
+        money: (v) => fmtCurrency(Number(v) || 0, txn.code),
+        conv:  (v) => Number(v) || 0 }
+    : currencyContext(C, opts);
   USD = CC.money;
 
-  const items          = invoice.items    || [];
+  const items          = txn ? txn.items : (invoice.items || []);
   const payments       = invoice.payments || [];
   const docDiscountPct = Number(invoice.discount_pct || 0);
   const { subtotal, totalDiscount, totalTax, grandTotal } = aggregateLines(items, C, docDiscountPct);
 
-  const paid    = payments.reduce((s, p) => s + (Number(p.amount) || 0), 0);
+  // What the customer has paid, in the money they paid it in.
+  const paid    = payments.reduce(
+    (s, p) => s + (Number(txn ? (p.txn_amount ?? p.amount) : p.amount) || 0), 0);
   const balance = Math.max(0, grandTotal - paid);
   const isPaid  = balance < 0.01;
   const status  = invoice.payment_status || (isPaid ? 'Paid' : paid > 0 ? 'Partial' : 'Unpaid');

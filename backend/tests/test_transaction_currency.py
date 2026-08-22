@@ -397,3 +397,66 @@ def test_a_dollar_quote_converts_exactly_as_it_always_did(client, dollar_custome
     inv = client.get(f"/api/invoices/{r.json()['invoice_id']}").json()
     assert inv["currency"] == "USD"
     assert inv["amount"] == _pytest.approx(750)
+
+
+# ── The company reports in its own currency ──────────────────────────────────
+#
+# The other half of the architecture. A dashboard covering customers in three
+# currencies is meaningless unless every figure on it is in one — and that one
+# is the company's. These tests exist because "the base columns are unchanged,
+# so the reports must be right" is a claim, not evidence.
+
+def test_the_financial_report_counts_the_dollar_value(client, euro_customer):
+    """EUR 5,000 invoiced is USD 5,500 of business done."""
+    inv = _id(_invoice(client, euro_customer, 5000))
+    _pay(client, inv, 5000)
+
+    body = client.get("/api/reports/financial",
+                      params={"start": "2000-01-01", "end": "2099-12-31"}).json()
+
+    assert body["total_income"] == _pytest.approx(5500, abs=0.02)
+
+
+def test_the_client_report_counts_the_dollar_value(client, euro_customer):
+    inv = _id(_invoice(client, euro_customer, 5000))
+    _pay(client, inv, 5000)
+
+    rows = client.get("/api/reports/clients",
+                      params={"start": "2000-01-01", "end": "2099-12-31"}).json()
+
+    row = next(r for r in rows if r["id"] == euro_customer)
+    assert row["total_invoiced"] == _pytest.approx(5500, abs=0.02)
+    assert row["total_paid"] == _pytest.approx(5500, abs=0.02)
+
+
+def test_two_currencies_aggregate_into_one(client, euro_customer, dollar_customer):
+    """The whole reason for a base currency: these figures have to be
+    addable, and 5,000 euro plus 1,000 dollars is not 6,000 of anything."""
+    _invoice(client, euro_customer, 5000)      # 5,500 in base
+    _invoice(client, dollar_customer, 1000)    # 1,000 in base
+
+    rows = client.get("/api/reports/clients",
+                      params={"start": "2000-01-01", "end": "2099-12-31"}).json()
+
+    total = sum(r["total_invoiced"] for r in rows)
+    assert total == _pytest.approx(6500, abs=0.02)
+
+
+def test_the_aging_report_ages_the_dollar_value(client, euro_customer):
+    _invoice(client, euro_customer, 5000)
+
+    body = client.get("/api/reports/invoice-aging").json()
+
+    owed = sum(b["total"] for b in body["summary"].values())
+    assert owed == _pytest.approx(5500, abs=0.02)
+
+
+def test_the_trial_balance_is_in_one_currency(client, euro_customer):
+    """Nothing on the face of the books is in euro, and it balances."""
+    _invoice(client, euro_customer, 5000)
+
+    tb = client.get("/api/accounting/trial-balance").json()
+
+    assert tb["balanced"]
+    ar = next(r for r in tb["rows"] if r["code"] == "1100")
+    assert float(ar["debit"]) == _pytest.approx(5500, abs=0.02)
