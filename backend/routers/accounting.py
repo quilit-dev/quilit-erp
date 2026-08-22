@@ -19,6 +19,7 @@ from utils import _now
 import accounting
 import branch_access
 import currency as currency_mod
+import fx_differences
 import gl_source
 import sqlite3
 
@@ -648,7 +649,7 @@ def _revalue_one(db, *, currency, counted, posting_date, note, user):
 
     result = {"currency": currency, "rate": spot, "book_usd": book_usd,
               "counted_usd": counted_usd, "delta": delta,
-              "journal_entry_id": None}
+              "journal_entry_id": None, "run_id": None}
     if abs(delta) < 0.01:
         return result
 
@@ -665,12 +666,106 @@ def _revalue_one(db, *, currency, counted, posting_date, note, user):
                   "memo": counted_memo},
                  {"code": acct, "credit": abs(delta)}]
 
+    # The run is recorded first so the entry can point at it. Without a source
+    # id the only trace of why the books moved was a memo string, which cannot
+    # be reconciled, reversed by reference, or explained at year end.
+    run = db.execute(
+        "INSERT INTO fx_revaluation_runs "
+        "(currency, account_code, counted_amount, exchange_rate, book_base, "
+        " counted_base, difference, as_of, note, created_at, created_by) "
+        "VALUES (?,?,?,?,?,?,?,?,?,?,?)",
+        (currency, acct, float(counted), spot, book_usd, counted_usd, delta,
+         posting_date, note, accounting._now(), user["id"]))
+    run_id = run.lastrowid
+
     # Each currency posts its own entry, so a reader sees which currency moved
     # rather than one netted figure covering two.
-    result["journal_entry_id"] = accounting.post_entry(
+    je_id = accounting.post_entry(
         db, entry_date=posting_date, memo=memo, lines=lines,
-        source_type="fx_revaluation", source_id=None, created_by=user["id"])
+        source_type="fx_revaluation", source_id=run_id, created_by=user["id"])
+    db.execute("UPDATE fx_revaluation_runs SET journal_entry_id=? WHERE id=?",
+               (je_id, run_id))
+    result["journal_entry_id"] = je_id
+    result["run_id"] = run_id
     return result
+
+
+@router.get("/fx-differences")
+def list_fx_differences(
+    start:           Optional[str] = None,
+    end:             Optional[str] = None,
+    currency:        Optional[str] = None,
+    kind:            Optional[str] = None,    # realized | unrealized
+    direction:       Optional[str] = None,    # gain | loss
+    client_id:       Optional[int] = None,
+    project_id:      Optional[int] = None,
+    account_code:    Optional[str] = None,
+    bank_account_id: Optional[int] = None,
+    status:          Optional[str] = None,    # reconciled | open | posted | reversed
+    user=Depends(require_perm("accounting", "view")),
+    db: sqlite3.Connection = Depends(get_db),
+):
+    """Every currency difference in the books, with what produced it.
+
+    Each row carries the whole chain: the document, the currency and amount it
+    was agreed in, the rate it was recognised at, what that was worth in the
+    company's currency, the rate at settlement or revaluation, what it was
+    worth then, the difference, and the entry that carried it.
+    """
+    return fx_differences.collect(
+        db, start=start, end=end, currency=currency, kind=kind,
+        direction=direction, client_id=client_id, project_id=project_id,
+        account_code=account_code, bank_account_id=bank_account_id,
+        status=status)
+
+
+class ReconcileBody(BaseModel):
+    note: Optional[str] = None
+    undo: bool = False
+
+
+@router.post("/fx-differences/{kind}/{ref_id}/reconcile")
+def reconcile_fx_difference(
+    kind: str,
+    ref_id: int,
+    data: ReconcileBody,
+    user=Depends(require_perm("accounting", "edit")),
+    db: sqlite3.Connection = Depends(get_db),
+):
+    """Mark that an accountant has read this difference, or unmark it.
+
+    Deliberately NOT an accounting action. The difference was posted when it
+    arose and this does not touch it: signing one off records that a person
+    looked, which is what a period-end review produces. Nothing is written to
+    the transaction that created it.
+    """
+    if kind not in (fx_differences.REALIZED, fx_differences.UNREALIZED):
+        raise HTTPException(404, "Unknown difference type")
+
+    if data.undo:
+        db.execute("DELETE FROM fx_reconciliations WHERE kind=? AND ref_id=?",
+                   (kind, ref_id))
+        log_action(db, user, "fx_unreconcile", "accounting", ref_id, kind)
+        db.commit()
+        return {"reconciled": False}
+
+    existing = db.execute(
+        "SELECT id FROM fx_reconciliations WHERE kind=? AND ref_id=?",
+        (kind, ref_id)).fetchone()
+    if existing:
+        db.execute("UPDATE fx_reconciliations SET note=?, reconciled_at=?, "
+                   "reconciled_by=? WHERE id=?",
+                   (data.note, _now(), user["id"], existing["id"]))
+    else:
+        db.execute(
+            "INSERT INTO fx_reconciliations "
+            "(kind, ref_id, status, note, reconciled_at, reconciled_by) "
+            "VALUES (?,?,'reconciled',?,?,?)",
+            (kind, ref_id, data.note, _now(), user["id"]))
+    log_action(db, user, "fx_reconcile", "accounting", ref_id, kind,
+               {"note": data.note})
+    db.commit()
+    return {"reconciled": True}
 
 
 @router.post("/fx-revaluation")

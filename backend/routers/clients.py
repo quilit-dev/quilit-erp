@@ -563,6 +563,7 @@ def record_customer_payment(
     # a voided one is not owed.
     open_invoices = db.execute(
         """SELECT i.id, i.invoice_number, i.amount, i.branch_id,
+                  i.currency, i.exchange_rate,
                   COALESCE((SELECT SUM(p.amount) FROM invoice_payments p
                             WHERE p.invoice_id = i.id), 0) AS paid
              FROM invoices i
@@ -573,14 +574,41 @@ def record_customer_payment(
 
     owing = [(r, money(float(r["amount"]) - float(r["paid"]))) for r in open_invoices]
     owing = [(r, d) for r, d in owing if d > 0.005]
+
+    # What is owed, expressed in the money the customer is handing over. An
+    # invoice raised in euro is owed in euro: what clears it is 5,000 euro, not
+    # whatever 5,000 euro happens to be worth in dollars today. Allocating in
+    # base would leave a foreign invoice a few dollars short of settled every
+    # time the rate had moved since it was raised.
+    def _needed(row, due_base):
+        """What is owed on this invoice, counted in the money being handed over.
+
+        Both branches convert INTO the tender currency. Returning the base
+        figure when the currencies differ compares pounds against dollars: a
+        million pounds against a hundred-dollar invoice reads as an
+        overpayment when it is ten dollars of it.
+        """
+        inv_cur = (row["currency"] or denomination.base_currency()).upper()
+        tender = (data.currency or "USD").upper()
+        if inv_cur == tender:
+            # The debt is denominated in what they are paying, so it is
+            # cleared at the rate it was raised at.
+            return money(due_base * float(row["exchange_rate"] or 1))
+        # Paid in something else: the debt is cleared at what the money is
+        # worth today, so the base figure converts at the tender's own rate.
+        return money(due_base * float(rate or 1))
+
+    owed_in_tender = money(sum(_needed(r, d) for r, d in owing))
     total_owed = money(sum(d for _, d in owing))
 
     if not owing:
         raise HTTPException(400, f"{row['name']} has nothing outstanding.")
-    if usd > total_owed + 0.005:
+    # Measured in what they are handing over, for the same reason.
+    if money(data.amount) > owed_in_tender + 0.005:
         raise HTTPException(
             400,
-            f"{money(usd):,.2f} is more than the {total_owed:,.2f} outstanding. "
+            f"{money(data.amount):,.2f} is more than the "
+            f"{owed_in_tender:,.2f} outstanding. "
             "Reduce the amount, or raise an invoice for the difference first.")
 
     # The payment itself, before its allocations. A customer handed over one
@@ -596,28 +624,43 @@ def record_customer_payment(
          rate, data.method, data.note, _now(), user["id"]))
     batch_id = batch_cur.lastrowid
 
-    left, allocated = usd, []
+    # Walked in the currency the customer is handing over, oldest first.
+    left_tender, allocated = money(data.amount), []
     for inv, due in owing:
-        if left <= 0.005:
+        if left_tender <= 0.005:
             break
-        take = money(min(left, due))
-        left = money(left - take)
+        take_tender = money(min(left_tender, _needed(inv, due)))
+        left_tender = money(left_tender - take_tender)
+
+        # What that slice settles, and what it costs in exchange. On an invoice
+        # in the company's own currency every figure is the number this code
+        # always used.
+        try:
+            s = denomination.settle(
+                db,
+                invoice_currency=inv["currency"],
+                invoice_rate=inv["exchange_rate"],
+                tender_currency=(data.currency or "USD").upper(),
+                tender_amount=take_tender, tender_rate=rate, on_date=_now()[:10])
+        except denomination.RateUnavailable as e:
+            raise HTTPException(400, str(e))
+
         # Per-invoice rows, so every balance and statement in the system keeps
         # reading the same way it always has.
         pay_cur = db.execute(
             "INSERT INTO invoice_payments "
             "(invoice_id, amount, method, note, paid_at, idempotency_key, "
             " paid_currency, paid_amount, exchange_rate, cash_drawer_id, "
-            " bank_account_id, customer_payment_id) "
-            "VALUES (?,?,?,?,?,?,?,?,?,?,?,?)",
-            (inv["id"], take, data.method, data.note, _now(),
+            " bank_account_id, customer_payment_id, txn_amount, fx_difference) "
+            "VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?)",
+            (inv["id"], s["obligation_base"], data.method, data.note, _now(),
              # Only the first row carries the key: it identifies the operator's
              # single submission, and the column is unique.
              data.idempotency_key if not allocated else None,
              (data.currency or "USD").upper(),
-             currency_mod.from_usd(take, data.currency, db, data.exchange_rate)
-             if (data.currency or "USD").upper() != "USD" else take,
-             rate, data.cash_drawer_id, data.bank_account_id, batch_id))
+             take_tender,
+             rate, data.cash_drawer_id, data.bank_account_id, batch_id,
+             s["txn_settled"], s["fx_difference"]))
         accounting.post_entry(
             db,
             entry_date=_now()[:10],
@@ -627,10 +670,12 @@ def record_customer_payment(
                 cash_code=accounting.money_account_for(
                     db, method=data.method, currency=data.currency,
                     bank_account_id=data.bank_account_id),
-                amount=take,
+                amount=s["cash_base"],
+                obligation=s["obligation_base"],
                 method_memo=f"{data.method} ({(data.currency or 'USD').upper()})"),
             source_type="invoice_payment", source_id=pay_cur.lastrowid,
             created_by=user["id"], branch_id=inv["branch_id"])
+        take = s["obligation_base"]
         allocated.append({
             "invoice_id": inv["id"], "invoice_number": inv["invoice_number"],
             "applied": take, "was_owing": due,

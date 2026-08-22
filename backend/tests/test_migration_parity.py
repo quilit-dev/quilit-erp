@@ -71,6 +71,9 @@ _REQUIRED_TABLES = [
     "stock_reservations",
     # One payment, however many invoices it settled.
     "customer_payments",
+    # Currency differences an accountant can work with.
+    "fx_revaluation_runs",
+    "fx_reconciliations",
 ]
 
 

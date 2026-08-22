@@ -181,6 +181,60 @@ rate, and that is impossible once it has been mixed into the dollars.
 
 ---
 
+## Currency Differences — closing a period
+
+**Accounting → Currency Differences.** Every difference the books contain, with
+what produced it.
+
+Two kinds, and the screen keeps them apart because they mean different things:
+
+| | What it means |
+|---|---|
+| **Realised** | The money arrived. An invoice raised at one rate and settled at another brought in more or less cash than the claim was carried at, and the company genuinely has that much more or less. |
+| **Unrealised** | Nothing moved. Foreign notes you are holding are worth something different today than when they came in, and that reverses the moment the rate does. |
+
+Adding them into one figure would misstate what the period actually earned, so
+the totals are reported separately.
+
+### What a row tells you
+
+Open any row and it walks the chain in the order it happened:
+
+1. **Document** — the invoice, or the account that was revalued
+2. **Agreed amount** — the currency and figure the customer agreed
+3. **Rate when recognised** — and the value that gave in your own currency
+4. **Rate at settlement or revaluation** — and the value at that rate
+5. **Difference** — the gap between those two values
+6. **Posted as** — the journal entry that carried it, with a link to it
+
+Both rates are shown together in the list for the same reason: the difference
+*is* the gap between them, and one without the other says nothing.
+
+### Filtering
+
+Date range, kind (realised or unrealised), currency, gain or loss, customer,
+and status — still to review, reviewed, or reversed. **Clear** resets them all.
+The list exports to Excel and PDF exactly as shown.
+
+### Marking one reviewed
+
+**This is not an accounting action.** The difference was posted when it arose,
+and marking it records that a person has read it — nothing is posted, and the
+transaction that produced it is not touched. It can be undone, and it carries
+your name, the date, and any note you leave.
+
+The **Still to review** tile is the number you work down to zero at period end.
+
+### What does not appear here
+
+- A settlement at the same rate it was recognised at. Nothing moved, so there
+  is nothing to reconcile, and a row reading zero is noise in the one place
+  noise is most expensive.
+- Supplier differences. Purchase costs convert when they are entered and are
+  carried in your own currency from that point, so no difference arises later.
+
+---
+
 ## "My customer has an account in euro"
 
 Two different things go by that name, and only one of them is supported.

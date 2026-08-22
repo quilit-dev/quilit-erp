@@ -581,3 +581,78 @@ def test_a_project_invoice_is_billed_in_the_customers_currency(client, euro_cust
     assert body["currency"] == "EUR"
     assert body["txn_amount"] == _pytest.approx(2000)
     assert body["amount"] == _pytest.approx(2200, abs=0.02)
+
+
+# ── Paying the account, not the invoice ──────────────────────────────────────
+
+def test_paying_the_account_in_euro_clears_a_euro_invoice(client, euro_customer, db):
+    """The "pay the account" screen settles oldest first. It has to reach zero
+    on a foreign invoice exactly as the per-invoice screen does — for a while
+    it relieved the claim at the cash value and left a residue behind."""
+    inv = _id(_invoice(client, euro_customer, 5000))
+    db.execute("INSERT INTO exchange_rates (currency, rate, effective_date, created_at) "
+               "VALUES ('EUR', 0.952381, '2026-01-01', '2026-01-01')")
+    db.commit()
+
+    r = client.post(f"/api/clients/{euro_customer}/payments", json={
+        "amount": 5000, "currency": "EUR", "exchange_rate": 0.952381,
+        "method": "Cash", "idempotency_key": str(uuid.uuid4())})
+
+    assert r.status_code == 200, r.text
+    assert client.get(f"/api/invoices/{inv}").json()["remaining"] == _pytest.approx(0, abs=0.01)
+
+
+def test_the_account_payment_books_the_difference_too(client, euro_customer, db):
+    inv = _id(_invoice(client, euro_customer, 5000))
+    db.execute("INSERT INTO exchange_rates (currency, rate, effective_date, created_at) "
+               "VALUES ('EUR', 0.952381, '2026-01-01', '2026-01-01')")
+    db.commit()
+
+    client.post(f"/api/clients/{euro_customer}/payments", json={
+        "amount": 5000, "currency": "EUR", "exchange_rate": 0.952381,
+        "method": "Cash", "idempotency_key": str(uuid.uuid4())})
+
+    row = db.execute("SELECT * FROM invoice_payments WHERE invoice_id=?", (inv,)).fetchone()
+    assert row["fx_difference"] == _pytest.approx(-250, abs=0.02)
+    assert client.get("/api/accounting/trial-balance").json()["balanced"]
+
+
+def test_the_overpayment_guard_speaks_the_customers_currency(client, euro_customer):
+    """They owe 5,000 euro. Handing over 5,000 euro must not be refused for
+    being more than the dollars the claim is carried at."""
+    _invoice(client, euro_customer, 5000)
+
+    r = client.post(f"/api/clients/{euro_customer}/payments", json={
+        "amount": 5000, "currency": "EUR", "method": "Cash",
+        "idempotency_key": str(uuid.uuid4())})
+
+    assert r.status_code == 200, r.text
+
+
+def test_paying_a_dollar_account_is_unchanged(client, dollar_customer):
+    inv = _id(_invoice(client, dollar_customer, 300))
+
+    r = client.post(f"/api/clients/{dollar_customer}/payments", json={
+        "amount": 300, "currency": "USD", "method": "Cash",
+        "idempotency_key": str(uuid.uuid4())})
+
+    assert r.status_code == 200, r.text
+    assert client.get(f"/api/invoices/{inv}").json()["remaining"] == _pytest.approx(0)
+
+
+def test_paying_a_dollar_invoice_in_pounds_is_not_read_as_overpayment(client, db):
+    """A million pounds against a hundred-dollar invoice is ten dollars of it.
+    Comparing the tender figure against the base one refused it outright."""
+    db.execute("INSERT INTO exchange_rates (currency, rate, effective_date, created_at) "
+               "VALUES ('LBP', 100000, '2020-01-01', '2020-01-01')")
+    db.commit()
+    cid = client.post("/api/clients/", json={"name": "Pound Payer"}).json()["id"]
+    inv = _id(_invoice(client, cid, 100))
+
+    r = client.post(f"/api/clients/{cid}/payments", json={
+        "amount": 1_000_000, "currency": "LBP", "exchange_rate": 100000,
+        "method": "Cash", "idempotency_key": str(uuid.uuid4())})
+
+    assert r.status_code == 200, r.text
+    # Ten dollars of a hundred settled, ninety still owed.
+    assert client.get(f"/api/invoices/{inv}").json()["remaining"] == _pytest.approx(90, abs=0.01)

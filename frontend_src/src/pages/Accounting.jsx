@@ -40,6 +40,7 @@ import { IncomeStatement, BalanceSheet } from './accounting/Statements';
 import { CashFlow } from './accounting/CashFlow';
 import { YearEnd, MonthlyPeriods } from './accounting/Closing';
 import { Revaluation } from './accounting/Revaluation';
+import { FxDifferences } from './accounting/FxDifferences';
 
 export default function Accounting() {
   const { t, fmt, fmtDate, tAccount, tEnumValue } = useLocale();
@@ -69,6 +70,7 @@ export default function Accounting() {
     ['incomeStatement', t('accounting.incomeStatement')],
     ['balanceSheet', t('accounting.balanceSheet')],
     ['cashFlow', t('accounting.cashFlow')],
+    ['fxDifferences', t('fx.title')],
     ['revaluation', t('accounting.fxRevaluation')],
     ['closing', t('accounting.closing')],
   ];
@@ -98,6 +100,7 @@ export default function Accounting() {
       {tab === 'incomeStatement' && <IncomeStatement t={t} tAccount={tAccount} fmt={fmt} />}
       {tab === 'balanceSheet' && <BalanceSheet t={t} tAccount={tAccount} fmt={fmt} />}
       {tab === 'cashFlow' && <CashFlow t={t} tAccount={tAccount} fmt={fmt} />}
+      {tab === 'fxDifferences' && <FxDifferences t={t} fmt={fmt} fmtDate={fmtDate} can={can} />}
       {tab === 'revaluation' && <Revaluation t={t} fmt={fmt} can={can} />}
       {tab === 'closing' && <>
         <YearEnd t={t} fmt={fmt} can={can} />
