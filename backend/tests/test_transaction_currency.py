@@ -503,3 +503,81 @@ def test_a_service_job_for_a_dollar_customer_is_unchanged(client, dollar_custome
     inv = client.get(f"/api/invoices/{done.json()['invoice']['invoice_id']}").json()
     assert inv["currency"] == "USD"
     assert inv["amount"] == _pytest.approx(300)
+
+
+# ── The till ─────────────────────────────────────────────────────────────────
+
+def _till(client):
+    client.post("/api/pos/session/open", json={"opening_float": 0})
+    return client
+
+
+def _sku(client, price=1100):
+    return client.post("/api/inventory/", json={
+        "name": "Till Goods", "quantity": 50, "unit_price": price,
+        "unit_cost": 100, "category": "Goods"}).json()["id"]
+
+
+def _checkout(client, sku, cid=None, qty=1, price=1100):
+    return client.post("/api/pos/checkout", json={
+        "client_id": cid,
+        "items": [{"name": "Till Goods", "inventory_id": sku,
+                   "quantity": qty, "unit_price": price}],
+        "payment_method": "Cash", "currency": "USD",
+        "amount_tendered": price * qty,
+        "idempotency_key": str(uuid.uuid4())})
+
+
+def test_a_till_sale_to_a_euro_customer_is_billed_in_euro(client, euro_customer):
+    """Their account is in euro, so the sale on it is too — even though the
+    cash that crossed the counter was dollars."""
+    till, sku = _till(client), _sku(client)
+
+    r = _checkout(till, sku, euro_customer)
+    assert r.status_code == 200, r.text
+
+    inv = client.get(f"/api/invoices/{r.json()['invoice_id']}").json()
+    assert inv["currency"] == "EUR"
+    assert inv["txn_amount"] == _pytest.approx(1000, abs=0.02)
+    assert inv["amount"] == _pytest.approx(1100, abs=0.02)
+
+
+def test_a_walk_in_sale_is_untouched(client):
+    """No customer, no currency of their own — which is nearly every sale the
+    shop makes, and none of it changes."""
+    till, sku = _till(client), _sku(client)
+
+    r = _checkout(till, sku)
+
+    inv = client.get(f"/api/invoices/{r.json()['invoice_id']}").json()
+    assert inv["currency"] == "USD"
+    assert inv["amount"] == _pytest.approx(1100)
+
+
+def test_the_till_still_takes_dollars_and_the_books_still_balance(
+        client, euro_customer):
+    """The drawer counts dollars and pounds. Billing in euro does not change
+    what physically went in it."""
+    till, sku = _till(client), _sku(client)
+
+    _checkout(till, sku, euro_customer)
+
+    closed = till.post("/api/pos/session/close", json={"closing_count": 1100}).json()
+    assert closed["expected_cash"] == _pytest.approx(1100)
+    assert client.get("/api/accounting/trial-balance").json()["balanced"]
+
+
+def test_a_project_invoice_is_billed_in_the_customers_currency(client, euro_customer):
+    """Projects need nothing of their own: an invoice raised against one goes
+    through the same constructor as any other, so it carries the customer's
+    currency. Their estimated and actual cost are the company's own figures and
+    belong in the company's own currency."""
+    proj = client.post("/api/projects/", json={
+        "name": "Euro Project", "client_id": euro_customer}).json()["id"]
+
+    inv = _id(_invoice(client, euro_customer, 2000, project_id=proj))
+
+    body = client.get(f"/api/invoices/{inv}").json()
+    assert body["currency"] == "EUR"
+    assert body["txn_amount"] == _pytest.approx(2000)
+    assert body["amount"] == _pytest.approx(2200, abs=0.02)

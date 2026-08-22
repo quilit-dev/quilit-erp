@@ -29,6 +29,7 @@ from utils import _now, _today, notify, get_tax_context, resolve_inclusive_tax, 
 import costing
 import lots
 import accounting
+import denomination
 import installments
 import reservations
 import branch_access
@@ -538,6 +539,28 @@ def checkout(
 
     now, today = _now(), _today()
 
+    # A till sale to a customer with a currency of their own is billed in it.
+    # The prices came off the company's price list, in the company's currency,
+    # so the customer's figure is derived from the base one at today's rate —
+    # the same way a service job works, and the opposite way round from an
+    # operator typing a negotiated price.
+    #
+    # A walk-in has no currency, so nothing changes for the overwhelming
+    # majority of sales.
+    doc_currency = None
+    if data.client_id is not None:
+        _c = db.execute("SELECT preferred_currency FROM clients WHERE id=?",
+                        (data.client_id,)).fetchone()
+        doc_currency = _c["preferred_currency"] if _c else None
+    try:
+        inv_currency, inv_rate = denomination.resolve(
+            db, doc_currency, on_date=today)
+    except denomination.RateUnavailable as e:
+        raise HTTPException(400, str(e))
+    txn_total    = denomination.to_txn(grand_total, inv_rate)
+    txn_subtotal = denomination.to_txn(subtotal, inv_rate)
+    txn_tax      = denomination.to_txn(tax_total, inv_rate)
+
     # 9. Invoice (amount = the VAT-inclusive total the customer pays).
     #    Insert with a placeholder number, then derive the real number from the
     #    new row's id — collision-free under concurrent checkouts (see
@@ -545,10 +568,12 @@ def checkout(
     from routers.invoices import _placeholder_invoice_number, _finalize_invoice_number
     cur = db.execute(
         "INSERT INTO invoices "
-        "(invoice_number, client_id, amount, subtotal, tax_total, due_date, notes, created_at, version, branch_id) "
-        "VALUES (?,?,?,?,?,?,?,?,1,?)",
+        "(invoice_number, client_id, amount, subtotal, tax_total, due_date, notes, created_at, version, branch_id, "
+        " currency, exchange_rate, txn_amount, txn_subtotal, txn_tax_total) "
+        "VALUES (?,?,?,?,?,?,?,?,1,?,?,?,?,?,?)",
         (_placeholder_invoice_number(), data.client_id, grand_total, subtotal, tax_total, today,
-         data.note or "POS sale", now, session["warehouse_id"]),
+         data.note or "POS sale", now, session["warehouse_id"],
+         inv_currency, inv_rate, txn_total, txn_subtotal, txn_tax),
     )
     invoice_id = cur.lastrowid
     # POS draws from the SAME series as every other invoice now. Its origin is
@@ -570,10 +595,13 @@ def checkout(
         ln = lines[idx]
         ic = db.execute(
             "INSERT INTO invoice_items "
-            "(invoice_id, name, quantity, unit_price, tax_rate_id, tax_rate, tax_amount, discount) "
-            "VALUES (?,?,?,?,?,?,?,?)",
+            "(invoice_id, name, quantity, unit_price, tax_rate_id, tax_rate, tax_amount, discount, "
+            " txn_unit_price, txn_tax_amount) "
+            "VALUES (?,?,?,?,?,?,?,?,?,?)",
             (invoice_id, it.name, it.quantity, ln["net_unit"],
-             ln["rid"], ln["rate"], ln["tax_amt"], ln["discount"]),
+             ln["rid"], ln["rate"], ln["tax_amt"], ln["discount"],
+             denomination.to_txn(ln["net_unit"], inv_rate),
+             denomination.to_txn(ln["tax_amt"], inv_rate)),
         )
         invoice_item_ids.append(ic.lastrowid)
 

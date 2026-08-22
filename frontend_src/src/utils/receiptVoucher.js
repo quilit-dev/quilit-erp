@@ -17,6 +17,7 @@
  */
 import {
   SHARED_CSS, buildCompany, currencyContext, fmtDate, printHTML,
+  inTransactionCurrency, fmtCurrency,
   getLogoDataURL, getSettings, saveDocumentSnapshot,
 } from './exportUtils';
 import { themeFor } from './documentThemes';
@@ -140,13 +141,23 @@ const RV_CSS = `
  */
 export function buildReceiptVoucherHTML(invoice, voucher, settings, logoDataURL = null, opts = {}) {
   const C     = buildCompany(settings);
-  const CC    = currencyContext(C, opts);
+  // A receipt is the customer's proof of what they paid, so it is written in
+  // the money they were billed in. The company's pound-display toggle is a
+  // view over the company's own figures and does not reach a foreign document.
+  const txn   = inTransactionCurrency(invoice, invoice.items || [], C);
+  const CC    = txn
+    ? { useLbp: false, rate: 1, code: txn.code,
+        money: (v) => fmtCurrency(Number(v) || 0, txn.code),
+        conv:  (v) => Number(v) || 0 }
+    : currencyContext(C, opts);
   const theme = themeFor(settings);
 
   const payments = (invoice.payments || []).slice().sort(
     (a, b) => String(a.paid_at || '').localeCompare(String(b.paid_at || '')));
-  const paid  = payments.reduce((s, p) => s + (Number(p.amount) || 0), 0);
-  const total = Number(invoice.amount) || 0;
+  const paid  = payments.reduce(
+    (s, p) => s + (Number(txn ? (p.txn_amount ?? p.amount) : p.amount) || 0), 0);
+  const total = Number(txn ? (invoice.txn_amount ?? invoice.amount)
+                           : invoice.amount) || 0;
   const balance = Math.max(0, total - paid);
 
   // The words describe the figure the voucher PRINTS, which is the converted

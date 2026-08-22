@@ -1,7 +1,8 @@
-# Multi-currency receivables — a future project
+# Multi-currency receivables
 
-**Status: IN PROGRESS.** Activated 2026-08-22. The storage architecture and the
-invoice are built; the rest of the lifecycle follows. See "Where it stands".
+**Status: BUILT.** Activated and delivered 2026-08-22. The commercial lifecycle
+carries a transaction currency end to end and the company reports in its own.
+See "Where it stands" for what is done and the two things deliberately left.
 
 This records the agreed direction so whoever picks it up does not have to
 re-derive it, and so nobody bolts half of it onto the invoice table in passing.
@@ -159,14 +160,51 @@ number, which is why nothing already on the books changes.
   quotation is not a transaction, so the sale is valued at the rate on the day
   it is invoiced, not the day it was offered.
 
-Still to do:
+### Two kinds of foreign-currency sale
 
-- Service jobs and projects (columns exist for service, not wired).
-- POS — a till sale in a foreign currency. Note the register counts dollars
-  and pounds at close, so foreign tender at the till needs the drawer to
-  learn the currency first.
-- Printed documents — the invoice PDF and the receipt voucher, in the
-  transaction currency. `exportUtils.fmtCurrency` already takes a currency
-  and handles minor units, so this is feeding it the document's own.
-- Reports and dashboards: confirm every aggregate reads base, and label any
-  customer-facing list that mixes currencies.
+They run in opposite directions and confusing them misprices everything.
+
+**Negotiated** — an operator types "€5,000" on an invoice or a quotation. The
+customer's figure is the ORIGINAL; the base value is derived from it.
+
+**Off the price list** — a service job's parts, a till sale. Nobody types euro:
+the price auto-fills from the company's own list, in the company's own
+currency. The BASE figure is the original and the customer's is derived, at the
+day's rate — which is what any business with a dollar price list does when it
+bills a European customer.
+
+`build_invoice(prices_in_base=...)` says which. Getting it backwards on service
+jobs would have labelled dollar price-list figures as euro: a ten per cent
+overcharge on every euro job, invisible, because the printed number looks
+perfectly plausible.
+
+## Where it stands
+
+Built and tested end to end:
+
+- Storage on invoices, quotations, service jobs and their lines, in both
+  backends, covered by the migration parity guard.
+- `denomination.py` — resolving a currency, locking a rate, and settling.
+- Invoices, quotations, service jobs, POS sales and project billing all raised
+  in the customer's currency.
+- Realised FX on settlement, relieving the receivable at the recognition rate.
+- The statement of account, the printed invoice, the printed quotation and the
+  receipt voucher, all in the customer's currency.
+- Reports, aging and the trial balance aggregating in base — with tests, not
+  assertions.
+
+Deliberately not done:
+
+- **Foreign tender at the till.** The register counts dollars and pounds at
+  close, so accepting euro notes would create a drawer balance nobody counts.
+  Billing a euro customer at the till works; they pay in dollars or pounds.
+- **A configurable base currency.** `default_currency` in settings is a
+  PRESENTATION setting. The books are in `currency.FUNCTIONAL`, and changing
+  that means re-denominating every posting ever made — a different project.
+
+## The rate direction, again
+
+Units per one unit of base: LBP 89,000, EUR 0.909091. The invoice form labels
+the field "Rate — EUR per 1 USD" and reads the number back the other way as it
+is typed, because the same rate written the other way is 1.10 and entering one
+for the other is a twenty per cent error on the whole document.

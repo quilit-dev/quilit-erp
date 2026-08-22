@@ -55,7 +55,7 @@ const ZERO_DECIMAL = new Set([
 /** Decimal places to print for a currency: 0 where it has no minor unit. */
 export const decimalsFor = code => (ZERO_DECIMAL.has(String(code || '').toUpperCase()) ? 0 : 2);
 
-const fmtCurrency = (v, currency = 'USD', decimals) => {
+export const fmtCurrency = (v, currency = 'USD', decimals) => {
   const dp = decimals === undefined ? decimalsFor(currency) : decimals;
   return new Intl.NumberFormat('en-US', {
     style: 'currency', currency,

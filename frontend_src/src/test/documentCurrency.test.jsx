@@ -77,3 +77,38 @@ describe('the printed invoice', () => {
     expect(html).toContain('1,000');
   });
 });
+
+describe('the receipt voucher', () => {
+  test('receipts the money the customer actually paid', async () => {
+    const { buildReceiptVoucherHTML } = await import('../utils/receiptVoucher');
+    const { html } = buildReceiptVoucherHTML(
+      { ...EURO_INVOICE, payments: [{ amount: 2200, txn_amount: 2000, method: 'Cash' }] },
+      { number: 'RV-2026-0001' }, SETTINGS);
+
+    expect(html).toContain('2,000');
+    expect(html).not.toContain('2,200');
+  });
+
+  test('the amount in words follows the printed figure', async () => {
+    // Spelling the stored figure instead is how a voucher came to read
+    // "Twenty Lebanese Pounds only" over a balance of LBP 1,780,000.
+    const { buildReceiptVoucherHTML } = await import('../utils/receiptVoucher');
+    const { html } = buildReceiptVoucherHTML(
+      { ...EURO_INVOICE, payments: [{ amount: 2200, txn_amount: 2000, method: 'Cash' }] },
+      { number: 'RV-2026-0003' }, SETTINGS);
+
+    expect(html).toMatch(/Two Thousand/i);
+    expect(html).not.toMatch(/Two Thousand Two Hundred/i);
+  });
+
+  test('a dollar receipt is unchanged', async () => {
+    const { buildReceiptVoucherHTML } = await import('../utils/receiptVoucher');
+    const { html } = buildReceiptVoucherHTML(
+      { invoice_number: 'INV-2', amount: 500, items: [],
+        payments: [{ amount: 500, method: 'Cash' }] },
+      { number: 'RV-2026-0002' }, SETTINGS);
+
+    expect(html).toContain('500');
+    expect(html).not.toMatch(/EUR/);
+  });
+});
