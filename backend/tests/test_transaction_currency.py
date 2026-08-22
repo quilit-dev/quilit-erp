@@ -337,3 +337,63 @@ def test_a_customer_billed_in_two_currencies_falls_back_to_the_company_currency(
     assert st["currency"] == "USD"
     # 1000 EUR is 1100 USD, plus 500.
     assert st["total_charged"] == _pytest.approx(1600, abs=0.02)
+
+
+# ── Quotation → invoice ──────────────────────────────────────────────────────
+
+def _quote(client, cid, unit_price, qty=1, **kw):
+    body = {"client_id": cid, "project_name": "Job",
+            "items": [{"name": "Goods", "quantity": qty, "unit_price": unit_price}]}
+    body.update(kw)
+    return client.post("/api/quotations/", json=body)
+
+
+def test_a_quote_is_given_in_the_customers_currency(client, euro_customer):
+    q = _quote(client, euro_customer, 5000).json()["id"]
+
+    body = client.get(f"/api/quotations/{q}").json()
+
+    assert body["currency"] == "EUR"
+    assert body["txn_total"] == _pytest.approx(5000)
+    assert body["total"] == _pytest.approx(5500, abs=0.01)
+
+
+def test_the_quoted_figure_becomes_the_invoice(client, euro_customer):
+    """EUR 5,000 quoted is EUR 5,000 invoiced. Anything else is a different
+    offer from the one the customer accepted."""
+    q = _quote(client, euro_customer, 5000).json()["id"]
+
+    r = client.post(f"/api/quotations/{q}/convert-to-invoice", json={})
+    assert r.status_code == 200, r.text
+
+    inv = client.get(f"/api/invoices/{r.json()['invoice_id']}").json()
+    assert inv["currency"] == "EUR"
+    assert inv["txn_amount"] == _pytest.approx(5000)
+
+
+def test_the_invoice_is_valued_at_the_rate_on_the_day_it_is_raised(
+        client, euro_customer, db):
+    """A quotation is not a transaction, so nothing is recognised when one is
+    issued. The sale is valued when it becomes a sale."""
+    q = _quote(client, euro_customer, 5000).json()["id"]
+    # The euro moves between the offer and its acceptance.
+    db.execute("INSERT INTO exchange_rates (currency, rate, effective_date, created_at) "
+               "VALUES ('EUR', 0.8, '2020-06-01', '2020-06-01')")
+    db.commit()
+
+    r = client.post(f"/api/quotations/{q}/convert-to-invoice", json={})
+
+    inv = client.get(f"/api/invoices/{r.json()['invoice_id']}").json()
+    assert inv["txn_amount"] == _pytest.approx(5000)          # the offer stands
+    assert inv["exchange_rate"] == _pytest.approx(0.8)        # today's rate
+    assert inv["amount"] == _pytest.approx(6250, abs=0.01)
+
+
+def test_a_dollar_quote_converts_exactly_as_it_always_did(client, dollar_customer):
+    q = _quote(client, dollar_customer, 750).json()["id"]
+
+    r = client.post(f"/api/quotations/{q}/convert-to-invoice", json={})
+
+    inv = client.get(f"/api/invoices/{r.json()['invoice_id']}").json()
+    assert inv["currency"] == "USD"
+    assert inv["amount"] == _pytest.approx(750)

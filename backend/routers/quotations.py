@@ -19,6 +19,7 @@ from types import SimpleNamespace
 from utils import _now, get_tax_context, resolve_line_tax, money, notify
 from routers.projects import bump_project_status
 from approval_engine import evaluate_and_apply
+import denomination
 import branch_access
 import line_items
 import sqlite3
@@ -95,6 +96,29 @@ def _price_quote_items(db, items, client_id=None):
         line_tax.append((rid, rate, tax_amt))
     return money(subtotal), money(tax_total), line_tax
 
+def _col(row, key):
+    """Read a column that may be absent from this row — an older SELECT, or a
+    tenant whose migration has not run. Absent reads as None, which every
+    caller treats as the company's own currency."""
+    try:
+        return row[key]
+    except (KeyError, IndexError, TypeError):
+        return None
+
+
+def _quote_line_in_base(item, fx_rate):
+    """One quoted line restated in the company's currency. A copy, never a
+    mutation: the quoted prices are what the customer was given."""
+    from types import SimpleNamespace
+    fields = {k: getattr(item, k, None) for k in
+              ("name", "quantity", "unit_price", "discount", "discount_pct",
+               "tax_rate_id", "inventory_id")}
+    fields["unit_price"] = denomination.to_base(fields.get("unit_price") or 0, fx_rate)
+    if fields.get("discount"):
+        fields["discount"] = denomination.to_base(fields["discount"], fx_rate)
+    return SimpleNamespace(**fields)
+
+
 class QuotationCreate(BaseModel):
     project_id:   Optional[int] = None
     project_name: Optional[str] = None   # free-text name when no project exists yet
@@ -107,6 +131,9 @@ class QuotationCreate(BaseModel):
     notes:        Optional[str] = None
     items:        List[QuoteItem] = []
     branch_id:    Optional[int] = None   # branch == warehouse; resolved on create
+    # The currency the quote is given in. Omitted, the customer's own is used.
+    currency:      Optional[str]   = None
+    exchange_rate: Optional[float] = None
 
 def _next_quote_number(db):
     from utils import get_setting
@@ -265,7 +292,31 @@ def create_quotation(
     # sale. The discount is snapshotted onto the line, so ending the promotion
     # later cannot silently reprice a quote already sent to a client.
     promo_ids = apply_promotions_to_lines(db, data.items)
-    total, tax_total, line_tax = _price_quote_items(db, data.items, data.client_id)
+
+    # A quote is given in a currency, and it is the customer's unless told
+    # otherwise. The prices typed on the lines are in that currency.
+    currency = data.currency
+    if currency is None and data.client_id is not None:
+        _c = db.execute("SELECT preferred_currency FROM clients WHERE id=?",
+                        (data.client_id,)).fetchone()
+        currency = _c["preferred_currency"] if _c else None
+    try:
+        txn_currency, fx_rate = denomination.resolve(
+            db, currency, on_date=_now()[:10], rate=data.exchange_rate)
+    except denomination.RateUnavailable as e:
+        raise HTTPException(400, str(e))
+
+    # Priced from each side's own prices, as invoices are: converting the
+    # totals afterwards leaves the base lines not summing to the base total.
+    txn_total, txn_tax_total, txn_line_tax = _price_quote_items(
+        db, data.items, data.client_id)
+    if denomination.is_base(txn_currency):
+        total, tax_total, line_tax = txn_total, txn_tax_total, txn_line_tax
+        base_items = list(data.items)
+    else:
+        base_items = [_quote_line_in_base(it, fx_rate) for it in data.items]
+        total, tax_total, line_tax = _price_quote_items(
+            db, base_items, data.client_id)
     qn    = _next_quote_number(db)
     now   = _now()
 
@@ -280,10 +331,12 @@ def create_quotation(
     cur = db.execute(
         "INSERT INTO quotations "
         "(quote_number, project_id, client_id, lead_id, project_name, status, notes, "
-        " total, tax_total, created_at, branch_id) "
-        "VALUES (?,?,?,?,?,?,?,?,?,?,?)",
+        " total, tax_total, created_at, branch_id, "
+        " currency, exchange_rate, txn_total, txn_tax_total) "
+        "VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)",
         (qn, data.project_id, data.client_id, data.lead_id, data.project_name,
-         data.status, data.notes, total, tax_total, now, branch_id),
+         data.status, data.notes, total, tax_total, now, branch_id,
+         txn_currency, fx_rate, txn_total, txn_tax_total),
     )
     qid = cur.lastrowid
     for idx, item in enumerate(data.items):
@@ -291,18 +344,22 @@ def create_quotation(
         db.execute(
             "INSERT INTO quotation_items "
             "(quotation_id, name, quantity, unit_price, discount, discount_pct, total, tax_rate_id, "
-            " tax_rate, tax_amount, inventory_id, promotion_id) "
-            "VALUES (?,?,?,?,?,?,?,?,?,?,?,?)",
-            (qid, item.name, item.quantity, item.unit_price,
-             float(getattr(item, "discount", 0) or 0),
+            " tax_rate, tax_amount, inventory_id, promotion_id, "
+            " txn_unit_price, txn_tax_amount) "
+            "VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?)",
+            (qid, item.name, item.quantity, base_items[idx].unit_price,
+             float(getattr(base_items[idx], "discount", 0) or 0),
              getattr(item, "discount_pct", None),
              # `total` mirrors the line net after discount so historical
-             # reports tie to the modern pricing math.
-             round(max(0.0, item.quantity * item.unit_price
-                            - float(getattr(item, "discount", 0) or 0)), 4),
+             # reports tie to the modern pricing math. Computed from the BASE
+             # line, because that is the column it goes in — from the quoted
+             # price it would be a euro figure sitting in a dollar column.
+             round(max(0.0, base_items[idx].quantity * base_items[idx].unit_price
+                            - float(getattr(base_items[idx], "discount", 0) or 0)), 4),
              rid, rate, tax_amt,
              getattr(item, "inventory_id", None),
-             promo_ids[idx] if idx < len(promo_ids) else None),
+             promo_ids[idx] if idx < len(promo_ids) else None,
+             item.unit_price, txn_line_tax[idx][2]),
         )
     # An active policy can gate a new quotation behind approval. The snapshot
     # keeps the requested status so an approval can release it back to it.
@@ -527,17 +584,35 @@ def convert_to_invoice(
 
     quote_items = db.execute(
         "SELECT name, quantity, unit_price, discount, discount_pct, "
-        "       tax_rate_id, inventory_id "
+        "       tax_rate_id, inventory_id, txn_unit_price "
         "FROM quotation_items WHERE quotation_id = ? ORDER BY id",
         (quote_id,),
     ).fetchall()
-    items = [SimpleNamespace(**dict(r)) for r in quote_items]
+
+    # The customer was quoted a figure in a currency. That figure becomes the
+    # invoice: EUR 5,000 quoted is EUR 5,000 invoiced.
+    #
+    # The RATE is not carried over. A quotation is not a transaction — nothing
+    # is recognised when one is issued — so the dollar value of the sale is
+    # struck at the rate on the day it is invoiced, which is the day the
+    # revenue becomes real. Carrying the quote's rate would value a sale at a
+    # rate that expired with the offer.
+    quote_currency = _col(q, "currency")
+    items = []
+    for r in quote_items:
+        d = dict(r)
+        quoted = d.pop("txn_unit_price", None)
+        if quoted is not None:
+            # Prices go to build_invoice in the quoted currency; it converts.
+            d["unit_price"] = quoted
+        items.append(SimpleNamespace(**d))
 
     res = build_invoice(
         db, user=user,
         client_id=client_id,
         items=items,
-        amount=float(q["total"] or 0),        # fallback for an itemless quote
+        # The quoted figure for an itemless quote, in the quoted currency.
+        amount=float(_col(q, "txn_total") or q["total"] or 0),
         notes=f"From {q['quote_number']}",
         quotation_id=quote_id,
         project_id=q["project_id"],
@@ -545,6 +620,7 @@ def convert_to_invoice(
         # The customer was quoted these figures. Re-running promotions would
         # either double-discount them or overwrite a hand-negotiated line.
         apply_promos=False,
+        currency=quote_currency,
     )
     inv_id, inv_no = res["invoice_id"], res["invoice_number"]
 

@@ -149,12 +149,24 @@ for a debt the customer has paid.
 For an invoice in the company's own currency all three figures are the same
 number, which is why nothing already on the books changes.
 
+- The statement, in the customer's currency. Both readings travel on every
+  movement. Where a customer has been billed in more than one currency it
+  falls back to base and says so, rather than inventing a rate to merge them.
+- The invoice form: a currency picker defaulting to the customer's own, and a
+  rate field that names its own direction and reads the number back the other
+  way as it is typed.
+- Quotation → invoice. The quoted figure survives; the RATE does not. A
+  quotation is not a transaction, so the sale is valued at the rate on the day
+  it is invoiced, not the day it was offered.
+
 Still to do:
 
-- Quotation → invoice carrying the currency through (columns exist, not wired).
 - Service jobs and projects (columns exist for service, not wired).
-- POS — a till sale in a foreign currency.
-- Customer-facing display: invoice screen, printed documents, statement,
-  receipt voucher, all in the transaction currency.
+- POS — a till sale in a foreign currency. Note the register counts dollars
+  and pounds at close, so foreign tender at the till needs the drawer to
+  learn the currency first.
+- Printed documents — the invoice PDF and the receipt voucher, in the
+  transaction currency. `exportUtils.fmtCurrency` already takes a currency
+  and handles minor units, so this is feeding it the document's own.
 - Reports and dashboards: confirm every aggregate reads base, and label any
   customer-facing list that mixes currencies.
