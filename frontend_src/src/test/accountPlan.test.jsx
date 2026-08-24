@@ -159,3 +159,36 @@ describe('it mounts', () => {
     }
   });
 });
+
+describe('the plan is visible from where the operator is looking', () => {
+  test('the confirmation shows the schedule that was just agreed', () => {
+    // Confirming the payment and saying nothing about the plan is how
+    // somebody comes away unsure whether the terms were recorded at all.
+    expect(modalSrc).toMatch(/result\.plan && \(/);
+    expect(modalSrc).toMatch(/result\.plan\.installments\.map/);
+    expect(modalSrc).toMatch(/clients\.planAgreed/);
+  });
+
+  test('reopening shows the plan that exists, not an empty checkbox', () => {
+    // An unticked box reads as "there is no plan", and ticking it only earns
+    // a refusal from the server.
+    expect(modalSrc).toMatch(/getClientPlan\(client\.id\)/);
+    expect(modalSrc).toMatch(/\{existing && \(/);
+    expect(modalSrc).toMatch(/clients\.alreadyOnPlan/);
+  });
+
+  test('the offer to create one is withdrawn while a plan is live', () => {
+    expect(modalSrc).toMatch(/canPlan && !existing && \(/);
+    expect(modalSrc).toMatch(/canPlan && !existing && onPlan && \(/);
+  });
+
+  test('it says the payment counts towards the plan by itself', () => {
+    expect(modalSrc).toMatch(/clients\.planCountsTowards/);
+    expect(en.clients.planCountsTowards).toMatch(/automatically/i);
+  });
+
+  test('the next payment due is shown on reopening', () => {
+    expect(modalSrc).toMatch(/existing\.next_due/);
+    expect(modalSrc).toMatch(/clients\.planNextIs/);
+  });
+});

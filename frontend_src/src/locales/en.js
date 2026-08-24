@@ -1163,6 +1163,11 @@ const en = {
   },
 
   clients: {
+    alreadyOnPlan: 'On a payment plan: {{count}} payments, {{remaining}} still to come.',
+    planNextIs: 'Next: {{amount}} due {{date}}.',
+    planCountsTowards: 'This payment counts towards it automatically.',
+    planAgreed: 'Payment plan agreed — {{count}} payments covering {{total}}',
+    planOnAccountHint: 'The plan is against the account. Each payment is applied to the oldest unpaid invoices when it arrives.',
     owedBeyondPlan: '{{amount}} of the account is outside this plan — raised after the terms were agreed.',
     planAccountHint: 'Each payment is applied to the oldest unpaid invoices automatically, exactly like any other account payment.',
     planCancelled: 'Payment plan cancelled',

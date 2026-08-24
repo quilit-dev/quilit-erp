@@ -8,8 +8,9 @@
 // oldest-first rule so the operator can see what they are about to do. The
 // server's answer is what actually happens, and it is shown afterwards — the
 // preview is a courtesy, not the decision.
-import { useState, useMemo } from 'react';
-import { recordCustomerPayment, issuePaymentVoucher } from '../../api/client';
+import { useState, useMemo, useEffect } from 'react';
+import { recordCustomerPayment, issuePaymentVoucher,
+         getClientPlan } from '../../api/client';
 import { printPaymentVoucher } from '../../utils/receiptVoucher';
 import { Modal, NumberInput, fmt, fmtDate, toast } from '../../components/shared';
 import { CURRENCIES } from '../settings/ui';
@@ -33,6 +34,17 @@ export default function CustomerPaymentModal({ client, invoices, onClose, onDone
   // about one document and anybody may have one, but the whole account going
   // on terms is a standing credit arrangement.
   const canPlan = !!client?.allow_installments;
+  // Whether they are already on one. Without this an unticked box reads as
+  // "there is no plan" every time the modal is opened, which is backwards —
+  // and ticking it only earns a refusal from the server.
+  const [existing, setExisting] = useState(null);
+  useEffect(() => {
+    let alive = true;
+    getClientPlan(client.id)
+      .then(r => { if (alive) setExisting(r?.plan || null); })
+      .catch(() => {});
+    return () => { alive = false; };
+  }, [client.id]);
 
   // What the customer is being asked to agree to, worked out as they type.
   // The same rule the server applies — equal payments with the last carrying
@@ -154,6 +166,40 @@ export default function CustomerPaymentModal({ client, invoices, onClose, onDone
       <Modal title={t('clients.paymentRecorded')} onClose={onClose}>
         <div className="modal-body">
           <p style={{ fontSize: 14, marginBottom: 14 }}>{result.message}</p>
+
+          {/* The schedule that was just agreed. Confirming the payment and
+              saying nothing about the plan is how somebody comes away unsure
+              whether the terms were recorded at all. */}
+          {result.plan && (
+            <div style={{ marginBottom: 16 }}>
+              <div style={{ fontWeight: 600, fontSize: 13, marginBottom: 6 }}>
+                {t('clients.planAgreed', {
+                  count: result.plan.count, total: fmt(result.plan.total),
+                })}
+              </div>
+              <table>
+                <thead>
+                  <tr>
+                    <th>#</th>
+                    <th>{t('installments.dueDate')}</th>
+                    <th style={{ textAlign: 'right' }}>{t('common.amount')}</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {result.plan.installments.map(i => (
+                    <tr key={i.seq}>
+                      <td className="text-mono">{i.seq}</td>
+                      <td>{fmtDate(i.due_date)}</td>
+                      <td style={{ textAlign: 'right' }}>{fmt(i.amount)}</td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+              <div style={{ fontSize: 11, color: 'var(--text-3)', marginTop: 6 }}>
+                {t('clients.planOnAccountHint')}
+              </div>
+            </div>
+          )}
           <table>
             <thead>
               <tr>
@@ -236,7 +282,34 @@ export default function CustomerPaymentModal({ client, invoices, onClose, onDone
 
             {/* The rest of the account, on agreed dates. Shown only to a
                 customer approved for it — the setting on their record. */}
-            {canPlan && (
+            {/* Already on one: say so, and say what this payment does to it.
+                An empty checkbox offering to create a second is worse than
+                nothing — the server refuses it and the operator learns
+                nothing about the plan that exists. */}
+            {existing && (
+              <div className="form-group form-full">
+                <div style={{ padding: '10px 12px', borderRadius: 6,
+                              background: 'var(--bg)', fontSize: 13 }}>
+                  <div style={{ fontWeight: 600, marginBottom: 2 }}>
+                    {t('clients.alreadyOnPlan', {
+                      count: existing.count, remaining: fmt(existing.remaining),
+                    })}
+                  </div>
+                  {existing.next_due && (
+                    <div style={{ color: 'var(--text-3)', fontSize: 12 }}>
+                      {t('clients.planNextIs', {
+                        amount: fmt(existing.next_due.amount - existing.next_due.paid),
+                        date: fmtDate(existing.next_due.due_date),
+                      })}
+                    </div>
+                  )}
+                  <div style={{ color: 'var(--text-3)', fontSize: 12, marginTop: 4 }}>
+                    {t('clients.planCountsTowards')}
+                  </div>
+                </div>
+              </div>
+            )}
+            {canPlan && !existing && (
               <div className="form-group form-full">
                 <label style={{ display: 'flex', alignItems: 'center', gap: 8,
                                 fontSize: 13.5 }}>
@@ -251,7 +324,7 @@ export default function CustomerPaymentModal({ client, invoices, onClose, onDone
                 )}
               </div>
             )}
-            {canPlan && onPlan && (
+            {canPlan && !existing && onPlan && (
               <>
                 <div className="form-group">
                   <label className="form-label">{t('installments.count')}</label>

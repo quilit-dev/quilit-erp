@@ -1157,6 +1157,11 @@ const ar = {
   },
 
   clients: {
+    alreadyOnPlan: 'على خطة سداد: {{count}} دفعات، متبقٍّ {{remaining}}.',
+    planNextIs: 'التالية: {{amount}} في {{date}}.',
+    planCountsTowards: 'تُحتسب هذه الدفعة ضمنها تلقائياً.',
+    planAgreed: 'تم الاتفاق على خطة سداد — {{count}} دفعات تغطي {{total}}',
+    planOnAccountHint: 'الخطة على الحساب. تُطبّق كل دفعة على الفواتير الأقدم غير المسددة عند وصولها.',
     owedBeyondPlan: '{{amount}} من الحساب خارج هذه الخطة — صدرت بعد الاتفاق على الشروط.',
     planAccountHint: 'تُطبّق كل دفعة تلقائياً على الفواتير الأقدم غير المسددة، تماماً كأي دفعة حساب.',
     planCancelled: 'تم إلغاء خطة السداد',

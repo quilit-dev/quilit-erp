@@ -24,7 +24,9 @@ describe('a plan on one invoice is for everybody', () => {
 describe('the account going on terms is what the setting governs', () => {
   test('the option only appears for an approved customer', () => {
     expect(modalSrc).toMatch(/const canPlan = !!client\?\.allow_installments/);
-    expect(modalSrc).toMatch(/\{canPlan && \(/);
+    // And only while there is no plan already: offering to create a second
+    // one is a trap, since the server refuses it.
+    expect(modalSrc).toMatch(/\{canPlan && !existing && \(/);
   });
 
   test('the plan is only sent when it was asked for and allowed', () => {
