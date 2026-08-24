@@ -58,26 +58,6 @@ class StatusUpdate(BaseModel):
     status: str
 
 
-class BulkPurchaseLine(BaseModel):
-    inventory_id: int
-    quantity: float
-    unit_cost: float = 0
-    additional_costs: float = 0
-
-
-class BulkPurchaseCreate(BaseModel):
-    """Order several variants of one product in a single action. Each line
-    becomes its own purchase row (POs are single-item), reusing the standard
-    create path so tax, currency-lock, approval and stock all behave identically."""
-    supplier: str
-    tax_rate_id: Optional[int] = None
-    status: Optional[str] = "Ordered"
-    notes: Optional[str] = None
-    cost_currency: Optional[str] = "USD"
-    exchange_rate: Optional[float] = None
-    warehouse_id: Optional[int] = None
-    lines: list[BulkPurchaseLine] = []
-
 def next_po_number(db):
     row = db.execute("SELECT COALESCE(MAX(id), 0) as m FROM purchases").fetchone()
     n = row["m"] + 1
@@ -246,43 +226,6 @@ def create_purchase(data: PurchaseCreate, user=Depends(require_perm("purchases",
                {"supplier": data.supplier, "amount": total_cost})
     db.commit()
     return {"id": purchase_id, "po_number": po, "message": "Purchase created", "pending_approval": needs_approval}
-
-
-@router.post("/bulk")
-def create_bulk_purchase(data: BulkPurchaseCreate,
-                         user=Depends(require_perm("purchases", "create")),
-                         db: sqlite3.Connection = Depends(get_db)):
-    """Raise one PO per supplied variant line. Reuses create_purchase so every
-    line gets correct tax, USD/LBP cost-lock, approval routing and (if status
-    is Received/Paid) stock credit on that exact variant's inventory row."""
-    lines = [ln for ln in data.lines if ln.quantity and ln.quantity > 0]
-    if not lines:
-        raise HTTPException(400, "Add a quantity to at least one variant.")
-    if not data.supplier or not data.supplier.strip():
-        raise HTTPException(400, "Supplier is required.")
-
-    results = []
-    for ln in lines:
-        inv = db.execute(
-            "SELECT id, name, category FROM inventory WHERE id=? AND archived_at IS NULL",
-            (ln.inventory_id,),
-        ).fetchone()
-        if not inv:
-            raise HTTPException(400, f"Inventory item #{ln.inventory_id} not found.")
-        res = create_purchase(
-            PurchaseCreate(
-                supplier=data.supplier, inventory_id=inv["id"],
-                product_name=inv["name"], category=inv["category"],
-                quantity=ln.quantity, unit_cost=ln.unit_cost or 0,
-                additional_costs=ln.additional_costs or 0,
-                tax_rate_id=data.tax_rate_id, status=data.status or "Ordered",
-                notes=data.notes, cost_currency=data.cost_currency,
-                exchange_rate=data.exchange_rate, warehouse_id=data.warehouse_id,
-            ),
-            user=user, db=db,
-        )
-        results.append({"inventory_id": inv["id"], **res})
-    return {"created": len(results), "purchases": results}
 
 
 @router.put("/{purchase_id}")

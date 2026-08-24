@@ -104,56 +104,6 @@ def test_simple_item_path_unaffected(make_client, db):
     assert row["variant_label"] is None
 
 
-def test_bulk_purchase_raises_one_po_per_variant_and_receives_to_right_sku(make_client, db):
-    """Ordering several variants in one action creates a PO per variant and,
-    when received, credits each variant's own stock at its own cost."""
-    c = make_client("superadmin")
-    prod = c.post("/api/products/", json={
-        "name": "iPhone 15", "category": "Electronics", "sale_price": 1000, "unit_cost": 0,
-        "axes": [
-            {"name": "Storage", "values": ["128GB", "256GB"]},
-            {"name": "Color",   "values": ["Black", "White"]},
-        ],
-    })
-    assert prod.status_code in (200, 201), prod.text
-    variant_ids = prod.json()["variant_ids"]      # 2 × 2 = 4 SKUs
-    assert len(variant_ids) == 4
-
-    # Order 3 of the 4 variants, each a different quantity/cost, received at once.
-    order = [
-        {"inventory_id": variant_ids[0], "quantity": 5, "unit_cost": 700},
-        {"inventory_id": variant_ids[1], "quantity": 3, "unit_cost": 750},
-        {"inventory_id": variant_ids[2], "quantity": 2, "unit_cost": 800},
-    ]
-    r = c.post("/api/purchases/bulk", json={
-        "supplier": "Apple Distributor", "status": "Received", "lines": order,
-    })
-    assert r.status_code in (200, 201), r.text
-    assert r.json()["created"] == 3
-
-    # One PO per line, all to the same supplier.
-    pos = [p for p in c.get("/api/purchases/").json() if p["supplier"] == "Apple Distributor"]
-    assert len(pos) == 3
-
-    # Each ordered variant's stock rose by exactly its line qty; the unordered
-    # 4th variant stayed at zero — proving per-SKU routing.
-    def qty(i):
-        return db.execute("SELECT quantity FROM inventory WHERE id=?", (i,)).fetchone()["quantity"]
-    assert qty(variant_ids[0]) == 5
-    assert qty(variant_ids[1]) == 3
-    assert qty(variant_ids[2]) == 2
-    assert qty(variant_ids[3]) == 0
-    # Cost landed on the right SKU (weighted-avg of a single receipt = unit cost).
-    uc0 = db.execute("SELECT unit_cost FROM inventory WHERE id=?", (variant_ids[0],)).fetchone()["unit_cost"]
-    assert uc0 == pytest.approx(700)
-
-
-def test_bulk_purchase_rejects_empty_order(make_client):
-    c = make_client("superadmin")
-    r = c.post("/api/purchases/bulk", json={"supplier": "X", "lines": []})
-    assert r.status_code == 400
-
-
 def test_explicit_variants_list_creates_only_those(make_client, db):
     """The builder sends the exact combos the user kept (after removing some);
     the backend creates those verbatim and ignores the full cross-product."""
