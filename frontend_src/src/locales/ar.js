@@ -451,6 +451,7 @@ const ar = {
   },
 
   hr: {
+    payoutSummary: 'دفع {{total}} من صافي الرواتب.',
     title: 'الموارد البشرية',
     subtitle: 'إدارة الموظفين والأقسام والإجازات',
     tabEmployees: 'الموظفون',
@@ -2130,6 +2131,7 @@ const ar = {
   },
 
   purchases: {
+    payoutSummary: 'تسجيل دفع أمر الشراء {{po}} إلى {{supplier}}.',
     title: 'المشتريات',
     totalPurchases: '{{count}} أمر شراء إجمالاً',
     addPurchase: '+ أمر شراء جديد',

@@ -1523,9 +1523,20 @@ def approve_payroll_run(
     return {"message": "Payroll run approved"}
 
 
+class PayrollPayout(BaseModel):
+    """How the run was paid out.
+
+    Optional in full: a caller that sends no body at all still works and still
+    posts to cash, which is what marking a run paid has always meant.
+    """
+    payment_method:  Optional[str] = None
+    bank_account_id: Optional[int] = None
+
+
 @router.post("/payroll/runs/{run_id}/mark-paid")
 def mark_payroll_run_paid(
     run_id: int,
+    data: Optional[PayrollPayout] = None,
     user=Depends(require_perm("hr", "approve")),
     db: sqlite3.Connection = Depends(get_db),
 ):
@@ -1604,7 +1615,13 @@ def mark_payroll_run_paid(
             "memo": f"{ccy} {amt:,.2f}" + (f" @ {spot:,.0f}" if ccy != "USD" else ""),
         })
         cash_lines.append({
-            "code": accounting.cash_account_for(db, ccy), "credit": amt_usd,
+            # Salaries usually leave by transfer, and a payroll that credits
+            # the till says the money was handed over in notes.
+            "code": accounting.money_account_for(
+                db, method=(data.payment_method if data else None),
+                currency=ccy,
+                bank_account_id=(data.bank_account_id if data else None)),
+            "credit": amt_usd,
         })
     total_usd = round(total_usd, 2)
     if total_usd <= 0:
@@ -1620,15 +1637,20 @@ def mark_payroll_run_paid(
     post_date = accounting.clamp_posting_date(run["period_end"])
 
     exp_cur = db.execute(
-        "INSERT INTO expenses (category, description, amount, date, created_at) "
-        "VALUES ('Payroll', ?, ?, ?, ?)",
-        (desc, total_usd, post_date, now),
+        "INSERT INTO expenses (category, description, amount, date, created_at, "
+        " payment_method, bank_account_id) "
+        "VALUES ('Payroll', ?, ?, ?, ?, ?, ?)",
+        (desc, total_usd, post_date, now,
+         (data.payment_method if data else None),
+         (data.bank_account_id if data else None)),
     )
     expense_id = exp_cur.lastrowid
     db.execute(
         "UPDATE hr_payroll_runs SET status='Paid', paid_at=?, paid_by=?, "
-        "posted_expense_id=? WHERE id=?",
-        (now, user["id"], expense_id, run_id),
+        "posted_expense_id=?, payment_method=?, bank_account_id=? WHERE id=?",
+        (now, user["id"], expense_id,
+         (data.payment_method if data else None),
+         (data.bank_account_id if data else None), run_id),
     )
     # Auto-post to the general ledger. Debits and credits stay split by
     # currency so the cash account (1000 vs 1010) reflects where the money

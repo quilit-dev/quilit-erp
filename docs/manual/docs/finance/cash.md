@@ -63,6 +63,12 @@ counted − expected. The system posts that variance to the ledger.
     | Clients → Record payment | A customer settling their account |
     | POS → Checkout | A card or transfer at the counter |
     | Expenses | A bill paid out of an account |
+    | Purchases → Mark paid | Settling a supplier |
+    | HR → Payroll → Mark paid | Salaries leaving the business |
+
+    The last two open a small dialog rather than a straight click, because
+    marking either one paid is the moment the money actually leaves. Both
+    answers are optional — press through and it behaves as it did before.
 
     Cash never shows the box — notes belong to a drawer, and a bank balance
     that has to reconcile must not contain them.

@@ -102,6 +102,42 @@ describe('every path that takes a payment offers it', () => {
   });
 });
 
+describe('paying money OUT asks how it left', () => {
+  test('a supplier marked paid is asked, and receiving is not', async () => {
+    const src = (await import('../pages/Purchases.jsx?raw')).default;
+
+    // Receiving goods is a stock event and asks nothing.
+    expect(src).toMatch(/setPayingFor\(p\)/);
+    expect(src).toMatch(/handleStatus\(p, 'Received'\)/);
+    expect(src).toMatch(/<PayoutModal/);
+  });
+
+  test('a payroll run is asked before it posts', async () => {
+    const src = (await import('../pages/hr/PayrollRunPanel.jsx?raw')).default;
+
+    expect(src).toMatch(/setPaying\(true\)/);
+    expect(src).toMatch(/<PayoutModal/);
+    expect(src).toMatch(/doAction\('pay', payout\)/);
+  });
+
+  test('both send it through to the server', async () => {
+    const src = (await import('../api/client.js?raw')).default;
+
+    expect(src).toMatch(/updatePurchaseStatus = \(id, status, payout = null\)/);
+    expect(src).toMatch(/markPayrollRunPaid  = \(id, payout = null\)/);
+  });
+
+  test('the dialog asks two things and no more', async () => {
+    const src = (await import('../components/PayoutModal.jsx?raw')).default;
+
+    expect(src).toMatch(/expenses\.paymentMethodLabel/);
+    expect(src).toMatch(/<BankField/);
+    // Optional in the API, so pressing straight through is allowed rather
+    // than blocking somebody who does not know which account it came from.
+    expect(src).not.toMatch(/required/);
+  });
+});
+
 describe('the accounts can be created at all', () => {
   test('Settings carries a section for them', () => {
     expect(settingsSrc).toMatch(/<BankAccountsSection/);

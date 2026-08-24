@@ -3802,6 +3802,20 @@ def _run_migrations(conn, c):
     add_col("165b_customer_payment_bank", "customer_payments", "bank_account_id",
             "ALTER TABLE customer_payments ADD COLUMN bank_account_id INTEGER")
 
+    # ── 166: paying a supplier and paying the staff ──────────────────────
+    # Both move real money and neither recorded HOW. With no method there was
+    # nothing to switch on, so both credited cash: a supplier settled by
+    # transfer and a payroll paid into staff bank accounts both came out of
+    # the till, which on a chart that separates the two is simply false.
+    add_col("166_purchase_method", "purchases", "payment_method",
+            "ALTER TABLE purchases ADD COLUMN payment_method TEXT")
+    add_col("166a_purchase_bank", "purchases", "bank_account_id",
+            "ALTER TABLE purchases ADD COLUMN bank_account_id INTEGER")
+    add_col("166b_payroll_method", "hr_payroll_runs", "payment_method",
+            "ALTER TABLE hr_payroll_runs ADD COLUMN payment_method TEXT")
+    add_col("166c_payroll_bank", "hr_payroll_runs", "bank_account_id",
+            "ALTER TABLE hr_payroll_runs ADD COLUMN bank_account_id INTEGER")
+
     # ── 163: currency differences an accountant can actually work with ────
     # A realised difference already records itself on the payment that caused
     # it. An unrealised one did not: the revaluation posted an entry with no
@@ -4390,6 +4404,15 @@ def _ensure_pg_post_baseline(raw):
         cur.execute("ALTER TABLE recurring_expenses ADD COLUMN IF NOT EXISTS "
                     "bank_account_id INTEGER")
         cur.execute("ALTER TABLE customer_payments ADD COLUMN IF NOT EXISTS "
+                    "bank_account_id INTEGER")
+        # 166: how a supplier and a payroll were paid.
+        cur.execute("ALTER TABLE purchases ADD COLUMN IF NOT EXISTS "
+                    "payment_method TEXT")
+        cur.execute("ALTER TABLE purchases ADD COLUMN IF NOT EXISTS "
+                    "bank_account_id INTEGER")
+        cur.execute("ALTER TABLE hr_payroll_runs ADD COLUMN IF NOT EXISTS "
+                    "payment_method TEXT")
+        cur.execute("ALTER TABLE hr_payroll_runs ADD COLUMN IF NOT EXISTS "
                     "bank_account_id INTEGER")
         cur.execute("ALTER TABLE invoices ADD COLUMN IF NOT EXISTS source_type TEXT")
         cur.execute("ALTER TABLE invoices ADD COLUMN IF NOT EXISTS source_reference TEXT")

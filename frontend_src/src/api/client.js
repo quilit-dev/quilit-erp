@@ -231,7 +231,11 @@ export const getPurchases         = (qs)   => api.get(`/api/purchases/${qs || ''
 export const getPurchaseStats     = ()     => api.get('/api/purchases/stats');
 export const createPurchase       = (d)    => api.post('/api/purchases/', d);
 export const updatePurchase       = (id, d) => api.put(`/api/purchases/${id}`, d);
-export const updatePurchaseStatus = (id, status) => api.patch(`/api/purchases/${id}/status`, { status });
+// `payout` is only meaningful on the move to Paid: how it was settled
+// and out of which account. Omitted, the server behaves as it always
+// did and posts to cash.
+export const updatePurchaseStatus = (id, status, payout = null) =>
+  api.patch(`/api/purchases/${id}/status`, { status, ...(payout || {}) });
 export const archivePurchase      = (id)   => api.patch(`/api/purchases/${id}/archive`);
 export const unarchivePurchase    = (id)   => api.patch(`/api/purchases/${id}/unarchive`);
 
@@ -518,7 +522,10 @@ export const getPayrollRun       = (id)          => api.get(`/api/hr/payroll/run
 export const createPayrollRun    = (d)           => api.post('/api/hr/payroll/runs', d);
 export const updatePayrollLine   = (lineId, d)   => api.put(`/api/hr/payroll/lines/${lineId}`, d);
 export const approvePayrollRun   = (id)          => api.post(`/api/hr/payroll/runs/${id}/approve`);
-export const markPayrollRunPaid  = (id)          => api.post(`/api/hr/payroll/runs/${id}/mark-paid`);
+// `payout` says how the staff were paid and out of which account. Omitted,
+// the server posts to cash, which is what this call always meant.
+export const markPayrollRunPaid  = (id, payout = null) =>
+  api.post(`/api/hr/payroll/runs/${id}/mark-paid`, payout || {});
 export const cancelPayrollRun    = (id)          => api.post(`/api/hr/payroll/runs/${id}/cancel`);
 
 // ── HR: contracts ──────────────────────────────────────────────────────────

@@ -1,5 +1,6 @@
 import { useState, useCallback, useEffect } from 'react';
 import { useLocale } from '../../hooks/useLocale.jsx';
+import PayoutModal from '../../components/PayoutModal.jsx';
 import { LoadingSpinner, ErrorAlert, Modal, fmt, fmtDate, toast, NumberInput } from '../../components/shared';
 import { getPayrollRun, createPayrollRun, updatePayrollLine,
          approvePayrollRun, markPayrollRunPaid, cancelPayrollRun } from '../../api/client';
@@ -49,11 +50,19 @@ function PayrollRunPanel({ runId, canEdit, canApprove, canDelete, onClose, onCha
       await load(true); onChanged();   // silent refresh — no spinner flash while editing
     } catch (err) { toast(err.message, 'error'); }
   }
-  async function doAction(action) {
+  // Salaries usually leave by transfer. Asking once, here, is what stops
+  // the whole payroll being credited to the till.
+  const [paying, setPaying] = useState(false);
+
+  async function doAction(action, payout = null) {
     setBusy(true);
     try {
       if (action === 'approve') { await approvePayrollRun(run.id); toast(t('hr.runApproved')); }
-      else if (action === 'pay') { const r = await markPayrollRunPaid(run.id); toast(t('hr.paidAndPosted', { id: r.expense_id })); }
+      else if (action === 'pay') {
+        const r = await markPayrollRunPaid(run.id, payout);
+        toast(t('hr.paidAndPosted', { id: r.expense_id }));
+        setPaying(false);
+      }
       else if (action === 'cancel') { await cancelPayrollRun(run.id); toast(t('hr.runCancelled')); }
       await load(); onChanged();
     } catch (err) { toast(err.message, 'error'); }
@@ -161,12 +170,22 @@ function PayrollRunPanel({ runId, canEdit, canApprove, canDelete, onClose, onCha
           <button className="btn btn-primary" disabled={busy} onClick={() => doAction('approve')}>{t('hr.approveBtn')}</button>
         )}
         {run.status === 'Approved' && canApprove && (
-          <button className="btn btn-primary" disabled={busy} onClick={() => doAction('pay')}>{t('hr.markPaidAndPost')}</button>
+          <button className="btn btn-primary" disabled={busy} onClick={() => setPaying(true)}>{t('hr.markPaidAndPost')}</button>
         )}
         {run.status !== 'Paid' && run.status !== 'Cancelled' && canDelete && (
           <button className="btn btn-danger" disabled={busy} onClick={() => doAction('cancel')}>{t('hr.cancelRun')}</button>
         )}
       </div>
+
+      {paying && (
+        <PayoutModal
+          title={t('hr.markPaidAndPost')}
+          summary={t('hr.payoutSummary', { total: fmt(run.total_net) })}
+          confirmLabel={t('hr.markPaidAndPost')}
+          busy={busy}
+          onConfirm={payout => doAction('pay', payout)}
+          onClose={() => setPaying(false)} />
+      )}
     </Modal>
   );
 }

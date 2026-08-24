@@ -452,6 +452,7 @@ const en = {
   },
 
   hr: {
+    payoutSummary: 'Paying {{total}} of net salaries.',
     title: 'Human Resources',
     subtitle: 'Manage employees, departments and time-off',
     tabEmployees: 'Employees',
@@ -2140,6 +2141,7 @@ const en = {
   },
 
   purchases: {
+    payoutSummary: 'Recording payment of {{po}} to {{supplier}}.',
     title: 'Purchases',
     totalPurchases: '{{count}} total purchases',
     addPurchase: '+ New Purchase Order',

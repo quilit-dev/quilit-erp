@@ -56,6 +56,20 @@ class PurchaseUpdate(BaseModel):
 
 class StatusUpdate(BaseModel):
     status: str
+    # How it was settled, and out of which account. Only meaningful on the
+    # move to Paid — that is the moment money leaves — and both are optional,
+    # so an existing caller that sends only a status still works and still
+    # posts to cash, which is what it always meant.
+    payment_method:  Optional[str] = None
+    bank_account_id: Optional[int] = None
+
+
+def _col(row, key, default=None):
+    """A column that may not exist yet on an un-migrated tenant."""
+    try:
+        return row[key]
+    except (KeyError, IndexError):
+        return default
 
 
 def next_po_number(db):
@@ -312,8 +326,12 @@ def update_status(purchase_id: int, data: StatusUpdate,
         db.commit()
         _credit_stock(purchase_id, db)
     elif data.status == "Paid":
-        db.execute("UPDATE purchases SET status=?, paid_at=? WHERE id=?",
-                   (data.status, now, purchase_id))
+        db.execute(
+            "UPDATE purchases SET status=?, paid_at=?, "
+            " payment_method=COALESCE(?, payment_method), "
+            " bank_account_id=COALESCE(?, bank_account_id) WHERE id=?",
+            (data.status, now, data.payment_method, data.bank_account_id,
+             purchase_id))
         db.commit()
         _credit_stock(purchase_id, db)
         _record_expense(purchase_id, db)
@@ -444,7 +462,14 @@ def _record_expense(purchase_id: int, db: sqlite3.Connection):
         # the reclaim — the same error the sales side made in reverse.
         lines.append({"code": accounting.code(db, "vat_control"), "debit": tax_part,
                       "memo": f"Input VAT — {row['po_number']}"})
-    lines.append({"code": accounting.code(db, "cash"), "credit": gross})
+    # Out of whatever actually paid it. Crediting cash for a transfer
+    # overstates the till and understates the bank by the same amount, and
+    # neither can then be held against anything.
+    lines.append({
+        "code": accounting.money_account_for(
+            db, method=_col(row, "payment_method"),
+            bank_account_id=_col(row, "bank_account_id")),
+        "credit": gross})
     accounting.post_entry(
         db,
         entry_date=now[:10],

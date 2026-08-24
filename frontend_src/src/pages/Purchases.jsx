@@ -16,6 +16,7 @@ import { useSettings } from '../hooks/useSettings.jsx';
 import { usePermissions } from '../hooks/usePermissions';
 import { useWarehouses } from '../hooks/useWarehouses';
 import { useFocusId } from '../hooks/useFocusId';
+import PayoutModal from '../components/PayoutModal.jsx';
 import Attachments from '../components/Attachments.jsx';
 import DocumentPostings from '../components/DocumentPostings.jsx';
 
@@ -370,10 +371,15 @@ export default function Purchases() {
     finally { setSaving(false); }
   }
 
-  async function handleStatus(purchase, newStatus) {
+  // Marking a purchase PAID is the moment money leaves, so it asks how.
+  // Receiving is a stock event and asks nothing.
+  const [payingFor, setPayingFor] = useState(null);
+
+  async function handleStatus(purchase, newStatus, payout = null) {
     try {
-      await updatePurchaseStatus(purchase.id, newStatus);
+      await updatePurchaseStatus(purchase.id, newStatus, payout);
       toast(t('purchases.markedAs', { status: tStatus(newStatus) }));
+      setPayingFor(null);
       load();
     } catch (err) { toast(err.message, 'red'); }
   }
@@ -557,7 +563,7 @@ export default function Purchases() {
                             )}
                             {p.status === 'Received' && (
                               <button className="btn btn-sm btn-secondary"
-                                onClick={() => handleStatus(p, 'Paid')}>{t('purchases.markPaid')}</button>
+                                onClick={() => setPayingFor(p)}>{t('purchases.markPaid')}</button>
                             )}
                             {p.status === 'Paid' && (
                               <span style={{ color: 'var(--text-3)', fontSize: 12 }}>{t('purchases.completed')}</span>
@@ -588,6 +594,17 @@ export default function Purchases() {
             saving={saving}
           />
         </Modal>
+      )}
+      {payingFor && (
+        <PayoutModal
+          title={t('purchases.markPaid')}
+          summary={t('purchases.payoutSummary', {
+            po: payingFor.po_number,
+            supplier: payingFor.supplier || '',
+          })}
+          confirmLabel={t('purchases.markPaid')}
+          onConfirm={payout => handleStatus(payingFor, 'Paid', payout)}
+          onClose={() => setPayingFor(null)} />
       )}
       {modal === 'edit' && activePurchase && (
         <Modal title={t('purchases.editPOTitle', { po_number: activePurchase.po_number })} onClose={() => setModal(null)} size="modal-lg">
