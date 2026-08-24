@@ -438,6 +438,25 @@ class CustomerPayment(BaseModel):
         return v
 
 
+@router.get("/{client_id}/plan")
+def account_payment_plan(
+    client_id: int,
+    user=Depends(require_perm("clients", "view")),
+    db: sqlite3.Connection = Depends(get_db),
+):
+    """The dates this customer agreed to clear their account on.
+
+    Gathered back out of the per-invoice rows into the schedule they were
+    actually given. Nobody agreeing terms thinks per invoice: they agreed four
+    payments, so they are shown four payments, each naming the invoices it
+    covers.
+    """
+    if not db.execute("SELECT 1 FROM clients WHERE id=? AND deleted_at IS NULL",
+                      (client_id,)).fetchone():
+        raise HTTPException(404, "Client not found")
+    return installments.account_plan(db, client_id)
+
+
 @router.get("/{client_id}/payments")
 def list_customer_payments(
     client_id: int,

@@ -288,3 +288,67 @@ def plan_account(db, *, client_id, count, frequency="monthly", start=None,
     return {"total": total, "instalments": len(schedule),
             "first_due": str(schedule[0][1]), "last_due": str(schedule[-1][1]),
             "invoices": written}
+
+
+def account_plan(db, client_id, today=None):
+    """Everything a customer owes, on the dates they agreed, as one schedule.
+
+    The rows live per invoice because that is what arrears reporting, the
+    statement and the invoice screen all read. Nobody agreeing terms thinks in
+    those terms though: they agreed four payments, and they want to see four
+    payments. So the rows are gathered back into the schedule the customer was
+    actually given, by date.
+
+    Instalments falling on the same date are one payment as far as the customer
+    is concerned, and are shown as one — with the invoices it covers named,
+    because that is the question asked when a payment is short.
+    """
+    from utils import _now
+    today = today or _now()[:10]
+
+    rows = db.execute(
+        """SELECT i.id, i.invoice_number, i.amount,
+                  COALESCE((SELECT SUM(p.amount) FROM invoice_payments p
+                            WHERE p.invoice_id = i.id), 0) AS paid
+             FROM invoices i
+            WHERE i.client_id = ? AND i.voided_at IS NULL
+              AND i.archived_at IS NULL
+         ORDER BY COALESCE(i.due_date, i.created_at), i.id""",
+        (client_id,)).fetchall()
+
+    by_date = {}
+    for r in rows:
+        for line in plan_for(db, r["id"], float(r["paid"]), today=today):
+            slot = by_date.setdefault(str(line["due_date"]), {
+                "due_date": str(line["due_date"]), "amount": 0.0,
+                "paid": 0.0, "invoices": [], "statuses": set(),
+            })
+            slot["amount"] = money(slot["amount"] + float(line["amount"]))
+            slot["paid"] = money(slot["paid"] + float(line.get("paid") or 0))
+            slot["statuses"].add(line["status"])
+            if r["invoice_number"] not in [i["invoice_number"]
+                                           for i in slot["invoices"]]:
+                slot["invoices"].append({"invoice_id": r["id"],
+                                         "invoice_number": r["invoice_number"]})
+
+    out = []
+    for slot in sorted(by_date.values(), key=lambda s: s["due_date"]):
+        st = slot.pop("statuses")
+        # One date is one payment to the customer, so its state is the least
+        # settled of the parts: anything still owing makes the whole date owing.
+        slot["status"] = (PAID if st == {PAID}
+                          else OVERDUE if OVERDUE in st
+                          else PARTIAL if (PARTIAL in st or PAID in st)
+                          else DUE)
+        out.append(slot)
+
+    scheduled = money(sum(s["amount"] for s in out))
+    settled = money(sum(s["paid"] for s in out))
+    return {
+        "installments": out,
+        "count": len(out),
+        "total": scheduled,
+        "paid": settled,
+        "remaining": money(scheduled - settled),
+        "next_due": next((s for s in out if s["status"] != PAID), None),
+    }

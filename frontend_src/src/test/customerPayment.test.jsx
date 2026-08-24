@@ -24,8 +24,10 @@ describe('the payment reaches the server', () => {
   });
 
   test('it reloads the customer afterwards', () => {
-    // Balances on the page are stale the moment the payment lands.
-    expect(detailSrc).toMatch(/onDone=\{\(\) => getClient\(id\)/);
+    // Balances on the page are stale the moment the payment lands — and so is
+    // the agreed schedule, which is why both are refreshed.
+    expect(detailSrc).toMatch(/onDone=\{\(\) => \{ setPlanKey\(k => k \+ 1\);/);
+    expect(detailSrc).toMatch(/getClient\(id\)\.then\(setClient\)/);
   });
 
   test('a duplicate submission carries an idempotency key', () => {

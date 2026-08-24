@@ -232,3 +232,90 @@ def test_agreeing_terms_is_written_to_the_audit_trail(client, db):
                      "AND module='client' ORDER BY id DESC LIMIT 1").fetchone()
     assert row is not None
     assert "instalments" in (row["detail"] or "")
+
+
+# ── Seeing it afterwards ─────────────────────────────────────────────────────
+
+def test_the_account_reads_back_as_the_schedule_that_was_agreed(client):
+    """Four payments were agreed, so four payments are shown — not the rows
+    spread across whichever invoices they landed on."""
+    cid = _client(client, allow_installments=True)
+    _invoice(client, cid, 300, "2026-01-31")
+    _invoice(client, cid, 500, "2026-02-28")
+    _pay(client, cid, 100, plan=PLAN)
+
+    body = client.get(f"/api/clients/{cid}/plan").json()
+
+    assert body["count"] == 5          # the settled opener plus four agreed
+    assert body["total"] == _pytest.approx(800)
+    assert body["remaining"] == _pytest.approx(700)
+
+
+def test_a_date_covering_two_invoices_names_both(client):
+    """One agreed payment can finish a bill and start the next. "Which of mine
+    is this" has to be answerable."""
+    cid = _client(client, allow_installments=True)
+    _invoice(client, cid, 100, "2026-01-31")
+    _invoice(client, cid, 900, "2026-02-28")
+    _pay(client, cid, 50, plan={"count": 2, "start_date": "2026-04-01"})
+
+    body = client.get(f"/api/clients/{cid}/plan").json()
+
+    spanning = [i for i in body["installments"] if len(i["invoices"]) > 1]
+    assert spanning, "no date covers more than one invoice"
+
+
+def test_the_next_payment_is_identified(client):
+    cid = _client(client, allow_installments=True)
+    _invoice(client, cid, 400, "2026-01-31")
+    _pay(client, cid, 100, plan=PLAN)
+
+    body = client.get(f"/api/clients/{cid}/plan").json()
+
+    assert body["next_due"] is not None
+    assert body["next_due"]["due_date"] == "2026-04-01"
+
+
+def test_what_has_been_paid_shows_as_paid(client):
+    """The opener carries what was settled when the terms were agreed. It is
+    found by its state rather than its position: a plan whose first date is
+    already past sorts the settled row last, which is correct and easy to
+    assume away."""
+    cid = _client(client, allow_installments=True)
+    _invoice(client, cid, 400, "2026-01-31")
+    _pay(client, cid, 100, plan=PLAN)
+
+    body = client.get(f"/api/clients/{cid}/plan").json()
+
+    settled = [i for i in body["installments"] if i["status"] == "Paid"]
+    assert settled, [i["status"] for i in body["installments"]]
+    assert settled[0]["amount"] == _pytest.approx(100)
+    assert body["paid"] == _pytest.approx(100)
+
+
+def test_a_plan_dated_ahead_reads_as_still_to_come(client):
+    """The ordinary case: terms agreed today for dates in the future."""
+    cid = _client(client, allow_installments=True)
+    _invoice(client, cid, 400, "2026-01-31")
+
+    _pay(client, cid, 100, plan={"count": 4, "start_date": "2099-01-01"})
+
+    body = client.get(f"/api/clients/{cid}/plan").json()
+    assert body["installments"][0]["status"] == "Paid"      # the opener
+    assert all(i["status"] == "Due" for i in body["installments"][1:])
+
+
+def test_a_customer_with_no_plan_returns_an_empty_schedule(client):
+    cid = _client(client, allow_installments=True)
+    _invoice(client, cid, 400, "2026-01-31")
+
+    body = client.get(f"/api/clients/{cid}/plan").json()
+
+    assert body["installments"] == []
+    assert body["next_due"] is None
+
+
+def test_reading_the_plan_needs_permission_to_see_the_customer(as_role):
+    r = as_role("Inventory").get("/api/clients/1/plan")
+
+    assert r.status_code in (403, 404)

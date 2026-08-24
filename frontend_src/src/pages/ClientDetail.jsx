@@ -11,6 +11,7 @@ import { ExportButtons } from './reports/charts';
 import StatementTab from './clients/StatementTab.jsx';
 import PaymentsTab from './clients/PaymentsTab.jsx';
 import CustomerPaymentModal from './clients/CustomerPaymentModal.jsx';
+import { AccountPlan } from './clients/AccountPlan.jsx';
 import { openSafeHtmlDocument } from '../utils/exportUtils';
 
 function StatCard({ label, value, sub, color }) {
@@ -63,6 +64,9 @@ export default function ClientDetail() {
   const [loading,   setLoading]   = useState(true);
   const [error,     setError]     = useState(null);
   const [tab,       setTab]       = useState('overview');
+  // Bumped when a payment is recorded: agreeing terms is the moment the
+  // schedule becomes worth looking at, so it must not be stale.
+  const [planKey,   setPlanKey]   = useState(0);
   const [payOpen,   setPayOpen]   = useState(false);
 
   const TABS = [
@@ -156,7 +160,8 @@ export default function ClientDetail() {
           client={client}
           invoices={invoices}
           onClose={() => setPayOpen(false)}
-          onDone={() => getClient(id).then(setClient).catch(() => {})}
+          onDone={() => { setPlanKey(k => k + 1);
+                          getClient(id).then(setClient).catch(() => {}); }}
         />
       )}
 
@@ -182,6 +187,11 @@ export default function ClientDetail() {
       </div>
 
       {/* Overview */}
+      {/* The dates they agreed to clear the account on. Renders nothing
+          until there is a plan, so a customer without one is unchanged. */}
+      {tab === 'overview' && (
+        <AccountPlan clientId={id} refreshKey={planKey} />
+      )}
       {tab === 'overview' && (
         <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 16 }}>
           <div className="card">

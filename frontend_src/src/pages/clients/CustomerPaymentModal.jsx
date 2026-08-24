@@ -33,6 +33,33 @@ export default function CustomerPaymentModal({ client, invoices, onClose, onDone
   // about one document and anybody may have one, but the whole account going
   // on terms is a standing credit arrangement.
   const canPlan = !!client?.allow_installments;
+
+  // What the customer is being asked to agree to, worked out as they type.
+  // The same rule the server applies — equal payments with the last carrying
+  // the rounding — so the preview and the schedule cannot disagree.
+  function schedulePreview(total, count, freq, startISO) {
+    const n = Math.max(1, Math.floor(Number(count) || 0));
+    if (!(total > 0.005)) return [];
+    const step = { monthly: 1, quarterly: 3, yearly: 12 }[freq] || 1;
+    const each = Math.round((total / n) * 100) / 100;
+    const start = startISO ? new Date(`${startISO}T00:00:00`) : new Date();
+    const out = [];
+    for (let i = 0; i < n; i += 1) {
+      const d = new Date(start);
+      // Clamped to the end of the month, as the server does: a plan starting
+      // on the 31st must not skip February.
+      const day = start.getDate();
+      d.setDate(1);
+      d.setMonth(d.getMonth() + step * i);
+      const last = new Date(d.getFullYear(), d.getMonth() + 1, 0).getDate();
+      d.setDate(Math.min(day, last));
+      const amount = i === n - 1
+        ? Math.round((total - each * (n - 1)) * 100) / 100
+        : each;
+      out.push({ due: d.toISOString().slice(0, 10), amount });
+    }
+    return out;
+  }
   const [onPlan, setOnPlan] = useState(false);
   const [planCount, setPlanCount] = useState(
     client?.default_installment_count ? String(client.default_installment_count) : '4');
@@ -72,6 +99,10 @@ export default function CustomerPaymentModal({ client, invoices, onClose, onDone
   // this payment has been applied.
   const remainingAfter = Math.max(0,
     Math.round((totalOwed - (Number(amount) || 0)) * 100) / 100);
+
+  const planPreview = (canPlan && onPlan)
+    ? schedulePreview(remainingAfter, planCount, planFreq, planStart)
+    : [];
 
   async function submit(e) {
     e.preventDefault();
@@ -241,6 +272,39 @@ export default function CustomerPaymentModal({ client, invoices, onClose, onDone
                   <input type="date" className="form-control" value={planStart}
                     onChange={e => setPlanStart(e.target.value)} />
                 </div>
+                {/* The agreement itself, in the words it will be explained in.
+                    A count and a frequency are not something a customer can
+                    say yes to; four dates and four amounts are. */}
+                {planPreview.length > 0 && (
+                  <div className="form-group form-full">
+                    <div style={{ fontWeight: 600, fontSize: 13, marginBottom: 6 }}>
+                      {t('clients.planWillBe', {
+                        count: planPreview.length, amount: fmt(remainingAfter),
+                      })}
+                    </div>
+                    <table>
+                      <thead>
+                        <tr>
+                          <th>#</th>
+                          <th>{t('installments.dueDate')}</th>
+                          <th style={{ textAlign: 'right' }}>{t('common.amount')}</th>
+                        </tr>
+                      </thead>
+                      <tbody>
+                        {planPreview.map((p, i) => (
+                          <tr key={p.due}>
+                            <td className="text-mono">{i + 1}</td>
+                            <td>{fmtDate(p.due)}</td>
+                            <td style={{ textAlign: 'right' }}>{fmt(p.amount)}</td>
+                          </tr>
+                        ))}
+                      </tbody>
+                    </table>
+                    <div style={{ fontSize: 11, color: 'var(--text-3)', marginTop: 6 }}>
+                      {t('clients.planCoversHint')}
+                    </div>
+                  </div>
+                )}
               </>
             )}
           </div>

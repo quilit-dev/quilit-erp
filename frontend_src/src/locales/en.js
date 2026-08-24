@@ -871,6 +871,7 @@ const en = {
     removeTitle: 'Remove this line.',
   },
   installments: {
+    nextDueLabel: 'Next payment',
     notApproved: 'This customer is not approved for instalments. Turn it on in their record to offer a plan.',
     title: 'Payment Plan',
     none: 'No payment plan. The full balance is due on the invoice date.',
@@ -1162,6 +1163,10 @@ const en = {
   },
 
   clients: {
+    planSummary: '{{count}} payments totalling {{total}} — {{remaining}} still to come',
+    covers: 'Pays off',
+    planWillBe: '{{count}} payments covering {{amount}}',
+    planCoversHint: 'Each date clears the oldest invoices first, so one payment can finish one bill and start the next.',
     invoicesFor: 'Invoices — {{name}}',
     planTheRest: 'Put the rest on a payment plan',
     planTheRestHint: 'Schedules the {{amount}} still owed across agreed dates, oldest invoice first.',

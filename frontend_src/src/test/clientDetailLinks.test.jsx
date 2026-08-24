@@ -34,6 +34,12 @@ const CLIENT = {
 vi.mock('../api/client', () => ({
   getClient: vi.fn(async () => CLIENT),
   getDocumentContent: vi.fn(async () => ({ html_content: '<p>x</p>' })),
+  // The page reads the customer's agreed schedule too. A hand-written mock
+  // has to list every call the component makes, so a component that gains one
+  // fails here until it is added — which is the cost of mocking the module
+  // rather than the network.
+  getClientPlan: vi.fn(async () => ({ installments: [], count: 0, total: 0,
+                                      paid: 0, remaining: 0, next_due: null })),
 }));
 vi.mock('../hooks/usePermissions', () => ({
   usePermissions: () => ({ can: () => true }),
