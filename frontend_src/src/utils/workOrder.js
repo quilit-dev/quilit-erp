@@ -8,6 +8,16 @@
  * work done, parts used and two signatures — because the copy that comes back
  * from site is the record of the visit.
  *
+ * It is a FORM while the job is open. The office fills in the fault and prints
+ * it; the technician writes the work carried out on the dotted lines and the
+ * parts used in the grid; the office types both onto the job afterwards and
+ * closes it. So nothing already recorded is printed into those sections — a
+ * line that arrives filled in is a line nobody writes on, and the sheet that
+ * comes back would say what the office guessed rather than what happened.
+ *
+ * Once the job is completed the same template prints the record instead: what
+ * was actually done, and the parts and charges with their prices.
+ *
  * Prices are omitted unless the job is already completed. A technician handing
  * this to a customer mid-visit should not be quoting figures that have not been
  * agreed; once the work is done and priced, the same sheet doubles as the
@@ -48,10 +58,23 @@ const WO_CSS = `
 .wo-table th { text-align: left; font-weight: 700; }
 .wo-table td.r, .wo-table th.r { text-align: right; }
 /* Ruled space. The lines are the point: this is where the visit gets written
-   up, and a blank box invites a cramped scrawl in one corner. */
+   up, and a blank box invites a cramped scrawl in one corner. Dotted, because
+   a solid rule reads as a field that has been filled in and ruled off. */
 .wo-write { margin-bottom: 5mm; font-size: 10px; }
 .wo-write h4 { margin: 0 0 2mm; font-size: 10px; text-transform: uppercase; }
-.wo-rule { border-bottom: 1px solid currentColor; height: 7mm; }
+.wo-rule { border-bottom: 1px dotted currentColor; height: 8mm; }
+/* Parts used, written on site. A grid rather than lines: a part is a name and
+   a quantity, and asking for both in one ruled line gets one of them. */
+.wo-blank { width: 100%; border-collapse: collapse; font-size: 9.5px;
+            margin-bottom: 5mm; }
+.wo-blank th, .wo-blank td { border: 1px dotted currentColor; padding: 0 2.5mm; }
+.wo-blank th { border-bottom: 1px solid currentColor; text-align: left;
+               font-weight: 700; padding: 2mm 2.5mm; text-transform: uppercase;
+               letter-spacing: 0.5px; }
+.wo-blank td { height: 8mm; }
+.wo-blank .q { width: 24mm; text-align: right; }
+.wo-note { font-size: 8.5px; text-align: center; margin-top: 4mm;
+           opacity: 0.75; }
 .wo-signs { display: flex; justify-content: space-between; gap: 10mm;
             margin-top: 12mm; font-size: 9px; }
 .wo-sign { flex: 1 1 0; text-align: center; }
@@ -61,6 +84,17 @@ const WO_CSS = `
 /** Empty ruled lines for handwriting. */
 const ruled = (n) => Array.from({ length: n },
   () => '<div class="wo-rule"></div>').join('');
+
+/** An empty grid the technician fills in: `cols` headings, `n` blank rows. */
+const blankGrid = (cols, n) => `
+  <table class="wo-blank">
+    <thead><tr>${cols.map(c =>
+      `<th${c.q ? ' class="q"' : ''}>${esc(c.label)}</th>`).join('')}</tr></thead>
+    <tbody>
+      ${Array.from({ length: n }, () => `<tr>${cols.map(c =>
+        `<td${c.q ? ' class="q"' : ''}></td>`).join('')}</tr>`).join('')}
+    </tbody>
+  </table>`;
 
 export function buildWorkOrderHTML(job, settings, logoDataURL = null, opts = {}) {
   const C = buildCompany(settings);
@@ -127,24 +161,34 @@ export function buildWorkOrderHTML(job, settings, logoDataURL = null, opts = {})
     <div>${esc(job.reported_fault)}</div>
   </div>` : ''}
 
+  ${lines.length ? `<div class="wo-write"><h4>${
+    done ? 'Parts and charges' : 'Parts issued from stores'}</h4></div>` : ''}
   ${linesTable}
 
+  ${/* Two documents from one template. Until the job is completed this is a
+        FORM: the office fills in the fault, the technician writes the visit up
+        on site, and the office types it back onto the job afterwards — so
+        anything recorded so far is deliberately left off, because a line that
+        is already printed is a line nobody writes on. Once completed it is the
+        record, and prints what was actually done. */ ''}
   <div class="wo-write">
     <h4>Work carried out</h4>
-    ${job.work_done ? `<div>${esc(job.work_done)}</div>` : ''}
-    ${ruled(job.work_done ? 2 : 5)}
+    ${done && job.work_done ? `<div>${esc(job.work_done)}</div>` : ruled(6)}
   </div>
 
-  <div class="wo-write">
-    <h4>Additional parts used</h4>
-    ${ruled(3)}
-  </div>
+  ${done ? '' : `<div class="wo-write">
+    <h4>Parts used</h4>
+    ${blankGrid([{ label: 'Part / description' }, { label: 'Qty', q: true }], 6)}
+  </div>`}
 
   <div class="wo-signs">
     <div class="wo-sign"><div class="line"></div>Technician</div>
     <div class="wo-sign"><div class="line"></div>Customer signature</div>
     <div class="wo-sign"><div class="line"></div>Date</div>
   </div>
+
+  ${done ? '' : `<div class="wo-note">Return this sheet to the office. The work
+    carried out and the parts used are entered on the job before it is closed.</div>`}
 </div>`;
 
   // Same sheet wrapper as every other printed document, so a tenant letterhead

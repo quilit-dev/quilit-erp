@@ -223,7 +223,7 @@ const ar = {
     problemReported: 'تم الإبلاغ',
     problemReportedHint: 'شكرًا لك — تم إرسال التفاصيل إلى الدعم. يمكنك متابعة عملك.',
     pageErrorTitle: 'حدث خطأ في هذه الصفحة',
-    pageErrorBody: 'باقي التطبيق يعمل بشكل طبيعي — يمكنك إعادة المحاولة أو تحديث الصفحة أو الانتقال إلى صفحة أخرى.',
+    pageErrorBody: 'باقي التطبيق يعمل بشكل طبيعي — يمكنك تحديث الصفحة أو الانتقال إلى صفحة أخرى.',
     pageErrorReload: 'تحديث التطبيق',
     all: 'الكل',
     cancel: 'إلغاء',
@@ -3394,6 +3394,10 @@ const ar = {
     tabTasks: 'المهام',
     // Type badges
     types: {
+      installment_due_soon: 'قسط مستحق',
+      installment_overdue: 'قسط متأخر',
+      account_plan_due_soon: 'دفعة مستحقة',
+      account_plan_overdue: 'دفعة متأخرة',
       invoice_paid: 'فاتورة مدفوعة',
       payment_received: 'دفعة',
       invoice_overdue: 'متأخرة',

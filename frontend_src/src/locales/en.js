@@ -223,7 +223,7 @@ const en = {
     problemReported: 'Reported',
     problemReportedHint: 'Thanks — the details were sent to support. You can keep working.',
     pageErrorTitle: 'This page hit an error',
-    pageErrorBody: 'The rest of the app is fine — you can retry, reload, or navigate to another page.',
+    pageErrorBody: 'The rest of the app is fine — you can reload this page or navigate to another one.',
     pageErrorReload: 'Reload app',
     all: 'All',
     cancel: 'Cancel',
@@ -3418,6 +3418,10 @@ const en = {
     tabTasks: 'Tasks',
     // Type badges
     types: {
+      installment_due_soon: 'Instalment Due',
+      installment_overdue: 'Instalment Late',
+      account_plan_due_soon: 'Plan Due',
+      account_plan_overdue: 'Plan Late',
       invoice_paid: 'Invoice Paid',
       payment_received: 'Payment',
       invoice_overdue: 'Overdue',

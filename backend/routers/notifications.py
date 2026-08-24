@@ -38,6 +38,14 @@ NOTIFICATION_TYPE_MODULE = {
     "invoice_paid":          "invoices",
     "payment_received":      "invoices",
     "invoice_overdue":       "invoices",
+    # Instalments. An invoice plan is chased from the invoice and an
+    # account plan from the customer, so each is gated on the module its
+    # link lands in. installment_overdue was missing from this map
+    # entirely, so it fanned out to roles that cannot open an invoice.
+    "installment_due_soon":  "invoices",
+    "installment_overdue":   "invoices",
+    "account_plan_due_soon": "clients",
+    "account_plan_overdue":  "clients",
     "quotation_accepted":    "quotations",
     # Operations / stock
     "low_stock":             "inventory",
@@ -120,19 +128,88 @@ def _gating_sql(gated: list) -> str:
     return f" AND NOT (user_id IS NULL AND type IN ({placeholders}))"
 
 
+# How much warning an instalment gets before its date. Three days, the same
+# runway a planning task gets — long enough to ring the customer, short enough
+# that the reminder still means "this week".
+PLAN_HORIZON_DAYS = 3
+
+
+def _plan_horizon(today: str) -> str:
+    from datetime import date, timedelta
+    try:
+        base = date.fromisoformat(today[:10])
+    except ValueError:
+        base = date.today()
+    return (base + timedelta(days=PLAN_HORIZON_DAYS)).isoformat()
+
+
+def _days_between(a: str, b: str) -> int:
+    """Whole days from `a` to `b`, or 0 if either date is unreadable."""
+    from datetime import date
+    try:
+        return (date.fromisoformat(str(b)[:10])
+                - date.fromisoformat(str(a)[:10])).days
+    except Exception:
+        return 0
+
+
+def _remind(db, *, due_type, overdue_type, msg_stem, link, entity_type,
+            row, who, today, horizon, doc=None) -> None:
+    """One instalment, reminded about at most once a day.
+
+    Two events, not one. A payment coming up is a call to the customer; one
+    that has passed is a debt. They are chased by different people and read
+    differently, so a single "instalment" alert would collapse them into
+    something nobody knows what to do with.
+    """
+    due = str(row["due_date"])[:10]
+    if due < today[:10]:
+        days = _days_between(due, today)
+        notify(
+            db,
+            type=overdue_type,
+            title=(f"Instalment {row['seq']} of {doc} is overdue" if doc
+                   else f"Instalment {row['seq']} for {who} is overdue"),
+            body=f"{who} — ${row['remaining']:,.2f} due {due}, {days}d overdue",
+            msg=f"{msg_stem}_overdue",
+            params={"seq": row["seq"], "doc": doc or who, "who": who,
+                    "amount": row["remaining"], "date": due, "days": days},
+            link=link, entity_type=entity_type, entity_id=row["id"],
+            dedup_hours=24,
+        )
+        return
+    if due > horizon:
+        return
+    days = _days_between(today, due)
+    notify(
+        db,
+        type=due_type,
+        title=(f"Instalment {row['seq']} of {doc} is due" if doc
+               else f"Instalment {row['seq']} for {who} is due"),
+        body=(f"{who} — ${row['remaining']:,.2f} due today" if days <= 0
+              else f"{who} — ${row['remaining']:,.2f} due {due}, in {days}d"),
+        msg=f"{msg_stem}_due_today" if days <= 0 else f"{msg_stem}_due_soon",
+        params={"seq": row["seq"], "doc": doc or who, "who": who,
+                "amount": row["remaining"], "date": due, "days": days},
+        link=link, entity_type=entity_type, entity_id=row["id"],
+        dedup_hours=24,
+    )
+
+
 def _plan_arrears(db, today: str) -> None:
-    """Notify once per OVERDUE INSTALMENT, not once per invoice.
+    """Remind per INSTALMENT of an invoice plan — before its date and after.
 
     Which instalments are outstanding is derived from cumulative payments (see
     installments.allocate), so this reads the schedule and the invoice's total
     paid and needs no allocation state of its own.
 
     Deduped on the instalment's own entity id, so a client three months in
-    arrears produces three reminders that each name their month, rather than one
-    that names a lump sum.
+    arrears produces three reminders that each name their month, rather than
+    one that names a lump sum.
     """
     import installments
 
+    horizon = _plan_horizon(today)
     try:
         rows = db.execute(
             """SELECT i.id AS invoice_id, i.invoice_number, c.name AS client_name,
@@ -143,8 +220,8 @@ def _plan_arrears(db, today: str) -> None:
                WHERE i.voided_at IS NULL AND i.archived_at IS NULL
                  AND EXISTS (SELECT 1 FROM invoice_installments ins
                              WHERE ins.invoice_id = i.id
-                               AND ins.due_date < ?)""",
-            (today,),
+                               AND ins.due_date <= ?)""",
+            (horizon,),
         ).fetchall()
     except Exception:
         # No such table on an install that has not migrated yet. Arrears
@@ -152,27 +229,61 @@ def _plan_arrears(db, today: str) -> None:
         return
 
     for inv in rows:
-        plan = installments.plan_for(db, inv["invoice_id"], inv["paid"], today=today)
+        plan = installments.plan_for(db, inv["invoice_id"], inv["paid"],
+                                     today=today)
         for row in plan:
-            if row["status"] != installments.OVERDUE:
+            if row["status"] == installments.PAID:
                 continue
-            days = 0
-            try:
-                from datetime import date
-                days = (date.fromisoformat(today[:10])
-                        - date.fromisoformat(str(row["due_date"])[:10])).days
-            except Exception:
-                pass
-            notify(
-                db,
-                type="installment_overdue",
-                title=f"Instalment {row['seq']} of {inv['invoice_number']} is overdue",
-                body=f"{inv['client_name'] or 'Unknown client'} — "
-                     f"${row['remaining']:,.2f} due {row['due_date']}, {days}d overdue",
+            _remind(
+                db, due_type="installment_due_soon",
+                overdue_type="installment_overdue",
+                msg_stem="installment",
                 link=f"/invoices/{inv['invoice_id']}",
                 entity_type="invoice_installment",
-                entity_id=row["id"],
-                dedup_hours=24,
+                row=row, who=inv["client_name"] or "Unknown client",
+                doc=inv["invoice_number"], today=today, horizon=horizon,
+            )
+
+
+def _account_plan_reminders(db, today: str) -> None:
+    """The same reminders for a plan against the customer's ACCOUNT.
+
+    An account plan hangs off no invoice — it is the schedule the customer
+    agreed to clear their balance on — so nothing in the invoice sweep can
+    see it. Without this the dates are agreed, printed, and then never
+    mentioned again by the system that agreed them.
+    """
+    import installments
+
+    horizon = _plan_horizon(today)
+    try:
+        plans = db.execute(
+            """SELECT p.id, p.client_id, c.name AS client_name
+                 FROM client_payment_plans p
+                 JOIN clients c ON c.id = p.client_id
+                WHERE p.status = 'active' AND c.deleted_at IS NULL
+                  AND EXISTS (SELECT 1 FROM client_plan_installments i
+                               WHERE i.plan_id = p.id AND i.due_date <= ?)""",
+            (horizon,),
+        ).fetchall()
+    except Exception:
+        return
+
+    for p in plans:
+        state = installments.plan_state(db, p["client_id"], today=today)
+        if not state:
+            continue
+        for row in state["installments"]:
+            if row["status"] == installments.PAID:
+                continue
+            _remind(
+                db, due_type="account_plan_due_soon",
+                overdue_type="account_plan_overdue",
+                msg_stem="account_plan",
+                link=f"/clients/{p['client_id']}",
+                entity_type="client_plan_installment",
+                row=row, who=p["client_name"] or "Unknown client",
+                today=today, horizon=horizon,
             )
 
 
@@ -190,6 +301,7 @@ def _generate_system_notifications(db: sqlite3.Connection) -> None:
     # and then flags the entire balance at once — it cannot tell you which month
     # was missed, which is the only thing worth knowing while a plan is running.
     _plan_arrears(db, today)
+    _account_plan_reminders(db, today)
 
     # ── Overdue invoices ──────────────────────────────────────────────────────
     # Invoices WITHOUT a plan keep the original behaviour. Those with one are

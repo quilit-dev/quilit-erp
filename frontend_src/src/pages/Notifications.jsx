@@ -19,6 +19,12 @@ const TYPE_CONFIG = {
   invoice_paid:         { bg: 'var(--green-light)',  color: 'var(--green)',  label: 'Invoice Paid',    icon: 'check-circle' },
   payment_received:     { bg: 'var(--green-light)',  color: 'var(--green)',  label: 'Payment',         icon: 'credit-card'  },
   invoice_overdue:      { bg: 'var(--red-light)',    color: 'var(--red)',    label: 'Overdue',         icon: 'alert-circle' },
+  // Instalments. Due-soon is a phone call and overdue is a debt, so they
+  // read differently at a glance.
+  installment_due_soon: { bg: 'var(--yellow-light)', color: 'var(--yellow)', label: 'Instalment Due',  icon: 'calendar'     },
+  installment_overdue:  { bg: 'var(--red-light)',    color: 'var(--red)',    label: 'Instalment Late', icon: 'alert-circle' },
+  account_plan_due_soon:{ bg: 'var(--yellow-light)', color: 'var(--yellow)', label: 'Plan Due',        icon: 'calendar'     },
+  account_plan_overdue: { bg: 'var(--red-light)',    color: 'var(--red)',    label: 'Plan Late',       icon: 'alert-circle' },
   quotation_accepted:   { bg: 'var(--green-light)',  color: 'var(--green)',  label: 'Quotation',       icon: 'file-check'   },
   // Operations / stock
   low_stock:            { bg: 'var(--yellow-light)', color: 'var(--yellow)', label: 'Low Stock',       icon: 'package'      },
@@ -85,6 +91,8 @@ const TABS = [
   { key: 'unread',      labelKey: 'notifications.tabUnread' },
   { key: 'finance',     labelKey: 'notifications.tabFinance',    types: [
       'invoice_paid','payment_received','invoice_overdue','cash_variance',
+      'installment_due_soon','installment_overdue',
+      'account_plan_due_soon','account_plan_overdue',
       'asset_depreciated','recurring_generated','period_unlocked','fx_rate_stale',
   ] },
   { key: 'stock',       labelKey: 'notifications.tabInventory',  types: [

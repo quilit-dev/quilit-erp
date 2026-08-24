@@ -50,6 +50,27 @@ AR = {
     "invoice_overdue":    {"title": "الفاتورة {number} متأخرة",
                            "body": "{client} — ${amount:,.2f} مستحقة، متأخرة {days} يوم"},
 
+    # ── Instalments ─ an invoice plan and an account plan, each before
+    # its date and after it.
+    "installment_due_today": {
+        "title": "قسط {seq} من {doc} مستحق اليوم",
+        "body": "{who} — ${amount:,.2f} مستحقة اليوم"},
+    "installment_due_soon": {
+        "title": "قسط {seq} من {doc} يستحق قريباً",
+        "body": "{who} — ${amount:,.2f} مستحقة في {date} ، بعد {days} يوم"},
+    "installment_overdue": {
+        "title": "قسط {seq} من {doc} متأخر",
+        "body": "{who} — ${amount:,.2f} مستحقة في {date}، متأخرة {days} يوم"},
+    "account_plan_due_today": {
+        "title": "قسط {seq} من جدول حساب {who} مستحق اليوم",
+        "body": "{who} — ${amount:,.2f} مستحقة اليوم"},
+    "account_plan_due_soon": {
+        "title": "قسط {seq} من جدول حساب {who} يستحق قريباً",
+        "body": "{who} — ${amount:,.2f} مستحقة في {date}، بعد {days} يوم"},
+    "account_plan_overdue": {
+        "title": "قسط {seq} من جدول حساب {who} متأخر",
+        "body": "{who} — ${amount:,.2f} مستحقة في {date}، متأخرة {days} يوم"},
+
     # ── Planning + reminders (titles only; bodies are user content) ────────────
     "task_due_soon":       {"title": "مهمة مستحقة قريباً: {name}",
                             "body": "{project} — {label}"},

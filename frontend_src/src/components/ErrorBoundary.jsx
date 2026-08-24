@@ -46,11 +46,12 @@ export default class ErrorBoundary extends Component {
           <p className="text-mono" style={{ margin: '0 0 20px', color: 'var(--text-3)', fontSize: 12 }}>
             {String(error?.message || error)}
           </p>
+          {/* No Retry. Clearing the error re-renders the same component from
+              the same state that just threw, so it threw again — a button
+              whose only reliable effect was to make the panel flicker.
+              Reloading is the one that actually starts over. */}
           <div style={{ display: 'flex', gap: 8, justifyContent: 'center', flexWrap: 'wrap' }}>
-            <button className="btn btn-primary" onClick={() => this.setState({ error: null })}>
-              {t('common.retry')}
-            </button>
-            <button className="btn btn-secondary" onClick={() => window.location.reload()}>
+            <button className="btn btn-primary" onClick={() => window.location.reload()}>
               {t('common.pageErrorReload')}
             </button>
             {/* Opens the same dialog as the topbar action. The crash detail

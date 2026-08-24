@@ -147,7 +147,49 @@ describe('the work order', () => {
   test('leaves ruled space to write the visit up', () => {
     // A blank box invites a scrawl in one corner; the lines are the point.
     expect(html()).toContain('wo-rule');
-    expect(html()).toContain('Additional parts used');
+    expect(html()).toContain('Work carried out');
+    expect(html()).toContain('Parts used');
+  });
+
+  // While the job is open the sheet is a FORM: the office fills in the fault,
+  // the technician writes the rest on site, and the office types it back onto
+  // the job afterwards. A section that arrives already filled in is a section
+  // nobody writes on, so the sheet would come back saying what the office
+  // guessed rather than what happened.
+  test('the writing space is empty even when the office typed something', () => {
+    const out = html({ ...JOB, work_done: 'Office guess: replaced belt' });
+
+    expect(out).not.toContain('Office guess');
+    expect((out.match(/wo-rule/g) || []).length).toBeGreaterThan(4);
+  });
+
+  test('parts used is a grid the technician fills in, not a list', () => {
+    // A part is a name and a quantity. Asking for both on one ruled line
+    // reliably gets one of them.
+    const out = html();
+
+    expect(out).toContain('Part / description');
+    expect(out).toContain('wo-blank');
+  });
+
+  test('the lines the office issued are still on it, without prices', () => {
+    const out = html();
+
+    expect(out).toContain('Parts issued from stores');
+    expect(out).toContain('Fan belt');
+  });
+
+  test('it says what to do with the sheet afterwards', () => {
+    expect(html()).toContain('Return this sheet to the office');
+  });
+
+  test('once completed it prints the record instead of blank lines', () => {
+    const out = html({ ...JOB, status: 'Completed',
+                       work_done: 'Replaced fan belt and tensioner' });
+
+    expect(out).toContain('Replaced fan belt and tensioner');
+    expect(out).not.toContain('Part / description');
+    expect(out).not.toContain('Return this sheet to the office');
   });
 
   test('hides prices until the job is completed', () => {

@@ -134,6 +134,12 @@ project, invoice, payment, and activity for that customer in one place.
     agreed the panel says how much sits outside the plan, because chasing a
     customer for a figure nobody agreed to is the mistake this prevents.
 
+    Every instalment on the plan raises its own reminder three days before
+    it falls due, on the day, and again once it has passed — on the bell and
+    in **Notifications**, filed under *Finance*, linking straight back to the
+    customer. They stop as soon as the money arrives, and cancelling the plan
+    stops them for good.
+
     **Change plan** restates the terms while nothing has been paid against
     them. Once a payment has arrived it is locked, because restating would
     re-interpret what that money settled — three of eight silently becoming

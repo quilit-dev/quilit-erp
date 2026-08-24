@@ -321,6 +321,17 @@ shown beside it.
     oldest amount still owing, which is the normal rule for an instalment
     agreement and the only one that needs no manual matching.
 
+### Reminders, before and after the date
+
+Each instalment raises its own reminder three days before it falls due, again
+on the day, and again once it has passed — naming that instalment, not the
+whole balance. Coming up and gone past are deliberately two different alerts:
+one is a phone call that usually gets the money in, the other is a debt to
+collect, and they are not the same job.
+
+A reminder stops the moment the instalment is covered. Which ones are settled
+is worked out from what has been paid, so nothing has to be ticked off.
+
 ### Chasing arrears
 
 Each missed instalment raises its own reminder naming that instalment and how

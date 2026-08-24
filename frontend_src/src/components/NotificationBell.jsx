@@ -47,6 +47,10 @@ const TYPE_CONFIG = {
   invoice_paid:         { ...C.green,  icon: ICON.check     },
   payment_received:     { ...C.green,  icon: ICON.card      },
   invoice_overdue:      { ...C.red,    icon: ICON.alert     },
+  installment_due_soon: { ...C.yellow, icon: ICON.calendar  },
+  installment_overdue:  { ...C.red,    icon: ICON.alert     },
+  account_plan_due_soon:{ ...C.yellow, icon: ICON.calendar  },
+  account_plan_overdue: { ...C.red,    icon: ICON.alert     },
   quotation_accepted:   { ...C.green,  icon: ICON.file      },
   // Operations / stock
   low_stock:            { ...C.yellow, icon: ICON.package   },
