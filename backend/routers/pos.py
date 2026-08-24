@@ -263,22 +263,66 @@ def search_products(
     user=Depends(require_perm("pos", "view")),
     db: sqlite3.Connection = Depends(get_db),
 ):
-    """Fast item lookup for the cashier — matches name, category or exact barcode."""
+    """Fast item lookup for the cashier.
+
+    A cashier types the words they can see on the packet, in whatever order
+    they come to mind: "blue shirt" for BLUE COTTON SHIRT, "nescafe 200" for
+    NESCAFE GOLD 200G. Matching the whole phrase as one string found neither,
+    because the words are not adjacent — which is most of what "the search does
+    not work" meant.
+
+    So the term is split and every word has to match something: the name, the
+    category, the variant, the product it belongs to, or the barcode. Any
+    order, any gap between them.
+
+    A scanned barcode is treated apart. When the term is exactly a barcode it
+    returns that one item and nothing else, because the register adds a single
+    result straight to the cart and a scan must never be ambiguous. Typed
+    fragments of a barcode — the digits still legible on a damaged label —
+    match as an ordinary word.
+    """
+    term = (search or "").strip()
+
     query  = ("SELECT i.id, i.name, i.category, i.quantity, i.unit, i.unit_cost, i.sale_price, "
               "i.price_currency, i.barcode, i.product_id, i.variant_label, "
               "p.name AS product_name "
               "FROM inventory i LEFT JOIN products p ON i.product_id = p.id "
               "WHERE i.archived_at IS NULL")
-    params = []
-    if search:
-        query += " AND (i.name LIKE ? OR i.category LIKE ? OR i.barcode = ? OR p.name LIKE ?)"
-        like = f"%{search}%"
-        params += [like, like, search, like]
-    # No-barcode items lead the grid: they're the loose/quick-sell goods a
-    # cashier can't scan, so they need to be tap-ready up front. Barcoded items
-    # (which a scanner finds instantly) follow, alphabetical within each group.
-    query += (" ORDER BY (i.barcode IS NULL OR i.barcode = '') DESC, "
-              "COALESCE(p.name, i.name), i.id LIMIT 100")
+    params: list = []
+
+    scanned = False
+    if term:
+        scanned = db.execute(
+            "SELECT 1 FROM inventory WHERE barcode = ? AND archived_at IS NULL "
+            "LIMIT 1", (term,)).fetchone() is not None
+        if scanned:
+            query += " AND i.barcode = ?"
+            params.append(term)
+        else:
+            # Every word must match somewhere; which field is not important.
+            for word in term.split():
+                query += (" AND (i.name LIKE ? OR i.category LIKE ? "
+                          "OR i.barcode LIKE ? OR i.variant_label LIKE ? "
+                          "OR p.name LIKE ?)")
+                like = f"%{word}%"
+                params += [like] * 5
+
+    if term and not scanned:
+        # Best match first, because Enter acts on the top tile. Something whose
+        # name STARTS with what was typed is what the cashier meant far more
+        # often than something that merely contains it.
+        starts = f"{term}%"
+        query += (" ORDER BY (COALESCE(p.name, i.name) LIKE ?) DESC, "
+                  "LENGTH(COALESCE(p.name, i.name)), "
+                  "COALESCE(p.name, i.name), i.id LIMIT 100")
+        params.append(starts)
+    else:
+        # Browsing. No-barcode items lead the grid: they are the loose,
+        # quick-sell goods a cashier cannot scan, so they need to be tap-ready
+        # up front. Barcoded items follow, alphabetical within each group.
+        query += (" ORDER BY (i.barcode IS NULL OR i.barcode = '') DESC, "
+                  "COALESCE(p.name, i.name), i.id LIMIT 100")
+
     return [dict(r) for r in db.execute(query, params).fetchall()]
 
 

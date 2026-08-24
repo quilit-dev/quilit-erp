@@ -9,6 +9,28 @@ import { CloseRegisterModal } from './CloseRegisterModal';
 import { CheckoutModal } from './CheckoutModal';
 import { CustomLineNameCombobox } from './CustomLineNameCombobox';
 
+// Group variant SKUs under one tile per product; simple items (no product_id)
+// stay as their own tile. Preserves first-seen order.
+//
+// Outside the component because the scanner path groups a freshly-fetched set
+// of rows rather than whatever is currently on screen.
+function tilesFor(rows) {
+  const byProduct = new Map();
+  const tiles = [];
+  for (const p of rows || []) {
+    if (p.product_id == null) { tiles.push({ kind: 'item', item: p }); continue; }
+    let g = byProduct.get(p.product_id);
+    if (!g) {
+      g = { kind: 'group', product_id: p.product_id,
+            name: p.product_name || p.name, category: p.category, variants: [] };
+      byProduct.set(p.product_id, g);
+      tiles.push(g);
+    }
+    g.variants.push(p);
+  }
+  return tiles;
+}
+
 function RegisterView({ session, onClose, onSold }) {
   const { t, fmt, tCategory } = useLocale();
   const { settings, taxRates, exchangeRate } = useSettings();
@@ -102,24 +124,7 @@ function RegisterView({ session, onClose, onSold }) {
         ? browsePool.filter(p => (p.category || '') === category)
         : browsePool);
 
-  // Group variant SKUs under one tile per product; simple items (no product_id)
-  // stay as their own tile. Preserves first-seen order.
-  const displayTiles = (() => {
-    const byProduct = new Map();
-    const tiles = [];
-    for (const p of visibleProducts) {
-      if (p.product_id == null) { tiles.push({ kind: 'item', item: p }); continue; }
-      let g = byProduct.get(p.product_id);
-      if (!g) {
-        g = { kind: 'group', product_id: p.product_id,
-              name: p.product_name || p.name, category: p.category, variants: [] };
-        byProduct.set(p.product_id, g);
-        tiles.push(g);
-      }
-      g.variants.push(p);
-    }
-    return tiles;
-  })();
+  const displayTiles = tilesFor(visibleProducts);
 
   // Tapping a tile: a simple item or single-variant product adds straight to the
   // cart; a multi-variant product opens the size/colour picker first.
@@ -184,20 +189,35 @@ function RegisterView({ session, onClose, onSold }) {
       .filter(l => Number(l.quantity) > 0));
   };
 
-  function onSearchKeyDown(e) {
-    if (e.key === 'Enter' && displayTiles.length > 0) {
-      e.preventDefault();
-      // A barcode scan resolves to a single variant row → add it directly even
-      // when it belongs to a product group; otherwise act on the top tile.
-      if (displayTiles.length === 1 && displayTiles[0].kind === 'group'
-          && displayTiles[0].variants.length === 1) {
-        addProduct(displayTiles[0].variants[0]);
-      } else {
-        openTile(displayTiles[0]);
-      }
-      setSearch('');
-      setResults([]);
+  async function onSearchKeyDown(e) {
+    if (e.key !== 'Enter') return;
+    e.preventDefault();
+    const term = search.trim();
+    if (!term) return;
+
+    // A scanner types the whole barcode in a few milliseconds and sends Enter
+    // straight after it. The debounce has not fired yet, so what is on screen
+    // is still empty — acting on it did nothing at all, and the cashier had to
+    // press Enter a second time once the results caught up. Resolve the term
+    // now instead of waiting for a timer.
+    let tiles = displayTiles;
+    if (tiles.length === 0) {
+      const rows = await getPosProducts(term).catch(() => []);
+      if (!rows.length) return;      // nothing matches; leave the term to edit
+      setResults(rows);
+      tiles = tilesFor(rows);
     }
+
+    // A scan resolves to a single variant row → add it directly even when it
+    // belongs to a product group; otherwise act on the top tile.
+    if (tiles.length === 1 && tiles[0].kind === 'group'
+        && tiles[0].variants.length === 1) {
+      addProduct(tiles[0].variants[0]);
+    } else {
+      openTile(tiles[0]);
+    }
+    setSearch('');
+    setResults([]);
   }
 
   const pricing = priceCart(cart, orderDiscount, taxEnabled, rateOf, posDefaultRate, promoOf);
