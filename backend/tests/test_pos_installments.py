@@ -306,3 +306,50 @@ def test_an_ordinary_sale_still_reads_as_paid(cashier, buyer, widget):
 
     assert row["payment_status"] == "Paid"
     assert row["balance"] == _pytest.approx(0)
+
+
+# ── Cash handed over against a plan with no deposit ──────────────────────────
+# The whole sale is on terms, so nothing is due at the till. Money entered as
+# tendered comes straight back as change: the sale completes, the balance is
+# untouched, and the customer watches their notes returned. It reads like the
+# payment was taken, and the receipt agrees, because a deposit of nothing is
+# exactly what was recorded.
+
+def test_cash_against_a_plan_with_no_deposit_is_refused(cashier, buyer, widget):
+    r = _sell(cashier, buyer, widget,
+              plan={**PLAN, "down_payment": 0}, tendered=60)
+
+    assert r.status_code == 400
+    assert "no deposit" in r.text.lower()
+    assert "60" in r.text
+
+
+def test_the_refusal_leaves_no_sale_behind(cashier, buyer, widget, db):
+    before = db.execute("SELECT COUNT(*) AS n FROM pos_sales").fetchone()["n"]
+
+    _sell(cashier, buyer, widget, plan={**PLAN, "down_payment": 0}, tendered=60)
+
+    assert db.execute("SELECT COUNT(*) AS n FROM pos_sales").fetchone()["n"] == before
+    assert _stock(cashier, widget) == 10
+
+
+def test_a_plan_with_no_deposit_still_sells_when_no_cash_is_offered(
+        cashier, buyer, widget):
+    """The ordinary case: everything on terms, nothing handed over."""
+    r = _sell(cashier, buyer, widget,
+              plan={**PLAN, "down_payment": 0}, tendered=0)
+
+    assert r.status_code == 200, r.text
+    assert r.json()["paid_now"] == 0
+    assert r.json()["balance"] == _pytest.approx(300)
+
+
+def test_a_note_bigger_than_the_deposit_is_still_ordinary_change(
+        cashier, buyer, widget):
+    """A customer paying a 100 deposit with a 300 note gets 200 back, which is
+    change-making and not the mistake above."""
+    r = _sell(cashier, buyer, widget, plan=PLAN, tendered=300)
+
+    assert r.status_code == 200, r.text
+    assert r.json()["change_given"] == _pytest.approx(200)
+    assert r.json()["paid_now"] == _pytest.approx(100)

@@ -575,6 +575,19 @@ def checkout(
     if method.lower() == "cash":
         if data.amount_tendered + 0.01 < total_in_currency:
             raise HTTPException(400, "Amount tendered is less than the sale total.")
+        # Cash offered against a plan with no deposit. Nothing is due at the
+        # till, so every note of it comes straight back as change — the sale
+        # completes, the balance is untouched, and the customer watches their
+        # money returned. That is never what anybody meant: the money belongs
+        # in the deposit, where it comes off what they owe.
+        if (plan is not None and due_now <= 0.005
+                and float(data.amount_tendered or 0) > 0.005):
+            raise HTTPException(
+                400,
+                f"This sale has no deposit, so nothing is collected at the "
+                f"till and the {float(data.amount_tendered):,.2f} entered "
+                "would be handed straight back. Enter it as the deposit if "
+                "the customer is paying some of it now.")
         tendered     = float(data.amount_tendered)
         change_given = round(tendered - total_in_currency, 2)
     else:

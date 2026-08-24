@@ -48,7 +48,7 @@ describe('the cashier is told what is wrong before the queue notices', () => {
   });
 
   test('the button is disabled while the plan is invalid', () => {
-    expect(checkoutSrc).toMatch(/disabled=\{busy \|\| !!planProblem\}/);
+    expect(checkoutSrc).toMatch(/disabled=\{busy \|\| !!planProblem \|\| !!tenderProblem\}/);
   });
 });
 
@@ -135,6 +135,44 @@ describe('the customer walks out with the terms in writing', () => {
     });
 
     expect(scheduled(c)).toEqual([]);
+  });
+});
+
+describe('money handed over at the till on a plan sale', () => {
+  // A plan with no deposit collects nothing at the counter. Cash typed into
+  // the tender box came straight back as change: the sale completed, the
+  // balance was untouched, and the customer watched their notes returned
+  // while the screen said "Change: 26". The two boxes disagreed and only one
+  // of them meant anything.
+  test('the tender follows the deposit until the cashier types over it', () => {
+    expect(checkoutSrc).toMatch(/const \[tenderTouched, setTenderTouched\]/);
+    expect(checkoutSrc).toMatch(/if \(tenderTouched \|\| method !== 'Cash'\) return;/);
+    expect(checkoutSrc).toMatch(/onPlan && totalInCurrency > 0\.005/);
+  });
+
+  test('cash against a plan with no deposit is stopped, and says which box', () => {
+    expect(checkoutSrc).toMatch(/depositNum <= 0\.005 && tenderedNum > 0\.005/);
+    expect(checkoutSrc).toMatch(/pos\.tenderWithNoDeposit/);
+    expect(en.pos.tenderWithNoDeposit).toMatch(/deposit/i);
+    expect(/[؀-ۿ]/.test(ar.pos.tenderWithNoDeposit)).toBe(true);
+  });
+
+  test('it names the figure rather than the rule', () => {
+    for (const dict of [en, ar]) {
+      expect([...dict.pos.tenderWithNoDeposit.matchAll(/\{\{(\w+)\}\}/g)]
+        .map(m => m[1])).toEqual(['amount']);
+    }
+  });
+
+  test('the sale cannot be completed while it stands', () => {
+    expect(checkoutSrc).toMatch(/disabled=\{busy \|\| !!planProblem \|\| !!tenderProblem\}/);
+    expect(checkoutSrc).toMatch(/if \(tenderProblem\)/);
+  });
+
+  test('the change line gives way to it, rather than sitting beside it', () => {
+    // "Change: 26" next to "this will be handed back" is the same sentence
+    // twice, and the reassuring one is the one that gets read.
+    expect(checkoutSrc).toMatch(/tendered !== '' && !tenderProblem/);
   });
 });
 

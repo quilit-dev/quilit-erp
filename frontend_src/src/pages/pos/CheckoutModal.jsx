@@ -23,6 +23,11 @@ function CheckoutModal({ pricing, clients, drawers, defaultCurrency = 'USD', onC
   const [planFreq, setPlanFreq] = useState('monthly');
   const [planStart, setPlanStart] = useState('');
   const [planTouched, setPlanTouched] = useState(false);
+  // Whether the cashier has typed in the tender box themselves. Until they
+  // do, it follows the deposit on a plan sale: the money handed over at the
+  // counter IS the deposit, and making them type the same figure twice is
+  // what let the two disagree.
+  const [tenderTouched, setTenderTouched] = useState(false);
   const [busy, setBusy] = useState(false);
   const _defDrawer = drawers.find(d => d.auto_capture) || drawers[0];
   const [drawerId, setDrawerId] = useState(_defDrawer ? String(_defDrawer.id) : '');
@@ -59,6 +64,25 @@ function CheckoutModal({ pricing, clients, drawers, defaultCurrency = 'USD', onC
 
   // Refused by the server too — checked here so the cashier is told which part
   // is wrong rather than getting a bare 400 with a queue behind them.
+  // On a plan the cash handed over is the deposit, so the tender box follows
+  // it until the cashier types their own figure — a customer paying a 100
+  // deposit with a 300 note is still ordinary change-making.
+  useEffect(() => {
+    if (tenderTouched || method !== 'Cash') return;
+    setTendered(onPlan && totalInCurrency > 0.005
+      ? String(Math.round(totalInCurrency * 100) / 100)
+      : '');
+  }, [onPlan, totalInCurrency, tenderTouched, method]);
+
+  // Cash typed against a plan with no deposit. Nothing is due at the till, so
+  // every note of it comes straight back as change: the sale completes, the
+  // balance is untouched, and the customer watches their money returned. The
+  // server refuses it too — this says which box it belongs in.
+  const tenderProblem = (onPlan && method === 'Cash'
+      && depositNum <= 0.005 && tenderedNum > 0.005)
+    ? t('pos.tenderWithNoDeposit', { amount: fmt(tenderedNum) })
+    : null;
+
   const planProblem = !onPlan ? null
     : !clientId ? t('pos.planNeedsCustomer')
     : notApproved ? t('installments.notApproved')
@@ -71,7 +95,8 @@ function CheckoutModal({ pricing, clients, drawers, defaultCurrency = 'USD', onC
     if (method === 'Cash' && tenderedNum + 0.01 < totalInCurrency) {
       toast(t('pos.amountTendered'), 'red'); return;
     }
-    if (planProblem) { toast(planProblem, 'red'); return; }
+    if (planProblem)   { toast(planProblem, 'red'); return; }
+    if (tenderProblem) { toast(tenderProblem, 'red'); return; }
     setBusy(true);
     try {
       const res = await posCheckout({
@@ -228,11 +253,19 @@ function CheckoutModal({ pricing, clients, drawers, defaultCurrency = 'USD', onC
                 {t('pos.amountTendered')} ({currency}) — {onPlan ? t('installments.deposit') : t('pos.total')}: {num(totalInCurrency)}
               </label>
               <NumberInput className="form-control" step="any" min="0" value={tendered}
-                onChange={e => setTendered(e.target.value)} autoFocus />
+                onChange={e => { setTenderTouched(true); setTendered(e.target.value); }}
+                autoFocus />
             </div>
           )}
         </div>
-        {method === 'Cash' && tendered !== '' && (
+        {tenderProblem && (
+          <div style={{ marginTop: 8, padding: '10px 12px', borderRadius: 8,
+                        background: '#fef3c7', border: '1px solid #f59e0b',
+                        fontSize: 13, color: '#78350f' }}>
+            {tenderProblem}
+          </div>
+        )}
+        {method === 'Cash' && tendered !== '' && !tenderProblem && (
           <div style={{ marginTop: 8, fontSize: 14, fontWeight: 600,
                         color: change < 0 ? 'var(--red)' : 'var(--green)' }}>
             {t('pos.change')}: {num(change)} {currency}
@@ -241,7 +274,7 @@ function CheckoutModal({ pricing, clients, drawers, defaultCurrency = 'USD', onC
       </div>
       <div className="modal-footer">
         <button className="btn btn-secondary" onClick={onClose}>{t('common.cancel')}</button>
-        <button className="btn btn-primary" disabled={busy || !!planProblem} onClick={confirm}>
+        <button className="btn btn-primary" disabled={busy || !!planProblem || !!tenderProblem} onClick={confirm}>
           {busy ? t('common.saving') : t('pos.completeSale')}
         </button>
       </div>

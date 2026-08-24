@@ -1783,6 +1783,7 @@ const en = {
   },
 
   pos: {
+    tenderWithNoDeposit: 'Nothing is collected at the till on this sale, so the {{amount}} entered would be handed straight back as change. Enter it as the deposit if the customer is paying some of it now.',
     payByInstalments: 'Pay by instalments',
     instalmentsHint: 'The customer takes the goods today and pays the rest over the agreed months. Only the deposit is collected now.',
     balanceOwed: 'Balance owed',

@@ -203,6 +203,14 @@ anything.
     The balance is shown before you commit, and the receipt the customer takes
     away carries the deposit, the balance and every due date.
 
+    **The deposit box is the one that takes their money**, not *Amount
+    tendered*. On an instalment sale the till is only collecting the deposit,
+    so *Amount tendered* follows it — and anything above it is change, the
+    same as a customer paying a 100 deposit with a 300 note. Put nothing in
+    the deposit and the till collects nothing: money typed into *Amount
+    tendered* would be handed straight back, so the sale is refused with a
+    message saying which box it belongs in.
+
     What happens behind it:
 
     - **The goods leave.** Stock is deducted and its cost recognised at the
