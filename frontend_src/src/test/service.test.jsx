@@ -207,6 +207,50 @@ describe('the work order', () => {
     expect(out).toContain('Customer signature');
   });
 
+  // Bilingual for the same reason the receipt voucher is: the sheet is filled
+  // in by a technician on site and signed by a customer, and those are not
+  // reliably the same reader. A locale-driven lookup gives one language or the
+  // other, which is a different document.
+  test('every label on it is in both languages', () => {
+    const out = html();
+
+    for (const [en, ar] of [
+      ['Work Order', 'أمر عمل'],
+      ['Job No.', 'رقم المهمة'],
+      ['Technician', 'الفني'],
+      ['Equipment', 'المعدّة'],
+      ['Reported fault', 'العطل'],
+      ['Work carried out', 'العمل المنفَّذ'],
+      ['Parts used', 'القطع المستعملة'],
+      ['Customer signature', 'توقيع العميل'],
+    ]) {
+      expect(out, en).toContain(en);
+      expect(out, ar).toContain(ar);
+    }
+  });
+
+  test('the two languages are set apart, not run together', () => {
+    // Adjacent spans render as "رقمNo." with nothing telling a reader where
+    // one stops. The voucher solves it with a lighter-weight <i> and a gap.
+    expect(html()).toMatch(/Job No\. <i>/);
+    expect(html()).toContain('wo-ar-sub');
+  });
+
+  test('the note about bringing it back is in both too', () => {
+    const out = html();
+
+    expect(out).toContain('Return this sheet to the office');
+    expect(out).toContain('أعد هذه الورقة');
+    expect(out).toContain('dir="rtl"');
+  });
+
+  test('the priced copy is bilingual as well', () => {
+    const out = html({ ...JOB, status: 'Completed', work_done: 'Done' });
+
+    expect(out).toContain('الإجمالي');   // Total
+    expect(out).toContain('سعر الوحدة');   // Unit
+  });
+
   test('is a work order, not an invoice', () => {
     expect(html()).toContain('Work Order');
     expect(html()).not.toMatch(/\bInvoice\b/);

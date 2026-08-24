@@ -36,12 +36,36 @@ import { themeFor } from './documentThemes';
 const esc = s => String(s ?? '').replace(/[&<>"]/g,
   ch => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;' }[ch]));
 
+// Bilingual the way the receipt voucher is, and for the same reason: the two
+// languages have to appear TOGETHER. A locale-driven t() lookup gives one or
+// the other, which is a different document — and this one is filled in by a
+// technician on site and read by a customer signing it, who are not reliably
+// the same reader. So the labels are literals, set the way the printed pads
+// do it: Arabic alongside the English in a lighter weight, or beneath it where
+// a line has no width to spare.
+
+/** English label with its Arabic set alongside, never touching it. */
+const lbl = (en, ar) => `${en} <i>${ar}</i>`;
+
+/** English over Arabic — for table headings, where a line has no width. */
+const stack = (en, ar) =>
+  `<span class="wo-en">${en}</span><span class="wo-ar-sub">${ar}</span>`;
+
 const WO_CSS = `
-.wo-title { text-align: center; font-size: 15px; font-weight: 800;
-            letter-spacing: 1px; text-transform: uppercase; margin-bottom: 6mm; }
+.wo-title { text-align: center; margin-bottom: 6mm; }
+.wo-title .wo-ar { display: block; font-size: 15px; font-weight: 700; }
+.wo-title .wo-en { display: block; font-size: 12px; font-weight: 700;
+                   letter-spacing: 1px; text-transform: uppercase; margin-top: 1mm; }
+/* Arabic beside English, in a lighter weight and set off by a small gap, so
+   the pair reads as one label in two languages rather than a run-on. */
+.wo i { font-style: normal; font-weight: 400; margin-inline-start: 1.5mm;
+        opacity: 0.75; }
+.wo-en { display: block; font-weight: 700; }
+.wo-ar-sub { display: block; font-weight: 400; font-size: 0.85em;
+             opacity: 0.75; margin-top: 0.3mm; }
 .wo-meta { display: flex; justify-content: space-between; gap: 8mm;
            font-size: 10px; margin-bottom: 5mm; }
-.wo-meta div span { display: inline-block; min-width: 24mm; font-weight: 700; }
+.wo-meta div span { display: inline-block; min-width: 38mm; font-weight: 700; }
 /* The machine, boxed: on site this is the first thing to check against the
    plate, so it should be findable without reading the whole sheet. */
 .wo-equip { border: 1px solid currentColor; padding: 3mm 4mm; font-size: 10px;
@@ -79,6 +103,7 @@ const WO_CSS = `
             margin-top: 12mm; font-size: 9px; }
 .wo-sign { flex: 1 1 0; text-align: center; }
 .wo-sign .line { border-top: 1px dotted currentColor; margin-bottom: 1.5mm; }
+.wo-sign .wo-en { font-size: 9px; }
 `;
 
 /** Empty ruled lines for handwriting. */
@@ -89,7 +114,7 @@ const ruled = (n) => Array.from({ length: n },
 const blankGrid = (cols, n) => `
   <table class="wo-blank">
     <thead><tr>${cols.map(c =>
-      `<th${c.q ? ' class="q"' : ''}>${esc(c.label)}</th>`).join('')}</tr></thead>
+      `<th${c.q ? ' class="q"' : ''}>${stack(c.label, c.ar)}</th>`).join('')}</tr></thead>
     <tbody>
       ${Array.from({ length: n }, () => `<tr>${cols.map(c =>
         `<td${c.q ? ' class="q"' : ''}></td>`).join('')}</tr>`).join('')}
@@ -110,9 +135,10 @@ export function buildWorkOrderHTML(job, settings, logoDataURL = null, opts = {})
   const linesTable = lines.length ? `
   <table class="wo-table">
     <thead><tr>
-      <th>Item</th>
-      <th class="r">Qty</th>
-      ${done ? '<th class="r">Unit</th><th class="r">Total</th>' : ''}
+      <th>${stack('Item', 'البند')}</th>
+      <th class="r">${stack('Qty', 'الكمية')}</th>
+      ${done ? `<th class="r">${stack('Unit', 'سعر الوحدة')}</th>
+                <th class="r">${stack('Total', 'الإجمالي')}</th>` : ''}
     </tr></thead>
     <tbody>
       ${[...parts, ...charges].map(l => `<tr>
@@ -123,46 +149,50 @@ export function buildWorkOrderHTML(job, settings, logoDataURL = null, opts = {})
       </tr>`).join('')}
     </tbody>
     ${done ? `<tfoot><tr>
-      <td colspan="3" class="r"><strong>Total</strong></td>
+      <td colspan="3" class="r"><strong>${lbl('Total', 'الإجمالي')}</strong></td>
       <td class="r"><strong>${CC.money(job.total)}</strong></td>
     </tr></tfoot>` : ''}
   </table>` : '';
 
   const body = `
 <div class="wo">
-  <div class="wo-title">Work Order</div>
+  <div class="wo-title">
+    <span class="wo-ar">أمر عمل</span>
+    <span class="wo-en">Work Order</span>
+  </div>
 
   <div class="wo-meta">
     <div>
-      <div><span>Job No.</span>${esc(job.job_number || '')}</div>
-      <div><span>Type</span>${esc(job.job_type || '')}</div>
-      <div><span>Priority</span>${esc(job.priority || '')}</div>
+      <div><span>${lbl('Job No.', 'رقم المهمة')}</span>${esc(job.job_number || '')}</div>
+      <div><span>${lbl('Type', 'النوع')}</span>${esc(job.job_type || '')}</div>
+      <div><span>${lbl('Priority', 'الأولوية')}</span>${esc(job.priority || '')}</div>
     </div>
     <div>
-      <div><span>Customer</span>${esc(job.client_name || '')}</div>
-      <div><span>Scheduled</span>${job.scheduled_date ? fmtDate(job.scheduled_date) : '—'}</div>
-      <div><span>Technician</span>${esc(job.assigned_name || '—')}</div>
+      <div><span>${lbl('Customer', 'العميل')}</span>${esc(job.client_name || '')}</div>
+      <div><span>${lbl('Scheduled', 'الموعد')}</span>${job.scheduled_date ? fmtDate(job.scheduled_date) : '—'}</div>
+      <div><span>${lbl('Technician', 'الفني')}</span>${esc(job.assigned_name || '—')}</div>
     </div>
   </div>
 
   ${eq.name ? `
   <div class="wo-equip">
-    <h4>Equipment</h4>
+    <h4>${lbl('Equipment', 'المعدّة')}</h4>
     <div class="row">
       <div><strong>${esc(eq.name)}</strong></div>
-      ${eq.model ? `<div>Model: ${esc(eq.model)}</div>` : ''}
-      ${eq.serial_number ? `<div>Serial: ${esc(eq.serial_number)}</div>` : ''}
+      ${eq.model ? `<div><strong>${lbl('Model', 'الطراز')}</strong> ${esc(eq.model)}</div>` : ''}
+      ${eq.serial_number ? `<div><strong>${lbl('Serial', 'الرقم التسلسلي')}</strong> ${esc(eq.serial_number)}</div>` : ''}
     </div>
   </div>` : ''}
 
   ${job.reported_fault ? `
   <div class="wo-fault">
-    <h4>Reported fault</h4>
+    <h4>${lbl('Reported fault', 'العطل المُبلّغ عنه')}</h4>
     <div>${esc(job.reported_fault)}</div>
   </div>` : ''}
 
-  ${lines.length ? `<div class="wo-write"><h4>${
-    done ? 'Parts and charges' : 'Parts issued from stores'}</h4></div>` : ''}
+  ${lines.length ? `<div class="wo-write"><h4>${done
+    ? lbl('Parts and charges', 'القطع والأجور')
+    : lbl('Parts issued from stores', 'القطع المصروفة من المستودع')}</h4></div>` : ''}
   ${linesTable}
 
   ${/* Two documents from one template. Until the job is completed this is a
@@ -172,23 +202,31 @@ export function buildWorkOrderHTML(job, settings, logoDataURL = null, opts = {})
         is already printed is a line nobody writes on. Once completed it is the
         record, and prints what was actually done. */ ''}
   <div class="wo-write">
-    <h4>Work carried out</h4>
+    <h4>${lbl('Work carried out', 'العمل المنفَّذ')}</h4>
     ${done && job.work_done ? `<div>${esc(job.work_done)}</div>` : ruled(6)}
   </div>
 
   ${done ? '' : `<div class="wo-write">
-    <h4>Parts used</h4>
-    ${blankGrid([{ label: 'Part / description' }, { label: 'Qty', q: true }], 6)}
+    <h4>${lbl('Parts used', 'القطع المستعملة')}</h4>
+    ${blankGrid([{ label: 'Part / description', ar: 'القطعة / الوصف' },
+                 { label: 'Qty', ar: 'الكمية', q: true }], 6)}
   </div>`}
 
   <div class="wo-signs">
-    <div class="wo-sign"><div class="line"></div>Technician</div>
-    <div class="wo-sign"><div class="line"></div>Customer signature</div>
-    <div class="wo-sign"><div class="line"></div>Date</div>
+    <div class="wo-sign"><div class="line"></div>
+      ${stack('Technician', 'الفني')}</div>
+    <div class="wo-sign"><div class="line"></div>
+      ${stack('Customer signature', 'توقيع العميل')}</div>
+    <div class="wo-sign"><div class="line"></div>
+      ${stack('Date', 'التاريخ')}</div>
   </div>
 
-  ${done ? '' : `<div class="wo-note">Return this sheet to the office. The work
-    carried out and the parts used are entered on the job before it is closed.</div>`}
+  ${done ? '' : `<div class="wo-note">
+    <div>Return this sheet to the office. The work carried out and the parts
+      used are entered on the job before it is closed.</div>
+    <div dir="rtl">أعد هذه الورقة إلى المكتب. يُدخل العمل المنفَّذ والقطع
+      المستعملة على المهمة قبل إقفالها.</div>
+  </div>`}
 </div>`;
 
   // Same sheet wrapper as every other printed document, so a tenant letterhead
