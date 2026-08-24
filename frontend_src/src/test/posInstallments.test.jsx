@@ -1,5 +1,10 @@
 // Selling at the till on a payment plan: the goods leave, the balance stays.
 import { describe, test, expect } from 'vitest';
+import { render, act } from '@testing-library/react';
+import { MemoryRouter } from 'react-router-dom';
+import { ThemeProvider } from '../hooks/useTheme.jsx';
+import { LocaleProvider } from '../hooks/useLocale.jsx';
+import { SettingsProvider } from '../hooks/useSettings.jsx';
 import fs from 'node:fs';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
@@ -49,9 +54,87 @@ describe('the cashier is told what is wrong before the queue notices', () => {
 
 describe('the customer walks out with the terms in writing', () => {
   test('the receipt shows the deposit, the balance and the due dates', () => {
-    expect(receiptSrc).toMatch(/\(sale\.installments \|\| \[\]\)\.length > 0/);
+    expect(receiptSrc).toMatch(/plan\.length > 0/);
     expect(receiptSrc).toMatch(/pos\.balanceOwed/);
-    expect(receiptSrc).toMatch(/sale\.installments\.slice\(1\)/);  // row 1 is the deposit
+  });
+
+  // The slip is the only thing the customer takes away saying what they owe
+  // and when, so what it prints has to add up to the balance on it. It did
+  // not: the first row was dropped as "the deposit" whether or not any
+  // deposit had been taken, so a sale of 161 put wholly on two instalments
+  // printed one line of 80.50 and the other 80.50 simply was not there.
+  async function receipt(sale) {
+    const { ReceiptModal } = await import('../pages/pos/ReceiptModal.jsx');
+    let container;
+    await act(async () => {
+      ({ container } = render(
+        <ThemeProvider><LocaleProvider><SettingsProvider><MemoryRouter>
+          <ReceiptModal sale={sale} onClose={() => {}} />
+        </MemoryRouter></SettingsProvider></LocaleProvider></ThemeProvider>));
+      await new Promise(r => setTimeout(r, 0));
+    });
+    return container;
+  }
+
+  const SALE = {
+    invoice_number: 'POS-1', subtotal: 161, tax_total: 0, discount_total: 0,
+    total: 161, items: [], payment_method: 'Cash', change_given: 0,
+  };
+
+  // What the slip actually prints under "Payment Plan", as numbers.
+  function scheduled(container) {
+    const text = container.textContent;
+    const from = text.indexOf(en.installments.title);
+    if (from < 0) return [];
+    return [...text.slice(from).matchAll(/\$([\d,]+(?:\.\d+)?)/g)]
+      .map(m => Number(m[1].replace(/,/g, '')));
+  }
+
+  const sum = (a) => Math.round(a.reduce((n, x) => n + x, 0) * 100) / 100;
+
+  test('every instalment is on it when no deposit was taken', async () => {
+    const c = await receipt({
+      ...SALE, amount_tendered: 0, paid_now: 0, balance: 161,
+      installments: [{ seq: 1, due_date: '2026-09-01', amount: 80.5 },
+                     { seq: 2, due_date: '2026-10-01', amount: 80.5 }],
+    });
+
+    expect(scheduled(c)).toEqual([80.5, 80.5]);
+  });
+
+  test('what it prints adds up to the balance it prints', async () => {
+    // The invariant worth holding whatever the deposit was: a slip whose
+    // dates do not sum to the balance on the same slip is unanswerable to
+    // the customer holding it.
+    const c = await receipt({
+      ...SALE, amount_tendered: 0, paid_now: 0, balance: 161,
+      installments: [{ seq: 1, due_date: '2026-09-01', amount: 80.5 },
+                     { seq: 2, due_date: '2026-10-01', amount: 80.5 }],
+    });
+
+    expect(sum(scheduled(c))).toBe(161);
+  });
+
+  test('a deposit is not billed a second time as an instalment', async () => {
+    // It was taken at the till, so it is not one of the dates still to come.
+    const c = await receipt({
+      ...SALE, total: 300, subtotal: 300, amount_tendered: 100,
+      paid_now: 100, balance: 200,
+      installments: [{ seq: 1, due_date: '2026-09-01', amount: 100 },
+                     { seq: 2, due_date: '2026-10-01', amount: 100 },
+                     { seq: 3, due_date: '2026-11-01', amount: 100 }],
+    });
+
+    expect(scheduled(c)).toEqual([100, 100]);
+    expect(sum(scheduled(c))).toBe(200);
+  });
+
+  test('an ordinary sale prints no schedule at all', async () => {
+    const c = await receipt({
+      ...SALE, amount_tendered: 161, paid_now: 161, balance: 0,
+    });
+
+    expect(scheduled(c)).toEqual([]);
   });
 });
 

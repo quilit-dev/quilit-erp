@@ -23,6 +23,19 @@ function ReceiptModal({ sale, onClose }) {
   // Cash sales show "Tender / Change"; non-cash skip those rows.
   const isCash  = (sale.payment_method || 'Cash').toLowerCase() === 'cash';
 
+  // The schedule, and whether the first row of it is a deposit.
+  //
+  // A deposit is seq 1 of the plan and is taken at the till, so printing it
+  // again under "instalments" would bill the customer twice for money they
+  // have already handed over. But there is only a deposit row when money was
+  // actually taken: a sale put wholly on terms starts at seq 1 with a real
+  // instalment, and dropping that one hid a payment the customer owes —
+  // 161 over two showed a single line of 80.50, so the slip understated the
+  // plan by exactly one instalment.
+  const plan     = Array.isArray(sale.installments) ? sale.installments : [];
+  const deposit  = (sale.paid_now || 0) > 0.005;
+  const schedule = deposit ? plan.slice(1) : plan;
+
   function doPrint() {
     // Add a "printing" class to body so the print-only CSS in this modal
     // hides everything except the receipt strip. The class is cleared by
@@ -190,15 +203,17 @@ function ReceiptModal({ sale, onClose }) {
           {/* An instalment sale: the customer is walking out with the goods
               owing money, and the receipt is the only thing they take with
               them saying so — and saying when each payment falls due. */}
-          {(sale.installments || []).length > 0 && (
+          {plan.length > 0 && (
             <>
               <Divider />
-              <Row label={t('installments.deposit')} value={fmt(sale.paid_now)} />
+              {deposit && (
+                <Row label={t('installments.deposit')} value={fmt(sale.paid_now)} />
+              )}
               <Row label={t('pos.balanceOwed')} value={fmt(sale.balance)} bold />
               <div style={{ fontSize: 10, color: '#555', marginTop: 6, marginBottom: 2 }}>
                 {t('installments.title')}
               </div>
-              {sale.installments.slice(1).map(i => (
+              {schedule.map(i => (
                 <Row key={i.seq} label={fmtDate(i.due_date)} value={fmt(i.amount)} />
               ))}
             </>
