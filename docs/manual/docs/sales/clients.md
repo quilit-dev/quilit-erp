@@ -67,11 +67,16 @@ project, invoice, payment, and activity for that customer in one place.
     | **VAT status** | Whether they are subject to VAT or exempt |
     | **Allow instalments** | Whether this customer may be put on a payment plan |
 
-    **Allow instalments** is a credit decision about that customer. With it
-    off, neither the invoice screen nor the till offers a plan, and both
-    refuse one if asked anyway — the message names the customer and says to
-    change it on their record. Turning it off does **not** disturb a plan they
-    are already halfway through; it decides what happens next.
+    **Allow instalments** is a credit decision about that customer, and it
+    governs one thing: whether their whole **account** may go on a payment
+    plan. A plan on a single **invoice** is a different arrangement — splitting
+    one document into agreed dates — and is available for every customer
+    regardless of this setting.
+
+    With it off, the payment-plan panel on the customer says so, and the server
+    refuses an account plan if asked anyway — the message names the customer
+    and says to change it on their record. Turning it off does **not** disturb
+    a plan they are already halfway through; it decides what happens next.
 
     Every customer already on your books was set to *allowed* when this became
     enforceable, because that is what they were before the field existed, and a
@@ -94,6 +99,47 @@ project, invoice, payment, and activity for that customer in one place.
     Overpayment is refused rather than parked: a credit balance is a real
     thing with its own rules, and inventing one as a side effect of a rounding
     difference would be worse than asking.
+
+    ### Putting the account on a payment plan
+
+    A customer owing 4,000 who agrees to eight payments of 500 has agreed one
+    thing, and the plan records it: their **account balance** on eight dates.
+    It is not a schedule per invoice, so an invoice raised later does not
+    disturb it and one voided does not tear a hole in it.
+
+    Open their record → **Overview** → the **Payment Plan** panel →
+    **Set up a plan**. It is the same panel, the same four boxes and the same
+    table as the plan beside an invoice, so there is nothing new to learn:
+
+    | Box | Meaning |
+    |---|---|
+    | **Instalments** | How many payments |
+    | **First due** | The date the first one falls due |
+    | **Every** | Month, quarter or year |
+    | **Deposit** | Optional money down. It does not eat an instalment — a deposit and four payments is five rows |
+
+    The schedule always adds up to the **whole account balance as it stands
+    now**, with the last instalment carrying the rounding so the plan sums
+    exactly.
+
+    Agreeing terms is **not** a payment. It moves no money, posts nothing to
+    the ledger and touches no invoice — it records the dates the customer is
+    expected to pay on, which is what the arrears reporting reads. Take the
+    money separately through **Record payment**, and each payment counts
+    towards the plan automatically and settles their oldest invoices first,
+    exactly as any account payment does.
+
+    Two figures are shown apart on purpose: what the plan still covers, and
+    what the account owes. When an invoice is raised after the terms were
+    agreed the panel says how much sits outside the plan, because chasing a
+    customer for a figure nobody agreed to is the mistake this prevents.
+
+    **Change plan** restates the terms while nothing has been paid against
+    them. Once a payment has arrived it is locked, because restating would
+    re-interpret what that money settled — three of eight silently becoming
+    one of four. **Remove plan** stays available either way: a customer who
+    has stopped paying has to be takeable off terms, and it removes only the
+    remaining schedule. Payments already made stay exactly as they are.
 
     ### The receipt
 

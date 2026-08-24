@@ -46,38 +46,6 @@ export default function CustomerPaymentModal({ client, invoices, onClose, onDone
     return () => { alive = false; };
   }, [client.id]);
 
-  // What the customer is being asked to agree to, worked out as they type.
-  // The same rule the server applies — equal payments with the last carrying
-  // the rounding — so the preview and the schedule cannot disagree.
-  function schedulePreview(total, count, freq, startISO) {
-    const n = Math.max(1, Math.floor(Number(count) || 0));
-    if (!(total > 0.005)) return [];
-    const step = { monthly: 1, quarterly: 3, yearly: 12 }[freq] || 1;
-    const each = Math.round((total / n) * 100) / 100;
-    const start = startISO ? new Date(`${startISO}T00:00:00`) : new Date();
-    const out = [];
-    for (let i = 0; i < n; i += 1) {
-      const d = new Date(start);
-      // Clamped to the end of the month, as the server does: a plan starting
-      // on the 31st must not skip February.
-      const day = start.getDate();
-      d.setDate(1);
-      d.setMonth(d.getMonth() + step * i);
-      const last = new Date(d.getFullYear(), d.getMonth() + 1, 0).getDate();
-      d.setDate(Math.min(day, last));
-      const amount = i === n - 1
-        ? Math.round((total - each * (n - 1)) * 100) / 100
-        : each;
-      out.push({ due: d.toISOString().slice(0, 10), amount });
-    }
-    return out;
-  }
-  const [onPlan, setOnPlan] = useState(false);
-  const [planCount, setPlanCount] = useState(
-    client?.default_installment_count ? String(client.default_installment_count) : '4');
-  const [planFreq, setPlanFreq] = useState(
-    client?.default_installment_frequency || 'monthly');
-  const [planStart, setPlanStart] = useState('');
   const [saving, setSaving] = useState(false);
   const [result, setResult] = useState(null);
   const [printing, setPrinting] = useState(false);
@@ -107,14 +75,6 @@ export default function CustomerPaymentModal({ client, invoices, onClose, onDone
   }, [amount, owing]);
 
   const over = (Number(amount) || 0) > totalOwed + 0.005;
-  // What the schedule would actually cover: everything still owed once
-  // this payment has been applied.
-  const remainingAfter = Math.max(0,
-    Math.round((totalOwed - (Number(amount) || 0)) * 100) / 100);
-
-  const planPreview = (canPlan && onPlan)
-    ? schedulePreview(remainingAfter, planCount, planFreq, planStart)
-    : [];
 
   async function submit(e) {
     e.preventDefault();
@@ -127,13 +87,6 @@ export default function CustomerPaymentModal({ client, invoices, onClose, onDone
         exchange_rate: rate === '' ? null : Number(rate),
         note: note.trim() || null,
         idempotency_key: `cust-${client.id}-${Date.now()}`,
-        ...(onPlan && canPlan ? {
-          installment_plan: {
-            count:      Number(planCount),
-            frequency:  planFreq,
-            start_date: planStart || null,
-          },
-        } : {}),
       });
       setResult(res);
       toast(res.message);
@@ -167,39 +120,6 @@ export default function CustomerPaymentModal({ client, invoices, onClose, onDone
         <div className="modal-body">
           <p style={{ fontSize: 14, marginBottom: 14 }}>{result.message}</p>
 
-          {/* The schedule that was just agreed. Confirming the payment and
-              saying nothing about the plan is how somebody comes away unsure
-              whether the terms were recorded at all. */}
-          {result.plan && (
-            <div style={{ marginBottom: 16 }}>
-              <div style={{ fontWeight: 600, fontSize: 13, marginBottom: 6 }}>
-                {t('clients.planAgreed', {
-                  count: result.plan.count, total: fmt(result.plan.total),
-                })}
-              </div>
-              <table>
-                <thead>
-                  <tr>
-                    <th>#</th>
-                    <th>{t('installments.dueDate')}</th>
-                    <th style={{ textAlign: 'right' }}>{t('common.amount')}</th>
-                  </tr>
-                </thead>
-                <tbody>
-                  {result.plan.installments.map(i => (
-                    <tr key={i.seq}>
-                      <td className="text-mono">{i.seq}</td>
-                      <td>{fmtDate(i.due_date)}</td>
-                      <td style={{ textAlign: 'right' }}>{fmt(i.amount)}</td>
-                    </tr>
-                  ))}
-                </tbody>
-              </table>
-              <div style={{ fontSize: 11, color: 'var(--text-3)', marginTop: 6 }}>
-                {t('clients.planOnAccountHint')}
-              </div>
-            </div>
-          )}
           <table>
             <thead>
               <tr>
@@ -309,76 +229,17 @@ export default function CustomerPaymentModal({ client, invoices, onClose, onDone
                 </div>
               </div>
             )}
+            {/* Terms are agreed in the payment-plan panel on the customer's
+                overview, exactly as they are in the panel beside an invoice.
+                Taking money and agreeing a schedule are two different acts,
+                and doing the second as a side effect of the first is how a
+                plan gets agreed that nobody sat down and agreed. */}
             {canPlan && !existing && (
               <div className="form-group form-full">
-                <label style={{ display: 'flex', alignItems: 'center', gap: 8,
-                                fontSize: 13.5 }}>
-                  <input type="checkbox" checked={onPlan}
-                    onChange={e => setOnPlan(e.target.checked)} />
-                  {t('clients.planTheRest')}
-                </label>
-                {onPlan && (
-                  <div style={{ fontSize: 11, color: 'var(--text-3)', marginTop: 3 }}>
-                    {t('clients.planTheRestHint', { amount: fmt(remainingAfter) })}
-                  </div>
-                )}
+                <div style={{ fontSize: 12, color: 'var(--text-3)' }}>
+                  {t('clients.planLivesOnOverview')}
+                </div>
               </div>
-            )}
-            {canPlan && !existing && onPlan && (
-              <>
-                <div className="form-group">
-                  <label className="form-label">{t('installments.count')}</label>
-                  <NumberInput className="form-control" min="1" step="1"
-                    value={planCount} onChange={e => setPlanCount(e.target.value)} />
-                </div>
-                <div className="form-group">
-                  <label className="form-label">{t('installments.frequency')}</label>
-                  <select className="form-control" value={planFreq}
-                    onChange={e => setPlanFreq(e.target.value)}>
-                    <option value="monthly">{t('installments.monthly')}</option>
-                    <option value="quarterly">{t('installments.quarterly')}</option>
-                    <option value="yearly">{t('installments.yearly')}</option>
-                  </select>
-                </div>
-                <div className="form-group">
-                  <label className="form-label">{t('installments.firstDue')}</label>
-                  <input type="date" className="form-control" value={planStart}
-                    onChange={e => setPlanStart(e.target.value)} />
-                </div>
-                {/* The agreement itself, in the words it will be explained in.
-                    A count and a frequency are not something a customer can
-                    say yes to; four dates and four amounts are. */}
-                {planPreview.length > 0 && (
-                  <div className="form-group form-full">
-                    <div style={{ fontWeight: 600, fontSize: 13, marginBottom: 6 }}>
-                      {t('clients.planWillBe', {
-                        count: planPreview.length, amount: fmt(remainingAfter),
-                      })}
-                    </div>
-                    <table>
-                      <thead>
-                        <tr>
-                          <th>#</th>
-                          <th>{t('installments.dueDate')}</th>
-                          <th style={{ textAlign: 'right' }}>{t('common.amount')}</th>
-                        </tr>
-                      </thead>
-                      <tbody>
-                        {planPreview.map((p, i) => (
-                          <tr key={p.due}>
-                            <td className="text-mono">{i + 1}</td>
-                            <td>{fmtDate(p.due)}</td>
-                            <td style={{ textAlign: 'right' }}>{fmt(p.amount)}</td>
-                          </tr>
-                        ))}
-                      </tbody>
-                    </table>
-                    <div style={{ fontSize: 11, color: 'var(--text-3)', marginTop: 6 }}>
-                      {t('clients.planAccountHint')}
-                    </div>
-                  </div>
-                )}
-              </>
             )}
           </div>
 

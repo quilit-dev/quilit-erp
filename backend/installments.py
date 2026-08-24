@@ -217,11 +217,16 @@ def paid_against(db, plan_id) -> float:
 
 
 def create_plan(db, *, client_id, total, count, frequency="monthly",
-                start=None, note=None, created_by=None, now=None):
+                start=None, first_amount=None, note=None, created_by=None,
+                now=None):
     """Agree a schedule against what the customer owes.
 
-    `total` is the balance being scheduled — normally everything outstanding
-    once the payment being taken now has been applied.
+    `total` is the balance being scheduled — everything outstanding on the
+    account, or what is left of it once a payment being taken at the same
+    moment has been applied.
+
+    `first_amount` is a deposit, and behaves exactly as it does on an invoice
+    plan: it is taken on the start date and `count` instalments follow it.
     """
     from utils import _now
     now = now or _now()
@@ -231,7 +236,8 @@ def create_plan(db, *, client_id, total, count, frequency="monthly",
             "the terms have changed — two live agreements about one balance "
             "is not something anybody agreed to.")
 
-    rows = build_schedule(total, count, start or now[:10], frequency=frequency)
+    rows = build_schedule(total, count, start or now[:10], frequency=frequency,
+                          first_amount=first_amount)
 
     cur = db.execute(
         "INSERT INTO client_payment_plans "

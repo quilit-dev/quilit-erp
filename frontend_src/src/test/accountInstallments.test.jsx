@@ -4,6 +4,7 @@ import en from '../locales/en';
 import ar from '../locales/ar';
 import modalSrc from '../pages/clients/CustomerPaymentModal.jsx?raw';
 import planSrc from '../pages/invoices/PaymentPlan.jsx?raw';
+import acctSrc from '../pages/clients/AccountPlan.jsx?raw';
 import detailSrc from '../pages/ClientDetail.jsx?raw';
 
 const lookup = (dict, key) => key.split('.').reduce((o, k) => o?.[k], dict);
@@ -23,33 +24,41 @@ describe('a plan on one invoice is for everybody', () => {
 
 describe('the account going on terms is what the setting governs', () => {
   test('the option only appears for an approved customer', () => {
-    expect(modalSrc).toMatch(/const canPlan = !!client\?\.allow_installments/);
-    // And only while there is no plan already: offering to create a second
-    // one is a trap, since the server refuses it.
+    expect(acctSrc).toMatch(/const allowed = !!client\?\.allow_installments/);
+    expect(acctSrc).toMatch(/allowed && !plan && !open && \(/);
+    // And the payment form says so rather than offering a second one, since
+    // the server refuses that.
     expect(modalSrc).toMatch(/\{canPlan && !existing && \(/);
   });
 
-  test('the plan is only sent when it was asked for and allowed', () => {
-    expect(modalSrc).toMatch(/\.\.\.\(onPlan && canPlan \? \{/);
-    expect(modalSrc).toMatch(/installment_plan: \{/);
+  test('terms are agreed in the panel, not as a side effect of a payment', () => {
+    // The same division as an invoice: the plan lives in its own panel and
+    // the payment form only takes money. Agreeing a schedule because a box
+    // happened to be ticked is how a plan appears that nobody sat down and
+    // agreed to.
+    expect(modalSrc).not.toMatch(/installment_plan: \{/);
+    expect(modalSrc).toMatch(/clients\.planLivesOnOverview/);
+    expect(en.clients.planLivesOnOverview).toMatch(/overview/i);
   });
 
-  test('it says what the schedule would cover', () => {
-    // "Put the rest on a plan" without saying how much is not an agreement.
-    expect(modalSrc).toMatch(/remainingAfter/);
-    expect(modalSrc).toMatch(/clients\.planTheRestHint/);
-    expect(en.clients.planTheRestHint).toMatch(/oldest invoice first/i);
+  test('the panel says where the terms are agreed and what they cover', () => {
+    expect(acctSrc).toMatch(/createClientPlan/);
+    expect(acctSrc).toMatch(/clients\.planSplitHint/);
+    expect(en.clients.planSplitHint).toMatch(/whole account balance/i);
   });
 
-  test('the customer\'s usual terms prefill it', () => {
-    expect(modalSrc).toMatch(/client\?\.default_installment_count/);
-    expect(modalSrc).toMatch(/client\?\.default_installment_frequency/);
+  test('a customer’s usual terms prefill it', () => {
+    expect(acctSrc).toMatch(/client\?\.default_installment_count/);
+    expect(acctSrc).toMatch(/client\?\.default_installment_frequency/);
   });
 
   test('it reuses the one plan vocabulary', () => {
+    // The same words in both panels, because it is the same idea.
     for (const k of ['installments.count', 'installments.frequency',
-                     'installments.firstDue', 'installments.monthly']) {
-      expect(modalSrc, k).toContain(`t('${k}')`);
+                     'installments.firstDue', 'installments.monthly',
+                     'installments.deposit']) {
+      expect(acctSrc, k).toContain(`t('${k}')`);
+      expect(planSrc, k).toContain(`t('${k}')`);
     }
   });
 });

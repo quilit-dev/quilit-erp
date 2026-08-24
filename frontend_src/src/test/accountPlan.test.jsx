@@ -6,6 +6,7 @@ import en from '../locales/en';
 import ar from '../locales/ar';
 import planSrc from '../pages/clients/AccountPlan.jsx?raw';
 import modalSrc from '../pages/clients/CustomerPaymentModal.jsx?raw';
+import invoicePlanSrc from '../pages/invoices/PaymentPlan.jsx?raw';
 import detailSrc from '../pages/ClientDetail.jsx?raw';
 import apiSrc from '../api/client.js?raw';
 import { ThemeProvider } from '../hooks/useTheme.jsx';
@@ -17,7 +18,7 @@ describe('the agreed dates are visible on the client', () => {
   test('the API call and the screen exist and are mounted', () => {
     expect(apiSrc).toMatch(/getClientPlan/);
     expect(apiSrc).toMatch(/\/api\/clients\/\$\{id\}\/plan/);
-    expect(detailSrc).toMatch(/<AccountPlan clientId=\{id\}/);
+    expect(detailSrc).toMatch(/<AccountPlan clientId=\{id\} client=\{client\}/);
   });
 
   test('it refreshes when a payment is recorded', () => {
@@ -27,15 +28,24 @@ describe('the agreed dates are visible on the client', () => {
     expect(planSrc).toMatch(/\[load, refreshKey\]/);
   });
 
-  test('a customer with no plan sees nothing rather than an empty table', () => {
-    expect(planSrc).toMatch(/if \(!plan\) return null;/);
+  test('a customer with no plan is offered one, as an invoice is', () => {
+    // The invoice panel says there is no plan and offers to set one up. An
+    // account panel that simply vanished would leave the operator hunting for
+    // where terms are agreed — which is exactly what happened.
+    expect(planSrc).toMatch(/clients\.notOnPlan/);
+    expect(planSrc).toMatch(/installments\.setUp/);
+    expect(en.clients.notOnPlan).toMatch(/not on a payment plan/i);
+  });
+
+  test('a customer nobody approved is told where that is decided', () => {
+    expect(planSrc).toMatch(/installments\.notApproved/);
   });
 
   test('the plan belongs to the customer, not to their invoices', () => {
     // Eight payments of 500 is one agreement. Decomposing it onto whichever
     // invoices are open today breaks the moment one is raised or voided.
     expect(planSrc).toMatch(/const plan = data\?\.plan;/);
-    expect(planSrc).toMatch(/plan\.installments \|\| \[\]/);
+    expect(planSrc).toMatch(/plan\?\.installments \|\| \[\]/);
   });
 
   test('what the account owes beyond the plan is stated, not hidden', () => {
@@ -50,32 +60,55 @@ describe('the agreed dates are visible on the client', () => {
   });
 
   test('the next payment is called out', () => {
-    expect(planSrc).toMatch(/plan\.next_due/);
-    expect(planSrc).toMatch(/installments\.nextDueLabel/);
+    expect(planSrc).toMatch(/plan\?\.next_due/);
+    expect(planSrc).toMatch(/installments\.nextDue/);
   });
 });
 
-describe('the operator sees the terms before agreeing to them', () => {
-  test('the modal previews the actual dates and amounts', () => {
-    // A count and a frequency are not something a customer can say yes to.
-    expect(modalSrc).toMatch(/function schedulePreview/);
-    expect(modalSrc).toMatch(/planPreview\.map/);
-    expect(modalSrc).toMatch(/clients\.planWillBe/);
+describe('it is the same panel as the one beside an invoice', () => {
+  test('same header, same three buttons', () => {
+    for (const k of ['installments.title', 'installments.setUp',
+                     'installments.change', 'installments.remove']) {
+      expect(planSrc, k).toContain(`t('${k}')`);
+      expect(invoicePlanSrc, k).toContain(`t('${k}')`);
+    }
   });
 
-  test('the preview uses the same rounding rule as the server', () => {
-    // Equal payments with the last carrying the residue. Anything else and
-    // the preview and the schedule disagree by a cent.
-    expect(modalSrc).toMatch(/i === n - 1/);
-    expect(modalSrc).toMatch(/total - each \* \(n - 1\)/);
+  test('same four boxes, in the same order', () => {
+    for (const k of ['installments.count', 'installments.firstDue',
+                     'installments.frequency', 'installments.deposit']) {
+      expect(planSrc, k).toContain(`t('${k}')`);
+    }
+    expect(planSrc).toMatch(/onSubmit=\{save\}/);
   });
 
-  test('a plan starting on the 31st does not skip February', () => {
-    expect(modalSrc).toMatch(/Math\.min\(day, last\)/);
+  test('same table, down to the columns', () => {
+    for (const k of ['installments.dueDate', 'common.amount', 'clients.paid',
+                     'invoices.remaining', 'common.status']) {
+      expect(planSrc, k).toContain(`t('${k}')`);
+      expect(invoicePlanSrc, k).toContain(`t('${k}')`);
+    }
   });
 
-  test('the preview only appears for a customer allowed to have one', () => {
-    expect(modalSrc).toMatch(/\(canPlan && onPlan\)/);
+  test('terms cannot be restated once money has arrived', () => {
+    // Three of eight silently becoming one of four. The invoice panel locks
+    // for the same reason, and the server refuses it either way.
+    expect(planSrc).toMatch(/const locked = \(plan\?\.paid \|\| 0\) > 0\.005/);
+    expect(planSrc).toMatch(/plan && !locked && !open && \(/);
+    expect(planSrc).toMatch(/installments\.lockedHint/);
+  });
+
+  test('but ending them stays possible, which is the one deliberate difference',
+    () => {
+      // A customer who has stopped paying has to be takeable off terms, and
+      // the payments already made are untouched by it.
+      expect(planSrc).toMatch(/canEdit && plan && !open && \(/);
+      expect(planSrc).toMatch(/cancelClientPlan/);
+    });
+
+  test('the schedule is against the account balance, not one document', () => {
+    expect(planSrc).toMatch(/clients\.planSplitHint/);
+    expect(en.clients.planSplitHint).toMatch(/whole account balance/i);
   });
 });
 
@@ -116,7 +149,7 @@ describe('it mounts', () => {
     await act(async () => {
       ({ container } = render(
         <ThemeProvider><LocaleProvider><MemoryRouter>
-          <AccountPlan clientId={1} refreshKey={0} />
+          <AccountPlan clientId={1} client={{ allow_installments: 1 }} refreshKey={0} />
         </MemoryRouter></LocaleProvider></ThemeProvider>));
       await new Promise(r => setTimeout(r, 0));
     });
@@ -132,10 +165,10 @@ describe('it mounts', () => {
         outstanding: 400,
         plan: {
           id: 1, count: 2, total: 300, paid: 0, remaining: 300,
-          next_due: { seq: 1, due_date: '2026-04-01', amount: 150, paid: 0 },
+          next_due: { seq: 1, due_date: '2026-04-01', amount: 150, paid: 0, remaining: 150 },
           installments: [
-            { seq: 1, due_date: '2026-04-01', amount: 150, paid: 0, status: 'Due' },
-            { seq: 2, due_date: '2026-05-01', amount: 150, paid: 0, status: 'Due' },
+            { seq: 1, due_date: '2026-04-01', amount: 150, paid: 0, remaining: 150, status: 'Due' },
+            { seq: 2, due_date: '2026-05-01', amount: 150, paid: 0, remaining: 150, status: 'Due' },
           ],
         },
       }),
@@ -147,7 +180,7 @@ describe('it mounts', () => {
       await act(async () => {
         ({ container } = render(
           <ThemeProvider><LocaleProvider><MemoryRouter>
-            <AccountPlan clientId={1} refreshKey={1} />
+            <AccountPlan clientId={1} client={{ allow_installments: 1 }} refreshKey={1} />
           </MemoryRouter></LocaleProvider></ThemeProvider>));
         await new Promise(r => setTimeout(r, 0));
       });
@@ -161,12 +194,12 @@ describe('it mounts', () => {
 });
 
 describe('the plan is visible from where the operator is looking', () => {
-  test('the confirmation shows the schedule that was just agreed', () => {
-    // Confirming the payment and saying nothing about the plan is how
-    // somebody comes away unsure whether the terms were recorded at all.
-    expect(modalSrc).toMatch(/result\.plan && \(/);
-    expect(modalSrc).toMatch(/result\.plan\.installments\.map/);
-    expect(modalSrc).toMatch(/clients\.planAgreed/);
+  test('the payment form takes money and nothing else', () => {
+    // As on an invoice: the payment form does not agree terms. Creating a
+    // schedule as a side effect of taking a payment is how a plan appears
+    // that nobody sat down and agreed to.
+    expect(modalSrc).not.toMatch(/installment_plan/);
+    expect(modalSrc).toMatch(/clients\.planLivesOnOverview/);
   });
 
   test('reopening shows the plan that exists, not an empty checkbox', () => {
@@ -177,9 +210,10 @@ describe('the plan is visible from where the operator is looking', () => {
     expect(modalSrc).toMatch(/clients\.alreadyOnPlan/);
   });
 
-  test('the offer to create one is withdrawn while a plan is live', () => {
+  test('the payment form points at the panel where terms are agreed', () => {
     expect(modalSrc).toMatch(/canPlan && !existing && \(/);
-    expect(modalSrc).toMatch(/canPlan && !existing && onPlan && \(/);
+    expect(en.clients.planLivesOnOverview).toMatch(/overview/i);
+    expect(/[؀-ۿ]/.test(ar.clients.planLivesOnOverview)).toBe(true);
   });
 
   test('it says the payment counts towards the plan by itself', () => {

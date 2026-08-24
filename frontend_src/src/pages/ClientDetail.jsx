@@ -187,10 +187,10 @@ export default function ClientDetail() {
       </div>
 
       {/* Overview */}
-      {/* The dates they agreed to clear the account on. Renders nothing
-          until there is a plan, so a customer without one is unchanged. */}
+      {/* The dates they agreed to clear the account on — the same panel as
+          the one beside an invoice, so the two work alike. */}
       {tab === 'overview' && (
-        <AccountPlan clientId={id} refreshKey={planKey}
+        <AccountPlan clientId={id} client={client} refreshKey={planKey}
           onChanged={() => getClient(id).then(setClient).catch(() => {})} />
       )}
       {tab === 'overview' && (

@@ -315,3 +315,173 @@ def test_agreeing_terms_is_written_to_the_audit_trail(client, db):
     row = db.execute("SELECT * FROM audit_log WHERE action='plan' "
                      "AND module='client' ORDER BY id DESC LIMIT 1").fetchone()
     assert row is not None
+
+
+# ── Agreed on its own, the way an invoice plan is ────────────────────────────
+# A plan against ONE invoice is set up in the panel beside it, not inside the
+# payment form. The account plan works the same way: terms are an agreement,
+# and agreeing them is not a payment.
+
+def _agree(client, cid, **kw):
+    body = {"count": 4, "start_date": FAR}
+    body.update(kw)
+    return client.post(f"/api/clients/{cid}/plan", json=body)
+
+
+def test_terms_can_be_agreed_without_taking_any_money(client):
+    cid = _client(client)
+    _invoice(client, cid, 4000, "2026-01-31")
+
+    r = _agree(client, cid, count=8)
+
+    assert r.status_code == 200, r.text
+    plan = _plan(client, cid)["plan"]
+    assert plan["count"] == 8
+    assert plan["total"] == _pytest.approx(4000, abs=0.02)
+    assert plan["paid"] == _pytest.approx(0, abs=0.02)
+
+
+def test_agreeing_terms_alone_moves_no_money(client, db):
+    """No payment, no posting, no invoice touched. Only dates."""
+    cid = _client(client)
+    inv = _invoice(client, cid, 4000, "2026-01-31")
+    before = len(client.get("/api/accounting/journal-entries").json()["rows"])
+
+    _agree(client, cid, count=8)
+
+    assert len(client.get("/api/accounting/journal-entries").json()["rows"]) == before
+    assert db.execute("SELECT COUNT(*) AS n FROM invoice_payments").fetchone()["n"] == 0
+    assert _owing(client, inv) == _pytest.approx(4000, abs=0.02)
+
+
+def test_it_schedules_everything_outstanding(client):
+    cid = _client(client)
+    _invoice(client, cid, 2500, "2026-01-31")
+    _invoice(client, cid, 1500, "2026-02-28")
+
+    _agree(client, cid, count=8)
+
+    plan = _plan(client, cid)["plan"]
+    assert plan["total"] == _pytest.approx(4000, abs=0.02)
+    assert all(i["amount"] == _pytest.approx(500, abs=0.02)
+               for i in plan["installments"])
+
+
+def test_a_deposit_does_not_eat_an_instalment(client):
+    """Same rule as an invoice plan: money down AND `count` payments."""
+    cid = _client(client)
+    _invoice(client, cid, 4000, "2026-01-31")
+
+    _agree(client, cid, count=4, first_amount=800)
+
+    rows = _plan(client, cid)["plan"]["installments"]
+    assert len(rows) == 5
+    assert rows[0]["amount"] == _pytest.approx(800, abs=0.02)
+    assert rows[1]["amount"] == _pytest.approx(800, abs=0.02)
+
+
+def test_payments_afterwards_count_towards_the_agreed_terms(client):
+    cid = _client(client)
+    a = _invoice(client, cid, 1000, "2026-01-31")
+    _invoice(client, cid, 3000, "2026-02-28")
+    _agree(client, cid, count=8)
+
+    _pay(client, cid, 1000)
+
+    plan = _plan(client, cid)["plan"]
+    assert plan["paid"] == _pytest.approx(1000, abs=0.02)
+    assert [r["status"] for r in plan["installments"][:2]] == ["Paid", "Paid"]
+    assert _owing(client, a) == _pytest.approx(0, abs=0.02)      # oldest first
+
+
+def test_an_unapproved_customer_is_refused_here_too(client):
+    cid = _client(client, name="Unapproved Ltd", allow_installments=False)
+    _invoice(client, cid, 4000, "2026-01-31")
+
+    r = _agree(client, cid)
+
+    assert r.status_code == 400
+    assert "not approved" in r.text.lower()
+
+
+def test_a_customer_owing_nothing_has_nothing_to_schedule(client):
+    cid = _client(client)
+
+    r = _agree(client, cid)
+
+    assert r.status_code == 400
+    assert "nothing outstanding" in r.text.lower()
+
+
+def test_a_second_plan_is_refused(client):
+    cid = _client(client)
+    _invoice(client, cid, 4000, "2026-01-31")
+    _agree(client, cid, count=8)
+
+    r = _agree(client, cid, count=4)
+
+    assert r.status_code == 400
+    assert "already on a payment plan" in r.text.lower()
+
+
+def test_terms_nothing_has_been_paid_against_can_be_restated(client):
+    """Changing a plan before any money arrives is just a correction."""
+    cid = _client(client)
+    _invoice(client, cid, 4000, "2026-01-31")
+    _agree(client, cid, count=8)
+
+    r = client.post(f"/api/clients/{cid}/plan?replace=true",
+                    json={"count": 4, "start_date": FAR})
+
+    assert r.status_code == 200, r.text
+    plan = _plan(client, cid)["plan"]
+    assert plan["count"] == 4
+    assert plan["total"] == _pytest.approx(4000, abs=0.02)
+
+
+def test_restating_after_a_payment_is_refused(client):
+    """Three of twelve would silently become one of four."""
+    cid = _client(client)
+    _invoice(client, cid, 4000, "2026-01-31")
+    _agree(client, cid, count=8)
+    _pay(client, cid, 500)
+
+    r = client.post(f"/api/clients/{cid}/plan?replace=true",
+                    json={"count": 4, "start_date": FAR})
+
+    assert r.status_code == 400
+    assert "no longer be restated" in r.text
+    assert _plan(client, cid)["plan"]["count"] == 8
+
+
+def test_restating_leaves_exactly_one_live_plan(client, db):
+    cid = _client(client)
+    _invoice(client, cid, 4000, "2026-01-31")
+    _agree(client, cid, count=8)
+
+    client.post(f"/api/clients/{cid}/plan?replace=true",
+                json={"count": 4, "start_date": FAR})
+
+    n = db.execute("SELECT COUNT(*) AS n FROM client_payment_plans "
+                   "WHERE client_id=? AND status='active'", (cid,)).fetchone()["n"]
+    assert n == 1
+
+
+def test_agreeing_terms_needs_permission(as_role, client):
+    cid = _client(client)
+    _invoice(client, cid, 4000, "2026-01-31")
+
+    r = as_role("Sales").post(f"/api/clients/{cid}/plan", json={"count": 4})
+
+    assert r.status_code == 403
+
+
+def test_agreeing_terms_on_its_own_is_written_to_the_audit_trail(client, db):
+    cid = _client(client)
+    _invoice(client, cid, 4000, "2026-01-31")
+
+    _agree(client, cid)
+
+    row = db.execute("SELECT * FROM audit_log WHERE action='plan' "
+                     "AND module='client' ORDER BY id DESC LIMIT 1").fetchone()
+    assert row is not None

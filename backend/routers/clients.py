@@ -411,11 +411,16 @@ def client_statement(client_id: int,
 # SETTLING SEVERAL INVOICES AT ONCE
 # ══════════════════════════════════════════════════════════════════════════════
 class AccountPlan(BaseModel):
-    """Terms for the balance left after this payment."""
-    count:      int
-    frequency:  str = "monthly"
-    start_date: Optional[str] = None
-    note:       Optional[str] = None
+    """Terms for a customer's account balance.
+
+    The same shape whether the plan is agreed on its own or alongside a
+    payment being taken at the counter.
+    """
+    count:        int
+    frequency:    str = "monthly"
+    start_date:   Optional[str] = None
+    first_amount: Optional[float] = None
+    note:         Optional[str] = None
 
 
 class CustomerPayment(BaseModel):
@@ -476,6 +481,79 @@ def account_payment_plan(
     # conflating them hides the case that matters: an invoice raised after the
     # terms were agreed is outstanding but is not part of the plan.
     return {"plan": plan, "outstanding": _client_outstanding(db, client_id)}
+
+
+@router.post("/{client_id}/plan")
+def create_account_plan(
+    client_id: int,
+    data: AccountPlan,
+    replace: bool = False,
+    user=Depends(require_perm("invoices", "create")),
+    db: sqlite3.Connection = Depends(get_db),
+):
+    """Put this customer's account balance on agreed dates.
+
+    Agreeing terms is not a payment and does not pretend to be one. It moves
+    no money, posts nothing, and changes no invoice — it records the dates the
+    customer is expected to pay on, which is what the arrears reporting reads.
+    Each payment made afterwards is an ordinary account payment, allocated
+    oldest-first across whatever is open at the time.
+
+    Scheduled against everything outstanding NOW. An invoice raised later is
+    owed and is not part of the agreement, which is why the two figures are
+    reported apart.
+
+    `replace` restates terms nothing has been paid against yet. Once money has
+    arrived, restating would re-interpret what it settled — three of twelve
+    silently becoming one of four — so it is refused and the plan has to be
+    cancelled deliberately.
+    """
+    row = db.execute(
+        "SELECT id, name, COALESCE(allow_installments, 0) AS allow_installments "
+        "FROM clients WHERE id=? AND deleted_at IS NULL", (client_id,)).fetchone()
+    if not row:
+        raise HTTPException(404, "Client not found")
+
+    # The whole ACCOUNT going on terms is a standing credit arrangement, and
+    # the customer's own setting decides it. A plan on one invoice is a
+    # different thing and is always available.
+    if not row["allow_installments"]:
+        raise HTTPException(
+            400, f"{row['name']} is not approved for account instalments. "
+                 "Enable it on the customer first if that has changed.")
+
+    live = installments.active_plan(db, client_id)
+    if live and replace:
+        if installments.paid_against(db, live["id"]) > 0.005:
+            raise HTTPException(
+                400, "Payments have already been made against these terms, so "
+                     "they can no longer be restated. Cancel the plan if the "
+                     "agreement has ended.")
+        installments.close_plan(db, live["id"], status="superseded",
+                                closed_by=user["id"])
+
+    outstanding = _client_outstanding(db, client_id)
+    if outstanding <= 0.005:
+        raise HTTPException(
+            400, f"{row['name']} has nothing outstanding, so there is nothing "
+                 "to schedule.")
+
+    try:
+        plan_id = installments.create_plan(
+            db, client_id=client_id, total=outstanding, count=data.count,
+            frequency=data.frequency, start=data.start_date,
+            first_amount=data.first_amount, note=data.note,
+            created_by=user["id"])
+    except ValueError as e:
+        raise HTTPException(400, str(e))
+
+    plan = installments.plan_state(db, client_id)
+    log_action(db, user, "plan", "client", client_id, row["name"],
+               {"plan_id": plan_id, "instalments": plan["count"],
+                "total": plan["total"]})
+    db.commit()
+    return {"plan": plan, "outstanding": outstanding,
+            "message": "Payment plan saved."}
 
 
 @router.delete("/{client_id}/plan")
@@ -789,6 +867,7 @@ def record_customer_payment(
                 count=data.installment_plan.count,
                 frequency=data.installment_plan.frequency,
                 start=data.installment_plan.start_date,
+                first_amount=data.installment_plan.first_amount,
                 note=data.installment_plan.note, created_by=user["id"])
         except ValueError as e:
             raise HTTPException(400, str(e))

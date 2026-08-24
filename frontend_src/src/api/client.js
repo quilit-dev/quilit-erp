@@ -123,6 +123,8 @@ export const getClient       = (id) => api.get(`/api/clients/${id}`);
 // The server splits it into one invoice_payments row per invoice touched.
 // The dates a customer agreed to clear their account on.
 export const getClientPlan   = (id) => api.get(`/api/clients/${id}/plan`);
+export const createClientPlan = (id, body, replace = false) =>
+  api.post(`/api/clients/${id}/plan${replace ? '?replace=true' : ''}`, body);
 export const cancelClientPlan = (id) => api.delete(`/api/clients/${id}/plan`);
 export const recordCustomerPayment = (id, body) =>
   api.post(`/api/clients/${id}/payments`, body);
