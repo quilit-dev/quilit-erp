@@ -438,6 +438,20 @@ class CustomerPayment(BaseModel):
         return v
 
 
+def _client_outstanding(db, client_id) -> float:
+    """What the account owes right now, whatever was agreed."""
+    row = db.execute(
+        """SELECT COALESCE(SUM(i.amount - COALESCE((
+                     SELECT SUM(p.amount) FROM invoice_payments p
+                      WHERE p.invoice_id = i.id), 0)), 0) AS owed
+             FROM invoices i
+            WHERE i.client_id = ? AND i.voided_at IS NULL
+              AND i.archived_at IS NULL
+              AND COALESCE(i.approval_status,'') != 'Pending Approval'""",
+        (client_id,)).fetchone()
+    return money(max(0.0, float(row["owed"] or 0)))
+
+
 @router.get("/{client_id}/plan")
 def account_payment_plan(
     client_id: int,
@@ -454,7 +468,36 @@ def account_payment_plan(
     if not db.execute("SELECT 1 FROM clients WHERE id=? AND deleted_at IS NULL",
                       (client_id,)).fetchone():
         raise HTTPException(404, "Client not found")
-    return installments.account_plan(db, client_id)
+
+    plan = installments.plan_state(db, client_id)
+    if plan is None:
+        return {"plan": None, "outstanding": _client_outstanding(db, client_id)}
+    # What the plan covers and what the account owes are two figures, and
+    # conflating them hides the case that matters: an invoice raised after the
+    # terms were agreed is outstanding but is not part of the plan.
+    return {"plan": plan, "outstanding": _client_outstanding(db, client_id)}
+
+
+@router.delete("/{client_id}/plan")
+def cancel_account_plan(
+    client_id: int,
+    user=Depends(require_perm("invoices", "create")),
+    db: sqlite3.Connection = Depends(get_db),
+):
+    """End the agreement. Payments already made against it stay where they are.
+
+    Cancelling changes nothing about the money: every payment was allocated to
+    invoices when it was taken, and that is not undone by the terms lapsing.
+    """
+    plan = installments.active_plan(db, client_id)
+    if not plan:
+        raise HTTPException(404, "This customer is not on a payment plan.")
+    installments.close_plan(db, plan["id"], status="cancelled",
+                            closed_by=user["id"])
+    log_action(db, user, "cancel_plan", "client", client_id, str(client_id),
+               {"plan_id": plan["id"]})
+    db.commit()
+    return {"message": "Payment plan cancelled."}
 
 
 @router.get("/{client_id}/payments")
@@ -655,14 +698,20 @@ def record_customer_payment(
     # The payment itself, before its allocations. A customer handed over one
     # sum; the split into per-invoice rows is bookkeeping, and the receipt they
     # are given has to describe the sum.
+    # A payment from a customer on a plan counts towards it. Attributed here
+    # rather than asked about: the operator taking the money is settling the
+    # agreement, and making them tick a box to say so is how a payment ends up
+    # outside the plan it obviously belonged to.
+    live_plan = installments.active_plan(db, client_id)
     batch_cur = db.execute(
         "INSERT INTO customer_payments "
         "(client_id, amount, currency, paid_amount, exchange_rate, method, note, "
-        " created_at, created_by) VALUES (?,?,?,?,?,?,?,?,?)",
+        " created_at, created_by, plan_id) VALUES (?,?,?,?,?,?,?,?,?,?)",
         (client_id, usd, (data.currency or "USD").upper(),
          currency_mod.from_usd(usd, data.currency, db, data.exchange_rate)
          if (data.currency or "USD").upper() != "USD" else usd,
-         rate, data.method, data.note, _now(), user["id"]))
+         rate, data.method, data.note, _now(), user["id"],
+         live_plan["id"] if live_plan else None))
     batch_id = batch_cur.lastrowid
 
     # Walked in the currency the customer is handing over, oldest first.
@@ -723,21 +772,30 @@ def record_customer_payment(
             "now_owing": money(due - take), "settled": (due - take) <= 0.005,
         })
 
-    # Whatever is still owed after this payment goes onto the agreed dates.
+    # Whatever is still owed after this payment goes onto the agreed dates —
+    # as ONE schedule against the account. The invoices are untouched: each
+    # instalment, when it is paid, is an ordinary account payment and lands on
+    # them oldest-first exactly like this one just did.
     plan = None
     if data.installment_plan is not None:
+        scheduled = money(total_owed - usd)
+        if scheduled <= 0.005:
+            raise HTTPException(
+                400, "This payment clears the account, so there is nothing "
+                     "left to schedule.")
         try:
-            plan = installments.plan_account(
-                db, client_id=client_id,
+            plan_id = installments.create_plan(
+                db, client_id=client_id, total=scheduled,
                 count=data.installment_plan.count,
                 frequency=data.installment_plan.frequency,
                 start=data.installment_plan.start_date,
-                note=data.installment_plan.note)
+                note=data.installment_plan.note, created_by=user["id"])
         except ValueError as e:
             raise HTTPException(400, str(e))
+        plan = installments.plan_state(db, client_id)
         log_action(db, user, "plan", "client", client_id, row["name"],
-                   {"instalments": plan["instalments"],
-                    "total": plan["total"], "last_due": plan["last_due"]})
+                   {"plan_id": plan_id, "instalments": plan["count"],
+                    "total": plan["total"]})
 
     log_action(db, user, "payment", "client", client_id, row["name"],
                {"amount": money(usd), "invoices": len(allocated),

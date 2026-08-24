@@ -47,6 +47,7 @@ _REQUIRED = [
     # Which payment an allocation row belongs to, so a receipt can be written
     # for the payment the customer actually made.
     ("invoice_payments", "customer_payment_id"),
+    ("customer_payments", "plan_id"),
     # The currency a sales document was agreed in, beside its base figures.
     ("invoices", "currency"),
     ("invoices", "exchange_rate"),
@@ -69,6 +70,9 @@ _REQUIRED_TABLES = [
     "invoice_installments",
     # Stock held for a named customer.
     "stock_reservations",
+    # A payment plan against the customer's account.
+    "client_payment_plans",
+    "client_plan_installments",
     # One payment, however many invoices it settled.
     "customer_payments",
     # Currency differences an accountant can work with.

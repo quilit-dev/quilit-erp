@@ -1163,6 +1163,10 @@ const en = {
   },
 
   clients: {
+    owedBeyondPlan: '{{amount}} of the account is outside this plan — raised after the terms were agreed.',
+    planAccountHint: 'Each payment is applied to the oldest unpaid invoices automatically, exactly like any other account payment.',
+    planCancelled: 'Payment plan cancelled',
+    planCancelConfirm: 'End this payment plan? Payments already made stay exactly as they are — only the remaining schedule is removed.',
     planSummary: '{{count}} payments totalling {{total}} — {{remaining}} still to come',
     covers: 'Pays off',
     planWillBe: '{{count}} payments covering {{amount}}',

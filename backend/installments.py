@@ -182,173 +182,110 @@ def next_due(plan):
     return None
 
 
-# ── One schedule over a whole account ────────────────────────────────────────
+# ══════════════════════════════════════════════════════════════════════════════
+# A PLAN AGAINST THE ACCOUNT
+# ══════════════════════════════════════════════════════════════════════════════
+# A customer owing 4,000 who agrees to eight payments of 500 has agreed ONE
+# thing. The plan is theirs, not their invoices': it tracks the account balance,
+# and each payment against it is an ordinary account payment allocated
+# oldest-first across whatever is open at the time.
+#
+# That separation is what makes it survive contact with a real ledger. An
+# invoice raised after the plan is simply part of the balance the plan is
+# working down. One voided does not tear a hole in a schedule. And the customer
+# can be shown the eight payments they actually agreed to, because that is what
+# is stored.
+#
+# Which instalments are settled is DERIVED, exactly as it is for an invoice
+# plan: cumulative paid against the plan versus cumulative scheduled. Nothing
+# marks an instalment paid, so nothing can disagree with the payments.
 
-def plan_account(db, *, client_id, count, frequency="monthly", start=None,
-                 note=None, now=None):
-    """Put everything a customer still owes on one agreed schedule.
+def active_plan(db, client_id):
+    """The customer's live plan, or None."""
+    return db.execute(
+        "SELECT * FROM client_payment_plans "
+        "WHERE client_id=? AND status='active' ORDER BY id DESC LIMIT 1",
+        (client_id,)).fetchone()
 
-    A plan on one invoice is a negotiation about one document. This is the
-    other thing people mean by instalments: the customer owes several bills and
-    agrees to clear the lot over N payments.
 
-    The schedule is built once over the combined balance and then walked across
-    the invoices, oldest first — so a single instalment can finish one invoice
-    and start the next, which is exactly what happens when the money arrives
-    and is allocated oldest-first. Each invoice ends up with its own rows, so
-    arrears reporting, the statement and the invoice screen all read a plan
-    they already understand and none of them learns a new concept.
+def paid_against(db, plan_id) -> float:
+    """What has been paid against this plan, in the company's currency."""
+    row = db.execute(
+        "SELECT COALESCE(SUM(amount), 0) AS n FROM customer_payments "
+        "WHERE plan_id=?", (plan_id,)).fetchone()
+    return money(row["n"] or 0)
 
-    Rows on a part-paid invoice open with what has already been settled, dated
-    today, because the engine decides which instalments are covered by
-    comparing cumulative paid against cumulative scheduled — a schedule that
-    did not account for money already received would show settled instalments
-    as outstanding for ever.
+
+def create_plan(db, *, client_id, total, count, frequency="monthly",
+                start=None, note=None, created_by=None, now=None):
+    """Agree a schedule against what the customer owes.
+
+    `total` is the balance being scheduled — normally everything outstanding
+    once the payment being taken now has been applied.
     """
     from utils import _now
     now = now or _now()
-    today = now[:10]
+    if active_plan(db, client_id):
+        raise ValueError(
+            "This customer is already on a payment plan. Cancel it first if "
+            "the terms have changed — two live agreements about one balance "
+            "is not something anybody agreed to.")
 
-    rows = db.execute(
-        """SELECT i.id, i.invoice_number, i.amount,
-                  COALESCE((SELECT SUM(p.amount) FROM invoice_payments p
-                            WHERE p.invoice_id = i.id), 0) AS paid
-             FROM invoices i
-            WHERE i.client_id = ? AND i.voided_at IS NULL
-              AND i.archived_at IS NULL
-              AND COALESCE(i.approval_status,'') != 'Pending Approval'
-         ORDER BY COALESCE(i.due_date, i.created_at), i.id""",
-        (client_id,)).fetchall()
+    rows = build_schedule(total, count, start or now[:10], frequency=frequency)
 
-    open_rows = []
-    for r in rows:
-        remaining = money(float(r["amount"]) - float(r["paid"]))
-        if remaining > _CENT:
-            open_rows.append((r, remaining))
-    if not open_rows:
-        raise ValueError("This customer has nothing outstanding to schedule.")
-
-    # An agreement already being kept is not ours to overwrite. One with no
-    # money against it is a draft and can be replaced.
-    for r, _ in open_rows:
-        has_plan = db.execute(
-            "SELECT 1 FROM invoice_installments WHERE invoice_id=?",
-            (r["id"],)).fetchone()
-        if has_plan and float(r["paid"]) > _CENT:
-            raise ValueError(
-                f"{r['invoice_number']} is already on a plan that has been "
-                "paid against. Remove that plan first if the terms have "
-                "genuinely changed.")
-
-    total = money(sum(rem for _, rem in open_rows))
-    schedule = build_schedule(total, count, start or today, frequency=frequency)
-
-    # Walk the schedule across the invoices. An instalment that overruns one
-    # invoice finishes it and carries the rest to the next.
-    queue = [[due, amount] for _, due, amount in schedule]
-    written = []
-    qi = 0
-    for r, remaining in open_rows:
-        left = remaining
-        seq = 1
-        db.execute("DELETE FROM invoice_installments WHERE invoice_id=?", (r["id"],))
-
-        already = money(float(r["paid"]))
-        if already > _CENT:
-            db.execute(
-                "INSERT INTO invoice_installments "
-                "(invoice_id, seq, due_date, amount, note, created_at) "
-                "VALUES (?,?,?,?,?,?)",
-                (r["id"], seq, today, already, note, now))
-            seq += 1
-
-        last_due = today
-        while left > _CENT and qi < len(queue):
-            due, avail = queue[qi]
-            take = money(min(left, avail))
-            db.execute(
-                "INSERT INTO invoice_installments "
-                "(invoice_id, seq, due_date, amount, note, created_at) "
-                "VALUES (?,?,?,?,?,?)",
-                (r["id"], seq, str(due), take, note, now))
-            seq += 1
-            last_due = str(due)
-            left = money(left - take)
-            queue[qi][1] = money(avail - take)
-            if queue[qi][1] <= _CENT:
-                qi += 1
-
-        # Anything still reading a single date says the plan ends then, rather
-        # than claiming the whole balance was due on day one.
-        db.execute("UPDATE invoices SET due_date=? WHERE id=?", (last_due, r["id"]))
-        written.append({"invoice_id": r["id"],
-                        "invoice_number": r["invoice_number"],
-                        "scheduled": money(remaining), "last_due": last_due})
-
-    return {"total": total, "instalments": len(schedule),
-            "first_due": str(schedule[0][1]), "last_due": str(schedule[-1][1]),
-            "invoices": written}
+    cur = db.execute(
+        "INSERT INTO client_payment_plans "
+        "(client_id, total, frequency, status, note, created_at, created_by) "
+        "VALUES (?,?,?,'active',?,?,?)",
+        (client_id, money(total), frequency, note, now, created_by))
+    plan_id = cur.lastrowid
+    for seq, due, amount in rows:
+        db.execute(
+            "INSERT INTO client_plan_installments (plan_id, seq, due_date, amount) "
+            "VALUES (?,?,?,?)", (plan_id, seq, str(due), amount))
+    return plan_id
 
 
-def account_plan(db, client_id, today=None):
-    """Everything a customer owes, on the dates they agreed, as one schedule.
+def plan_state(db, client_id, today=None):
+    """The customer's plan, with each instalment's state worked out.
 
-    The rows live per invoice because that is what arrears reporting, the
-    statement and the invoice screen all read. Nobody agreeing terms thinks in
-    those terms though: they agreed four payments, and they want to see four
-    payments. So the rows are gathered back into the schedule the customer was
-    actually given, by date.
-
-    Instalments falling on the same date are one payment as far as the customer
-    is concerned, and are shown as one — with the invoices it covers named,
-    because that is the question asked when a payment is short.
+    Returns None when there is no live plan.
     """
     from utils import _now
     today = today or _now()[:10]
+    plan = active_plan(db, client_id)
+    if not plan:
+        return None
 
     rows = db.execute(
-        """SELECT i.id, i.invoice_number, i.amount,
-                  COALESCE((SELECT SUM(p.amount) FROM invoice_payments p
-                            WHERE p.invoice_id = i.id), 0) AS paid
-             FROM invoices i
-            WHERE i.client_id = ? AND i.voided_at IS NULL
-              AND i.archived_at IS NULL
-         ORDER BY COALESCE(i.due_date, i.created_at), i.id""",
-        (client_id,)).fetchall()
+        "SELECT id, seq, due_date, amount FROM client_plan_installments "
+        "WHERE plan_id=? ORDER BY seq", (plan["id"],)).fetchall()
+    paid = paid_against(db, plan["id"])
+    lines = allocate(rows, paid, today=today)
 
-    by_date = {}
-    for r in rows:
-        for line in plan_for(db, r["id"], float(r["paid"]), today=today):
-            slot = by_date.setdefault(str(line["due_date"]), {
-                "due_date": str(line["due_date"]), "amount": 0.0,
-                "paid": 0.0, "invoices": [], "statuses": set(),
-            })
-            slot["amount"] = money(slot["amount"] + float(line["amount"]))
-            slot["paid"] = money(slot["paid"] + float(line.get("paid") or 0))
-            slot["statuses"].add(line["status"])
-            if r["invoice_number"] not in [i["invoice_number"]
-                                           for i in slot["invoices"]]:
-                slot["invoices"].append({"invoice_id": r["id"],
-                                         "invoice_number": r["invoice_number"]})
-
-    out = []
-    for slot in sorted(by_date.values(), key=lambda s: s["due_date"]):
-        st = slot.pop("statuses")
-        # One date is one payment to the customer, so its state is the least
-        # settled of the parts: anything still owing makes the whole date owing.
-        slot["status"] = (PAID if st == {PAID}
-                          else OVERDUE if OVERDUE in st
-                          else PARTIAL if (PARTIAL in st or PAID in st)
-                          else DUE)
-        out.append(slot)
-
-    scheduled = money(sum(s["amount"] for s in out))
-    settled = money(sum(s["paid"] for s in out))
+    scheduled = money(sum(float(r["amount"]) for r in rows))
     return {
-        "installments": out,
-        "count": len(out),
-        "total": scheduled,
-        "paid": settled,
-        "remaining": money(scheduled - settled),
-        "next_due": next((s for s in out if s["status"] != PAID), None),
+        "id": plan["id"],
+        "total": money(plan["total"]),
+        "frequency": plan["frequency"],
+        "note": plan["note"],
+        "created_at": plan["created_at"],
+        "installments": lines,
+        "count": len(lines),
+        "paid": paid,
+        "remaining": money(scheduled - paid),
+        "next_due": next_due(lines),
+        # Settled by its own terms. The account may still owe something — a new
+        # invoice raised after the plan was agreed is not part of it — so the
+        # two figures are reported separately rather than conflated.
+        "settled": paid >= money(scheduled) - _CENT,
     }
+
+
+def close_plan(db, plan_id, *, status="cancelled", closed_by=None, now=None):
+    """End a plan. The payments made against it stay exactly where they are."""
+    from utils import _now
+    db.execute(
+        "UPDATE client_payment_plans SET status=?, closed_at=?, closed_by=? "
+        "WHERE id=? AND status='active'",
+        (status, now or _now(), closed_by, plan_id))

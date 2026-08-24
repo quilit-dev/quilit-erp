@@ -190,7 +190,8 @@ export default function ClientDetail() {
       {/* The dates they agreed to clear the account on. Renders nothing
           until there is a plan, so a customer without one is unchanged. */}
       {tab === 'overview' && (
-        <AccountPlan clientId={id} refreshKey={planKey} />
+        <AccountPlan clientId={id} refreshKey={planKey}
+          onChanged={() => getClient(id).then(setClient).catch(() => {})} />
       )}
       {tab === 'overview' && (
         <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 16 }}>

@@ -301,7 +301,7 @@ export default function CustomerPaymentModal({ client, invoices, onClose, onDone
                       </tbody>
                     </table>
                     <div style={{ fontSize: 11, color: 'var(--text-3)', marginTop: 6 }}>
-                      {t('clients.planCoversHint')}
+                      {t('clients.planAccountHint')}
                     </div>
                   </div>
                 )}

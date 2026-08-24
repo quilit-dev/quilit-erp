@@ -1,16 +1,19 @@
-"""Putting a customer's whole account on terms.
+"""A payment plan against the customer's ACCOUNT.
 
-Two different things go by "instalments" and the customer setting only governs
-one of them.
+A customer owing 4,000 who agrees to eight payments of 500 has agreed one
+thing. The plan is theirs, not their invoices': it tracks the account balance,
+and each payment against it is an ordinary account payment allocated
+oldest-first across whatever is open at the time.
 
-A plan on ONE invoice is a negotiation about one document — splitting a large
-sale into agreed dates — and is available for anybody. A plan on the ACCOUNT is
-a standing credit arrangement: the customer owes several bills and agrees to
-clear the lot over N payments. That is the one the checkbox decides.
+That separation is the whole design, and it is what makes it survive contact
+with a real ledger. An invoice raised after the plan is part of the balance the
+plan is working down. One voided does not tear a hole in a schedule. And the
+customer can be shown the eight payments they agreed to, because that is what
+is stored.
 
-The schedule is built once over the combined balance and walked across the
-invoices oldest first, so each ends up with rows the rest of the system already
-understands. Nothing downstream learns a new concept.
+Two different things still go by "instalments": a plan on ONE invoice is a
+negotiation about one document and is available to anybody. This is the other,
+and the customer's own setting decides who may have it.
 """
 import uuid
 
@@ -25,7 +28,7 @@ def client(as_role):
 
 
 def _client(client, name="Account Co", **kw):
-    body = {"name": name}
+    body = {"name": name, "allow_installments": True}
     body.update(kw)
     return client.post("/api/clients/", json=body).json()["id"]
 
@@ -45,16 +48,149 @@ def _pay(client, cid, amount, plan=None):
     return client.post(f"/api/clients/{cid}/payments", json=body)
 
 
-PLAN = {"count": 4, "frequency": "monthly", "start_date": "2026-04-01"}
+def _plan(client, cid):
+    return client.get(f"/api/clients/{cid}/plan").json()
 
 
-# ── The setting governs the account, not the invoice ─────────────────────────
+def _owing(client, inv):
+    return client.get(f"/api/invoices/{inv}").json()["remaining"]
+
+
+FAR = "2099-01-01"      # terms agreed for dates still to come
+
+
+# ── The example from the brief ───────────────────────────────────────────────
+
+def test_four_thousand_over_eight_payments_of_five_hundred(client):
+    """The customer owes 4,000 and agrees to eight of 500. That is what is
+    stored and that is what they are shown."""
+    cid = _client(client)
+    _invoice(client, cid, 2500, "2026-01-31")
+    _invoice(client, cid, 1500, "2026-02-28")
+
+    r = _pay(client, cid, 0.01, plan={"count": 8, "start_date": FAR})
+    assert r.status_code == 200, r.text
+
+    plan = _plan(client, cid)["plan"]
+    assert plan["count"] == 8
+    assert plan["total"] == _pytest.approx(3999.99, abs=0.02)
+    assert all(i["amount"] == _pytest.approx(500, abs=0.02)
+               for i in plan["installments"])
+
+
+def test_the_plan_is_against_the_account_not_the_invoices(client):
+    """No invoice carries a schedule. The plan is the customer's."""
+    cid = _client(client)
+    a = _invoice(client, cid, 2500, "2026-01-31")
+    b = _invoice(client, cid, 1500, "2026-02-28")
+
+    _pay(client, cid, 0.01, plan={"count": 8, "start_date": FAR})
+
+    for inv in (a, b):
+        assert client.get(f"/api/invoices/{inv}/plan").json()["installments"] == []
+
+
+def test_paying_an_instalment_is_allocated_oldest_first(client):
+    """Each payment behaves exactly like any other account payment."""
+    cid = _client(client)
+    a = _invoice(client, cid, 300, "2026-01-31")
+    b = _invoice(client, cid, 700, "2026-02-28")
+    _pay(client, cid, 0.01, plan={"count": 4, "start_date": FAR})
+
+    _pay(client, cid, 500)
+
+    assert _owing(client, a) == _pytest.approx(0, abs=0.02)
+    assert _owing(client, b) == _pytest.approx(500, abs=0.02)
+
+
+def test_the_plan_tracks_what_has_been_paid_against_it(client):
+    cid = _client(client)
+    _invoice(client, cid, 4000, "2026-01-31")
+    _pay(client, cid, 0.01, plan={"count": 8, "start_date": FAR})
+
+    _pay(client, cid, 500)
+    _pay(client, cid, 500)
+
+    plan = _plan(client, cid)["plan"]
+    assert plan["paid"] == _pytest.approx(1000.01, abs=0.02)
+    assert plan["remaining"] == _pytest.approx(2999.98, abs=0.05)
+
+
+def test_settled_instalments_are_derived_from_the_payments(client):
+    """Nothing marks an instalment paid, so nothing can disagree with the
+    money. A thousand settles the first two."""
+    cid = _client(client)
+    _invoice(client, cid, 4000, "2026-01-31")
+    _pay(client, cid, 0.01, plan={"count": 8, "start_date": FAR})
+
+    _pay(client, cid, 1000)
+
+    rows = _plan(client, cid)["plan"]["installments"]
+    assert [r["status"] for r in rows[:2]] == ["Paid", "Paid"]
+    assert rows[2]["status"] == "Due"
+
+
+def test_a_part_payment_leaves_that_instalment_partial(client):
+    cid = _client(client)
+    _invoice(client, cid, 4000, "2026-01-31")
+    _pay(client, cid, 0.01, plan={"count": 8, "start_date": FAR})
+
+    _pay(client, cid, 700)
+
+    rows = _plan(client, cid)["plan"]["installments"]
+    assert rows[0]["status"] == "Paid"
+    assert rows[1]["status"] == "Partial"
+
+
+def test_the_next_payment_due_is_named(client):
+    cid = _client(client)
+    _invoice(client, cid, 4000, "2026-01-31")
+    _pay(client, cid, 0.01, plan={"count": 8, "start_date": FAR})
+    _pay(client, cid, 500)
+
+    nxt = _plan(client, cid)["plan"]["next_due"]
+
+    assert nxt["seq"] == 2
+
+
+# ── The account and the plan are two figures ─────────────────────────────────
+
+def test_an_invoice_raised_after_the_plan_is_outstanding_but_not_scheduled(client):
+    """The case that makes conflating them wrong. The customer owes more than
+    the plan covers, and the screen has to be able to say so."""
+    cid = _client(client)
+    _invoice(client, cid, 4000, "2026-01-31")
+    _pay(client, cid, 0.01, plan={"count": 8, "start_date": FAR})
+
+    _invoice(client, cid, 600, "2026-06-30")
+
+    body = _plan(client, cid)
+    assert body["plan"]["total"] == _pytest.approx(3999.99, abs=0.02)
+    assert body["outstanding"] == _pytest.approx(4599.99, abs=0.02)
+
+
+def test_voiding_an_invoice_does_not_damage_the_schedule(client):
+    """Under the old shape the schedule lived on the invoices, so this tore a
+    hole in it."""
+    cid = _client(client)
+    a = _invoice(client, cid, 1000, "2026-01-31")
+    _invoice(client, cid, 3000, "2026-02-28")
+    _pay(client, cid, 0.01, plan={"count": 8, "start_date": FAR})
+
+    client.patch(f"/api/invoices/{a}/void", json={"reason": "cancelled"})
+
+    plan = _plan(client, cid)["plan"]
+    assert plan["count"] == 8
+    assert plan["total"] == _pytest.approx(3999.99, abs=0.02)
+
+
+# ── Who may have one ─────────────────────────────────────────────────────────
 
 def test_an_unapproved_customer_cannot_put_their_account_on_terms(client):
     cid = _client(client, name="Unapproved Ltd", allow_installments=False)
-    _invoice(client, cid, 400, "2026-01-31")
+    _invoice(client, cid, 4000, "2026-01-31")
 
-    r = _pay(client, cid, 100, plan=PLAN)
+    r = _pay(client, cid, 100, plan={"count": 8})
 
     assert r.status_code == 400
     assert "Unapproved Ltd" in r.text
@@ -62,260 +198,120 @@ def test_an_unapproved_customer_cannot_put_their_account_on_terms(client):
 
 
 def test_the_refusal_leaves_no_payment_behind(client, db):
-    """Checked before anything is written. A refusal that had already taken
-    the money would be worse than one that took the plan."""
     cid = _client(client, allow_installments=False)
-    _invoice(client, cid, 400, "2026-01-31")
+    _invoice(client, cid, 4000, "2026-01-31")
 
-    _pay(client, cid, 100, plan=PLAN)
+    _pay(client, cid, 100, plan={"count": 8})
 
-    n = db.execute("SELECT COUNT(*) AS n FROM invoice_payments").fetchone()["n"]
-    assert n == 0
+    assert db.execute("SELECT COUNT(*) AS n FROM invoice_payments").fetchone()["n"] == 0
 
 
 def test_an_unapproved_customer_can_still_just_pay(client):
     """The setting is about terms, not about taking their money."""
     cid = _client(client, allow_installments=False)
-    _invoice(client, cid, 400, "2026-01-31")
+    _invoice(client, cid, 4000, "2026-01-31")
 
     assert _pay(client, cid, 100).status_code == 200
 
 
-def test_an_approved_customer_can(client):
-    cid = _client(client, allow_installments=True)
-    _invoice(client, cid, 400, "2026-01-31")
+def test_a_plan_on_one_invoice_is_still_available_to_anybody(client):
+    """The other kind of instalment, and a different decision."""
+    cid = _client(client, allow_installments=False)
+    inv = _invoice(client, cid, 4000, "2026-01-31")
 
-    r = _pay(client, cid, 100, plan=PLAN)
+    r = client.post(f"/api/invoices/{inv}/plan",
+                    json={"count": 4, "start_date": "2026-03-01"})
 
     assert r.status_code == 200, r.text
-    assert r.json()["plan"]["instalments"] == 4
 
 
-# ── What the schedule actually covers ────────────────────────────────────────
+# ── Refusals and lifecycle ───────────────────────────────────────────────────
 
-def test_it_schedules_what_is_left_after_the_payment(client):
-    """They paid 100 of 400, so 300 goes on the dates."""
-    cid = _client(client, allow_installments=True)
-    _invoice(client, cid, 400, "2026-01-31")
+def test_two_live_plans_are_refused(client):
+    """Two agreements about one balance is not something anybody agreed to."""
+    cid = _client(client)
+    _invoice(client, cid, 4000, "2026-01-31")
+    _pay(client, cid, 0.01, plan={"count": 8, "start_date": FAR})
 
-    body = _pay(client, cid, 100, plan=PLAN).json()
-
-    assert body["plan"]["total"] == _pytest.approx(300)
-
-
-def test_one_schedule_spans_several_invoices(client):
-    """The customer agreed four payments for everything they owe, not four
-    payments per bill."""
-    cid = _client(client, allow_installments=True)
-    a = _invoice(client, cid, 300, "2026-01-31")
-    b = _invoice(client, cid, 500, "2026-02-28")
-
-    body = _pay(client, cid, 100, plan=PLAN).json()
-
-    assert body["plan"]["total"] == _pytest.approx(700)
-    assert {i["invoice_id"] for i in body["plan"]["invoices"]} == {a, b}
-
-
-def test_each_invoice_reads_back_through_the_ordinary_plan_screen(client):
-    """One plan model. The invoice screen, the statement and arrears reporting
-    all read this without knowing it came from the account."""
-    cid = _client(client, allow_installments=True)
-    inv = _invoice(client, cid, 400, "2026-01-31")
-    _pay(client, cid, 100, plan=PLAN)
-
-    body = client.get(f"/api/invoices/{inv}/plan").json()
-
-    assert body["installments"]
-    assert body["next_due"] is not None
-
-
-def test_a_part_paid_invoice_opens_with_what_is_already_settled(client):
-    """The engine decides which instalments are covered by comparing
-    cumulative paid against cumulative scheduled. A schedule that ignored the
-    money already received would show settled instalments as outstanding for
-    ever."""
-    cid = _client(client, allow_installments=True)
-    inv = _invoice(client, cid, 400, "2026-01-31")
-    _pay(client, cid, 100, plan=PLAN)
-
-    rows = client.get(f"/api/invoices/{inv}/plan").json()["installments"]
-
-    assert rows[0]["amount"] == _pytest.approx(100)
-    assert rows[0]["status"] == "Paid"
-    assert sum(r["amount"] for r in rows) == _pytest.approx(400)
-
-
-def test_the_rows_of_each_invoice_add_up_to_its_total(client):
-    """Anything less and the invoice carries a plan that cannot settle it."""
-    cid = _client(client, allow_installments=True)
-    a = _invoice(client, cid, 300, "2026-01-31")
-    b = _invoice(client, cid, 500, "2026-02-28")
-    _pay(client, cid, 200, plan=PLAN)
-
-    for inv, total in ((a, 300), (b, 500)):
-        rows = client.get(f"/api/invoices/{inv}/plan").json()["installments"]
-        assert sum(r["amount"] for r in rows) == _pytest.approx(total), inv
-
-
-def test_an_instalment_can_finish_one_invoice_and_start_the_next(client):
-    """Which is what happens when the money arrives and is allocated oldest
-    first, so the schedule should say so."""
-    cid = _client(client, allow_installments=True)
-    a = _invoice(client, cid, 100, "2026-01-31")
-    b = _invoice(client, cid, 900, "2026-02-28")
-
-    body = _pay(client, cid, 50,
-                plan={"count": 2, "start_date": "2026-04-01"}).json()
-
-    assert body["plan"]["instalments"] == 2
-    # 950 outstanding over two payments: the first covers the rest of A and
-    # spills into B.
-    assert len(client.get(f"/api/invoices/{a}/plan").json()["installments"]) >= 1
-    assert client.get(f"/api/invoices/{b}/plan").json()["installments"]
-
-
-# ── Refusals ─────────────────────────────────────────────────────────────────
-
-def test_a_customer_with_nothing_outstanding_cannot_be_scheduled(client):
-    cid = _client(client, allow_installments=True)
-    _invoice(client, cid, 100, "2026-01-31")
-
-    r = _pay(client, cid, 100, plan=PLAN)
+    r = _pay(client, cid, 100, plan={"count": 4, "start_date": FAR})
 
     assert r.status_code == 400
-    assert "nothing outstanding" in r.text.lower()
+    assert "already on a payment plan" in r.text.lower()
 
 
-def test_an_agreement_already_being_kept_is_not_overwritten(client):
-    """A plan with money against it is an agreement in progress. Replacing it
-    silently would re-interpret what the customer has already settled."""
-    cid = _client(client, allow_installments=True)
-    inv = _invoice(client, cid, 400, "2026-01-31")
-    client.post(f"/api/invoices/{inv}/plan", json={"count": 4, "start_date": "2026-02-01"})
-    client.post(f"/api/invoices/{inv}/payments", json={
-        "amount": 50, "currency": "USD", "method": "Cash",
-        "idempotency_key": str(uuid.uuid4())})
+def test_a_payment_that_clears_the_account_leaves_nothing_to_schedule(client):
+    cid = _client(client)
+    _invoice(client, cid, 400, "2026-01-31")
 
-    r = _pay(client, cid, 25, plan=PLAN)
+    r = _pay(client, cid, 400, plan={"count": 4})
 
     assert r.status_code == 400
-    assert "already on a plan" in r.text.lower()
+    assert "nothing left to schedule" in r.text.lower()
 
 
-def test_the_books_still_balance_afterwards(client):
-    """A schedule is a set of dates, not an accounting event. Nothing about
-    the ledger should move because one was agreed."""
-    cid = _client(client, allow_installments=True)
+def test_cancelling_leaves_the_payments_alone(client):
+    """Every payment was allocated to invoices when it was taken. The terms
+    lapsing does not undo that."""
+    cid = _client(client)
+    inv = _invoice(client, cid, 4000, "2026-01-31")
+    _pay(client, cid, 0.01, plan={"count": 8, "start_date": FAR})
+    _pay(client, cid, 500)
+    owed = _owing(client, inv)
+
+    r = client.delete(f"/api/clients/{cid}/plan")
+
+    assert r.status_code == 200, r.text
+    assert _plan(client, cid)["plan"] is None
+    assert _owing(client, inv) == _pytest.approx(owed)
+
+
+def test_a_new_plan_can_be_agreed_after_cancelling(client):
+    cid = _client(client)
+    _invoice(client, cid, 4000, "2026-01-31")
+    _pay(client, cid, 0.01, plan={"count": 8, "start_date": FAR})
+    client.delete(f"/api/clients/{cid}/plan")
+
+    r = _pay(client, cid, 100, plan={"count": 4, "start_date": FAR})
+
+    assert r.status_code == 200, r.text
+    assert _plan(client, cid)["plan"]["count"] == 4
+
+
+def test_cancelling_when_there_is_no_plan_says_so(client):
+    cid = _client(client)
+
+    assert client.delete(f"/api/clients/{cid}/plan").status_code == 404
+
+
+def test_a_customer_with_no_plan_reads_back_cleanly(client):
+    cid = _client(client)
     _invoice(client, cid, 400, "2026-01-31")
-    before = client.get("/api/accounting/trial-balance").json()
 
-    _pay(client, cid, 100, plan=PLAN)
+    body = _plan(client, cid)
 
-    after = client.get("/api/accounting/trial-balance").json()
-    assert after["balanced"] and before["balanced"]
-    # The trial balance nets each account, so its total does not grow — what
-    # changes is where the money sits. Cash arrived and the claim shrank.
-    def bal(tb, code):
-        r = next((x for x in tb["rows"] if x["code"] == code), None)
-        return 0 if not r else round(float(r["debit"]) - float(r["credit"]), 2)
-    assert bal(after, "1000") == _pytest.approx(bal(before, "1000") + 100, abs=0.01)
-    assert bal(after, "1100") == _pytest.approx(bal(before, "1100") - 100, abs=0.01)
+    assert body["plan"] is None
+    assert body["outstanding"] == _pytest.approx(400)
+
+
+def test_agreeing_terms_posts_nothing_beyond_the_payment(client):
+    """A schedule is a set of dates. Only the payment moved money."""
+    cid = _client(client)
+    _invoice(client, cid, 4000, "2026-01-31")
+    before = len(client.get("/api/accounting/journal-entries").json()["rows"])
+
+    _pay(client, cid, 0.01, plan={"count": 8, "start_date": FAR})
+
+    after = client.get("/api/accounting/journal-entries").json()["rows"]
+    assert len(after) == before + 1
+    assert client.get("/api/accounting/trial-balance").json()["balanced"]
 
 
 def test_agreeing_terms_is_written_to_the_audit_trail(client, db):
-    cid = _client(client, allow_installments=True)
-    _invoice(client, cid, 400, "2026-01-31")
+    cid = _client(client)
+    _invoice(client, cid, 4000, "2026-01-31")
 
-    _pay(client, cid, 100, plan=PLAN)
+    _pay(client, cid, 0.01, plan={"count": 8, "start_date": FAR})
 
     row = db.execute("SELECT * FROM audit_log WHERE action='plan' "
                      "AND module='client' ORDER BY id DESC LIMIT 1").fetchone()
     assert row is not None
-    assert "instalments" in (row["detail"] or "")
-
-
-# ── Seeing it afterwards ─────────────────────────────────────────────────────
-
-def test_the_account_reads_back_as_the_schedule_that_was_agreed(client):
-    """Four payments were agreed, so four payments are shown — not the rows
-    spread across whichever invoices they landed on."""
-    cid = _client(client, allow_installments=True)
-    _invoice(client, cid, 300, "2026-01-31")
-    _invoice(client, cid, 500, "2026-02-28")
-    _pay(client, cid, 100, plan=PLAN)
-
-    body = client.get(f"/api/clients/{cid}/plan").json()
-
-    assert body["count"] == 5          # the settled opener plus four agreed
-    assert body["total"] == _pytest.approx(800)
-    assert body["remaining"] == _pytest.approx(700)
-
-
-def test_a_date_covering_two_invoices_names_both(client):
-    """One agreed payment can finish a bill and start the next. "Which of mine
-    is this" has to be answerable."""
-    cid = _client(client, allow_installments=True)
-    _invoice(client, cid, 100, "2026-01-31")
-    _invoice(client, cid, 900, "2026-02-28")
-    _pay(client, cid, 50, plan={"count": 2, "start_date": "2026-04-01"})
-
-    body = client.get(f"/api/clients/{cid}/plan").json()
-
-    spanning = [i for i in body["installments"] if len(i["invoices"]) > 1]
-    assert spanning, "no date covers more than one invoice"
-
-
-def test_the_next_payment_is_identified(client):
-    cid = _client(client, allow_installments=True)
-    _invoice(client, cid, 400, "2026-01-31")
-    _pay(client, cid, 100, plan=PLAN)
-
-    body = client.get(f"/api/clients/{cid}/plan").json()
-
-    assert body["next_due"] is not None
-    assert body["next_due"]["due_date"] == "2026-04-01"
-
-
-def test_what_has_been_paid_shows_as_paid(client):
-    """The opener carries what was settled when the terms were agreed. It is
-    found by its state rather than its position: a plan whose first date is
-    already past sorts the settled row last, which is correct and easy to
-    assume away."""
-    cid = _client(client, allow_installments=True)
-    _invoice(client, cid, 400, "2026-01-31")
-    _pay(client, cid, 100, plan=PLAN)
-
-    body = client.get(f"/api/clients/{cid}/plan").json()
-
-    settled = [i for i in body["installments"] if i["status"] == "Paid"]
-    assert settled, [i["status"] for i in body["installments"]]
-    assert settled[0]["amount"] == _pytest.approx(100)
-    assert body["paid"] == _pytest.approx(100)
-
-
-def test_a_plan_dated_ahead_reads_as_still_to_come(client):
-    """The ordinary case: terms agreed today for dates in the future."""
-    cid = _client(client, allow_installments=True)
-    _invoice(client, cid, 400, "2026-01-31")
-
-    _pay(client, cid, 100, plan={"count": 4, "start_date": "2099-01-01"})
-
-    body = client.get(f"/api/clients/{cid}/plan").json()
-    assert body["installments"][0]["status"] == "Paid"      # the opener
-    assert all(i["status"] == "Due" for i in body["installments"][1:])
-
-
-def test_a_customer_with_no_plan_returns_an_empty_schedule(client):
-    cid = _client(client, allow_installments=True)
-    _invoice(client, cid, 400, "2026-01-31")
-
-    body = client.get(f"/api/clients/{cid}/plan").json()
-
-    assert body["installments"] == []
-    assert body["next_due"] is None
-
-
-def test_reading_the_plan_needs_permission_to_see_the_customer(as_role):
-    r = as_role("Inventory").get("/api/clients/1/plan")
-
-    assert r.status_code in (403, 404)

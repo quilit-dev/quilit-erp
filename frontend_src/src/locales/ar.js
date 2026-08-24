@@ -1157,6 +1157,10 @@ const ar = {
   },
 
   clients: {
+    owedBeyondPlan: '{{amount}} من الحساب خارج هذه الخطة — صدرت بعد الاتفاق على الشروط.',
+    planAccountHint: 'تُطبّق كل دفعة تلقائياً على الفواتير الأقدم غير المسددة، تماماً كأي دفعة حساب.',
+    planCancelled: 'تم إلغاء خطة السداد',
+    planCancelConfirm: 'إنهاء خطة السداد؟ الدفعات المسددة تبقى كما هي — يُحذف الجدول المتبقي فقط.',
     planSummary: '{{count}} دفعات بمجموع {{total}} — متبقٍّ {{remaining}}',
     covers: 'تسدّد',
     planWillBe: '{{count}} دفعات تغطي {{amount}}',

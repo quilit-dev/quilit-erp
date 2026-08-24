@@ -28,18 +28,29 @@ describe('the agreed dates are visible on the client', () => {
   });
 
   test('a customer with no plan sees nothing rather than an empty table', () => {
-    expect(planSrc).toMatch(/if \(!rows\.length\) return null;/);
+    expect(planSrc).toMatch(/if \(!plan\) return null;/);
   });
 
-  test('each date names the invoices it pays off', () => {
-    // One agreed payment can finish a bill and start the next, so "which of
-    // mine is this" has to be answerable here.
-    expect(planSrc).toMatch(/r\.invoices\.map/);
-    expect(planSrc).toMatch(/\/invoices\?focus=\$\{inv\.invoice_id\}/);
+  test('the plan belongs to the customer, not to their invoices', () => {
+    // Eight payments of 500 is one agreement. Decomposing it onto whichever
+    // invoices are open today breaks the moment one is raised or voided.
+    expect(planSrc).toMatch(/const plan = data\?\.plan;/);
+    expect(planSrc).toMatch(/plan\.installments \|\| \[\]/);
+  });
+
+  test('what the account owes beyond the plan is stated, not hidden', () => {
+    // An invoice raised after the terms is outstanding and outside them.
+    expect(planSrc).toMatch(/const beyond = /);
+    expect(planSrc).toMatch(/clients\.owedBeyondPlan/);
+  });
+
+  test('the plan can be ended, and says what that does not do', () => {
+    expect(planSrc).toMatch(/cancelClientPlan/);
+    expect(en.clients.planCancelConfirm).toMatch(/stay exactly as they are/i);
   });
 
   test('the next payment is called out', () => {
-    expect(planSrc).toMatch(/data\.next_due/);
+    expect(planSrc).toMatch(/plan\.next_due/);
     expect(planSrc).toMatch(/installments\.nextDueLabel/);
   });
 });
@@ -118,15 +129,15 @@ describe('it mounts', () => {
     globalThis.fetch = () => Promise.resolve({
       ok: true, status: 200,
       json: () => Promise.resolve({
-        count: 2, total: 300, paid: 0, remaining: 300,
-        next_due: { due_date: '2026-04-01', amount: 150, paid: 0 },
-        installments: [
-          { due_date: '2026-04-01', amount: 150, paid: 0, status: 'Due',
-            invoices: [{ invoice_id: 7, invoice_number: 'INV-1' }] },
-          { due_date: '2026-05-01', amount: 150, paid: 0, status: 'Due',
-            invoices: [{ invoice_id: 7, invoice_number: 'INV-1' },
-                       { invoice_id: 8, invoice_number: 'INV-2' }] },
-        ],
+        outstanding: 400,
+        plan: {
+          id: 1, count: 2, total: 300, paid: 0, remaining: 300,
+          next_due: { seq: 1, due_date: '2026-04-01', amount: 150, paid: 0 },
+          installments: [
+            { seq: 1, due_date: '2026-04-01', amount: 150, paid: 0, status: 'Due' },
+            { seq: 2, due_date: '2026-05-01', amount: 150, paid: 0, status: 'Due' },
+          ],
+        },
       }),
       text: () => Promise.resolve(''),
       headers: { get: () => 'application/json' },
@@ -140,9 +151,9 @@ describe('it mounts', () => {
           </MemoryRouter></LocaleProvider></ThemeProvider>));
         await new Promise(r => setTimeout(r, 0));
       });
-      expect(container.textContent).toContain('INV-1');
-      expect(container.textContent).toContain('INV-2');
       expect(container.querySelectorAll('tbody tr').length).toBe(2);
+      // 400 owed against 300 scheduled: the 100 outside the plan is stated.
+      expect(container.textContent).toMatch(/100/);
     } finally {
       globalThis.fetch = realFetch;
     }
