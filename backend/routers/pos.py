@@ -91,6 +91,10 @@ class PosCheckout(BaseModel):
     amount_tendered: float = 0
     order_discount:  float = 0       # discount applied to the whole sale
     cash_drawer_id:  Optional[int] = None   # drawer a cash sale belongs to
+    # Which bank account a card or transfer settled into. A till takes
+    # more than notes, and what is not notes does not belong in the
+    # drawer's balance.
+    bank_account_id: Optional[int] = None
     idempotency_key: str
     note:            Optional[str] = None
     installment_plan: Optional[PosInstallmentPlan] = None
@@ -704,7 +708,10 @@ def checkout(
     # the claim, earning only the part of the revenue that was actually
     # received. The rest stays in deferred until the customer pays it.
     if payment_id is not None:
-        cash_code = accounting.cash_account_for(db, currency)
+        # A card or transfer at the till is not cash in the drawer.
+        cash_code = accounting.money_account_for(
+            db, method=method, currency=currency,
+            bank_account_id=data.bank_account_id)
         lines_for_payment = (
             accounting.payment_lines(
                 db, invoice_id, cash_code=cash_code, amount=due_now,
@@ -807,10 +814,12 @@ def checkout(
     ps = db.execute(
         "INSERT INTO pos_sales "
         "(session_id, invoice_id, cashier_id, cashier_name, payment_method, paid_currency, "
-        " amount_tendered, change_given, total_usd, discount_total, cogs_total, status, created_at) "
-        "VALUES (?,?,?,?,?,?,?,?,?,?,?, 'completed', ?)",
+        " amount_tendered, change_given, total_usd, discount_total, cogs_total, "
+        " bank_account_id, status, created_at) "
+        "VALUES (?,?,?,?,?,?,?,?,?,?,?,?, 'completed', ?)",
         (session["id"], invoice_id, user["id"], user.get("username"), method, currency,
-         tendered, change_given, grand_total, discount_total, cogs_total, now),
+         tendered, change_given, grand_total, discount_total, cogs_total,
+         data.bank_account_id, now),
     )
     pos_sale_id = ps.lastrowid
 

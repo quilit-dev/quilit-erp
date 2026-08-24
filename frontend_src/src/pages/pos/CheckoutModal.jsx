@@ -4,6 +4,7 @@ import { useSettings } from '../../hooks/useSettings.jsx';
 import { Modal, toast, NumberInput } from '../../components/shared';
 import { posCheckout } from '../../api/client';
 import { num } from './pricing';
+import BankField, { useBankAccounts } from '../../components/BankField.jsx';
 
 function CheckoutModal({ pricing, clients, drawers, defaultCurrency = 'USD', onClose, onDone }) {
   const { t, fmt, tCategory } = useLocale();
@@ -31,6 +32,10 @@ function CheckoutModal({ pricing, clients, drawers, defaultCurrency = 'USD', onC
   const [busy, setBusy] = useState(false);
   const _defDrawer = drawers.find(d => d.auto_capture) || drawers[0];
   const [drawerId, setDrawerId] = useState(_defDrawer ? String(_defDrawer.id) : '');
+  // A card at the counter is not notes in the drawer, and the account
+  // it settles into is the one that has to reconcile.
+  const bankAccounts = useBankAccounts();
+  const [bankId, setBankId] = useState('');
 
   // The customer's own terms: whether they may buy on credit, and the shape
   // they usually agree to. A customer record without the field (an older
@@ -109,6 +114,7 @@ function CheckoutModal({ pricing, clients, drawers, defaultCurrency = 'USD', onC
         amount_tendered: method === 'Cash' ? tenderedNum : totalInCurrency,
         cash_drawer_id: method === 'Cash' && drawerId ? Number(drawerId) : null,
         idempotency_key: crypto.randomUUID(),
+        bank_account_id: bankId ? Number(bankId) : null,
         ...(onPlan ? {
           installment_plan: {
             down_payment: depositNum,
@@ -231,6 +237,8 @@ function CheckoutModal({ pricing, clients, drawers, defaultCurrency = 'USD', onC
               {exchangeRate?.rate ? <option value="LBP">{exchangeRate.secondary || 'LBP'}</option> : null}
             </select>
           </div>
+          <BankField method={method} value={bankId} onChange={setBankId}
+            accounts={bankAccounts} style={{ gridColumn: '1 / -1' }} />
           {method === 'Cash' && drawers.length > 0 && (
             <div className="form-group form-full">
               <label className="form-label">{t('pos.cashDrawer')}</label>

@@ -21,6 +21,7 @@ import DocumentPostings from '../components/DocumentPostings.jsx';
 import PaymentPlan from './invoices/PaymentPlan.jsx';
 import { useRecordExport } from '../hooks/useRecordExport';
 import { useFocusId } from '../hooks/useFocusId';
+import BankField, { useBankAccounts } from '../components/BankField.jsx';
 import { CURRENCIES } from './settings/ui';
 const METHODS    = ['Cash', 'Bank Transfer', 'Cheque', 'Card', 'Other'];
 // `discount` (in functional currency) is opt-in via Settings → "Enable
@@ -105,6 +106,7 @@ export default function Invoices() {
   const { data: projects } = useData((s) => getProjects({}, s));
   const { data: inventory } = useData((s) => getInventory({}, s));
   const { settings, exchangeRate, displayCurrency, taxRates, rateFor, rates } = useSettings();
+  const bankAccounts = useBankAccounts();
 
   // Global-search deep link (?focus=<id>) → open that invoice's detail.
   const [focusId, clearFocus] = useFocusId();
@@ -420,6 +422,8 @@ export default function Invoices() {
         method: payForm.method, note: payForm.note || null, idempotency_key,
         cash_drawer_id: payForm.method === 'Cash' && payForm.cash_drawer_id
           ? Number(payForm.cash_drawer_id) : null,
+        bank_account_id: payForm.bank_account_id
+          ? Number(payForm.bank_account_id) : null,
       });
       toast(t('invoices.paymentRecorded'));
       // Reset to the same currency and rate the form opened on, so taking a
@@ -963,6 +967,10 @@ export default function Invoices() {
                         {METHODS.map(m => <option key={m} value={m}>{tEnumValue(m)}</option>)}
                       </select>
                     </div>
+                    <BankField method={payForm.method}
+                      value={payForm.bank_account_id}
+                      onChange={v => setPayForm(f => ({ ...f, bank_account_id: v }))}
+                      accounts={bankAccounts} style={{ width: 160 }} compact />
                     {payForm.method === 'Cash' && cashDrawers.length > 0 && (
                       <div className="form-group" style={{ margin:0, width:150 }}>
                         <label className="form-label">{t('pos.cashDrawer')}</label>

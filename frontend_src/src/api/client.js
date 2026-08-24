@@ -605,6 +605,14 @@ export const getPosProducts    = (search, s)  => api.get(`/api/pos/products${_qs
 export const getPosCashDrawers = ()            => api.get('/api/pos/cash-drawers');
 
 // Cash & Daily Reconciliation
+// Bank accounts — where money settled by transfer, cheque or card actually
+// sits. Each carries its own code in the chart, so a balance can be held
+// against the statement the bank sends.
+export const getBankAccounts    = (params = {}) => api.get(`/api/banks/${_qs(params)}`);
+export const createBankAccount  = (d)     => api.post('/api/banks/', d);
+export const updateBankAccount  = (id, d) => api.put(`/api/banks/${id}`, d);
+export const archiveBankAccount = (id)    => api.patch(`/api/banks/${id}/archive`);
+export const unarchiveBankAccount = (id)  => api.patch(`/api/banks/${id}/unarchive`);
 export const getCashDrawers          = ()           => api.get('/api/cash/drawers');
 export const createCashDrawer        = (d)          => api.post('/api/cash/drawers', d);
 export const updateCashDrawer        = (id, d)      => api.put(`/api/cash/drawers/${id}`, d);

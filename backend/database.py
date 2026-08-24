@@ -3789,6 +3789,19 @@ def _run_migrations(conn, c):
             "ALTER TABLE customer_payments ADD COLUMN plan_id INTEGER "
             "REFERENCES client_payment_plans(id)")
 
+    # ── 165: which bank a transfer went through ──────────────────────────
+    # `bank_accounts` has existed since 154, with its own code in the chart so
+    # a balance could be reconciled against a statement. Two tables could name
+    # an account; the three below could not, so a card at the till, a
+    # recurring standing order and a customer's account payment all had to be
+    # taken on trust as cash.
+    add_col("165_pos_bank", "pos_sales", "bank_account_id",
+            "ALTER TABLE pos_sales ADD COLUMN bank_account_id INTEGER")
+    add_col("165a_recurring_bank", "recurring_expenses", "bank_account_id",
+            "ALTER TABLE recurring_expenses ADD COLUMN bank_account_id INTEGER")
+    add_col("165b_customer_payment_bank", "customer_payments", "bank_account_id",
+            "ALTER TABLE customer_payments ADD COLUMN bank_account_id INTEGER")
+
     # ── 163: currency differences an accountant can actually work with ────
     # A realised difference already records itself on the payment that caused
     # it. An unrealised one did not: the revaluation posted an entry with no
@@ -4370,6 +4383,13 @@ def _ensure_pg_post_baseline(raw):
         cur.execute("ALTER TABLE invoice_payments ADD COLUMN IF NOT EXISTS "
                     "bank_account_id INTEGER")
         cur.execute("ALTER TABLE expenses ADD COLUMN IF NOT EXISTS "
+                    "bank_account_id INTEGER")
+        # 165: the three that could not name an account.
+        cur.execute("ALTER TABLE pos_sales ADD COLUMN IF NOT EXISTS "
+                    "bank_account_id INTEGER")
+        cur.execute("ALTER TABLE recurring_expenses ADD COLUMN IF NOT EXISTS "
+                    "bank_account_id INTEGER")
+        cur.execute("ALTER TABLE customer_payments ADD COLUMN IF NOT EXISTS "
                     "bank_account_id INTEGER")
         cur.execute("ALTER TABLE invoices ADD COLUMN IF NOT EXISTS source_type TEXT")
         cur.execute("ALTER TABLE invoices ADD COLUMN IF NOT EXISTS source_reference TEXT")

@@ -9,6 +9,7 @@ import {
   CATEGORY_COLORS, CategoryBadge, SelectOther, NumberInput, BranchField} from '../components/shared';
 import { useSortPaginate } from '../hooks/useSortPaginate';
 import { useLocale } from '../hooks/useLocale.jsx';
+import BankField, { useBankAccounts } from '../components/BankField.jsx';
 import { useCategories } from '../hooks/useCategories';
 import { useSettings } from '../hooks/useSettings.jsx';
 import { usePermissions } from '../hooks/usePermissions';
@@ -21,6 +22,9 @@ function TransactionsPanel() {
   const { data: projects } = useData((s) => getProjects({}, s));
   const { data: cashDrawersData } = useData(getCashDrawers);
   const cashDrawers = (cashDrawersData || []).filter(d => d.is_active);
+  // Which account a transfer or cheque came out of. Cash follows the drawer
+  // instead, so the picker hides itself for it.
+  const bankAccounts = useBankAccounts();
 
   // Global-search deep link (?focus=<id>) → open that expense.
   const [focusId, clearFocus] = useFocusId();
@@ -51,13 +55,15 @@ function TransactionsPanel() {
   const [form, setForm] = useState({
     project_id: '', category: 'Other', description: '',
     amount: '', date: new Date().toISOString().slice(0, 10), tax_rate_id: null,
-    payment_method: '', cash_drawer_id: null, branch_id: '',
+    payment_method: '', cash_drawer_id: null, bank_account_id: '',
+    branch_id: '',
   });
 
   const EMPTY_FORM = {
     project_id: '', category: 'Other', description: '',
     amount: '', date: new Date().toISOString().slice(0, 10), tax_rate_id: null,
-    payment_method: '', cash_drawer_id: null, branch_id: '',
+    payment_method: '', cash_drawer_id: null, bank_account_id: '',
+    branch_id: '',
   };
 
   function openAdd() { setForm(EMPTY_FORM); setEditId(null); setModal(true); }
@@ -71,6 +77,7 @@ function TransactionsPanel() {
       date:        exp.date        || new Date().toISOString().slice(0, 10),
       tax_rate_id: exp.tax_rate_id ?? null,
       payment_method: exp.payment_method || '',
+      bank_account_id: exp.bank_account_id || '',
       cash_drawer_id: exp.cash_drawer_id ?? null,
       branch_id:      exp.branch_id ?? '',
     });
@@ -88,6 +95,7 @@ function TransactionsPanel() {
         amount:      Number(form.amount),
         tax_rate_id: taxEnabled ? (form.tax_rate_id ?? null) : null,
         branch_id:   form.branch_id || null,
+        bank_account_id: form.bank_account_id ? Number(form.bank_account_id) : null,
       };
       if (editId) {
         await updateExpense(editId, payload);
@@ -394,6 +402,10 @@ function TransactionsPanel() {
                     otherLabel={t('expenses.methodOther')}
                   />
                 </div>
+                <BankField method={form.payment_method}
+                  value={form.bank_account_id}
+                  onChange={v => setForm(f => ({ ...f, bank_account_id: v }))}
+                  accounts={bankAccounts} />
                 {form.payment_method === 'Cash' && cashDrawers.length > 0 && (
                   <div className="form-group">
                     <label className="form-label">{t('expenses.cashDrawerLabel')}</label>

@@ -784,12 +784,13 @@ def record_customer_payment(
     batch_cur = db.execute(
         "INSERT INTO customer_payments "
         "(client_id, amount, currency, paid_amount, exchange_rate, method, note, "
-        " created_at, created_by, plan_id) VALUES (?,?,?,?,?,?,?,?,?,?)",
+        " created_at, created_by, plan_id, bank_account_id) "
+        "VALUES (?,?,?,?,?,?,?,?,?,?,?)",
         (client_id, usd, (data.currency or "USD").upper(),
          currency_mod.from_usd(usd, data.currency, db, data.exchange_rate)
          if (data.currency or "USD").upper() != "USD" else usd,
          rate, data.method, data.note, _now(), user["id"],
-         live_plan["id"] if live_plan else None))
+         live_plan["id"] if live_plan else None, data.bank_account_id))
     batch_id = batch_cur.lastrowid
 
     # Walked in the currency the customer is handing over, oldest first.

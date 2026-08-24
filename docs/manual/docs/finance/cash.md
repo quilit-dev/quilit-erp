@@ -35,6 +35,58 @@ counted − expected. The system posts that variance to the ledger.
 
 === "Operator's view"
 
+    ### Bank accounts
+
+    A drawer holds notes. A **bank account** is where everything else ends up
+    — transfers, cheques, card settlements — and each one you set up gets its
+    own code in the chart, which is what makes its balance something you can
+    hold against the statement the bank sends.
+
+    Settings → **Bank accounts** → *Add a bank account*. Name it what the
+    staff call it ("Byblos current"), and give it an opening balance if the
+    account existed before the ERP did, so the figure here can be compared
+    with a statement from day one.
+
+    !!! note "Not the same as Bank Details"
+        Settings → **Bank Details** is four lines printed on an invoice so a
+        customer knows where to wire. It is not an account, has no balance,
+        and nothing posts to it.
+
+    ### Choosing the account on a payment
+
+    Anywhere a payment method is chosen, picking **Bank Transfer**, **Cheque**
+    or **Card** reveals a *Bank account* box:
+
+    | Where | What it covers |
+    |---|---|
+    | Invoices → Record payment | A customer settling one invoice |
+    | Clients → Record payment | A customer settling their account |
+    | POS → Checkout | A card or transfer at the counter |
+    | Expenses | A bill paid out of an account |
+
+    Cash never shows the box — notes belong to a drawer, and a bank balance
+    that has to reconcile must not contain them.
+
+    Leaving it blank is allowed: the money still lands in the bank, just the
+    general account rather than a named one. It is a refinement, never
+    something that blocks taking a payment.
+
+    ### Where the money goes
+
+    Each account posts to its own ledger code, so its balance stands alone and
+    two accounts never merge into one line. Cash keeps going to the till
+    account for its currency.
+
+    !!! warning "This changed"
+        Every path except the customer's account payment used to post bank
+        transfers to **cash**. On the default chart, cash and bank share one
+        combined account and the error was invisible; on the Lebanese plan,
+        where 5312 is the till and 512 is the bank, the till was overstated by
+        every transfer it never received. New payments post correctly.
+        Entries already made stay where they were posted — they are history —
+        so a till balance that looks too high for an earlier period is that,
+        and a reclassifying journal entry is the way to move it.
+
     ### Opening a reconciliation
 
     Cash → pick a drawer → **+ New reconciliation** for today's business

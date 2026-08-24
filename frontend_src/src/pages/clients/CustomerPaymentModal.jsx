@@ -14,6 +14,7 @@ import { recordCustomerPayment, issuePaymentVoucher,
 import { printPaymentVoucher } from '../../utils/receiptVoucher';
 import { Modal, NumberInput, fmt, fmtDate, toast } from '../../components/shared';
 import { useSettings } from '../../hooks/useSettings.jsx';
+import BankField, { useBankAccounts } from '../../components/BankField.jsx';
 import { CURRENCIES } from '../settings/ui';
 import { useLocale } from '../../hooks/useLocale.jsx';
 
@@ -26,6 +27,11 @@ export default function CustomerPaymentModal({ client, invoices, onClose, onDone
   // number the operator has to remember, and not the pound rate because that
   // happened to be the only one the app could read.
   const { rateFor, rates } = useSettings();
+  // Which account the transfer landed in. Blank is fine — the money
+  // still reaches the bank, just the general one rather than a named
+  // account — so this never blocks taking a payment.
+  const banks = useBankAccounts();
+  const [bankId, setBankId] = useState('');
   const [amount, setAmount] = useState('');
   const [method, setMethod] = useState('Cash');
   // The currency this customer settles in, when one is recorded against
@@ -103,6 +109,7 @@ export default function CustomerPaymentModal({ client, invoices, onClose, onDone
         exchange_rate: rate === '' ? null : Number(rate),
         note: note.trim() || null,
         idempotency_key: `cust-${client.id}-${Date.now()}`,
+        bank_account_id: bankId ? Number(bankId) : null,
       });
       setResult(res);
       toast(res.message);
@@ -220,6 +227,8 @@ export default function CustomerPaymentModal({ client, invoices, onClose, onDone
                 {METHODS.map(m => <option key={m} value={m}>{tEnumValue(m)}</option>)}
               </select>
             </div>
+            <BankField method={method} value={bankId} onChange={setBankId}
+              accounts={banks} />
             <div className="form-group form-full">
               <label className="form-label">{t('invoices.noteOptional')}</label>
               <input className="form-control" value={note}

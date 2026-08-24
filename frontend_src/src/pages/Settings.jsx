@@ -9,6 +9,7 @@ import { Icon } from '../components/shared';
 import { Section, Field, Input, Textarea, Toggle, CURRENCIES } from './settings/ui';
 import { TaxRatesSection } from './settings/TaxRatesSection';
 import { RateBookPanel } from '../components/RateBook.jsx';
+import { BankAccountsSection } from './settings/BankAccountsSection';
 import UserManualSection from './settings/UserManualSection.jsx';
 
 export default function Settings() {
@@ -390,6 +391,11 @@ export default function Settings() {
 
         {/* 3a. Tax Rates — used for per-line tax on documents */}
         <TaxRatesSection isAdmin={isAdmin} t={t} />
+
+        {/* 3a. Bank accounts — the ones money moves through, as opposed to
+            the Bank Details above, which are four lines printed on an
+            invoice so a customer knows where to wire. */}
+        <BankAccountsSection isAdmin={isAdmin} />
 
         {/* 3b. Exchange rates — the same panel the top bar opens.
              It used to be a second, weaker form here: one rate, no currency

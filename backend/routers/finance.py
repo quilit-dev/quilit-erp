@@ -70,6 +70,9 @@ class ExpenseCreate(BaseModel):
     tax_rate_id:    Optional[int] = None
     payment_method: Optional[str] = None
     cash_drawer_id: Optional[int] = None
+    # Which bank account paid it. Only meaningful for a method that goes
+    # through a bank; ignored for cash, which follows the drawer instead.
+    bank_account_id: Optional[int] = None
     branch_id:      Optional[int] = None   # branch == warehouse; resolved on create
 
     @validator('amount')
@@ -516,11 +519,13 @@ def create_expense(
     branch_id = branch_access.resolve_branch_id(user, db, data.branch_id)
     cur = db.execute(
         "INSERT INTO expenses (project_id, category, description, amount, date, created_at, status, "
-        " tax_rate_id, tax_rate, tax_amount, payment_method, cash_drawer_id, branch_id) "
-        "VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?)",
+        " tax_rate_id, tax_rate, tax_amount, payment_method, cash_drawer_id, "
+        " bank_account_id, branch_id) "
+        "VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?)",
         (data.project_id, data.category, data.description,
          gross, data.date or datetime.utcnow().strftime("%Y-%m-%d"), now, "Recorded",
-         t_rid, t_rate, t_amt, (data.payment_method or None), drawer_id, branch_id),
+         t_rid, t_rate, t_amt, (data.payment_method or None), drawer_id,
+         data.bank_account_id, branch_id),
     )
     expense_id = cur.lastrowid
 
@@ -559,7 +564,14 @@ def create_expense(
         if t_amt > 0:
             _exp_lines.append({"code": accounting.code(db, "vat_control"), "debit": money(t_amt),
                                "memo": "Input VAT"})
-        _exp_lines.append({"code": accounting.code(db, "cash"), "credit": gross})
+        # Paid from wherever it was actually paid from. Crediting cash for
+        # a bank transfer understates the bank and overstates the till by the
+        # same amount, and neither can then be reconciled.
+        _exp_lines.append({
+            "code": accounting.money_account_for(
+                db, method=data.payment_method,
+                bank_account_id=data.bank_account_id),
+            "credit": gross})
 
         accounting.post_entry(
             db,
