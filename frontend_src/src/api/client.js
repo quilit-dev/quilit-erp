@@ -433,6 +433,10 @@ export const updatePlanningEvent    = (id, d)          => api.put(`/api/planning
 export const deletePlanningEvent    = (id)             => api.delete(`/api/planning/events/${id}`);
 
 // Finance — accounting periods + reconciliation
+// The cross-module scan behind the insight panel: one request, aggregated
+// in SQL across every module the caller may see.
+export const getBusinessSignals = (params = {}) =>
+  api.get(`/api/insights/${_qs(params)}`);
 export const getFinancePeriods   = ()              => api.get('/api/finance/periods');
 export const lockPeriod          = (year, month)   => api.post(`/api/finance/periods/${year}/${month}/lock`);
 export const unlockPeriod        = (year, month)   => api.post(`/api/finance/periods/${year}/${month}/unlock`);

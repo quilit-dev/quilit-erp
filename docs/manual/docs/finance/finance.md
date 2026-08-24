@@ -53,6 +53,40 @@ flowchart TB
     | Net profit | Revenue − Expenses | The cash-basis number |
     | Margin | Profit ÷ Revenue × 100 | Negative = operating loss |
 
+    ### Smart Insights
+
+    The panel under the KPI strip is a scan of the whole business, not a
+    summary of the numbers above it. Every time the reporting window changes
+    the server reads the modules you have permission to see and reports what
+    is worth acting on — with the count of records it read in the header, so
+    you can tell how much it actually looked at.
+
+    | Area | What it looks for |
+    |---|---|
+    | Trend and margin | Profit and revenue against the previous period, margin health, break-even proximity, revenue volatility |
+    | Receivables | Invoices past due, the open book against billing, and how many days customers take to pay |
+    | Inventory | Stock with no sale in 90 days, items below their reorder point, sellers that are out of stock, anything priced under cost |
+    | Sales | A customer who has become most of the revenue, discount given away as a share of billing, the line that drives the most |
+    | Quotations | Acceptance rate, and quotes sent and never answered |
+    | Purchasing | Orders never marked received, and a supplier who has become most of the spend |
+    | Service | Completed jobs nobody invoiced, and visits past their scheduled date |
+    | Projects | Jobs over budget while still running, and finished ones never billed |
+    | Pipeline | Deals nobody has touched, and a pipeline too thin for the revenue it has to replace |
+    | People | Payroll as a share of revenue |
+    | Production | Orders stalled mid-build, and stock reserved rather than sellable |
+    | Controls | Finished months left unlocked, an unclosed prior year, till closes that did not balance, a stale exchange rate |
+
+    Two rules govern what you see. **At most two observations from any one
+    area**, so a warehouse having a bad week cannot push an unbilled repair
+    off the bottom of the panel. And **nothing is shown for a module you
+    cannot see** — not a zero, which would be a claim about the business, but
+    nothing at all.
+
+    Every observation names a real figure from your own data and, where there
+    is something to do about it, says what. Nothing here is a forecast: it is
+    what the records already say, read across modules that otherwise only ever
+    get looked at one at a time.
+
     ### Drilling into a number
 
     - Click "Monthly revenue" → opens payments filtered to this month

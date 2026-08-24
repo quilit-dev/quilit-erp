@@ -3,8 +3,8 @@ import { usePersistedState } from '../hooks/usePersistedState';
 import { useLocale } from '../hooks/useLocale.jsx';
 import { LoadingSpinner, ErrorAlert, useMoney, DisplayCurrencyToggle, ExchangeRateBadge, Icon } from '../components/shared';
 import {
-  getFinanceRangeSummary, getFinanceRangeMonthly, getFinanceRangeDetail, getFinancePeriods,
-  getRecurringExpenses, getCashReconciliations, getExchangeRate, getInvoices, getFiscalYears,
+  getFinanceRangeSummary, getFinanceRangeMonthly, getFinanceRangeDetail,
+  getBusinessSignals,
 } from '../api/client';
 
 // Charts/helpers, the smart-insights engine, and the modals extracted into
@@ -33,11 +33,11 @@ export default function Finance() {
   const [drillLoading, setDrillLoading] = useState(false);
   const [showRecon, setShowRecon]     = useState(false);
 
-  // Cross-module context that feeds the Smart Insights engine. Loaded once
-  // per session (the underlying data is permission-gated and largely
-  // static across a Finance review). Each request is wrapped to swallow a
-  // permission/404 error so a single missing module never blanks the rest.
-  const [extras, setExtras] = useState({});
+  // The cross-module scan behind the insight panel. One request: the server
+  // aggregates in SQL across every module this user may see, which is both
+  // faster than the six calls this used to make and able to reach modules the
+  // Finance page never loads — stock, service, projects, the pipeline.
+  const [signals, setSignals] = useState({});
 
   const range = getRange(preset, custom);
 
@@ -57,38 +57,17 @@ export default function Finance() {
 
   useEffect(() => { load(); }, [load]);
 
-  // Fetch the insight-context bundle once on mount. allSettled lets every
-  // request fail independently — an operator without `accounting:view` still
-  // gets the periods + cash + recurring branches even when fiscal years
-  // returns 403. The result is merged into a single object the engine reads.
+  // Re-scanned when the reporting window moves, because half the signals are
+  // period-relative — what was billed, what was quoted, what payroll cost
+  // against it. A failure leaves the panel with the finance-only rules rather
+  // than blanking the page: the scan is context, not the report.
   useEffect(() => {
     let cancelled = false;
-    Promise.allSettled([
-      getFinancePeriods(),
-      getRecurringExpenses(),
-      getCashReconciliations({ limit: 10 }),
-      getExchangeRate(),
-      getInvoices(),
-      getFiscalYears(),
-    ]).then(results => {
-      if (cancelled) return;
-      const [periods, recurring, cashRecs, fxRate, invoices, fiscalYears] = results;
-      setExtras({
-        periods:     periods.status     === 'fulfilled' ? periods.value     : null,
-        recurring:   recurring.status   === 'fulfilled' ? recurring.value   : null,
-        cashRecs:    cashRecs.status    === 'fulfilled'
-                       ? (cashRecs.value?.reconciliations || cashRecs.value || null)
-                       : null,
-        fxRate:      fxRate.status      === 'fulfilled' ? fxRate.value      : null,
-        overdueAr:   invoices.status    === 'fulfilled'
-                       ? (Array.isArray(invoices.value) ? invoices.value
-                          : (invoices.value?.invoices || invoices.value?.rows || []))
-                       : null,
-        fiscalYears: fiscalYears.status === 'fulfilled' ? fiscalYears.value : null,
-      });
-    });
+    getBusinessSignals({ start: range.start, end: range.end })
+      .then(s => { if (!cancelled) setSignals(s || {}); })
+      .catch(() => { if (!cancelled) setSignals({}); });
     return () => { cancelled = true; };
-  }, []);
+  }, [range.start, range.end]);
 
   async function openDrill(ym) {
     const [y, mo] = ym.split('-').map(Number);
@@ -105,7 +84,7 @@ export default function Finance() {
     finally { setDrillLoading(false); }
   }
 
-  const insights = generateInsights(summary, monthly, extras, abbr, t);
+  const insights = generateInsights(summary, monthly, signals, abbr, t);
   const margin = summary?.income > 0 ? (summary.profit / summary.income * 100).toFixed(1) : null;
   const prev = summary?.prev || {};
 
@@ -372,7 +351,7 @@ export default function Finance() {
           )}
 
           {/* ── Smart Insights Panel — placed at the bottom of the module ── */}
-          <SmartInsightsPanel insights={insights} />
+          <SmartInsightsPanel insights={insights} scanned={signals.scanned} />
 
           {!summary && !loading && (
             <div style={{ textAlign: 'center', padding: '60px 20px', color: 'var(--text-3)' }}>

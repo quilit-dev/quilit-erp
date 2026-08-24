@@ -266,182 +266,368 @@ function generateInsights(summary, monthly, extras = {}, fmtK = v => v >= 1000 ?
     }
   }
 
-  // ── 8. Period locking discipline ──────────────────────────────────────
-  // A finished month that hasn't been locked is a backdating risk — anyone
-  // with edit perms could still post an invoice or expense into it.
-  // Closing each completed month within ~10 days is the industry norm.
-  if (Array.isArray(extras.periods)) {
-    const today = new Date();
-    const thisYM = `${today.getFullYear()}-${String(today.getMonth() + 1).padStart(2, '0')}`;
-    const stale = extras.periods.filter(p => {
-      if (p.locked) return false;
-      if (p.label === thisYM) return false;         // skip current month
-      // Lock target: end-of-month + 10 days
-      const endOfMonth = new Date(p.year, p.month, 0);
-      const daysSince = Math.floor((today - endOfMonth) / 86400000);
-      return daysSince > 10;
+  // ══════════════════════════════════════════════════════════════════════
+  // Everything below reads the cross-module scan (GET /api/insights), which
+  // aggregates in SQL across every module the viewer may see. A block that is
+  // missing means "not visible to you" and produces no observation — never a
+  // zero, which would read as a fact about the business.
+  // ══════════════════════════════════════════════════════════════════════
+  const ctx = extras || {};
+  const add = (o) => insights.push(o);
+
+  // ── 8. The books: months left open, a year left unclosed ──────────────
+  const ctl = ctx.controls;
+  if (ctl?.unlocked_periods >= 1) {
+    add({
+      id: 'period-not-locked', priority: 2, type: 'warning',
+      icon: '🔒', category: 'Controls',
+      title: t('finance.ins.periodNotLocked.t', { n: ctl.unlocked_periods }),
+      detail: t('finance.ins.periodNotLocked.d', { label: ctl.unlocked_latest }),
+      action: t('finance.ins.periodNotLocked.a'),
     });
-    if (stale.length >= 1) {
-      const last = stale[0];
-      insights.push({
-        id: 'period-not-locked', priority: 2, type: 'warning',
-        icon: '🔒', category: 'Controls',
-        title: t('finance.ins.periodNotLocked.t', { n: stale.length }),
-        detail: t('finance.ins.periodNotLocked.d', { label: last.label }),
-        action: t('finance.ins.periodNotLocked.a'),
-      });
-    }
   }
-
-  // ── 9. Recurring-expense run-rate vs current spend ────────────────────
-  // The recurring book tells us what costs we have committed to going
-  // forward — if it's > 60 % of the current period's expense we surface the
-  // dependency, and if any template is overdue we nudge to run it.
-  if (Array.isArray(extras.recurring) && extras.recurring.length > 0) {
-    const active = extras.recurring.filter(r => r.is_active && !r.archived_at);
-    // Monthly equivalent of each frequency, so weekly + quarterly + annual
-    // all collapse to a single comparable "per month" figure.
-    const stepMonths = { weekly: 1 / 4.33, monthly: 1, quarterly: 3, annual: 12 };
-    const monthlyRecurring = active.reduce((s, r) => {
-      const step = stepMonths[r.frequency] || 1;
-      return s + (Number(r.amount) || 0) / step;
-    }, 0);
-    if (expenses > 0 && monthlyRecurring > 0) {
-      const share = (monthlyRecurring / (expenses / Math.max(monthly?.length || 1, 1))) * 100;
-      if (share > 60) {
-        insights.push({
-          id: 'recurring-heavy', priority: 3, type: 'warning',
-          icon: '🔁', category: 'Fixed costs',
-          title: t('finance.ins.recurringHeavy.t', { pct: Math.min(share, 999).toFixed(0) }),
-          detail: t('finance.ins.recurringHeavy.d', { amt: fmtK(monthlyRecurring), n: active.length }),
-          action: t('finance.ins.recurringHeavy.a'),
-        });
-      }
-    }
-    const overdue = active.filter(r => r.is_overdue);
-    if (overdue.length > 0) {
-      insights.push({
-        id: 'recurring-overdue', priority: 2, type: 'warning',
-        icon: '⏰', category: 'Fixed costs',
-        title: t('finance.ins.recurringOverdue.t', { n: overdue.length }),
-        detail: t('finance.ins.recurringOverdue.d', { names: overdue.slice(0, 2).map(r => r.name).join('", "') }),
-        action: t('finance.ins.recurringOverdue.a'),
-      });
-    }
-  }
-
-  // ── 10. Cash drawer variance ──────────────────────────────────────────
-  // A recurring shortage points to till-management problems (skimming,
-  // missed receipts, sloppy returns) — surface the pattern, not a single
-  // bad close. Three or more variant shifts in the last ten closes is the
-  // line we draw.
-  if (Array.isArray(extras.cashRecs) && extras.cashRecs.length >= 3) {
-    const recent = extras.cashRecs.slice(0, 10);
-    const offShifts = recent.filter(r => {
-      const v = Number(r.variance_usd || r.variance || 0);
-      return Math.abs(v) > 0.01;
+  if (ctl?.open_prior_year && ctl.past_close_window) {
+    add({
+      id: 'fy-not-closed', priority: 2, type: 'warning',
+      icon: '📚', category: 'Controls',
+      title: t('finance.ins.fyNotClosed.t', { year: ctl.open_prior_year }),
+      detail: t('finance.ins.fyNotClosed.d', { amt: fmtK(ctl.open_prior_income || 0) }),
+      action: t('finance.ins.fyNotClosed.a'),
     });
-    const totalShort = offShifts.reduce(
-      (s, r) => s + Math.min(0, Number(r.variance_usd || r.variance || 0)), 0,
-    );
-    if (offShifts.length >= 3 && totalShort < -5) {
-      insights.push({
-        id: 'cash-variance', priority: 2, type: 'warning',
-        icon: '💵', category: 'Cash',
-        title: t('finance.ins.cashVariance.t', { off: offShifts.length, total: recent.length }),
-        detail: t('finance.ins.cashVariance.d', { amt: fmtK(Math.abs(totalShort)) }),
-        action: t('finance.ins.cashVariance.a'),
+  }
+
+  // ── 9. Fixed costs already committed ──────────────────────────────────
+  const rec = ctx.recurring;
+  if (rec?.monthly > 0 && expenses > 0 && monthly?.length) {
+    const perMonth = expenses / Math.max(monthly.length, 1);
+    const share = (rec.monthly / perMonth) * 100;
+    if (share > 60) {
+      add({
+        id: 'recurring-heavy', priority: 3, type: 'warning',
+        icon: '🔁', category: 'Fixed costs',
+        title: t('finance.ins.recurringHeavy.t', { pct: Math.min(share, 999).toFixed(0) }),
+        detail: t('finance.ins.recurringHeavy.d', { amt: fmtK(rec.monthly), n: rec.active }),
+        action: t('finance.ins.recurringHeavy.a'),
       });
     }
   }
-
-  // ── 11. FX rate freshness (LBP exposure) ─────────────────────────────
-  // Every LBP cash posting books at the latest spot. A rate stale for a
-  // week means the books drift from reality on every dual-currency txn,
-  // and the trial balance silently absorbs the gap as fictitious profit.
-  if (extras.fxRate?.created_at) {
-    const age = Math.floor(
-      (Date.now() - new Date(extras.fxRate.created_at).getTime()) / 86400000,
-    );
-    if (age >= 7) {
-      insights.push({
-        id: 'fx-stale', priority: 2, type: 'warning',
-        icon: '💱', category: 'FX',
-        title: t('finance.ins.fxStale.t', { age }),
-        detail: t('finance.ins.fxStale.d', { rate: Number(extras.fxRate.rate || 0).toLocaleString(), age }),
-        action: t('finance.ins.fxStale.a'),
-      });
-    }
+  if (rec?.overdue > 0) {
+    add({
+      id: 'recurring-overdue', priority: 2, type: 'warning',
+      icon: '⏰', category: 'Fixed costs',
+      title: t('finance.ins.recurringOverdue.t', { n: rec.overdue }),
+      detail: t('finance.ins.recurringOverdue.d', { names: rec.overdue_top || '' }),
+      action: t('finance.ins.recurringOverdue.a'),
+    });
   }
 
-  // ── 12. Open receivables vs revenue ──────────────────────────────────
-  // A ballooning A/R book against modest revenue is a collection problem
-  // even before any single invoice goes overdue. We compute both: the
-  // ratio against current-period income (collection efficiency) AND the
-  // count past due date (collection urgency).
-  if (Array.isArray(extras.overdueAr)) {
-    const open = extras.overdueAr.filter(i =>
-      ['Unpaid', 'Partial'].includes(i.status) && !i.voided_at,
-    );
-    const today = new Date();
-    const past = open.filter(i => i.due_date && new Date(i.due_date) < today);
-    const outstanding = open.reduce(
-      (s, i) => s + (Number(i.amount) - Number(i.paid || 0)), 0,
-    );
-    if (past.length >= 3) {
-      const overdue$ = past.reduce(
-        (s, i) => s + (Number(i.amount) - Number(i.paid || 0)), 0,
-      );
-      insights.push({
+  // ── 10. The till ──────────────────────────────────────────────────────
+  const cash = ctx.cash;
+  if (cash?.off >= 3 && cash.short > 5) {
+    add({
+      id: 'cash-variance', priority: 2, type: 'warning',
+      icon: '💵', category: 'Cash',
+      title: t('finance.ins.cashVariance.t', { off: cash.off, total: cash.checked }),
+      detail: t('finance.ins.cashVariance.d', { amt: fmtK(cash.short) }),
+      action: t('finance.ins.cashVariance.a'),
+    });
+  }
+
+  // ── 11. The rate every dual-currency posting books at ─────────────────
+  if (ctx.fx?.age_days >= 7) {
+    add({
+      id: 'fx-stale', priority: 2, type: 'warning',
+      icon: '💱', category: 'FX',
+      title: t('finance.ins.fxStale.t', { age: ctx.fx.age_days }),
+      detail: t('finance.ins.fxStale.d', {
+        rate: Number(ctx.fx.rate || 0).toLocaleString(), age: ctx.fx.age_days }),
+      action: t('finance.ins.fxStale.a'),
+    });
+  }
+
+  // ── 12. Money owed, and how long it takes to arrive ───────────────────
+  const ar = ctx.receivables;
+  if (ar) {
+    if (ar.past_due >= 3) {
+      add({
         id: 'ar-overdue', priority: 1, type: 'critical',
         icon: '⏳', category: 'Receivables',
-        title: t('finance.ins.arOverdue.t', { n: past.length, amt: fmtK(overdue$) }),
-        detail: t('finance.ins.arOverdue.d', { date: past
-          .sort((a, b) => new Date(a.due_date) - new Date(b.due_date))[0]
-          .due_date?.slice(0, 10) }),
+        title: t('finance.ins.arOverdue.t', { n: ar.past_due, amt: fmtK(ar.past_due_value) }),
+        detail: t('finance.ins.arOverdue.d', { date: ar.oldest_due }),
         action: t('finance.ins.arOverdue.a'),
       });
-    } else if (income > 0 && outstanding > income * 0.5) {
-      insights.push({
+    } else if (income > 0 && ar.outstanding > income * 0.5) {
+      add({
         id: 'ar-bloated', priority: 3, type: 'warning',
         icon: '💼', category: 'Receivables',
-        title: t('finance.ins.arBloated.t', { pct: Math.round(outstanding / income * 100) }),
-        detail: t('finance.ins.arBloated.d', { amt: fmtK(outstanding), income: fmtK(income) }),
+        title: t('finance.ins.arBloated.t', { pct: Math.round(ar.outstanding / income * 100) }),
+        detail: t('finance.ins.arBloated.d', { amt: fmtK(ar.outstanding), income: fmtK(income) }),
         action: t('finance.ins.arBloated.a'),
       });
     }
-  }
-
-  // ── 13. Fiscal year close ─────────────────────────────────────────────
-  // An open prior-year fiscal year past the first quarter of the next year
-  // is a red flag for an auditor — closing posts the year-end entry to
-  // Retained Earnings and locks the prior year completely.
-  if (Array.isArray(extras.fiscalYears)) {
-    const today = new Date();
-    const thisYear = today.getFullYear();
-    const stalePriorYear = extras.fiscalYears.find(fy =>
-      fy.status === 'open' && fy.year < thisYear
-      // The first 90 days of the new year are a normal close window —
-      // only nag once we're past Q1.
-      && today.getMonth() >= 3,
-    );
-    if (stalePriorYear) {
-      insights.push({
-        id: 'fy-not-closed', priority: 2, type: 'warning',
-        icon: '📚', category: 'Controls',
-        title: t('finance.ins.fyNotClosed.t', { year: stalePriorYear.year }),
-        detail: t('finance.ins.fyNotClosed.d', { amt: fmtK(stalePriorYear.net_income || 0) }),
-        action: t('finance.ins.fyNotClosed.a'),
+    // Days sales outstanding: at the current billing rate, how many days of
+    // sales the open book represents. The one A/R figure comparable month to
+    // month, and the one that says whether collection is drifting.
+    if (ar.dso != null && ar.dso > 60) {
+      add({
+        id: 'dso-slow', priority: 2, type: 'warning',
+        icon: '📆', category: 'Receivables',
+        title: t('finance.ins.dsoSlow.t', { days: Math.round(ar.dso) }),
+        detail: t('finance.ins.dsoSlow.d', { days: Math.round(ar.dso), amt: fmtK(ar.outstanding) }),
+        action: t('finance.ins.dsoSlow.a'),
       });
     }
   }
 
-  // Sort by priority (lower = show first), then de-duplicate similar types
+  // ── 13. Stock: what is not earning ────────────────────────────────────
+  const inv = ctx.inventory;
+  if (inv) {
+    // Cash on a shelf. Measured by VALUE, because twenty cheap items
+    // gathering dust is not the same problem as one expensive one.
+    if (inv.dead_value > 0 && inv.dead_share >= 25) {
+      add({
+        id: 'stock-dead', priority: 2, type: 'warning',
+        icon: '🧊', category: 'Inventory',
+        title: t('finance.ins.stockDead.t', { pct: Math.round(inv.dead_share) }),
+        detail: t('finance.ins.stockDead.d', {
+          amt: fmtK(inv.dead_value), n: inv.dead_count,
+          days: ctx.scanned?.dead_stock_days || 90 }),
+        action: t('finance.ins.stockDead.a'),
+      });
+    }
+    // Out of stock AND selling: the only stockout that costs anything.
+    if (inv.stockout_selling >= 1) {
+      add({
+        id: 'stock-out', priority: 1, type: 'critical',
+        icon: '📭', category: 'Inventory',
+        title: t('finance.ins.stockOut.t', { n: inv.stockout_selling }),
+        detail: t('finance.ins.stockOut.d', { name: inv.stockout_top }),
+        action: t('finance.ins.stockOut.a'),
+      });
+    }
+    if (inv.below_reorder >= 1) {
+      add({
+        id: 'stock-reorder', priority: 3, type: 'warning',
+        icon: '📉', category: 'Inventory',
+        title: t('finance.ins.stockReorder.t', { n: inv.below_reorder }),
+        detail: t('finance.ins.stockReorder.d', { name: inv.below_reorder_top }),
+        action: t('finance.ins.stockReorder.a'),
+      });
+    }
+    // Priced under what it cost. Every sale of one loses money, and nothing
+    // else in the system says so.
+    if (inv.under_cost >= 1) {
+      add({
+        id: 'price-under-cost', priority: 1, type: 'critical',
+        icon: '🩸', category: 'Inventory',
+        title: t('finance.ins.underCost.t', { n: inv.under_cost }),
+        detail: t('finance.ins.underCost.d', { name: inv.under_cost_top }),
+        action: t('finance.ins.underCost.a'),
+      });
+    }
+  }
+
+  // ── 14. Who the revenue actually comes from ───────────────────────────
+  const sales = ctx.sales;
+  if (sales?.revenue > 0) {
+    if (sales.top_client_share >= 40) {
+      add({
+        id: 'client-concentration', priority: 2, type: 'warning',
+        icon: '🎪', category: 'Sales',
+        title: t('finance.ins.clientConcentration.t', {
+          name: sales.top_client, pct: Math.round(sales.top_client_share) }),
+        detail: t('finance.ins.clientConcentration.d', { name: sales.top_client }),
+        action: t('finance.ins.clientConcentration.a'),
+      });
+    }
+    if (sales.discount_share >= 10) {
+      add({
+        id: 'discount-leak', priority: 3, type: 'warning',
+        icon: '🏷️', category: 'Sales',
+        title: t('finance.ins.discountLeak.t', { pct: Math.round(sales.discount_share) }),
+        detail: t('finance.ins.discountLeak.d', { amt: fmtK(sales.discount) }),
+        action: t('finance.ins.discountLeak.a'),
+      });
+    }
+    if (sales.top_item && sales.top_item_share >= 25) {
+      add({
+        id: 'top-seller', priority: 5, type: 'neutral',
+        icon: '⭐', category: 'Sales',
+        title: t('finance.ins.topSeller.t', {
+          name: sales.top_item, pct: Math.round(sales.top_item_share) }),
+        detail: t('finance.ins.topSeller.d', { name: sales.top_item }),
+        action: null,
+      });
+    }
+  }
+
+  // ── 15. Quoting ───────────────────────────────────────────────────────
+  const q = ctx.quotations;
+  if (q?.quoted >= 5 && q.win_rate != null && q.win_rate < 30) {
+    add({
+      id: 'quote-winrate', priority: 3, type: 'warning',
+      icon: '🎯', category: 'Quotations',
+      title: t('finance.ins.quoteWinRate.t', { pct: Math.round(q.win_rate) }),
+      detail: t('finance.ins.quoteWinRate.d', { won: q.accepted, n: q.quoted }),
+      action: t('finance.ins.quoteWinRate.a'),
+    });
+  }
+  if (q?.pending >= 3 && q.pending_value > 0) {
+    add({
+      id: 'quote-pending', priority: 4, type: 'neutral',
+      icon: '📬', category: 'Quotations',
+      title: t('finance.ins.quotePending.t', { n: q.pending, amt: fmtK(q.pending_value) }),
+      detail: t('finance.ins.quotePending.d'),
+      action: t('finance.ins.quotePending.a'),
+    });
+  }
+
+  // ── 16. Buying ────────────────────────────────────────────────────────
+  const pur = ctx.purchases;
+  if (pur?.stuck_orders >= 1) {
+    // Either the goods never came or the receipt was never recorded. The
+    // books are wrong either way, and nothing else chases it.
+    add({
+      id: 'po-stuck', priority: 2, type: 'warning',
+      icon: '🚚', category: 'Purchasing',
+      title: t('finance.ins.poStuck.t', { n: pur.stuck_orders, days: pur.stuck_days }),
+      detail: t('finance.ins.poStuck.d', { amt: fmtK(pur.stuck_value) }),
+      action: t('finance.ins.poStuck.a'),
+    });
+  }
+  if (pur?.top_supplier_share >= 50 && pur.spend > 0) {
+    add({
+      id: 'supplier-concentration', priority: 4, type: 'neutral',
+      icon: '🏭', category: 'Purchasing',
+      title: t('finance.ins.supplierConcentration.t', {
+        name: pur.top_supplier, pct: Math.round(pur.top_supplier_share) }),
+      detail: t('finance.ins.supplierConcentration.d', { name: pur.top_supplier }),
+      action: t('finance.ins.supplierConcentration.a'),
+    });
+  }
+
+  // ── 17. Work done and not billed ──────────────────────────────────────
+  const svc = ctx.service;
+  if (svc?.uninvoiced >= 1) {
+    // The most directly convertible figure in the whole panel: revenue
+    // already earned, waiting on paperwork.
+    add({
+      id: 'service-uninvoiced', priority: 1, type: 'critical',
+      icon: '🧰', category: 'Service',
+      title: t('finance.ins.serviceUninvoiced.t', {
+        n: svc.uninvoiced, amt: fmtK(svc.uninvoiced_value) }),
+      detail: t('finance.ins.serviceUninvoiced.d'),
+      action: t('finance.ins.serviceUninvoiced.a'),
+    });
+  }
+  if (svc?.past_due >= 1) {
+    add({
+      id: 'service-past-due', priority: 3, type: 'warning',
+      icon: '🔧', category: 'Service',
+      title: t('finance.ins.servicePastDue.t', { n: svc.past_due }),
+      detail: t('finance.ins.servicePastDue.d'),
+      action: t('finance.ins.servicePastDue.a'),
+    });
+  }
+
+  // ── 18. Projects ──────────────────────────────────────────────────────
+  const prj = ctx.projects;
+  if (prj?.over_budget >= 1) {
+    add({
+      id: 'project-over-budget', priority: 2, type: 'warning',
+      icon: '🏗️', category: 'Projects',
+      title: t('finance.ins.projectOverBudget.t', { n: prj.over_budget }),
+      detail: t('finance.ins.projectOverBudget.d', {
+        name: prj.over_budget_top, amt: fmtK(prj.over_budget_by) }),
+      action: t('finance.ins.projectOverBudget.a'),
+    });
+  }
+  if (prj?.unbilled >= 1) {
+    add({
+      id: 'project-unbilled', priority: 2, type: 'warning',
+      icon: '📁', category: 'Projects',
+      title: t('finance.ins.projectUnbilled.t', {
+        n: prj.unbilled, amt: fmtK(prj.unbilled_value) }),
+      detail: t('finance.ins.projectUnbilled.d'),
+      action: t('finance.ins.projectUnbilled.a'),
+    });
+  }
+
+  // ── 19. Pipeline ──────────────────────────────────────────────────────
+  const crm = ctx.crm;
+  if (crm?.stale >= 3) {
+    add({
+      id: 'pipeline-stale', priority: 3, type: 'warning',
+      icon: '🕸️', category: 'Pipeline',
+      title: t('finance.ins.pipelineStale.t', { n: crm.stale, days: crm.stale_days }),
+      detail: t('finance.ins.pipelineStale.d'),
+      action: t('finance.ins.pipelineStale.a'),
+    });
+  }
+  if (crm?.open_value > 0 && income > 0 && crm.open_value < income * 0.5) {
+    add({
+      id: 'pipeline-thin', priority: 3, type: 'warning',
+      icon: '🔭', category: 'Pipeline',
+      title: t('finance.ins.pipelineThin.t', {
+        pct: Math.round(crm.open_value / income * 100) }),
+      detail: t('finance.ins.pipelineThin.d', {
+        amt: fmtK(crm.open_value), income: fmtK(income) }),
+      action: t('finance.ins.pipelineThin.a'),
+    });
+  }
+
+  // ── 20. People ────────────────────────────────────────────────────────
+  const hr = ctx.hr;
+  if (hr?.payroll > 0 && income > 0) {
+    const share = (hr.payroll / income) * 100;
+    if (share >= 40) {
+      add({
+        id: 'payroll-heavy', priority: 3, type: 'warning',
+        icon: '👥', category: 'People',
+        title: t('finance.ins.payrollHeavy.t', { pct: Math.round(share) }),
+        detail: t('finance.ins.payrollHeavy.d', {
+          amt: fmtK(hr.payroll), n: hr.headcount }),
+        action: t('finance.ins.payrollHeavy.a'),
+      });
+    }
+  }
+
+  // ── 21. Production ────────────────────────────────────────────────────
+  const mfg = ctx.manufacturing;
+  if (mfg?.stalled >= 1) {
+    add({
+      id: 'wip-stalled', priority: 3, type: 'warning',
+      icon: '⚙️', category: 'Production',
+      title: t('finance.ins.wipStalled.t', { n: mfg.stalled, days: mfg.stalled_days }),
+      detail: t('finance.ins.wipStalled.d', { amt: fmtK(mfg.stalled_value) }),
+      action: t('finance.ins.wipStalled.a'),
+    });
+  }
+  if (inv?.reserved_share >= 30) {
+    add({
+      id: 'stock-reserved', priority: 4, type: 'neutral',
+      icon: '🔐', category: 'Production',
+      title: t('finance.ins.stockReserved.t', { pct: Math.round(inv.reserved_share) }),
+      detail: t('finance.ins.stockReserved.d'),
+      action: t('finance.ins.stockReserved.a'),
+    });
+  }
+
+  // Rank, then SPREAD. Sorting by priority alone let one noisy area fill the
+  // panel — a warehouse with four stock problems pushed an unbilled repair and
+  // an unlocked month off the bottom, and the reader saw a stock report rather
+  // than a picture of the business. At most two per category, then the best of
+  // the rest, so every area that has something to say gets a hearing.
   insights.sort((a, b) => a.priority - b.priority);
 
-  // Cap at 8 most valuable insights — the panel grew with the new module
-  // branches; 6 was sometimes hiding genuinely actionable controls items.
-  return insights.slice(0, 8);
+  const perCategory = {};
+  const spread = [], overflow = [];
+  for (const ins of insights) {
+    const n = (perCategory[ins.category] || 0) + 1;
+    perCategory[ins.category] = n;
+    (n <= 2 ? spread : overflow).push(ins);
+  }
+  return [...spread, ...overflow].slice(0, 10);
 }
 
 // ── Smart Insights UI Component ───────────────────────────────────────────
@@ -549,7 +735,7 @@ function InsightCard({ insight, index }) {
   );
 }
 
-function SmartInsightsPanel({ insights }) {
+function SmartInsightsPanel({ insights, scanned }) {
   const { t } = useLocale();
   if (!insights || insights.length === 0) return null;
 
@@ -598,8 +784,17 @@ function SmartInsightsPanel({ insights }) {
             }}>
               {t('finance.smartInsights')}
             </div>
+            {/* What the scan actually read. A panel that says it has analysed
+                the business should be able to say how much of it — and the
+                figure is the real one, counted server-side across the modules
+                this user may see, so it can be said without exaggerating. */}
             <div style={{ fontSize: 11, color: 'var(--text-3)', marginTop: 1 }}>
-              {t('finance.insightsSubtitle')}
+              {scanned?.records
+                ? t('finance.insightsScanned', {
+                    records: Number(scanned.records).toLocaleString(),
+                    modules: scanned.modules,
+                  })
+                : t('finance.insightsSubtitle')}
             </div>
           </div>
         </div>
