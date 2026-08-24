@@ -11,6 +11,7 @@ import sqlite3
 import accounting
 import branch_access
 import currency as currency_mod
+import installments
 import denomination
 
 router = APIRouter()
@@ -409,6 +410,14 @@ def client_statement(client_id: int,
 # ══════════════════════════════════════════════════════════════════════════════
 # SETTLING SEVERAL INVOICES AT ONCE
 # ══════════════════════════════════════════════════════════════════════════════
+class AccountPlan(BaseModel):
+    """Terms for the balance left after this payment."""
+    count:      int
+    frequency:  str = "monthly"
+    start_date: Optional[str] = None
+    note:       Optional[str] = None
+
+
 class CustomerPayment(BaseModel):
     amount:          float
     method:          str = "Cash"
@@ -418,6 +427,9 @@ class CustomerPayment(BaseModel):
     cash_drawer_id:  Optional[int] = None
     bank_account_id: Optional[int] = None
     idempotency_key: Optional[str] = None
+    # Put whatever is left after this payment on agreed dates. Only for a
+    # customer approved for it — see `clients.allow_installments`.
+    installment_plan: Optional[AccountPlan] = None
 
     @validator("amount")
     def _positive(cls, v):
@@ -545,10 +557,20 @@ def record_customer_payment(
     accounting object with its own rules, and inventing one here as a side
     effect of a rounding difference would be worse than asking.
     """
-    row = db.execute("SELECT id, name FROM clients WHERE id=? AND deleted_at IS NULL",
-                     (client_id,)).fetchone()
+    row = db.execute(
+        "SELECT id, name, COALESCE(allow_installments, 0) AS allow_installments "
+        "FROM clients WHERE id=? AND deleted_at IS NULL", (client_id,)).fetchone()
     if not row:
         raise HTTPException(404, "Client not found")
+
+    # Putting a whole ACCOUNT on terms is a standing credit arrangement, and
+    # that is what the customer's own setting decides. A plan on one invoice is
+    # a different thing and is always available. Checked before anything is
+    # written, so a refusal leaves no half-recorded payment behind.
+    if data.installment_plan is not None and not row["allow_installments"]:
+        raise HTTPException(
+            400, f"{row['name']} is not approved for account instalments. "
+                 "Enable it on the customer first if that has changed.")
 
     if data.idempotency_key and db.execute(
             "SELECT 1 FROM invoice_payments WHERE idempotency_key=?",
@@ -682,6 +704,22 @@ def record_customer_payment(
             "now_owing": money(due - take), "settled": (due - take) <= 0.005,
         })
 
+    # Whatever is still owed after this payment goes onto the agreed dates.
+    plan = None
+    if data.installment_plan is not None:
+        try:
+            plan = installments.plan_account(
+                db, client_id=client_id,
+                count=data.installment_plan.count,
+                frequency=data.installment_plan.frequency,
+                start=data.installment_plan.start_date,
+                note=data.installment_plan.note)
+        except ValueError as e:
+            raise HTTPException(400, str(e))
+        log_action(db, user, "plan", "client", client_id, row["name"],
+                   {"instalments": plan["instalments"],
+                    "total": plan["total"], "last_due": plan["last_due"]})
+
     log_action(db, user, "payment", "client", client_id, row["name"],
                {"amount": money(usd), "invoices": len(allocated),
                 "currency": (data.currency or "USD").upper()})
@@ -694,4 +732,5 @@ def record_customer_payment(
         "amount": money(usd),
         "allocated": allocated,
         "still_outstanding": money(total_owed - usd),
+        "plan": plan,
     }

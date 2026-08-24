@@ -1156,6 +1156,9 @@ const ar = {
   },
 
   clients: {
+    invoicesFor: 'الفواتير — {{name}}',
+    planTheRest: 'جدولة الباقي على دفعات',
+    planTheRestHint: 'يُوزّع المبلغ المتبقي {{amount}} على تواريخ متفق عليها، بدءاً من أقدم فاتورة.',
     paymentsReceived: 'الدفعات',
     noPayments: 'لا توجد دفعات مسجلة لهذا الزبون بعد.',
     appliedTo: 'مسددة على',

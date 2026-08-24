@@ -1228,18 +1228,14 @@ def create_plan(
     if inv["voided_at"]:
         raise HTTPException(400, "A voided invoice cannot carry a payment plan.")
 
-    # The customer's own terms decide whether they may be put on a plan at all.
-    # Unticked is a deliberate credit decision about that customer, not a
-    # default — every customer already on the books was set to allowed when the
-    # flag became enforceable.
-    if inv["client_id"]:
-        cli = db.execute(
-            "SELECT name, COALESCE(allow_installments, 0) AS allowed "
-            "FROM clients WHERE id=?", (inv["client_id"],)).fetchone()
-        if cli and not cli["allowed"]:
-            raise HTTPException(
-                400, f"{cli['name']} is not approved for instalments. "
-                     "Enable it on the customer first if that has changed.")
+    # A plan on ONE invoice is always available. Splitting a single document
+    # into agreed dates is how anybody sells anything of size, and refusing it
+    # per customer got in the way of ordinary trade.
+    #
+    # `clients.allow_installments` is about something else: whether the
+    # customer may put their whole ACCOUNT on terms, which is a standing credit
+    # arrangement rather than one negotiation over one invoice. That gate lives
+    # on the account payment.
 
     paid = _payment_total(db, invoice_id)
     if paid > 0.005 and db.execute(

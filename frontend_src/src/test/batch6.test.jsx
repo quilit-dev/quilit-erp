@@ -88,7 +88,8 @@ describe('exports reach the screens that lacked them', () => {
     // platform console. A new list screen appearing here is the point —
     // it means someone shipped a table nobody can get out of the system.
     expect(missing.sort()).toEqual([
-      'ApprovalPolicies.jsx', 'ApprovalRequests.jsx', 'ClientDetail.jsx',
+      // ClientDetail left this list when its invoices tab gained an export.
+      'ApprovalPolicies.jsx', 'ApprovalRequests.jsx',
       'Communications.jsx', 'Dashboard.jsx', 'Finance.jsx',
       'PlatformConsole.jsx', 'ProjectDetail.jsx', 'Promotions.jsx',
       'Recruitment.jsx', 'RoleManagement.jsx', 'UserManagement.jsx',

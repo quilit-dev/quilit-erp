@@ -180,3 +180,111 @@ def next_due(plan):
         if row["status"] != PAID:
             return row
     return None
+
+
+# ── One schedule over a whole account ────────────────────────────────────────
+
+def plan_account(db, *, client_id, count, frequency="monthly", start=None,
+                 note=None, now=None):
+    """Put everything a customer still owes on one agreed schedule.
+
+    A plan on one invoice is a negotiation about one document. This is the
+    other thing people mean by instalments: the customer owes several bills and
+    agrees to clear the lot over N payments.
+
+    The schedule is built once over the combined balance and then walked across
+    the invoices, oldest first — so a single instalment can finish one invoice
+    and start the next, which is exactly what happens when the money arrives
+    and is allocated oldest-first. Each invoice ends up with its own rows, so
+    arrears reporting, the statement and the invoice screen all read a plan
+    they already understand and none of them learns a new concept.
+
+    Rows on a part-paid invoice open with what has already been settled, dated
+    today, because the engine decides which instalments are covered by
+    comparing cumulative paid against cumulative scheduled — a schedule that
+    did not account for money already received would show settled instalments
+    as outstanding for ever.
+    """
+    from utils import _now
+    now = now or _now()
+    today = now[:10]
+
+    rows = db.execute(
+        """SELECT i.id, i.invoice_number, i.amount,
+                  COALESCE((SELECT SUM(p.amount) FROM invoice_payments p
+                            WHERE p.invoice_id = i.id), 0) AS paid
+             FROM invoices i
+            WHERE i.client_id = ? AND i.voided_at IS NULL
+              AND i.archived_at IS NULL
+              AND COALESCE(i.approval_status,'') != 'Pending Approval'
+         ORDER BY COALESCE(i.due_date, i.created_at), i.id""",
+        (client_id,)).fetchall()
+
+    open_rows = []
+    for r in rows:
+        remaining = money(float(r["amount"]) - float(r["paid"]))
+        if remaining > _CENT:
+            open_rows.append((r, remaining))
+    if not open_rows:
+        raise ValueError("This customer has nothing outstanding to schedule.")
+
+    # An agreement already being kept is not ours to overwrite. One with no
+    # money against it is a draft and can be replaced.
+    for r, _ in open_rows:
+        has_plan = db.execute(
+            "SELECT 1 FROM invoice_installments WHERE invoice_id=?",
+            (r["id"],)).fetchone()
+        if has_plan and float(r["paid"]) > _CENT:
+            raise ValueError(
+                f"{r['invoice_number']} is already on a plan that has been "
+                "paid against. Remove that plan first if the terms have "
+                "genuinely changed.")
+
+    total = money(sum(rem for _, rem in open_rows))
+    schedule = build_schedule(total, count, start or today, frequency=frequency)
+
+    # Walk the schedule across the invoices. An instalment that overruns one
+    # invoice finishes it and carries the rest to the next.
+    queue = [[due, amount] for _, due, amount in schedule]
+    written = []
+    qi = 0
+    for r, remaining in open_rows:
+        left = remaining
+        seq = 1
+        db.execute("DELETE FROM invoice_installments WHERE invoice_id=?", (r["id"],))
+
+        already = money(float(r["paid"]))
+        if already > _CENT:
+            db.execute(
+                "INSERT INTO invoice_installments "
+                "(invoice_id, seq, due_date, amount, note, created_at) "
+                "VALUES (?,?,?,?,?,?)",
+                (r["id"], seq, today, already, note, now))
+            seq += 1
+
+        last_due = today
+        while left > _CENT and qi < len(queue):
+            due, avail = queue[qi]
+            take = money(min(left, avail))
+            db.execute(
+                "INSERT INTO invoice_installments "
+                "(invoice_id, seq, due_date, amount, note, created_at) "
+                "VALUES (?,?,?,?,?,?)",
+                (r["id"], seq, str(due), take, note, now))
+            seq += 1
+            last_due = str(due)
+            left = money(left - take)
+            queue[qi][1] = money(avail - take)
+            if queue[qi][1] <= _CENT:
+                qi += 1
+
+        # Anything still reading a single date says the plan ends then, rather
+        # than claiming the whole balance was due on day one.
+        db.execute("UPDATE invoices SET due_date=? WHERE id=?", (last_due, r["id"]))
+        written.append({"invoice_id": r["id"],
+                        "invoice_number": r["invoice_number"],
+                        "scheduled": money(remaining), "last_due": last_due})
+
+    return {"total": total, "instalments": len(schedule),
+            "first_due": str(schedule[0][1]), "last_due": str(schedule[-1][1]),
+            "invoices": written}

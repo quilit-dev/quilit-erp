@@ -33,10 +33,13 @@ export default function PaymentPlan({ invoice, canEdit, onChange }) {
   });
 
   // Whether this customer may be put on a plan at all. The server refuses it
-  // either way; saying so here means the operator is not offered something
-  // that cannot happen. `undefined` means an older payload that did not carry
-  // the field — treated as allowed, so nothing disappears.
-  const allowed = invoice.client_allow_installments !== 0;
+  // A plan on ONE invoice is always available. Splitting a single document
+  // into agreed dates is how anybody sells anything of size, and gating it per
+  // customer got in the way of ordinary trade.
+  //
+  // The customer's "allow instalments" setting governs something else: whether
+  // their whole ACCOUNT may go on terms, which is a standing credit
+  // arrangement. That lives on Record Payment.
 
   const total = Number(invoice.amount) || 0;
   const paid  = Number(invoice.total_paid) || 0;
@@ -97,7 +100,7 @@ export default function PaymentPlan({ invoice, canEdit, onChange }) {
           </span>
         )}
         <div style={{ marginLeft: 'auto', display: 'flex', gap: 6 }}>
-          {canEdit && plan.length === 0 && !open && allowed && (
+          {canEdit && plan.length === 0 && !open && (
             <button className="btn btn-sm btn-secondary" onClick={() => setOpen(true)}>
               {t('installments.setUp')}
             </button>
@@ -120,7 +123,7 @@ export default function PaymentPlan({ invoice, canEdit, onChange }) {
         <p style={{ color: 'var(--text-3)', fontSize: 13 }}>
           {/* Not an error — a decision somebody made about this customer, and
               the message says where to change it. */}
-          {allowed ? t('installments.none') : t('installments.notApproved')}
+          {t('installments.none')}
         </p>
       )}
 

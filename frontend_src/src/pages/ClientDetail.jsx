@@ -7,6 +7,7 @@ import {
 import { useLocale } from '../hooks/useLocale.jsx';
 import { usePermissions } from '../hooks/usePermissions';
 import Attachments from '../components/Attachments.jsx';
+import { ExportButtons } from './reports/charts';
 import StatementTab from './clients/StatementTab.jsx';
 import PaymentsTab from './clients/PaymentsTab.jsx';
 import CustomerPaymentModal from './clients/CustomerPaymentModal.jsx';
@@ -102,6 +103,19 @@ export default function ClientDetail() {
   const projects   = client.projects   || [];
   const quotations = client.quotations || [];
   const invoices   = client.invoices   || [];
+
+  // The same columns the table draws, so an exported list says exactly what
+  // the screen says. Labelled in the operator's language: an Arabic screen
+  // producing an English-headed document is the bug this already had
+  // elsewhere.
+  const invoiceExportColumns = [
+    { label: t('reports.invoiceNumber'),  value: i => i.invoice_number || '', align: 'left' },
+    { label: t('common.status'),          value: i => i.status || '',         align: 'left' },
+    { label: t('quotations.project'),     value: i => i.project_name || '',   align: 'left' },
+    { label: t('common.amount'),          value: i => i.amount,               align: 'right' },
+    { label: t('clients.paid'),           value: i => i.paid_amount,          align: 'right' },
+    { label: t('clients.due'),            value: i => fmtDate(i.due_date),    align: 'left' },
+  ];
 
   const quotDocMap = Object.fromEntries(
     (client.documents || []).filter(d => d.record_type === 'quotation').map(d => [d.record_id, d])
@@ -296,7 +310,24 @@ export default function ClientDetail() {
 
       {tab === 'invoices' && (
         <div className="card">
-          <div className="card-header"><span className="card-title">{t('clients.invoicesCount', { count: invoices.length })}</span></div>
+          <div className="card-header">
+            <span className="card-title">{t('clients.invoicesCount', { count: invoices.length })}</span>
+            {/* The list, as a document. The per-invoice PDF in the last column
+                is one invoice; this is the customer's whole account of them,
+                which is what gets sent when somebody asks "what have we
+                billed you". Same exporter the reports use, so the workbook
+                and the PDF say exactly what the table says. */}
+            <ExportButtons
+              rows={invoices} columns={invoiceExportColumns}
+              baseName={`invoices_${client.name || id}`}
+              pdfTitle={t('clients.invoicesFor', { name: client.name || '' })}
+              totals={{ label: t('reports.total'),
+                        columns: [null, null, null,
+                                  invoices.reduce((s, i) => s + (Number(i.amount) || 0), 0),
+                                  invoices.reduce((s, i) => s + (Number(i.paid_amount) || 0), 0),
+                                  null] }}
+              t={t} />
+          </div>
           <SectionTable
             emptyMsg={t('clients.noInvoicesForClient')}
             columns={[

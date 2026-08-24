@@ -28,6 +28,17 @@ export default function CustomerPaymentModal({ client, invoices, onClose, onDone
     CURRENCIES.includes(client?.preferred_currency) ? client.preferred_currency : 'USD');
   const [rate, setRate] = useState('');
   const [note, setNote] = useState('');
+  // Putting whatever is left after this payment on agreed dates. Offered only
+  // to a customer approved for it: a plan on ONE invoice is a negotiation
+  // about one document and anybody may have one, but the whole account going
+  // on terms is a standing credit arrangement.
+  const canPlan = !!client?.allow_installments;
+  const [onPlan, setOnPlan] = useState(false);
+  const [planCount, setPlanCount] = useState(
+    client?.default_installment_count ? String(client.default_installment_count) : '4');
+  const [planFreq, setPlanFreq] = useState(
+    client?.default_installment_frequency || 'monthly');
+  const [planStart, setPlanStart] = useState('');
   const [saving, setSaving] = useState(false);
   const [result, setResult] = useState(null);
   const [printing, setPrinting] = useState(false);
@@ -57,6 +68,10 @@ export default function CustomerPaymentModal({ client, invoices, onClose, onDone
   }, [amount, owing]);
 
   const over = (Number(amount) || 0) > totalOwed + 0.005;
+  // What the schedule would actually cover: everything still owed once
+  // this payment has been applied.
+  const remainingAfter = Math.max(0,
+    Math.round((totalOwed - (Number(amount) || 0)) * 100) / 100);
 
   async function submit(e) {
     e.preventDefault();
@@ -69,6 +84,13 @@ export default function CustomerPaymentModal({ client, invoices, onClose, onDone
         exchange_rate: rate === '' ? null : Number(rate),
         note: note.trim() || null,
         idempotency_key: `cust-${client.id}-${Date.now()}`,
+        ...(onPlan && canPlan ? {
+          installment_plan: {
+            count:      Number(planCount),
+            frequency:  planFreq,
+            start_date: planStart || null,
+          },
+        } : {}),
       });
       setResult(res);
       toast(res.message);
@@ -180,6 +202,47 @@ export default function CustomerPaymentModal({ client, invoices, onClose, onDone
               <input className="form-control" value={note}
                 onChange={e => setNote(e.target.value)} />
             </div>
+
+            {/* The rest of the account, on agreed dates. Shown only to a
+                customer approved for it — the setting on their record. */}
+            {canPlan && (
+              <div className="form-group form-full">
+                <label style={{ display: 'flex', alignItems: 'center', gap: 8,
+                                fontSize: 13.5 }}>
+                  <input type="checkbox" checked={onPlan}
+                    onChange={e => setOnPlan(e.target.checked)} />
+                  {t('clients.planTheRest')}
+                </label>
+                {onPlan && (
+                  <div style={{ fontSize: 11, color: 'var(--text-3)', marginTop: 3 }}>
+                    {t('clients.planTheRestHint', { amount: fmt(remainingAfter) })}
+                  </div>
+                )}
+              </div>
+            )}
+            {canPlan && onPlan && (
+              <>
+                <div className="form-group">
+                  <label className="form-label">{t('installments.count')}</label>
+                  <NumberInput className="form-control" min="1" step="1"
+                    value={planCount} onChange={e => setPlanCount(e.target.value)} />
+                </div>
+                <div className="form-group">
+                  <label className="form-label">{t('installments.frequency')}</label>
+                  <select className="form-control" value={planFreq}
+                    onChange={e => setPlanFreq(e.target.value)}>
+                    <option value="monthly">{t('installments.monthly')}</option>
+                    <option value="quarterly">{t('installments.quarterly')}</option>
+                    <option value="yearly">{t('installments.yearly')}</option>
+                  </select>
+                </div>
+                <div className="form-group">
+                  <label className="form-label">{t('installments.firstDue')}</label>
+                  <input type="date" className="form-control" value={planStart}
+                    onChange={e => setPlanStart(e.target.value)} />
+                </div>
+              </>
+            )}
           </div>
 
           {over && (

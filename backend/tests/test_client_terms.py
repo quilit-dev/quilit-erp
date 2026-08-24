@@ -42,33 +42,21 @@ def _plan(c, inv, **kw):
 
 # ── The instalment permission ────────────────────────────────────────────────
 
-def test_a_customer_not_approved_for_instalments_cannot_be_put_on_a_plan(client):
-    """Otherwise the checkbox is decoration."""
+def test_a_plan_on_one_invoice_is_available_to_everybody(client):
+    """Splitting a single document into agreed dates is how anybody sells
+    anything of size. The customer setting is about their whole ACCOUNT going
+    on terms, which is a different arrangement."""
     cid = _client(client, allow_installments=False)
-    inv = _invoice(client, cid)
-
-    r = _plan(client, inv)
-
-    assert r.status_code == 400
-    assert "not approved" in r.text.lower()
-
-
-def test_an_approved_customer_can(client):
-    cid = _client(client, allow_installments=True)
     inv = _invoice(client, cid)
 
     assert _plan(client, inv).status_code == 200
 
 
-def test_the_refusal_names_the_customer_and_says_what_to_do(client):
-    """"Cannot create plan" with no cause is how a support call starts."""
-    cid = _client(client, name="Unapproved Ltd", allow_installments=False)
+def test_an_approved_customer_can_too(client):
+    cid = _client(client, allow_installments=True)
     inv = _invoice(client, cid)
 
-    body = _plan(client, inv).json()["detail"]
-
-    assert "Unapproved Ltd" in body
-    assert "customer" in body.lower()
+    assert _plan(client, inv).status_code == 200
 
 
 def test_the_till_refuses_an_unapproved_customer_too(client):

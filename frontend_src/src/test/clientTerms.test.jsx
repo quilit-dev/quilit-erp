@@ -46,15 +46,18 @@ describe('preferred currency does something', () => {
 });
 
 describe('the instalments flag does something', () => {
-  test('the invoice screen does not offer a plan to a customer refused one', () => {
-    expect(planSrc).toMatch(/plan\.length === 0 && !open && allowed/);
-    expect(planSrc).toMatch(/installments\.notApproved/);
+  test('the invoice screen offers a plan to everybody', () => {
+    // A plan on ONE invoice is a negotiation about one document. Gating it per
+    // customer got in the way of ordinary trade, so the flag no longer reaches
+    // this screen at all.
+    expect(planSrc).toMatch(/plan\.length === 0 && !open && \(/);
+    expect(planSrc).not.toMatch(/client_allow_installments/);
   });
 
-  test('an older payload without the field still offers plans', () => {
-    // `!== 0` rather than truthiness: undefined must mean allowed, or the
-    // option disappears everywhere the field is not sent yet.
-    expect(planSrc).toMatch(/invoice\.client_allow_installments !== 0/);
+  test('the flag governs the ACCOUNT going on terms instead', () => {
+    // A standing credit arrangement across every bill they owe, which is a
+    // different decision from splitting one invoice.
+    expect(modalSrc).toMatch(/const canPlan = !!client\?\.allow_installments/);
   });
 
   test('the till refuses the same customer', () => {

@@ -1162,6 +1162,9 @@ const en = {
   },
 
   clients: {
+    invoicesFor: 'Invoices — {{name}}',
+    planTheRest: 'Put the rest on a payment plan',
+    planTheRestHint: 'Schedules the {{amount}} still owed across agreed dates, oldest invoice first.',
     paymentsReceived: 'Payments',
     noPayments: 'No payments recorded against this customer yet.',
     appliedTo: 'Applied to',
