@@ -54,7 +54,17 @@ def _notifications(client, type=None):
 
 
 def _in(days):
-    return (date.today() + timedelta(days=days)).isoformat()
+    """A date `days` from the SERVER's today, not this process's.
+
+    The server stamps every date in UTC, as it does everywhere else in this
+    system. For the few hours a night when UTC and local disagree, a schedule
+    built from the local date is one day out from the one the reminder sweep
+    is reading — and the test fails for a reason that has nothing to do with
+    reminders.
+    """
+    from utils import _today
+    base = date.fromisoformat(_today()[:10])
+    return (base + timedelta(days=days)).isoformat()
 
 
 # ── An invoice plan, before the date ─────────────────────────────────────────

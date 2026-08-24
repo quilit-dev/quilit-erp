@@ -15,9 +15,10 @@ from typing import Optional
 from database import get_db, DB_PATH
 from permissions import require_auth, require_admin
 from routers.audit import log_action
-from utils import _now
+from utils import _now, _today
 import vendor_config
 import sqlite3, os, shutil, tempfile, sys
+from datetime import datetime
 
 router = APIRouter()
 
@@ -273,28 +274,119 @@ def update_settings(
 
 class ExchangeRateUpdate(BaseModel):
     rate: float
+    # Which currency the rate is FOR. Omitted means the tenant's secondary
+    # currency, which is what every caller meant before there was a second
+    # foreign currency to mean anything else.
+    currency: Optional[str] = None
+    # The date the rate takes effect. Omitted means today. This is the column
+    # the whole effective-dating mechanism reads, and until now nothing wrote
+    # it: every rate went in with a NULL date, so `rate_on` could never find
+    # one by date and silently fell back to the newest. Entering last month's
+    # invoice converted it at today's rate.
+    effective_date: Optional[str] = None
     note: Optional[str] = None
+
+
+def _rate_rows(db):
+    """The newest rate for each foreign currency, by effective date."""
+    import currency as currency_mod
+    out = {}
+    for cur in currency_mod.SUPPORTED:
+        if cur == currency_mod.FUNCTIONAL:
+            continue
+        try:
+            row = db.execute(
+                "SELECT id, rate, set_by_name, note, created_at, effective_date "
+                "  FROM exchange_rates "
+                " WHERE UPPER(COALESCE(currency, ?)) = ? "
+                " ORDER BY COALESCE(effective_date, substr(created_at,1,10)) DESC, "
+                "          id DESC LIMIT 1",
+                (_secondary(db), cur),
+            ).fetchone()
+        except sqlite3.OperationalError:
+            row = None
+        if row and row["rate"]:
+            out[cur] = dict(row)
+    return out
+
+
+def _secondary(db) -> str:
+    return (_get_all(db).get("secondary_currency") or "LBP").upper()
+
+
+def _pairs(db, rows):
+    """Every direction between every currency, from one number each.
+
+    Six figures, three facts. A rate and its reciprocal are the same
+    agreement said twice, and storing them separately is how they come to
+    disagree: 1 USD = 89,000 LBP entered beside 1 LBP = 0.0000112 USD does not
+    round-trip, and two invoices dated the same day convert differently
+    depending on which way round the operator happened to type. So one number
+    per currency is stored, and every pair on the screen is worked out from it.
+    """
+    import currency as currency_mod
+    base = currency_mod.FUNCTIONAL
+    # Units of X per 1 USD. USD is 1 by definition; the rest come from the table.
+    per_usd = {base: 1.0}
+    dated = {base: None}
+    for cur, row in rows.items():
+        per_usd[cur] = float(row["rate"])
+        dated[cur] = row.get("effective_date") or (row.get("created_at") or "")[:10]
+
+    out = []
+    for frm in currency_mod.SUPPORTED:
+        for to in currency_mod.SUPPORTED:
+            if frm == to or frm not in per_usd or to not in per_usd:
+                continue
+            # from → to = (to per USD) / (from per USD)
+            value = per_usd[to] / per_usd[frm]
+            # The date this pair is only as current as its oldest input.
+            dates = [d for d in (dated[frm], dated[to]) if d]
+            out.append({
+                "from": frm, "to": to,
+                "rate": value,
+                "since": min(dates) if dates else None,
+                # True when neither side is the currency the books are kept in,
+                # i.e. the figure is a cross-rate rather than something anybody
+                # typed. Shown as derived so nobody goes looking for where it
+                # was entered.
+                "derived": base not in (frm, to),
+            })
+    return out
 
 
 @router.get("/exchange-rate")
 def get_exchange_rate(user=Depends(require_auth), db: sqlite3.Connection = Depends(get_db)):
-    """Latest manual exchange rate + recent change history. Readable by any signed-in user."""
+    """The rates in force, every pair between them, and how they got there.
+
+    Readable by any signed-in user: the rate decides what the till and every
+    invoice will convert at, so an operator needs to know it even though only
+    an administrator may change it.
+    """
     cfg = _get_all(db)
+    rows = _rate_rows(db)
+    secondary = (cfg.get("secondary_currency") or "LBP").upper()
+
     try:
-        current = db.execute(
-            "SELECT id, rate, set_by_name, note, created_at "
-            "FROM exchange_rates ORDER BY id DESC LIMIT 1"
-        ).fetchone()
         history = db.execute(
-            "SELECT id, rate, set_by_name, note, created_at "
-            "FROM exchange_rates ORDER BY id DESC LIMIT 20"
+            "SELECT id, rate, set_by_name, note, created_at, effective_date, "
+            "       COALESCE(currency, ?) AS currency "
+            "  FROM exchange_rates ORDER BY id DESC LIMIT 30", (secondary,)
         ).fetchall()
     except sqlite3.OperationalError:
-        current, history = None, []
+        history = []
+
+    # `current` stays the tenant's secondary-currency rate, because that is
+    # what every existing caller means by it — the badge, the till, the
+    # dual-currency toggle. Adding a second foreign currency must not change
+    # what the first one answers.
+    current = rows.get(secondary)
     return {
-        "base_currency":      cfg.get("default_currency", "USD"),
-        "secondary_currency": cfg.get("secondary_currency", "LBP"),
-        "current":            dict(current) if current else None,
+        "base_currency":      (cfg.get("default_currency") or "USD").upper(),
+        "secondary_currency": secondary,
+        "current":            current,
+        "rates":              rows,
+        "pairs":              _pairs(db, rows),
         "history":            [dict(h) for h in history],
     }
 
@@ -305,17 +397,45 @@ def set_exchange_rate(
     user=Depends(require_admin),
     db: sqlite3.Connection = Depends(get_db),
 ):
-    """Record a new manual exchange rate. Administrator only; each change is kept as history."""
+    """Record a rate for one currency, from one date. Administrator only.
+
+    Nothing already posted moves. Amounts are stored converted, so history was
+    fixed when it was written; the date decides only which rate a NEW
+    conversion picks up — which is why a backdated rate is safe to enter and
+    why entering one without a date was not.
+    """
+    import currency as currency_mod
+
     if body.rate is None or body.rate <= 0:
         raise HTTPException(400, "Exchange rate must be a positive number.")
+
+    cur = (body.currency or _secondary(db)).upper()
+    if not currency_mod.is_supported(cur):
+        raise HTTPException(
+            400, f"{cur} is not one of the currencies this system handles: "
+                 + ", ".join(currency_mod.SUPPORTED) + ".")
+    if cur == currency_mod.FUNCTIONAL:
+        raise HTTPException(
+            400, f"{cur} is the currency the books are kept in, so it is 1 by "
+                 "definition and has no rate to set.")
+
+    on = (body.effective_date or _today())[:10]
+    try:
+        datetime.strptime(on, "%Y-%m-%d")
+    except ValueError:
+        raise HTTPException(400, "The effective date must be a date (YYYY-MM-DD).")
+
     db.execute(
-        "INSERT INTO exchange_rates (rate, set_by, set_by_name, note, created_at) "
-        "VALUES (?,?,?,?,?)",
-        (body.rate, user["id"], user.get("full_name") or user.get("username"),
+        "INSERT INTO exchange_rates "
+        "(rate, currency, effective_date, set_by, set_by_name, note, created_at) "
+        "VALUES (?,?,?,?,?,?,?)",
+        (body.rate, cur, on, user["id"],
+         user.get("full_name") or user.get("username"),
          (body.note or None), _now()),
     )
     log_action(db, user, "update", "settings", None, "Exchange rate",
-               {"rate": body.rate, "note": body.note})
+               {"rate": body.rate, "currency": cur, "effective_date": on,
+                "note": body.note})
     db.commit()
     return get_exchange_rate(user, db)
 

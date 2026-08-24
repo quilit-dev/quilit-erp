@@ -6,6 +6,7 @@ import Sidebar from './components/Sidebar';
 import ToastContainer from './components/ToastContainer';
 import CommandPalette from './components/CommandPalette';
 import NotificationBell from './components/NotificationBell';
+import RateBook from './components/RateBook';
 import { ReportProblemButton } from './components/ReportProblem';
 import LicenceBanner from './components/LicenceBanner';
 import { LoadingSpinner } from './components/shared';
@@ -240,6 +241,10 @@ function Layout({ children }) {
               <div style={{ width: 6, height: 6, borderRadius: '50%', background: 'var(--green)', animation: 'pulse 2s infinite' }} />
               {t('common.live')}
             </div>
+            {/* Beside the bell for the same reason the bell is here: it is
+                read constantly and changed often, and a rate that lives
+                three clicks into Settings is a rate that goes stale. */}
+            <RateBook />
             <NotificationBell />
             <ReportProblemButton />
             <LangToggleButton />

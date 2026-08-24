@@ -75,17 +75,57 @@ rate, and that is impossible once it has been mixed into the dollars.
 
     ### Setting the rate
 
-    Settings → **Exchange Rate** → enter the new rate + optional note →
-    **Save**.
+    The rate pill in the **top bar** — beside the notification bell, on every
+    page. Click it and the rate book opens: what every pair is worth right
+    now, and a form to record a new one. The same panel is on
+    Settings → **Exchange Rate**; they are one panel, not two, so there is
+    only ever one answer to what a rate is.
 
-    Each save adds a new rate. The most recent one
-    is the active rate. History is preserved indefinitely.
+    It is in the top bar because of how the rate is used. Reading it is
+    constant — every operator needs to know what the till and the invoice will
+    convert at — and in a volatile month it is set again and again. A rate
+    three clicks into Settings is a rate that goes stale.
 
     | Field | Notes |
     |---|---|
-    | Rate | LBP per 1 USD (e.g. 89000) |
-    | Note | "Bank rate 2026-05-15", "Customer-negotiated", … |
-    | Set by | Auto-captured (set by + set by name) |
+    | Currency | LBP or EUR. USD is the currency the books are kept in, so it is 1 by definition and has no rate |
+    | Rate | LBP or EUR per 1 USD (e.g. 89000, or 0.92) |
+    | Enter the other way round | Tick it to type USD per 1 LBP instead. It is inverted before it is stored — see below |
+    | In effect from | The date the rate starts applying. Defaults to today; backdate it to catch up on a missed week |
+    | Note | "Bank rate", "Parallel market", "Customer-negotiated", … |
+    | Set by | Captured automatically, and kept |
+
+    ### Six pairs, three numbers
+
+    The panel shows all six directions — USD→LBP, USD→EUR, LBP→USD, LBP→EUR,
+    EUR→USD, EUR→LBP — but stores **one number per currency**: what it is
+    worth against the dollar. Everything else is worked out from those, and
+    the cross-rates (EUR↔LBP, which touch no dollar) are labelled *derived*.
+
+    That is deliberate, and it is what keeps the books consistent. A rate and
+    its reciprocal are the same agreement said twice. Typed separately they
+    drift — 1 USD = 89,000 LBP entered beside 1 LBP = 0.0000112 USD does not
+    round-trip — and then two invoices dated the same day convert differently
+    depending on which way round the operator happened to think. One number
+    cannot disagree with itself.
+
+    You may still **type whichever direction you think in**: tick *enter the
+    other way round* and the panel inverts it for you.
+
+    ### The date is the point
+
+    Every rate carries the date it takes effect, and a conversion asks for the
+    rate in force on **the transaction's own date** — not the newest one in
+    the book. Entering last month's invoice today converts it at last month's
+    rate.
+
+    Nothing already posted moves when you record a new rate. Amounts are
+    stored converted, so history was fixed at the moment it was written; the
+    date decides only what a *new* conversion picks up. That is why a
+    backdated rate is safe to enter.
+
+    A rate nobody has touched for seven days shows an amber dot on the pill,
+    and raises the same stale-rate alert in the notification bell.
 
     ### When to update the rate
 

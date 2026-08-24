@@ -1,6 +1,6 @@
 import { useState, useEffect, useRef } from 'react';
-import { api as API, getBackupStatus, runBackupNow, exportBackup, runIntegrityCheck, restoreBackup,
-         getExchangeRate, setExchangeRate } from '../api/client';
+import { api as API, getBackupStatus, runBackupNow, exportBackup, runIntegrityCheck,
+         restoreBackup } from '../api/client';
 import { useSettings } from '../hooks/useSettings.jsx';
 import { useLocale } from '../hooks/useLocale.jsx';
 import InventoryFieldsManager from '../components/InventoryFieldsManager.jsx';
@@ -8,6 +8,7 @@ import CategoriesManager from '../components/CategoriesManager.jsx';
 import { Icon } from '../components/shared';
 import { Section, Field, Input, Textarea, Toggle, CURRENCIES } from './settings/ui';
 import { TaxRatesSection } from './settings/TaxRatesSection';
+import { RateBookPanel } from '../components/RateBook.jsx';
 import UserManualSection from './settings/UserManualSection.jsx';
 
 export default function Settings() {
@@ -33,10 +34,6 @@ export default function Settings() {
   const [exporting, setExporting]                 = useState(false);
   const [exportResult, setExportResult]           = useState(null);
   const restoreRef = useRef();
-  const [rateInfo,   setRateInfo]   = useState(null);
-  const [newRate,    setNewRate]    = useState('');
-  const [rateNote,   setRateNote]   = useState('');
-  const [savingRate, setSavingRate] = useState(false);
   const { reload: reloadSettings } = useSettings();
 
   useEffect(() => {
@@ -45,7 +42,6 @@ export default function Settings() {
       setLogoPreview(`/api/settings/logo?_=${Date.now()}`);
     }).catch((err) => setMsg({ type: 'err', text: t('settings.failedLoad') + ': ' + (err.message || '') }));
     getBackupStatus().then(setBackupStatus).catch(() => {});
-    getExchangeRate().then(setRateInfo).catch(() => {});
   }, []);
 
   function set(key) { return val => setForm(f => ({ ...f, [key]: val })); }
@@ -149,20 +145,6 @@ export default function Settings() {
     } catch (err) {
       setIntegrityResult({ ok: false, error: err.message });
     } finally { setCheckingIntegrity(false); }
-  }
-
-  async function saveRate() {
-    const r = parseFloat(newRate);
-    if (!r || r <= 0) { setMsg({ type: 'err', text: t('settings.rateInvalid') }); return; }
-    setSavingRate(true); setMsg(null);
-    try {
-      const updated = await setExchangeRate({ rate: r, note: rateNote || null });
-      setRateInfo(updated);
-      setNewRate(''); setRateNote('');
-      setMsg({ type: 'ok', text: t('settings.rateUpdated') });
-    } catch (err) {
-      setMsg({ type: 'err', text: err.message || t('settings.failedSave') });
-    } finally { setSavingRate(false); }
   }
 
   if (!form) return (
@@ -409,65 +391,16 @@ export default function Settings() {
         {/* 3a. Tax Rates — used for per-line tax on documents */}
         <TaxRatesSection isAdmin={isAdmin} t={t} />
 
-        {/* 3b. Exchange Rate — dual-currency foundation */}
+        {/* 3b. Exchange rates — the same panel the top bar opens.
+             It used to be a second, weaker form here: one rate, no currency
+             and no effective date, so a rate set on this page could not be
+             found by the dated lookup it was supposed to feed. One panel, one
+             answer to what a rate is. */}
         <Section title={t('settings.exchangeRate')} icon="arrow-left-right">
           <p style={{ fontSize: 12, color: 'var(--text-3)', margin: '0 0 14px' }}>
             {t('settings.exchangeRateDesc')}
           </p>
-          <div style={{ display: 'flex', alignItems: 'center', gap: 10, marginBottom: 16, flexWrap: 'wrap' }}>
-            <span style={{ fontSize: 14, color: 'var(--text-2)' }}>{t('settings.currentRate')}:</span>
-            {rateInfo && rateInfo.current ? (
-              <strong style={{ fontSize: 15 }}>
-                1 {rateInfo.base_currency} = {Number(rateInfo.current.rate).toLocaleString()} {rateInfo.secondary_currency}
-              </strong>
-            ) : (
-              <span style={{ color: 'var(--text-3)', fontStyle: 'italic' }}>{t('settings.noRateSet')}</span>
-            )}
-            {rateInfo && rateInfo.current && rateInfo.current.created_at && (
-              <span style={{ fontSize: 11, color: 'var(--text-3)' }}>
-                · {rateInfo.current.created_at}
-                {rateInfo.current.set_by_name ? ` · ${rateInfo.current.set_by_name}` : ''}
-              </span>
-            )}
-          </div>
-
-          {isAdmin && (
-            <div className="form-grid">
-              <Field label={t('settings.newRate')}
-                hint={rateInfo ? `${rateInfo.secondary_currency} / 1 ${rateInfo.base_currency}` : ''}>
-                <Input type="number" value={newRate} onChange={setNewRate} placeholder="89000" />
-              </Field>
-              <Field label={t('settings.rateNote')} hint={t('common.optional')}>
-                <Input value={rateNote} onChange={setRateNote} />
-              </Field>
-            </div>
-          )}
-          {isAdmin && (
-            <button onClick={saveRate} disabled={savingRate} className="btn btn-primary" style={{ marginTop: 4 }}>
-              {savingRate ? t('common.saving') : t('settings.saveRate')}
-            </button>
-          )}
-
-          {rateInfo && rateInfo.history && rateInfo.history.length > 0 && (
-            <div style={{ marginTop: 18, paddingTop: 16, borderTop: '1px solid var(--border)' }}>
-              <div style={{ fontSize: 12, fontWeight: 600, color: 'var(--text-2)', marginBottom: 6 }}>
-                {t('settings.rateHistory')}
-              </div>
-              <div style={{ display: 'flex', flexDirection: 'column', gap: 3 }}>
-                {rateInfo.history.map(h => (
-                  <div key={h.id} style={{
-                    display: 'flex', alignItems: 'center', gap: 8,
-                    padding: '5px 10px', background: 'var(--bg-2)', borderRadius: 6, fontSize: 12,
-                  }}>
-                    <strong style={{ minWidth: 90 }}>{Number(h.rate).toLocaleString()}</strong>
-                    <span style={{ color: 'var(--text-3)', flex: 1 }}>{h.note || ''}</span>
-                    <span style={{ color: 'var(--text-3)', whiteSpace: 'nowrap' }}>{h.set_by_name || ''}</span>
-                    <span style={{ color: 'var(--text-3)', whiteSpace: 'nowrap' }}>{h.created_at}</span>
-                  </div>
-                ))}
-              </div>
-            </div>
-          )}
+          <RateBookPanel />
         </Section>
 
         {/* 4. Document Settings */}
