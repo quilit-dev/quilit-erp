@@ -41,6 +41,7 @@ import { CashFlow } from './accounting/CashFlow';
 import { YearEnd, MonthlyPeriods } from './accounting/Closing';
 import { Revaluation } from './accounting/Revaluation';
 import { FxDifferences } from './accounting/FxDifferences';
+import { ChartCutover } from './accounting/ChartCutover';
 
 export default function Accounting() {
   const { t, fmt, fmtDate, tAccount, tEnumValue } = useLocale();
@@ -71,6 +72,7 @@ export default function Accounting() {
     ['balanceSheet', t('accounting.balanceSheet')],
     ['cashFlow', t('accounting.cashFlow')],
     ['fxDifferences', t('fx.title')],
+    ['cutover', t('cutover.title')],
     ['revaluation', t('accounting.fxRevaluation')],
     ['closing', t('accounting.closing')],
   ];
@@ -101,6 +103,7 @@ export default function Accounting() {
       {tab === 'balanceSheet' && <BalanceSheet t={t} tAccount={tAccount} fmt={fmt} />}
       {tab === 'cashFlow' && <CashFlow t={t} tAccount={tAccount} fmt={fmt} />}
       {tab === 'fxDifferences' && <FxDifferences t={t} fmt={fmt} fmtDate={fmtDate} can={can} />}
+      {tab === 'cutover' && <ChartCutover t={t} fmt={fmt} fmtDate={fmtDate} tAccount={tAccount} can={can} />}
       {tab === 'revaluation' && <Revaluation t={t} fmt={fmt} can={can} />}
       {tab === 'closing' && <>
         <YearEnd t={t} fmt={fmt} can={can} />

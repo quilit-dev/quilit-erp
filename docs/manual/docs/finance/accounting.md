@@ -93,6 +93,51 @@ Five views.
     Must satisfy `Assets = Liabilities + Equity + Net Income`. Footer
     shows ✓ Balanced or ⚠ Not balanced.
 
+    ### Changing the chart of accounts
+
+    **Accounting → Accounts** says which chart your books are on. A business
+    that has never posted switches in one click. One that has traded is asked
+    to type a confirmation, because its balances are about to sit across two
+    charts until they are carried over.
+
+    ### Carrying the balances across
+
+    **Accounting → Carry Balances Across.** Switching charts leaves every
+    historical entry pointing at the account it was posted to — which is right,
+    and is why nothing is ever deleted — but it leaves the balances there too.
+    Until they move, the trial balance shows two charts at once and no
+    statement reads correctly.
+
+    The screen lists every retired account still holding something, and where
+    it would go:
+
+    | Badge | Means |
+    |---|---|
+    | **Same part** | Derived, not guessed. Receivables to receivables, cash to cash — the account that plays that role on the new chart. |
+    | **Best guess — check it** | Nobody's role covers it, so it picked the closest account of the same type. This one is your judgement, not the system's. |
+
+    Change any destination you disagree with. Only accounts of the **same
+    type** are offered: moving a balance from an asset to an income account
+    restates the books rather than relocating them, and would change the year's
+    profit without anybody intending it.
+
+    Posting writes **one journal entry**. It takes each old account to zero and
+    puts the same amount on its replacement — no figure changes, they only
+    move. The totals, the profit for the period and every historical entry are
+    exactly as they were.
+
+    If the mapping turns out wrong, reverse the entry like any other and run it
+    again.
+
+    What it refuses, and why:
+
+    - **An account with nowhere to go** stops the whole thing. A half-finished
+      move leaves the books across two charts while looking finished.
+    - **Running it twice** — the second would move every balance again, off the
+      new accounts and back onto themselves.
+    - **A date in the future** — the entry would exist and no statement would
+      show it until that date arrived, so the books would look untouched.
+
     ### Finding an entry
 
     Accounting → **Journal Entries**. Beside the date range, source and status

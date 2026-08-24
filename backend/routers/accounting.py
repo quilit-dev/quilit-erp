@@ -19,6 +19,7 @@ from utils import _now
 import accounting
 import branch_access
 import currency as currency_mod
+import chart_cutover
 import chart_lebanon
 import fx_differences
 import gl_source
@@ -94,6 +95,57 @@ class ChartInstall(BaseModel):
     # Typing the phrase is the ceremony. A tenant with posted entries is being
     # asked to confirm something an accountant should have decided.
     confirm: Optional[str] = None
+
+
+@router.get("/chart/cutover/preview")
+def chart_cutover_preview(
+    as_of: Optional[str] = None,
+    user=Depends(require_perm("accounting", "view")),
+    db: sqlite3.Connection = Depends(get_db),
+):
+    """What a cutover would move, before anything is written.
+
+    Every retired account still carrying a balance, with where it would go and
+    whether that destination was derived or guessed.
+    """
+    return chart_cutover.preview(db, as_of or _now()[:10])
+
+
+class CutoverBody(BaseModel):
+    as_of:    Optional[str] = None
+    mappings: dict = {}
+    note:     Optional[str] = None
+
+
+@router.post("/chart/cutover")
+def post_chart_cutover(
+    data: CutoverBody,
+    user=Depends(require_perm("accounting", "create")),
+    db: sqlite3.Connection = Depends(get_db),
+):
+    """Carry the balances of the chart being left onto the one in use.
+
+    One entry, balanced by construction: each balance moves with a debit and a
+    credit of the same size. Nothing is revalued and no revenue is recognised
+    — every figure lands somewhere new and nowhere different.
+
+    It is an ordinary journal entry, so it reverses like one if the mapping
+    turns out to be wrong.
+    """
+    as_of = (data.as_of or _now())[:10]
+    _check_period_locked(db, as_of)
+    try:
+        result = chart_cutover.post(
+            db, as_of=as_of, mappings=data.mappings or {},
+            note=data.note, created_by=user["id"])
+    except ValueError as e:
+        raise HTTPException(400, str(e))
+
+    log_action(db, user, "chart_cutover", "accounting",
+               result["journal_entry_id"], f"Cutover on {as_of}",
+               {"accounts": result["accounts"], "moved": result["moved"]})
+    db.commit()
+    return {"message": f"Carried {result['accounts']} balances across.", **result}
 
 
 @router.post("/chart/lebanon/install")

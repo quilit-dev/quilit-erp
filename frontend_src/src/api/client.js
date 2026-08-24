@@ -692,6 +692,10 @@ export const getAccounts          = (params = {}) => api.get(`/api/accounting/ac
 // Which chart of accounts this tenant keeps its books on, and moving it.
 export const getChartStatus       = ()      => api.get('/api/accounting/chart');
 export const installLebaneseChart = (d = {}) => api.post('/api/accounting/chart/lebanon/install', d);
+// Carrying the balances of the chart being left onto the one in use.
+export const getChartCutoverPreview = (params = {}) =>
+  api.get(`/api/accounting/chart/cutover/preview${_qs(params)}`);
+export const postChartCutover     = (d = {}) => api.post('/api/accounting/chart/cutover', d);
 export const createAccount        = (d)      => api.post('/api/accounting/accounts', d);
 export const updateAccount        = (id, d)  => api.put(`/api/accounting/accounts/${id}`, d);
 export const deleteAccount        = (id)     => api.delete(`/api/accounting/accounts/${id}`);
