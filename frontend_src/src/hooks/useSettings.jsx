@@ -18,13 +18,20 @@ import { createContext, useContext, useState, useEffect } from 'react';
 import { applyTenantTitle } from '../utils/appIdentity.js';
 
 const SettingsContext = createContext({
-  settings: null, exchangeRate: null, taxRates: [], reload: () => {},
+  settings: null, exchangeRate: null, taxRates: [], rates: {},
+  rateFor: () => 0, reload: () => {},
   displayCurrency: 'USD', setDisplayCurrency: () => {},
 });
 
 export function SettingsProvider({ children }) {
   const [settings, setSettings]         = useState(null);
   const [exchangeRate, setExchangeRate] = useState(null);
+  // Every currency's rate, not just the secondary one. `exchangeRate` answers
+  // "the rate" — which used to be the only question, because there was only
+  // one foreign currency anybody could set. A euro payment then had nothing to
+  // read: the form left the box empty and the operator typed the number from
+  // memory, or worse, inherited the pound rate.
+  const [rates, setRates]               = useState({});
   const [taxRates, setTaxRates]         = useState([]);
   const [displayCurrency, _setDisplayCurrency] = useState(
     () => localStorage.getItem('erp_display_currency') || 'USD',
@@ -53,6 +60,7 @@ export function SettingsProvider({ children }) {
           base:      d.base_currency,
           secondary: d.secondary_currency,
         } : null);
+        setRates(d.rates || {});
       }
     } catch {
       /* ignore — pages show single-currency until a rate is set */
@@ -85,9 +93,21 @@ export function SettingsProvider({ children }) {
     };
   }, []);
 
+  /** The stored rate for one currency: units of it per 1 USD.
+   *
+   *  Returns 0 for a currency nobody has priced, so a caller can tell "no
+   *  rate" apart from a rate of zero — and never returns another currency's
+   *  number, which is how a euro payment came to be booked at the pound rate.
+   */
+  function rateFor(code) {
+    const cur = String(code || '').toUpperCase();
+    if (!cur || cur === (exchangeRate?.base || 'USD')) return 1;
+    return Number(rates?.[cur]?.rate) || 0;
+  }
+
   return (
     <SettingsContext.Provider value={{
-      settings, exchangeRate, taxRates, reload: load,
+      settings, exchangeRate, taxRates, rates, rateFor, reload: load,
       displayCurrency, setDisplayCurrency,
     }}>
       {children}

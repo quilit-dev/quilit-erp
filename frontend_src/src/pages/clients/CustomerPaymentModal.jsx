@@ -13,6 +13,7 @@ import { recordCustomerPayment, issuePaymentVoucher,
          getClientPlan } from '../../api/client';
 import { printPaymentVoucher } from '../../utils/receiptVoucher';
 import { Modal, NumberInput, fmt, fmtDate, toast } from '../../components/shared';
+import { useSettings } from '../../hooks/useSettings.jsx';
 import { CURRENCIES } from '../settings/ui';
 import { useLocale } from '../../hooks/useLocale.jsx';
 
@@ -20,6 +21,11 @@ const METHODS = ['Cash', 'Bank Transfer', 'Cheque', 'Card', 'Other'];
 
 export default function CustomerPaymentModal({ client, invoices, onClose, onDone }) {
   const { t, tEnumValue } = useLocale();
+  // The rates somebody recorded, per currency. A customer whose account is in
+  // euro is paid in euro, and the rate that applies is the euro one — not a
+  // number the operator has to remember, and not the pound rate because that
+  // happened to be the only one the app could read.
+  const { rateFor, rates } = useSettings();
   const [amount, setAmount] = useState('');
   const [method, setMethod] = useState('Cash');
   // The currency this customer settles in, when one is recorded against
@@ -28,6 +34,16 @@ export default function CustomerPaymentModal({ client, invoices, onClose, onDone
   const [ccy, setCcy] = useState(
     CURRENCIES.includes(client?.preferred_currency) ? client.preferred_currency : 'USD');
   const [rate, setRate] = useState('');
+  // Follows the currency, and keeps following it until the operator types
+  // their own figure — a cashier handed euro at a rate the street agreed on
+  // has better information than a table somebody updated on Monday, and the
+  // server honours whatever is sent.
+  const [rateTouched, setRateTouched] = useState(false);
+  useEffect(() => {
+    if (rateTouched) return;
+    const stored = rateFor(ccy);
+    setRate(ccy === 'USD' || !stored ? '' : String(stored));
+  }, [ccy, rateTouched, rates]);
   const [note, setNote] = useState('');
   // Putting whatever is left after this payment on agreed dates. Offered only
   // to a customer approved for it: a plan on ONE invoice is a negotiation
@@ -184,7 +200,17 @@ export default function CustomerPaymentModal({ client, invoices, onClose, onDone
               <div className="form-group">
                 <label className="form-label">{t('invoices.exchangeRateLabel')}</label>
                 <NumberInput className="form-control" min="0.0001" step="any"
-                  value={rate} onChange={e => setRate(e.target.value)} />
+                  value={rate}
+                  onChange={e => { setRateTouched(true); setRate(e.target.value); }} />
+                {/* Which rate this is and when it was set, so an operator can
+                    see they are converting at a figure from three weeks ago
+                    before they take the money rather than afterwards. */}
+                <div style={{ fontSize: 11, color: 'var(--text-3)', marginTop: 3 }}>
+                  {rates?.[ccy]?.effective_date && !rateTouched
+                    ? t('rates.usingFrom', {
+                        date: fmtDate(rates[ccy].effective_date) })
+                    : rateFor(ccy) ? '' : t('rates.noneFor', { currency: ccy })}
+                </div>
               </div>
             )}
             <div className="form-group">

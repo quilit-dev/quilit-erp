@@ -104,7 +104,7 @@ export default function Invoices() {
   const { data: clients  } = useData((s) => getClients({}, s));
   const { data: projects } = useData((s) => getProjects({}, s));
   const { data: inventory } = useData((s) => getInventory({}, s));
-  const { settings, exchangeRate, displayCurrency, taxRates } = useSettings();
+  const { settings, exchangeRate, displayCurrency, taxRates, rateFor, rates } = useSettings();
 
   // Global-search deep link (?focus=<id>) → open that invoice's detail.
   const [focusId, clearFocus] = useFocusId();
@@ -382,7 +382,14 @@ export default function Invoices() {
 
   async function openPayModal(inv) {
     setPayLoading(true);
-    setPayForm({ amount: '', method: 'Cash', note: '', currency: 'USD', rate: exchangeRate?.rate || '', cash_drawer_id: '' });
+    // The currency the customer settles in, at the rate recorded for it. A
+    // euro account opening on dollars is a form the operator has to correct
+    // every single time.
+    const pref = (inv?.client_preferred_currency || '').toUpperCase();
+    const cur  = CURRENCIES.includes(pref) ? pref : 'USD';
+    setPayForm({ amount: '', method: 'Cash', note: '', currency: cur,
+                 rate: cur === 'USD' ? '' : (rateFor(cur) || ''),
+                 cash_drawer_id: '' });
     setPayModal(inv);
     try {
       const full = await getInvoice(inv.id);
@@ -415,7 +422,12 @@ export default function Invoices() {
           ? Number(payForm.cash_drawer_id) : null,
       });
       toast(t('invoices.paymentRecorded'));
-      setPayForm({ amount: '', method: 'Cash', note: '', currency: 'USD', rate: exchangeRate?.rate || '', cash_drawer_id: '' });
+      // Reset to the same currency and rate the form opened on, so taking a
+      // second payment from the same customer does not start on dollars.
+      setPayForm(f => ({
+        amount: '', method: 'Cash', note: '', currency: f.currency,
+        rate: f.currency === 'USD' ? '' : f.rate, cash_drawer_id: '',
+      }));
       const full = await getInvoice(payModal.id);
       setPayModal(full);
       reload();
@@ -899,22 +911,25 @@ export default function Invoices() {
                   return (
                   <form onSubmit={handleAddPayment}
                     style={{ display:'flex', flexWrap:'wrap', gap:8, marginBottom:20, alignItems:'flex-end' }}>
-                    {exchangeRate?.rate && (
+                    {(exchangeRate?.rate || Object.keys(rates || {}).length > 0) && (
                       <div className="form-group" style={{ margin:0, width:90 }}>
                         <label className="form-label">{t('invoices.paymentCurrency')}</label>
                         <select className="form-control" value={payForm.currency}
                           onChange={e => setPayForm(f => ({
                             ...f, currency: e.target.value,
-                            // The stored rate is the pound rate; only pounds may
-                            // inherit it. Another currency starts blank so nobody
-                            // pays euro at the pound rate by accident.
-                            rate: e.target.value === 'LBP' ? (f.rate || exchangeRate?.rate || '')
-                              : e.target.value === 'USD' ? f.rate : '',
+                            // Each currency inherits ITS OWN stored rate. It
+                            // used to inherit the pound one or nothing at all,
+                            // because the pound rate was the only one the app
+                            // could read — so a euro payment was either typed
+                            // from memory or booked at 89,000.
+                            rate: e.target.value === 'USD'
+                              ? f.rate
+                              : (rateFor(e.target.value) || ''),
                           }))}>
                           {CURRENCIES.map(cur => (
                             <option key={cur} value={cur}>
-                              {cur === 'USD' ? (exchangeRate.base || 'USD')
-                                : cur === 'LBP' ? (exchangeRate.secondary || 'LBP')
+                              {cur === 'USD' ? (exchangeRate?.base || 'USD')
+                                : cur === 'LBP' ? (exchangeRate?.secondary || 'LBP')
                                 : cur}
                             </option>
                           ))}

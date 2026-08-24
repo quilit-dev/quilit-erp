@@ -2608,6 +2608,8 @@ const en = {
   },
 
   rates: {
+    usingFrom: 'Using the rate set on {{date}}',
+    noneFor: 'No rate recorded for {{currency}} — set one in the rate book above.',
     title: 'Exchange rates',
     none: 'No rate set',
     empty: 'No rates yet. Set one below and every pair is worked out from it.',
