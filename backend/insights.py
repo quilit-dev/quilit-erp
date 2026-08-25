@@ -305,13 +305,13 @@ def _service(db):
     uninvoiced = _rows(db, """
         SELECT COUNT(*) AS n, COALESCE(SUM(j.total),0) AS value
           FROM service_jobs j
-         WHERE j.archived_at IS NULL AND j.status = 'Completed'
+         WHERE j.archived_at IS NULL AND j.status = 'Done'
            AND COALESCE(j.total,0) > 0
            AND NOT EXISTS (SELECT 1 FROM invoices i
                             WHERE i.service_job_id = j.id AND i.voided_at IS NULL)""")
     overdue = _one(db, """
         SELECT COUNT(*) FROM service_jobs
-         WHERE archived_at IS NULL AND status IN ('Draft','Scheduled','In Progress')
+         WHERE archived_at IS NULL AND status = 'Open'
            AND scheduled_date IS NOT NULL AND scheduled_date < ?""",
                    (str(date.today()),))
     return {

@@ -107,12 +107,18 @@ def test_the_number_prefix_is_a_setting(client, acme):
     assert _job(client, acme)["job_number"].startswith("WO-")
 
 
-def test_a_job_scheduled_at_creation_starts_scheduled(client, acme):
+def test_a_new_job_is_open_whether_or_not_it_has_a_date(client, acme):
+    """A job is Open from the moment the call is taken.
+
+    It used to start Draft, or Scheduled if a date came with it — two names for
+    work that has not been done, distinguished by a field that is right there on
+    the sheet. Booking a visit is not a state change.
+    """
     plain = _job(client, acme)
     dated = _job(client, acme, scheduled_date="2026-09-01")
 
-    assert client.get(f"/api/service/jobs/{plain['id']}").json()["status"] == "Draft"
-    assert client.get(f"/api/service/jobs/{dated['id']}").json()["status"] == "Scheduled"
+    assert client.get(f"/api/service/jobs/{plain['id']}").json()["status"] == "Open"
+    assert client.get(f"/api/service/jobs/{dated['id']}").json()["status"] == "Open"
 
 
 def test_a_job_totals_its_lines(client, acme):
@@ -180,34 +186,64 @@ def test_a_part_line_needs_a_positive_quantity(client, acme):
 
 # ── The status ladder ────────────────────────────────────────────────────────
 
-def test_the_happy_path_walks_draft_to_completed(client, acme):
-    job = _job(client, acme)
-    jid = job["id"]
-
-    assert client.post(f"/api/service/jobs/{jid}/schedule",
-                       json={"scheduled_date": "2026-09-01"}).status_code == 200
-    assert client.post(f"/api/service/jobs/{jid}/start").status_code == 200
-    assert client.get(f"/api/service/jobs/{jid}").json()["status"] == "In Progress"
-
-
-def test_a_started_job_cannot_be_started_again(client, acme):
+def test_the_happy_path_is_open_then_done(client, acme):
+    """The whole ladder: the call is taken, the work is done, the job closes."""
     jid = _job(client, acme)["id"]
-    client.post(f"/api/service/jobs/{jid}/start")
+    assert client.get(f"/api/service/jobs/{jid}").json()["status"] == "Open"
 
-    r = client.post(f"/api/service/jobs/{jid}/start")
+    assert client.post(f"/api/service/jobs/{jid}/complete").status_code == 200
 
-    assert r.status_code == 400
-    assert "in progress" in r.json()["detail"].lower()
+    assert client.get(f"/api/service/jobs/{jid}").json()["status"] == "Done"
 
 
-def test_a_cancelled_job_cannot_be_scheduled(client, acme):
+def test_the_two_states_it_used_to_walk_through_are_gone(client, acme):
+    """Scheduling and starting only moved a job between names for "not done".
+
+    Left in place they would be a second way to set a status, and the one thing
+    a status ladder cannot survive is two ways to move.
+    """
+    jid = _job(client, acme)["id"]
+
+    # 405 rather than 404: with the routes gone the paths fall through to the
+    # SPA catch-all, which answers GET and refuses everything else. Either way
+    # nothing behind them runs.
+    assert client.post(f"/api/service/jobs/{jid}/start").status_code in (404, 405)
+    assert client.post(f"/api/service/jobs/{jid}/schedule",
+                       json={"scheduled_date": "2026-09-01"}).status_code in (404, 405)
+
+
+def test_a_job_cannot_be_closed_twice(client, acme):
+    jid = _job(client, acme)["id"]
+    client.post(f"/api/service/jobs/{jid}/complete")
+
+    r = client.post(f"/api/service/jobs/{jid}/complete")
+
+    assert r.status_code == 409
+    assert "already closed" in r.json()["detail"].lower()
+
+
+def test_a_cancelled_job_cannot_be_closed(client, acme):
     jid = _job(client, acme)["id"]
     client.post(f"/api/service/jobs/{jid}/cancel", json={"reason": "customer declined"})
 
-    r = client.post(f"/api/service/jobs/{jid}/schedule",
-                    json={"scheduled_date": "2026-09-01"})
+    r = client.post(f"/api/service/jobs/{jid}/complete")
 
     assert r.status_code == 400
+
+
+def test_a_job_that_is_done_is_reopened_before_it_can_be_cancelled(client, acme):
+    """Closing consumed stock and posted its cost; cancelling leaves both.
+
+    Reopening is what gives the parts back, so it has to happen first — and the
+    refusal says so rather than leaving the operator to guess.
+    """
+    jid = _job(client, acme)["id"]
+    client.post(f"/api/service/jobs/{jid}/complete")
+
+    r = client.post(f"/api/service/jobs/{jid}/cancel", json={"reason": "mistake"})
+
+    assert r.status_code == 400
+    assert "reopen" in r.json()["detail"].lower()
 
 
 def test_a_closed_job_can_no_longer_be_edited(client, acme):
@@ -231,7 +267,7 @@ def test_jobs_can_be_filtered_by_status_and_client(client, acme):
     assert [j["id"] for j in client.get(
         f"/api/service/jobs?client_id={acme}").json()] == [mine]
     assert [j["id"] for j in client.get(
-        "/api/service/jobs?status=Draft").json()] != []
+        "/api/service/jobs?status=Open").json()] != []
 
 
 def test_a_job_reports_whether_it_has_been_invoiced(client, acme):

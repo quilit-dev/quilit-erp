@@ -3883,6 +3883,25 @@ def _run_migrations(conn, c):
             pass
         done("167j_existing_assets_are_openings")
 
+    # ── 168: a service job is open or it is done ───────────────────
+    # Draft, Scheduled and In Progress were three names for "not done yet".
+    # Nothing in the module behaved differently across them: the same edits were
+    # allowed, the same sheet printed, the same completion available. They were
+    # three clicks that changed a word, on a workflow that has two steps — take
+    # the call and print the sheet, then type up what came back and close it.
+    #
+    # Both statements are idempotent, which is what lets the Postgres side of
+    # this run on every start: after the first pass, no row matches either.
+    if need("168_service_two_states"):
+        try:
+            c.execute("UPDATE service_jobs SET status='Open' "
+                      " WHERE status IN ('Draft','Scheduled','In Progress')")
+            c.execute("UPDATE service_jobs SET status='Done' "
+                      " WHERE status='Completed'")
+        except sqlite3.OperationalError:
+            pass
+        done("168_service_two_states")
+
     # ── 163: currency differences an accountant can actually work with ────
     # A realised difference already records itself on the payment that caused
     # it. An unrealised one did not: the revaluation posted an entry with no
@@ -4505,6 +4524,13 @@ def _ensure_pg_post_baseline(raw):
                 ("disposal_entry_id", "INTEGER")):
             cur.execute("ALTER TABLE fixed_assets ADD COLUMN IF NOT EXISTS "
                         + _col + " " + _type)
+        # 168_service_two_states — Draft / Scheduled / In Progress were three
+        # names for "not done yet", and Completed is now Done. Idempotent, so
+        # running it on every start is a no-op once the rows have moved.
+        cur.execute("UPDATE service_jobs SET status='Open' "
+                    " WHERE status IN ('Draft','Scheduled','In Progress')")
+        cur.execute("UPDATE service_jobs SET status='Done' "
+                    " WHERE status='Completed'")
         cur.execute("UPDATE fixed_assets SET is_opening_balance = 1 "
                     " WHERE acquisition_entry_id IS NULL")
         cur.execute("ALTER TABLE invoices ADD COLUMN IF NOT EXISTS source_type TEXT")

@@ -94,7 +94,7 @@ def test_an_incomplete_job_cannot_be_invoiced(client, acme):
     r = client.post(f"/api/service/jobs/{job['id']}/invoice")
 
     assert r.status_code == 400
-    assert "completed" in r.json()["detail"].lower()
+    assert "close it first" in r.json()["detail"].lower()
 
 
 def test_a_job_is_invoiced_once(client, acme):
@@ -199,7 +199,7 @@ def test_reopening_gives_the_parts_back(client, acme):
 
     assert r.status_code == 200, r.text
     assert _stock(client, belt) == pytest.approx(10)
-    assert client.get(f"/api/service/jobs/{job['id']}").json()["status"] == "In Progress"
+    assert client.get(f"/api/service/jobs/{job['id']}").json()["status"] == "Open"
 
 
 def test_reopening_reverses_the_cost(client, acme):

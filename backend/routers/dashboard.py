@@ -211,20 +211,20 @@ def dashboard(branch_id: Optional[int] = None,
         open_jobs = _scalar(db,
             "SELECT COUNT(*) FROM service_jobs"
             " WHERE archived_at IS NULL"
-            "   AND status IN ('Draft','Scheduled','In Progress')" + bf_sj,
+            "   AND status = 'Open'" + bf_sj,
             bp_sj,
         )
         due_today = _scalar(db,
             "SELECT COUNT(*) FROM service_jobs"
             " WHERE archived_at IS NULL"
-            "   AND status IN ('Scheduled','In Progress')"
+            "   AND status = 'Open'"
             "   AND scheduled_date IS NOT NULL"
             "   AND date(scheduled_date) <= date('now')" + bf_sj,
             bp_sj,
         )
         unbilled = _scalar(db,
             "SELECT COUNT(*) FROM service_jobs j"
-            " WHERE j.archived_at IS NULL AND j.status = 'Completed'"
+            " WHERE j.archived_at IS NULL AND j.status = 'Done'"
             "   AND NOT EXISTS (SELECT 1 FROM invoices i"
             "                   WHERE i.service_job_id = j.id"
             "                     AND i.voided_at IS NULL)" + bf_sa,

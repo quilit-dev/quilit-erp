@@ -914,13 +914,13 @@ def report_service_jobs(
             "billed": bool(r["invoice_id"]),
         })
 
-    unbilled = [r for r in out if r["status"] == "Completed" and not r["billed"]]
+    unbilled = [r for r in out if r["status"] == "Done" and not r["billed"]]
     totals = {
         "jobs":       len(out),
         "revenue":    round(sum(r["revenue"] for r in out), 2),
         "parts_cost": round(sum(r["parts_cost"] for r in out), 2),
         "margin":     round(sum(r["margin"] for r in out), 2),
-        # Completed work nobody has invoiced — money spent and not yet asked for.
+        # Work that is done and nobody has invoiced — money spent and not yet asked for.
         "unbilled_count": len(unbilled),
         "unbilled_value": round(sum(r["revenue"] for r in unbilled), 2),
     }

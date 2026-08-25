@@ -749,7 +749,8 @@ def _job(cl, *, equipment=None, jtype="Repair", fault, parts=(), charges=(),
     return POST("/api/service/jobs", body)
 
 
-# ── Open work, in each state a technician's list actually contains ──────────
+# ── Open work — a technician's list. Every one of these is Open: a job is
+#    open from the call until the sheet comes back and is typed up.──────────
 _draft = _job("Gamma", equipment="Chiller Unit", jtype="Inspection",
               fault="Annual inspection due",
               charges=[("Inspection visit", 90)])
@@ -763,9 +764,8 @@ _started = _job("Delta", equipment="Conveyor Belt", jtype="Repair",
                 fault="Belt slipping under load", priority="High",
                 scheduled=days_ago(1),
                 parts=[("cmp_b", 1, 33.00)], charges=[("Callout", 60), ("Labour", 140)])
-POST(f"/api/service/jobs/{_started['id']}/start")
 
-# ── Completed and invoiced — the normal end state. Completing consumes the
+# ── Closed and invoiced — the normal end state. Closing consumes the
 #    parts, posts their cost, and (auto-invoice being on by default) raises the
 #    invoice, which is then paid so the revenue split shows in the ledger.
 _done = _job("Alpha", equipment="Production Line A", jtype="Repair",

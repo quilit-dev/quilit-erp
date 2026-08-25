@@ -11,6 +11,7 @@ import sidebarSrc from '../components/Sidebar.jsx?raw';
 import paletteSrc from '../components/CommandPalette.jsx?raw';
 import serviceSrc from '../pages/Service.jsx?raw';
 import jobFormSrc from '../pages/service/JobForm.jsx?raw';
+import apiSrc from '../api/client.js?raw';
 import equipmentFormSrc from '../pages/service/EquipmentForm.jsx?raw';
 import { buildWorkOrderHTML } from '../utils/workOrder';
 import fs from 'node:fs';
@@ -75,6 +76,97 @@ describe('both languages', () => {
 // They are also the STORED values, so they go through tEnumValue: the value
 // stays English in the database and only the label changes, which is what lets
 // one entry serve the dropdown, the list, the detail pane and the sheet.
+// ── The workflow ──────────────────────────────────────────────────────
+
+// A customer reports a problem, the office takes the call and prints a sheet,
+// the technician does the work and writes on it, the office types that up and
+// closes the job, and then it is invoiced. Two states, because the work has
+// either been done or it has not — Draft, Scheduled and In Progress were three
+// names for the second half of that sentence and behaved identically.
+describe('a job is open or it is done', () => {
+  test('only two states plus cancelled are offered anywhere', () => {
+    expect(serviceSrc).toMatch(/const STATUSES = \['Open', 'Done', 'Cancelled'\];/);
+    for (const gone of ['Draft', 'Scheduled', 'In Progress']) {
+      expect(serviceSrc, gone).not.toContain(`'${gone}'`);
+    }
+  });
+
+  test('and both have a word in each language', () => {
+    for (const dict of [en, ar]) {
+      expect(dict.service.statusOpen).toBeTruthy();
+      expect(dict.service.statusDone).toBeTruthy();
+    }
+    expect(ar.service.statusOpen).toMatch(/[\u0600-\u06ff]/);
+    expect(ar.service.statusDone).toMatch(/[\u0600-\u06ff]/);
+  });
+
+  test('the two transitions that only renamed a job are gone', () => {
+    // They set Scheduled and In Progress, and a date and a technician are
+    // ordinary fields on the sheet. Left behind, the buttons would call
+    // endpoints that no longer exist.
+    const api = apiSrc;
+    expect(api).not.toMatch(/scheduleServiceJob/);
+    expect(api).not.toMatch(/startServiceJob/);
+    expect(serviceSrc).not.toMatch(/startServiceJob/);
+  });
+});
+
+describe('step one: the call is taken', () => {
+  test('creating asks for the client, the machine and the problem', () => {
+    expect(jobFormSrc).toMatch(/t\('common\.client'\)/);
+    expect(jobFormSrc).toMatch(/t\('service\.equipment'\)/);
+    expect(jobFormSrc).toMatch(/t\('service\.reportedFault'\)/);
+  });
+
+  test('and asks for nothing that happens on site', () => {
+    // Work done and parts used are written on the printed sheet by the person
+    // who did the work. Offering them at creation invites the office to guess,
+    // and a guess printed on the work order is a line nobody writes over.
+    expect(jobFormSrc).toMatch(/const editing = !!job\?\.id;/);
+    expect(jobFormSrc).toMatch(/\{editing && \(/);
+    const writeUp = jobFormSrc.slice(jobFormSrc.indexOf('{editing && ('));
+    expect(writeUp).toContain("t('service.workDone')");
+    expect(writeUp).toContain("t('service.partsAndCharges')");
+  });
+
+  test('the new job lands on its own detail, where the sheet prints', () => {
+    // "A work order is generated and ready to print" — so the create form hands
+    // back the id and the page opens it, rather than closing onto a list where
+    // the operator has to find the job again.
+    expect(jobFormSrc).toMatch(/onDone\(res\?\.id\)/);
+    expect(serviceSrc).toMatch(/if \(newId\) open\(newId\)/);
+  });
+});
+
+describe('step two: the sheet comes back', () => {
+  test('an open job can be edited, printed and closed', () => {
+    expect(serviceSrc).toMatch(/const open = job\.status === 'Open';/);
+    expect(serviceSrc).toMatch(/t\('service\.closeJob'\)/);
+    expect(serviceSrc).toMatch(/printWorkOrder\(job\)/);
+  });
+
+  test('printing is the primary action while the job is open', () => {
+    // It is the next thing that happens after the call, and a secondary button
+    // beside a primary one says the opposite.
+    expect(serviceSrc).toMatch(/open \? 'btn-primary' : 'btn-secondary'/);
+  });
+
+  test('the invoice becomes available once the job is done', () => {
+    expect(serviceSrc).toMatch(
+      /job\.status === 'Done' && !job\.invoice[\s\S]{0,200}?raiseInvoice/);
+  });
+
+  test('each state says what to do next, in both languages', () => {
+    for (const k of ['newJobHint', 'openJobHint', 'doneJobHint']) {
+      expect(en.service[k], k).toBeTruthy();
+      expect(ar.service[k], k).toMatch(/[\u0600-\u06ff]/);
+    }
+    expect(serviceSrc).toMatch(/openJobHint/);
+    expect(serviceSrc).toMatch(/doneJobHint/);
+    expect(jobFormSrc).toMatch(/newJobHint/);
+  });
+});
+
 describe('job type and priority read in Arabic', () => {
   const JOB_TYPES = ['Installation', 'Maintenance', 'Repair', 'Inspection'];
   const PRIORITIES = ['Low', 'Normal', 'High'];
@@ -159,17 +251,16 @@ describe('the page renders from translations, not literals', () => {
 
   test('the status ladder is driven by one endpoint per transition', () => {
     // A single "set status" call would let the UI skip the consumption that
-    // completing performs.
-    expect(serviceSrc).toMatch(/startServiceJob/);
+    // closing performs.
     expect(serviceSrc).toMatch(/completeServiceJob/);
     expect(serviceSrc).toMatch(/reopenServiceJob/);
     // Anchored to a CALL: `setStatusFilter` is the list filter and is fine.
     expect(serviceSrc).not.toMatch(/setStatus\(|updateStatus\(/);
   });
 
-  test('completing and reopening both ask first', () => {
+  test('closing and reopening both ask first', () => {
     // Both move stock and post to the ledger.
-    expect(serviceSrc).toMatch(/completeConfirm/);
+    expect(serviceSrc).toMatch(/closeConfirm/);
     expect(serviceSrc).toMatch(/reopenConfirm/);
   });
 });
@@ -203,7 +294,7 @@ const SETTINGS = { company_name: 'Acme Service', default_currency: 'USD' };
 
 const JOB = {
   id: 1, job_number: 'SVC-2026-0001', job_type: 'Repair', priority: 'Normal',
-  status: 'Scheduled', client_name: 'Bakery Co', assigned_name: 'Sami',
+  status: 'Open', client_name: 'Bakery Co', assigned_name: 'Sami',
   scheduled_date: '2026-09-01', reported_fault: 'Fan not spinning',
   equipment: { name: 'Bakery oven', model: 'R-200', serial_number: 'SN-4471' },
   lines: [
@@ -263,8 +354,8 @@ describe('the work order', () => {
     expect(html()).toContain('Return this sheet to the office');
   });
 
-  test('once completed it prints the record instead of blank lines', () => {
-    const out = html({ ...JOB, status: 'Completed',
+  test('once the job is done it prints the record instead of blank lines', () => {
+    const out = html({ ...JOB, status: 'Done',
                        work_done: 'Replaced fan belt and tensioner' });
 
     expect(out).toContain('Replaced fan belt and tensioner');
@@ -272,12 +363,12 @@ describe('the work order', () => {
     expect(out).not.toContain('Return this sheet to the office');
   });
 
-  test('hides prices until the job is completed', () => {
+  test('hides prices until the job is done', () => {
     // A technician mid-visit should not be quoting figures nobody has agreed.
     const before = html();
     expect(before).not.toContain('124.00');
 
-    const after = html({ ...JOB, status: 'Completed' });
+    const after = html({ ...JOB, status: 'Done' });
     expect(after).toContain('124.00');
   });
 
@@ -299,7 +390,7 @@ describe('the work order', () => {
       ['Job No.', 'رقم المهمة'],
       ['Technician', 'الفني'],
       ['Equipment', 'المعدّة'],
-      ['Reported fault', 'العطل'],
+      ['Reported problem', 'المشكلة'],
       ['Work carried out', 'العمل المنفَّذ'],
       ['Parts used', 'القطع المستعملة'],
       ['Customer signature', 'توقيع العميل'],
@@ -325,10 +416,26 @@ describe('the work order', () => {
   });
 
   test('the priced copy is bilingual as well', () => {
-    const out = html({ ...JOB, status: 'Completed', work_done: 'Done' });
+    const out = html({ ...JOB, status: 'Done', work_done: 'Replaced the belt' });
 
     expect(out).toContain('الإجمالي');   // Total
     expect(out).toContain('سعر الوحدة');   // Unit
+  });
+
+  test('an open job prints the three things the office knows, and no more', () => {
+    // Step one of the workflow: the call has been taken and nobody has been to
+    // site. Client, machine and problem are what exists; work done and parts
+    // used are ruled space, because they are written by hand on the sheet.
+    const out = html({ ...JOB, work_done: 'the office should not print this' });
+
+    expect(out).toContain('Bakery Co');
+    expect(out).toContain('Bakery oven');
+    expect(out).toContain('SN-4471');
+    expect(out).toContain('Fan not spinning');
+
+    expect(out).not.toContain('the office should not print this');
+    expect(out).toContain('Part / description');
+    expect(out).toContain('Return this sheet to the office');
   });
 
   test('is a work order, not an invoice', () => {
@@ -387,7 +494,7 @@ describe('every translation key the service screens use exists', () => {
   test('the dynamically built status keys all exist', () => {
     // Built as `service.status${status.replace(/\s/g,'')}` from an API value,
     // so no literal appears in the source for the checker above to find.
-    for (const s of ['Draft', 'Scheduled', 'In Progress', 'Completed', 'Cancelled']) {
+    for (const s of ['Open', 'Done', 'Cancelled']) {
       const key = `status${s.replace(/\s/g, '')}`;
       expect(en.service[key], key).toBeTruthy();
       expect(ar.service[key], key).toBeTruthy();

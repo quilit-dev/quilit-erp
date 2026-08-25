@@ -1,5 +1,15 @@
 /**
- * The job sheet form.
+ * The job sheet form, which is two forms.
+ *
+ * Creating a job is the first step of the workflow and asks what a phone call
+ * gives you: who is calling, which machine, what is wrong with it. There is
+ * nowhere to put work done or parts used yet, because nobody has been to site
+ * — offering those fields invites the office to guess, and a guess printed on
+ * the work order is a line the technician will not write over.
+ *
+ * Editing the same job afterwards is the second step: the sheet is back, and
+ * the work carried out, the parts drawn from stores and any extra charges are
+ * typed in before the job is closed.
  *
  * A line is either a PART (drawn from stock, so it needs a stock item) or a
  * CHARGE (labour, callout, a flat fee). The two are added by separate buttons
@@ -26,6 +36,9 @@ const emptyCharge = () => ({ line_type: 'charge', inventory_id: null, name: '', 
 
 export default function JobForm({ job, clients, onDone, onCancel }) {
   const { t, tEnumValue } = useLocale();
+  // The job exists, so the visit has happened or is about to: this is where
+  // what came back from site gets typed in.
+  const editing = !!job?.id;
   const [form, setForm] = useState(() => ({
     client_id: job?.client_id || '',
     equipment_id: job?.equipment_id || '',
@@ -102,11 +115,15 @@ export default function JobForm({ job, clients, onDone, onCancel }) {
       if (job?.id) {
         await updateServiceJob(job.id, payload);
         toast(t('service.jobUpdated'));
+        onDone();
       } else {
-        await createServiceJob(payload);
+        // The id goes back so the caller can open the job it just made: the
+        // work order prints from there, and printing it is the next thing that
+        // happens.
+        const res = await createServiceJob(payload);
         toast(t('service.jobCreated'));
+        onDone(res?.id);
       }
-      onDone();
     } catch (err) {
       toast(err.message, 'red');
     } finally {
@@ -174,6 +191,17 @@ export default function JobForm({ job, clients, onDone, onCancel }) {
         <textarea className="form-control" rows="2" value={form.reported_fault || ''}
                   onChange={set('reported_fault')} />
       </div>
+
+      {!editing && (
+        <p style={{ fontSize: 12, color: 'var(--text-3)', margin: '4px 0 0' }}>
+          {t('service.newJobHint')}
+        </p>
+      )}
+
+      {/* Everything below is the write-up: what the sheet says when it comes
+          back. On a job that does not exist yet there is nothing to write up. */}
+      {editing && (
+      <>
       <div className="form-group">
         <label className="form-label">{t('service.workDone')}</label>
         <textarea className="form-control" rows="2" value={form.work_done || ''}
@@ -254,6 +282,8 @@ export default function JobForm({ job, clients, onDone, onCancel }) {
           <strong>{t('common.subtotal')}: {fmt(subtotal)}</strong>
         </div>
       </div>
+      </>
+      )}
 
       </div>
 

@@ -6,13 +6,18 @@
  * field on the job, so a machine accumulates a history you can read back.
  *
  * Status is driven by one endpoint per transition rather than a status dropdown.
- * That mirrors the backend deliberately: completing a job consumes stock and
- * posts its cost, so it is an action with consequences, not a field to edit.
+ * That mirrors the backend deliberately: closing a job consumes stock and posts
+ * its cost, so it is an action with consequences, not a field to edit.
+ *
+ * There are two of them, because the work has either been done or it has not:
+ *
+ *   call taken → job created → OPEN → work order printed → work carried out
+ *   → work done, parts and charges typed in → closed → DONE → invoice
  */
 import { useState, useEffect } from 'react';
 import { useData } from '../hooks/useData';
 import {
-  getServiceJobs, getServiceJob, startServiceJob, completeServiceJob,
+  getServiceJobs, getServiceJob, completeServiceJob,
   reopenServiceJob, invoiceServiceJob,
   getServiceEquipment, getServiceEquipmentOne, getClients,
 } from '../api/client';
@@ -27,10 +32,8 @@ import JobForm from './service/JobForm.jsx';
 import EquipmentForm from './service/EquipmentForm.jsx';
 import { printWorkOrder } from '../utils/workOrder';
 
-const STATUS_COLOR = {
-  Draft: 'gray', Scheduled: 'blue', 'In Progress': 'yellow',
-  Completed: 'green', Cancelled: 'red',
-};
+const STATUS_COLOR = { Open: 'blue', Done: 'green', Cancelled: 'red' };
+const STATUSES = ['Open', 'Done', 'Cancelled'];
 
 export default function Service() {
   const { t, tEnumValue } = useLocale();
@@ -180,7 +183,7 @@ export default function Service() {
               <select className="form-control" style={{ width: 150 }} value={statusFilter}
                       onChange={e => setStatusFilter(e.target.value)}>
                 <option value="">{t('common.all')}</option>
-                {['Draft', 'Scheduled', 'In Progress', 'Completed', 'Cancelled'].map(s => (
+                {STATUSES.map(s => (
                   <option key={s} value={s}>{t(`service.status${s.replace(/\s/g, '')}`)}</option>
                 ))}
               </select>
@@ -240,7 +243,7 @@ export default function Service() {
                       <td>
                         {/* Invoiced state is derived from the invoice, so it
                             stays correct when one is voided. */}
-                        {j.status === 'Completed' && (
+                        {j.status === 'Done' && (
                           <span className={`badge badge-${j.invoice_id ? 'green' : 'yellow'}`}>
                             {j.invoice_id ? t('service.billed') : t('service.unbilled')}
                           </span>
@@ -334,7 +337,13 @@ export default function Service() {
           <JobForm
             job={active}
             clients={clients.data || []}
-            onDone={() => { setModal(null); reload(); }}
+            onDone={(newId) => {
+              setModal(null);
+              reload();
+              // Straight onto the job it just made: the next thing that happens
+              // is printing the work order, and it is a button away there.
+              if (newId) open(newId);
+            }}
             onCancel={() => setModal(null)}
           />
         </Modal>
@@ -431,7 +440,7 @@ export default function Service() {
 
 /** The job sheet: what was asked for, what was done, what it cost. */
 function JobDetail({ job, can, t, tEnumValue, onEdit, onTransition, onInvoice }) {
-  const open = ['Draft', 'Scheduled', 'In Progress'].includes(job.status);
+  const open = job.status === 'Open';
   const parts = (job.lines || []).filter(l => l.line_type === 'part');
   const charges = (job.lines || []).filter(l => l.line_type === 'charge');
 
@@ -443,7 +452,7 @@ function JobDetail({ job, can, t, tEnumValue, onEdit, onTransition, onInvoice })
       <div className="modal-body">
       {/* Each field is a .form-group with a .form-label. An unclassed label has
           no styling of its own and an unclassed wrapper stacks nothing, so the
-          label ran straight into its value: "ClientAli", "StatusIn Progress". */}
+          label ran straight into its value: "ClientAli", "StatusOpen". */}
       <div className="form-grid">
         <div className="form-group">
           <label className="form-label">{t('common.client')}</label>
@@ -466,6 +475,15 @@ function JobDetail({ job, can, t, tEnumValue, onEdit, onTransition, onInvoice })
           <label className="form-label">{t('service.completedAt')}</label>
           <span>{job.completed_at ? fmtDate(job.completed_at) : '—'}</span></div>
       </div>
+
+      {/* Which half of the workflow this job is in, and what the operator is
+          expected to do about it. The ladder is short enough that saying so
+          costs one line and saves the question. */}
+      {job.status !== 'Cancelled' && (
+        <p style={{ fontSize: 12, color: 'var(--text-3)', margin: '4px 0 12px' }}>
+          {open ? t('service.openJobHint') : t('service.doneJobHint')}
+        </p>
+      )}
 
       {job.reported_fault && (
         <p><strong>{t('service.reportedFault')}:</strong> {job.reported_fault}</p>
@@ -503,7 +521,7 @@ function JobDetail({ job, can, t, tEnumValue, onEdit, onTransition, onInvoice })
           )}
           <tr><td colSpan="3" className="text-right"><strong>{t('common.total')}</strong></td>
               <td className="text-right"><strong>{fmt(job.total)}</strong></td></tr>
-          {job.status === 'Completed' && (
+          {job.status === 'Done' && (
             <>
               <tr><td colSpan="3" className="text-right">{t('service.partsCost')}</td>
                   <td className="text-right">{fmt(job.parts_cost)}</td></tr>
@@ -528,31 +546,27 @@ function JobDetail({ job, can, t, tEnumValue, onEdit, onTransition, onInvoice })
       </div>
 
       <div className="modal-footer" style={{ flexWrap: 'wrap', gap: 8 }}>
-        <button className="btn btn-secondary"
+        {/* Primary while the job is open, because printing it is the next thing
+            that happens; the same button afterwards prints the record. */}
+        <button className={`btn ${open ? 'btn-primary' : 'btn-secondary'}`}
                 onClick={() => printWorkOrder(job)}>{t('service.workOrder')}</button>
         {open && can('service', 'edit') && (
           <button className="btn btn-secondary" onClick={onEdit}>{t('common.edit')}</button>
         )}
-        {['Draft', 'Scheduled'].includes(job.status) && can('service', 'edit') && (
-          <button className="btn btn-secondary"
-                  onClick={() => onTransition(startServiceJob, job.id, t('service.start'))}>
-            {t('service.start')}
-          </button>
-        )}
         {open && can('service', 'edit') && (
           <ConfirmButton
             className="btn btn-primary"
-            label={t('service.complete')}
-            message={t('service.completeConfirm')}
-            onConfirm={() => onTransition(completeServiceJob, job.id, t('service.jobCompleted'))}
+            label={t('service.closeJob')}
+            message={t('service.closeConfirm')}
+            onConfirm={() => onTransition(completeServiceJob, job.id, t('service.jobClosed'))}
           />
         )}
-        {job.status === 'Completed' && !job.invoice && can('service', 'create') && (
+        {job.status === 'Done' && !job.invoice && can('service', 'create') && (
           <button className="btn btn-primary" onClick={onInvoice}>
             {t('service.raiseInvoice')}
           </button>
         )}
-        {job.status === 'Completed' && !job.invoice && can('service', 'edit') && (
+        {job.status === 'Done' && !job.invoice && can('service', 'edit') && (
           <ConfirmButton
             className="btn btn-secondary"
             label={t('service.reopen')}
@@ -565,7 +579,7 @@ function JobDetail({ job, can, t, tEnumValue, onEdit, onTransition, onInvoice })
   );
 }
 
-/** A button that asks first. Completing and reopening both move stock and post
+/** A button that asks first. Closing and reopening both move stock and post
  *  to the ledger, so neither should be one careless click away. */
 function ConfirmButton({ className, label, message, onConfirm }) {
   const [asking, setAsking] = useState(false);

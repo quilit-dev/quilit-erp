@@ -115,7 +115,7 @@ def test_a_job_it_cannot_stock_consumes_nothing_at_all(client, acme):
     assert "not enough stock" in r.json()["detail"].lower()
     assert _stock(client, plenty) == pytest.approx(10), "the first line was consumed"
     assert _stock(client, scarce) == pytest.approx(1)
-    assert client.get(f"/api/service/jobs/{job['id']}").json()["status"] != "Completed"
+    assert client.get(f"/api/service/jobs/{job['id']}").json()["status"] != "Done"
 
 
 def test_two_lines_of_the_same_part_are_checked_together(client, acme):

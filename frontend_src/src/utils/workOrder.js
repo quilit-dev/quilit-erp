@@ -8,15 +8,16 @@
  * work done, parts used and two signatures — because the copy that comes back
  * from site is the record of the visit.
  *
- * It is a FORM while the job is open. The office fills in the fault and prints
- * it; the technician writes the work carried out on the dotted lines and the
- * parts used in the grid; the office types both onto the job afterwards and
- * closes it. So nothing already recorded is printed into those sections — a
- * line that arrives filled in is a line nobody writes on, and the sheet that
+ * It is a FORM while the job is Open, which is the whole of the first step: the
+ * office takes the call, records the client, the machine and the problem, and
+ * prints this. The technician writes the work carried out on the dotted lines
+ * and the parts used in the grid; the office types both onto the job afterwards
+ * and closes it. So nothing already recorded is printed into those sections —
+ * a line that arrives filled in is a line nobody writes on, and the sheet that
  * comes back would say what the office guessed rather than what happened.
  *
- * Once the job is completed the same template prints the record instead: what
- * was actually done, and the parts and charges with their prices.
+ * Once the job is Done the same template prints the record instead: what was
+ * actually done, and the parts and charges with their prices.
  *
  * Prices are omitted unless the job is already completed. A technician handing
  * this to a customer mid-visit should not be quoting figures that have not been
@@ -139,7 +140,7 @@ export function buildWorkOrderHTML(job, settings, logoDataURL = null, opts = {})
   const CC = currencyContext(C, opts);
   const theme = themeFor(settings);
 
-  const done = job.status === 'Completed';
+  const done = job.status === 'Done';
   const lines = job.lines || [];
   const parts = lines.filter(l => l.line_type === 'part');
   const charges = lines.filter(l => l.line_type === 'charge');
@@ -199,7 +200,7 @@ export function buildWorkOrderHTML(job, settings, logoDataURL = null, opts = {})
 
   ${job.reported_fault ? `
   <div class="wo-fault">
-    <h4>${lbl('Reported fault', 'العطل المُبلّغ عنه')}</h4>
+    <h4>${lbl('Reported problem', 'المشكلة المُبلّغ عنها')}</h4>
     <div>${esc(job.reported_fault)}</div>
   </div>` : ''}
 

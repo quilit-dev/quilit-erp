@@ -829,8 +829,10 @@ export const updateServiceJob = (id, d)     => api.put(`/api/service/jobs/${id}`
 // One endpoint per transition, mirroring the backend: a single "set status"
 // call would let the UI walk a job to Completed and skip the parts consumption
 // that Completed performs.
-export const scheduleServiceJob = (id, d)   => api.post(`/api/service/jobs/${id}/schedule`, d);
-export const startServiceJob    = (id)      => api.post(`/api/service/jobs/${id}/start`);
+// `schedule` and `start` are gone with the statuses they set: a job is Open
+// from the call until the sheet comes back, and the date and technician are
+// ordinary fields on it. `complete` keeps its path — it is the ledger event,
+// whatever the button above it says.
 export const completeServiceJob = (id)      => api.post(`/api/service/jobs/${id}/complete`);
 export const reopenServiceJob   = (id)      => api.post(`/api/service/jobs/${id}/reopen`);
 export const cancelServiceJob   = (id, d)   => api.post(`/api/service/jobs/${id}/cancel`, d);

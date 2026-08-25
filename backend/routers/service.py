@@ -10,6 +10,17 @@ entities:
     that are either a stocked PART (consumes inventory, has a cost) or a flat
     CHARGE (labour, callout, fee).
 
+The workflow is two steps, and the sheet is what joins them:
+
+  1. A customer reports a problem. The office creates the job with the client,
+     the machine and the fault, and it is **Open**. The work order prints from
+     there — client, equipment and reported fault, with ruled space for the
+     work carried out and the parts used, because those are written on site.
+  2. The technician comes back with the sheet filled in. The office types the
+     work done, the parts and any extra charges onto the job and **closes** it.
+     That is the moment stock moves and the cost posts. The job is **Done**, and
+     the invoice can be raised.
+
 Deliberately absent: hours and timesheets (labour is flat-fee), maintenance
 contracts, and any scheduling board beyond a date and an assignee. Each was
 considered and left out to keep the module something a small business can
@@ -49,14 +60,19 @@ router = APIRouter()
 JOB_TYPES = ("Installation", "Maintenance", "Repair", "Inspection")
 PRIORITIES = ("Low", "Normal", "High")
 
-ST_DRAFT     = "Draft"
-ST_SCHEDULED = "Scheduled"
-ST_PROGRESS  = "In Progress"
-ST_COMPLETED = "Completed"
+# Two states, because a service job is in one of two conditions: the work has
+# not been done yet, or it has. Draft / Scheduled / In Progress were three names
+# for the first of those — nothing behaved differently across them, so they
+# were three clicks that changed a word and nothing else. A job is OPEN from the
+# moment the call is taken until the sheet comes back from site and is typed up.
+ST_OPEN      = "Open"
+ST_DONE      = "Done"
 ST_CANCELLED = "Cancelled"
 
-# States in which the job sheet may still be edited.
-_OPEN_STATES = (ST_DRAFT, ST_SCHEDULED, ST_PROGRESS)
+# States in which the job sheet may still be edited. Kept as a tuple rather than
+# collapsed to `status == ST_OPEN`, because it is also what the equipment-archive
+# check counts against — one place to change if a third open state ever exists.
+_OPEN_STATES = (ST_OPEN,)
 # There is no 'Invoiced' status: whether a job has been billed is derived from
 # invoices.service_job_id, so it cannot drift when an invoice is voided.
 
@@ -102,11 +118,6 @@ class JobBody(BaseModel):
     warehouse_id:   Optional[int] = None
     branch_id:      Optional[int] = None
     items:          List[JobLine] = []
-
-
-class ScheduleBody(BaseModel):
-    scheduled_date: str
-    assigned_to:    Optional[int] = None
 
 
 class CancelBody(BaseModel):
@@ -420,7 +431,7 @@ def list_jobs(
         # actually wants on a Friday afternoon.
         where.append("j.status = ? AND NOT EXISTS (SELECT 1 FROM invoices i "
                      "WHERE i.service_job_id = j.id AND i.voided_at IS NULL)")
-        params.append(ST_COMPLETED)
+        params.append(ST_DONE)
     bf, bp = branch_access.branch_filter(user, db, column="j.branch_id")
     if bf:
         # branch_filter returns a fragment with a leading " AND "; this list
@@ -486,7 +497,7 @@ def create_job(
         " branch_id, created_by, created_at, updated_at) "
         "VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)",
         (_placeholder_number(), data.client_id, data.equipment_id, data.job_type,
-         ST_SCHEDULED if data.scheduled_date else ST_DRAFT, data.priority,
+         ST_OPEN, data.priority,
          data.scheduled_date, data.assigned_to, data.reported_fault, data.work_done,
          warehouse_id, branch_id, user["id"], now, now),
     )
@@ -554,52 +565,12 @@ def update_job(
 
 # ── Status transitions ───────────────────────────────────────────────────────
 # One endpoint per transition, each validating the state it is coming FROM.
-# A single PATCH taking any status would let the UI walk a job straight from
-# Draft to Completed and skip the consumption that Completed is supposed to
-# perform.
-
-@router.post("/jobs/{job_id}/schedule")
-def schedule_job(
-    job_id: int,
-    data: ScheduleBody,
-    user=Depends(require_perm("service", "edit")),
-    db: sqlite3.Connection = Depends(get_db),
-):
-    job = _get_job(db, job_id, user)
-    if job["status"] not in (ST_DRAFT, ST_SCHEDULED):
-        raise HTTPException(400, f"Cannot schedule a job that is {job['status'].lower()}.")
-    assigned = data.assigned_to if data.assigned_to is not None else job["assigned_to"]
-    if assigned and not db.execute("SELECT 1 FROM users WHERE id=?", (assigned,)).fetchone():
-        raise HTTPException(400, "Assigned user not found")
-    db.execute(
-        "UPDATE service_jobs SET status=?, scheduled_date=?, assigned_to=?, updated_at=? "
-        "WHERE id=?", (ST_SCHEDULED, data.scheduled_date, assigned, _now(), job_id))
-    if assigned and assigned != job["assigned_to"]:
-        notify(db, user_id=assigned, type="service_job_scheduled",
-               title=f"Service job assigned: {job['job_number']}",
-               body=f"Scheduled for {data.scheduled_date}",
-               link="/service", entity_type="service_job", entity_id=job_id)
-    log_action(db, user, "schedule", "service_job", job_id, job["job_number"],
-               {"scheduled_date": data.scheduled_date})
-    db.commit()
-    return {"message": "Job scheduled", "status": ST_SCHEDULED}
-
-
-@router.post("/jobs/{job_id}/start")
-def start_job(
-    job_id: int,
-    user=Depends(require_perm("service", "edit")),
-    db: sqlite3.Connection = Depends(get_db),
-):
-    job = _get_job(db, job_id, user)
-    if job["status"] not in (ST_DRAFT, ST_SCHEDULED):
-        raise HTTPException(400, f"Cannot start a job that is {job['status'].lower()}.")
-    db.execute("UPDATE service_jobs SET status=?, updated_at=? WHERE id=?",
-               (ST_PROGRESS, _now(), job_id))
-    log_action(db, user, "start", "service_job", job_id, job["job_number"])
-    db.commit()
-    return {"message": "Job started", "status": ST_PROGRESS}
-
+# A single PATCH taking any status would let the UI walk a job straight to Done
+# and skip the consumption that closing is supposed to perform.
+#
+# One transition each way. `schedule` and `start` used to sit here; both only
+# moved a job between names for "not done yet", and the date and the assignee
+# they set are ordinary fields on the sheet, editable like any other.
 
 @router.post("/jobs/{job_id}/complete")
 def complete_job(
@@ -607,7 +578,12 @@ def complete_job(
     user=Depends(require_perm("service", "edit")),
     db: sqlite3.Connection = Depends(get_db),
 ):
-    """Mark the work done, consume its parts, and recognise the cost.
+    """Close the job: record the work, consume its parts, recognise the cost.
+
+    The second half of the workflow. The sheet came back from site, the office
+    typed the work carried out, the parts used and any extra charges onto the
+    job, and closing it is what turns that into stock and ledger movement.
+    Nothing before this point moves anything.
 
     This is where a service job first touches the ledger. Two things happen and
     they must not come apart:
@@ -635,10 +611,10 @@ def complete_job(
     from utils import money
 
     job = _get_job(db, job_id, user)
-    if job["status"] == ST_COMPLETED:
-        raise HTTPException(409, "Job is already completed.")
+    if job["status"] == ST_DONE:
+        raise HTTPException(409, "Job is already closed.")
     if job["status"] == ST_CANCELLED:
-        raise HTTPException(400, "A cancelled job cannot be completed.")
+        raise HTTPException(400, "A cancelled job cannot be closed.")
 
     now = _now()
     wid = wha.default_warehouse_id_for_row(db, job["warehouse_id"])
@@ -709,11 +685,11 @@ def complete_job(
 
     db.execute(
         "UPDATE service_jobs SET status=?, completed_at=?, parts_cost=?, updated_at=? "
-        "WHERE id=?", (ST_COMPLETED, now, cogs_total, now, job_id))
+        "WHERE id=?", (ST_DONE, now, cogs_total, now, job_id))
 
     if job["created_by"] and job["created_by"] != user["id"]:
         notify(db, user_id=job["created_by"], type="service_job_completed",
-               title=f"Service job completed: {job['job_number']}",
+               title=f"Service job closed: {job['job_number']}",
                body=job["work_done"] or None,
                link="/service", entity_type="service_job", entity_id=job_id)
     # Raise the invoice in the SAME transaction, if the company wants it. The
@@ -750,7 +726,7 @@ def complete_job(
     log_action(db, user, "complete", "service_job", job_id, job["job_number"],
                {"cogs": cogs_total, "parts": len(needed)})
     db.commit()
-    return {"message": "Job completed", "status": ST_COMPLETED,
+    return {"message": "Job closed", "status": ST_DONE,
             "parts_cost": cogs_total, "invoice": invoice}
 
 
@@ -760,7 +736,7 @@ def invoice_job(
     user=Depends(require_perm("service", "create")),
     db: sqlite3.Connection = Depends(get_db),
 ):
-    """Raise the invoice for a completed job.
+    """Raise the invoice for a job that is done.
 
     Goes through `invoices.build_invoice` rather than assembling rows here. That
     is the only correct constructor: it applies the approval gate, the branch
@@ -784,9 +760,9 @@ def invoice_job(
     deliberately owns no stock movement.
     """
     job = _get_job(db, job_id, user)
-    if job["status"] != ST_COMPLETED:
+    if job["status"] != ST_DONE:
         raise HTTPException(
-            400, "Only a completed job can be invoiced. Complete the work first.")
+            400, "Only a job that is done can be invoiced. Close it first.")
 
     existing = db.execute(
         "SELECT id, invoice_number FROM invoices "
@@ -856,7 +832,7 @@ def reopen_job(
     user=Depends(require_perm("service", "edit")),
     db: sqlite3.Connection = Depends(get_db),
 ):
-    """Undo a completion: give the parts back and reverse the cost.
+    """Reopen a closed job: give the parts back and reverse the cost.
 
     A technician marks a job done, then finds the fault was something else. The
     alternative to this endpoint is editing stock by hand, which leaves the
@@ -873,8 +849,8 @@ def reopen_job(
     from utils import money
 
     job = _get_job(db, job_id, user)
-    if job["status"] != ST_COMPLETED:
-        raise HTTPException(400, "Only a completed job can be reopened.")
+    if job["status"] != ST_DONE:
+        raise HTTPException(400, "Only a job that is done can be reopened.")
 
     billed = db.execute(
         "SELECT invoice_number FROM invoices "
@@ -933,11 +909,11 @@ def reopen_job(
 
     db.execute(
         "UPDATE service_jobs SET status=?, completed_at=NULL, parts_cost=0, "
-        "updated_at=? WHERE id=?", (ST_PROGRESS, now, job_id))
+        "updated_at=? WHERE id=?", (ST_OPEN, now, job_id))
     log_action(db, user, "reopen", "service_job", job_id, job["job_number"],
                {"reversed_cost": cost})
     db.commit()
-    return {"message": "Job reopened", "status": ST_PROGRESS, "reversed_cost": cost}
+    return {"message": "Job reopened", "status": ST_OPEN, "reversed_cost": cost}
 
 
 @router.post("/jobs/{job_id}/cancel")
@@ -947,17 +923,19 @@ def cancel_job(
     user=Depends(require_perm("service", "delete")),
     db: sqlite3.Connection = Depends(get_db),
 ):
-    """Cancel a job that has not been completed.
+    """Cancel a job that is still open.
 
-    Cancelling a COMPLETED job is a different operation: it has to give back the
-    stock and reverse the cost that completion posted. That path is handled
-    below once consumption exists.
+    Cancelling a job that is DONE is a different operation: it has to give back
+    the stock and reverse the cost that closing posted. Reopening does exactly
+    that, so a job closed by mistake is reopened first and cancelled after.
     """
     job = _get_job(db, job_id, user)
     if job["status"] == ST_CANCELLED:
         raise HTTPException(400, "Job is already cancelled.")
-    if job["status"] == ST_COMPLETED:
-        raise HTTPException(400, "Completed jobs cannot be cancelled yet.")
+    if job["status"] == ST_DONE:
+        raise HTTPException(
+            400, "Reopen the job first: closing it consumed stock and posted "
+                 "its cost, and cancelling would leave both standing.")
     db.execute("UPDATE service_jobs SET status=?, cancel_reason=?, updated_at=? "
                "WHERE id=?", (ST_CANCELLED, data.reason or "Cancelled", _now(), job_id))
     log_action(db, user, "cancel", "service_job", job_id, job["job_number"],
