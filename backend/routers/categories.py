@@ -16,7 +16,12 @@ from fastapi import APIRouter, Depends, HTTPException
 from pydantic import BaseModel
 
 from database import get_db
-from permissions import require_auth, require_admin
+from permissions import require_auth, require_settings_write
+
+# Edited from the Settings page, so they follow the same rule as every
+# other field on it: admin-tier, or a role granted `settings: edit`.
+# Asking for admin here and settings:edit next door would leave half the
+# page live and half of it refusing.
 from routers.audit import log_action
 from utils import _now
 
@@ -77,7 +82,7 @@ def list_categories(domain: Optional[str] = None, include_inactive: bool = False
 
 @router.post("")
 @router.post("/")
-def create_category(data: CategoryBody, user=Depends(require_admin),
+def create_category(data: CategoryBody, user=Depends(require_settings_write),
                     db: sqlite3.Connection = Depends(get_db)):
     domain = (data.domain or "").strip().lower()
     if domain not in DOMAINS:
@@ -102,7 +107,7 @@ def create_category(data: CategoryBody, user=Depends(require_admin),
 
 
 @router.put("/{cat_id}")
-def update_category(cat_id: int, data: CategoryBody, user=Depends(require_admin),
+def update_category(cat_id: int, data: CategoryBody, user=Depends(require_settings_write),
                     db: sqlite3.Connection = Depends(get_db)):
     row = db.execute("SELECT * FROM categories WHERE id=?", (cat_id,)).fetchone()
     if not row:
@@ -132,7 +137,7 @@ def update_category(cat_id: int, data: CategoryBody, user=Depends(require_admin)
 
 
 @router.patch("/{cat_id}/archive")
-def archive_category(cat_id: int, user=Depends(require_admin),
+def archive_category(cat_id: int, user=Depends(require_settings_write),
                      db: sqlite3.Connection = Depends(get_db)):
     """Remove a category from the pickers. Existing records keep their value."""
     row = db.execute("SELECT domain, name FROM categories WHERE id=?", (cat_id,)).fetchone()

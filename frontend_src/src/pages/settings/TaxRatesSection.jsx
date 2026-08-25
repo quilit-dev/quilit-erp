@@ -7,7 +7,7 @@ const TAX_TYPES = ['standard', 'zero', 'exempt'];
 const EMPTY_RATE = { name: '', rate: '', tax_type: 'standard', is_default: false, is_active: true };
 
 // Manage the tax_rates table — the named rates assignable to document lines.
-function TaxRatesSection({ isAdmin, t }) {
+function TaxRatesSection({ canEdit, t }) {
   const { reload: reloadSettings } = useSettings();
   const [rates, setRates]   = useState([]);
   const [editing, setEditing] = useState(null);   // rate id | 'new' | null
@@ -62,12 +62,12 @@ function TaxRatesSection({ isAdmin, t }) {
               <th style={{ textAlign: 'right' }}>{t('settings.taxRatePct')}</th>
               <th>{t('settings.taxRateType')}</th>
               <th></th>
-              {isAdmin && <th></th>}
+              {canEdit && <th></th>}
             </tr>
           </thead>
           <tbody>
             {rates.length === 0 && (
-              <tr><td colSpan={isAdmin ? 5 : 4} style={{ color: 'var(--text-3)', fontSize: 13 }}>
+              <tr><td colSpan={canEdit ? 5 : 4} style={{ color: 'var(--text-3)', fontSize: 13 }}>
                 {t('settings.taxRatesEmpty')}
               </td></tr>
             )}
@@ -81,7 +81,7 @@ function TaxRatesSection({ isAdmin, t }) {
                     : !r.is_active ? <span style={{ fontSize: 11, color: 'var(--text-3)' }}>{t('settings.taxRateInactive')}</span>
                     : null}
                 </td>
-                {isAdmin && (
+                {canEdit && (
                   <td style={{ textAlign: 'right', whiteSpace: 'nowrap' }}>
                     <button className="btn btn-sm btn-secondary" onClick={() => startEdit(r)}>
                       {t('common.edit')}
@@ -100,7 +100,7 @@ function TaxRatesSection({ isAdmin, t }) {
 
       {err && <div className="alert alert-red" style={{ marginBottom: 12 }}>{err}</div>}
 
-      {isAdmin && editing !== null && (
+      {canEdit && editing !== null && (
         <div style={{ border: '1px solid var(--border)', borderRadius: 8, padding: 14, marginBottom: 12 }}>
           <div className="form-grid">
             <Field label={t('settings.taxRateName')}>
@@ -133,7 +133,7 @@ function TaxRatesSection({ isAdmin, t }) {
         </div>
       )}
 
-      {isAdmin && editing === null && (
+      {canEdit && editing === null && (
         <button className="btn btn-secondary btn-sm" onClick={startNew}>
           + {t('settings.taxRateAdd')}
         </button>

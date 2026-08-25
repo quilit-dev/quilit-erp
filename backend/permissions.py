@@ -246,6 +246,39 @@ def require_admin(
     return resolved
 
 
+def require_admin_or_perm(module: str, action: str = "edit"):
+    """Admin-tier access, OR the module permission granted piecemeal.
+
+    The administrative modules appear in the role editor like any other, so an
+    owner can hand out "may edit settings" the way they hand out "may edit
+    invoices". Until this existed that switch did nothing: the endpoints asked
+    for admin_access and nothing read the permission row, so the answer was
+    stored and never consulted.
+
+    Admin-tier keeps its blanket access rather than being made to depend on a
+    permission row — no role_permissions row for `settings` is seeded for
+    anyone, so requiring one would take the surface away from the owner it
+    already belonged to.
+    """
+    def _dep(
+        user: dict = Depends(get_current_user),
+        db:   sqlite3.Connection = Depends(get_db),
+    ) -> dict:
+        resolved = _resolve_user(user, db)
+        if resolved["admin_access"]:
+            return resolved
+        check_perm(resolved, db, module, action)
+        return resolved
+    return _dep
+
+
+# The settings surfaces: writable by admin-tier, or by a role granted
+# `settings: edit`. Shared by the settings router and by the two settings
+# sections that live in routers of their own — tax rates and categories — so
+# the three cannot drift apart into different answers for one page.
+require_settings_write = require_admin_or_perm("settings", "edit")
+
+
 def require_superadmin(
     user: dict = Depends(get_current_user),
     db:   sqlite3.Connection = Depends(get_db),

@@ -2,6 +2,7 @@ import { useState, useEffect, useRef } from 'react';
 import { api as API, getBackupStatus, runBackupNow, exportBackup, runIntegrityCheck,
          restoreBackup } from '../api/client';
 import { useSettings } from '../hooks/useSettings.jsx';
+import { usePermissions } from '../hooks/usePermissions';
 import { useLocale } from '../hooks/useLocale.jsx';
 import InventoryFieldsManager from '../components/InventoryFieldsManager.jsx';
 import CategoriesManager from '../components/CategoriesManager.jsx';
@@ -14,9 +15,19 @@ import UserManualSection from './settings/UserManualSection.jsx';
 
 export default function Settings() {
   const { t } = useLocale();
-  let _u = {};
-  try { _u = JSON.parse(localStorage.getItem('user') || '{}'); } catch {}
-  const isAdmin = Boolean(_u.is_superadmin);
+  // Two flags, because there are two kinds of thing on this page.
+  //
+  // `canEdit` covers the ordinary settings — company details, numbering,
+  // document options. Admin-tier reaches them, and so does any role granted
+  // `settings: edit` in the role editor: that switch has always been offered
+  // and stored, and until now nothing read it on either side of the wire.
+  //
+  // `isAdmin` stays for the backup, restore and integrity block. Restoring a
+  // database over the top of a live one is not editing a setting; those
+  // endpoints keep require_admin, so showing the buttons to a settings editor
+  // would only be showing them a 403.
+  const { isAdmin, can } = usePermissions();
+  const canEdit = isAdmin || can('settings', 'edit');
 
   const [form, setForm]       = useState(null);
   const [saving, setSaving]   = useState(false);
@@ -172,7 +183,7 @@ export default function Settings() {
         </div>
       </div>
 
-      {!isAdmin && (
+      {!canEdit && (
         <div style={{ display: 'flex', alignItems: 'center', gap: 10, padding: '10px 16px', background: 'var(--yellow-light)', border: '1px solid var(--yellow)', borderRadius: 8, marginBottom: 20 }}>
           <span style={{ display: 'inline-flex', color: 'var(--yellow)' }}><Icon name="eye" size={16} /></span>
           <span style={{ fontSize: 13, color: 'var(--yellow)', fontWeight: 500 }}>{t('settings.viewOnly')}</span>
@@ -197,10 +208,10 @@ export default function Settings() {
         <Section title={t('settings.companySectionTitle')} icon="building">
           <div className="form-grid">
             <Field label={t('settings.companyName')}>
-              <Input disabled={!isAdmin} value={form.company_name || ''} onChange={set('company_name')} placeholder="My Company Ltd." />
+              <Input disabled={!canEdit} value={form.company_name || ''} onChange={set('company_name')} placeholder="My Company Ltd." />
             </Field>
             <Field label={t('settings.tagline')} hint={t('common.optional')}>
-              <Input disabled={!isAdmin} value={form.company_tagline || ''} onChange={set('company_tagline')} />
+              <Input disabled={!canEdit} value={form.company_tagline || ''} onChange={set('company_tagline')} />
             </Field>
           </div>
           <Field label={t('settings.logo')} hint="PNG / JPG">
@@ -210,7 +221,7 @@ export default function Settings() {
                   style={{ height: 48, maxWidth: 120, objectFit: 'contain', borderRadius: 6, border: '1px solid var(--border)' }}
                   onError={e => { e.target.style.display = 'none'; }} />
               )}
-              {isAdmin && (
+              {canEdit && (
                 <>
                   <button onClick={() => fileRef.current.click()} className="btn btn-secondary" style={{ borderStyle: 'dashed' }}>
                     {logoFile ? <><Icon name="paperclip" size={14} style={{ verticalAlign: '-2px', marginInlineEnd: 6 }} />{logoFile.name}</> : t('settings.uploadLogo')}
@@ -223,34 +234,34 @@ export default function Settings() {
           </Field>
           <div className="form-grid">
             <Field label={t('settings.streetAddress')}>
-              <Input disabled={!isAdmin} value={form.company_address || ''} onChange={set('company_address')} />
+              <Input disabled={!canEdit} value={form.company_address || ''} onChange={set('company_address')} />
             </Field>
             <Field label={t('settings.city')}>
-              <Input disabled={!isAdmin} value={form.company_city || ''} onChange={set('company_city')} />
+              <Input disabled={!canEdit} value={form.company_city || ''} onChange={set('company_city')} />
             </Field>
             <Field label={t('settings.country')}>
-              <Input disabled={!isAdmin} value={form.company_country || ''} onChange={set('company_country')} />
+              <Input disabled={!canEdit} value={form.company_country || ''} onChange={set('company_country')} />
             </Field>
             <Field label={t('settings.phone')}>
-              <Input disabled={!isAdmin} value={form.company_phone || ''} onChange={set('company_phone')} />
+              <Input disabled={!canEdit} value={form.company_phone || ''} onChange={set('company_phone')} />
             </Field>
             <Field label={t('settings.email')}>
-              <Input disabled={!isAdmin} value={form.company_email || ''} onChange={set('company_email')} />
+              <Input disabled={!canEdit} value={form.company_email || ''} onChange={set('company_email')} />
             </Field>
             <Field label={t('settings.website')} hint={t('common.optional')}>
-              <Input disabled={!isAdmin} value={form.company_website || ''} onChange={set('company_website')} />
+              <Input disabled={!canEdit} value={form.company_website || ''} onChange={set('company_website')} />
             </Field>
             <Field label={t('settings.taxVatNumber')} hint={t('common.optional')}>
-              <Input disabled={!isAdmin} value={form.company_tax_number || ''} onChange={set('company_tax_number')} />
+              <Input disabled={!canEdit} value={form.company_tax_number || ''} onChange={set('company_tax_number')} />
             </Field>
             <Field label={t('settings.registrationNumber')} hint={t('common.optional')}>
-              <Input disabled={!isAdmin} value={form.company_reg_number || ''} onChange={set('company_reg_number')} />
+              <Input disabled={!canEdit} value={form.company_reg_number || ''} onChange={set('company_reg_number')} />
             </Field>
           </div>
           <Field label={t('settings.defaultCurrency')}>
-            <select value={form.default_currency} onChange={e => isAdmin && set('default_currency')(e.target.value)}
-              className="form-control" style={{ minWidth: 140, width: 'auto', opacity: isAdmin ? 1 : 0.6, cursor: isAdmin ? 'auto' : 'not-allowed' }}
-              disabled={!isAdmin}>
+            <select value={form.default_currency} onChange={e => canEdit && set('default_currency')(e.target.value)}
+              className="form-control" style={{ minWidth: 140, width: 'auto', opacity: canEdit ? 1 : 0.6, cursor: canEdit ? 'auto' : 'not-allowed' }}
+              disabled={!canEdit}>
               {CURRENCIES.map(c => <option key={c}>{c}</option>)}
             </select>
           </Field>
@@ -271,36 +282,36 @@ export default function Settings() {
         <Section title={t('settings.financialSettings')} icon="banknote">
           <div className="form-grid">
             <Field label={t('settings.invoicePrefix')}>
-              <Input disabled={!isAdmin} value={form.invoice_prefix || ''} onChange={set('invoice_prefix')} placeholder="INV-" />
+              <Input disabled={!canEdit} value={form.invoice_prefix || ''} onChange={set('invoice_prefix')} placeholder="INV-" />
             </Field>
             <Field label={t('settings.quotationPrefix')}>
-              <Input disabled={!isAdmin} value={form.quotation_prefix || ''} onChange={set('quotation_prefix')} placeholder="QTN-" />
+              <Input disabled={!canEdit} value={form.quotation_prefix || ''} onChange={set('quotation_prefix')} placeholder="QTN-" />
             </Field>
             <Field label={t('settings.receiptVoucherPrefix')}>
-              <Input disabled={!isAdmin} value={form.receipt_voucher_prefix || ''} onChange={set('receipt_voucher_prefix')} placeholder="RV-" />
+              <Input disabled={!canEdit} value={form.receipt_voucher_prefix || ''} onChange={set('receipt_voucher_prefix')} placeholder="RV-" />
             </Field>
             <Field label={t('settings.serviceJobPrefix')}>
-              <Input disabled={!isAdmin} value={form.service_job_prefix || ''} onChange={set('service_job_prefix')} placeholder="SVC-" />
+              <Input disabled={!canEdit} value={form.service_job_prefix || ''} onChange={set('service_job_prefix')} placeholder="SVC-" />
             </Field>
             <Field label={t('settings.serviceAutoInvoice')} hint={t('settings.serviceAutoInvoiceHint')}>
-              <Toggle disabled={!isAdmin} label={t('settings.serviceAutoInvoice')}
+              <Toggle disabled={!canEdit} label={t('settings.serviceAutoInvoice')}
                       checked={isOn('service_auto_invoice')} onChange={bool('service_auto_invoice')} />
             </Field>
             <Field label={t('settings.receiptWidth')} hint={t('settings.receiptWidthHint')}>
-              <select className="form-control" disabled={!isAdmin}
+              <select className="form-control" disabled={!canEdit}
                 value={form.pos_receipt_width || '80'} onChange={set('pos_receipt_width')}>
                 <option value="80">80 mm</option>
                 <option value="58">58 mm</option>
               </select>
             </Field>
             <Field label={t('settings.contractPrefix')}>
-              <Input disabled={!isAdmin} value={form.contract_prefix || ''} onChange={set('contract_prefix')} placeholder="CTR-" />
+              <Input disabled={!canEdit} value={form.contract_prefix || ''} onChange={set('contract_prefix')} placeholder="CTR-" />
             </Field>
             <Field label={t('settings.defaultPaymentTerms')} hint={t('common.days')}>
-              <Input disabled={!isAdmin} value={form.payment_terms_days || ''} onChange={set('payment_terms_days')} type="number" placeholder="15" />
+              <Input disabled={!canEdit} value={form.payment_terms_days || ''} onChange={set('payment_terms_days')} type="number" placeholder="15" />
             </Field>
           </div>
-          <Toggle disabled={!isAdmin} label={t('settings.enableTax')} checked={isOn('tax_enabled')} onChange={bool('tax_enabled')} />
+          <Toggle disabled={!canEdit} label={t('settings.enableTax')} checked={isOn('tax_enabled')} onChange={bool('tax_enabled')} />
         </Section>
 
         {/* 3·2. Payroll Defaults — feed the payroll engine (tax, NSSF, overtime) */}
@@ -310,16 +321,16 @@ export default function Settings() {
           </p>
           <div className="form-grid">
             <Field label={t('settings.payrollTaxPct')} hint="%">
-              <Input disabled={!isAdmin} type="number" value={form.payroll_tax_pct ?? ''} onChange={set('payroll_tax_pct')} placeholder="0" />
+              <Input disabled={!canEdit} type="number" value={form.payroll_tax_pct ?? ''} onChange={set('payroll_tax_pct')} placeholder="0" />
             </Field>
             <Field label={t('settings.payrollNssfEmployeePct')} hint="%">
-              <Input disabled={!isAdmin} type="number" value={form.payroll_nssf_employee_pct ?? ''} onChange={set('payroll_nssf_employee_pct')} placeholder="0" />
+              <Input disabled={!canEdit} type="number" value={form.payroll_nssf_employee_pct ?? ''} onChange={set('payroll_nssf_employee_pct')} placeholder="0" />
             </Field>
             <Field label={t('settings.payrollNssfEmployerPct')} hint="%">
-              <Input disabled={!isAdmin} type="number" value={form.payroll_nssf_employer_pct ?? ''} onChange={set('payroll_nssf_employer_pct')} placeholder="0" />
+              <Input disabled={!canEdit} type="number" value={form.payroll_nssf_employer_pct ?? ''} onChange={set('payroll_nssf_employer_pct')} placeholder="0" />
             </Field>
             <Field label={t('settings.payrollOvertimeMultiplier')} hint="×">
-              <Input disabled={!isAdmin} type="number" value={form.payroll_overtime_multiplier ?? ''} onChange={set('payroll_overtime_multiplier')} placeholder="1.5" />
+              <Input disabled={!canEdit} type="number" value={form.payroll_overtime_multiplier ?? ''} onChange={set('payroll_overtime_multiplier')} placeholder="1.5" />
             </Field>
           </div>
         </Section>
@@ -338,10 +349,10 @@ export default function Settings() {
           <Field label={t('settings.inventoryCostingMethod')} hint={t('settings.inventoryCostingMethodHint')}>
             <select
               className="form-control"
-              style={{ maxWidth: 360, opacity: isAdmin ? 1 : 0.6, cursor: isAdmin ? 'pointer' : 'not-allowed' }}
+              style={{ maxWidth: 360, opacity: canEdit ? 1 : 0.6, cursor: canEdit ? 'pointer' : 'not-allowed' }}
               value={form.inventory_costing_method || 'weighted_avg'}
-              onChange={e => isAdmin && set('inventory_costing_method')(e.target.value)}
-              disabled={!isAdmin}
+              onChange={e => canEdit && set('inventory_costing_method')(e.target.value)}
+              disabled={!canEdit}
             >
               <option value="weighted_avg">{t('settings.costingWeightedAvg')}</option>
               <option value="fifo">{t('settings.costingFifo')}</option>
@@ -362,20 +373,24 @@ export default function Settings() {
 
         {/* 3·5. Inventory Fields — owner-defined custom attributes (variants etc.) */}
         <Section title={t('settings.inventoryFields')} icon="sliders">
-          <InventoryFieldsManager canEdit={isAdmin} />
+          {/* Product attributes are inventory's, not settings' — the
+              endpoint behind this asks for inventory:edit. */}
+          <InventoryFieldsManager canEdit={can('inventory', 'edit')} />
         </Section>
 
         {/* 3·6. Categories — owner-defined per-domain category registry */}
         <Section title={t('settings.categories')} icon="tag">
-          <CategoriesManager canEdit={isAdmin} />
+          <CategoriesManager canEdit={canEdit} />
         </Section>
 
         {/* 3a. Tax Rates — used for per-line tax on documents */}
-        <TaxRatesSection isAdmin={isAdmin} t={t} />
+        <TaxRatesSection canEdit={canEdit} t={t} />
 
         {/* 3a. Bank accounts — the ones money actually moves through, each
             with its own code in the chart. */}
-        <BankAccountsSection isAdmin={isAdmin} />
+        {/* A bank account is a ledger account with its own code in the
+            chart, so it belongs to finance and its endpoint says so. */}
+        <BankAccountsSection canEdit={can('finance', 'edit')} />
 
         {/* 3b. Exchange rates — the same panel the top bar opens.
              It used to be a second, weaker form here: one rate, no currency
@@ -392,18 +407,18 @@ export default function Settings() {
         {/* 4. Document Settings */}
         <Section title={t('settings.documentSettings')} icon="file-text">
           <Field label={t('settings.footerText')}>
-            <Input disabled={!isAdmin} value={form.footer_text || ''} onChange={set('footer_text')} />
+            <Input disabled={!canEdit} value={form.footer_text || ''} onChange={set('footer_text')} />
           </Field>
           <Field label={t('settings.invoiceTerms')} hint={t('settings.invoiceTermsHint')}>
-            <Textarea disabled={!isAdmin} rows={6}
+            <Textarea disabled={!canEdit} rows={6}
               value={form.invoice_terms || ''} onChange={set('invoice_terms')}
               placeholder={t('settings.invoiceTermsPlaceholder')} />
           </Field>
           <div style={{ display: 'flex', flexDirection: 'column', gap: 14, marginTop: 8 }}>
-            <Toggle disabled={!isAdmin} label={t('settings.showDiscountCol')} checked={isOn('show_discount_col')} onChange={bool('show_discount_col')} />
-            <Toggle disabled={!isAdmin} label={t('settings.showTaxCol')} checked={isOn('show_tax_col')} onChange={bool('show_tax_col')} />
-            <Toggle disabled={!isAdmin} label={t('settings.showBarcodeCol')} checked={isOn('show_barcode_col')} onChange={bool('show_barcode_col')} />
-            <Toggle disabled={!isAdmin} label={t('settings.showTotalWords')} checked={isOn('show_total_words')} onChange={bool('show_total_words')} />
+            <Toggle disabled={!canEdit} label={t('settings.showDiscountCol')} checked={isOn('show_discount_col')} onChange={bool('show_discount_col')} />
+            <Toggle disabled={!canEdit} label={t('settings.showTaxCol')} checked={isOn('show_tax_col')} onChange={bool('show_tax_col')} />
+            <Toggle disabled={!canEdit} label={t('settings.showBarcodeCol')} checked={isOn('show_barcode_col')} onChange={bool('show_barcode_col')} />
+            <Toggle disabled={!canEdit} label={t('settings.showTotalWords')} checked={isOn('show_total_words')} onChange={bool('show_total_words')} />
           </div>
         </Section>
 
@@ -608,7 +623,7 @@ export default function Settings() {
           </>)}
         </Section>}
 
-        {isAdmin && (
+        {canEdit && (
           <div style={{ display: 'flex', justifyContent: 'flex-end' }}>
             <button onClick={save} disabled={saving} className="btn btn-primary" style={{ padding: '10px 32px', fontSize: 15 }}>
               {saving ? t('common.saving') : t('settings.save')}

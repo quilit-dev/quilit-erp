@@ -25,7 +25,7 @@ const EMPTY = {
   currency: 'USD', opening_balance: '', notes: '',
 };
 
-export function BankAccountsSection({ isAdmin }) {
+export function BankAccountsSection({ canEdit }) {
   const { t } = useLocale();
   const [rows, setRows] = useState([]);
   const [form, setForm] = useState(EMPTY);
@@ -101,7 +101,7 @@ export function BankAccountsSection({ isAdmin }) {
                     chart without guessing. */}
                 <th>{t('banks.glCode')}</th>
                 <th className="text-right">{t('banks.balance')}</th>
-                {isAdmin && <th />}
+                {canEdit && <th />}
               </tr>
             </thead>
             <tbody>
@@ -113,7 +113,7 @@ export function BankAccountsSection({ isAdmin }) {
                   <td>{r.currency}</td>
                   <td className="text-mono">{r.account_code || '—'}</td>
                   <td className="text-right">{fmt(r.balance)}</td>
-                  {isAdmin && (
+                  {canEdit && (
                     <td style={{ whiteSpace: 'nowrap' }}>
                       <button className="btn btn-sm btn-secondary"
                         onClick={() => startEdit(r)}>{t('common.edit')}</button>
@@ -133,12 +133,12 @@ export function BankAccountsSection({ isAdmin }) {
         </div>
       )}
 
-      {isAdmin && !open && (
+      {canEdit && !open && (
         <button className="btn btn-primary btn-sm" style={{ marginTop: 12 }}
           onClick={startNew}>{t('banks.add')}</button>
       )}
 
-      {isAdmin && open && (
+      {canEdit && open && (
         <form onSubmit={save} style={{ marginTop: 14, paddingTop: 14,
                                        borderTop: '1px solid var(--border)' }}>
           <div className="form-grid">

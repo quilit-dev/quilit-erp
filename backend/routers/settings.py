@@ -13,7 +13,14 @@ from fastapi.responses import FileResponse, Response
 from pydantic import BaseModel
 from typing import Optional
 from database import get_db, DB_PATH
-from permissions import require_auth, require_admin
+from permissions import require_auth, require_admin, require_settings_write
+
+# Ordinary settings — the company details, the numbering, the document options
+# — are writable by admin-tier OR by a role granted `settings: edit` in the role
+# editor. Backups, restore and the integrity check keep `require_admin`:
+# restoring a database over a live one is not editing a setting, and it must not
+# follow the switch.
+_settings_write = require_settings_write
 from routers.audit import log_action
 from utils import _now, _today
 import vendor_config
@@ -224,7 +231,7 @@ def get_settings(user=Depends(require_auth), db: sqlite3.Connection = Depends(ge
 @router.put("/")
 def update_settings(
     body: SettingsUpdate,
-    user=Depends(require_admin),
+    user=Depends(_settings_write),
     db: sqlite3.Connection = Depends(get_db),
 ):
     # `enabled_modules` cannot reach this handler — it's not declared on
@@ -394,7 +401,7 @@ def get_exchange_rate(user=Depends(require_auth), db: sqlite3.Connection = Depen
 @router.post("/exchange-rate")
 def set_exchange_rate(
     body: ExchangeRateUpdate,
-    user=Depends(require_admin),
+    user=Depends(_settings_write),
     db: sqlite3.Connection = Depends(get_db),
 ):
     """Record a rate for one currency, from one date. Administrator only.
@@ -582,7 +589,7 @@ def _image_mime(data: bytes) -> str:
 @router.post("/logo")
 async def upload_logo(
     file: UploadFile = File(...),
-    user=Depends(require_admin),
+    user=Depends(_settings_write),
     db: sqlite3.Connection = Depends(get_db),
 ):
     data = await file.read(MAX_LOGO_SIZE + 1)

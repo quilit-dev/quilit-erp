@@ -9,7 +9,12 @@ so historical documents that reference them stay intact.
 from fastapi import APIRouter, Depends, HTTPException
 from pydantic import BaseModel
 from database import get_db
-from permissions import require_auth, require_admin
+from permissions import require_auth, require_settings_write
+
+# Edited from the Settings page, so they follow the same rule as every
+# other field on it: admin-tier, or a role granted `settings: edit`.
+# Asking for admin here and settings:edit next door would leave half the
+# page live and half of it refusing.
 from routers.audit import log_action
 from utils import _now
 import sqlite3
@@ -48,7 +53,7 @@ def list_tax_rates(user=Depends(require_auth), db: sqlite3.Connection = Depends(
 @router.post("/")
 def create_tax_rate(
     data: TaxRateIn,
-    user=Depends(require_admin),
+    user=Depends(require_settings_write),
     db: sqlite3.Connection = Depends(get_db),
 ):
     _validate(data)
@@ -72,7 +77,7 @@ def create_tax_rate(
 def update_tax_rate(
     rate_id: int,
     data: TaxRateIn,
-    user=Depends(require_admin),
+    user=Depends(require_settings_write),
     db: sqlite3.Connection = Depends(get_db),
 ):
     _validate(data)
@@ -101,7 +106,7 @@ def update_tax_rate(
 @router.delete("/{rate_id}")
 def delete_tax_rate(
     rate_id: int,
-    user=Depends(require_admin),
+    user=Depends(require_settings_write),
     db: sqlite3.Connection = Depends(get_db),
 ):
     """Deactivate a rate. It stays in the table so documents that already use
