@@ -339,10 +339,6 @@ export function buildCompany(s) {
     website:         s.company_website    || '',
     vat:             s.company_tax_number   ? `Tax No: ${s.company_tax_number}`  : '',
     regNo:           s.company_reg_number   ? `Reg. No: ${s.company_reg_number}` : '',
-    bankName:        s.bank_name           || '',
-    bankAccount:     s.bank_account        || '',
-    bankIBAN:        s.bank_iban           || '',
-    bankSwift:       s.bank_swift          || '',
     currency:        s.default_currency    || 'USD',
     footer:          s.footer_text         || '',
     terms:           s.invoice_terms       || '',
@@ -469,14 +465,13 @@ function companyDetails(C) {
   return [C.address, C.phone ? `Tel: ${C.phone}` : '', C.email, C.website, C.vat, C.regNo].filter(Boolean).join(' • ');
 }
 
-function paymentInstructions(C) {
-  const rows = [];
-  if (C.bankName)    rows.push(`<strong>Bank:</strong> ${C.bankName}`);
-  if (C.bankAccount) rows.push(`<strong>Acc:</strong> ${C.bankAccount}`);
-  if (C.bankIBAN)    rows.push(`<strong>IBAN:</strong> ${C.bankIBAN}`);
-  if (C.bankSwift)   rows.push(`<strong>SWIFT:</strong> ${C.bankSwift}`);
-  if (!rows.length) return '';
-  return `<div class="band slate"><span class="band-label">Bank Details:</span> ${rows.join(' | ')}</div>`;
+// The bank band at the foot of a document is gone with the four settings
+// fields that fed it. Kept as a no-op rather than removed from the two
+// templates that call it: the seam is where wire details would go back if
+// they are ever wanted again, and the obvious source then is a real bank
+// account, which has a name, a currency and a ledger code.
+function paymentInstructions() {
+  return '';
 }
 
 // ─── Theme composition ─────────────────────────────────────────────────────────

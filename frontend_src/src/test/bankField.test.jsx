@@ -143,10 +143,13 @@ describe('the accounts can be created at all', () => {
     expect(settingsSrc).toMatch(/<BankAccountsSection/);
   });
 
-  test('which is not the same thing as the bank details above it', () => {
-    // Those are four lines printed on an invoice. These are ledger accounts.
-    expect(sectionSrc).toContain('text fields printed on an invoice');
-    expect(en.banks.desc).toMatch(/printed on invoices/i);
+  test('the page no longer has two things called bank', () => {
+    // There used to be a Bank Details section: four free-text lines printed at
+    // the foot of an invoice, holding no balance and connected to nothing.
+    // Both it and the printing it fed are gone, so the word means one thing.
+    expect(settingsSrc).not.toMatch(/settings\.bankDetails/);
+    expect(settingsSrc).not.toMatch(/form\.bank_iban/);
+    expect(en.banks.desc).not.toMatch(/printed on invoices/i);
   });
 
   test('the ledger code each one posts to is shown', () => {

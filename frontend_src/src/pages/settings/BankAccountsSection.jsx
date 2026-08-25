@@ -1,12 +1,14 @@
 // Bank accounts — the ones money actually moves through.
 //
-// Not to be confused with the Bank Details section above it, which is four
-// text fields printed on an invoice so a customer knows where to wire. These
-// are ledger accounts: each gets its own code in the chart when it is created,
-// which is what makes a per-account balance possible and a statement
+// These are ledger accounts: each gets its own code in the chart when it is
+// created, which is what makes a per-account balance possible and a statement
 // reconcilable. The table and the API have existed since bank accounts were
 // added; there was simply no screen, so nothing could be created and no
 // payment could name one.
+//
+// There used to be a second thing called "bank" on this page — four free-text
+// lines printed at the foot of an invoice, holding no balance and connected to
+// nothing. It has been removed, so the word means one thing here now.
 //
 // Deleting is deliberately absent. An account is what historical entries point
 // at, so one that has seen a movement is archived, never removed — the same

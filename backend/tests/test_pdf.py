@@ -234,28 +234,31 @@ def test_invoice_carries_every_professional_element():
         "grand total": "1,665.00",
         "payment history": "PAYMENT HISTORY",
         "payment method": "Bank transfer",
-        "bank name": "Bank Audi",
-        "iban": "LB62",
-        "swift": "AUDBLBBX",
         # Notes are a tinted band with a bold lead-in, as the old
         # template had them — not a section heading.
         "notes band": "Notes:",
         "notes content": "Payment by bank transfer",
-        "bank heading": "BANK DETAILS",
         "footer": "Goods remain our property",
     }
     missing = [name for name, needle in required.items() if needle not in txt]
     assert not missing, f"the single template dropped: {missing}"
 
 
-def test_bank_details_survive_in_arabic():
-    """Regression. These were joined into one line; an Arabic label with a Latin
-    value is mixed-direction, bidi put the Latin first and Arabic last, and
-    multi_cell then dropped most of it — so the IBAN and SWIFT a client needs in
-    order to PAY vanished from the Arabic invoice while English looked fine."""
-    txt = _text(pdf_render.render_invoice(RICH_INVOICE, FULL_SETTINGS, "ar"))
-    for needle in ("Bank Audi", "LB62", "AUDBLBBX", "0012-345678"):
-        assert needle in txt, f"{needle!r} lost in the Arabic document"
+def test_the_bank_block_is_gone_from_the_document():
+    """The four company bank lines were removed with the settings section that
+    fed them: free text, no balance, connected to nothing. Leaving the printing
+    behind would have frozen four uneditable lines onto every customer
+    document.
+
+    (What this replaces was a bidi regression: an Arabic label beside a Latin
+    value is mixed-direction, and multi_cell dropped most of it — the IBAN and
+    SWIFT a client needs in order to pay vanished from the Arabic invoice while
+    the English one looked fine. There is no longer a block for it to happen
+    to.)"""
+    for lang in ("en", "ar"):
+        txt = _text(pdf_render.render_invoice(RICH_INVOICE, FULL_SETTINGS, lang))
+        for needle in ("Bank Audi", "LB62", "AUDBLBBX"):
+            assert needle not in txt, f"{needle!r} is still printed ({lang})"
 
 
 def test_arabic_document_is_mirrored_not_just_translated():

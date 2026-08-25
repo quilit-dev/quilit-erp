@@ -99,8 +99,8 @@ disagree with the money.
     ### Sending it to the customer
 
     **Send** on the row offers WhatsApp and email. The customer gets a link
-    to a page showing the same document you print — logo, totals, payment
-    history and your bank details.
+    to a page showing the same document you print — logo, totals and
+    payment history.
 
     See [Sending invoices & quotations](sending.md).
 

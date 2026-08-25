@@ -47,11 +47,6 @@ counted − expected. The system posts that variance to the ledger.
     account existed before the ERP did, so the figure here can be compared
     with a statement from day one.
 
-    !!! note "Not the same as Bank Details"
-        Settings → **Bank Details** is four lines printed on an invoice so a
-        customer knows where to wire. It is not an account, has no balance,
-        and nothing posts to it.
-
     ### Choosing the account on a payment
 
     Anywhere a payment method is chosen, picking **Bank Transfer**, **Cheque**

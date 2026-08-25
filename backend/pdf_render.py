@@ -215,10 +215,6 @@ class _Company:
         self.website = s.get("company_website") or ""
         self.tax_no = s.get("company_tax_number") or ""
         self.reg_no = s.get("company_reg_number") or ""
-        self.bank_name = s.get("bank_name") or ""
-        self.bank_account = s.get("bank_account") or ""
-        self.bank_iban = s.get("bank_iban") or ""
-        self.bank_swift = s.get("bank_swift") or ""
         self.currency = s.get("default_currency") or s.get("currency") or "USD"
         self.footer = s.get("footer_text") or ""
         self.payment_days = int(_num(s.get("payment_terms_days"), 15))
@@ -636,29 +632,11 @@ def _footer_blocks(doc: _Doc, co: _Company, notes, fx_note: str = None):
         doc.band(L["notesLabel"], str(notes))
     if fx_note:
         doc.band(L["fxLabel"], fx_note, BAND_SLATE, MUTED)
-    bank = [(L["bankName"], co.bank_name), (L["account"], co.bank_account),
-            (L["iban"], co.bank_iban), (L["swift"], co.bank_swift)]
-    bank = [(k, v) for k, v in bank if v]
-    if bank:
-        doc.rule()
-        doc.heading(L["bank"])
-        # One row per field, label and value in separate cells.
-        #
-        # These were joined into a single line, which broke in Arabic: an
-        # Arabic label with a Latin value is a mixed-direction string, bidi
-        # reorders it so the visual line starts Latin and ends Arabic, and
-        # multi_cell then dropped most of it — the IBAN and SWIFT a client needs
-        # to actually pay silently disappeared from the Arabic invoice while the
-        # English one looked fine. Separate cells keep each run in one direction.
-        d, pdf = doc.d, doc.pdf
-        lw = 26.0
-        for k, v in bank:
-            pdf.set_x(MARGIN)
-            doc.font(8.8, False, MUTED)
-            pdf.cell(lw, 4.8, shape(k), align=d.start)
-            doc.font(8.8, True, INK)
-            pdf.cell(BODY_W - lw, 4.8, shape(v), align=d.start)
-            pdf.ln(4.8)
+    # The bank block at the foot of a document is gone with the four company
+    # settings that fed it. They were free text, never an account and never
+    # holding a balance; the business now keeps real bank accounts, each with
+    # its own ledger code, which is what a payment is actually attributed to.
+    # Wire details would come from one of those if they are wanted back.
     if co.footer:
         doc.band(L["noteLabel"], co.footer, BAND_SLATE, MUTED)
 

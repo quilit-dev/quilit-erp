@@ -67,8 +67,8 @@ it stops working — which you cannot do with a PDF once it has left your outbox
     ### What your customer sees
 
     A clean page with your logo, your company details, the line items, the
-    totals, the payment history and your bank details — **the same document
-    you print**. They can print it or save it as a PDF from that page.
+    totals and the payment history — **the same document you print**. They can
+    print it or save it as a PDF from that page.
 
     They do not need an account, a password, or the app.
 

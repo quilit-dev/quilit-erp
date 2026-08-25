@@ -2099,7 +2099,6 @@ const en = {
     variantCountBadge: '{{count}} variants',
     createProductBtn: 'Create Product',
     productCreated: 'Product created with {{count}} variant(s)',
-    noBusinessTypeHint: 'Tip: pick a Business Type in Settings to get ready-made attributes (Size, Color, Storage…).',
     noVariantFieldsHint: 'No variant fields yet. Add fields like Size or Color in Settings → Inventory Fields, then they appear here to tick.',
     noVariantFieldsHint: 'No variant fields yet. Add fields like Size or Color in Settings → Inventory Fields, then they appear here to tick.',
     unitLabel: 'Unit',
@@ -2633,7 +2632,7 @@ const en = {
 
   banks: {
     title: 'Bank accounts',
-    desc: 'The accounts money actually moves through. Each one gets its own code in the chart, so its balance can be held against the statement the bank sends. Different from the bank details above, which are printed on invoices so a customer knows where to pay.',
+    desc: 'The accounts money actually moves through. Each one gets its own code in the chart, so its balance can be held against the statement the bank sends.',
     empty: 'No bank accounts yet. Add one and every transfer, cheque and card payment can say which account it went through.',
     add: 'Add a bank account',
     name: 'Name',
@@ -2708,10 +2707,6 @@ const en = {
     website: 'Website',
     taxVatNumber: 'Tax / VAT Number',
     registrationNumber: 'Registration Number',
-    bankDetails: 'Bank Details',
-    bankName: 'Bank Name',
-    accountNumber: 'Account Number',
-    swift: 'SWIFT / BIC',
     financialSettings: 'Financial Settings',
     invoicePrefix: 'Invoice Number Prefix',
     receiptVoucherPrefix: 'Receipt Voucher Prefix',
@@ -2728,12 +2723,6 @@ const en = {
     payrollOvertimeMultiplier: 'Overtime Multiplier',
     inventorySettings: 'Inventory & Costing',
     inventoryCostingDesc: 'Choose how the cost of stock leaving inventory (sales, project use, manufacturing) is valued. This drives cost-of-goods-sold across the system.',
-    businessType: 'Business Type',
-    businessTypeHint: 'Sets ready-made product attributes for your industry (Size/Color for apparel, Storage for electronics…).',
-    businessTypeGeneral: 'General',
-    businessTypeApparel: 'Apparel / Clothing',
-    businessTypeElectronics: 'Electronics',
-    businessTypeFnb: 'Food & Beverage',
     inventoryFields: 'Inventory Fields',
     inventoryFieldsDesc: 'Define custom fields for your products (e.g. Size, Color, Storage, Author). Fields marked as variants generate separate stock SKUs. Cost, price, quantity and barcode are always present and not editable here.',
     addField: 'Add Field',
@@ -2870,7 +2859,6 @@ const en = {
     dailyBackups: 'Daily Backups ({{count}} / 30)',
     weeklyBackups: 'Weekly Backups ({{count}} / 4)',
     olderBackups: 'older backups',
-    bankHint: 'Shown on invoice PDFs in the payment instructions section.',
   },
 
   users: {

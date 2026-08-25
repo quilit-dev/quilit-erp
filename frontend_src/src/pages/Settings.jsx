@@ -58,12 +58,11 @@ export default function Settings() {
     'company_country', 'company_phone', 'company_email', 'company_website',
     'company_tax_number', 'company_reg_number',
     'default_currency', 'secondary_currency',
-    'bank_name', 'bank_account', 'bank_iban', 'bank_swift',
     'default_tax_rate', 'tax_enabled', 'payment_terms_days',
     'invoice_prefix', 'quotation_prefix', 'contract_prefix',
     'receipt_voucher_prefix',
     'service_job_prefix', 'service_auto_invoice',
-    'inventory_costing_method', 'business_type',
+    'inventory_costing_method',
     'payroll_tax_pct', 'payroll_nssf_employee_pct',
     'payroll_nssf_employer_pct', 'payroll_overtime_multiplier',
     'footer_text', 'invoice_terms', 'show_discount_col', 'show_tax_col',
@@ -257,26 +256,16 @@ export default function Settings() {
           </Field>
         </Section>
 
-        {/* 2. Bank Details */}
-        <Section title={t('settings.bankDetails')} icon="landmark">
-          <p style={{ fontSize: 12, color: 'var(--text-3)', margin: '0 0 12px' }}>
-            {t('settings.bankHint')}
-          </p>
-          <div className="form-grid">
-            <Field label={t('settings.bankName')}>
-              <Input disabled={!isAdmin} value={form.bank_name || ''} onChange={set('bank_name')} />
-            </Field>
-            <Field label={t('settings.accountNumber')}>
-              <Input disabled={!isAdmin} value={form.bank_account || ''} onChange={set('bank_account')} />
-            </Field>
-            <Field label="IBAN">
-              <Input disabled={!isAdmin} value={form.bank_iban || ''} onChange={set('bank_iban')} />
-            </Field>
-            <Field label={t('settings.swift')}>
-              <Input disabled={!isAdmin} value={form.bank_swift || ''} onChange={set('bank_swift')} />
-            </Field>
-          </div>
-        </Section>
+        {/* Bank Details lived here: four free-text lines printed at the
+            foot of an invoice. They were never an account and never held a
+            balance, and the business now keeps real bank accounts a few
+            sections down — with their own ledger codes, which is what a
+            payment can actually be attributed to. Two things called "bank"
+            on one page, only one of them connected to anything.
+
+            The four fields go with the block they fed. Leaving the printing
+            behind would have frozen four uneditable lines onto every customer
+            document. */}
 
         {/* 3. Financial Settings */}
         <Section title={t('settings.financialSettings')} icon="banknote">
@@ -340,20 +329,12 @@ export default function Settings() {
           <p style={{ fontSize: 12, color: 'var(--text-3)', margin: '0 0 14px' }}>
             {t('settings.inventoryCostingDesc')}
           </p>
-          <Field label={t('settings.businessType')} hint={t('settings.businessTypeHint')}>
-            <select
-              className="form-control"
-              style={{ maxWidth: 360, opacity: isAdmin ? 1 : 0.6, cursor: isAdmin ? 'pointer' : 'not-allowed' }}
-              value={form.business_type || ''}
-              onChange={e => isAdmin && set('business_type')(e.target.value)}
-              disabled={!isAdmin}
-            >
-              <option value="">{t('settings.businessTypeGeneral')}</option>
-              <option value="Apparel">{t('settings.businessTypeApparel')}</option>
-              <option value="Electronics">{t('settings.businessTypeElectronics')}</option>
-              <option value="Food & Beverage">{t('settings.businessTypeFnb')}</option>
-            </select>
-          </Field>
+          {/* Business type was here. It is asked once during setup, where it
+              seeds the ready-made product attributes for the trade, and
+              changing it afterwards seeds another set rather than replacing
+              the first — so re-picking it on a running business added
+              attributes nobody asked for. The presets themselves are
+              unchanged and are managed per product. */}
           <Field label={t('settings.inventoryCostingMethod')} hint={t('settings.inventoryCostingMethodHint')}>
             <select
               className="form-control"
@@ -392,9 +373,8 @@ export default function Settings() {
         {/* 3a. Tax Rates — used for per-line tax on documents */}
         <TaxRatesSection isAdmin={isAdmin} t={t} />
 
-        {/* 3a. Bank accounts — the ones money moves through, as opposed to
-            the Bank Details above, which are four lines printed on an
-            invoice so a customer knows where to wire. */}
+        {/* 3a. Bank accounts — the ones money actually moves through, each
+            with its own code in the chart. */}
         <BankAccountsSection isAdmin={isAdmin} />
 
         {/* 3b. Exchange rates — the same panel the top bar opens.
