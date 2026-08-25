@@ -122,3 +122,56 @@ describe('it mounts', () => {
     expect(container).toBeTruthy();
   });
 });
+
+
+// ── Taking the old chart out ─────────────────────────────────────────────────
+// Installing a statutory chart RETIRES the previous one rather than deleting
+// it, because an account is what historical entries point at. On a business
+// that switched before it ever posted, that leaves forty rows of a chart
+// nobody uses in the account list — and they cannot be removed by hand,
+// because every seeded account is a system account.
+describe('removing the retired chart', () => {
+  test('the button is offered once the statutory chart is in use', async () => {
+    const src = (await import('../pages/accounting/ChartPicker.jsx?raw')).default;
+
+    expect(src).toMatch(/\{onLebanese && canEdit && \(/);
+    expect(src).toMatch(/chart\.removeOld/);
+  });
+
+  test('it lists exactly what would go', async () => {
+    const src = (await import('../pages/accounting/ChartPicker.jsx?raw')).default;
+
+    expect(src).toMatch(/purge\.removable\.map/);
+    expect(src).toMatch(/chart\.purgeWhat/);
+  });
+
+  test('and names the ones that cannot, with why', async () => {
+    // "3 must stay" invites the question "which ones", and the answer decides
+    // whether somebody goes and does a cutover first.
+    const src = (await import('../pages/accounting/ChartPicker.jsx?raw')).default;
+
+    expect(src).toMatch(/purge\.kept\.map/);
+    expect(src).toMatch(/chart\.purgeKeptLines/);
+  });
+
+  test('a business on the default chart is told why it cannot', async () => {
+    const src = (await import('../pages/accounting/ChartPicker.jsx?raw')).default;
+
+    expect(src).toMatch(/chart\.purgeOnlyAfterSwitch/);
+    expect(en.chart.purgeOnlyAfterSwitch).toMatch(/the ones it is using/i);
+  });
+
+  test('the strings read in both languages', async () => {
+    const named = (s) => [...String(s).matchAll(/\{\{(\w+)\}\}/g)]
+      .map(m => m[1]).sort().join(',');
+
+    for (const k of ['removeOld', 'removeOldTitle', 'purgeOnlyAfterSwitch',
+                     'purgeWhat', 'purgeKept', 'purgeKeptLines',
+                     'removeCount', 'purged']) {
+      expect(typeof en.chart[k], `en ${k}`).toBe('string');
+      expect(typeof ar.chart[k], `ar ${k}`).toBe('string');
+      expect(/[؀-ۿ]/.test(ar.chart[k]), k).toBe(true);
+      expect(named(ar.chart[k]), k).toBe(named(en.chart[k]));
+    }
+  });
+});

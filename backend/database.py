@@ -3949,6 +3949,19 @@ def _run_migrations(conn, c):
                   "WHERE COALESCE(allow_installments, 0) = 0")
         done("159b_installments_backfill")
 
+    # Last, after every migration that might have added an account: if this
+    # tenant is on a statutory chart, anything not on it is retired. Migrations
+    # insert accounts ACTIVE, which on such a tenant means a default-chart code
+    # appearing beside the Lebanese one — two charts again, arriving one deploy
+    # at a time. Running it here means a future migration cannot reintroduce
+    # the problem by forgetting about it.
+    try:
+        import chart_lebanon
+        chart_lebanon.reconcile_active(c)
+    except Exception:
+        # Never let tidying stop a database coming up.
+        pass
+
     conn.commit()
 
 
@@ -4746,6 +4759,13 @@ def _init_db_postgres():
         _ensure_pg_post_baseline(raw)
         conn = CompatConn(raw, get_dialect("postgres"))
         _seed_roles_and_admin(conn)
+        # Same tidy-up as the SQLite chain: a tenant on a statutory chart must
+        # not collect default-chart accounts one migration at a time.
+        try:
+            import chart_lebanon
+            chart_lebanon.reconcile_active(conn)
+        except Exception:
+            pass
         conn.commit()
     finally:
         raw.close()

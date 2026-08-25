@@ -194,3 +194,93 @@ def test_no_posting_names_an_account_by_constant(client):
             if f"accounting.{const}" in src:
                 offenders.append(f"{name}.{const}")
     assert offenders == [], offenders
+
+
+# ── The whole business, in one sweep ─────────────────────────────────────────
+# The tests above take one source at a time. This runs everything that posts,
+# on the Lebanese chart, and then asks a single question of the ledger: is
+# every account touched one of this chart's own? A gap anywhere shows up here
+# whether or not somebody remembered to write a test for that module.
+
+def test_every_kind_of_transaction_posts_on_the_installed_chart(
+        client, acme, widget, db):
+    import uuid as _uuid
+    from datetime import date, timedelta
+
+    bank = client.post("/api/banks/",
+                       json={"name": "Byblos", "currency": "USD"}).json()
+
+    # Sales: an invoice settled by transfer.
+    created = client.post("/api/invoices/", json={
+        "client_id": acme, "amount": 0, "due_date": "2026-12-31",
+        "items": [{"name": "Widget", "inventory_id": widget,
+                   "quantity": 1, "unit_price": 200}]}).json()
+    inv = created.get("invoice_id") or created.get("id")
+    client.post(f"/api/invoices/{inv}/payments", json={
+        "amount": 200, "currency": "USD", "method": "Bank Transfer",
+        "bank_account_id": bank["id"], "idempotency_key": str(_uuid.uuid4())})
+
+    # The till, on a card.
+    client.post("/api/pos/session/open", json={"opening_float": 0})
+    client.post("/api/pos/checkout", json={
+        "items": [{"name": "Widget", "inventory_id": widget,
+                   "quantity": 1, "unit_price": 50}],
+        "payment_method": "Card", "currency": "USD", "amount_tendered": 50,
+        "bank_account_id": bank["id"], "idempotency_key": str(_uuid.uuid4())})
+
+    # A bill, and a supplier paid.
+    client.post("/api/finance/expenses", json={
+        "category": "Rent", "amount": 60, "date": str(date.today()),
+        "payment_method": "Bank Transfer", "bank_account_id": bank["id"]})
+    po = client.post("/api/purchases/", json={
+        "supplier": "Acme", "inventory_id": widget, "product_name": "Widget",
+        "quantity": 2, "unit_cost": 20, "status": "Ordered"}).json()["id"]
+    client.patch(f"/api/purchases/{po}/status", json={
+        "status": "Paid", "payment_method": "Bank Transfer",
+        "bank_account_id": bank["id"]})
+
+    # An asset bought, worn down and sold.
+    asset = client.post("/api/assets/", json={
+        "name": "Truck", "acquisition_cost": 30000,
+        "acquisition_date": (date.today() - timedelta(days=365)).isoformat(),
+        "depreciation_method": "straight_line", "useful_life_months": 60,
+        "salvage_value": 6000, "payment_method": "Bank Transfer",
+        "bank_account_id": bank["id"]}).json()
+    client.post(f"/api/assets/{asset['id']}/depreciate", json={})
+    client.post(f"/api/assets/{asset['id']}/dispose", json={
+        "disposal_proceeds": 27000, "payment_method": "Bank Transfer",
+        "bank_account_id": bank["id"]})
+
+    # And the staff paid.
+    client.post("/api/hr/employees", json={
+        "full_name": "Sami", "salary": 500, "hire_date": "2026-01-01"})
+    start = date.today().replace(day=1)
+    run = client.post("/api/hr/payroll/runs", json={
+        "period_start": str(start),
+        "period_end": str(start + timedelta(days=27))}).json()["id"]
+    client.post(f"/api/hr/payroll/runs/{run}/approve", json={})
+    client.post(f"/api/hr/payroll/runs/{run}/mark-paid", json={
+        "payment_method": "Bank Transfer", "bank_account_id": bank["id"]})
+
+    # A bank account's own leaf is a child of this chart, opened under whatever
+    # the `bank` role points at, so it counts as ours.
+    theirs = OURS | {r["account_code"] for r in db.execute(
+        "SELECT account_code FROM bank_accounts").fetchall()}
+
+    posted = db.execute(
+        "SELECT DISTINCT je.source_type, a.code, a.name "
+        "  FROM journal_entry_lines l "
+        "  JOIN journal_entries je ON je.id = l.journal_entry_id "
+        "  JOIN chart_of_accounts a ON a.id = l.account_id").fetchall()
+    stray = sorted({(r["source_type"], r["code"], r["name"]) for r in posted
+                    if r["code"] not in theirs})
+
+    assert stray == [], f"these posted off the Lebanese chart: {stray}"
+    # Every module that moves money is represented, so a silent gap cannot
+    # pass by simply never posting.
+    kinds = {r["source_type"] for r in posted}
+    for expected in ("invoice", "invoice_payment", "expense", "purchase",
+                     "payroll", "depreciation", "asset_acquisition",
+                     "asset_disposal", "pos_cogs"):
+        assert expected in kinds, f"{expected} posted nothing"
+    assert client.get("/api/accounting/trial-balance").json()["balanced"]

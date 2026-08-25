@@ -714,6 +714,11 @@ export async function uploadAttachment(entityType, entityId, file) {
 export const getAccounts          = (params = {}) => api.get(`/api/accounting/accounts${_qs(params)}`);
 // Which chart of accounts this tenant keeps its books on, and moving it.
 export const getChartStatus       = ()      => api.get('/api/accounting/chart');
+// What removing the retired chart would take away, and what it cannot.
+export const getChartPurgePreview = () =>
+  api.get('/api/accounting/chart/purge/preview');
+export const postChartPurge       = () =>
+  api.post('/api/accounting/chart/purge', {});
 export const installLebaneseChart = (d = {}) => api.post('/api/accounting/chart/lebanon/install', d);
 // Carrying the balances of the chart being left onto the one in use.
 export const getChartCutoverPreview = (params = {}) =>

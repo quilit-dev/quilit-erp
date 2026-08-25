@@ -129,6 +129,35 @@ Five views.
     If the mapping turns out wrong, reverse the entry like any other and run it
     again.
 
+    ### Removing the old chart
+
+    Switching **retires** the previous chart rather than deleting it, because
+    an account is what historical entries point at. That is right while those
+    entries exist. It is only clutter when they do not — a business that
+    switched before it ever posted is left with forty rows of a chart nobody
+    uses sitting in the account list, and they cannot be deleted one by one
+    because every seeded account is a system account.
+
+    **Accounting → Remove the old chart.** It shows exactly what would go:
+
+    - An account with **no posted entries** is deleted. Nothing points at it,
+      so nothing is lost.
+    - An account **with** entries stays, retired, and is named individually
+      with its line count. Deleting it would leave entries referencing an
+      account that no longer exists, and the trial balance would stop being
+      able to explain itself. Carry the balances across first if you want
+      those gone too.
+
+    A business still on the default chart is refused: there, "the accounts not
+    on the current chart" are the ones it is using.
+
+    !!! note "They no longer come back"
+        Every migration that adds an account inserts it active, so a tenant
+        already on the statutory chart used to collect default-chart codes one
+        deploy at a time — euro cash, then the asset-disposal pair. Anything
+        not on the chart in use is now retired automatically at the end of
+        every upgrade.
+
     What it refuses, and why:
 
     - **An account with nowhere to go** stops the whole thing. A half-finished

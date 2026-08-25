@@ -12,7 +12,8 @@
 // statement reads correctly. That is a decision with an accountant in it, and
 // the phrase is what stops it being a stray click.
 import { useState, useEffect, useCallback } from 'react';
-import { getChartStatus, installLebaneseChart } from '../../api/client';
+import { getChartStatus, installLebaneseChart, getChartPurgePreview,
+         postChartPurge } from '../../api/client';
 import { Modal, toast } from '../../components/shared';
 
 function ChartPicker({ t, canEdit, onInstalled }) {
@@ -20,6 +21,12 @@ function ChartPicker({ t, canEdit, onInstalled }) {
   const [open, setOpen] = useState(false);
   const [phrase, setPhrase] = useState('');
   const [busy, setBusy] = useState(false);
+  // Installing a statutory chart RETIRES the old one rather than deleting it,
+  // because an account is what historical entries point at. Once those entries
+  // are gone — or were never made — the rows are only clutter in the account
+  // list, and they cannot be removed by hand because every seeded account is a
+  // system account.
+  const [purge, setPurge] = useState(null);
 
   const load = useCallback(
     () => getChartStatus().then(setData).catch(() => {}), []);
@@ -46,6 +53,24 @@ function ChartPicker({ t, canEdit, onInstalled }) {
     } finally { setBusy(false); }
   }
 
+  async function openPurge() {
+    try { setPurge(await getChartPurgePreview()); }
+    catch (e) { toast(e.message, 'red'); }
+  }
+
+  async function doPurge() {
+    setBusy(true);
+    try {
+      const res = await postChartPurge();
+      toast(t('chart.purged', { count: res.removed }), 'green');
+      setPurge(null);
+      await load();
+      onInstalled?.();
+    } catch (e) {
+      toast(e.message, 'red');
+    } finally { setBusy(false); }
+  }
+
   return (
     <>
       <div style={{ display: 'flex', alignItems: 'center', gap: 10,
@@ -57,6 +82,11 @@ function ChartPicker({ t, canEdit, onInstalled }) {
         {!onLebanese && canEdit && (
           <button className="btn btn-sm btn-secondary" onClick={() => setOpen(true)}>
             {t('chart.switchTo', { name: t('chart.lebanon') })}
+          </button>
+        )}
+        {onLebanese && canEdit && (
+          <button className="btn btn-sm btn-secondary" onClick={openPurge}>
+            {t('chart.removeOld')}
           </button>
         )}
       </div>
@@ -108,6 +138,63 @@ function ChartPicker({ t, canEdit, onInstalled }) {
               disabled={busy || (needsPhrase && phrase.trim().toUpperCase() !== 'SWITCH CHART')}>
               {busy ? t('common.saving') : t('chart.install')}
             </button>
+          </div>
+        </Modal>
+      )}
+
+      {purge && (
+        <Modal title={t('chart.removeOldTitle')} onClose={() => setPurge(null)}>
+          <div className="modal-body">
+            {!purge.eligible ? (
+              <p style={{ fontSize: 13.5 }}>{t('chart.purgeOnlyAfterSwitch')}</p>
+            ) : (
+              <>
+                <p style={{ fontSize: 13.5, marginTop: 0 }}>
+                  {t('chart.purgeWhat', { count: purge.removable_count })}
+                </p>
+                {purge.removable_count > 0 && (
+                  <div style={{ maxHeight: 160, overflowY: 'auto', fontSize: 12,
+                                border: '1px solid var(--border)',
+                                borderRadius: 8, padding: '8px 10px' }}>
+                    {purge.removable.map(a => (
+                      <div key={a.code} style={{ display: 'flex', gap: 8 }}>
+                        <span className="text-mono"
+                              style={{ minWidth: 48 }}>{a.code}</span>
+                        <span style={{ color: 'var(--text-2)' }}>{a.name}</span>
+                      </div>
+                    ))}
+                  </div>
+                )}
+                {/* Named individually, because "3 must stay" invites the
+                    question "which ones", and the answer decides whether
+                    somebody goes and does a cutover first. */}
+                {purge.kept_count > 0 && (
+                  <div style={{ marginTop: 12, padding: '10px 12px',
+                                background: '#fef3c7', border: '1px solid #f59e0b',
+                                borderRadius: 8, fontSize: 12.5, color: '#78350f' }}>
+                    <div style={{ fontWeight: 700, marginBottom: 4 }}>
+                      {t('chart.purgeKept', { count: purge.kept_count })}
+                    </div>
+                    {purge.kept.map(a => (
+                      <div key={a.code}>
+                        {a.code} {a.name} — {t('chart.purgeKeptLines', { n: a.lines })}
+                      </div>
+                    ))}
+                  </div>
+                )}
+              </>
+            )}
+          </div>
+          <div className="modal-footer">
+            <button className="btn btn-secondary" onClick={() => setPurge(null)}>
+              {t('common.cancel')}
+            </button>
+            {purge.eligible && purge.removable_count > 0 && (
+              <button className="btn btn-danger" disabled={busy} onClick={doPurge}>
+                {busy ? t('common.saving')
+                      : t('chart.removeCount', { count: purge.removable_count })}
+              </button>
+            )}
           </div>
         </Modal>
       )}

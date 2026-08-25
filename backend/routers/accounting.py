@@ -97,6 +97,44 @@ class ChartInstall(BaseModel):
     confirm: Optional[str] = None
 
 
+@router.get("/chart/purge/preview")
+def chart_purge_preview(
+    user=Depends(require_perm("accounting", "view")),
+    db: sqlite3.Connection = Depends(get_db),
+):
+    """What removing the old chart would take away, and what it cannot.
+
+    Installing a statutory chart retires the previous one rather than deleting
+    it, because an account is what historical entries point at. Once those
+    entries are gone — or were never made — the rows are only clutter in the
+    account list.
+    """
+    import chart_purge
+    return chart_purge.preview(db)
+
+
+@router.post("/chart/purge")
+def post_chart_purge(
+    user=Depends(require_perm("accounting", "delete")),
+    db: sqlite3.Connection = Depends(get_db),
+):
+    """Delete the old chart's accounts that carry no history.
+
+    Anything with a posted line stays, deactivated: an entry pointing at an
+    account that no longer exists is a trial balance that cannot explain
+    itself.
+    """
+    import chart_purge
+    try:
+        result = chart_purge.purge(db, created_by=user["id"])
+    except ValueError as e:
+        raise HTTPException(400, str(e))
+    log_action(db, user, "chart_purge", "accounting", None,
+               f"Removed {result['removed']} retired account(s)", result)
+    db.commit()
+    return result
+
+
 @router.get("/chart/cutover/preview")
 def chart_cutover_preview(
     as_of: Optional[str] = None,

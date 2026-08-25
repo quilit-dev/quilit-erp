@@ -324,6 +324,41 @@ def install(db, *, force=False):
     return len(all_accounts())
 
 
+def reconcile_active(db) -> int:
+    """Retire anything not on this chart, if this chart is the one in use.
+
+    `install` retires the old chart once, at the moment of switching. What it
+    cannot do is stay ahead of the future: every later migration that adds an
+    account — euro cash, the asset-disposal pair — inserts it ACTIVE, and on a
+    tenant already on this plan that is a default-chart code appearing beside
+    the Lebanese one. Two charts again, arriving one deploy at a time.
+
+    So this runs at the end of every migration pass. It is a no-op for a tenant
+    on the default chart, and it never deletes: retiring keeps the old ledger
+    readable, which is the whole reason those rows are still there.
+    """
+    if not status(db)["installed"]:
+        return 0
+    ours = {a[0] for a in all_accounts()}
+    # A bank account opens its own leaf under whatever the `bank` role points
+    # at, so its code is a child of this chart rather than a stranger to it.
+    try:
+        ours |= {r["account_code"] for r in db.execute(
+            "SELECT account_code FROM bank_accounts "
+            "WHERE account_code IS NOT NULL").fetchall()}
+    except Exception:
+        pass
+
+    changed = 0
+    for row in db.execute(
+            "SELECT code FROM chart_of_accounts WHERE is_active = 1").fetchall():
+        if row["code"] not in ours:
+            db.execute("UPDATE chart_of_accounts SET is_active = 0 WHERE code = ?",
+                       (row["code"],))
+            changed += 1
+    return changed
+
+
 def status(db) -> dict:
     """Whether this tenant is on this chart, and whether it could move.
 
