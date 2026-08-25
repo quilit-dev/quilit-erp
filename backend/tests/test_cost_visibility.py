@@ -92,6 +92,74 @@ def test_stock_levels_still_work_without_cost(as_role):
     assert row["quantity"] == pytest.approx(10)
 
 
+# ── The till ─────────────────────────────────────────────────────────────────
+# The one screen this permission most obviously exists for, and the one it was
+# not applied to. `SELECT i.*`-shaped queries carry unit_cost into the JSON
+# whether or not a column draws it, so a cashier had what every item cost one
+# devtools panel away.
+
+def test_the_register_does_not_hand_a_cashier_the_cost(as_role):
+    owner = as_role("superadmin")
+    owner.post("/api/inventory/", json={
+        "name": "Widget", "quantity": 10, "sale_price": 50,
+        "unit_cost": 20, "category": "Goods"})
+
+    rows = as_role("Sales").get("/api/pos/products").json()
+
+    assert rows, "the register listed nothing to sell"
+    assert all("unit_cost" not in r for r in rows)
+
+
+def test_the_register_still_gives_a_cashier_what_to_charge(as_role):
+    """Stripping cost must not take price with it, or the till cannot sell."""
+    owner = as_role("superadmin")
+    owner.post("/api/inventory/", json={
+        "name": "Widget", "quantity": 10, "sale_price": 50,
+        "unit_cost": 20, "category": "Goods"})
+
+    row = next(r for r in as_role("Sales").get("/api/pos/products").json()
+               if r["name"] == "Widget")
+
+    assert row["sale_price"] == 50
+    assert row["quantity"] == 10
+
+
+def test_a_role_that_may_see_cost_still_sees_it_at_the_till(as_role):
+    """Manager rather than Inventory: seeing cost is not enough, the role has
+    to be able to open the till at all."""
+    owner = as_role("superadmin")
+    owner.post("/api/inventory/", json={
+        "name": "Widget", "quantity": 10, "sale_price": 50,
+        "unit_cost": 20, "category": "Goods"})
+
+    rows = as_role("Manager").get("/api/pos/products").json()
+
+    assert any(r.get("unit_cost") == 20 for r in rows)
+
+
+def test_a_sale_still_posts_the_right_cost_of_goods(as_role, db):
+    """Checkout reads cost from stock on the server, not from what the browser
+    was shown — so hiding it at the till cannot change what the books say."""
+    import uuid
+    owner = as_role("superadmin")
+    item = owner.post("/api/inventory/", json={
+        "name": "Widget", "quantity": 10, "sale_price": 50,
+        "unit_cost": 20, "category": "Goods"}).json()["id"]
+    seller = as_role("Sales")
+    seller.post("/api/pos/session/open", json={"opening_float": 0})
+
+    r = seller.post("/api/pos/checkout", json={
+        "items": [{"name": "Widget", "inventory_id": item,
+                   "quantity": 2, "unit_price": 50}],
+        "payment_method": "Cash", "currency": "USD", "amount_tendered": 100,
+        "idempotency_key": str(uuid.uuid4())})
+
+    assert r.status_code == 200, r.text
+    row = db.execute("SELECT cogs_total FROM pos_sales "
+                     "ORDER BY id DESC LIMIT 1").fetchone()
+    assert float(row["cogs_total"]) == 40.0
+
+
 # ── Derivation ───────────────────────────────────────────────────────────────
 
 def test_the_valuation_report_gives_nothing_away(as_role):
@@ -119,6 +187,86 @@ def test_warehouse_stock_hides_cost_and_value(as_role):
     for row in r.json():
         assert "unit_cost" not in row
         assert "value" not in row
+
+
+# ── Projects ─────────────────────────────────────────────────────────────────
+# A project states what it cost to run, in raw columns and again by
+# subtraction. Both had to go: hiding `estimated_cost` while leaving
+# `expected_profit` beside `expected_revenue` hides the column, not the number.
+
+def _project(owner, **kw):
+    cid = owner.post("/api/clients/", json={"name": "Co"}).json()["id"]
+    body = {"name": "Fit-out", "client_id": cid,
+            "estimated_cost": 500, "expected_revenue": 900}
+    body.update(kw)
+    r = owner.post("/api/projects/", json=body).json()
+    return r.get("id") or r.get("project_id")
+
+
+def test_the_project_list_hides_what_it_cost(as_role):
+    owner = as_role("superadmin")
+    _project(owner)
+
+    rows = as_role("Sales").get("/api/projects/").json()
+
+    assert rows
+    assert all("estimated_cost" not in r and "actual_cost" not in r for r in rows)
+
+
+def test_the_project_detail_hides_it_too(as_role):
+    owner = as_role("superadmin")
+    pid = _project(owner)
+
+    body = as_role("Sales").get(f"/api/projects/{pid}").json()
+
+    assert "estimated_cost" not in body
+    assert "actual_cost" not in body
+
+
+def test_the_budget_cannot_be_worked_out_by_subtraction(as_role):
+    """`expected_profit` against `expected_revenue` is the estimate, said
+    backwards. Stripping one and not the other is not stripping."""
+    owner = as_role("superadmin")
+    pid = _project(owner)
+
+    stats = as_role("Sales").get(f"/api/projects/{pid}").json()["stats"]
+
+    for k in ("expected_profit", "budget_remaining", "margin_pct",
+              "total_expenses"):
+        assert k not in stats, f"{k} still states the cost"
+
+
+def test_what_the_customer_owes_is_not_a_cost_and_stays(as_role):
+    """The wall is around what things cost, not around the project."""
+    owner = as_role("superadmin")
+    pid = _project(owner)
+
+    stats = as_role("Sales").get(f"/api/projects/{pid}").json()["stats"]
+
+    for k in ("total_quoted", "total_invoiced", "total_paid", "outstanding"):
+        assert k in stats, f"{k} was taken with the cost figures"
+
+
+def test_a_role_that_may_see_cost_still_manages_a_budget(as_role):
+    owner = as_role("superadmin")
+    pid = _project(owner)
+
+    stats = owner.get(f"/api/projects/{pid}").json()["stats"]
+
+    assert stats["expected_profit"] == 400
+    assert stats["budget_remaining"] == 500
+
+
+def test_the_dashboard_does_not_leak_it_either(as_role):
+    """It carries a slice of everything, recent projects among it."""
+    owner = as_role("superadmin")
+    _project(owner)
+
+    body = as_role("Sales").get("/api/dashboard/").json()
+
+    for p in body.get("recent_projects", []):
+        assert "estimated_cost" not in p
+        assert "actual_cost" not in p
 
 
 # ── The dangerous one ────────────────────────────────────────────────────────

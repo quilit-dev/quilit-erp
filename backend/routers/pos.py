@@ -27,6 +27,7 @@ from routers.audit import log_action
 from routers.finance import _check_period_locked
 from utils import _now, _today, notify, get_tax_context, resolve_inclusive_tax, money, validate_int_qty
 import costing
+import costs
 import lots
 import accounting
 import denomination
@@ -327,7 +328,13 @@ def search_products(
         query += (" ORDER BY (i.barcode IS NULL OR i.barcode = '') DESC, "
                   "COALESCE(p.name, i.name), i.id LIMIT 100")
 
-    return [dict(r) for r in db.execute(query, params).fetchall()]
+    # The register works in PRICE. What an item cost to buy rode along in
+    # this response whether or not a column drew it, so a cashier had it
+    # one devtools panel away — on the one screen the whole permission
+    # exists to keep it off. Checkout re-reads cost from stock server-side,
+    # so nothing downstream needs it here.
+    return costs.strip([dict(r) for r in db.execute(query, params).fetchall()],
+                       user, db)
 
 
 @router.get("/cash-drawers")

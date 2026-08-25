@@ -67,7 +67,22 @@ def visible(user, db) -> bool:
     return permissions.can(user, db, "costs", "view")
 
 
-def strip(data, user, db):
+# Figures that are not cost but hand it straight back when they sit beside the
+# revenue in the same response. A project detail carrying `expected_profit` and
+# `expected_revenue` states its budget by subtraction, so stripping only
+# `estimated_cost` hides the column and not the number.
+#
+# Kept per-call-site rather than in COST_FIELDS because these names are generic:
+# `total_expenses` on a finance report is the report, not a leak.
+PROJECT_DERIVED = frozenset({
+    "budget_remaining",
+    "expected_profit",
+    "margin_pct",
+    "total_expenses",
+})
+
+
+def strip(data, user, db, extra=None):
     """Remove cost fields from a response unless the user may see them.
 
     Accepts a dict, a list of dicts, or anything else (returned untouched), so
@@ -75,18 +90,21 @@ def strip(data, user, db):
     Nested dicts and lists are walked, because several endpoints return a
     record with its lines attached.
 
+    `extra` adds field names for this call site only — figures that are not
+    cost in general but yield it in the shape this particular endpoint returns.
+
     Rows are copied rather than mutated: several handlers build their response
     from sqlite3.Row objects converted once and reused, and mutating in place
     has a habit of emptying a cache somebody else is reading.
     """
     if visible(user, db):
         return data
-    return _strip(data)
+    return _strip(data, COST_FIELDS | frozenset(extra or ()))
 
 
-def _strip(data):
+def _strip(data, fields):
     if isinstance(data, dict):
-        return {k: _strip(v) for k, v in data.items() if k not in COST_FIELDS}
+        return {k: _strip(v, fields) for k, v in data.items() if k not in fields}
     if isinstance(data, (list, tuple)):
-        return [_strip(v) for v in data]
+        return [_strip(v, fields) for v in data]
     return data

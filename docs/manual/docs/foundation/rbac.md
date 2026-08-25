@@ -234,6 +234,21 @@ flowchart LR
 The figures are removed **on the server**, not hidden in the browser, so they
 are not in the page for someone to find in a developer console.
 
+### Where it applies
+
+| Screen | Withheld without Cost prices |
+|---|---|
+| Inventory list and item | Unit cost, stock value |
+| Stock levels, warehouse stock | Cost and value columns |
+| POS — the product list | Unit cost. The till works in selling price |
+| Projects — list and detail | Estimated and actual cost, and the figures that give them back: budget remaining, expected profit, margin |
+| Dashboard | Recent projects keep their name and status, not their budget |
+| Inventory valuation report | The whole report is cost |
+
+What the customer owes is never withheld — quoted, invoiced, paid and
+outstanding stay on a project for anyone who can open it. The wall is around
+what things *cost*, not around the project.
+
 ### Who keeps it by default
 
 | Keeps it | Why |

@@ -13,6 +13,7 @@ of the business rather than a stack of disconnected widgets.
 """
 from fastapi import APIRouter, Depends
 from typing import Optional
+import costs
 from database import get_db
 from permissions import require_perm, can_view as permissions_can_view
 from utils import _today
@@ -430,7 +431,7 @@ def dashboard(branch_id: Optional[int] = None,
                ORDER BY date(start_date), COALESCE(start_time,'00:00') LIMIT 5"""
         ).fetchall()]
 
-    return {
+    payload = {
         # ── Existing fields (kept backward-compatible) ───────────────────
         "active_projects":         active_projects,
         "pending_quotes":          pending_quotes,
@@ -486,3 +487,6 @@ def dashboard(branch_id: Optional[int] = None,
             "warehouses":    show_warehouses,
         },
     }
+    # The dashboard carries a slice of everything, recent projects with
+    # their budgets among it. Same rule as the module each figure came from.
+    return costs.strip(payload, user, db, extra=costs.PROJECT_DERIVED)

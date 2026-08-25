@@ -1,6 +1,7 @@
 from fastapi import APIRouter, Depends, HTTPException
 from pydantic import BaseModel
 from typing import Optional
+import costs
 from database import get_db
 from permissions import require_perm
 from routers.audit import log_action
@@ -86,7 +87,10 @@ def list_projects(search: Optional[str] = None, status: Optional[str] = None,
         params.append(status)
     query += " ORDER BY p.created_at DESC"
     rows = db.execute(query, params).fetchall()
-    return [dict(r) for r in rows]
+    # A project states what it cost to run. Same rule as stock: the columns
+    # ride along in the JSON whether or not a screen draws them.
+    return costs.strip([dict(r) for r in rows], user, db,
+                       extra=costs.PROJECT_DERIVED)
 
 @router.get("/{project_id}")
 def get_project(project_id: int, user=Depends(require_perm("projects", "view")), db: sqlite3.Connection = Depends(get_db)):
@@ -159,7 +163,10 @@ def get_project(project_id: int, user=Depends(require_perm("projects", "view")),
         "expected_profit":    expected_rev - estimated,
         "margin_pct":         round((expected_rev - estimated) / expected_rev * 100, 1) if expected_rev > 0 else 0,
     }
-    return result
+    # The derived figures go with the raw ones. `expected_profit` beside
+    # `expected_revenue` states the budget by subtraction, so hiding only
+    # `estimated_cost` would hide the column and not the number.
+    return costs.strip(result, user, db, extra=costs.PROJECT_DERIVED)
 
 @router.post("/")
 def create_project(data: ProjectCreate, user=Depends(require_perm("projects", "create")), db: sqlite3.Connection = Depends(get_db)):
