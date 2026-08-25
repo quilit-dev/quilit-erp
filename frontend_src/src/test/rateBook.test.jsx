@@ -89,8 +89,17 @@ describe('it is where the rate is actually needed', () => {
     expect(src).toMatch(/rates\.staleDays/);
   });
 
-  test('it opens for everyone and only an admin may write', () => {
-    expect(src).toMatch(/\{isAdmin && \(/);
+  test('it opens for everyone, and writing follows the settings permission', () => {
+    // Reading a rate is not editing one, so the panel opens for anybody: the
+    // pill is how the whole office knows what today's rate is.
+    //
+    // Typing one is editing a setting, and the endpoint behind the form says
+    // exactly that. Gating the form on admin alone left a role granted
+    // `settings: edit` able to open the book, read every pair, and find no
+    // form under it — while the API would have accepted the write.
+    expect(src).toMatch(/const canEdit = isAdmin \|\| can\('settings', 'edit'\);/);
+    expect(src).toMatch(/\{canEdit && \(\s*<form onSubmit=\{save\}/);
+    expect(src).not.toMatch(/\{isAdmin && \(/);
   });
 });
 

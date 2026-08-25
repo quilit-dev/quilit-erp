@@ -65,7 +65,13 @@ function ageInDays(iso) {
 export function RateBookPanel({ onClose }) {
   const { t, fmtDate } = useLocale();
   const { reload } = useSettings();
-  const { isAdmin } = usePermissions();
+  // Setting a rate is editing a setting, and the endpoint behind this form
+  // says so. Admin-tier reaches it, and so does a role granted `settings:
+  // edit` — the same rule the Settings page follows, because this panel is
+  // rendered there too and two answers to "who may type a rate" is one answer
+  // too many.
+  const { isAdmin, can } = usePermissions();
+  const canEdit = isAdmin || can('settings', 'edit');
   const [book, setBook] = useState(null);
   const [busy, setBusy] = useState(false);
 
@@ -155,7 +161,7 @@ export function RateBookPanel({ onClose }) {
         </table>
       )}
 
-      {isAdmin && (
+      {canEdit && (
         <form onSubmit={save} style={{ padding: 14, borderTop: '1px solid var(--border)' }}>
           <div style={{ display: 'flex', gap: 6, alignItems: 'flex-end',
                         flexWrap: 'wrap' }}>

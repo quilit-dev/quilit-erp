@@ -404,7 +404,11 @@ def set_exchange_rate(
     user=Depends(_settings_write),
     db: sqlite3.Connection = Depends(get_db),
 ):
-    """Record a rate for one currency, from one date. Administrator only.
+    """Record a rate for one currency, from one date.
+
+    Writable by admin-tier or by a role granted `settings: edit` — a rate is a
+    setting, and the business that needs one changed twice a week is rarely the
+    business whose owner is at a desk when it moves.
 
     Nothing already posted moves. Amounts are stored converted, so history was
     fixed when it was written; the date decides only which rate a NEW
