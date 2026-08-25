@@ -57,6 +57,16 @@ SOURCES: dict[str, _Doc] = {
     "service_cogs":     _Doc("service_jobs", "job_number", "/service"),
     "payroll":          _Doc("hr_payroll_runs", "period_start", None,
                              fallback="Payroll run"),
+    # Buying an asset and selling it are entries against the register itself,
+    # not against an expense row the way a depreciation charge is.
+    "asset_acquisition": _Doc("fixed_assets", "asset_code", "/fixed-assets",
+                              fallback="Asset acquired"),
+    "asset_disposal":    _Doc("fixed_assets", "asset_code", "/fixed-assets",
+                              fallback="Asset disposed"),
+    # The opening entry covers every asset at once, so it points at no single
+    # one of them.
+    "asset_opening":     _Doc("fixed_assets", None, "/fixed-assets",
+                              fallback="Assets brought onto the books"),
 }
 
 

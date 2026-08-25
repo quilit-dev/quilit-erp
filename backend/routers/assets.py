@@ -49,6 +49,16 @@ class AssetIn(BaseModel):
     useful_life_months:  int = 0
     salvage_value:       float = 0
     supplier_id:         Optional[int] = None
+    # How it was bought. An asset the business already owned when the ERP
+    # arrived is an OPENING BALANCE: it posts nothing, because booking a
+    # purchase that happened three years ago would invent a cash movement that
+    # never occurred.
+    is_opening_balance:  bool = False
+    payment_method:      Optional[str] = None
+    bank_account_id:     Optional[int] = None
+    # Bought on credit — the other side of the entry is the supplier rather
+    # than the money.
+    on_credit:           bool = False
 
     @validator('acquisition_cost')
     def _cost_positive(cls, v):
@@ -84,10 +94,123 @@ class DisposeIn(BaseModel):
     disposal_date:     Optional[str] = None
     disposal_proceeds: float = 0
     disposal_reason:   Optional[str] = None
+    # Where the money went. Same two questions every other payment in the
+    # system now asks, answered by the same picker.
+    payment_method:    Optional[str] = None
+    bank_account_id:   Optional[int] = None
+    # Selling a business asset is normally a taxable supply here. The figure
+    # is part of the proceeds and is credited to VAT rather than to the gain,
+    # or the gain is overstated by the tax collected on the state's behalf.
+    vat_amount:        float = 0
+
+    @validator("disposal_proceeds")
+    def _proceeds_not_negative(cls, v):
+        if float(v or 0) < 0:
+            raise ValueError("Proceeds cannot be negative. Scrapping for "
+                             "nothing is zero.")
+        return v
 
 
 class RunIn(BaseModel):
     period: Optional[str] = None    # YYYY-MM — defaults to the current month
+
+
+class OpeningIn(BaseModel):
+    as_of: Optional[str] = None
+    note:  Optional[str] = None
+
+
+# ── Posting ─────────────────────────────────────────────────────────────────
+#
+# Depreciation was the only part of this module that reached the ledger. Buying
+# posted nothing, so the cost never landed on the balance sheet and the
+# depreciation charged against it piled into a contra-asset standing against
+# nothing at all. Selling posted nothing either: the gain or loss was computed,
+# handed to the screen, and discarded.
+
+def _post_acquisition(db, asset, data, user_id):
+    """DR the asset, CR whatever paid for it. Returns the entry id, or None.
+
+    An asset the business already owned when the ERP arrived posts nothing:
+    booking a purchase that happened three years ago would invent a cash
+    movement that never occurred. What such an asset owes the balance sheet is
+    settled deliberately, once, by the opening-balance reconciliation.
+    """
+    if getattr(data, "is_opening_balance", False):
+        return None
+    cost = round(float(asset["acquisition_cost"] or 0), 2)
+    if cost <= 0:
+        return None
+
+    # Bought on credit, the other side is the supplier, not the money.
+    on_credit = getattr(data, "on_credit", False)
+    credit_code = (accounting.code(db, "payable") if on_credit
+                   else accounting.money_account_for(
+                       db, method=getattr(data, "payment_method", None),
+                       bank_account_id=getattr(data, "bank_account_id", None)))
+
+    entry_date = accounting.clamp_posting_date(
+        (asset["acquisition_date"] or _today())[:10])
+    return accounting.post_entry(
+        db,
+        entry_date=entry_date,
+        memo=f"Asset acquired — {asset['asset_code']} {asset['name']}",
+        lines=[
+            {"code": accounting.code(db, "fixed_asset"), "debit": cost},
+            {"code": credit_code, "credit": cost},
+        ],
+        source_type="asset_acquisition", source_id=asset["id"],
+        created_by=user_id,
+    )
+
+
+def _post_disposal(db, asset, *, proceeds, vat, accumulated, method,
+                   bank_account_id, entry_date, user_id):
+    """One entry that takes the asset off the books.
+
+    Cost out, depreciation cleared, money in, and the difference to gain or
+    loss. Every line is needed: crediting only the gain would leave the cost
+    and its contra sitting on the balance sheet forever, which is what
+    disposal did before by posting nothing at all.
+    """
+    cost = round(float(asset["acquisition_cost"] or 0), 2)
+    accumulated = round(float(accumulated or 0), 2)
+    proceeds = round(float(proceeds or 0), 2)
+    vat = round(float(vat or 0), 2)
+    net_proceeds = round(proceeds - vat, 2)
+    book_value = round(cost - accumulated, 2)
+    gain_loss = round(net_proceeds - book_value, 2)
+
+    lines = []
+    if proceeds > 0.005:
+        lines.append({
+            "code": accounting.money_account_for(
+                db, method=method, bank_account_id=bank_account_id),
+            "debit": proceeds,
+        })
+    if vat > 0.005:
+        lines.append({"code": accounting.code(db, "vat_output"), "credit": vat,
+                      "memo": "VAT on asset sale"})
+    if accumulated > 0.005:
+        lines.append({"code": accounting.code(db, "accumulated_dep"),
+                      "debit": accumulated})
+    lines.append({"code": accounting.code(db, "fixed_asset"), "credit": cost})
+    if gain_loss > 0.005:
+        lines.append({"code": accounting.code(db, "gain_on_disposal"),
+                      "credit": gain_loss})
+    elif gain_loss < -0.005:
+        lines.append({"code": accounting.code(db, "loss_on_disposal"),
+                      "debit": abs(gain_loss)})
+
+    entry_id = accounting.post_entry(
+        db,
+        entry_date=entry_date,
+        memo=f"Asset disposed — {asset['asset_code']} {asset['name']}",
+        lines=lines,
+        source_type="asset_disposal", source_id=asset["id"],
+        created_by=user_id,
+    )
+    return entry_id, book_value, gain_loss
 
 
 # ── Period helpers ──────────────────────────────────────────────────────────
@@ -337,12 +460,15 @@ def create_asset(
         "INSERT INTO fixed_assets "
         " (asset_code, name, category, description, acquisition_cost, acquisition_date, "
         "  in_service_date, depreciation_method, useful_life_months, salvage_value, "
-        "  accumulated_depreciation, status, supplier_id, created_by, created_at) "
-        "VALUES (?,?,?,?,?,?,?,?,?,?,0,?,?,?,?)",
+        "  accumulated_depreciation, status, supplier_id, created_by, created_at, "
+        "  is_opening_balance, payment_method, bank_account_id) "
+        "VALUES (?,?,?,?,?,?,?,?,?,?,0,?,?,?,?,?,?,?)",
         (code, data.name, data.category, data.description, data.acquisition_cost,
          data.acquisition_date, data.in_service_date or data.acquisition_date,
          data.depreciation_method, data.useful_life_months, data.salvage_value,
-         _ACTIVE, data.supplier_id, user['id'], now),
+         _ACTIVE, data.supplier_id, user['id'], now,
+         1 if data.is_opening_balance else 0,
+         data.payment_method, data.bank_account_id),
     )
     asset_id = cur.lastrowid
 
@@ -358,17 +484,32 @@ def create_asset(
         entity_data=entity_data, user_id=user["id"],
         entity_id=asset_id, entity_label=label,
     )
+    entry_id = None
     if needs_approval:
         db.execute("UPDATE fixed_assets SET status='Pending Approval' WHERE id=?",
                    (asset_id,))
+    else:
+        # Buying it is an accounting event: the cost goes on the balance sheet
+        # and something paid for it. Held behind capex approval, it waits —
+        # posting a purchase the business has not agreed to would put an asset
+        # on the books that may never be bought.
+        asset = db.execute("SELECT * FROM fixed_assets WHERE id=?",
+                           (asset_id,)).fetchone()
+        entry_id = _post_acquisition(db, asset, data, user['id'])
+        if entry_id:
+            db.execute("UPDATE fixed_assets SET acquisition_entry_id=? WHERE id=?",
+                       (entry_id, asset_id))
 
     log_action(db, user, "create", "asset", asset_id, code,
-               {"name": data.name, "cost": data.acquisition_cost})
+               {"name": data.name, "cost": data.acquisition_cost,
+                "opening_balance": bool(data.is_opening_balance),
+                "journal_entry_id": entry_id})
     db.commit()
     return {
         "id":              asset_id,
         "asset_code":      code,
         "pending_approval": bool(needs_approval),
+        "journal_entry_id": entry_id,
         "message":         "Asset pending approval" if needs_approval else "Asset created",
     }
 
@@ -520,26 +661,93 @@ def dispose_asset(
     if asset['status'] == _DISPOSED:
         raise HTTPException(400, "Asset is already disposed")
 
-    book_value = round(float(asset['acquisition_cost'])
-                       - float(asset['accumulated_depreciation']), 2)
-    proceeds   = float(data.disposal_proceeds or 0)
-    gain_loss  = round(proceeds - book_value, 2)
+    on = (data.disposal_date or _today())[:10]
+    period = on[:7]
+    # Depreciation refuses to write into a sealed period; disposal moves more
+    # money than a month's charge does, so it cannot be the one exception.
+    if _period_locked(db, period):
+        raise HTTPException(
+            400, f"{period} is locked, so a disposal cannot be posted into it. "
+                 "Unlock the period, or date the disposal in an open one.")
+
+    # Depreciate up to the month of sale FIRST. Book value is what the asset is
+    # worth on the day it leaves, and every month nobody remembered to run
+    # would otherwise turn into a gain that was never made.
+    caught_up = []
+    if asset['depreciation_method'] == 'straight_line':
+        caught_up, _locked_stop = _post_depreciation(db, asset, period, user, _now())
+        asset = _asset_or_404(db, asset_id)
+
+    proceeds = round(float(data.disposal_proceeds or 0), 2)
+    vat      = round(float(data.vat_amount or 0), 2)
+    if vat > proceeds + 0.005:
+        raise HTTPException(400, "The VAT cannot be more than the proceeds.")
+
+    entry_id, book_value, gain_loss = _post_disposal(
+        db, asset,
+        proceeds=proceeds, vat=vat,
+        accumulated=asset['accumulated_depreciation'],
+        method=data.payment_method, bank_account_id=data.bank_account_id,
+        entry_date=accounting.clamp_posting_date(on), user_id=user['id'],
+    )
+
     db.execute(
         "UPDATE fixed_assets SET status=?, disposal_date=?, disposal_proceeds=?, "
-        " disposal_reason=? WHERE id=?",
-        (_DISPOSED, data.disposal_date or _today(), proceeds,
-         data.disposal_reason, asset_id),
+        " disposal_reason=?, disposal_method=?, disposal_bank_account_id=?, "
+        " disposal_vat=?, disposal_gain_loss=?, disposal_entry_id=? WHERE id=?",
+        (_DISPOSED, on, proceeds, data.disposal_reason, data.payment_method,
+         data.bank_account_id, vat, gain_loss, entry_id, asset_id),
     )
     log_action(db, user, "dispose", "asset", asset_id, asset['asset_code'],
                {"book_value": book_value, "proceeds": proceeds,
-                "gain_loss": gain_loss})
+                "gain_loss": gain_loss, "journal_entry_id": entry_id,
+                "depreciation_caught_up": len(caught_up)})
     db.commit()
     return {
         "message": "Asset disposed",
         "book_value": book_value,
         "proceeds": proceeds,
         "gain_loss": gain_loss,
+        "journal_entry_id": entry_id,
+        # What was posted on the way through, so the screen can say "four
+        # months of depreciation were brought up to date first" rather than
+        # showing a book value the operator cannot reconcile.
+        "depreciation_posted": caught_up,
     }
+
+
+@router.get("/opening-balances/preview")
+def preview_opening_balances(
+    user=Depends(require_perm("assets", "view")),
+    db: sqlite3.Connection = Depends(get_db),
+):
+    """What the register owes the balance sheet, before anything is written.
+
+    Every asset registered before buying became an accounting event posted no
+    cost, while depreciation has been charged against them ever since — so the
+    ledger carries a contra-asset standing against nothing.
+    """
+    import asset_opening
+    return asset_opening.preview(db)
+
+
+@router.post("/opening-balances")
+def post_opening_balances(
+    data: OpeningIn,
+    user=Depends(require_perm("assets", "create")),
+    db: sqlite3.Connection = Depends(get_db),
+):
+    """Bring every unposted asset onto the books in one entry. Run once."""
+    import asset_opening
+    try:
+        result = asset_opening.post(db, as_of=data.as_of, note=data.note,
+                                    created_by=user["id"])
+    except ValueError as e:
+        raise HTTPException(400, str(e))
+    log_action(db, user, "opening_balances", "asset", None, "Fixed assets",
+               result)
+    db.commit()
+    return result
 
 
 @router.patch("/{asset_id}/archive")

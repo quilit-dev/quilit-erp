@@ -3,6 +3,7 @@ import { useData } from '../hooks/useData';
 import { usePersistedState } from '../hooks/usePersistedState';
 import { useSortPaginate } from '../hooks/useSortPaginate';
 import { useLocale } from '../hooks/useLocale.jsx';
+import BankField, { useBankAccounts } from '../components/BankField.jsx';
 import { useCategories } from '../hooks/useCategories';
 import { usePermissions } from '../hooks/usePermissions.js';
 import Attachments from '../components/Attachments.jsx';
@@ -40,6 +41,11 @@ const EMPTY_FORM = {
   in_service_date: new Date().toISOString().slice(0, 10),
   depreciation_method: 'straight_line', useful_life_months: 36,
   salvage_value: '0', supplier_id: '',
+  // How it was bought. An asset the business already owned when the ERP
+  // arrived posts nothing — booking a purchase from three years ago would
+  // invent a cash movement that never happened.
+  is_opening_balance: false, on_credit: false,
+  payment_method: 'Bank Transfer', bank_account_id: '',
 };
 
 export default function FixedAssets() {
@@ -61,7 +67,11 @@ export default function FixedAssets() {
 
   const [detail, setDetail]         = useState(null);   // full asset with ledger
   const [disposeTarget, setDispose] = useState(null);
-  const [disposeForm, setDisposeForm] = useState({ disposal_date: '', disposal_proceeds: '', disposal_reason: '' });
+  const [disposeForm, setDisposeForm] = useState({
+    disposal_date: '', disposal_proceeds: '', disposal_reason: '',
+    payment_method: 'Bank Transfer', bank_account_id: '', vat_amount: '',
+  });
+  const bankAccounts = useBankAccounts();
   const [archiveTarget, setArchive] = useState(null);
   const [runModal, setRunModal]     = useState(false);
   const [runPeriod, setRunPeriod]   = useState(currentPeriod());
@@ -99,6 +109,12 @@ export default function FixedAssets() {
         in_service_date:    form.in_service_date || null,
         description:        form.description || null,
         category:           form.category || null,
+        is_opening_balance: !!form.is_opening_balance,
+        on_credit:          !!form.on_credit,
+        payment_method:     form.is_opening_balance || form.on_credit
+                              ? null : form.payment_method,
+        bank_account_id:    form.bank_account_id
+                              ? Number(form.bank_account_id) : null,
       };
       if (editId) {
         await updateAsset(editId, payload);
@@ -151,6 +167,10 @@ export default function FixedAssets() {
         disposal_date: disposeForm.disposal_date || null,
         disposal_proceeds: Number(disposeForm.disposal_proceeds || 0),
         disposal_reason: disposeForm.disposal_reason || null,
+        payment_method: disposeForm.payment_method || null,
+        bank_account_id: disposeForm.bank_account_id
+          ? Number(disposeForm.bank_account_id) : null,
+        vat_amount: Number(disposeForm.vat_amount || 0),
       });
       toast(t('assets.disposedMsg', { gain: fmt(res.gain_loss) }), 'green');
       setDispose(null);
@@ -369,6 +389,54 @@ export default function FixedAssets() {
                       onChange={e => setForm(f => ({ ...f, useful_life_months: e.target.value }))} />
                   </div>
                 )}
+                {/* How it was paid for. Hidden while editing: an asset's
+                    financial basis is frozen once it has depreciated, and the
+                    entry that bought it is already posted. */}
+                {!editId && (
+                  <div className="form-group form-full">
+                    <label style={{ display: 'flex', alignItems: 'center',
+                                    gap: 8, fontSize: 13.5 }}>
+                      <input type="checkbox" checked={form.is_opening_balance}
+                        onChange={e => setForm(f => ({
+                          ...f, is_opening_balance: e.target.checked }))} />
+                      {t('assets.alreadyOwned')}
+                    </label>
+                    <div style={{ fontSize: 11, color: 'var(--text-3)',
+                                  marginTop: 3 }}>
+                      {t('assets.alreadyOwnedHint')}
+                    </div>
+                  </div>
+                )}
+                {!editId && !form.is_opening_balance && (
+                  <div className="form-group form-full">
+                    <label style={{ display: 'flex', alignItems: 'center',
+                                    gap: 8, fontSize: 13.5 }}>
+                      <input type="checkbox" checked={form.on_credit}
+                        onChange={e => setForm(f => ({
+                          ...f, on_credit: e.target.checked }))} />
+                      {t('assets.onCredit')}
+                    </label>
+                  </div>
+                )}
+                {!editId && !form.is_opening_balance && !form.on_credit && (
+                  <div className="form-group">
+                    <label className="form-label">{t('expenses.paymentMethodLabel')}</label>
+                    <select className="form-control" value={form.payment_method}
+                      onChange={e => setForm(f => ({
+                        ...f, payment_method: e.target.value,
+                        bank_account_id: '' }))}>
+                      {['Cash', 'Bank Transfer', 'Cheque', 'Card'].map(m => (
+                        <option key={m} value={m}>{m}</option>
+                      ))}
+                    </select>
+                  </div>
+                )}
+                {!editId && !form.is_opening_balance && !form.on_credit && (
+                  <BankField method={form.payment_method}
+                    value={form.bank_account_id}
+                    onChange={v => setForm(f => ({ ...f, bank_account_id: v }))}
+                    accounts={bankAccounts} />
+                )}
                 <div className="form-group form-full">
                   <label className="form-label">{t('assets.fldDescription')}</label>
                   <input className="form-control" value={form.description}
@@ -465,10 +533,19 @@ export default function FixedAssets() {
                   {t('common.edit')}
                 </button>
               )}
-              {detail.status === 'Active' && can('assets', 'edit') && (
+              {/* Fully depreciated too — that is exactly when a truck goes
+                  for scrap, and the button used to disappear at the moment it
+                  was most needed. */}
+              {['Active', 'Fully Depreciated'].includes(detail.status)
+                && can('assets', 'edit') && (
                 <button className="btn btn-danger" onClick={() => {
                   setDispose(detail);
-                  setDisposeForm({ disposal_date: new Date().toISOString().slice(0, 10), disposal_proceeds: '', disposal_reason: '' });
+                  setDisposeForm({
+                    disposal_date: new Date().toISOString().slice(0, 10),
+                    disposal_proceeds: '', disposal_reason: '',
+                    payment_method: 'Bank Transfer', bank_account_id: '',
+                    vat_amount: '',
+                  });
                   setDetail(null);
                 }}>{t('assets.dispose')}</button>
               )}
@@ -533,12 +610,68 @@ export default function FixedAssets() {
                     value={disposeForm.disposal_proceeds}
                     onChange={e => setDisposeForm(f => ({ ...f, disposal_proceeds: e.target.value }))} />
                 </div>
+                <div className="form-group">
+                  <label className="form-label">{t('expenses.paymentMethodLabel')}</label>
+                  <select className="form-control" value={disposeForm.payment_method}
+                    onChange={e => setDisposeForm(f => ({
+                      ...f, payment_method: e.target.value, bank_account_id: '' }))}>
+                    {['Cash', 'Bank Transfer', 'Cheque', 'Card'].map(m => (
+                      <option key={m} value={m}>{m}</option>
+                    ))}
+                  </select>
+                </div>
+                <BankField method={disposeForm.payment_method}
+                  value={disposeForm.bank_account_id}
+                  onChange={v => setDisposeForm(f => ({ ...f, bank_account_id: v }))}
+                  accounts={bankAccounts} />
+                <div className="form-group">
+                  {/* Selling a business asset is normally a taxable supply.
+                      Tax collected on the state's behalf is not a gain, and
+                      leaving it in overstates the profit by exactly the VAT. */}
+                  <label className="form-label">{t('assets.fldVat')}</label>
+                  <NumberInput className="form-control" step="0.01" min="0"
+                    value={disposeForm.vat_amount}
+                    onChange={e => setDisposeForm(f => ({ ...f, vat_amount: e.target.value }))} />
+                </div>
                 <div className="form-group form-full">
                   <label className="form-label">{t('assets.fldDisposalReason')}</label>
                   <input className="form-control" value={disposeForm.disposal_reason}
                     onChange={e => setDisposeForm(f => ({ ...f, disposal_reason: e.target.value }))} />
                 </div>
               </div>
+
+              {/* What it is about to post, before the operator commits. The
+                  gain used to be shown only AFTERWARDS, in a toast, and was
+                  never in the books at all. */}
+              {(() => {
+                const book = Number(disposeTarget.book_value) || 0;
+                const gross = Number(disposeForm.disposal_proceeds) || 0;
+                const vat = Number(disposeForm.vat_amount) || 0;
+                const net = gross - vat;
+                const gainLoss = Math.round((net - book) * 100) / 100;
+                return (
+                  <div style={{ marginTop: 14, padding: '10px 12px',
+                                background: 'var(--surface-2)', borderRadius: 8,
+                                fontSize: 12, color: 'var(--text-2)' }}>
+                    <div style={{ fontWeight: 700, marginBottom: 4 }}>
+                      {t('assets.willPost')}
+                    </div>
+                    <div>{t('assets.postCostOut', { amount: fmt(disposeTarget.acquisition_cost) })}</div>
+                    <div>{t('assets.postDepCleared', { amount: fmt(disposeTarget.accumulated_depreciation) })}</div>
+                    {gross > 0 && <div>{t('assets.postProceeds', { amount: fmt(gross) })}</div>}
+                    {vat > 0 && <div>{t('assets.postVat', { amount: fmt(vat) })}</div>}
+                    <div style={{ fontWeight: 700, marginTop: 4,
+                                  color: gainLoss < 0 ? 'var(--red)' : 'var(--green)' }}>
+                      {gainLoss < 0
+                        ? t('assets.postLoss', { amount: fmt(Math.abs(gainLoss)) })
+                        : t('assets.postGain', { amount: fmt(gainLoss) })}
+                    </div>
+                    <div style={{ fontSize: 11, marginTop: 4, opacity: 0.8 }}>
+                      {t('assets.postCatchUpHint')}
+                    </div>
+                  </div>
+                );
+              })()}
             </div>
             <div className="modal-footer">
               <button type="button" className="btn btn-secondary" onClick={() => setDispose(null)}>{t('common.cancel')}</button>

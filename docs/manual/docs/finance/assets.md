@@ -54,7 +54,28 @@ worth now after depreciation.
     | Salvage value | Optional; default 0 |
     | Supplier | Optional — who you bought it from |
 
-    Save. The asset lands in **Active** status with no depreciation yet.
+    Then how it was paid for:
+
+    | Field | Notes |
+    |---|---|
+    | The business already owned this | Tick it for anything bought before the ERP. Registers the asset without booking a purchase — the money left before these books started |
+    | Bought on credit | The supplier is owed rather than money having moved |
+    | Payment method + Bank account | Same picker as every other payment in the system |
+
+    Save. The asset lands in **Active** status with no depreciation yet, and —
+    unless it was already owned — an entry is posted:
+
+    ```
+    DR  Fixed Assets        acquisition cost
+      CR Bank / Cash / Supplier    the same figure
+    ```
+
+    !!! warning "Assets registered before this existed"
+        Registering an asset used to post nothing at all, so anything already
+        on your register has no cost in the ledger while its depreciation has
+        been charged against it — leaving the asset section reading as a
+        negative. Fixed Assets → **opening balances** shows what is missing and
+        brings it in with one entry. Run it once.
 
     ### Running depreciation for a period
 
@@ -86,22 +107,48 @@ worth now after depreciation.
     The expense keeps the cash-basis Finance dashboard's monthly
     expenses in sync.
 
-    ### Disposing an asset
+    ### Selling or scrapping an asset
 
-    Asset detail → **Dispose**.
+    Asset detail → **Dispose**. Available on **Active** and **Fully
+    Depreciated** assets — a fully written-down truck is exactly the one that
+    goes for scrap.
 
     | Field | Notes |
     |---|---|
-    | Disposal date | When |
-    | Disposal proceeds | What you got (sold) or 0 (scrapped) |
+    | Disposal date | When it left. Refused if that month is locked |
+    | Disposal proceeds | What you got, or 0 for scrap |
+    | Payment method + Bank account | Where the money went |
+    | VAT on the sale | Selling a business asset is normally a taxable supply. The tax is not part of the gain |
     | Disposal reason | Free text |
 
-    The system computes **gain/loss** = sale proceeds minus book value and posts.
+    The dialog states the entry **before** you commit, and the figure it shows
+    is the figure that posts.
 
-    - **Gain** (proceeds > book value): `DR Cash CR 4900 Other Income`
-    - **Loss** (proceeds < book value): `DR 6900 General & Other Expense CR Cash` (loss portion)
+    **Depreciation is brought up to date first.** Sold in June with the last
+    run in February, the four missing months are posted before book value is
+    taken — otherwise every month nobody remembered to run turns into a gain
+    that was never made.
 
-    Plus accumulates depreciation cleared and asset status → `Disposed`.
+    Then one entry:
+
+    ```
+    DR  Bank / Cash                proceeds
+    DR  Accumulated Depreciation   everything charged to date
+    DR  Loss on Asset Disposal     if it sold for less than book value
+      CR Fixed Assets                its original cost
+      CR VAT                         the tax portion, if any
+      CR Gain on Asset Disposal      if it sold for more
+    ```
+
+    The truck at 30,000 over five years with 6,000 salvage depreciates 400 a
+    month. After a year: 4,800 charged, book value 25,200. Sold for 27,000, the
+    gain is 1,800. Sold for 20,000, the loss is 5,200. Scrapped, the loss is
+    the whole 25,200.
+
+    Every line matters. Crediting only the gain — which is what the old
+    documentation described — would leave the cost and its depreciation sitting
+    on the balance sheet, so the books would still show a truck you no longer
+    own.
 
     ### Capex approval (optional)
 
@@ -164,8 +211,11 @@ worth now after depreciation.
 
     ### Disposal trail
 
-    Each disposal's gain or loss should match a `4900 Other Income` (gain) or
-    `6900` (loss) entry on the disposal date.
+    Each disposal posts one entry, and the asset keeps its id — so the gain or
+    loss on the screen, the figure in `4920 Gain on Asset Disposal` or
+    `6930 Loss on Asset Disposal`, and the audit-log entry are the same number
+    read three ways. After a disposal the asset's own cost and accumulated
+    depreciation both net to zero.
 
 ---
 
@@ -184,6 +234,12 @@ stateDiagram-v2
         Monthly:
         DR 6300 Depreciation Expense
         CR 1510 Accumulated Depreciation
+    end note
+
+    note right of Disposed
+        Cost out, depreciation cleared,
+        money in, difference to
+        4920 Gain / 6930 Loss
     end note
 ```
 

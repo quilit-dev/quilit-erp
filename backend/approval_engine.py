@@ -517,7 +517,11 @@ MODULE_REGISTRY = {
             {"key": "depreciation_method", "label": "Method",           "type": "text"},
         ],
         "actions": {
-            "create": {"approved": "Active", "rejected": "Disposed"},
+            # Rejected is its OWN status. It used to be "Disposed", which was
+            # harmless while disposal did nothing — now that selling an asset
+            # posts money, a capex request nobody approved would be
+            # indistinguishable from a truck that was sold.
+            "create": {"approved": "Active", "rejected": "Rejected"},
         },
     },
     "project": {
@@ -641,17 +645,33 @@ def apply_resolution(db: sqlite3.Connection, module: str, action: str,
                 (row["amount"], row["project_id"]),
             )
 
-    # A rejected fixed-asset purchase is stamped as a same-day disposal with
-    # zero proceeds, so the ledger stays internally consistent (the status
-    # column alone would leave disposal_date/reason NULL and break reporting).
-    if module == "fixed_asset" and resolution == "rejected":
-        from datetime import datetime
-        db.execute(
-            "UPDATE fixed_assets SET disposal_date=?, disposal_proceeds=0, "
-            " disposal_reason=? WHERE id=? AND disposal_date IS NULL",
-            (datetime.utcnow().strftime("%Y-%m-%d"),
-             "Approval rejected", entity_id),
-        )
+    # A fixed-asset request that clears approval is bought at that moment: the
+    # cost goes on the balance sheet and something pays for it. Held back until
+    # here because posting on creation would put an asset on the books that the
+    # business had not yet agreed to buy.
+    #
+    # A rejected one is left alone. It carries its own `Rejected` status and no
+    # disposal columns — it was never owned, so there is nothing to dispose of
+    # and nothing to reverse.
+    if module == "fixed_asset" and resolution == "approved":
+        try:
+            from routers.assets import _post_acquisition
+            asset = db.execute("SELECT * FROM fixed_assets WHERE id=?",
+                               (entity_id,)).fetchone()
+            if asset and not asset["acquisition_entry_id"]                     and not asset["is_opening_balance"]:
+                class _Bought:
+                    is_opening_balance = False
+                    on_credit = False
+                    payment_method = asset["payment_method"]
+                    bank_account_id = asset["bank_account_id"]
+                entry_id = _post_acquisition(db, asset, _Bought(), None)
+                if entry_id:
+                    db.execute("UPDATE fixed_assets SET acquisition_entry_id=? "
+                               "WHERE id=?", (entry_id, entity_id))
+        except Exception:
+            # An approval must not fail because the ledger refused. The asset
+            # is approved either way and the entry can be posted by hand.
+            pass
 
     # Invoice gate side-effects. The 'Invoiced' project advance is deferred from
     # creation to approval (so a draft awaiting sign-off doesn't drag the project

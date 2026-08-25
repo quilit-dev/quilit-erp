@@ -3816,6 +3816,73 @@ def _run_migrations(conn, c):
     add_col("166c_payroll_bank", "hr_payroll_runs", "bank_account_id",
             "ALTER TABLE hr_payroll_runs ADD COLUMN bank_account_id INTEGER")
 
+    # ── 167: an asset's cost, and what happens when it is sold ───────────
+    # Depreciation was the only part of Fixed Assets that reached the ledger.
+    # Buying posted nothing, so the cost never landed on the balance sheet and
+    # accumulated depreciation piled into a contra-asset standing against
+    # nothing. Selling posted nothing either: the gain or loss was computed,
+    # shown to the operator and thrown away.
+    #
+    # Three roles were missing entirely. `1500 Fixed Assets` has been seeded
+    # since the beginning and nothing has ever pointed at it.
+    if need("167_asset_disposal_accounts"):
+        _ts167 = datetime.utcnow().strftime("%Y-%m-%d %H:%M:%S")
+        for _code, _name, _type, _sub, _bal in (
+            ("4920", "Gain on Asset Disposal", "Income",  "Other Income",  "credit"),
+            ("6930", "Loss on Asset Disposal", "Expense", "Other Expense", "debit"),
+        ):
+            c.execute(
+                "INSERT OR IGNORE INTO chart_of_accounts "
+                "(code, name, type, subtype, normal_balance, is_system, "
+                " is_active, created_at) VALUES (?,?,?,?,?,1,1,?)",
+                (_code, _name, _type, _sub, _bal, _ts167))
+        for _role, _code in (("fixed_asset", "1500"),
+                             ("gain_on_disposal", "4920"),
+                             ("loss_on_disposal", "6930")):
+            c.execute("INSERT OR IGNORE INTO account_roles (role, code, updated_at) "
+                      "VALUES (?,?,?)", (_role, _code, _ts167))
+        done("167_asset_disposal_accounts")
+
+    # How the asset was paid for, and whether it was bought through this system
+    # at all. An asset the business already owned when the ERP arrived posts
+    # nothing on registration — booking a purchase that happened three years
+    # ago would invent a cash movement that never occurred.
+    add_col("167a_asset_opening", "fixed_assets", "is_opening_balance",
+            "ALTER TABLE fixed_assets ADD COLUMN is_opening_balance "
+            "INTEGER NOT NULL DEFAULT 0")
+    add_col("167b_asset_method", "fixed_assets", "payment_method",
+            "ALTER TABLE fixed_assets ADD COLUMN payment_method TEXT")
+    add_col("167c_asset_bank", "fixed_assets", "bank_account_id",
+            "ALTER TABLE fixed_assets ADD COLUMN bank_account_id INTEGER")
+    add_col("167d_asset_entry", "fixed_assets", "acquisition_entry_id",
+            "ALTER TABLE fixed_assets ADD COLUMN acquisition_entry_id INTEGER")
+    # The gain or loss was computed on disposal and discarded. Kept now, with
+    # the entry that carried it, so the figure on the screen and the figure in
+    # the books are the same one.
+    add_col("167e_disposal_method", "fixed_assets", "disposal_method",
+            "ALTER TABLE fixed_assets ADD COLUMN disposal_method TEXT")
+    add_col("167f_disposal_bank", "fixed_assets", "disposal_bank_account_id",
+            "ALTER TABLE fixed_assets ADD COLUMN disposal_bank_account_id INTEGER")
+    add_col("167g_disposal_vat", "fixed_assets", "disposal_vat",
+            "ALTER TABLE fixed_assets ADD COLUMN disposal_vat REAL")
+    add_col("167h_disposal_gain", "fixed_assets", "disposal_gain_loss",
+            "ALTER TABLE fixed_assets ADD COLUMN disposal_gain_loss REAL")
+    add_col("167i_disposal_entry", "fixed_assets", "disposal_entry_id",
+            "ALTER TABLE fixed_assets ADD COLUMN disposal_entry_id INTEGER")
+
+    # Every asset already on the register was registered before any of this
+    # existed, so none of them posted an acquisition. Marking them as opening
+    # balances states that plainly rather than leaving them looking like
+    # purchases whose entry went missing. What is still owed to the balance
+    # sheet is handled deliberately, by the reconciliation in asset_opening.py.
+    if need("167j_existing_assets_are_openings"):
+        try:
+            c.execute("UPDATE fixed_assets SET is_opening_balance = 1 "
+                      " WHERE acquisition_entry_id IS NULL")
+        except sqlite3.OperationalError:
+            pass
+        done("167j_existing_assets_are_openings")
+
     # ── 163: currency differences an accountant can actually work with ────
     # A realised difference already records itself on the payment that caused
     # it. An unrealised one did not: the revaluation posted an entry with no
@@ -4398,22 +4465,35 @@ def _ensure_pg_post_baseline(raw):
                     "bank_account_id INTEGER")
         cur.execute("ALTER TABLE expenses ADD COLUMN IF NOT EXISTS "
                     "bank_account_id INTEGER")
-        # 165: the three that could not name an account.
-        cur.execute("ALTER TABLE pos_sales ADD COLUMN IF NOT EXISTS "
-                    "bank_account_id INTEGER")
-        cur.execute("ALTER TABLE recurring_expenses ADD COLUMN IF NOT EXISTS "
-                    "bank_account_id INTEGER")
-        cur.execute("ALTER TABLE customer_payments ADD COLUMN IF NOT EXISTS "
-                    "bank_account_id INTEGER")
-        # 166: how a supplier and a payroll were paid.
-        cur.execute("ALTER TABLE purchases ADD COLUMN IF NOT EXISTS "
-                    "payment_method TEXT")
-        cur.execute("ALTER TABLE purchases ADD COLUMN IF NOT EXISTS "
-                    "bank_account_id INTEGER")
-        cur.execute("ALTER TABLE hr_payroll_runs ADD COLUMN IF NOT EXISTS "
-                    "payment_method TEXT")
-        cur.execute("ALTER TABLE hr_payroll_runs ADD COLUMN IF NOT EXISTS "
-                    "bank_account_id INTEGER")
+        # 167: an asset's cost account, and where a gain or loss on selling
+        # one goes. Placed after the role table exists, as 160 is.
+        for _c, _n, _t, _s, _b in (
+                ("4920", "Gain on Asset Disposal", "Income", "Other Income", "credit"),
+                ("6930", "Loss on Asset Disposal", "Expense", "Other Expense", "debit")):
+            cur.execute(
+                "INSERT INTO chart_of_accounts "
+                "(code, name, type, subtype, normal_balance, is_system, "
+                " is_active, created_at) VALUES (%s,%s,%s,%s,%s,1,1,now()::text) "
+                "ON CONFLICT (code) DO NOTHING", (_c, _n, _t, _s, _b))
+        for _r, _c in (("fixed_asset", "1500"), ("gain_on_disposal", "4920"),
+                       ("loss_on_disposal", "6930")):
+            cur.execute("INSERT INTO account_roles (role, code, updated_at) "
+                        "VALUES (%s,%s,now()::text) "
+                        "ON CONFLICT (role) DO NOTHING", (_r, _c))
+        for _col, _type in (
+                ("is_opening_balance", "INTEGER NOT NULL DEFAULT 0"),
+                ("payment_method", "TEXT"),
+                ("bank_account_id", "INTEGER"),
+                ("acquisition_entry_id", "INTEGER"),
+                ("disposal_method", "TEXT"),
+                ("disposal_bank_account_id", "INTEGER"),
+                ("disposal_vat", "DOUBLE PRECISION"),
+                ("disposal_gain_loss", "DOUBLE PRECISION"),
+                ("disposal_entry_id", "INTEGER")):
+            cur.execute("ALTER TABLE fixed_assets ADD COLUMN IF NOT EXISTS "
+                        + _col + " " + _type)
+        cur.execute("UPDATE fixed_assets SET is_opening_balance = 1 "
+                    " WHERE acquisition_entry_id IS NULL")
         cur.execute("ALTER TABLE invoices ADD COLUMN IF NOT EXISTS source_type TEXT")
         cur.execute("ALTER TABLE invoices ADD COLUMN IF NOT EXISTS source_reference TEXT")
         cur.execute("ALTER TABLE recurring_expenses ADD COLUMN IF NOT EXISTS "
@@ -4520,6 +4600,27 @@ def _ensure_pg_post_baseline(raw):
                     "ON client_plan_installments(due_date)")
         cur.execute("ALTER TABLE customer_payments ADD COLUMN IF NOT EXISTS "
                     "plan_id INTEGER")
+        # 165 and 166 live HERE, after every CREATE in this function, not up
+        # beside the bank-accounts table where they were first written. An
+        # existing tenant already had pos_sales and customer_payments so the
+        # ordering never showed; a brand-new Postgres database does not, and
+        # init failed on the first ALTER.
+        # 165: the three that could not name an account.
+        cur.execute("ALTER TABLE pos_sales ADD COLUMN IF NOT EXISTS "
+                    "bank_account_id INTEGER")
+        cur.execute("ALTER TABLE recurring_expenses ADD COLUMN IF NOT EXISTS "
+                    "bank_account_id INTEGER")
+        cur.execute("ALTER TABLE customer_payments ADD COLUMN IF NOT EXISTS "
+                    "bank_account_id INTEGER")
+        # 166: how a supplier and a payroll were paid.
+        cur.execute("ALTER TABLE purchases ADD COLUMN IF NOT EXISTS "
+                    "payment_method TEXT")
+        cur.execute("ALTER TABLE purchases ADD COLUMN IF NOT EXISTS "
+                    "bank_account_id INTEGER")
+        cur.execute("ALTER TABLE hr_payroll_runs ADD COLUMN IF NOT EXISTS "
+                    "payment_method TEXT")
+        cur.execute("ALTER TABLE hr_payroll_runs ADD COLUMN IF NOT EXISTS "
+                    "bank_account_id INTEGER")
         # 163: currency differences an accountant can work with.
         cur.execute("""
             CREATE TABLE IF NOT EXISTS fx_revaluation_runs (
@@ -5024,6 +5125,10 @@ _DEFAULT_ACCOUNT_ROLES = [
     ("other_expense",     "6900"),
     ("cash_short_over",   "6910"),
     ("fx_loss",           "6920"),
+    # Fixed assets: the cost account, and where selling one lands.
+    ("fixed_asset",       "1500"),
+    ("gain_on_disposal",  "4920"),
+    ("loss_on_disposal",  "6930"),
 ]
 
 

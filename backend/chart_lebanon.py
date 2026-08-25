@@ -198,6 +198,23 @@ LOCAL_SUBACCOUNTS = [
      "Asset", "Current Asset", "debit", POSTABLE),
     ("5313", "صندوق النقدي - يورو", "Cash on hand — EUR",
      "Asset", "Current Asset", "debit", POSTABLE),
+
+    # 22 is a heading: the plan expects a business to open its own detail for
+    # the classes of asset it holds. One leaf carries the cost of every
+    # tangible asset the register tracks, which is what depreciation in 282 is
+    # charged against.
+    ("2210", "أصول ثابتة مادية - الكلفة",
+     "Tangible fixed assets — cost",
+     "Asset", "Non-Current Asset", "debit", POSTABLE),
+    # Selling an asset for more or less than its book value. The plan
+    # publishes no leaf for either, so both are ours: the gain under
+    # non-operating income, the loss under other administrative charges.
+    ("781",  "أرباح التفرّغ عن أصول ثابتة",
+     "Gain on disposal of fixed assets",
+     "Income", "Other Income", "credit", POSTABLE),
+    ("662",  "خسائر التفرّغ عن أصول ثابتة",
+     "Loss on disposal of fixed assets",
+     "Expense", "Other Expense", "debit", POSTABLE),
 ]
 
 # Which account plays which part, for a tenant on this chart.
@@ -235,6 +252,9 @@ ROLES = {
     "other_expense":     "661",
     "cash_short_over":   "661",
     "fx_loss":           "675",
+    "fixed_asset":       "2210",
+    "gain_on_disposal":  "781",
+    "loss_on_disposal":  "662",
 }
 
 

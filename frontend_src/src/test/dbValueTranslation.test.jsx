@@ -32,12 +32,14 @@ describe('the locale dictionaries cover the seeded data', () => {
     const missingRoles    = Object.keys(en.roleNames).filter(k => !ar.roleNames[k]);
     expect(missingAccounts).toEqual([]);
     expect(missingRoles).toEqual([]);
-    // 33 since migration 147 added 1300 Prepaid Expenses (a recurring cost
-    // covering several months is held there and released one month at a time),
-    // on top of 146's 2400 Deferred Revenue. The count is a tripwire: it fails
-    // when the chart of accounts changes, which is the moment somebody has to
-    // decide whether the new account needs a name in both languages.
-    expect(Object.keys(en.accountNames)).toHaveLength(33);
+    // 35 since migration 167 added 4920 Gain on Asset Disposal and 6930 Loss
+    // on Asset Disposal — selling an asset used to post nothing at all, so
+    // there was nowhere for the difference to land. Before that, 33: 147's
+    // 1300 Prepaid Expenses on top of 146's 2400 Deferred Revenue. The count
+    // is a tripwire: it fails when the chart of accounts changes, which is the
+    // moment somebody has to decide whether the new account needs a name in
+    // both languages. It caught these two.
+    expect(Object.keys(en.accountNames)).toHaveLength(35);
     expect(Object.keys(en.roleNames)).toHaveLength(18);
     expect(Object.keys(en.enumValues).filter(k => !ar.enumValues[k])).toEqual([]);
   });

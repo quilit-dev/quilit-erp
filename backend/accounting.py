@@ -69,6 +69,7 @@ INVENTORY    = "1200"   # Inventory (perpetual)
 # business has already bought appear nowhere on the balance sheet.
 PREPAID      = "1300"   # Prepaid Expenses (paid in advance, not yet incurred)
 ACC_DEP      = "1510"   # Accumulated Depreciation (contra-asset)
+FIXED_ASSET  = "1500"   # the cost of what the register tracks
 AP           = "2000"   # Accounts Payable
 REVENUE      = "4000"   # Sales Revenue (goods)
 # Service revenue is kept apart from goods revenue so the income statement
@@ -108,6 +109,8 @@ DEPRECIATION = "6300"   # Depreciation Expense
 CASH_SHORT_OVER = "6910"  # Cash Short & Over (operating expense)
 FX_LOSS      = "6920"   # Foreign Exchange Loss (other expense)
 OTHER_EXPENSE = "6900"  # General & Other Expense
+GAIN_DISPOSAL = "4920"  # sold an asset for more than its book value
+LOSS_DISPOSAL = "6930"  # ...or for less
 
 
 # One entry per currency that is not the functional one. A currency missing
@@ -175,6 +178,9 @@ _ROLE_DEFAULTS = {
     "salaries": SALARIES,             "depreciation": DEPRECIATION,
     "other_expense": OTHER_EXPENSE,   "cash_short_over": CASH_SHORT_OVER,
     "fx_loss": FX_LOSS,
+    "fixed_asset": FIXED_ASSET,
+    "gain_on_disposal": GAIN_DISPOSAL,
+    "loss_on_disposal": LOSS_DISPOSAL,
 }
 
 

@@ -734,6 +734,8 @@ const en = {
     '6900': 'General & Other Expense',
     '6910': 'Cash Short & Over',
     '6920': 'Foreign Exchange Loss',
+    '4920': 'Gain on Asset Disposal',
+    '6930': 'Loss on Asset Disposal',
   },
   // The 18 seeded role names, also stored in the database in English.
   roleNames: {
@@ -2360,6 +2362,18 @@ const en = {
   },
 
   assets: {
+    alreadyOwned: 'The business already owned this',
+    alreadyOwnedHint: 'Registers it without booking a purchase — the money left before these books started. Bring the cost onto the balance sheet from Fixed Assets → opening balances.',
+    onCredit: 'Bought on credit — not paid yet',
+    fldVat: 'VAT on the sale',
+    willPost: 'This will post:',
+    postCostOut: 'Cost off the balance sheet — {{amount}}',
+    postDepCleared: 'Depreciation cleared — {{amount}}',
+    postProceeds: 'Money received — {{amount}}',
+    postVat: 'VAT — {{amount}}',
+    postGain: 'Gain on sale — {{amount}}',
+    postLoss: 'Loss on sale — {{amount}}',
+    postCatchUpHint: 'Any depreciation not yet run is posted up to the disposal date first, so the book value is what the asset is worth on the day it leaves.',
     title: 'Fixed Assets',
     subtitle: 'Capital asset register with straight-line depreciation',
     addAsset: '+ Add Asset',
