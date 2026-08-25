@@ -12,6 +12,7 @@ import paletteSrc from '../components/CommandPalette.jsx?raw';
 import serviceSrc from '../pages/Service.jsx?raw';
 import jobFormSrc from '../pages/service/JobForm.jsx?raw';
 import apiSrc from '../api/client.js?raw';
+import writeUpSrc from '../pages/service/WriteUp.jsx?raw';
 import equipmentFormSrc from '../pages/service/EquipmentForm.jsx?raw';
 import { buildWorkOrderHTML } from '../utils/workOrder';
 import fs from 'node:fs';
@@ -120,13 +121,18 @@ describe('step one: the call is taken', () => {
 
   test('and asks for nothing that happens on site', () => {
     // Work done and parts used are written on the printed sheet by the person
-    // who did the work. Offering them at creation invites the office to guess,
-    // and a guess printed on the work order is a line nobody writes over.
-    expect(jobFormSrc).toMatch(/const editing = !!job\?\.id;/);
-    expect(jobFormSrc).toMatch(/\{editing && \(/);
-    const writeUp = jobFormSrc.slice(jobFormSrc.indexOf('{editing && ('));
-    expect(writeUp).toContain("t('service.workDone')");
-    expect(writeUp).toContain("t('service.partsAndCharges')");
+    // who did the work. Offering them here invites the office to guess, and a
+    // guess printed on the work order is a line nobody writes over. They live
+    // on the job's own pane, which does not exist until the job does.
+    expect(jobFormSrc).not.toContain("t('service.workDone')");
+    expect(jobFormSrc).not.toContain("t('service.partsAndCharges')");
+    expect(jobFormSrc).not.toMatch(/addPart|addCharge/);
+  });
+
+  test('and saying nothing about the lines leaves them alone', () => {
+    // The header form posts no `items`. If it posted an empty list instead,
+    // correcting a phone number would wipe every part the technician entered.
+    expect(jobFormSrc).not.toMatch(/items:/);
   });
 
   test('the new job lands on its own detail, where the sheet prints', () => {
@@ -135,6 +141,63 @@ describe('step one: the call is taken', () => {
     // the operator has to find the job again.
     expect(jobFormSrc).toMatch(/onDone\(res\?\.id\)/);
     expect(serviceSrc).toMatch(/if \(newId\) open\(newId\)/);
+  });
+});
+
+// The complaint that produced this: opening a job showed the parts and charges
+// as a read-only table, and entering them meant pressing Edit first. The
+// technician is standing there with the paper — a click whose only effect is
+// to reveal the boxes exists to be complained about.
+describe('the write-up is on the job, not behind a button', () => {
+  test('an open job renders the editor in place', () => {
+    expect(serviceSrc).toMatch(/\{open \? \(\s*<WriteUp/);
+  });
+
+  test('a job that is done shows the record, not an editor', () => {
+    // Its lines are what was consumed and billed; the endpoint refuses to edit
+    // them, so offering the boxes would be offering a rejection.
+    expect(serviceSrc).toMatch(/\) : \(\s*<>\s*<h3>\{t\('service\.partsAndCharges'\)\}/);
+  });
+
+  test('Edit is still there, for the record of the call', () => {
+    expect(serviceSrc).toMatch(/onClick=\{onEdit\}/);
+    expect(en.service.editJobHint).toBeTruthy();
+    expect(ar.service.editJobHint).toMatch(/[\u0600-\u06ff]/);
+  });
+
+  test('there is one lines editor, not two', () => {
+    // The form used to carry a copy. Two editors on the same rows is two sets
+    // of rules to keep in step, and they do not stay in step.
+    expect(jobFormSrc).not.toMatch(/NumberInput/);
+    expect(writeUpSrc).toMatch(/NumberInput/);
+  });
+
+  test('saving refreshes the job so the totals are the server\u2019s', () => {
+    expect(writeUpSrc).toMatch(/onSaved\?\.\(\)/);
+    expect(serviceSrc).toMatch(/onSaved=\{async \(\) => \{/);
+  });
+
+  test('the job cannot be closed over something only typed', () => {
+    // Closing consumes stock from the lines the SERVER holds. A part typed and
+    // not saved would be dropped at the moment it matters most.
+    expect(writeUpSrc).toMatch(/onDirtyChange\?\.\(dirty\)/);
+    expect(serviceSrc).toMatch(/unsaved \?/);
+    expect(serviceSrc).toMatch(/t\('service\.saveFirst'\)/);
+    for (const dict of [en, ar]) expect(dict.service.saveFirst).toBeTruthy();
+    expect(ar.service.saveFirst).toMatch(/[\u0600-\u06ff]/);
+  });
+
+  test('and it re-seeds when the job it is given changes', () => {
+    // The pane is reused rather than remounted, so state initialised once would
+    // show the previous job's parts against this one.
+    expect(writeUpSrc).toMatch(/\}, \[job\]\);/);
+  });
+
+  test('every string it shows exists in both languages', () => {
+    for (const k of ['saveWriteUp', 'writeUpSaved', 'saveFirst', 'editJobHint']) {
+      expect(en.service[k], k).toBeTruthy();
+      expect(ar.service[k], k).toMatch(/[\u0600-\u06ff]/);
+    }
   });
 });
 
@@ -267,18 +330,12 @@ describe('the page renders from translations, not literals', () => {
 
 describe('the job form', () => {
   test('parts and charges are added by distinct buttons', () => {
-    expect(jobFormSrc).toMatch(/addPart/);
-    expect(jobFormSrc).toMatch(/addCharge/);
-  });
-
-  test('a part line requires a stock item', () => {
-    // The backend rejects a part with no inventory_id; requiring it here means
-    // that rejection never reaches the user.
-    expect(jobFormSrc).toMatch(/line_type === 'part' \?[\s\S]{0,400}?required/);
+    expect(writeUpSrc).toMatch(/addPart/);
+    expect(writeUpSrc).toMatch(/addCharge/);
   });
 
   test('a charge line never carries a stock item', () => {
-    expect(jobFormSrc).toMatch(/inventory_id: l\.line_type === 'part' \?/);
+    expect(writeUpSrc).toMatch(/inventory_id: l\.line_type === 'part' \?/);
   });
 
   test('equipment is filtered to the chosen client', () => {
@@ -574,7 +631,7 @@ describe('fields are actually styled', () => {
     // Split on the tag name rather than matching the whole tag with a regex:
     // JSX attributes contain arrow functions, so any [^>] class stops at the
     // '>' of '=>' and never reaches the closing '/>'.
-    const tagsFor = (name) => jobFormSrc.split(`<${name}`).slice(1)
+    const tagsFor = (name) => writeUpSrc.split(`<${name}`).slice(1)
       .map(chunk => chunk.slice(0, chunk.indexOf('/>')))
       .filter(tag => tag.length > 0);
 

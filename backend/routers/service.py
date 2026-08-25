@@ -117,7 +117,12 @@ class JobBody(BaseModel):
     work_done:      Optional[str] = None
     warehouse_id:   Optional[int] = None
     branch_id:      Optional[int] = None
-    items:          List[JobLine] = []
+    # `None` and `[]` mean different things on an update: the first is "this
+    # request is not about the lines", the second is "remove them all". The
+    # job's header and its write-up are edited from different places now, and
+    # a header save that posted an empty list would wipe every part and charge
+    # the technician had entered.
+    items:          Optional[List[JobLine]] = None
 
 
 class CancelBody(BaseModel):
@@ -483,7 +488,7 @@ def create_job(
     if data.assigned_to and not db.execute(
             "SELECT 1 FROM users WHERE id=?", (data.assigned_to,)).fetchone():
         raise HTTPException(400, "Assigned user not found")
-    _validate_lines(db, data.items)
+    _validate_lines(db, data.items or [])
 
     # One warehouse for the whole job: every part comes out of the van stock or
     # the branch store the technician actually drew from.
@@ -503,7 +508,7 @@ def create_job(
     )
     job_id = cur.lastrowid
     number = _finalize_number(db, job_id, _job_prefix(db))
-    _replace_lines(db, job_id, data.items)
+    _replace_lines(db, job_id, data.items or [])
     _reprice(db, job_id)
 
     if data.assigned_to:
@@ -545,7 +550,7 @@ def update_job(
         eq = _get_equipment(db, data.equipment_id, user)
         if eq["client_id"] != data.client_id:
             raise HTTPException(400, "That equipment belongs to a different client.")
-    _validate_lines(db, data.items)
+    _validate_lines(db, data.items or [])
 
     warehouse_id = warehouse_access.resolve_warehouse_id(user, db, data.warehouse_id)
     db.execute(
@@ -556,7 +561,10 @@ def update_job(
          data.scheduled_date, data.assigned_to, data.reported_fault, data.work_done,
          warehouse_id, _now(), job_id),
     )
-    _replace_lines(db, job_id, data.items)
+    # Omitted entirely: the caller is editing the header and has said nothing
+    # about the lines, so they stand.
+    if data.items is not None:
+        _replace_lines(db, job_id, data.items)
     totals = _reprice(db, job_id)
     log_action(db, user, "update", "service_job", job_id, job["job_number"], totals)
     db.commit()

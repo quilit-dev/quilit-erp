@@ -1514,7 +1514,11 @@ const en = {
     unbilled:         'Not invoiced',
     // The two steps, said once on each screen that performs one of them.
     newJobHint:       'Enter the client, the machine and the problem they reported. The job opens and its work order can be printed straight away.',
-    openJobHint:      'Print the work order for the technician. When the sheet comes back, enter the work done, the parts used and any charges, then close the job.',
+    openJobHint:      'Print the work order for the technician. When the sheet comes back, enter the work done, the parts used and any charges below, then close the job.',
+    editJobHint:      'This is the record of the call. The work done, the parts and the charges are entered on the job itself.',
+    saveWriteUp:      'Save work done',
+    writeUpSaved:     'Work done saved',
+    saveFirst:        'Save the work done and parts before closing the job.',
     doneJobHint:      'The work is recorded and its parts are out of stock. Raise the invoice when you are ready.',
     openJobs:         'Open jobs',
     dueToday:         'Due today',

@@ -29,6 +29,7 @@ import { useLocale } from '../hooks/useLocale.jsx';
 import Attachments from '../components/Attachments.jsx';
 import { usePermissions } from '../hooks/usePermissions';
 import JobForm from './service/JobForm.jsx';
+import WriteUp from './service/WriteUp.jsx';
 import EquipmentForm from './service/EquipmentForm.jsx';
 import { printWorkOrder } from '../utils/workOrder';
 
@@ -423,6 +424,10 @@ export default function Service() {
             tEnumValue={tEnumValue}
             onEdit={() => setModal('job')}
             onTransition={transition}
+            onSaved={async () => {
+              reload();
+              setActive(await getServiceJob(active.id));
+            }}
             onInvoice={async () => {
               try {
                 const r = await invoiceServiceJob(active.id);
@@ -438,11 +443,22 @@ export default function Service() {
   );
 }
 
-/** The job sheet: what was asked for, what was done, what it cost. */
-function JobDetail({ job, can, t, tEnumValue, onEdit, onTransition, onInvoice }) {
+/** The job sheet: what was asked for, what was done, what it cost.
+ *
+ *  While the job is open this pane is also where the visit gets written up —
+ *  the work carried out, the parts and the charges are editable in place. They
+ *  used to sit behind an Edit button, which meant a click that only revealed
+ *  the boxes: opening the job IS the act of entering what happened. Edit is
+ *  still there for the header, which is a different and rarer correction.
+ */
+function JobDetail({ job, can, t, tEnumValue, onEdit, onTransition, onInvoice,
+                     onSaved }) {
   const open = job.status === 'Open';
   const parts = (job.lines || []).filter(l => l.line_type === 'part');
   const charges = (job.lines || []).filter(l => l.line_type === 'charge');
+  // Closing consumes stock from the lines the SERVER holds, so a line only
+  // typed here would be dropped at the moment it matters most.
+  const [unsaved, setUnsaved] = useState(false);
 
   return (
     <>
@@ -492,6 +508,11 @@ function JobDetail({ job, can, t, tEnumValue, onEdit, onTransition, onInvoice })
         <p><strong>{t('service.workDone')}:</strong> {job.work_done}</p>
       )}
 
+      {open ? (
+        <WriteUp job={job} canEdit={can('service', 'edit')}
+                 onSaved={onSaved} onDirtyChange={setUnsaved} />
+      ) : (
+      <>
       <h3>{t('service.partsAndCharges')}</h3>
       <table>
         <thead><tr>
@@ -531,6 +552,8 @@ function JobDetail({ job, can, t, tEnumValue, onEdit, onTransition, onInvoice })
           )}
         </tfoot>
       </table>
+      </>
+      )}
 
       {job.invoice && (
         <p style={{ marginTop: 12 }}>
@@ -553,13 +576,21 @@ function JobDetail({ job, can, t, tEnumValue, onEdit, onTransition, onInvoice })
         {open && can('service', 'edit') && (
           <button className="btn btn-secondary" onClick={onEdit}>{t('common.edit')}</button>
         )}
-        {open && can('service', 'edit') && (
+        {open && can('service', 'edit') && (unsaved ? (
+          <button className="btn btn-primary" disabled
+                  title={t('service.saveFirst')}>{t('service.closeJob')}</button>
+        ) : (
           <ConfirmButton
             className="btn btn-primary"
             label={t('service.closeJob')}
             message={t('service.closeConfirm')}
             onConfirm={() => onTransition(completeServiceJob, job.id, t('service.jobClosed'))}
           />
+        ))}
+        {open && unsaved && (
+          <span style={{ fontSize: 12, color: 'var(--text-3)', alignSelf: 'center' }}>
+            {t('service.saveFirst')}
+          </span>
         )}
         {job.status === 'Done' && !job.invoice && can('service', 'create') && (
           <button className="btn btn-primary" onClick={onInvoice}>

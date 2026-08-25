@@ -257,6 +257,77 @@ def test_a_closed_job_can_no_longer_be_edited(client, acme):
     assert r.status_code == 409
 
 
+# ── The header and the write-up are edited from different places ─────────
+
+# The job's header — who called, which machine, what they reported — is the
+# record of the call. The work carried out and the parts used are the record of
+# the visit, and they are entered on the job's own pane the moment it is opened.
+#
+# So a request can now be about one and silent on the other, and silence has to
+# mean "leave it alone". An empty list still means "remove them all", because
+# somebody clearing the lines has to be able to say so.
+
+def test_an_update_that_omits_the_lines_leaves_them_standing(client, acme):
+    """Correcting a phone call must not wipe what the technician wrote up."""
+    job = _job(client, acme, items=[
+        {"line_type": "charge", "name": "Callout", "quantity": 1, "unit_price": 50}])
+
+    r = client.put(f"/api/service/jobs/{job['id']}", json={
+        "client_id": acme, "job_type": "Maintenance",
+        "reported_fault": "Fan not spinning, customer called back"})
+
+    assert r.status_code == 200, r.text
+    after = client.get(f"/api/service/jobs/{job['id']}").json()
+    assert [l["name"] for l in after["lines"]] == ["Callout"]
+    assert after["total"] == pytest.approx(50)
+    assert after["job_type"] == "Maintenance"
+
+
+def test_an_update_that_sends_an_empty_list_clears_them(client, acme):
+    """Silence and emptiness are different requests, and mean different things."""
+    job = _job(client, acme, items=[
+        {"line_type": "charge", "name": "Callout", "quantity": 1, "unit_price": 50}])
+
+    r = client.put(f"/api/service/jobs/{job['id']}", json={
+        "client_id": acme, "job_type": "Repair", "items": []})
+
+    assert r.status_code == 200, r.text
+    after = client.get(f"/api/service/jobs/{job['id']}").json()
+    assert after["lines"] == []
+    assert after["total"] == pytest.approx(0)
+
+
+def test_the_write_up_is_saved_through_the_same_endpoint(client, acme, oven):
+    """What the job pane sends: the header back as it stands, plus the lines."""
+    job = _job(client, acme, equipment_id=oven)
+
+    r = client.put(f"/api/service/jobs/{job['id']}", json={
+        "client_id": acme, "equipment_id": oven, "job_type": "Repair",
+        "reported_fault": "Fan not spinning",
+        "work_done": "Replaced the fan and cleaned the filter.",
+        "items": [{"line_type": "charge", "name": "Labour",
+                   "quantity": 2, "unit_price": 40}]})
+
+    assert r.status_code == 200, r.text
+    after = client.get(f"/api/service/jobs/{job['id']}").json()
+    assert after["work_done"].startswith("Replaced the fan")
+    assert after["total"] == pytest.approx(80)
+
+
+def test_a_job_that_is_done_still_refuses_both(client, acme):
+    """Its lines are the record of what was consumed and billed."""
+    job = _job(client, acme)
+    client.post(f"/api/service/jobs/{job['id']}/complete")
+
+    silent = client.put(f"/api/service/jobs/{job['id']}", json={
+        "client_id": acme, "job_type": "Repair"})
+    with_lines = client.put(f"/api/service/jobs/{job['id']}", json={
+        "client_id": acme, "job_type": "Repair", "items": []})
+
+    assert silent.status_code == 409
+    assert with_lines.status_code == 409
+
+
 # ── Filters the module exists to answer ──────────────────────────────────────
 
 def test_jobs_can_be_filtered_by_status_and_client(client, acme):

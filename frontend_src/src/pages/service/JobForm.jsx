@@ -1,5 +1,5 @@
 /**
- * The job sheet form, which is two forms.
+ * The job's header: the record of the call.
  *
  * Creating a job is the first step of the workflow and asks what a phone call
  * gives you: who is calling, which machine, what is wrong with it. There is
@@ -7,21 +7,20 @@
  * — offering those fields invites the office to guess, and a guess printed on
  * the work order is a line the technician will not write over.
  *
- * Editing the same job afterwards is the second step: the sheet is back, and
- * the work carried out, the parts drawn from stores and any extra charges are
- * typed in before the job is closed.
+ * Editing the same job afterwards corrects the record of that call — the
+ * machine was misidentified, the technician changed, the date moved. That is a
+ * different and rarer thing than writing up a visit, which happens on the job's
+ * own pane the moment it is opened (see WriteUp.jsx). Neither place carries a
+ * copy of the other, so there is no second lines editor to keep in step.
  *
- * A line is either a PART (drawn from stock, so it needs a stock item) or a
- * CHARGE (labour, callout, a flat fee). The two are added by separate buttons
- * rather than a type dropdown on a generic row, because they are different
- * things to the person filling this in — "what did I fit" and "what am I
- * charging for" — and because the backend rejects the mixed-up combinations
- * anyway. Making them distinct here means the rejection never happens.
+ * The payload therefore says nothing about `items`, and the endpoint leaves the
+ * lines alone when it is not told about them. Posting an empty list would wipe
+ * every part the technician had entered.
  */
 import { useEffect, useState } from 'react';
-import { createServiceJob, updateServiceJob, getInventory, getUsers,
+import { createServiceJob, updateServiceJob, getUsers,
          getServiceEquipment } from '../../api/client';
-import { NumberInput, toast, fmt } from '../../components/shared';
+import { toast } from '../../components/shared';
 import { useLocale } from '../../hooks/useLocale.jsx';
 
 // Fixed lists, so the option VALUE is what gets stored and stays English
@@ -31,13 +30,8 @@ import { useLocale } from '../../hooks/useLocale.jsx';
 const JOB_TYPES = ['Installation', 'Maintenance', 'Repair', 'Inspection'];
 const PRIORITIES = ['Low', 'Normal', 'High'];
 
-const emptyPart = () => ({ line_type: 'part', inventory_id: '', name: '', quantity: 1, unit_price: 0 });
-const emptyCharge = () => ({ line_type: 'charge', inventory_id: null, name: '', quantity: 1, unit_price: 0 });
-
 export default function JobForm({ job, clients, onDone, onCancel }) {
   const { t, tEnumValue } = useLocale();
-  // The job exists, so the visit has happened or is about to: this is where
-  // what came back from site gets typed in.
   const editing = !!job?.id;
   const [form, setForm] = useState(() => ({
     client_id: job?.client_id || '',
@@ -47,20 +41,12 @@ export default function JobForm({ job, clients, onDone, onCancel }) {
     scheduled_date: job?.scheduled_date || '',
     assigned_to: job?.assigned_to || '',
     reported_fault: job?.reported_fault || '',
-    work_done: job?.work_done || '',
   }));
-  const [lines, setLines] = useState(() =>
-    (job?.lines || []).map(l => ({
-      line_type: l.line_type, inventory_id: l.inventory_id || '',
-      name: l.name, quantity: l.quantity, unit_price: l.unit_price,
-    })));
-  const [items, setItems] = useState([]);
   const [users, setUsers] = useState([]);
   const [equipment, setEquipment] = useState([]);
   const [saving, setSaving] = useState(false);
 
   useEffect(() => {
-    getInventory().then(r => setItems(r.items || r || [])).catch(() => {});
     getUsers().then(setUsers).catch(() => {});
   }, []);
 
@@ -74,22 +60,6 @@ export default function JobForm({ job, clients, onDone, onCancel }) {
   }, [form.client_id]);
 
   const set = k => e => setForm(f => ({ ...f, [k]: e.target.value }));
-  const setLine = (i, patch) =>
-    setLines(ls => ls.map((l, n) => (n === i ? { ...l, ...patch } : l)));
-
-  /** Choosing a stock item fills the name and price, which is what the
-   *  technician expects and stops the two drifting apart. */
-  function pickItem(i, inventoryId) {
-    const it = items.find(x => String(x.id) === String(inventoryId));
-    setLine(i, {
-      inventory_id: inventoryId,
-      name: it?.name || '',
-      unit_price: it?.sale_price ?? 0,
-    });
-  }
-
-  const subtotal = lines.reduce(
-    (s, l) => s + (Number(l.quantity) || 0) * (Number(l.unit_price) || 0), 0);
 
   async function submit(e) {
     e.preventDefault();
@@ -102,17 +72,11 @@ export default function JobForm({ job, clients, onDone, onCancel }) {
         equipment_id: form.equipment_id ? Number(form.equipment_id) : null,
         assigned_to: form.assigned_to ? Number(form.assigned_to) : null,
         scheduled_date: form.scheduled_date || null,
-        items: lines
-          .filter(l => (l.name || '').trim())
-          .map(l => ({
-            line_type: l.line_type,
-            inventory_id: l.line_type === 'part' ? Number(l.inventory_id) || null : null,
-            name: l.name,
-            quantity: Number(l.quantity) || 0,
-            unit_price: Number(l.unit_price) || 0,
-          })),
+        // Deliberately no `items`. The lines belong to the write-up, and the
+        // endpoint leaves them untouched when a request says nothing about
+        // them.
       };
-      if (job?.id) {
+      if (editing) {
         await updateServiceJob(job.id, payload);
         toast(t('service.jobUpdated'));
         onDone();
@@ -192,98 +156,9 @@ export default function JobForm({ job, clients, onDone, onCancel }) {
                   onChange={set('reported_fault')} />
       </div>
 
-      {!editing && (
-        <p style={{ fontSize: 12, color: 'var(--text-3)', margin: '4px 0 0' }}>
-          {t('service.newJobHint')}
-        </p>
-      )}
-
-      {/* Everything below is the write-up: what the sheet says when it comes
-          back. On a job that does not exist yet there is nothing to write up. */}
-      {editing && (
-      <>
-      <div className="form-group">
-        <label className="form-label">{t('service.workDone')}</label>
-        <textarea className="form-control" rows="2" value={form.work_done || ''}
-                  onChange={set('work_done')} />
-      </div>
-
-      <h3>{t('service.partsAndCharges')}</h3>
-      <table>
-        <thead>
-          <tr>
-            <th style={{ width: '45%' }}>{t('common.description')}</th>
-            <th className="text-right">{t('common.quantity')}</th>
-            <th className="text-right">{t('common.unitPrice')}</th>
-            <th className="text-right">{t('common.total')}</th>
-            <th />
-          </tr>
-        </thead>
-        <tbody>
-          {lines.map((l, i) => (
-            <tr key={i}>
-              <td>
-                <span className={`badge badge-${l.line_type === 'part' ? 'blue' : 'gray'}`}>
-                  {t(`service.${l.line_type}`)}
-                </span>{' '}
-                {l.line_type === 'part' ? (
-                  <select className="form-control" value={l.inventory_id}
-                          onChange={e => pickItem(i, e.target.value)} required>
-                    <option value="">—</option>
-                    {items.map(it => (
-                      <option key={it.id} value={it.id}>
-                        {it.name} ({it.quantity} {it.unit || ''})
-                      </option>
-                    ))}
-                  </select>
-                ) : (
-                  <input className="form-control" value={l.name}
-                         placeholder={t('service.charge')}
-                         onChange={e => setLine(i, { name: e.target.value })} required />
-                )}
-              </td>
-              {/* NumberInput adds no class of its own — it spreads props onto a
-                  bare input — so without form-control these two rendered
-                  unstyled next to the styled name field beside them. */}
-              <td className="text-right">
-                <NumberInput className="form-control" min="0" step="any"
-                             style={{ textAlign: 'right' }}
-                             value={l.quantity}
-                             onChange={e => setLine(i, { quantity: e.target.value })} />
-              </td>
-              <td className="text-right">
-                <NumberInput className="form-control" min="0" step="any"
-                             style={{ textAlign: 'right' }}
-                             value={l.unit_price}
-                             onChange={e => setLine(i, { unit_price: e.target.value })} />
-              </td>
-              <td className="text-right">
-                {fmt((Number(l.quantity) || 0) * (Number(l.unit_price) || 0))}
-              </td>
-              <td>
-                <button type="button" className="btn btn-sm btn-danger"
-                        onClick={() => setLines(ls => ls.filter((_, n) => n !== i))}>×</button>
-              </td>
-            </tr>
-          ))}
-        </tbody>
-      </table>
-
-      <div style={{ display: 'flex', gap: 8, marginTop: 8 }}>
-        <button type="button" className="btn btn-sm btn-secondary"
-                onClick={() => setLines(ls => [...ls, emptyPart()])}>
-          {t('service.addPart')}
-        </button>
-        <button type="button" className="btn btn-sm btn-secondary"
-                onClick={() => setLines(ls => [...ls, emptyCharge()])}>
-          {t('service.addCharge')}
-        </button>
-        <div style={{ marginInlineStart: 'auto', alignSelf: 'center' }}>
-          <strong>{t('common.subtotal')}: {fmt(subtotal)}</strong>
-        </div>
-      </div>
-      </>
-      )}
+      <p style={{ fontSize: 12, color: 'var(--text-3)', margin: '4px 0 0' }}>
+        {editing ? t('service.editJobHint') : t('service.newJobHint')}
+      </p>
 
       </div>
 
