@@ -855,6 +855,14 @@ const ar = {
     "roll": "لفة",
     "set": "طقم",
     "pair": "زوج",
+    // ── service job type and priority ─────────────────────────────
+    "Installation": "تركيب",
+    "Maintenance": "صيانة",
+    "Repair": "إصلاح",
+    "Inspection": "فحص",
+    "Low": "منخفضة",
+    "Normal": "عادية",
+    "High": "عالية",
   },
   licence: {
     trial: 'الفترة التجريبية',

@@ -47,6 +47,19 @@ const esc = s => String(s ?? '').replace(/[&<>"]/g,
 /** English label with its Arabic set alongside, never touching it. */
 const lbl = (en, ar) => `${en} <i>${ar}</i>`;
 
+// The two fixed lists this sheet carries. Same reason the labels are
+// literals: the technician filling it in and the customer signing it are not
+// reliably the same reader, so the VALUES print in both languages too. Kept
+// here rather than read from the locale because this file builds a string, not
+// a component — there is no hook to call, and the document is one document
+// whichever language the app happens to be in. Anything not listed (a value
+// added later) prints as stored rather than disappearing.
+const VALUE_AR = {
+  Installation: 'تركيب', Maintenance: 'صيانة', Repair: 'إصلاح',
+  Inspection: 'فحص', Low: 'منخفضة', Normal: 'عادية', High: 'عالية',
+};
+const val = v => (v ? (VALUE_AR[v] ? lbl(esc(v), VALUE_AR[v]) : esc(v)) : '');
+
 /** English over Arabic — for table headings, where a line has no width. */
 const stack = (en, ar) =>
   `<span class="wo-en">${en}</span><span class="wo-ar-sub">${ar}</span>`;
@@ -164,8 +177,8 @@ export function buildWorkOrderHTML(job, settings, logoDataURL = null, opts = {})
   <div class="wo-meta">
     <div>
       <div><span>${lbl('Job No.', 'رقم المهمة')}</span>${esc(job.job_number || '')}</div>
-      <div><span>${lbl('Type', 'النوع')}</span>${esc(job.job_type || '')}</div>
-      <div><span>${lbl('Priority', 'الأولوية')}</span>${esc(job.priority || '')}</div>
+      <div><span>${lbl('Type', 'النوع')}</span>${val(job.job_type)}</div>
+      <div><span>${lbl('Priority', 'الأولوية')}</span>${val(job.priority)}</div>
     </div>
     <div>
       <div><span>${lbl('Customer', 'العميل')}</span>${esc(job.client_name || '')}</div>

@@ -14,6 +14,10 @@ import { createServiceJob, updateServiceJob, getInventory, getUsers,
 import { NumberInput, toast, fmt } from '../../components/shared';
 import { useLocale } from '../../hooks/useLocale.jsx';
 
+// Fixed lists, so the option VALUE is what gets stored and stays English
+// whatever the reader's language; only the label is translated. tEnumValue is
+// the same dictionary used for payment methods and units, which means the
+// translation follows the value everywhere it is displayed later.
 const JOB_TYPES = ['Installation', 'Maintenance', 'Repair', 'Inspection'];
 const PRIORITIES = ['Low', 'Normal', 'High'];
 
@@ -21,7 +25,7 @@ const emptyPart = () => ({ line_type: 'part', inventory_id: '', name: '', quanti
 const emptyCharge = () => ({ line_type: 'charge', inventory_id: null, name: '', quantity: 1, unit_price: 0 });
 
 export default function JobForm({ job, clients, onDone, onCancel }) {
-  const { t } = useLocale();
+  const { t, tEnumValue } = useLocale();
   const [form, setForm] = useState(() => ({
     client_id: job?.client_id || '',
     equipment_id: job?.equipment_id || '',
@@ -140,13 +144,13 @@ export default function JobForm({ job, clients, onDone, onCancel }) {
         <div className="form-group">
           <label className="form-label">{t('service.jobType')}</label>
           <select className="form-control" value={form.job_type} onChange={set('job_type')}>
-            {JOB_TYPES.map(x => <option key={x} value={x}>{x}</option>)}
+            {JOB_TYPES.map(x => <option key={x} value={x}>{tEnumValue(x)}</option>)}
           </select>
         </div>
         <div className="form-group">
           <label className="form-label">{t('service.priority')}</label>
           <select className="form-control" value={form.priority} onChange={set('priority')}>
-            {PRIORITIES.map(x => <option key={x} value={x}>{x}</option>)}
+            {PRIORITIES.map(x => <option key={x} value={x}>{tEnumValue(x)}</option>)}
           </select>
         </div>
         <div className="form-group">

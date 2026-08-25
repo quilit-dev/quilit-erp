@@ -858,6 +858,14 @@ const en = {
     "roll": "roll",
     "set": "set",
     "pair": "pair",
+    // ── service job type and priority ─────────────────────────────
+    "Installation": "Installation",
+    "Maintenance": "Maintenance",
+    "Repair": "Repair",
+    "Inspection": "Inspection",
+    "Low": "Low",
+    "Normal": "Normal",
+    "High": "High",
   },
   licence: {
     trial: 'trial',

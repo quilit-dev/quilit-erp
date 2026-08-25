@@ -33,7 +33,7 @@ const STATUS_COLOR = {
 };
 
 export default function Service() {
-  const { t } = useLocale();
+  const { t, tEnumValue } = useLocale();
   const { can } = usePermissions();
   const [view, setView] = useState('jobs');
   const [modal, setModal] = useState(null);
@@ -230,7 +230,7 @@ export default function Service() {
                               onClick={() => open(j.id)}>{j.job_number}</button></td>
                       <td>{j.client_name}</td>
                       <td>{j.equipment_name || <span style={{ color: 'var(--text-3)' }}>—</span>}</td>
-                      <td>{j.job_type}</td>
+                      <td>{tEnumValue(j.job_type)}</td>
                       <td><span className={`badge badge-${STATUS_COLOR[j.status] || 'gray'}`}>
                         {t(`service.status${(j.status || '').replace(/\s/g, '')}`)}
                       </span></td>
@@ -387,7 +387,7 @@ export default function Service() {
                 {active.jobs.map(j => (
                   <tr key={j.id}>
                     <td>{j.job_number}</td>
-                    <td>{j.job_type}</td>
+                    <td>{tEnumValue(j.job_type)}</td>
                     <td>{t(`service.status${(j.status || '').replace(/\s/g, '')}`)}</td>
                     <td>{j.completed_at ? fmtDate(j.completed_at) : '—'}</td>
                     <td className="text-right">{fmt(j.total)}</td>
@@ -411,6 +411,7 @@ export default function Service() {
             job={active}
             can={can}
             t={t}
+            tEnumValue={tEnumValue}
             onEdit={() => setModal('job')}
             onTransition={transition}
             onInvoice={async () => {
@@ -429,7 +430,7 @@ export default function Service() {
 }
 
 /** The job sheet: what was asked for, what was done, what it cost. */
-function JobDetail({ job, can, t, onEdit, onTransition, onInvoice }) {
+function JobDetail({ job, can, t, tEnumValue, onEdit, onTransition, onInvoice }) {
   const open = ['Draft', 'Scheduled', 'In Progress'].includes(job.status);
   const parts = (job.lines || []).filter(l => l.line_type === 'part');
   const charges = (job.lines || []).filter(l => l.line_type === 'charge');
@@ -452,7 +453,7 @@ function JobDetail({ job, can, t, onEdit, onTransition, onInvoice }) {
           <span>{job.equipment ? `${job.equipment.name}${job.equipment.serial_number ? ` (${job.equipment.serial_number})` : ''}` : '—'}</span></div>
         <div className="form-group">
           <label className="form-label">{t('service.jobType')}</label>
-          <span>{job.job_type}</span></div>
+          <span>{tEnumValue(job.job_type)}</span></div>
         <div className="form-group">
           <label className="form-label">{t('common.status')}</label>
           <span><span className={`badge badge-${STATUS_COLOR[job.status] || 'gray'}`}>

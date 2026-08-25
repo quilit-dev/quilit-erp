@@ -65,6 +65,86 @@ describe('both languages', () => {
   });
 });
 
+// ── The two lists that stayed English ─────────────────────────────────────────
+
+// Job type and priority are fixed lists defined in code. Status was already
+// translated through `service.status*` and the part/charge badge through
+// `service.part`, so on an Arabic screen these two dropdowns — and the columns
+// that read them back — were the English words left standing.
+//
+// They are also the STORED values, so they go through tEnumValue: the value
+// stays English in the database and only the label changes, which is what lets
+// one entry serve the dropdown, the list, the detail pane and the sheet.
+describe('job type and priority read in Arabic', () => {
+  const JOB_TYPES = ['Installation', 'Maintenance', 'Repair', 'Inspection'];
+  const PRIORITIES = ['Low', 'Normal', 'High'];
+  const VALUES = [...JOB_TYPES, ...PRIORITIES];
+
+  test('the form still offers exactly these values', () => {
+    // If somebody adds a fifth job type this fails, and its translation is
+    // added with it rather than one raw English option shipping unnoticed.
+    expect(jobFormSrc).toContain(
+      "const JOB_TYPES = ['Installation', 'Maintenance', 'Repair', 'Inspection'];");
+    expect(jobFormSrc).toContain("const PRIORITIES = ['Low', 'Normal', 'High'];");
+  });
+
+  test('every one of them has an Arabic word', () => {
+    for (const v of VALUES) {
+      expect(en.enumValues[v], `en.enumValues['${v}']`).toBeTruthy();
+      expect(ar.enumValues[v], `ar.enumValues['${v}']`).toBeTruthy();
+      expect(ar.enumValues[v], `ar.enumValues['${v}']`).toMatch(/[\u0600-\u06ff]/);
+    }
+  });
+
+  test('and the dropdowns show it', () => {
+    expect(jobFormSrc).toContain(
+      '{JOB_TYPES.map(x => <option key={x} value={x}>{tEnumValue(x)}</option>)}');
+    expect(jobFormSrc).toContain(
+      '{PRIORITIES.map(x => <option key={x} value={x}>{tEnumValue(x)}</option>)}');
+  });
+
+  test('the option VALUE stays English so what is stored does not shift', () => {
+    // Translating the value too would write the Arabic into job_type and break
+    // every filter, export and report that compares against 'Repair'.
+    expect(jobFormSrc).not.toMatch(/value=\{tEnumValue\(/);
+  });
+
+  test('nowhere on screen is the stored value printed raw', () => {
+    // The job list, the equipment history and the detail pane all read
+    // job_type back. Any one of the three left untouched is the bug again.
+    const onScreen = serviceSrc
+      .replace(/\/\*[\s\S]*?\*\//g, '')
+      .replace(/\{\/\*[\s\S]*?\*\/\}/g, '');
+    expect(onScreen).not.toMatch(/<td>\{j\.job_type\}<\/td>/);
+    expect(onScreen).not.toMatch(/<span>\{job\.job_type\}<\/span>/);
+    expect((onScreen.match(/tEnumValue\((?:j|job)\.job_type\)/g) || []).length).toBe(3);
+  });
+
+  test('the export still carries English', () => {
+    // A spreadsheet is a data file: 'Repair' is what the rest of the system,
+    // and anyone re-importing it, expects whatever language the screen is in.
+    expect(serviceSrc).toMatch(/Type:\s+j\.job_type,/);
+  });
+
+  test('the printed work order carries both, like every other label on it', () => {
+    // The technician filling this in and the customer signing it are not
+    // reliably the same reader, which is why the sheet is bilingual at all.
+    const html = buildWorkOrderHTML(
+      { job_number: 'SRV-1', job_type: 'Repair', priority: 'High' }, {});
+
+    expect(html).toContain('Repair');
+    expect(html).toContain(ar.enumValues.Repair);
+    expect(html).toContain('High');
+    expect(html).toContain(ar.enumValues.High);
+  });
+
+  test('a value the sheet has never heard of still prints', () => {
+    const html = buildWorkOrderHTML({ job_type: 'Commissioning' }, {});
+
+    expect(html).toContain('Commissioning');
+  });
+});
+
 // ── The screens ──────────────────────────────────────────────────────────────
 
 describe('the page renders from translations, not literals', () => {
