@@ -396,7 +396,20 @@ def delete_user(
             raise HTTPException(400, "Cannot delete the last administrator.")
     if caller["id"] == user_id:
         raise HTTPException(400, "Cannot delete your own account.")
-    db.execute("UPDATE users SET deleted_at=datetime('now'), is_active=0 WHERE id=?", (user_id,))
+    # Free the name. The row is kept — audit history and every created_by
+    # pointer still have to resolve to a person — but `username` is UNIQUE at
+    # the schema level, so a dead row holding "ali" made "ali" unusable
+    # forever. Every check above already ignores deleted rows: the refusal came
+    # from the constraint, not from a rule anyone meant to have.
+    #
+    # Suffixed with the id, which cannot collide and cannot be logged into
+    # (is_active=0, deleted_at set). The audit log stored the username as text
+    # at the time of each action, so the trail still reads as it did, and the
+    # screens that name a person prefer full_name, which is untouched.
+    freed = f"{row['username']}#deleted{user_id}"
+    db.execute(
+        "UPDATE users SET deleted_at=datetime('now'), is_active=0, username=? "
+        "WHERE id=?", (freed, user_id))
     db.execute("UPDATE user_sessions SET revoked=1 WHERE user_id=?", (user_id,))
     log_action(db, caller, "delete", "user", user_id, row["username"])
     db.commit()

@@ -3883,6 +3883,22 @@ def _run_migrations(conn, c):
             pass
         done("167j_existing_assets_are_openings")
 
+    # ── 169: give back the names of users who were deleted ───────────
+    # Deleting a user is a soft delete, but `username` is UNIQUE, so every
+    # account ever deleted is still sitting on its name and cannot be recreated.
+    # The delete path suffixes new ones; this reaches the rows that predate it.
+    #
+    # Idempotent by construction: the WHERE clause excludes a row whose name
+    # already carries its own suffix, so running it again matches nothing.
+    if need("169_free_deleted_usernames"):
+        try:
+            c.execute("UPDATE users SET username = username || '#deleted' || id "
+                      " WHERE deleted_at IS NOT NULL "
+                      "   AND username NOT LIKE ('%#deleted' || id)")
+        except sqlite3.OperationalError:
+            pass
+        done("169_free_deleted_usernames")
+
     # ── 168: a service job is open or it is done ───────────────────
     # Draft, Scheduled and In Progress were three names for "not done yet".
     # Nothing in the module behaved differently across them: the same edits were
@@ -4524,6 +4540,14 @@ def _ensure_pg_post_baseline(raw):
                 ("disposal_entry_id", "INTEGER")):
             cur.execute("ALTER TABLE fixed_assets ADD COLUMN IF NOT EXISTS "
                         + _col + " " + _type)
+        # 169_free_deleted_usernames — a soft-deleted user went on holding a
+        # UNIQUE username, so the same person could never be recreated. The
+        # delete path suffixes new ones; this reaches rows that predate it, and
+        # skips a row already carrying its own suffix so it is a no-op after
+        # the first pass.
+        cur.execute("UPDATE users SET username = username || '#deleted' || id "
+                    " WHERE deleted_at IS NOT NULL "
+                    "   AND username NOT LIKE ('%#deleted' || id::text)")
         # 168_service_two_states — Draft / Scheduled / In Progress were three
         # names for "not done yet", and Completed is now Done. Idempotent, so
         # running it on every start is a no-op once the rows have moved.
