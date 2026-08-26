@@ -29,6 +29,8 @@ def site(tmp_path):
     (tmp_path / "index.html").write_text("<!doctype html>SPA shell")
     (tmp_path / "assets").mkdir()
     (tmp_path / "assets" / "app.js").write_text("//")
+    (tmp_path / "fonts").mkdir()
+    (tmp_path / "fonts" / "inter-latin.woff2").write_bytes(b"wOF2fake")
     manual = tmp_path / "manual"
     (manual / "sales" / "invoices").mkdir(parents=True)
     (manual / "index.html").write_text("<h1>User manual</h1>")
@@ -89,6 +91,36 @@ def test_real_assets_are_still_served(site):
     # A missing asset stays a 404 rather than an HTML shell, so a stale bundle
     # reference fails loudly in the console instead of parsing as JavaScript.
     assert resolve_static_path("assets/gone.js", site)[0] == "404"
+
+
+def test_the_fonts_are_served_from_the_app(site):
+    """They used to come from Google, and the Content-Security-Policy blocked
+    the stylesheet that asked — so the whole app rendered in a fallback face.
+    They live here now, which means this handler has to find them."""
+    kind, value = resolve_static_path("fonts/inter-latin.woff2", site)
+
+    assert kind == "file"
+    assert value.endswith("inter-latin.woff2")
+
+
+def test_a_missing_font_is_a_404_not_the_app_shell(site):
+    """The SPA catch-all returns index.html for unknown paths so client-side
+    routing works. A font that resolved to an HTML shell would fail silently:
+    the browser rejects it, falls back, and nothing says why."""
+    assert resolve_static_path("fonts/nope.woff2", site)[0] == "404"
+
+
+def test_woff2_is_typed_as_a_font(site):
+    """Python's mimetypes table does not know woff2, so FileResponse guessed
+    application/octet-stream. Browsers load them anyway — the stylesheet's
+    format() hint decides — but a caching proxy keyed on content type has no
+    reason to treat them as fonts."""
+    import mimetypes
+
+    import main                                    # noqa: F401  registers them
+
+    assert mimetypes.guess_type("x.woff2")[0] == "font/woff2"
+    assert mimetypes.guess_type("x.woff")[0] == "font/woff"
 
 
 @pytest.mark.parametrize("attack", [

@@ -315,6 +315,14 @@ from fastapi import Depends, Request
 from fastapi.responses import FileResponse, RedirectResponse, Response
 from database import get_db
 
+# Python's table does not know woff2, so FileResponse would guess
+# application/octet-stream for the app's own typefaces. Browsers load them
+# anyway — the `format('woff2')` hint in the stylesheet is what decides — but a
+# caching proxy that keys on content type has no reason to treat them as fonts.
+import mimetypes
+mimetypes.add_type("font/woff2", ".woff2")
+mimetypes.add_type("font/woff", ".woff")
+
 STATIC_DIR = os.environ.get("STATIC_DIR") or os.path.join(
     os.path.dirname(os.path.dirname(os.path.abspath(__file__))), "static")
 _HAS_SPA = os.path.isfile(os.path.join(STATIC_DIR, "index.html"))
@@ -488,8 +496,17 @@ if _HAS_SPA:
                             media_type="application/json")
         kind, value = resolve_static_path(full_path, STATIC_DIR)
         if kind == "file":
-            hdrs = {"Cache-Control": "public, max-age=31536000, immutable"} \
-                   if "/assets/" in full_path else {}
+            # Vite's bundles carry a content hash, so they can be immutable.
+            # The fonts do not — their names are stable so the stylesheet can
+            # name them — so they get a long max-age WITHOUT `immutable`, which
+            # is what lets a replaced face be picked up on the next revalidate
+            # rather than never.
+            if "/assets/" in full_path:
+                hdrs = {"Cache-Control": "public, max-age=31536000, immutable"}
+            elif full_path.startswith("fonts/"):
+                hdrs = {"Cache-Control": "public, max-age=2592000"}
+            else:
+                hdrs = {}
             return FileResponse(value, headers=hdrs)
         if kind == "redirect":
             return RedirectResponse(value, status_code=308)
