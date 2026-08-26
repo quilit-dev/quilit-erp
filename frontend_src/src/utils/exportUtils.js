@@ -179,7 +179,20 @@ export function printHTML(htmlString, filename) {
 
 // ─── Shared CSS ────────────────────────────────────────────────────────────────
 export const SHARED_CSS = `
-@import url('https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&display=swap');
+/* The printed documents' faces, served from this app. This stylesheet is
+   injected into a same-origin print iframe, so it inherits the app's
+   Content-Security-Policy, which permits \`style-src 'self'\` and nothing
+   else. The Google import that used to sit here was therefore blocked, and
+   every invoice, quotation, receipt and work order printed in a fallback face.
+   Cairo is here too: the receipt voucher and the work order are bilingual. */
+@font-face { font-family: 'Inter'; font-style: normal; font-weight: 400 800;
+  font-display: swap; src: url('/fonts/inter-latin.woff2') format('woff2'); }
+@font-face { font-family: 'Cairo'; font-style: normal; font-weight: 400 800;
+  font-display: swap; src: url('/fonts/cairo-arabic.woff2') format('woff2');
+  unicode-range: U+0600-06FF, U+0750-077F, U+0870-088E, U+0890-0891, U+0898-08E1, U+08E3-08FF, U+200C-200E, U+2010-2011, U+204F, U+2E41, U+FB50-FDFF, U+FE70-FE74, U+FE76-FEFC; }
+@font-face { font-family: 'Cairo'; font-style: normal; font-weight: 400 800;
+  font-display: swap; src: url('/fonts/cairo-latin.woff2') format('woff2');
+  unicode-range: U+0000-00FF, U+0131, U+0152-0153, U+02BB-02BC, U+02C6, U+02DA, U+02DC, U+0304, U+0308, U+0329, U+2000-206F, U+20AC, U+2122, U+2191, U+2193, U+2212, U+2215, U+FEFF, U+FFFD; }
 *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
 :root {
   --brand: #1B4F72; --brand-subtle: #EBF5FB;
