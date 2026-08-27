@@ -1184,6 +1184,11 @@ def complete_order(
                    (out_after, new_cost, order["output_inventory_id"]))
         wha.credit_warehouse_stock(db, inventory_id=order["output_inventory_id"],
                                     warehouse_id=order_wid, delta=qty_produced)
+        # A customer may have paid for this before it was made.
+        import commitments as _commitments
+        _filled = _commitments.allocate(db, order["output_inventory_id"],
+                                        warehouse_id=order_wid)
+        _commitments.notify_allocated(db, _filled, source="production")
         # The produced batch enters stock as its own lot (lot-tracked) or cost
         # layer; for a lot, link the input lots consumed above to it (genealogy).
         out_lot_id = lots.record_stock_in(

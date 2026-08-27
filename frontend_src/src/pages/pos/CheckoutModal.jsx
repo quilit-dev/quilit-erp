@@ -96,7 +96,12 @@ function CheckoutModal({ pricing, clients, drawers, defaultCurrency = 'USD', onC
     : Number(planCount) < 1 ? t('installments.needCount')
     : null;
 
-  async function confirm() {
+  // The till refused a short sale outright until now. It still does — unless
+  // somebody says the missing units can be got, which is a decision about the
+  // business, not about the cart, so it is asked rather than assumed.
+  const [shortfall, setShortfall] = useState(null);
+
+  async function confirm({ allowBackorder = false } = {}) {
     if (currency === 'LBP' && fxRate <= 0) { toast(t('pos.exchangeRate'), 'red'); return; }
     if (method === 'Cash' && tenderedNum + 0.01 < totalInCurrency) {
       toast(t('pos.amountTendered'), 'red'); return;
@@ -116,6 +121,7 @@ function CheckoutModal({ pricing, clients, drawers, defaultCurrency = 'USD', onC
         cash_drawer_id: method === 'Cash' && drawerId ? Number(drawerId) : null,
         idempotency_key: crypto.randomUUID(),
         bank_account_id: bankId ? Number(bankId) : null,
+        ...(allowBackorder ? { allow_backorder: true } : {}),
         ...(onPlan ? {
           installment_plan: {
             down_payment: depositNum,
@@ -142,7 +148,18 @@ function CheckoutModal({ pricing, clients, drawers, defaultCurrency = 'USD', onC
         amount_tendered: method === 'Cash' ? tenderedNum : totalInCurrency,
       });
     } catch (e) {
-      toast(e.message, 'red');
+      // "Insufficient stock for 'Ink Tube': 2 available, 5 requested." is the
+      // server telling us the shortfall it just measured. Rather than pass it
+      // on as a dead end, offer the way through — but only to a named
+      // customer, because somebody has to be given the goods when they arrive.
+      const short = /Insufficient stock/i.test(e.message || '');
+      if (short && !allowBackorder && clientId) {
+        setShortfall(e.message);
+      } else if (short && !clientId) {
+        toast(t('pos.shortNeedsCustomer'), 'red');
+      } else {
+        toast(e.message, 'red');
+      }
       setBusy(false);
     }
   }
@@ -291,10 +308,37 @@ function CheckoutModal({ pricing, clients, drawers, defaultCurrency = 'USD', onC
       </div>
       <div className="modal-footer">
         <button className="btn btn-secondary" onClick={onClose}>{t('common.cancel')}</button>
-        <button className="btn btn-primary" disabled={busy || !!planProblem || !!tenderProblem} onClick={confirm}>
+        <button className="btn btn-primary" disabled={busy || !!planProblem || !!tenderProblem} onClick={() => confirm()}>
           {busy ? t('common.saving') : t('pos.completeSale')}
         </button>
       </div>
+    
+      {shortfall && (
+        <Modal title={t('pos.shortTitle')} onClose={() => setShortfall(null)}>
+          <div className="modal-body">
+            <p style={{ fontSize: 13.5, marginTop: 0 }}>{shortfall}</p>
+            <p style={{ fontSize: 13.5 }}>{t('pos.shortExplain')}</p>
+            {/* What the customer is agreeing to, said plainly. They are paying
+                today for something they will collect later, and the shop is
+                holding their money until it can hand the goods over. */}
+            <ul style={{ fontSize: 13, color: 'var(--text-2)', paddingInlineStart: 18,
+                         margin: '8px 0 0' }}>
+              <li>{t('pos.shortPointStock')}</li>
+              <li>{t('pos.shortPointMoney')}</li>
+              <li>{t('pos.shortPointList')}</li>
+            </ul>
+          </div>
+          <div className="modal-footer">
+            <button className="btn btn-secondary" onClick={() => setShortfall(null)}>
+              {t('common.cancel')}
+            </button>
+            <button className="btn btn-primary" disabled={busy}
+                    onClick={() => { setShortfall(null); confirm({ allowBackorder: true }); }}>
+              {t('pos.shortConfirm')}
+            </button>
+          </div>
+        </Modal>
+      )}
     </Modal>
   );
 }

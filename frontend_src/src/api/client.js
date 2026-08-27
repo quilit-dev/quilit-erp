@@ -605,6 +605,15 @@ export const openPosSession    = (d)          => api.post('/api/pos/session/open
 export const closePosSession   = (d)          => api.post('/api/pos/session/close', d);
 export const getPosSessions    = (params = {}) => api.get(`/api/pos/sessions${_qs(params)}`);
 export const posCheckout       = (d)          => api.post('/api/pos/checkout', d);
+
+// Goods a customer has paid for and not yet received. Not under /api/pos: the
+// same promise can be made from an invoice, and collecting one is not a
+// register event — it happens on another day, often by somebody else.
+export const getCommitments    = (params = {}) => api.get(`/api/commitments/${_qs(params)}`);
+export const getCommitmentCount = ()          => api.get('/api/commitments/count');
+export const deliverCommitment = (id, d = {}) => api.post(`/api/commitments/${id}/deliver`, d);
+export const cancelCommitment  = (id, d = {}) => api.post(`/api/commitments/${id}/cancel`, d);
+export const allocateCommitments = (invId)    => api.post(`/api/commitments/allocate/${invId}`, {});
 export const getPosSales       = (params = {}) => api.get(`/api/pos/sales${_qs(params)}`);
 export const getPosSale        = (id)         => api.get(`/api/pos/sales/${id}`);
 export const returnPosSale     = (id, reason) => api.post(`/api/pos/sales/${id}/return`, { reason });

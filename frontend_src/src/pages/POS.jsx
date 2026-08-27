@@ -2,7 +2,7 @@ import { useState, useEffect, useCallback } from 'react';
 import { useLocale } from '../hooks/useLocale.jsx';
 import { usePermissions } from '../hooks/usePermissions.js';
 import { LoadingSpinner, ErrorAlert, EmptyState } from '../components/shared';
-import { getPosSession } from '../api/client';
+import { getPosSession, getCommitmentCount } from '../api/client';
 
 // Register/checkout/receipt/history extracted into ./pos/ — this file is the
 // orchestrator (session state + tab switch). Pricing helpers live in pos/pricing.js.
@@ -11,6 +11,7 @@ import { ReceiptModal } from './pos/ReceiptModal';
 import { RegisterView } from './pos/RegisterView';
 import { SessionsView } from './pos/SessionsView';
 import { HistoryView } from './pos/HistoryView';
+import { WaitingView } from './pos/WaitingView';
 
 export default function POS() {
   const { t } = useLocale();
@@ -31,10 +32,19 @@ export default function POS() {
   }, []);
   useEffect(() => { loadSession(); }, [loadSession]);
 
+  // How many customers are waiting on goods, and how many of those could be
+  // rung today. The second number is the one worth a badge: it is the only
+  // one that asks somebody to do something.
+  const [waiting, setWaiting] = useState({ open: 0, ready: 0 });
+  useEffect(() => {
+    getCommitmentCount().then(setWaiting).catch(() => {});
+  }, [view]);
+
   const tabs = [
     { key: 'register', label: t('pos.register') },
     { key: 'sessions', label: t('pos.sessions') },
     { key: 'history',  label: t('pos.history') },
+    { key: 'waiting',  label: t('pos.waiting'), badge: waiting.ready },
   ];
 
   return (
@@ -48,6 +58,10 @@ export default function POS() {
               className={`btn btn-sm ${view === tb.key ? 'btn-primary' : 'btn-secondary'}`}
               onClick={() => setView(tb.key)}>
               {tb.label}
+              {tb.badge > 0 && (
+                <span className="badge badge-green"
+                      style={{ marginInlineStart: 6 }}>{tb.badge}</span>
+              )}
             </button>
           ))}
         </div>
@@ -70,6 +84,7 @@ export default function POS() {
 
       {view === 'sessions' && <SessionsView />}
       {view === 'history'  && <HistoryView canReturn={canReturn} />}
+      {view === 'waiting'  && <WaitingView canEdit={canReturn} />}
     </div>
   );
 }

@@ -32,6 +32,7 @@ import lots
 import accounting
 import denomination
 import installments
+import commitments
 import reservations
 import branch_access
 from routers.promotions import best_promo_for
@@ -99,6 +100,16 @@ class PosCheckout(BaseModel):
     idempotency_key: str
     note:            Optional[str] = None
     installment_plan: Optional[PosInstallmentPlan] = None
+    # The customer wants five, there are two, and the manager says the rest can
+    # be got. With this set the till sells all five: the two that exist leave
+    # now, and the three that do not become a commitment — a promise recorded
+    # against the customer, with their money held in deferred revenue until the
+    # goods arrive and are handed over.
+    #
+    # The SHORTFALL is computed here, never sent: the client would otherwise be
+    # deciding how much stock to skip deducting.
+    allow_backorder: bool = False
+    promised_date:   Optional[str] = None
 
 
 class PosReturn(BaseModel):
@@ -430,6 +441,36 @@ def checkout(
         if it.inventory_id is not None:
             needed[it.inventory_id] = needed.get(it.inventory_id, 0.0) + float(it.quantity)
     stock_rows = {}
+    # inventory_id -> quantity the customer is paying for and NOT taking today.
+    committed = {}
+    if data.allow_backorder:
+        if data.client_id is None:
+            raise HTTPException(
+                400, "A sale of stock you do not have needs a customer: "
+                     "somebody has to be given the goods when they arrive.")
+        if data.installment_plan is not None:
+            # Two independent reasons to hold revenue back — unpaid, and
+            # undelivered — layered on one invoice. Each is understood on its
+            # own; together they need a rule for which clears first, and
+            # guessing at one would put a number in the books nobody can
+            # explain.
+            raise HTTPException(
+                400, "An instalment plan and a back-order cannot be combined "
+                     "on one sale yet. Take payment in full, or sell only what "
+                     "is in stock.")
+        # Not a permission by default: whoever may work the till may promise
+        # stock. It becomes one the moment an owner decides it should be, by
+        # turning it on in Settings — the same shape as service auto-invoicing.
+        gate = db.execute(
+            "SELECT value FROM settings WHERE key='pos_backorder_needs_approval'"
+        ).fetchone()
+        if gate and str(gate["value"]) not in ("0", "", "false"):
+            from permissions import can as _can
+            if not _can(user, db, "pos", "approve"):
+                raise HTTPException(
+                    403, "Selling stock that is not on hand needs a manager. "
+                         "Ask one to authorise it, or sell what is in stock.")
+
     for inv_id, qty_needed in needed.items():
         row = db.execute(
             "SELECT * FROM inventory WHERE id=? AND archived_at IS NULL", (inv_id,)
@@ -447,14 +488,20 @@ def checkout(
         sellable = round(
             reservations.available(db, inv_id)
             + reservations.held_for(db, inv_id, data.client_id), 6)
-        if round(sellable - qty_needed, 6) < 0:
-            raise HTTPException(
-                400,
-                f"Insufficient stock for '{row['name']}': "
-                f"{sellable:g} available, {qty_needed:g} requested."
-                + (f" ({float(row['reserved_quantity'] or 0):g} reserved.)"
-                   if float(row["reserved_quantity"] or 0) > 0 else ""),
-            )
+        short = round(qty_needed - sellable, 6)
+        if short > 0:
+            if not data.allow_backorder:
+                raise HTTPException(
+                    400,
+                    f"Insufficient stock for '{row['name']}': "
+                    f"{sellable:g} available, {qty_needed:g} requested."
+                    + (f" ({float(row['reserved_quantity'] or 0):g} reserved.)"
+                       if float(row["reserved_quantity"] or 0) > 0 else ""),
+                )
+            # Only the shortfall is promised. What is on the shelf still leaves
+            # today, which is what the customer expects and what keeps the
+            # count honest.
+            committed[inv_id] = short
         stock_rows[inv_id] = row
 
     # 7. Per-line pricing. POS prices are VAT-INCLUSIVE: apply the line
@@ -556,6 +603,28 @@ def checkout(
     tax_total      = money(tax_total)
     grand_total    = money(grand_total)
     discount_total = money(discount_total)
+
+    # What is being taken away versus what is being promised, in money. A line
+    # of five with three to follow defers three fifths of that line — the
+    # customer bought five at one price and the split has to honour it.
+    #
+    # The shortfall is held per ITEM, and one item can sit on two cart lines,
+    # so it is drawn down line by line rather than applied to each in full.
+    left_to_defer = dict(committed)
+    deferred_gross = 0.0
+    for idx, it in enumerate(data.items):
+        if it.inventory_id is None:
+            continue
+        short = left_to_defer.get(it.inventory_id, 0.0)
+        qty = float(it.quantity)
+        if short <= 0 or qty <= 0:
+            continue
+        take = min(short, qty)
+        line_gross = money(gross_after_line[idx] - order_shares[idx])
+        deferred_gross += line_gross * take / qty
+        left_to_defer[it.inventory_id] = round(short - take, 6)
+    deferred_gross = money(deferred_gross)
+    delivered_gross = money(grand_total - deferred_gross)
     # COGS is computed during the actual stock deduction (step 12) so it can
     # follow the configured costing method (FIFO/LIFO draw from cost layers).
     cogs_total     = 0.0
@@ -719,15 +788,46 @@ def checkout(
         cash_code = accounting.money_account_for(
             db, method=method, currency=currency,
             bank_account_id=data.bank_account_id)
-        lines_for_payment = (
-            accounting.payment_lines(
+        if plan is not None:
+            lines_for_payment = accounting.payment_lines(
                 db, invoice_id, cash_code=cash_code, amount=due_now,
                 method_memo=f"{method} ({currency})")
-            if plan is not None else
-            [{"code": cash_code, "debit": grand_total,
-              "memo": f"{method} ({currency})"},
-             {"code": accounting.code(db, "revenue"), "credit": grand_total}]
-        )
+        else:
+            # An ordinary till sale earns its revenue the moment the money is
+            # taken — EXCEPT for anything promised rather than handed over.
+            # The customer has paid for goods they do not have, and until they
+            # get them the business owes either the goods or the money back.
+            # That is a liability, and 2400 is where the chart already keeps it.
+            #
+            # VAT is recognised in full either way: the invoice was issued and
+            # the cash was taken, which is what makes the tax due. Nothing here
+            # changes when tax is owed.
+            #
+            # `revenue_split` carves the tax out and allocates the rest across
+            # revenue accounts by line mix — which this branch previously did
+            # not do at all, crediting the whole gross to revenue and leaving
+            # the VAT collected inside turnover.
+            lines_for_payment = [
+                {"code": cash_code, "debit": grand_total,
+                 "memo": f"{method} ({currency})"},
+            ]
+            # A sale entirely of goods to follow earns nothing today, and a
+            # zero credit is a line that says nothing.
+            if delivered_gross > 0:
+                lines_for_payment += accounting.revenue_split(
+                    db, invoice_id, delivered_gross)
+            if deferred_gross > 0:
+                deferred_vat = money(deferred_gross * tax_total / grand_total) \
+                    if grand_total > 0 and tax_total > 0 else 0.0
+                deferred_net = money(deferred_gross - deferred_vat)
+                if deferred_vat > 0:
+                    lines_for_payment.append(
+                        {"code": accounting.code(db, "vat_output"),
+                         "credit": deferred_vat, "memo": "VAT on goods to follow"})
+                lines_for_payment.append(
+                    {"code": accounting.code(db, "deferred_revenue"),
+                     "credit": deferred_net,
+                     "memo": "Paid for, not yet delivered"})
         accounting.post_entry(
             db,
             entry_date=now[:10],
@@ -754,6 +854,13 @@ def checkout(
         pass
     pos_wid = wha.default_warehouse_id_for_row(db, sess_wid)
     for inv_id, qty_needed in needed.items():
+        # Promised units are not on the shelf, so nothing about them moves:
+        # no deduction, no cost, no movement row. Deducting them would be
+        # negative stock by another name, which is the whole thing this
+        # avoids.
+        qty_needed = round(qty_needed - committed.get(inv_id, 0.0), 6)
+        if qty_needed <= 0:
+            continue
         row        = stock_rows[inv_id]
         qty_before = float(row["quantity"])
         qty_after  = round(qty_before - qty_needed, 6)
@@ -813,8 +920,11 @@ def checkout(
     #      from free stock.
     if data.client_id is not None:
         for inv_id, qty in needed.items():
+            taken = round(qty - committed.get(inv_id, 0.0), 6)
+            if taken <= 0:
+                continue
             reservations.consume(db, inventory_id=inv_id,
-                                 client_id=data.client_id, quantity=qty,
+                                 client_id=data.client_id, quantity=taken,
                                  closed_by=user["id"])
 
     # 13. POS sale record (carries the sale's discount + cost-of-goods-sold).
@@ -849,6 +959,38 @@ def checkout(
              it.quantity, it.unit_price, line_type, ln["discount"], line_unit_cost,
              promo_id_for[idx]),
         )
+
+    # 14z. The promises. Written after the invoice lines exist, because each
+    #      one points at the line it came from — that is what lets a receipt,
+    #      a refund and the customer's record all agree on what was owed and
+    #      at what price. The price is frozen here: whatever it does between
+    #      now and the goods arriving, this is what they paid.
+    commitment_rows = []
+    if committed:
+        left = dict(committed)
+        for idx, it in enumerate(data.items):
+            if it.inventory_id is None:
+                continue
+            short = left.get(it.inventory_id, 0.0)
+            qty = float(it.quantity)
+            if short <= 0 or qty <= 0:
+                continue
+            take = round(min(short, qty), 6)
+            ln = lines[idx]
+            try:
+                cid = commitments.create(
+                    db, invoice_id=invoice_id,
+                    invoice_item_id=invoice_item_ids[idx],
+                    inventory_id=it.inventory_id, client_id=data.client_id,
+                    quantity=take, unit_price=float(it.unit_price),
+                    unit_tax=round(ln["tax_amt"] / qty, 6) if qty else 0.0,
+                    warehouse_id=pos_wid, promised_date=data.promised_date,
+                    approved_by=user["id"], created_by=user["id"])
+            except ValueError as e:
+                raise HTTPException(400, str(e))
+            commitment_rows.append({"id": cid, "inventory_id": it.inventory_id,
+                                    "name": it.name, "quantity": take})
+            left[it.inventory_id] = round(short - take, 6)
 
     # 14a. Record promotion usage so the quantity cap holds across sales. Done
     #      in the same transaction as the sale, so a rolled-back checkout never
@@ -904,8 +1046,12 @@ def checkout(
         "payment_status": "Paid" if plan is None else "Partial",
         "installments":   [{"seq": s, "due_date": str(d), "amount": a}
                            for s, d, a in plan_rows],
-        "message":        "Sale completed" if plan is None
-                          else "Sale completed on a payment plan",
+        # What the customer is going away without. The receipt prints it, and
+        # somebody has to be able to tell them when to come back.
+        "commitments":    commitment_rows,
+        "deferred_total": deferred_gross,
+        "message":        ("Sale completed" if plan is None
+                           else "Sale completed on a payment plan"),
     }
 
 

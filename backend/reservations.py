@@ -155,7 +155,8 @@ def close(db: sqlite3.Connection, reservation_id: int, *, status: str,
 
 
 def consume(db: sqlite3.Connection, *, inventory_id: int, client_id: int,
-            quantity: float, closed_by: int = None) -> float:
+            quantity: float, closed_by: int = None,
+            status: str = COLLECTED) -> float:
     """The customer collected some of what was held for them.
 
     Their own holds are drawn down oldest first, and a hold only partly
@@ -164,6 +165,11 @@ def consume(db: sqlite3.Connection, *, inventory_id: int, client_id: int,
     which is fine: the surplus came out of free stock.
 
     Anyone else's reservations are never touched.
+
+    `status` is what a fully-drawn hold is closed as. It defaults to COLLECTED
+    because that is what almost always happened, but a cancelled order gives
+    the stock back without anybody collecting anything, and a row that says
+    otherwise is a row that misreports the day it describes.
     """
     remaining = round(float(quantity), 6)
     if remaining <= 0 or client_id is None:
@@ -182,7 +188,7 @@ def consume(db: sqlite3.Connection, *, inventory_id: int, client_id: int,
         if float(row["quantity"]) - take <= _EPS:
             db.execute(
                 "UPDATE stock_reservations SET status=?, closed_at=?, closed_by=? "
-                "WHERE id=?", (COLLECTED, _now(), closed_by, row["id"]))
+                "WHERE id=?", (status, _now(), closed_by, row["id"]))
         else:
             db.execute("UPDATE stock_reservations SET quantity=? WHERE id=?",
                        (round(float(row["quantity"]) - take, 6), row["id"]))

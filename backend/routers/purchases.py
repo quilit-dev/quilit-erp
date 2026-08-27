@@ -3,6 +3,7 @@ from pydantic import BaseModel
 from typing import Optional
 from database import get_db
 from permissions import require_perm
+import commitments
 from routers.audit import log_action
 from utils import _now, notify, get_tax_context, resolve_purchase_tax, money, validate_int_qty
 from approval_engine import evaluate_and_apply
@@ -408,6 +409,10 @@ def _credit_stock(purchase_id: int, db: sqlite3.Connection):
     wid = wha.default_warehouse_id_for_row(db, row["warehouse_id"])
     wha.credit_warehouse_stock(db, inventory_id=row["inventory_id"],
                                 warehouse_id=wid, delta=qty)
+    # Somebody has already paid for some of this. Their claim on it is older
+    # than anybody else's, and without this the next walk-in buys it.
+    filled = commitments.allocate(db, row["inventory_id"], warehouse_id=wid)
+    commitments.notify_allocated(db, filled, source="purchase received")
     # Record the receipt as a tracked lot (lot-tracked items) or a FIFO/LIFO
     # cost layer. The weighted-average unit_cost above already reflects this lot.
     lots.record_stock_in(db, row["inventory_id"], qty, lot_unit_cost,

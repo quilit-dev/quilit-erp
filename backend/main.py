@@ -17,6 +17,10 @@ import os
 from routers import clients, projects, quotations, inventory, invoices, finance, dashboard, auth
 from routers import communications as communications_router
 from routers import pdf as pdf_router
+# What customers have paid for and not yet received. Kept beside the till
+# it is sold from, not inside it: the same promise can be made from an
+# invoice, and collecting one is not a register event.
+from routers import commitments as commitments_router
 from routers import purchases, settings, documents, suppliers, audit, users, roles, search
 from routers import reports, crm, planning, notifications
 from routers import approval_policies, approval_requests, hr, hr_contracts, recruitment, hr_activities, tax_rates, pos, cash, manufacturing, banks
@@ -238,6 +242,7 @@ app.include_router(recruitment.router,       prefix="/api/recruitment",        t
 app.include_router(hr_activities.router,     prefix="/api/hr-activities",      tags=["hr"])
 app.include_router(tax_rates.router,         prefix="/api/tax-rates",          tags=["tax"])
 app.include_router(pos.router,               prefix="/api/pos",                tags=["pos"])
+app.include_router(commitments_router.router, prefix="/api/commitments", tags=["commitments"])
 app.include_router(cash.router,              prefix="/api/cash",               tags=["cash"])
 app.include_router(banks.router,             prefix="/api/banks",              tags=["banks"])
 app.include_router(manufacturing.router,     prefix="/api/manufacturing",      tags=["manufacturing"])

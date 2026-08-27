@@ -38,6 +38,11 @@ NOTIFICATION_TYPE_MODULE = {
     "invoice_paid":          "invoices",
     "payment_received":      "invoices",
     "invoice_overdue":       "invoices",
+    # Goods a customer has paid for and not yet received. Gated on `pos`
+    # because the till is where the promise was made and where the person who
+    # made it works.
+    "commitment_ready":      "pos",
+    "commitment_cancelled":  "pos",
     # Instalments. An invoice plan is chased from the invoice and an
     # account plan from the customer, so each is gated on the module its
     # link lands in. installment_overdue was missing from this map

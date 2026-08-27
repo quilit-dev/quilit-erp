@@ -356,7 +356,7 @@ def test_pos_return_reverses_the_general_ledger(make_client, db):
 
 
 # FINDING-2 (fixed) ──────────────────────────────────────────────────────────
-def test_taxed_purchase_gl_inventory_matches_physical_value(make_client):
+def test_taxed_purchase_gl_inventory_matches_physical_value(make_client, db):
     """After buying 10 @ $10 + 11% VAT and selling all 10, GL Inventory
     returns to zero: stock is carried ex-VAT, matching the cost layers.
 
@@ -383,11 +383,14 @@ def test_taxed_purchase_gl_inventory_matches_physical_value(make_client):
 
     assert c.post("/api/pos/session/open",
                   json={"opening_float": 0}).status_code == 200
-    assert c.post("/api/pos/checkout", json={
+    sale = c.post("/api/pos/checkout", json={
         "items": [{"name": "AUD Taxed", "inventory_id": item,
                    "quantity": 10, "unit_price": 20}],
         "payment_method": "Cash", "amount_tendered": 250, "idempotency_key": _key(),
-    }).status_code == 200
+    })
+    assert sale.status_code == 200, sale.text
+    output_vat = sale.json()["tax_total"]
+    assert output_vat > 0, "a taxed sale must collect output VAT"
 
     # Zero units on hand ⇒ the GL inventory account must also be zero, and the
     # $11 input VAT sits against the VAT control account, not in stock and not
@@ -395,7 +398,18 @@ def test_taxed_purchase_gl_inventory_matches_physical_value(make_client):
     assert c.get(f"/api/inventory/{item}").json()["quantity"] == pytest.approx(0)
     tb, bal = _tb(c)
     assert bal.get("1200", (0, 0))[0] == pytest.approx(0, abs=CENT)
-    assert bal["2100"][0] == pytest.approx(11, abs=CENT), "input VAT should be reclaimable"
+    # 2100 is a control account: the purchase debits the reclaimable input VAT
+    # into it and the sale credits the output VAT collected, so the trial
+    # balance shows only the NET owed. Assert the two sides separately, or the
+    # test silently re-fails the day the till starts accounting for VAT.
+    sides = db.execute(
+        "SELECT COALESCE(SUM(l.debit), 0) AS dr, COALESCE(SUM(l.credit), 0) AS cr "
+        "FROM journal_entry_lines l JOIN chart_of_accounts a ON a.id = l.account_id "
+        "WHERE a.code = '2100'"
+    ).fetchone()
+    assert sides["dr"] == pytest.approx(11, abs=CENT), "input VAT should be reclaimable"
+    assert sides["cr"] == pytest.approx(output_vat, abs=CENT),         "output VAT collected at the till belongs in the control account"
+    assert bal.get("2100", (0, 0))[1] == pytest.approx(output_vat - 11, abs=CENT),         "the return nets input VAT off what is owed"
     assert bal.get("6900", (0, 0))[0] == pytest.approx(0, abs=CENT),         "reclaimable VAT must not be booked as a cost"
     assert tb["balanced"] is True
 
