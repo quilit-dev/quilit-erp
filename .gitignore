@@ -50,3 +50,5 @@ static-manual/
 # OS
 .DS_Store
 Thumbs.db
+# /graphify scratch output — 23MB of generated graphs, not source
+graphify-out/
