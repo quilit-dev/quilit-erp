@@ -7,6 +7,7 @@ import {
   LoadingSpinner, ErrorAlert, EmptyState, Modal, ConfirmModal, toast, NumberInput,
 } from '../components/shared';
 import { useLocale } from '../hooks/useLocale.jsx';
+import SearchSelect from '../components/SearchSelect.jsx';
 
 const STATUS_COLOR = {
   live:      { bg: '#ECFDF5', color: '#059669' },
@@ -211,10 +212,12 @@ export default function Promotions() {
               {form.scope_type === 'item' && (
                 <div className="form-group">
                   <label className="form-label">{t('promotions.item')}</label>
-                  <select className="form-control" value={form.scope_value} onChange={e => set('scope_value', e.target.value)}>
-                    <option value="">{t('promotions.selectItem')}</option>
-                    {items.map(i => <option key={i.id} value={i.id}>{i.name}{i.variant_label ? ` — ${i.variant_label}` : ''}</option>)}
-                  </select>
+                  <SearchSelect
+                    className="form-control"
+                    value={form.scope_value}
+                    onChange={v => set('scope_value', v)}
+                    placeholder={t('promotions.selectItem')}
+                    options={(items || []).map(i => ({ value: i.id, label: `${i.name}${i.variant_label ? ` — ${i.variant_label}` : ''}` }))} />
                 </div>
               )}
 

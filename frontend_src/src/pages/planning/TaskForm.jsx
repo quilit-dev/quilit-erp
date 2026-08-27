@@ -3,6 +3,7 @@ import { useLocale } from '../../hooks/useLocale.jsx';
 import { toast } from '../../components/shared';
 import { createPlanningProject, createPlanningTask, updatePlanningTask } from '../../api/client';
 import { PRIORITIES, STATUS_KEY, PRIORITY_KEY, STATUSES } from './constants';
+import SearchSelect from '../../components/SearchSelect.jsx';
 
 function TaskForm({ initial, projects, users, milestones, tasks, onSave, onClose }) {
   const { t } = useLocale();
@@ -90,13 +91,17 @@ function TaskForm({ initial, projects, users, milestones, tasks, onSave, onClose
           </div>
           <div className="form-group">
             <label className="form-label">{t('planning.project')}</label>
-            <select className="form-control" value={form.project_id}
-                    onChange={e => set('project_id', e.target.value)}>
-              <option value="">{t('planning.noProjectOption')}</option>
-              <option value={NEW_PROJECT}>+ {t('planning.newProjectOption')}</option>
-              {projects.length > 0 && <option disabled>──────────────</option>}
-              {projects.map(p => <option key={p.id} value={p.id}>{p.name}</option>)}
-            </select>
+            {/* "+ New project" is an option in the list rather than a
+                separator-and-sentinel arrangement: a filtered list cannot show a
+                divider in a sensible place, and the row still does what it did. */}
+            <SearchSelect
+              value={form.project_id}
+              onChange={v => set('project_id', v)}
+              placeholder={t('planning.noProjectOption')}
+              options={[
+                { value: NEW_PROJECT, label: `+ ${t('planning.newProjectOption')}` },
+                ...(projects || []).map(p => ({ value: p.id, label: p.name })),
+              ]} />
             {form.project_id === NEW_PROJECT && (
               <input
                 className="form-control"

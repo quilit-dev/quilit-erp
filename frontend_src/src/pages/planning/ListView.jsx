@@ -4,6 +4,7 @@ import { toast } from '../../components/shared';
 import { updateTaskProgress } from '../../api/client';
 import { Badge, ProgressBar } from './ui';
 import { PRIORITIES, STATUS_BADGE, PRIORITY_BADGE, STATUS_KEY, PRIORITY_KEY, tEnum, STATUSES } from './constants';
+import SearchSelect from '../../components/SearchSelect.jsx';
 
 function ListView({ tasks, projects, onEdit, onArchive, onRestore, onRefresh }) {
   const { t } = useLocale();
@@ -40,10 +41,13 @@ function ListView({ tasks, projects, onEdit, onArchive, onRestore, onRefresh }) 
             <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><circle cx="11" cy="11" r="8"/><path d="m21 21-4.35-4.35"/></svg>
             <input className="form-control search-input" placeholder={t('common.search')} value={search} onChange={e => setSearch(e.target.value)} />
           </div>
-          <select className="form-control" style={{ width: 180 }} value={selProject} onChange={e => setSelProject(e.target.value)}>
-            <option value="">{t('planning.allProjects')}</option>
-            {projects.map(p => <option key={p.id} value={p.id}>{p.name}</option>)}
-          </select>
+          <SearchSelect
+            className="form-control"
+            style={{ width: 180 }}
+            value={selProject}
+            onChange={v => setSelProject(v)}
+            placeholder={t('planning.allProjects')}
+            options={(projects || []).map(p => ({ value: p.id, label: p.name }))} />
           <select className="form-control" style={{ width: 140 }} value={selStatus} onChange={e => setSelStatus(e.target.value)}>
             <option value="">{t('common.allStatuses')}</option>
             {STATUSES.map(s => <option key={s} value={s}>{t(STATUS_KEY[s])}</option>)}

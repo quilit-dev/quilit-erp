@@ -1,5 +1,6 @@
 import { useState, useCallback } from 'react';
 import { useData } from '../../hooks/useData';
+import SearchSelect from '../../components/SearchSelect.jsx';
 import {
   LoadingSpinner, ErrorAlert, EmptyState, Modal, ConfirmModal, ExportButton, toast,
 } from '../../components/shared';
@@ -53,11 +54,12 @@ function ContactForm({ initial, clients, leads, onSave, onClose, t }) {
           </div>
           <div className="form-group">
             <label className="form-label">{t('crm.linkedClient')}</label>
-            <select className="form-control" value={form.client_id || ''}
-              onChange={e => setForm(p => ({ ...p, client_id: e.target.value, lead_id: e.target.value ? '' : p.lead_id }))}>
-              <option value="">{t('crm.selectClient')}</option>
-              {(clients || []).map(c => <option key={c.id} value={c.id}>{c.name}{c.company ? ` — ${c.company}` : ''}</option>)}
-            </select>
+            <SearchSelect
+              className="form-control"
+              value={form.client_id || ''}
+              onChange={v => setForm(p => ({ ...p, client_id: v, lead_id: v ? '' : p.lead_id }))}
+              placeholder={t('crm.selectClient')}
+              options={(clients || []).map(c => ({ value: c.id, label: `${c.name}${c.company ? ` — ${c.company}` : ''}` }))} />
           </div>
           <div className="form-group">
             <label className="form-label">

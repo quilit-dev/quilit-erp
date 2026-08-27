@@ -6,6 +6,7 @@ import {
   dispatchStockTransfer, receiveStockTransfer, cancelStockTransfer,
 } from '../../api/client';
 import { STATUS_BADGE, statusLabel } from './constants';
+import SearchSelect from '../../components/SearchSelect.jsx';
 
 function TransfersTab({ canEdit, t }) {
   const [rows, setRows]       = useState([]);
@@ -184,11 +185,12 @@ function TransfersTab({ canEdit, t }) {
                   {form.items.map((it, idx) => (
                     <tr key={idx}>
                       <td>
-                        <select className="form-control" value={it.inventory_id}
-                          onChange={e => setForm(f => ({ ...f, items: f.items.map((x, i) => i === idx ? { ...x, inventory_id: e.target.value } : x) }))}>
-                          <option value="">{t('warehouses.pickItem')}</option>
-                          {items.map(i => <option key={i.id} value={i.id}>{i.name} ({i.unit || 'pcs'})</option>)}
-                        </select>
+                        <SearchSelect
+                          className="form-control"
+                          value={it.inventory_id}
+                          onChange={v => setForm(f => ({ ...f, items: f.items.map((x, i) => i === idx ? { ...x, inventory_id: v } : x) }))}
+                          placeholder={t('warehouses.pickItem')}
+                          options={(items || []).map(i => ({ value: i.id, label: `${i.name} (${i.unit || 'pcs'})` }))} />
                       </td>
                       <td>
                         <NumberInput className="form-control" min={0.01} step={1} value={it.quantity}

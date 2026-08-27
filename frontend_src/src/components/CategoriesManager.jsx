@@ -3,6 +3,7 @@ import { getCategories, createCategory, updateCategory, archiveCategory, getAcco
 import { invalidateCategories } from '../hooks/useCategories';
 import { Modal, ConfirmModal, toast } from './shared';
 import { useLocale } from '../hooks/useLocale.jsx';
+import SearchSelect from '../components/SearchSelect.jsx';
 
 // Owner-managed category registry. Per-domain lists that feed every category
 // dropdown across the app. Editing here never rewrites existing records — it
@@ -135,14 +136,14 @@ export default function CategoriesManager({ canEdit }) {
                 padding: '6px 10px', borderRadius: 8, background: 'var(--bg)' }}>
                 <span style={{ flex: 1, fontSize: 13 }}>{tCategory(r.name)}</span>
                 {canEdit ? (
-                  <select className="form-control" style={{ maxWidth: 260, fontSize: 12, padding: '4px 8px' }}
-                    value={r.account_code || ''} disabled={busy}
-                    onChange={e => setGl(r, e.target.value)}>
-                    <option value="">{t('settings.catGlDefault')}</option>
-                    {accounts.map(a => (
-                      <option key={a.code} value={a.code}>{a.code} — {a.name}</option>
-                    ))}
-                  </select>
+                  <SearchSelect
+                    className="form-control"
+                    style={{ maxWidth: 260, fontSize: 12, padding: '4px 8px' }}
+                    disabled={busy}
+                    value={r.account_code || ''}
+                    onChange={v => setGl(r, v)}
+                    placeholder={t('settings.catGlDefault')}
+                    options={(accounts || []).map(a => ({ value: a.code, label: a.name, hint: a.code }))} />
                 ) : (
                   <span style={{ fontSize: 12, color: 'var(--text-3)' }}>
                     {r.account_code

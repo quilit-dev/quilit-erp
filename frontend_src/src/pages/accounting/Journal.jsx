@@ -8,6 +8,7 @@ import {
 import { LoadingSpinner, Modal, ConfirmModal, toast, NumberInput } from '../../components/shared';
 import { monthStartISO, todayISO } from './constants';
 import { SortableTh, Pager } from './ui';
+import SearchSelect from '../../components/SearchSelect.jsx';
 
 // ── Journal ──────────────────────────────────────────────────────────────────
 //
@@ -116,11 +117,13 @@ function Journal({ t, tAccount, tEnumValue, fmt, fmtDate, canCreate, canEdit }) 
           value={search} onChange={e => setSearch(e.target.value)} />
         {/* "Everything that touched 4111, between 500 and 5,000" — the two
             questions the journal could not previously be asked. */}
-        <select className="form-control" style={{ width: 190 }} value={accountId}
-          onChange={e => setAccountId(e.target.value)}>
-          <option value="">{t('accounting.allAccounts')}</option>
-          {accounts.map(a => <option key={a.id} value={a.id}>{a.code} — {tAccount(a)}</option>)}
-        </select>
+        <SearchSelect
+          className="form-control"
+          style={{ width: 190 }}
+          value={accountId}
+          onChange={v => setAccountId(v)}
+          placeholder={t('accounting.allAccounts')}
+          options={(accounts || []).map(a => ({ value: a.id, label: tAccount(a), hint: a.code }))} />
         <NumberInput className="form-control" style={{ width: 110 }} min="0" step="0.01"
           placeholder={t('accounting.minAmount')}
           value={minAmount} onChange={e => setMinAmount(e.target.value)} />
@@ -314,10 +317,12 @@ function NewEntryModal({ t, tAccount, fmt, onClose, onSaved }) {
             {lines.map((l, i) => (
               <tr key={i}>
                 <td>
-                  <select className="form-control" value={l.account_id} onChange={e => setLine(i, { account_id: e.target.value })}>
-                    <option value="">{t('accounting.selectAccount')}</option>
-                    {accounts.map(a => <option key={a.id} value={a.id}>{a.code} — {tAccount(a)}</option>)}
-                  </select>
+                  <SearchSelect
+                    className="form-control"
+                    value={l.account_id}
+                    onChange={v => setLine(i, { account_id: v })}
+                    placeholder={t('accounting.selectAccount')}
+                    options={(accounts || []).map(a => ({ value: a.id, label: tAccount(a), hint: a.code }))} />
                 </td>
                 <td><NumberInput min="0" step="0.01" className="form-control" style={{ textAlign: 'right' }}
                   value={l.debit} onChange={e => setLine(i, { debit: e.target.value, credit: '' })} /></td>

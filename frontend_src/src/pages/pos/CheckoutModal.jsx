@@ -5,6 +5,7 @@ import { Modal, toast, NumberInput } from '../../components/shared';
 import { posCheckout } from '../../api/client';
 import { num } from './pricing';
 import BankField, { useBankAccounts } from '../../components/BankField.jsx';
+import SearchSelect from '../../components/SearchSelect.jsx';
 
 function CheckoutModal({ pricing, clients, drawers, defaultCurrency = 'USD', onClose, onDone }) {
   const { t, fmt, tCategory } = useLocale();
@@ -164,10 +165,12 @@ function CheckoutModal({ pricing, clients, drawers, defaultCurrency = 'USD', onC
         <div className="form-grid">
           <div className="form-group form-full">
             <label className="form-label">{t('pos.customer')}</label>
-            <select className="form-control" value={clientId} onChange={e => setClientId(e.target.value)}>
-              <option value="">{t('pos.walkIn')}</option>
-              {clients.map(c => <option key={c.id} value={c.id}>{c.name}</option>)}
-            </select>
+            <SearchSelect
+              className="form-control"
+              value={clientId}
+              onChange={v => setClientId(v)}
+              placeholder={t('pos.walkIn')}
+              options={(clients || []).map(c => ({ value: c.id, label: c.name }))} />
           </div>
           <div className="form-group form-full">
             <label style={{ display: 'flex', alignItems: 'center', gap: 8, fontSize: 13.5 }}>

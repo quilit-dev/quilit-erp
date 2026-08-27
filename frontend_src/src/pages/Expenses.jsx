@@ -16,6 +16,7 @@ import { usePermissions } from '../hooks/usePermissions';
 import Attachments from '../components/Attachments.jsx';
 import DocumentPostings from '../components/DocumentPostings.jsx';
 import RecurringExpensesPanel from '../components/RecurringExpensesPanel';
+import SearchSelect from '../components/SearchSelect.jsx';
 
 function TransactionsPanel() {
   const { data: expenses, loading, error, reload } = useData(getExpenses);
@@ -231,11 +232,13 @@ function TransactionsPanel() {
             {catOptions.map(c => <option key={c} value={c}>{tCategory(c)}</option>)}
           </select>
 
-          <select className="form-control" style={{ width: 160, height: 34, fontSize: 13 }}
-            value={projFilter} onChange={e => setProjFilter(e.target.value)}>
-            <option value="">{t('expenses.allProjects')}</option>
-            {(projects || []).map(p => <option key={p.id} value={p.id}>{p.name}</option>)}
-          </select>
+          <SearchSelect
+            className="form-control"
+            style={{ width: 160, height: 34, fontSize: 13 }}
+            value={projFilter}
+            onChange={v => setProjFilter(v)}
+            placeholder={t('expenses.allProjects')}
+            options={(projects || []).map(p => ({ value: p.id, label: p.name }))} />
 
           <select className="form-control" style={{ width: 140, height: 34, fontSize: 13 }}
             value={monthFilter} onChange={e => setMonthFilter(e.target.value)}>
@@ -379,11 +382,12 @@ function TransactionsPanel() {
                 </div>
                 <div className="form-group">
                   <label className="form-label">{t('expenses.projectLabel')}</label>
-                  <select className="form-control" value={form.project_id || ''}
-                    onChange={e => setForm(f => ({ ...f, project_id: e.target.value }))}>
-                    <option value="">{t('expenses.noneProject')}</option>
-                    {(projects || []).map(p => <option key={p.id} value={p.id}>{p.name}</option>)}
-                  </select>
+                  <SearchSelect
+                    className="form-control"
+                    value={form.project_id || ''}
+                    onChange={v => setForm(f => ({ ...f, project_id: v }))}
+                    placeholder={t('expenses.noneProject')}
+                    options={(projects || []).map(p => ({ value: p.id, label: p.name }))} />
                 </div>
                 <BranchField value={form.branch_id}
                   onChange={v => setForm(f => ({ ...f, branch_id: v }))} />

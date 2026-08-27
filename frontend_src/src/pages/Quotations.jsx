@@ -22,6 +22,7 @@ import InventoryCombobox, { salePriceInBase } from '../components/InventoryCombo
 import { useRecordExport } from '../hooks/useRecordExport';
 import { useFocusId } from '../hooks/useFocusId';
 import { useServerList } from '../hooks/useServerList';
+import SearchSelect from '../components/SearchSelect.jsx';
 
 const STATUSES   = ['Draft', 'Sent', 'Accepted', 'Rejected'];
 // `discount` (in functional currency) is opt-in via Settings → "Enable
@@ -516,16 +517,20 @@ export default function Quotations() {
               <input className="form-control search-input" placeholder={t('quotations.searchPlaceholderFull')}
                 value={search} onChange={e => setSearch(e.target.value)} />
             </div>
-            <select className="form-control" style={{width:190}}
-              value={clientFilter} onChange={e => setClientFilter(e.target.value)}>
-              <option value="">{t('common.allClients')}</option>
-              {(clients||[]).map(c => <option key={c.id} value={c.id}>{c.name}</option>)}
-            </select>
-            <select className="form-control" style={{width:220}}
-              value={projectFilter} onChange={e => setProjectFilter(e.target.value)}>
-              <option value="">{t('common.allProjects')}</option>
-              {(projects||[]).map(p => <option key={p.id} value={p.id}>{p.name}</option>)}
-            </select>
+            <SearchSelect
+              className="form-control"
+              style={{width:190}}
+              value={clientFilter}
+              onChange={v => setClientFilter(v)}
+              placeholder={t('common.allClients')}
+              options={(clients || []).map(c => ({ value: c.id, label: c.name }))} />
+            <SearchSelect
+              className="form-control"
+              style={{width:220}}
+              value={projectFilter}
+              onChange={v => setProjectFilter(v)}
+              placeholder={t('common.allProjects')}
+              options={(projects || []).map(p => ({ value: p.id, label: p.name }))} />
             <select className="form-control" style={{width:150}}
               value={statusFilter} onChange={e => setStatusFilter(e.target.value)}>
               <option value="">{t('common.allStatuses')}</option>
@@ -659,11 +664,12 @@ export default function Quotations() {
                       {t('quotations.clientLabel')}
                       {!(clients||[]).length && <span style={{ color:'var(--yellow)', marginLeft:6, fontSize:12 }}>{t('quotations.noneYet')}</span>}
                     </label>
-                    <select className="form-control" value={form.client_id}
-                      onChange={e => setForm(f => ({ ...f, client_id: e.target.value, lead_id: e.target.value ? '' : f.lead_id }))}>
-                      <option value="">{t('quotations.selectClientOption')}</option>
-                      {(clients||[]).map(c => <option key={c.id} value={c.id}>{c.name}</option>)}
-                    </select>
+                    <SearchSelect
+                      className="form-control"
+                      value={form.client_id}
+                      onChange={v => setForm(f => ({ ...f, client_id: v, lead_id: v ? '' : f.lead_id }))}
+                      placeholder={t('quotations.selectClientOption')}
+                      options={(clients || []).map(c => ({ value: c.id, label: c.name }))} />
                   </div>
                   <div className="form-group">
                     <label className="form-label">
@@ -687,11 +693,12 @@ export default function Quotations() {
                       {t('quotations.projectLabel')}
                       {!(projects||[]).length && <span style={{ color:'var(--yellow)', marginLeft:6, fontSize:12 }}>{t('quotations.noneYet')}</span>}
                     </label>
-                    <select className="form-control" value={form.project_id}
-                      onChange={e => setForm(f => ({ ...f, project_id: e.target.value, project_name: '' }))}>
-                      <option value="">{t('quotations.noneProject')}</option>
-                      {(projects||[]).map(p => <option key={p.id} value={p.id}>{p.name}</option>)}
-                    </select>
+                    <SearchSelect
+                      className="form-control"
+                      value={form.project_id}
+                      onChange={v => setForm(f => ({ ...f, project_id: v, project_name: '' }))}
+                      placeholder={t('quotations.noneProject')}
+                      options={(projects || []).map(p => ({ value: p.id, label: p.name }))} />
                   </div>
                   {!form.project_id && (
                     <div className="form-group">

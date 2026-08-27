@@ -23,6 +23,7 @@ import { useEffect, useState } from 'react';
 import { getInventory, updateServiceJob } from '../../api/client';
 import { NumberInput, toast, fmt } from '../../components/shared';
 import { useLocale } from '../../hooks/useLocale.jsx';
+import SearchSelect from '../../components/SearchSelect.jsx';
 
 const emptyPart = () => ({ line_type: 'part', inventory_id: '', name: '', quantity: 1, unit_price: 0 });
 const emptyCharge = () => ({ line_type: 'charge', inventory_id: null, name: '', quantity: 1, unit_price: 0 });
@@ -138,16 +139,13 @@ export default function WriteUp({ job, canEdit, onSaved, onDirtyChange }) {
                   {t(`service.${l.line_type}`)}
                 </span>{' '}
                 {l.line_type === 'part' ? (
-                  <select className="form-control" value={l.inventory_id}
-                          disabled={!canEdit}
-                          onChange={e => pickItem(i, e.target.value)}>
-                    <option value="">—</option>
-                    {items.map(it => (
-                      <option key={it.id} value={it.id}>
-                        {it.name} ({it.quantity} {it.unit || ''})
-                      </option>
-                    ))}
-                  </select>
+                  <SearchSelect
+                    className="form-control"
+                    disabled={!canEdit}
+                    value={l.inventory_id}
+                    onChange={v => pickItem(i, v)}
+                    placeholder="—"
+                    options={(items || []).map(it => ({ value: it.id, label: `${it.name} (${it.quantity} ${it.unit || ''})` }))} />
                 ) : (
                   <input className="form-control" value={l.name}
                          placeholder={t('service.charge')} disabled={!canEdit}

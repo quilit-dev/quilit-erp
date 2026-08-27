@@ -8,6 +8,7 @@ import {
   Badge, ExportButton, fmt, fmtDate, toast, SortableTh, Pagination, NumberInput} from '../components/shared';
 import { useSortPaginate } from '../hooks/useSortPaginate';
 import { useLocale } from '../hooks/useLocale.jsx';
+import SearchSelect from '../components/SearchSelect.jsx';
 
 // Must match the backend's VALID_STATUSES casing exactly so tStatus() resolves
 // each one (e.g. 'In Progress', not 'In progress') and the filter dropdown
@@ -139,11 +140,13 @@ export default function Projects() {
               <input className="form-control search-input" placeholder={t('projects.searchPlaceholderFull')}
                 value={search} onChange={e => setSearch(e.target.value)} />
             </div>
-            <select className="form-control" style={{width:190}}
-              value={clientFilter} onChange={e => setClientFilter(e.target.value)}>
-              <option value="">{t('common.allClients')}</option>
-              {(clients||[]).map(c => <option key={c.id} value={c.id}>{c.name}</option>)}
-            </select>
+            <SearchSelect
+              className="form-control"
+              style={{width:190}}
+              value={clientFilter}
+              onChange={v => setClientFilter(v)}
+              placeholder={t('common.allClients')}
+              options={(clients || []).map(c => ({ value: c.id, label: c.name }))} />
             <select className="form-control" style={{ width: 180 }}
               value={statusFilter} onChange={e => setStatusFilter(e.target.value)}>
               <option value="">{t('common.allStatuses')}</option>
@@ -246,11 +249,12 @@ export default function Projects() {
                 </div>
                 <div className="form-group">
                   <label className="form-label">{t('projects.client')}</label>
-                  <select className="form-control" value={form.client_id || ''}
-                    onChange={e => setForm(f => ({ ...f, client_id: e.target.value }))}>
-                    <option value="">{t('projects.selectClientOption')}</option>
-                    {(clients || []).map(c => <option key={c.id} value={c.id}>{c.name}</option>)}
-                  </select>
+                  <SearchSelect
+                    className="form-control"
+                    value={form.client_id || ''}
+                    onChange={v => setForm(f => ({ ...f, client_id: v }))}
+                    placeholder={t('projects.selectClientOption')}
+                    options={(clients || []).map(c => ({ value: c.id, label: c.name }))} />
                 </div>
                 <div className="form-group">
                   <label className="form-label">{t('projects.statusLabel')}</label>

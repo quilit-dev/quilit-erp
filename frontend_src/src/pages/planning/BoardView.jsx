@@ -4,6 +4,7 @@ import { toast } from '../../components/shared';
 import { updateTaskStatus } from '../../api/client';
 import { Badge, ProgressBar } from './ui';
 import { STATUS_BADGE, PRIORITY_BADGE, STATUS_KEY, PRIORITY_KEY, tEnum, STATUSES } from './constants';
+import SearchSelect from '../../components/SearchSelect.jsx';
 
 function BoardView({ tasks, projects, onRefresh, onEdit }) {
   const { t } = useLocale();
@@ -34,11 +35,13 @@ function BoardView({ tasks, projects, onRefresh, onEdit }) {
   return (
     <div style={{ display: 'flex', flexDirection: 'column', gap: 12 }}>
       <div style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
-        <select className="form-control" style={{ width: 200 }}
-          value={selProject} onChange={e => setSelProject(e.target.value)}>
-          <option value="">{t('planning.allProjects')}</option>
-          {projects.map(p => <option key={p.id} value={p.id}>{p.name}</option>)}
-        </select>
+        <SearchSelect
+          className="form-control"
+          style={{ width: 200 }}
+          value={selProject}
+          onChange={v => setSelProject(v)}
+          placeholder={t('planning.allProjects')}
+          options={(projects || []).map(p => ({ value: p.id, label: p.name }))} />
         <span style={{ fontSize: 11, color: 'var(--text-3)', marginLeft: 'auto' }}>{t('planning.dragColumnsHint')}</span>
       </div>
 

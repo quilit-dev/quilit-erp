@@ -3,6 +3,7 @@ import { useLocale } from '../../hooks/useLocale.jsx';
 import { Modal, toast, NumberInput } from '../../components/shared';
 import { createBom, updateBom, createBomVersion, getResources } from '../../api/client';
 import { OUTPUT_TYPES, CostInput } from './ui';
+import SearchSelect from '../../components/SearchSelect.jsx';
 
 function BomModal({ mode, bom, products, onClose, onSaved }) {
   // mode: 'create' | 'edit' | 'version'
@@ -132,15 +133,13 @@ function BomModal({ mode, bom, products, onClose, onSaved }) {
             {lines.map(l => (
               <tr key={l.key}>
                 <td>
-                  <select className="form-control" style={{ height: 32 }} value={l.component_inventory_id}
-                    onChange={e => setLine(l.key, { component_inventory_id: e.target.value })}>
-                    <option value="">{t('manufacturing.selectProduct')}</option>
-                    {products.map(p => (
-                      <option key={p.id} value={p.id}>
-                        {p.name}{p.product_type ? ` · ${t(`manufacturing.ptype_${p.product_type}`)}` : ''}
-                      </option>
-                    ))}
-                  </select>
+                  <SearchSelect
+                    className="form-control"
+                    style={{ height: 32 }}
+                    value={l.component_inventory_id}
+                    onChange={v => setLine(l.key, { component_inventory_id: v })}
+                    placeholder={t('manufacturing.selectProduct')}
+                    options={(products || []).map(p => ({ value: p.id, label: `${p.name}${p.product_type ? ` · ${t(`manufacturing.ptype_${p.product_type}`)}` : ''}` }))} />
                 </td>
                 <td>
                   <NumberInput className="form-control" style={{ height: 32 }} step="1" min="1"

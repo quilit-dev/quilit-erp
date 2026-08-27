@@ -77,6 +77,7 @@ const EMPTY_ITEM = { name: '', quantity: 1, unit_price: 0, discount_pct: '',
                      discount_auto: true, inventory_id: null, tax_rate_id: null };
 const EMPTY_FORM = { quotation_id: '', project_id: '', client_id: '', due_date: '', notes: '', branch_id: '', currency: '', exchange_rate: '', items: [{ ...EMPTY_ITEM }] };
 import { ActionMenu } from './invoices/ActionMenu';
+import SearchSelect from '../components/SearchSelect.jsx';
 
 export default function Invoices() {
   const { t, tStatus, tEnumValue } = useLocale();
@@ -506,16 +507,20 @@ export default function Invoices() {
               <input className="form-control search-input" placeholder={t('invoices.searchPlaceholderFull')}
                 value={search} onChange={e => setSearch(e.target.value)} />
             </div>
-            <select className="form-control" style={{width:190}}
-              value={clientFilter} onChange={e => setClientFilter(e.target.value)}>
-              <option value="">{t('common.allClients')}</option>
-              {(clients||[]).map(c => <option key={c.id} value={c.id}>{c.name}</option>)}
-            </select>
-            <select className="form-control" style={{width:220}}
-              value={projectFilter} onChange={e => setProjectFilter(e.target.value)}>
-              <option value="">{t('common.allProjects')}</option>
-              {(projects||[]).map(p => <option key={p.id} value={p.id}>{p.name}</option>)}
-            </select>
+            <SearchSelect
+              className="form-control"
+              style={{width:190}}
+              value={clientFilter}
+              onChange={v => setClientFilter(v)}
+              placeholder={t('common.allClients')}
+              options={(clients || []).map(c => ({ value: c.id, label: c.name }))} />
+            <SearchSelect
+              className="form-control"
+              style={{width:220}}
+              value={projectFilter}
+              onChange={v => setProjectFilter(v)}
+              placeholder={t('common.allProjects')}
+              options={(projects || []).map(p => ({ value: p.id, label: p.name }))} />
             <select className="form-control" style={{width:150}}
               value={statusFilter} onChange={e => setStatusFilter(e.target.value)}>
               <option value="">{t('common.allStatuses')}</option>
@@ -623,11 +628,12 @@ export default function Invoices() {
               <div className="form-grid">
                 <div className="form-group">
                   <label className="form-label">{t('invoices.clientLabel')}</label>
-                  <select className="form-control" value={form.client_id||''}
-                    onChange={e => setForm(f => ({ ...f, client_id: e.target.value }))}>
-                    <option value="">{t('invoices.selectClientOption')}</option>
-                    {(clients||[]).map(c => <option key={c.id} value={c.id}>{c.name}</option>)}
-                  </select>
+                  <SearchSelect
+                    className="form-control"
+                    value={form.client_id||''}
+                    onChange={v => setForm(f => ({ ...f, client_id: v }))}
+                    placeholder={t('invoices.selectClientOption')}
+                    options={(clients || []).map(c => ({ value: c.id, label: c.name }))} />
                 </div>
                 {/* The currency the deal is struck in. Left on the
                     customer's own, it needs no thought; changed, the prices
@@ -670,11 +676,12 @@ export default function Invoices() {
                 )}
                 <div className="form-group">
                   <label className="form-label">{t('invoices.projectLabel')}</label>
-                  <select className="form-control" value={form.project_id||''}
-                    onChange={e => setForm(f => ({ ...f, project_id: e.target.value }))}>
-                    <option value="">{t('invoices.selectProjectOption')}</option>
-                    {(projects||[]).map(p => <option key={p.id} value={p.id}>{p.name}</option>)}
-                  </select>
+                  <SearchSelect
+                    className="form-control"
+                    value={form.project_id||''}
+                    onChange={v => setForm(f => ({ ...f, project_id: v }))}
+                    placeholder={t('invoices.selectProjectOption')}
+                    options={(projects || []).map(p => ({ value: p.id, label: p.name }))} />
                 </div>
                 <div className="form-group">
                   <label className="form-label">{t('invoices.dueDateLabel')}</label>

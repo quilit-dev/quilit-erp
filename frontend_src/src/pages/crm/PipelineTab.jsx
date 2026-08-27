@@ -10,6 +10,7 @@ import {
   getCRMDropdownQuotations, getCRMDropdownUsers, getCRMLeads,
 } from '../../api/client';
 import { fmtCurr, DEAL_STAGES } from './constants';
+import SearchSelect from '../../components/SearchSelect.jsx';
 
 // ─── Deal Form ────────────────────────────────────────────────────────────────
 
@@ -52,11 +53,12 @@ function DealForm({ initial, clients, quotations, users, leads, onSave, onClose,
           </div>
           <div className="form-group">
             <label className="form-label">{t('crm.linkedClient')}</label>
-            <select className="form-control" value={form.client_id || ''}
-              onChange={e => setForm(p => ({ ...p, client_id: e.target.value, lead_id: e.target.value ? '' : p.lead_id }))}>
-              <option value="">{t('crm.selectClient')}</option>
-              {(clients || []).map(c => <option key={c.id} value={c.id}>{c.name}</option>)}
-            </select>
+            <SearchSelect
+              className="form-control"
+              value={form.client_id || ''}
+              onChange={v => setForm(p => ({ ...p, client_id: v, lead_id: v ? '' : p.lead_id }))}
+              placeholder={t('crm.selectClient')}
+              options={(clients || []).map(c => ({ value: c.id, label: c.name }))} />
           </div>
           <div className="form-group">
             <label className="form-label">

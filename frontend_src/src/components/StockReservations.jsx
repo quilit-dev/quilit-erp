@@ -12,6 +12,7 @@ import {
 import { LoadingSpinner, NumberInput, toast, fmtDate } from './shared';
 import { useLocale } from '../hooks/useLocale.jsx';
 import { usePermissions } from '../hooks/usePermissions';
+import SearchSelect from '../components/SearchSelect.jsx';
 
 export default function StockReservations({ item, onChanged }) {
   const { t } = useLocale();
@@ -89,11 +90,12 @@ export default function StockReservations({ item, onChanged }) {
         <div className="form-grid" style={{ marginTop: 12 }}>
           <div className="form-group">
             <label className="form-label">{t('common.client')} *</label>
-            <select className="form-control" value={clientId}
-              onChange={e => setClientId(e.target.value)}>
-              <option value="">{t('reservations.chooseClient')}</option>
-              {clients.map(c => <option key={c.id} value={c.id}>{c.name}</option>)}
-            </select>
+            <SearchSelect
+              className="form-control"
+              value={clientId}
+              onChange={v => setClientId(v)}
+              placeholder={t('reservations.chooseClient')}
+              options={(clients || []).map(c => ({ value: c.id, label: c.name }))} />
           </div>
           <div className="form-group">
             <label className="form-label">{t('common.quantity')} *</label>

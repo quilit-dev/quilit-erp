@@ -3,6 +3,7 @@ import { useLocale } from '../../hooks/useLocale.jsx';
 import { EmptyState, toast } from '../../components/shared';
 import { updateTaskDates } from '../../api/client';
 import { LEFT_W, toDate, toIso, addDays, daysBetween, isWeekend , DAY_W, ROW_H } from './constants';
+import SearchSelect from '../../components/SearchSelect.jsx';
 
 function GanttView({ tasks, projects, milestones, onRefresh }) {
   const { t, lang } = useLocale();
@@ -132,11 +133,13 @@ function GanttView({ tasks, projects, milestones, onRefresh }) {
     <div style={{ display: 'flex', flexDirection: 'column', gap: 12 }}>
       {/* Toolbar */}
       <div style={{ display: 'flex', alignItems: 'center', gap: 10, flexWrap: 'wrap' }}>
-        <select className="form-control" style={{ width: 200 }}
-          value={selProject} onChange={e => setSelProject(e.target.value)}>
-          <option value="">{t('planning.allProjects')}</option>
-          {projects.map(p => <option key={p.id} value={p.id}>{p.name}</option>)}
-        </select>
+        <SearchSelect
+          className="form-control"
+          style={{ width: 200 }}
+          value={selProject}
+          onChange={v => setSelProject(v)}
+          placeholder={t('planning.allProjects')}
+          options={(projects || []).map(p => ({ value: p.id, label: p.name }))} />
 
         <div style={{ display: 'flex', alignItems: 'center', gap: 6, marginLeft: 'auto' }}>
           <button className="btn btn-outline btn-sm" onClick={goPrev}>‹</button>

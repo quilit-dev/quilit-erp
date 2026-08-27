@@ -3,6 +3,7 @@ import { useLocale } from '../../hooks/useLocale.jsx';
 import { toast } from '../../components/shared';
 import { createPlanningProject, updatePlanningProject } from '../../api/client';
 import { PROJ_STATUSES, PROJECT_COLORS, PROJ_STATUS_KEY } from './constants';
+import SearchSelect from '../../components/SearchSelect.jsx';
 
 function ProjectForm({ initial, clients, srcProjects = [], onSave, onClose }) {
   const { t } = useLocale();
@@ -101,10 +102,12 @@ function ProjectForm({ initial, clients, srcProjects = [], onSave, onClose }) {
         <div className="form-grid">
           <div className="form-group">
             <label className="form-label">{t('planning.projectClient')}</label>
-            <select className="form-control" value={form.client_id} onChange={e => set('client_id', e.target.value)}>
-              <option value="">{t('planning.noneOption')}</option>
-              {clients.map(c => <option key={c.id} value={c.id}>{c.name}</option>)}
-            </select>
+            <SearchSelect
+              className="form-control"
+              value={form.client_id}
+              onChange={v => set('client_id', v)}
+              placeholder={t('planning.noneOption')}
+              options={(clients || []).map(c => ({ value: c.id, label: c.name }))} />
           </div>
           <div className="form-group">
             <label className="form-label">{t('planning.projectStatus')}</label>

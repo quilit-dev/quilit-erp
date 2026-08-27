@@ -4,6 +4,7 @@ import { getAccounts, getGeneralLedger } from '../../api/client';
 import { LoadingSpinner, toast } from '../../components/shared';
 import { monthStartISO, todayISO } from './constants';
 import { SortableTh, Pager } from './ui';
+import SearchSelect from '../../components/SearchSelect.jsx';
 
 // ── General Ledger ───────────────────────────────────────────────────────────
 //
@@ -64,10 +65,13 @@ function Ledger({ t, tAccount, fmt, fmtDate }) {
   return (
     <div className="card">
       <div className="card-header" style={{ display: 'flex', gap: 8, flexWrap: 'wrap', alignItems: 'center' }}>
-        <select className="form-control" style={{ maxWidth: 280 }} value={accountId} onChange={e => setAccountId(e.target.value)}>
-          <option value="">{t('accounting.selectAccount')}</option>
-          {accounts.map(a => <option key={a.id} value={a.id}>{a.code} — {tAccount(a)}</option>)}
-        </select>
+        <SearchSelect
+          className="form-control"
+          style={{ maxWidth: 280 }}
+          value={accountId}
+          onChange={v => setAccountId(v)}
+          placeholder={t('accounting.selectAccount')}
+          options={(accounts || []).map(a => ({ value: a.id, label: tAccount(a), hint: a.code }))} />
         <input type="date" className="form-control" style={{ width: 150 }} value={start} onChange={e => setStart(e.target.value)} />
         <span style={{ color: 'var(--text-3)' }}>→</span>
         <input type="date" className="form-control" style={{ width: 150 }} value={end} onChange={e => setEnd(e.target.value)} />

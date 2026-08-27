@@ -9,6 +9,7 @@ import { useState } from 'react';
 import { createServiceEquipment, updateServiceEquipment } from '../../api/client';
 import { toast } from '../../components/shared';
 import { useLocale } from '../../hooks/useLocale.jsx';
+import SearchSelect from '../../components/SearchSelect.jsx';
 
 export default function EquipmentForm({ equipment, clients, onDone, onCancel }) {
   const { t } = useLocale();
@@ -24,6 +25,9 @@ export default function EquipmentForm({ equipment, clients, onDone, onCancel }) 
   }));
   const [saving, setSaving] = useState(false);
   const set = k => e => setForm(f => ({ ...f, [k]: e.target.value }));
+  // SearchSelect hands over the value itself rather than an event, so
+  // the curried setter above has a sibling that takes one.
+  const setVal = k => v => setForm(f => ({ ...f, [k]: v }));
 
   async function submit(e) {
     e.preventDefault();
@@ -54,11 +58,13 @@ export default function EquipmentForm({ equipment, clients, onDone, onCancel }) 
       <div className="form-grid">
         <div className="form-group">
           <label className="form-label">{t('common.client')} *</label>
-          <select className="form-control" value={form.client_id}
-                  onChange={set('client_id')} required>
-            <option value="">—</option>
-            {clients.map(c => <option key={c.id} value={c.id}>{c.name}</option>)}
-          </select>
+          <SearchSelect
+            value={form.client_id}
+            onChange={setVal('client_id')}
+            required
+            allowBlank={false}
+            placeholder="—"
+            options={(clients || []).map(c => ({ value: c.id, label: c.name }))} />
         </div>
         <div className="form-group">
           <label className="form-label">{t('common.name')} *</label>

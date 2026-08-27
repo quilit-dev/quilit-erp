@@ -4,6 +4,7 @@ import { useLocale } from '../hooks/useLocale.jsx';
 import { useSettings } from '../hooks/useSettings.jsx';
 import { usePermissions } from '../hooks/usePermissions.js';
 import { useCategories } from '../hooks/useCategories';
+import SearchSelect from '../components/SearchSelect.jsx';
 import {
   LoadingSpinner, ErrorAlert, EmptyState, Modal, ConfirmModal,
   fmt, fmtDate, toast, CategoryBadge, SelectOther, NumberInput} from './shared';
@@ -338,11 +339,12 @@ export default function RecurringExpensesPanel() {
                 </div>
                 <div className="form-group">
                   <label className="form-label">{t('common.project')}</label>
-                  <select className="form-control" value={form.project_id}
-                    onChange={e => setForm(f => ({ ...f, project_id: e.target.value }))}>
-                    <option value="">{t('expenses.noneProject')}</option>
-                    {(projects || []).map(p => <option key={p.id} value={p.id}>{p.name}</option>)}
-                  </select>
+                  <SearchSelect
+                    className="form-control"
+                    value={form.project_id}
+                    onChange={v => setForm(f => ({ ...f, project_id: v }))}
+                    placeholder={t('expenses.noneProject')}
+                    options={(projects || []).map(p => ({ value: p.id, label: p.name }))} />
                 </div>
                 <div className="form-group">
                   <label className="form-label">{t('expenses.paymentMethodLabel')}</label>

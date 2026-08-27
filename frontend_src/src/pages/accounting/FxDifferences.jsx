@@ -20,6 +20,7 @@ import { LoadingSpinner, EmptyState, Modal, toast } from '../../components/share
 import { ExportButtons } from '../reports/charts';
 import { CURRENCIES } from '../settings/ui';
 import { monthStartISO, todayISO } from './constants';
+import SearchSelect from '../../components/SearchSelect.jsx';
 
 function FxDifferences({ t, fmt, fmtDate, can }) {
   const canReconcile = can('accounting', 'edit');
@@ -135,11 +136,13 @@ function FxDifferences({ t, fmt, fmtDate, can }) {
               <option value="gain">{t('fx.gain')}</option>
               <option value="loss">{t('fx.loss')}</option>
             </select>
-            <select className="form-control" style={{ width: 170 }} value={clientId}
-              onChange={e => setClientId(e.target.value)}>
-              <option value="">{t('fx.allCustomers')}</option>
-              {clients.map(c => <option key={c.id} value={c.id}>{c.name}</option>)}
-            </select>
+            <SearchSelect
+              className="form-control"
+              style={{ width: 170 }}
+              value={clientId}
+              onChange={v => setClientId(v)}
+              placeholder={t('fx.allCustomers')}
+              options={(clients || []).map(c => ({ value: c.id, label: c.name }))} />
             <select className="form-control" style={{ width: 150 }} value={status}
               onChange={e => setStatus(e.target.value)}>
               <option value="">{t('fx.anyStatus')}</option>
