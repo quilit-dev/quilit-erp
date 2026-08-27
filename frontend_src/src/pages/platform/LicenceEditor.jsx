@@ -12,6 +12,7 @@
 import { useState } from 'react';
 import { toast } from '../../components/shared';
 import { pfetch } from './api';
+import SearchSelect from '../../components/SearchSelect.jsx';
 
 const PLANS = ['trial', 'standard', 'professional', 'enterprise'];
 
@@ -110,10 +111,11 @@ export default function LicenceEditor({ tenant, onClose, onSaved }) {
       <label className="form-label">{label}</label>
       {props.options
         ? (
-          <select className="form-control" value={form[key]}
-            onChange={e => set(key)(e.target.value)}>
-            {props.options.map(o => <option key={o} value={o}>{o}</option>)}
-          </select>
+          <SearchSelect
+            className="form-control"
+            value={form[key]}
+            onChange={v => set(key)(v)}
+            options={(props.options).map(o => ({ value: o, label: o }))} />
         ) : (
           <input className="form-control" type={props.type || 'text'} value={form[key]}
             placeholder={props.placeholder}

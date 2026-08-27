@@ -2,6 +2,7 @@ import { useState, useEffect, useRef } from 'react';
 import { LoadingSpinner, ErrorAlert, fmt } from '../../components/shared';
 import { getReportExpenses } from '../../api/client';
 import { StatCard, HBarChart, VBarChart, DonutChart, ExportButtons, CHART_COLORS } from './charts';
+import SearchSelect from '../../components/SearchSelect.jsx';
 
 function ExpensesReport({ params, t }) {
   const [data, setData]       = useState(null);
@@ -45,12 +46,12 @@ function ExpensesReport({ params, t }) {
           <div className="card-header">
             <span className="card-title">{t('reports.expenseBreakdown')}</span>
             <div style={{ display: 'flex', gap: 8, alignItems: 'center' }}>
-              <select className="form-control" style={{ width: 130, fontSize: 12 }}
-                value={groupBy} onChange={e => setGroupBy(e.target.value)}>
-                <option value="category">{t('reports.byCategory')}</option>
-                <option value="project">{t('reports.byProject')}</option>
-                <option value="month">{t('reports.byMonth')}</option>
-              </select>
+              <SearchSelect
+                className="form-control"
+                style={{ width: 130, fontSize: 12 }}
+                value={groupBy}
+                onChange={v => setGroupBy(v)}
+                options={[{ value: 'category', label: t('reports.byCategory') }, { value: 'project', label: t('reports.byProject') }, { value: 'month', label: t('reports.byMonth') }]} />
               <ExportButtons
                 rows={data.breakdown} columns={expenseCols}
                 baseName="expense_analysis" pdfTitle={t('reports.expenseAnalysis') || 'Expense Analysis'} t={t} />

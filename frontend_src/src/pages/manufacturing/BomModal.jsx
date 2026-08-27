@@ -99,10 +99,12 @@ function BomModal({ mode, bom, products, onClose, onSaved }) {
           </div>
           <div className="form-group form-full">
             <label className="form-label">{t('manufacturing.outputProduct')}</label>
-            <select className="form-control" value={outputId} onChange={e => setOutputId(e.target.value)}>
-              <option value="">{t('manufacturing.selectProduct')}</option>
-              {outputs.map(p => <option key={p.id} value={p.id}>{p.name}</option>)}
-            </select>
+            <SearchSelect
+              className="form-control"
+              value={outputId}
+              onChange={v => setOutputId(v)}
+              placeholder={t('manufacturing.selectProduct')}
+              options={(outputs).map(p => ({ value: p.id, label: p.name }))} />
           </div>
           <div className="form-group">
             <label className="form-label">{t('manufacturing.batchYield')}</label>
@@ -173,11 +175,13 @@ function BomModal({ mode, bom, products, onClose, onSaved }) {
           <tbody>
             {res.map(r => (
               <tr key={r.key}>
-                <td><select className="form-control" style={{ height: 32 }} value={r.resource_id}
-                  onChange={e => pickResource(r.key, e.target.value)}>
-                  <option value="">{t('manufacturing.inlineResource')}</option>
-                  {resourceList.map(m => <option key={m.id} value={m.id}>{m.name} (${m.hourly_rate}/h)</option>)}
-                </select></td>
+                <td><SearchSelect
+                      className="form-control"
+                      style={{ height: 32 }}
+                      value={r.resource_id}
+                      onChange={v => pickResource(r.key, v)}
+                      placeholder={t('manufacturing.inlineResource')}
+                      options={(resourceList).map(m => ({ value: m.id, label: `${m.name} ($${m.hourly_rate}/h)` }))} /></td>
                 <td><input className="form-control" style={{ height: 32 }} value={r.name}
                   onChange={e => setResRow(r.key, { name: e.target.value, resource_id: '' })}
                   placeholder={t('manufacturing.resourceName')} /></td>

@@ -1,6 +1,7 @@
 import { useState, useCallback, useEffect } from 'react';
 import { LoadingSpinner, EmptyState, ExportButton, toast, NumberInput } from '../../components/shared';
 import { getAttendance, saveAttendanceBulk, getAttendanceSummary } from '../../api/client';
+import SearchSelect from '../../components/SearchSelect.jsx';
 
 const ATT_STATUSES = ['Present', 'Absent', 'Late', 'Half-day', 'Leave'];
 const ATT_LABEL_KEY = {
@@ -120,11 +121,14 @@ function AttendanceTab({ t, canEdit }) {
                   <td className="td-primary">{r.full_name}</td>
                   <td style={{ color: 'var(--text-3)', fontSize: 13 }}>{r.job_title || '—'}</td>
                   <td>
-                    <select className="form-control" style={{ minWidth: 130 }} value={r.status}
-                      disabled={!canEdit} onChange={e => setRow(r.employee_id, 'status', e.target.value)}>
-                      <option value="">{t('hr.attNotMarked')}</option>
-                      {ATT_STATUSES.map(s => <option key={s} value={s}>{t(ATT_LABEL_KEY[s])}</option>)}
-                    </select>
+                    <SearchSelect
+                      className="form-control"
+                      style={{ minWidth: 130 }}
+                      disabled={!canEdit}
+                      value={r.status}
+                      onChange={v => setRow(r.employee_id, 'status', v)}
+                      placeholder={t('hr.attNotMarked')}
+                      options={(ATT_STATUSES).map(s => ({ value: s, label: t(ATT_LABEL_KEY[s]) }))} />
                   </td>
                   <td>
                     <NumberInput className="form-control" style={{ width: 80 }} min="0" step="0.5"

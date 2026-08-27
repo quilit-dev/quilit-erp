@@ -24,6 +24,8 @@ function DealForm({ initial, clients, quotations, users, leads, onSave, onClose,
   });
   const [saving, setSaving] = useState(false);
   const f = k => e => setForm(p => ({ ...p, [k]: e.target.value }));
+  // SearchSelect hands over the value itself, not an event.
+  const fv = k => v => setForm(p => ({ ...p, [k]: v }));
 
   const stageLabel = { Qualification: t('crm.stageQualification'), Proposal: t('crm.stageProposal'), Negotiation: t('crm.stageNegotiation'), Won: t('crm.stageWon'), Lost: t('crm.stageLost') };
 
@@ -67,17 +69,17 @@ function DealForm({ initial, clients, quotations, users, leads, onSave, onClose,
                 {t('common.insteadOfClient')}
               </span>
             </label>
-            <select className="form-control" value={form.lead_id || ''}
-              onChange={e => setForm(p => ({ ...p, lead_id: e.target.value, client_id: e.target.value ? '' : p.client_id }))}>
-              <option value="">{t('crm.selectLead')}</option>
-              {(leads || []).map(l => <option key={l.id} value={l.id}>{l.name}</option>)}
-            </select>
+            <SearchSelect
+              className="form-control"
+              value={form.lead_id || ''}
+              onChange={v => setForm(p => ({ ...p, lead_id: v, client_id: v ? '' : p.client_id }))}
+              placeholder={t('crm.selectLead')}
+              options={((leads || [])).map(l => ({ value: l.id, label: l.name }))} />
           </div>
           <div className="form-group">
             <label className="form-label">{t('crm.stage')}</label>
-            <select className="form-control" value={form.stage || 'Qualification'} onChange={f('stage')}>
-              {DEAL_STAGES.map(s => <option key={s} value={s}>{stageLabel[s]}</option>)}
-            </select>
+            <SearchSelect className="form-control" value={form.stage || 'Qualification'} onChange={fv('stage')}
+              options={DEAL_STAGES.map(s => ({ value: s, label: stageLabel[s] }))} />
           </div>
           <div className="form-group">
             <label className="form-label">{t('crm.value')} ($)</label>
@@ -93,17 +95,15 @@ function DealForm({ initial, clients, quotations, users, leads, onSave, onClose,
           </div>
           <div className="form-group">
             <label className="form-label">{t('crm.linkedQuotation')}</label>
-            <select className="form-control" value={form.quotation_id || ''} onChange={f('quotation_id')}>
-              <option value="">{t('crm.selectQuotation')}</option>
-              {(quotations || []).map(q => <option key={q.id} value={q.id}>{q.quote_number} — {q.client_name}</option>)}
-            </select>
+            <SearchSelect className="form-control" value={form.quotation_id || ''} onChange={fv('quotation_id')}
+              placeholder={t('crm.selectQuotation')}
+              options={(quotations || []).map(q => ({ value: q.id, label: q.client_name, hint: q.quote_number }))} />
           </div>
           <div className="form-group">
             <label className="form-label">{t('crm.assignedTo')}</label>
-            <select className="form-control" value={form.assigned_to || ''} onChange={f('assigned_to')}>
-              <option value="">{t('crm.selectUser')}</option>
-              {(users || []).map(u => <option key={u.id} value={u.id}>{u.full_name || u.username}</option>)}
-            </select>
+            <SearchSelect className="form-control" value={form.assigned_to || ''} onChange={fv('assigned_to')}
+              placeholder={t('crm.selectUser')}
+              options={(users || []).map(u => ({ value: u.id, label: u.full_name || u.username }))} />
           </div>
           <div className="form-group form-full">
             <label className="form-label">{t('crm.notes')}</label>

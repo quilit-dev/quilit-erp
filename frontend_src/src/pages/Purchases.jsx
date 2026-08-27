@@ -21,6 +21,7 @@ import Attachments from '../components/Attachments.jsx';
 import DocumentPostings from '../components/DocumentPostings.jsx';
 
 import { fmtNum } from '../utils/format';
+import SearchSelect from '../components/SearchSelect.jsx';
 
 // ── Purchase form ────────────────────────────────────────────────────────────
 
@@ -76,8 +77,7 @@ function PurchaseForm({ initial = {}, inventoryItems = [], inventoryCategories =
   const useCustom = form.category === '__custom__';
   const set = (k, v) => setForm(f => ({ ...f, [k]: v }));
 
-  function handleInventorySelect(e) {
-    const id = e.target.value;
+  function handleInventorySelect(id) {
     set('inventory_id', id);
     if (id) {
       const item = inventoryItems.find(i => String(i.id) === String(id));
@@ -133,48 +133,31 @@ function PurchaseForm({ initial = {}, inventoryItems = [], inventoryCategories =
           {warehouses.length > 0 && (
             <div className="form-group form-full">
               <label className="form-label">{t('warehouses.receiveAt')}</label>
-              <select className="form-control"
+              <SearchSelect
+                className="form-control"
                 value={form.warehouse_id}
-                onChange={e => set('warehouse_id', e.target.value)}>
-                {warehouses.map(w => (
-                  <option key={w.id} value={w.id}>
-                    {w.code} · {w.name}{w.is_default ? ` (${t('warehouses.defaultBadge').toLowerCase()})` : ''}
-                  </option>
-                ))}
-              </select>
+                onChange={v => set('warehouse_id', v)}
+                options={(warehouses).map(w => ({ value: w.id, label: `${w.code} · ${w.name}${w.is_default ? ` (${t('warehouses.defaultBadge').toLowerCase()})` : ''}` }))} />
             </div>
           )}
 
           {!isEdit && (
             <div className="form-group form-full">
               <label className="form-label">{t('purchases.linkInventory')}</label>
-              <select className="form-control" value={form.inventory_id} onChange={handleInventorySelect}>
-                <option value="">{t('purchases.newNotLinked')}</option>
-                {(() => {
-                  // Group variant SKUs under their product so the list isn't a
-                  // flat wall of "iPhone 15 — 256GB/Black" rows.
-                  const groups = new Map();   // product_name -> variants
-                  const loose = [];
-                  inventoryItems.forEach(i => {
-                    if (i.product_id) {
-                      const k = i.product_name || i.name;
-                      (groups.get(k) || groups.set(k, []).get(k)).push(i);
-                    } else loose.push(i);
-                  });
-                  return [
-                    ...[...groups.entries()].map(([name, vs]) => (
-                      <optgroup key={`g-${name}`} label={name}>
-                        {vs.map(i => (
-                          <option key={i.id} value={i.id}>{i.variant_label || i.name}</option>
-                        ))}
-                      </optgroup>
-                    )),
-                    ...loose.map(i => (
-                      <option key={i.id} value={i.id}>{i.name}{i.category ? ` (${i.category})` : ''}</option>
-                    )),
-                  ];
-                })()}
-              </select>
+              {/* Variants used to sit under an <optgroup> per product, so the list
+                  was not a flat wall of "iPhone 15 — 256GB/Black" rows. A panel
+                  you type into does not need the grouping to stay readable, and
+                  a filtered list cannot keep group headings in a sensible place
+                  — so the product name moved to the hint column, where it is
+                  still shown and still searched. */}
+              <SearchSelect className="form-control" value={form.inventory_id}
+                onChange={handleInventorySelect}
+                placeholder={t('purchases.newNotLinked')}
+                options={inventoryItems.map(i => ({
+                  value: i.id,
+                  label: i.product_id ? (i.variant_label || i.name) : i.name,
+                  hint: i.product_id ? (i.product_name || i.name) : i.category,
+                }))} />
             </div>
           )}
 
@@ -186,12 +169,12 @@ function PurchaseForm({ initial = {}, inventoryItems = [], inventoryCategories =
 
           <div className="form-group form-full">
             <label className="form-label">{t('common.category')}</label>
-            <select className="form-control" value={form.category}
-              onChange={e => set('category', e.target.value)}>
-              <option value="">{t('purchases.selectCategory')}</option>
-              {allCats.map(c => <option key={c} value={c}>{tCategory(c)}</option>)}
-              <option value="__custom__">{t('purchases.addCategoryOption')}</option>
-            </select>
+            <SearchSelect
+              className="form-control"
+              value={form.category}
+              onChange={v => set('category', v)}
+              placeholder={t('purchases.selectCategory')}
+              options={[...(allCats).map(c => ({ value: c, label: tCategory(c) })), { value: '__custom__', label: t('purchases.addCategoryOption') }]} />
             {useCustom && (
               <input className="form-control" style={{ marginTop: 8 }}
                 placeholder={t('purchases.typeCategoryName')}
@@ -211,11 +194,12 @@ function PurchaseForm({ initial = {}, inventoryItems = [], inventoryCategories =
             <div style={{ display: 'flex', gap: 6 }}>
               <NumberInput className="form-control" step="any" min="0" style={{ flex: 1 }}
                 value={form.unit_cost} onChange={e => set('unit_cost', e.target.value)} />
-              <select className="form-control" style={{ width: 86 }}
-                value={form.cost_currency} onChange={e => set('cost_currency', e.target.value)}>
-                <option value="USD">USD</option>
-                <option value={secondary} disabled={!hasRate}>{secondary}</option>
-              </select>
+              <SearchSelect
+                className="form-control"
+                style={{ width: 86 }}
+                value={form.cost_currency}
+                onChange={v => set('cost_currency', v)}
+                options={[{ value: 'USD', label: 'USD' }]} />
             </div>
             {form.cost_currency === 'LBP' && hasRate && (
               <div style={{ fontSize: 12, color: 'var(--text-3)', marginTop: 4 }}>
@@ -233,25 +217,22 @@ function PurchaseForm({ initial = {}, inventoryItems = [], inventoryCategories =
           {taxEnabled && (
             <div className="form-group">
               <label className="form-label">{t('common.taxCol')}</label>
-              <select className="form-control"
+              <SearchSelect
+                className="form-control"
                 value={form.tax_rate_id ?? (defaultTaxRate?.id ?? '')}
-                onChange={e => set('tax_rate_id', Number(e.target.value) || null)}>
-                {activeTaxRates.map(r => (
-                  <option key={r.id} value={r.id}>{r.name} ({r.rate}%)</option>
-                ))}
-              </select>
+                onChange={v => set('tax_rate_id', Number(v) || null)}
+                options={(activeTaxRates).map(r => ({ value: r.id, label: `${r.name} (${r.rate}%)` }))} />
             </div>
           )}
 
           {!isEdit && (
             <div className="form-group">
               <label className="form-label">{t('purchases.statusLabel')}</label>
-              <select className="form-control" value={form.status}
-                onChange={e => set('status', e.target.value)}>
-                <option value="Ordered">{tStatus('Ordered')}</option>
-                <option value="Received">{tStatus('Received')}</option>
-                <option value="Paid">{tStatus('Paid')}</option>
-              </select>
+              <SearchSelect
+                className="form-control"
+                value={form.status}
+                onChange={v => set('status', v)}
+                options={[{ value: 'Ordered', label: tStatus('Ordered') }, { value: 'Received', label: tStatus('Received') }, { value: 'Paid', label: tStatus('Paid') }]} />
             </div>
           )}
 
@@ -469,19 +450,21 @@ export default function Purchases() {
               value={supplierSearch} onChange={e => setSupplierSearch(e.target.value)} />
           </div>
 
-          <select className="form-control" style={{ width: 150, height: 34, fontSize: 13 }}
-            value={statusFilter} onChange={e => setStatusFilter(e.target.value)}>
-            <option value="">{t('purchases.allStatuses')}</option>
-            <option value="Ordered">{tStatus('Ordered')}</option>
-            <option value="Received">{tStatus('Received')}</option>
-            <option value="Paid">{tStatus('Paid')}</option>
-          </select>
+          <SearchSelect
+            className="form-control"
+            style={{ width: 150, height: 34, fontSize: 13 }}
+            value={statusFilter}
+            onChange={v => setStatusFilter(v)}
+            placeholder={t('purchases.allStatuses')}
+            options={[{ value: 'Ordered', label: tStatus('Ordered') }, { value: 'Received', label: tStatus('Received') }, { value: 'Paid', label: tStatus('Paid') }]} />
 
-          <select className="form-control" style={{ width: 180, height: 34, fontSize: 13 }}
-            value={categoryFilter} onChange={e => setCategoryFilter(e.target.value)}>
-            <option value="">{t('purchases.allCategories')}</option>
-            {purchaseCategories.map(c => <option key={c} value={c}>{tCategory(c)}</option>)}
-          </select>
+          <SearchSelect
+            className="form-control"
+            style={{ width: 180, height: 34, fontSize: 13 }}
+            value={categoryFilter}
+            onChange={v => setCategoryFilter(v)}
+            placeholder={t('purchases.allCategories')}
+            options={(purchaseCategories).map(c => ({ value: c, label: tCategory(c) }))} />
 
           {hasFilters && (
             <button className="btn btn-sm btn-secondary"

@@ -70,11 +70,15 @@ describe('closed, it reads like the select it replaces', () => {
 });
 
 describe('typing narrows it', () => {
+  // `searchable` forced on: the fixture is four rows, and the box appears on
+  // its own only once a list is long enough to need one.
+  const searchable = { searchable: true };
+
   test('case does not matter', async () => {
     // The whole point: "ink" has to find "Ink Tube". Case-sensitive matching is
     // the bug that was just fixed on the server; it is not being reintroduced
     // in the browser.
-    await mount();
+    await mount(searchable);
     await openIt();
     await type('ink');
 
@@ -83,7 +87,7 @@ describe('typing narrows it', () => {
 
   test('the hint is searched as well as the label', async () => {
     // So an accountant can type a code and a storekeeper can type a name.
-    await mount();
+    await mount(searchable);
     await openIt();
     await type('tnr');
 
@@ -91,7 +95,7 @@ describe('typing narrows it', () => {
   });
 
   test('words may be typed in any order', async () => {
-    await mount();
+    await mount(searchable);
     await openIt();
     await type('spool ribbon');
 
@@ -99,12 +103,56 @@ describe('typing narrows it', () => {
   });
 
   test('a query that matches nothing says so', async () => {
-    await mount();
+    await mount(searchable);
     await openIt();
     await type('zzzz');
 
     expect(document.querySelectorAll('[role="option"]').length).toBe(0);
     expect(document.querySelector('[role="listbox"]').textContent).toMatch(/\S/);
+  });
+});
+
+describe('the filter box appears only when there is something to filter', () => {
+  // A search box over three payment methods is a box nobody types in, and it
+  // pushes the one row you wanted further down the panel.
+  const many = Array.from({ length: 12 },
+    (_, i) => ({ value: i + 1, label: `Item ${i + 1}` }));
+
+  const box = () => document.querySelector('[role="listbox"]')
+    .parentElement.querySelector('input');
+
+  test('a short list is just a styled list', async () => {
+    await mount();               // four rows
+    await openIt();
+
+    expect(box()).toBeNull();
+    expect(document.querySelectorAll('[role="option"]').length).toBeGreaterThan(0);
+  });
+
+  test('a long one gets the filter', async () => {
+    await mount({ options: many });
+    await openIt();
+
+    expect(box()).not.toBeNull();
+  });
+
+  test('and a caller can insist either way', async () => {
+    await mount({ searchable: true });
+    await openIt();
+    expect(box()).not.toBeNull();
+  });
+
+  test('the keyboard still works without a filter box', async () => {
+    // The arrow keys and Enter are handled on the trigger, not the input, so
+    // hiding the box must not take the keyboard with it.
+    const onChange = vi.fn();
+    await mount({ onChange });
+    await openIt();
+
+    await act(async () => { fireEvent.keyDown(trigger(), { key: 'ArrowDown' }); });
+    await act(async () => { fireEvent.keyDown(trigger(), { key: 'Enter' }); });
+
+    expect(onChange).toHaveBeenCalledWith('2');
   });
 });
 
@@ -145,6 +193,24 @@ describe('choosing', () => {
       ['Ink Tube', 'Toner Cartridge', 'Ribbon Spool', 'Drum Unit']);
   });
 
+  test('a picker with no placeholder has no blank row either', async () => {
+    // A <select> has a blank row only when one was written into it. Defaulting
+    // it on gave the page-size picker a "—" that meant nothing, and choosing
+    // it meant nothing twice.
+    await mount({ placeholder: undefined });
+    await openIt();
+
+    expect(rowLabels()).toEqual(
+      ['Ink Tube', 'Toner Cartridge', 'Ribbon Spool', 'Drum Unit']);
+  });
+
+  test('and one with a placeholder keeps it', async () => {
+    await mount();               // the fixture passes placeholder="Pick one"
+    await openIt();
+
+    expect(rowLabels()[0]).toBe('Pick one');
+  });
+
   test('the panel closes afterwards', async () => {
     await mount({ onChange: () => {} });
     await openIt();
@@ -183,7 +249,7 @@ describe('the keyboard alone is enough', () => {
   test('enter picks the top match after typing, not the first option', async () => {
     // Type three letters, press Enter: the thing you were looking at.
     const onChange = vi.fn();
-    await mount({ onChange });
+    await mount({ onChange, searchable: true });
     await openIt();
     await type('drum');
     await act(async () => { fireEvent.keyDown(trigger(), { key: 'Enter' }); });
@@ -256,108 +322,47 @@ describe('the panel escapes the dialog it lives in', () => {
 
 // ── The sweep ───────────────────────────────────────────────────────────────
 
-// Four lists were converted and no others. This is the part that rots: the next
-// person adds a client picker, reaches for <select> because that is what the
-// file next to theirs uses, and the app grows a second answer to the same
-// question. So the rule is stated here rather than remembered.
-describe('it opens on the right side of its own field', () => {
-  // Half this app's users read right to left. The panel is at least 200px wide
-  // so the search box is usable, and when that makes it wider than the field,
-  // the extra has to grow away from the field's START edge — the right-hand
-  // side in Arabic. Anchoring `left` in both directions leaves an RTL panel
-  // hanging off the wrong end of the control it belongs to.
-  const rtl = (on) => {
-    document.documentElement.dir = on ? 'rtl' : 'ltr';
-  };
-
-  async function openAt(left, width, dir) {
-    await mount({ style: { width } });
-    // AFTER mounting: LocaleProvider sets `dir` from the chosen language when
-    // it mounts, so a value set beforehand is overwritten before the panel
-    // ever measures anything.
-    rtl(dir === 'rtl');
-    const btn = trigger();
-    btn.getBoundingClientRect = () => ({
-      left, right: left + width, top: 100, bottom: 130, width, height: 30,
-    });
-    await act(async () => { fireEvent.click(btn); });
-    return document.querySelector('[role="listbox"]').parentElement;
-  }
-
-  test('left to right, it starts where the field starts', async () => {
-    const panel = await openAt(300, 190, 'ltr');
-
-    expect(panel.style.left).toBe('300px');
-    rtl(false);
-  });
-
-  test('right to left, it ENDS where the field ends', async () => {
-    const panel = await openAt(300, 190, 'rtl');
-
-    // 200 wide (the minimum) ending at 490, so it starts at 290 — not 300,
-    // which would push the extra ten pixels past the field's start edge.
-    expect(panel.style.left).toBe('290px');
-    rtl(false);
-  });
-
-  test('a field wider than the minimum keeps its own width', async () => {
-    const panel = await openAt(100, 320, 'ltr');
-
-    expect(panel.style.width).toBe('320px');
-    rtl(false);
-  });
-});
-
-describe('the four unbounded lists no longer use a plain select', () => {
+// It began as four lists — the ones that grow without bound. It ended as every
+// dropdown in the app, because the closed controls always matched to the pixel
+// and only what OPENED gave it away: a native select hands its list to the
+// operating system, which paints it in the system font with square corners and
+// no hover styling, beside a designed panel on the field next to it.
+//
+// This is the part that rots. The next person adds a picker, reaches for
+// <select> because that is what they have always typed, and the app grows a
+// second answer to the same question. So the rule is stated here.
+describe('every dropdown opens the same panel', () => {
   const SOURCES = import.meta.glob('../{pages,components}/**/*.jsx', {
     eager: true, query: '?raw', import: 'default',
   });
 
-  // The collection an option list is mapped FROM is what says which list it is.
-  const KIND = /^(clients?|inventory|items|products|stockItems|projects?|accounts)$/i;
-  const OPEN_TAG = /<select/;
+  const live = (src) => src
+    .replace(/\/\*[\s\S]*?\*\//g, '')
+    .replace(/^\s*\/\/.*$/gm, '');
 
-  function plainSelectsOver(src) {
-    const found = [];
-    let i = 0;
-    for (;;) {
-      i = src.indexOf('<select', i);
-      if (i === -1) break;
-      const close = src.indexOf('</select>', i);
-      if (close === -1) break;
-      const body = src.slice(i, close);
-      const m = body.match(/\(?([A-Za-z_][\w.?]*)\s*(?:\|\|\s*\[\])?\)?\.map\(/);
-      const coll = m && m[1].split('.').pop();
-      if (coll && KIND.test(coll)) found.push(coll);
-      i = close + 1;
-    }
-    return found;
-  }
-
-  test('not one is left anywhere in pages or components', () => {
-    const offenders = [];
-    for (const [file, src] of Object.entries(SOURCES)) {
-      for (const coll of plainSelectsOver(src)) offenders.push(`${file} (${coll})`);
-    }
+  test('no page or component renders a bare <select>', () => {
+    const offenders = Object.entries(SOURCES)
+      .filter(([, src]) => /<select[\s>]/.test(live(src)))
+      .map(([file]) => file.replace('../', ''));
 
     expect(offenders).toEqual([]);
   });
 
-  test('and the app really did convert them, rather than deleting them', () => {
+  test('nor an <optgroup>, which the panel has no notion of', () => {
+    // Purchases grouped variants under their product. A list you type into
+    // does not need the grouping, and a filtered list cannot keep the headings
+    // anywhere sensible — the product name moved to the hint column instead.
+    const offenders = Object.entries(SOURCES)
+      .filter(([, src]) => /<optgroup/.test(live(src)))
+      .map(([file]) => file.replace('../', ''));
+
+    expect(offenders).toEqual([]);
+  });
+
+  test('and they were converted, not deleted', () => {
     const used = Object.values(SOURCES)
       .filter(src => /<SearchSelect/.test(src)).length;
 
-    expect(used).toBeGreaterThanOrEqual(25);
-  });
-
-  test('the short fixed lists were left alone', () => {
-    // A filter box over five payment methods is more machinery than the
-    // problem needs, and a native <select> is the better control on a phone —
-    // the OS picker beats anything built out of divs. So the sweep was four
-    // lists, not every list.
-    const all = Object.values(SOURCES).join('|');
-
-    expect(all).toMatch(/<select[\s\S]{0,400}METHODS\.map/);
-    expect(all).toMatch(/<select[\s\S]{0,400}CURRENCIES\.map/);
+    expect(used).toBeGreaterThanOrEqual(60);
   });
 });

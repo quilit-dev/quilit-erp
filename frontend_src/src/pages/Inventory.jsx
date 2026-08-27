@@ -24,6 +24,7 @@ import { StockForm } from './inventory/StockForm';
 import { MovementsModal } from './inventory/MovementsModal';
 import { LotsBrowser } from './inventory/Lots';
 import { ProductBuilder } from './inventory/ProductBuilder';
+import SearchSelect from '../components/SearchSelect.jsx';
 
 export default function Inventory() {
   const { t, tCategory } = useLocale();
@@ -328,11 +329,13 @@ export default function Inventory() {
               value={search} onChange={e => setSearch(e.target.value)} />
           </div>
 
-          <select className="form-control" style={{ width: 180, height: 34, fontSize: 13 }}
-            value={categoryFilter} onChange={e => setCategoryFilter(e.target.value)}>
-            <option value="">{t('inventory.allCategories')}</option>
-            {allKnownCats.map(c => <option key={c} value={c}>{tCategory(c)}</option>)}
-          </select>
+          <SearchSelect
+            className="form-control"
+            style={{ width: 180, height: 34, fontSize: 13 }}
+            value={categoryFilter}
+            onChange={v => setCategoryFilter(v)}
+            placeholder={t('inventory.allCategories')}
+            options={(allKnownCats).map(c => ({ value: c, label: tCategory(c) }))} />
 
           <label style={{ display: 'flex', alignItems: 'center', gap: 6, fontSize: 13, cursor: 'pointer', userSelect: 'none' }}>
             <input type="checkbox" checked={lowStockOnly}

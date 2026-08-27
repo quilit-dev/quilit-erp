@@ -3,6 +3,7 @@ import { useLocale } from '../../hooks/useLocale.jsx';
 import { useWarehouses } from '../../hooks/useWarehouses';
 import { toast, NumberInput } from '../../components/shared';
 import { openPosSession } from '../../api/client';
+import SearchSelect from '../../components/SearchSelect.jsx';
 
 function OpenRegisterPanel({ onOpened }) {
   const { t } = useLocale();
@@ -81,14 +82,11 @@ function OpenRegisterPanel({ onOpened }) {
         {warehouses.length > 1 && (
           <div className="form-group">
             <label className="form-label">{t('warehouses.sellingFrom')}</label>
-            <select className="form-control" value={warehouseId}
-              onChange={e => setWarehouseId(e.target.value)}>
-              {warehouses.map(w => (
-                <option key={w.id} value={w.id}>
-                  {w.code} · {w.name}{w.is_default ? ` (${t('warehouses.defaultBadge').toLowerCase()})` : ''}
-                </option>
-              ))}
-            </select>
+            <SearchSelect
+              className="form-control"
+              value={warehouseId}
+              onChange={v => setWarehouseId(v)}
+              options={(warehouses).map(w => ({ value: w.id, label: `${w.code} · ${w.name}${w.is_default ? ` (${t('warehouses.defaultBadge').toLowerCase()})` : ''}` }))} />
           </div>
         )}
         <div className="form-group">

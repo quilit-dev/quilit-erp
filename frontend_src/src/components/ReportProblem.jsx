@@ -14,6 +14,7 @@ import { useState } from 'react';
 import { reportProblem } from '../api/client';
 import { useLocale } from '../hooks/useLocale.jsx';
 import { toast, Icon } from './shared';
+import SearchSelect from '../components/SearchSelect.jsx';
 
 export function ReportProblemDialog({ onClose, error = null, componentStack = '' }) {
   const { t } = useLocale();
@@ -86,13 +87,11 @@ export function ReportProblemDialog({ onClose, error = null, componentStack = ''
           </div>
           <div className="form-group">
             <label className="form-label">{t('support.howBad')}</label>
-            <select className="form-control" value={severity}
-              onChange={e => setSeverity(e.target.value)}>
-              <option value="low">{t('support.sevLow')}</option>
-              <option value="medium">{t('support.sevMedium')}</option>
-              <option value="high">{t('support.sevHigh')}</option>
-              <option value="critical">{t('support.sevCritical')}</option>
-            </select>
+            <SearchSelect
+              className="form-control"
+              value={severity}
+              onChange={v => setSeverity(v)}
+              options={[{ value: 'low', label: t('support.sevLow') }, { value: 'medium', label: t('support.sevMedium') }, { value: 'high', label: t('support.sevHigh') }, { value: 'critical', label: t('support.sevCritical') }]} />
           </div>
           {/* Say what is being sent. Silently shipping the URL and browser
               string would be a surprise; naming it is the honest default. */}

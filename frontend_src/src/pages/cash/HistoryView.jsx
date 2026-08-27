@@ -3,6 +3,7 @@ import { useLocale } from '../../hooks/useLocale.jsx';
 import { LoadingSpinner, ErrorAlert, EmptyState, ExportButton } from '../../components/shared';
 import { getCashReconciliations } from '../../api/client';
 import { money, VarianceTag } from './ui';
+import SearchSelect from '../../components/SearchSelect.jsx';
 
 // ── History view ────────────────────────────────────────────────────────────
 function HistoryView({ drawers, openDetail, refreshKey }) {
@@ -46,11 +47,13 @@ function HistoryView({ drawers, openDetail, refreshKey }) {
         </span>
         <input type="date" className="form-control" style={{ width: 160 }} value={date}
           onChange={e => setDate(e.target.value)} />
-        <select className="form-control" style={{ width: 180 }} value={drawerId}
-          onChange={e => setDrawerId(e.target.value)}>
-          <option value="">{t('cash.drawers')}</option>
-          {drawers.map(d => <option key={d.id} value={d.id}>{d.name}</option>)}
-        </select>
+        <SearchSelect
+          className="form-control"
+          style={{ width: 180 }}
+          value={drawerId}
+          onChange={v => setDrawerId(v)}
+          placeholder={t('cash.drawers')}
+          options={(drawers).map(d => ({ value: d.id, label: d.name }))} />
         {rows && (
           <span style={{
             fontFamily: 'var(--font-mono)', fontSize: 11, color: 'var(--text-3)',

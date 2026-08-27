@@ -17,6 +17,7 @@ import { useSettings } from '../../hooks/useSettings.jsx';
 import BankField, { useBankAccounts } from '../../components/BankField.jsx';
 import { CURRENCIES } from '../settings/ui';
 import { useLocale } from '../../hooks/useLocale.jsx';
+import SearchSelect from '../../components/SearchSelect.jsx';
 
 const METHODS = ['Cash', 'Bank Transfer', 'Cheque', 'Card', 'Other'];
 
@@ -198,10 +199,11 @@ export default function CustomerPaymentModal({ client, invoices, onClose, onDone
             </div>
             <div className="form-group">
               <label className="form-label">{t('invoices.paymentCurrency')}</label>
-              <select className="form-control" value={ccy}
-                onChange={e => setCcy(e.target.value)}>
-                {CURRENCIES.map(c => <option key={c} value={c}>{c}</option>)}
-              </select>
+              <SearchSelect
+                className="form-control"
+                value={ccy}
+                onChange={v => setCcy(v)}
+                options={(CURRENCIES).map(c => ({ value: c, label: c }))} />
             </div>
             {ccy !== 'USD' && (
               <div className="form-group">
@@ -222,10 +224,11 @@ export default function CustomerPaymentModal({ client, invoices, onClose, onDone
             )}
             <div className="form-group">
               <label className="form-label">{t('invoices.methodLabel')}</label>
-              <select className="form-control" value={method}
-                onChange={e => setMethod(e.target.value)}>
-                {METHODS.map(m => <option key={m} value={m}>{tEnumValue(m)}</option>)}
-              </select>
+              <SearchSelect
+                className="form-control"
+                value={method}
+                onChange={v => setMethod(v)}
+                options={(METHODS).map(m => ({ value: m, label: tEnumValue(m) }))} />
             </div>
             <BankField method={method} value={bankId} onChange={setBankId}
               accounts={banks} />

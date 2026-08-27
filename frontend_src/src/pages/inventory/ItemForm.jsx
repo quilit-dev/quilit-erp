@@ -5,6 +5,7 @@ import { useCategories } from '../../hooks/useCategories';
 import { useSettings } from '../../hooks/useSettings.jsx';
 import { NumberInput, SupplierCombobox, swallowScannerEnter } from '../../components/shared';
 import { UNITS, PRODUCT_TYPES, fmtNum } from './ui';
+import SearchSelect from '../../components/SearchSelect.jsx';
 
 function ItemForm({ initial = {}, knownCategories = [], suppliers = [], onSave, onCancel, saving }) {
   const { t, tCategory, tEnumValue } = useLocale();
@@ -75,12 +76,12 @@ function ItemForm({ initial = {}, knownCategories = [], suppliers = [], onSave, 
 
           <div className="form-group form-full">
             <label className="form-label">{t('common.category')}</label>
-            <select className="form-control" value={form.category}
-              onChange={e => set('category', e.target.value)}>
-              <option value="">{t('inventory.noCategory')}</option>
-              {allCats.map(c => <option key={c} value={c}>{tCategory(c)}</option>)}
-              <option value="__custom__">{t('inventory.addCategoryOption')}</option>
-            </select>
+            <SearchSelect
+              className="form-control"
+              value={form.category}
+              onChange={v => set('category', v)}
+              placeholder={t('inventory.noCategory')}
+              options={[...(allCats).map(c => ({ value: c, label: tCategory(c) })), { value: '__custom__', label: t('inventory.addCategoryOption') }]} />
             {useCustom && (
               <input className="form-control" style={{ marginTop: 8 }}
                 placeholder={t('inventory.typeCategoryName')}
@@ -91,11 +92,12 @@ function ItemForm({ initial = {}, knownCategories = [], suppliers = [], onSave, 
 
           <div className="form-group">
             <label className="form-label">{t('inventory.productTypeLabel')}</label>
-            <select className="form-control" value={form.product_type}
-              onChange={e => set('product_type', e.target.value)}>
-              <option value="">{t('inventory.ptypeUnclassified')}</option>
-              {PRODUCT_TYPES.map(p => <option key={p} value={p}>{t(`inventory.ptype_${p}`)}</option>)}
-            </select>
+            <SearchSelect
+              className="form-control"
+              value={form.product_type}
+              onChange={v => set('product_type', v)}
+              placeholder={t('inventory.ptypeUnclassified')}
+              options={(PRODUCT_TYPES).map(p => ({ value: p, label: t(`inventory.ptype_${p}`) }))} />
           </div>
 
           {!isEdit && (
@@ -121,11 +123,12 @@ function ItemForm({ initial = {}, knownCategories = [], suppliers = [], onSave, 
             <div style={{ display: 'flex', gap: 6 }}>
               <NumberInput className="form-control" step="any" min="0" style={{ flex: 1 }}
                 value={form.unit_cost} onChange={e => set('unit_cost', e.target.value)} />
-              <select className="form-control" style={{ width: 86 }}
-                value={form.cost_currency} onChange={e => set('cost_currency', e.target.value)}>
-                <option value="USD">USD</option>
-                <option value={secondary} disabled={!hasRate}>{secondary}</option>
-              </select>
+              <SearchSelect
+                className="form-control"
+                style={{ width: 86 }}
+                value={form.cost_currency}
+                onChange={v => set('cost_currency', v)}
+                options={[{ value: 'USD', label: 'USD' }]} />
             </div>
             {form.cost_currency === 'USD'
               ? null
@@ -140,11 +143,12 @@ function ItemForm({ initial = {}, knownCategories = [], suppliers = [], onSave, 
             <div style={{ display: 'flex', gap: 6 }}>
               <NumberInput className="form-control" step="any" min="0" style={{ flex: 1 }}
                 value={form.sale_price} onChange={e => set('sale_price', e.target.value)} />
-              <select className="form-control" style={{ width: 86 }}
-                value={form.price_currency} onChange={e => set('price_currency', e.target.value)}>
-                <option value="USD">USD</option>
-                <option value={secondary} disabled={!hasRate}>{secondary}</option>
-              </select>
+              <SearchSelect
+                className="form-control"
+                style={{ width: 86 }}
+                value={form.price_currency}
+                onChange={v => set('price_currency', v)}
+                options={[{ value: 'USD', label: 'USD' }]} />
             </div>
             {equiv(form.sale_price, form.price_currency) && (
               <div className="form-help" style={{ fontSize: 12, color: 'var(--text-3)', marginTop: 4 }}>
@@ -157,10 +161,11 @@ function ItemForm({ initial = {}, knownCategories = [], suppliers = [], onSave, 
 
           <div className="form-group">
             <label className="form-label">{t('inventory.unitLabel')}</label>
-            <select className="form-control" value={form.unit}
-              onChange={e => set('unit', e.target.value)}>
-              {UNITS.map(u => <option key={u} value={u}>{tEnumValue(u)}</option>)}
-            </select>
+            <SearchSelect
+              className="form-control"
+              value={form.unit}
+              onChange={v => set('unit', v)}
+              options={(UNITS).map(u => ({ value: u, label: tEnumValue(u) }))} />
           </div>
 
           <div className="form-group form-full">

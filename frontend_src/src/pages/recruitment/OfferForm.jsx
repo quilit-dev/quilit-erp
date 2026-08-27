@@ -2,6 +2,7 @@ import { useState, useEffect } from 'react';
 import { useLocale } from '../../hooks/useLocale.jsx';
 import { Modal, toast, NumberInput } from '../../components/shared';
 import { createApplicantOffer, updateOffer } from '../../api/client';
+import SearchSelect from '../../components/SearchSelect.jsx';
 import { OFFER_CT_KEY, PAY_SCHED_KEY, OFFER_CONTRACT_TYPES, OFFER_CURRENCIES,
          OFFER_PAY_SCHEDULES, LB_MAX_PROBATION_MONTHS, LB_MAX_WEEKLY_HOURS, EMPTY_OFFER , tEnum } from './constants';
 
@@ -112,10 +113,11 @@ function OfferForm({ appId, applicant, existing, onClose, onSaved }) {
             {/* — Position & term — */}
             <div className="form-group">
               <label className="form-label">{t('recruitment.offerContractType')}</label>
-              <select className="form-control" value={form.contract_type}
-                onChange={e => set('contract_type', e.target.value)}>
-                {OFFER_CONTRACT_TYPES.map(x => <option key={x} value={x}>{tEnum(t, OFFER_CT_KEY, x)}</option>)}
-              </select>
+              <SearchSelect
+                className="form-control"
+                value={form.contract_type}
+                onChange={v => set('contract_type', v)}
+                options={(OFFER_CONTRACT_TYPES).map(x => ({ value: x, label: tEnum(t, OFFER_CT_KEY, x) }))} />
             </div>
             <div className="form-group">
               <label className="form-label">{t('recruitment.offerJobTitle')}</label>
@@ -181,17 +183,19 @@ function OfferForm({ appId, applicant, existing, onClose, onSaved }) {
             </div>
             <div className="form-group">
               <label className="form-label">{t('recruitment.offerCurrency')}</label>
-              <select className="form-control" value={form.salary_currency}
-                onChange={e => set('salary_currency', e.target.value)}>
-                {OFFER_CURRENCIES.map(c => <option key={c} value={c}>{c}</option>)}
-              </select>
+              <SearchSelect
+                className="form-control"
+                value={form.salary_currency}
+                onChange={v => set('salary_currency', v)}
+                options={(OFFER_CURRENCIES).map(c => ({ value: c, label: c }))} />
             </div>
             <div className="form-group">
               <label className="form-label">{t('recruitment.offerPaymentSched')}</label>
-              <select className="form-control" value={form.payment_schedule}
-                onChange={e => set('payment_schedule', e.target.value)}>
-                {OFFER_PAY_SCHEDULES.map(p => <option key={p} value={p}>{tEnum(t, PAY_SCHED_KEY, p)}</option>)}
-              </select>
+              <SearchSelect
+                className="form-control"
+                value={form.payment_schedule}
+                onChange={v => set('payment_schedule', v)}
+                options={(OFFER_PAY_SCHEDULES).map(p => ({ value: p, label: tEnum(t, PAY_SCHED_KEY, p) }))} />
             </div>
 
             {/* — Leave & termination — */}

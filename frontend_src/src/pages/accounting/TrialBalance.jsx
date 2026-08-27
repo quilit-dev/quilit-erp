@@ -3,6 +3,7 @@ import { getTrialBalance } from '../../api/client';
 import { LoadingSpinner, ExportButton, toast } from '../../components/shared';
 import { ACCOUNT_TYPES, todayISO } from './constants';
 import { SortableTh } from './ui';
+import SearchSelect from '../../components/SearchSelect.jsx';
 
 // ── Trial Balance ────────────────────────────────────────────────────────────
 //
@@ -62,10 +63,13 @@ function TrialBalance({ t, tAccount, tEnumValue, fmt }) {
           <input className="form-control" style={{ width: 180 }}
             placeholder={t('common.search') + '…'}
             value={search} onChange={e => setSearch(e.target.value)} />
-          <select className="form-control" style={{ width: 150 }} value={typeFilter} onChange={e => setTypeFilter(e.target.value)}>
-            <option value="">{t('accounting.allTypes')}</option>
-            {ACCOUNT_TYPES.map(x => <option key={x} value={x}>{tEnumValue(x)}</option>)}
-          </select>
+          <SearchSelect
+            className="form-control"
+            style={{ width: 150 }}
+            value={typeFilter}
+            onChange={v => setTypeFilter(v)}
+            placeholder={t('accounting.allTypes')}
+            options={(ACCOUNT_TYPES).map(x => ({ value: x, label: tEnumValue(x) }))} />
           <span style={{ fontSize: 13, color: 'var(--text-3)' }}>{t('accounting.asOf')}</span>
           <input type="date" className="form-control" style={{ width: 150 }} value={asOf} onChange={e => setAsOf(e.target.value)} />
           {data && <ExportButton data={sorted} filename={`trial-balance-${asOf}`} sheetName="TrialBalance" />}

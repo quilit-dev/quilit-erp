@@ -3,6 +3,7 @@ import { useLocale } from '../../hooks/useLocale.jsx';
 import { Modal, toast, NumberInput, BranchField } from '../../components/shared';
 import { createApplicant, updateApplicant } from '../../api/client';
 import { EMPTY_APPLICANT } from './constants';
+import SearchSelect from '../../components/SearchSelect.jsx';
 
 function ApplicantForm({ mode, initial, positions, onClose, onSaved }) {
   const { t } = useLocale();
@@ -47,12 +48,12 @@ function ApplicantForm({ mode, initial, positions, onClose, onSaved }) {
             </div>
             <div className="form-group">
               <label className="form-label">{t('recruitment.colPosition')}</label>
-              <select className="form-control" value={form.position_id || ''}
-                onChange={e => setForm(f => ({ ...f, position_id: e.target.value }))}>
-                <option value="">{t('recruitment.optSpeculative')}</option>
-                {positions.filter(p => p.status === 'Open').map(p =>
-                  <option key={p.id} value={p.id}>{p.title}</option>)}
-              </select>
+              <SearchSelect
+                className="form-control"
+                value={form.position_id || ''}
+                onChange={v => setForm(f => ({ ...f, position_id: v }))}
+                placeholder={t('recruitment.optSpeculative')}
+                options={(positions.filter(p => p.status === 'Open')).map(p => ({ value: p.id, label: p.title }))} />
             </div>
             <BranchField value={form.branch_id}
               onChange={v => setForm(f => ({ ...f, branch_id: v }))} />

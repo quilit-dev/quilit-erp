@@ -15,6 +15,7 @@ import {
 } from '../../api/client';
 import { LoadingSpinner, ConfirmModal, toast } from '../../components/shared';
 import { todayISO } from './constants';
+import SearchSelect from '../../components/SearchSelect.jsx';
 
 function ChartCutover({ t, fmt, fmtDate, tAccount, can }) {
   const canPost = can('accounting', 'create');
@@ -130,17 +131,14 @@ function ChartCutover({ t, fmt, fmtDate, tAccount, can }) {
                       {/* Only accounts of the same type are offered: moving a
                           balance across types restates the books rather than
                           relocating them, and the server refuses it. */}
-                      <select className="form-control" style={{ minWidth: 210 }}
+                      <SearchSelect
+                        className="form-control"
+                        style={{ minWidth: 210 }}
                         value={target(l)}
-                        onChange={e => setOverrides(o => ({
-                          ...o, [l.from_code]: e.target.value }))}>
-                        <option value="">{t('cutover.choose')}</option>
-                        {(accounts || []).filter(a => a.type === l.type).map(a => (
-                          <option key={a.code} value={a.code}>
-                            {a.code} — {tAccount(a)}
-                          </option>
-                        ))}
-                      </select>
+                        onChange={v => setOverrides(o => ({
+                          ...o, [l.from_code]: v }))}
+                        placeholder={t('cutover.choose')}
+                        options={((accounts || []).filter(a => a.type === l.type)).map(a => ({ value: a.code, label: `${a.code} — ${tAccount(a)}` }))} />
                     </td>
                     <td>
                       <span className={`badge badge-${l.suggested_by === 'role' ? 'green' : 'yellow'}`}>

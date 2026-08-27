@@ -2,6 +2,7 @@ import { useState, useEffect, useCallback, useMemo } from 'react';
 import { useLocale } from '../hooks/useLocale.jsx';
 import { useData } from '../hooks/useData.js';
 import { Modal, ConfirmModal, EmptyState, toast, NumberInput, Icon } from '../components/shared';
+import SearchSelect from '../components/SearchSelect.jsx';
 import {
   getHRActivities, getHRActivity, getHRActivitiesSummary,
   createHRActivity, updateHRActivity, completeHRActivity, archiveHRActivity,
@@ -251,19 +252,21 @@ function ActivityForm({ initial, applicants, employees, onSave, onClose }) {
 
           <div className="form-group">
             <label className="form-label">{t('hrActivities.linkApplicant')}</label>
-            <select className="form-control" value={form.applicant_id}
-                    onChange={e => pickApplicant(e.target.value)}>
-              <option value="">{t('common.none')}</option>
-              {applicants.map(a => <option key={a.id} value={a.id}>{a.name}</option>)}
-            </select>
+            <SearchSelect
+              className="form-control"
+              value={form.applicant_id}
+              onChange={v => pickApplicant(v)}
+              placeholder={t('common.none')}
+              options={(applicants).map(a => ({ value: a.id, label: a.name }))} />
           </div>
           <div className="form-group">
             <label className="form-label">{t('hrActivities.linkEmployee')}</label>
-            <select className="form-control" value={form.employee_id}
-                    onChange={e => pickEmployee(e.target.value)}>
-              <option value="">{t('common.none')}</option>
-              {employees.map(e => <option key={e.id} value={e.id}>{e.name}</option>)}
-            </select>
+            <SearchSelect
+              className="form-control"
+              value={form.employee_id}
+              onChange={v => pickEmployee(v)}
+              placeholder={t('common.none')}
+              options={(employees).map(e => ({ value: e.id, label: e.name }))} />
           </div>
 
           <div className="form-group">
@@ -274,12 +277,11 @@ function ActivityForm({ initial, applicants, employees, onSave, onClose }) {
           </div>
           <div className="form-group">
             <label className="form-label">{t('hrActivities.reminder')}</label>
-            <select className="form-control" value={form.reminder_minutes_before}
-                    onChange={e => set('reminder_minutes_before', Number(e.target.value))}>
-              {REMINDER_CHOICES.map(r => (
-                <option key={r.value} value={r.value}>{t(r.key)}</option>
-              ))}
-            </select>
+            <SearchSelect
+              className="form-control"
+              value={form.reminder_minutes_before}
+              onChange={v => set('reminder_minutes_before', Number(v))}
+              options={(REMINDER_CHOICES).map(r => ({ value: r.value, label: t(r.key) }))} />
           </div>
 
           <div className="form-group form-full">
@@ -559,13 +561,13 @@ export default function HRActivities() {
             value={search}
             onChange={e => setSearch(e.target.value)}
           />
-          <select className="form-control" style={{ width: 150 }}
-                  value={typeFilter} onChange={e => setTypeFilter(e.target.value)}>
-            <option value="">{t('hrActivities.allTypes')}</option>
-            {TYPES.map(tp => (
-              <option key={tp} value={tp}>{t(`hrActivities.type_${tp.toLowerCase()}`)}</option>
-            ))}
-          </select>
+          <SearchSelect
+            className="form-control"
+            style={{ width: 150 }}
+            value={typeFilter}
+            onChange={v => setTypeFilter(v)}
+            placeholder={t('hrActivities.allTypes')}
+            options={(TYPES).map(tp => ({ value: tp, label: t(`hrActivities.type_${tp.toLowerCase()}`) }))} />
         </div>
       </div>
 

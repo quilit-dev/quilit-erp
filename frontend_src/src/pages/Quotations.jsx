@@ -531,11 +531,13 @@ export default function Quotations() {
               onChange={v => setProjectFilter(v)}
               placeholder={t('common.allProjects')}
               options={(projects || []).map(p => ({ value: p.id, label: p.name }))} />
-            <select className="form-control" style={{width:150}}
-              value={statusFilter} onChange={e => setStatusFilter(e.target.value)}>
-              <option value="">{t('common.allStatuses')}</option>
-              {[...STATUSES, 'Voided'].map(s => <option key={s} value={s}>{tStatus(s)}</option>)}
-            </select>
+            <SearchSelect
+              className="form-control"
+              style={{width:150}}
+              value={statusFilter}
+              onChange={v => setStatusFilter(v)}
+              placeholder={t('common.allStatuses')}
+              options={([...STATUSES, 'Voided']).map(s => ({ value: s, label: tStatus(s) }))} />
             {(search||clientFilter||projectFilter||statusFilter) && (
               <button className="btn btn-secondary btn-sm" style={{whiteSpace:'nowrap'}}
                 onClick={() => { setSearch(''); setClientFilter(''); setProjectFilter(''); setStatusFilter(''); }}>
@@ -678,15 +680,12 @@ export default function Quotations() {
                         {t('common.insteadOfClient')}
                       </span>
                     </label>
-                    <select className="form-control" value={form.lead_id}
-                      onChange={e => setForm(f => ({ ...f, lead_id: e.target.value, client_id: e.target.value ? '' : f.client_id }))}>
-                      <option value="">{t('quotations.leadNone')}</option>
-                      {(leads||[]).map(l => (
-                        <option key={l.id} value={l.id}>
-                          {l.name}{l.company ? ` — ${l.company}` : ''}
-                        </option>
-                      ))}
-                    </select>
+                    <SearchSelect
+                      className="form-control"
+                      value={form.lead_id}
+                      onChange={v => setForm(f => ({ ...f, lead_id: v, client_id: v ? '' : f.client_id }))}
+                      placeholder={t('quotations.leadNone')}
+                      options={((leads||[])).map(l => ({ value: l.id, label: `${l.name}${l.company ? ` — ${l.company}` : ''}` }))} />
                   </div>
                   <div className="form-group">
                     <label className="form-label">
@@ -712,10 +711,11 @@ export default function Quotations() {
                   )}
                   <div className="form-group">
                     <label className="form-label">{t('quotations.statusLabel')}</label>
-                    <select className="form-control" value={form.status}
-                      onChange={e => setForm(f => ({ ...f, status: e.target.value }))}>
-                      {STATUSES.map(s => <option key={s} value={s}>{tStatus(s)}</option>)}
-                    </select>
+                    <SearchSelect
+                      className="form-control"
+                      value={form.status}
+                      onChange={v => setForm(f => ({ ...f, status: v }))}
+                      options={(STATUSES).map(s => ({ value: s, label: tStatus(s) }))} />
                   </div>
                   <BranchField value={form.branch_id}
                     onChange={v => setForm(f => ({ ...f, branch_id: v }))} />
@@ -773,14 +773,13 @@ export default function Quotations() {
                         : (promoLines[i]?.discount_pct ?? '')}
                       onChange={e => setItemDiscount(i, e.target.value)} />
                     {taxEnabled && (
-                      <select className="form-control" style={{ fontSize:12, padding:'6px 4px' }}
+                      <SearchSelect
+                        className="form-control"
+                        style={{ fontSize:12, padding:'6px 4px' }}
                         title={t('lineItem.taxTitle')}
                         value={item.tax_rate_id ?? (defaultTaxRate?.id ?? '')}
-                        onChange={e => setItem(i, 'tax_rate_id', Number(e.target.value) || null)}>
-                        {activeTaxRates.map(r => (
-                          <option key={r.id} value={r.id}>{r.name} ({r.rate}%)</option>
-                        ))}
-                      </select>
+                        onChange={v => setItem(i, 'tax_rate_id', Number(v) || null)}
+                        options={(activeTaxRates).map(r => ({ value: r.id, label: `${r.name} (${r.rate}%)` }))} />
                     )}
                     <button type="button" className="btn btn-sm btn-danger"
                       title={t('lineItem.removeTitle')}

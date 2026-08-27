@@ -3,6 +3,7 @@ import * as XLSX from 'xlsx';
 import { getUserSessions, getOnlineUsers, getAuditLog, getAuditFilters, verifyAuditChain, purgeAuditLog, getUsers, getRoles, revokeSession } from '../api/client';
 import { LoadingSpinner, ErrorAlert, toast } from '../components/shared';
 import { useLocale } from '../hooks/useLocale.jsx';
+import SearchSelect from '../components/SearchSelect.jsx';
 
 const ACTION_COLORS = {
   create: 'green', update: 'blue', edit: 'blue', delete: 'red', restore: 'yellow',
@@ -313,14 +314,20 @@ export default function AdminDashboard() {
           <div style={{ display: 'flex', gap: 8, marginBottom: 12, flexWrap: 'wrap' }}>
             <input className="form-control" style={{ width: 140 }} placeholder={t('admin.username')}
               value={af.username} onChange={e => { setAf(f => ({ ...f, username: e.target.value })); setOffset(0); }} />
-            <select className="form-control" style={{ width: 160 }} value={af.module} onChange={e => { setAf(f => ({ ...f, module: e.target.value })); setOffset(0); }}>
-              <option value="">{t('admin.allModules')}</option>
-              {filterOpts.modules.map(k => <option key={k} value={k}>{MODULE_LABELS[k] || k}</option>)}
-            </select>
-            <select className="form-control" style={{ width: 160 }} value={af.action} onChange={e => { setAf(f => ({ ...f, action: e.target.value })); setOffset(0); }}>
-              <option value="">{t('admin.allActions')}</option>
-              {filterOpts.actions.map(a => <option key={a} value={a}>{a.replace(/_/g, ' ')}</option>)}
-            </select>
+            <SearchSelect
+              className="form-control"
+              style={{ width: 160 }}
+              value={af.module}
+              onChange={v => { setAf(f => ({ ...f, module: v })); setOffset(0); }}
+              placeholder={t('admin.allModules')}
+              options={(filterOpts.modules).map(k => ({ value: k, label: MODULE_LABELS[k] || k }))} />
+            <SearchSelect
+              className="form-control"
+              style={{ width: 160 }}
+              value={af.action}
+              onChange={v => { setAf(f => ({ ...f, action: v })); setOffset(0); }}
+              placeholder={t('admin.allActions')}
+              options={(filterOpts.actions).map(a => ({ value: a, label: a.replace(/_/g, ' ') }))} />
             <input className="form-control" type="date" style={{ width: 140 }} value={af.from_date}
               onChange={e => { setAf(f => ({ ...f, from_date: e.target.value })); setOffset(0); }} />
             <input className="form-control" type="date" style={{ width: 140 }} value={af.to_date}
@@ -352,16 +359,12 @@ export default function AdminDashboard() {
             )}
             <div style={{ marginLeft: 'auto', display: 'flex', alignItems: 'center', gap: 6 }}>
               <span style={{ fontSize: 12, color: 'var(--text-3)', whiteSpace: 'nowrap' }}>{t('admin.purgeOlderThan')}</span>
-              <select
+              <SearchSelect
                 className="form-control"
                 style={{ width: 110, fontSize: 12 }}
                 value={purgedays}
-                onChange={e => setPurgeDays(Number(e.target.value))}
-              >
-                {purgeOptions.map(o => (
-                  <option key={o.value} value={o.value}>{o.label}</option>
-                ))}
-              </select>
+                onChange={v => setPurgeDays(Number(v))}
+                options={(purgeOptions).map(o => ({ value: o.value, label: o.label }))} />
               <button
                 className="btn btn-sm"
                 style={{ background: 'var(--red-light)', color: 'var(--red)', border: '1px solid var(--red)', fontWeight: 600, whiteSpace: 'nowrap' }}

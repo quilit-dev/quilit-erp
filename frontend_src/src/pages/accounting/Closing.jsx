@@ -6,6 +6,7 @@ import {
 } from '../../api/client';
 import { LoadingSpinner, ConfirmModal, toast } from '../../components/shared';
 import { MONTH_NAMES } from './constants';
+import SearchSelect from '../../components/SearchSelect.jsx';
 
 // ── Financial-year closing ───────────────────────────────────────────────────
 function YearEnd({ t, fmt, can }) {
@@ -134,15 +135,20 @@ function MonthlyPeriods({ t, fmt, can }) {
       <div className="card-header" style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', flexWrap: 'wrap', gap: 8 }}>
         <span className="card-title">{t('accounting.monthlyPeriods')}</span>
         <div style={{ display: 'flex', gap: 8 }}>
-          <select className="form-control" style={{ width: 120 }} value={yearFilter} onChange={e => setYearFilter(e.target.value)}>
-            <option value="">{t('accounting.allYears')}</option>
-            {years.map(y => <option key={y} value={y}>{y}</option>)}
-          </select>
-          <select className="form-control" style={{ width: 140 }} value={statusFilter} onChange={e => setStatusFilter(e.target.value)}>
-            <option value="">{t('accounting.allStatuses')}</option>
-            <option value="open">{t('accounting.open')}</option>
-            <option value="locked">{t('accounting.locked')}</option>
-          </select>
+          <SearchSelect
+            className="form-control"
+            style={{ width: 120 }}
+            value={yearFilter}
+            onChange={v => setYearFilter(v)}
+            placeholder={t('accounting.allYears')}
+            options={(years).map(y => ({ value: y, label: y }))} />
+          <SearchSelect
+            className="form-control"
+            style={{ width: 140 }}
+            value={statusFilter}
+            onChange={v => setStatusFilter(v)}
+            placeholder={t('accounting.allStatuses')}
+            options={[{ value: 'open', label: t('accounting.open') }, { value: 'locked', label: t('accounting.locked') }]} />
         </div>
       </div>
       <p style={{ fontSize: 12.5, color: 'var(--text-3)', padding: '0 16px', margin: '0 0 8px' }}>

@@ -7,6 +7,7 @@ import {
   openCashReconciliation, closeCashReconciliation,
 } from '../../api/client';
 import { today, money, VarianceTag } from './ui';
+import SearchSelect from '../../components/SearchSelect.jsx';
 
 // ── Drawer add/edit modal ───────────────────────────────────────────────────
 function DrawerModal({ drawer, onClose, onSaved }) {
@@ -90,9 +91,11 @@ function OpenDayModal({ drawers, presetDrawerId, onClose, onOpened }) {
         <div className="form-grid">
           <div className="form-group form-full">
             <label className="form-label">{t('cash.drawer')}</label>
-            <select className="form-control" value={drawerId} onChange={e => setDrawerId(e.target.value)}>
-              {active.map(d => <option key={d.id} value={d.id}>{d.name}</option>)}
-            </select>
+            <SearchSelect
+              className="form-control"
+              value={drawerId}
+              onChange={v => setDrawerId(v)}
+              options={(active).map(d => ({ value: d.id, label: d.name }))} />
           </div>
           <div className="form-group form-full">
             <label className="form-label">{t('cash.businessDate')}</label>

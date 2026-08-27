@@ -5,6 +5,7 @@ import ImportWizard from '../../components/ImportWizard';
 import { ACCOUNT_TYPES } from './constants';
 import { SortableTh, Pager } from './ui';
 import { ChartPicker } from './ChartPicker';
+import SearchSelect from '../../components/SearchSelect.jsx';
 
 // ── Chart of Accounts ────────────────────────────────────────────────────────
 //
@@ -108,15 +109,19 @@ function Accounts({ t, tAccount, tEnumValue, canCreate, canEdit, can }) {
         <div style={{ display: 'flex', gap: 8, alignItems: 'center', flexWrap: 'wrap' }}>
           <input className="form-control" style={{ width: 200 }} placeholder={t('common.search') + '…'}
             value={search} onChange={e => setSearch(e.target.value)} />
-          <select className="form-control" style={{ width: 150 }} value={typeFilter} onChange={e => setTypeFilter(e.target.value)}>
-            <option value="">{t('accounting.allTypes')}</option>
-            {ACCOUNT_TYPES.map(x => <option key={x} value={x}>{tEnumValue(x)}</option>)}
-          </select>
-          <select className="form-control" style={{ width: 140 }} value={activeFilter} onChange={e => setActiveFilter(e.target.value)}>
-            <option value="active">{t('accounting.activeOnly')}</option>
-            <option value="inactive">{t('accounting.inactiveOnly')}</option>
-            <option value="all">{t('accounting.allStatuses')}</option>
-          </select>
+          <SearchSelect
+            className="form-control"
+            style={{ width: 150 }}
+            value={typeFilter}
+            onChange={v => setTypeFilter(v)}
+            placeholder={t('accounting.allTypes')}
+            options={(ACCOUNT_TYPES).map(x => ({ value: x, label: tEnumValue(x) }))} />
+          <SearchSelect
+            className="form-control"
+            style={{ width: 140 }}
+            value={activeFilter}
+            onChange={v => setActiveFilter(v)}
+            options={[{ value: 'active', label: t('accounting.activeOnly') }, { value: 'inactive', label: t('accounting.inactiveOnly') }, { value: 'all', label: t('accounting.allStatuses') }]} />
           {canCreate && <button className="btn btn-sm btn-secondary" onClick={() => setImporting(true)}>⬆ {t('imports.importBtn')}</button>}
           {canCreate && <button className="btn btn-sm btn-primary" onClick={() => setModal({ code: '', name: '', type: 'Expense', subtype: '', description: '' })}>＋ {t('accounting.newAccount')}</button>}
         </div>
@@ -179,10 +184,12 @@ function Accounts({ t, tAccount, tEnumValue, canCreate, canEdit, can }) {
               </div>
               <div className="form-group">
                 <label className="form-label">{t('accounting.type')}</label>
-                <select className="form-control" value={modal.type} disabled={!!modal.id}
-                  onChange={e => setModal(m => ({ ...m, type: e.target.value }))}>
-                  {ACCOUNT_TYPES.map(x => <option key={x} value={x}>{tEnumValue(x)}</option>)}
-                </select>
+                <SearchSelect
+                  className="form-control"
+                  disabled={!!modal.id}
+                  value={modal.type}
+                  onChange={v => setModal(m => ({ ...m, type: v }))}
+                  options={(ACCOUNT_TYPES).map(x => ({ value: x, label: tEnumValue(x) }))} />
               </div>
               <div className="form-group form-full">
                 <label className="form-label">{t('accounting.name')}</label>

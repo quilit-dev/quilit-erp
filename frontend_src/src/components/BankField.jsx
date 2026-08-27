@@ -12,6 +12,7 @@
 import { useState, useEffect } from 'react';
 import { getBankAccounts } from '../api/client';
 import { useLocale } from '../hooks/useLocale.jsx';
+import SearchSelect from '../components/SearchSelect.jsx';
 
 // The methods that settle through a bank rather than a till. Kept here rather
 // than in each caller so a new method is added in one place.
@@ -49,19 +50,13 @@ export default function BankField({ method, value, onChange, accounts,
   return (
     <div className="form-group" style={{ margin: 0, ...(style || {}) }}>
       <label className="form-label">{t('banks.field')}</label>
-      <select className="form-control" value={value ?? ''}
-        onChange={e => onChange(e.target.value)}>
-        {/* Left blank the money still reaches the bank, just the general one
-            rather than a named account — so this is a refinement, never a
-            requirement that blocks taking a payment. */}
-        <option value="">{t('banks.unspecified')}</option>
-        {rows.map(a => (
-          <option key={a.id} value={a.id}>
-            {a.name}{!compact && a.bank_name ? ` · ${a.bank_name}` : ''}
-            {!compact && a.currency && a.currency !== 'USD' ? ` (${a.currency})` : ''}
-          </option>
-        ))}
-      </select>
+      <SearchSelect
+        className="form-control"
+        value={value ?? ''}
+        onChange={v => onChange(v)}
+        placeholder={t('banks.unspecified')}
+        options={(rows).map(a => ({ value: a.id, label: `${a.name}${!compact && a.bank_name ? ` · ${a.bank_name}` : ''}
+            ${!compact && a.currency && a.currency !== 'USD' ? ` (${a.currency})` : ''}` }))} />
     </div>
   );
 }

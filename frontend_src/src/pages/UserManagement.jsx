@@ -5,6 +5,7 @@ import {
 } from '../api/client';
 import { Modal, ConfirmModal, LoadingSpinner, ErrorAlert, fmtDate, toast } from '../components/shared';
 import { useLocale } from '../hooks/useLocale.jsx';
+import SearchSelect from '../components/SearchSelect.jsx';
 
 const EMPTY_CREATE = { username: '', password: '', full_name: '', email: '', role_id: '', branch_id: '', is_superadmin: false };
 
@@ -142,10 +143,12 @@ export default function UserManagement() {
   const RoleSelect = () => (
     <div className="form-group">
       <label className="form-label">{t('users.role')}</label>
-      <select className="form-control" value={form.role_id || ''} onChange={e => setForm(f => ({ ...f, role_id: e.target.value ? Number(e.target.value) : '' }))}>
-        <option value="">{t('common.noRole')}</option>
-        {assignableRoles.map(r => <option key={r.id} value={r.id}>{tRole(r.name)}</option>)}
-      </select>
+      <SearchSelect
+        className="form-control"
+        value={form.role_id || ''}
+        onChange={v => setForm(f => ({ ...f, role_id: v ? Number(v) : '' }))}
+        placeholder={t('common.noRole')}
+        options={(assignableRoles).map(r => ({ value: r.id, label: tRole(r.name) }))} />
     </div>
   );
 
@@ -154,10 +157,11 @@ export default function UserManagement() {
   const BranchSelect = () => (!form.is_superadmin && branches.length > 1) ? (
     <div className="form-group">
       <label className="form-label">{t('nav.branch')}</label>
-      <select className="form-control" value={form.branch_id || ''}
-        onChange={e => setForm(f => ({ ...f, branch_id: e.target.value ? Number(e.target.value) : '' }))}>
-        {branches.map(b => <option key={b.id} value={b.id}>{b.name}</option>)}
-      </select>
+      <SearchSelect
+        className="form-control"
+        value={form.branch_id || ''}
+        onChange={v => setForm(f => ({ ...f, branch_id: v ? Number(v) : '' }))}
+        options={(branches).map(b => ({ value: b.id, label: b.name }))} />
     </div>
   ) : null;
 

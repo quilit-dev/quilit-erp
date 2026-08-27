@@ -226,11 +226,13 @@ function TransactionsPanel() {
               placeholder={t('expenses.searchPlaceholder')} value={search} onChange={e => setSearch(e.target.value)} />
           </div>
 
-          <select className="form-control" style={{ width: 150, height: 34, fontSize: 13 }}
-            value={catFilter} onChange={e => setCatFilter(e.target.value)}>
-            <option value="">{t('expenses.allCategories')}</option>
-            {catOptions.map(c => <option key={c} value={c}>{tCategory(c)}</option>)}
-          </select>
+          <SearchSelect
+            className="form-control"
+            style={{ width: 150, height: 34, fontSize: 13 }}
+            value={catFilter}
+            onChange={v => setCatFilter(v)}
+            placeholder={t('expenses.allCategories')}
+            options={(catOptions).map(c => ({ value: c, label: tCategory(c) }))} />
 
           <SearchSelect
             className="form-control"
@@ -240,11 +242,13 @@ function TransactionsPanel() {
             placeholder={t('expenses.allProjects')}
             options={(projects || []).map(p => ({ value: p.id, label: p.name }))} />
 
-          <select className="form-control" style={{ width: 140, height: 34, fontSize: 13 }}
-            value={monthFilter} onChange={e => setMonthFilter(e.target.value)}>
-            <option value="">{t('expenses.allMonths')}</option>
-            {months.map(m => <option key={m} value={m}>{m}</option>)}
-          </select>
+          <SearchSelect
+            className="form-control"
+            style={{ width: 140, height: 34, fontSize: 13 }}
+            value={monthFilter}
+            onChange={v => setMonthFilter(v)}
+            placeholder={t('expenses.allMonths')}
+            options={(months).map(m => ({ value: m, label: m }))} />
 
           {hasFilters && (
             <button className="btn btn-sm btn-secondary" onClick={() => {
@@ -413,23 +417,23 @@ function TransactionsPanel() {
                 {form.payment_method === 'Cash' && cashDrawers.length > 0 && (
                   <div className="form-group">
                     <label className="form-label">{t('expenses.cashDrawerLabel')}</label>
-                    <select className="form-control" value={form.cash_drawer_id ?? ''}
-                      onChange={e => setForm(f => ({ ...f, cash_drawer_id: e.target.value ? Number(e.target.value) : null }))}>
-                      <option value="">{t('expenses.defaultDrawer')}</option>
-                      {cashDrawers.map(d => <option key={d.id} value={d.id}>{d.name}</option>)}
-                    </select>
+                    <SearchSelect
+                      className="form-control"
+                      value={form.cash_drawer_id ?? ''}
+                      onChange={v => setForm(f => ({ ...f, cash_drawer_id: v ? Number(v) : null }))}
+                      placeholder={t('expenses.defaultDrawer')}
+                      options={(cashDrawers).map(d => ({ value: d.id, label: d.name }))} />
                   </div>
                 )}
                 {taxEnabled && (
                   <div className="form-group">
                     <label className="form-label">{t('common.taxCol')}</label>
-                    <select className="form-control" value={form.tax_rate_id ?? ''}
-                      onChange={e => setForm(f => ({ ...f, tax_rate_id: Number(e.target.value) || null }))}>
-                      <option value="">{t('expenses.noTax')}</option>
-                      {activeTaxRates.map(r => (
-                        <option key={r.id} value={r.id}>{r.name} ({r.rate}%)</option>
-                      ))}
-                    </select>
+                    <SearchSelect
+                      className="form-control"
+                      value={form.tax_rate_id ?? ''}
+                      onChange={v => setForm(f => ({ ...f, tax_rate_id: Number(v) || null }))}
+                      placeholder={t('expenses.noTax')}
+                      options={(activeTaxRates).map(r => ({ value: r.id, label: `${r.name} (${r.rate}%)` }))} />
                   </div>
                 )}
                 <div className="form-group form-full">

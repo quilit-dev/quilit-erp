@@ -31,6 +31,7 @@ import { PRIORITIES, StatPill } from './announcements/ui';
 import { AnnouncementRow, SentRow } from './announcements/rows';
 import { ComposeForm } from './announcements/ComposeForm';
 import { DetailModal } from './announcements/DetailModal';
+import SearchSelect from '../components/SearchSelect.jsx';
 
 
 // ── Main page ──────────────────────────────────────────────────────────────
@@ -157,20 +158,20 @@ export default function Announcements() {
             <input className="form-control search-input" placeholder={t('common.search')}
                    value={search} onChange={e => setSearch(e.target.value)} />
           </div>
-          <select className="form-control" style={{ width: 160 }} value={priority}
-                  onChange={e => setPriority(e.target.value)}>
-            <option value="">{t('announcements.allPriorities')}</option>
-            {PRIORITIES.map(p => (
-              <option key={p} value={p}>{t(`announcements.priority_${p}`)}</option>
-            ))}
-          </select>
-          <select className="form-control" style={{ width: 170 }} value={status}
-                  onChange={e => setStatus(e.target.value)}>
-            <option value="">{t('announcements.allStatuses')}</option>
-            <option value="unread">{t('announcements.filterUnread')}</option>
-            <option value="read">{t('announcements.filterRead')}</option>
-            <option value="pending_ack">{t('announcements.filterPendingAck')}</option>
-          </select>
+          <SearchSelect
+            className="form-control"
+            style={{ width: 160 }}
+            value={priority}
+            onChange={v => setPriority(v)}
+            placeholder={t('announcements.allPriorities')}
+            options={(PRIORITIES).map(p => ({ value: p, label: t(`announcements.priority_${p}`) }))} />
+          <SearchSelect
+            className="form-control"
+            style={{ width: 170 }}
+            value={status}
+            onChange={v => setStatus(v)}
+            placeholder={t('announcements.allStatuses')}
+            options={[{ value: 'unread', label: t('announcements.filterUnread') }, { value: 'read', label: t('announcements.filterRead') }, { value: 'pending_ack', label: t('announcements.filterPendingAck') }]} />
         </div>
       )}
 

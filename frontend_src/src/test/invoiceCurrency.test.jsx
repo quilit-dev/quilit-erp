@@ -20,7 +20,8 @@ describe('the invoice is billed in the customer\'s currency', () => {
 
   test('changing currency clears any rate typed for the old one', () => {
     // Otherwise a euro rate silently follows the picker to pounds.
-    expect(invoicesSrc).toMatch(/currency: e\.target\.value,\s*\n?\s*exchange_rate: '' *\}\)\)/);
+    // The picker is a SearchSelect, which hands over the value itself.
+    expect(invoicesSrc).toMatch(/currency: v,\s*\n?\s*exchange_rate: '' *\}\)\)/);
   });
 });
 

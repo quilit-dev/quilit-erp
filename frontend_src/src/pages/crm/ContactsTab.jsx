@@ -68,11 +68,12 @@ function ContactForm({ initial, clients, leads, onSave, onClose, t }) {
                 {t('common.insteadOfClient')}
               </span>
             </label>
-            <select className="form-control" value={form.lead_id || ''}
-              onChange={e => setForm(p => ({ ...p, lead_id: e.target.value, client_id: e.target.value ? '' : p.client_id }))}>
-              <option value="">{t('crm.selectLead')}</option>
-              {(leads || []).map(l => <option key={l.id} value={l.id}>{l.name}{l.company ? ` — ${l.company}` : ''}</option>)}
-            </select>
+            <SearchSelect
+              className="form-control"
+              value={form.lead_id || ''}
+              onChange={v => setForm(p => ({ ...p, lead_id: v, client_id: v ? '' : p.client_id }))}
+              placeholder={t('crm.selectLead')}
+              options={((leads || [])).map(l => ({ value: l.id, label: `${l.name}${l.company ? ` — ${l.company}` : ''}` }))} />
           </div>
           <div className="form-group form-full" style={{ marginBottom: 4 }}>
             <label style={{ display: 'flex', alignItems: 'center', gap: 8, cursor: 'pointer' }}>

@@ -13,6 +13,7 @@ import { useState } from 'react';
 import { Modal } from './shared';
 import BankField, { useBankAccounts } from './BankField.jsx';
 import { useLocale } from '../hooks/useLocale.jsx';
+import SearchSelect from '../components/SearchSelect.jsx';
 
 const METHODS = ['Cash', 'Bank Transfer', 'Cheque', 'Card'];
 
@@ -34,12 +35,11 @@ export default function PayoutModal({ title, summary, confirmLabel,
         <div className="form-grid">
           <div className="form-group">
             <label className="form-label">{t('expenses.paymentMethodLabel')}</label>
-            <select className="form-control" value={method}
-              onChange={e => { setMethod(e.target.value); setBankId(''); }}>
-              {METHODS.map(m => (
-                <option key={m} value={m}>{tEnumValue(m)}</option>
-              ))}
-            </select>
+            <SearchSelect
+              className="form-control"
+              value={method}
+              onChange={v => { setMethod(v); setBankId(''); }}
+              options={(METHODS).map(m => ({ value: m, label: tEnumValue(m) }))} />
           </div>
           <BankField method={method} value={bankId} onChange={setBankId}
             accounts={accounts} />

@@ -19,6 +19,7 @@ import { getBankAccounts, createBankAccount, updateBankAccount,
 import { toast, fmt, NumberInput, ConfirmModal } from '../../components/shared';
 import { useLocale } from '../../hooks/useLocale.jsx';
 import { Section, Field, Input, CURRENCIES } from './ui';
+import SearchSelect from '../../components/SearchSelect.jsx';
 
 const EMPTY = {
   name: '', bank_name: '', account_number: '', iban: '', swift: '',
@@ -164,11 +165,12 @@ export function BankAccountsSection({ canEdit }) {
             </Field>
             <div className="form-group">
               <label className="form-label">{t('common.currency')}</label>
-              <select className="form-control" value={form.currency}
+              <SearchSelect
+                className="form-control"
                 disabled={!!editing}
-                onChange={e => setForm(f => ({ ...f, currency: e.target.value }))}>
-                {CURRENCIES.map(c => <option key={c} value={c}>{c}</option>)}
-              </select>
+                value={form.currency}
+                onChange={v => setForm(f => ({ ...f, currency: v }))}
+                options={(CURRENCIES).map(c => ({ value: c, label: c }))} />
             </div>
             <div className="form-group">
               {/* What the account held before the ERP started keeping it, so

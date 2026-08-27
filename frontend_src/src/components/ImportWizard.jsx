@@ -3,6 +3,7 @@ import * as XLSX from 'xlsx';
 import { Modal, toast } from './shared';
 import { useLocale } from '../hooks/useLocale.jsx';
 import { getImportSchema, validateImport, commitImport } from '../api/client';
+import SearchSelect from '../components/SearchSelect.jsx';
 
 // Normalise a header for fuzzy auto-mapping: "Phone Number" ≈ "phone_number".
 const norm = (s) => String(s || '').toLowerCase().replace(/[^a-z0-9]/g, '');
@@ -169,11 +170,12 @@ export default function ImportWizard({ entity, title, onClose, onDone }) {
                             {f.hint && <div style={{ fontSize: 11, color: 'var(--text-3)' }}>{f.hint}</div>}
                           </td>
                           <td>
-                            <select className="form-control" value={mapping[f.key] ?? ''}
-                              onChange={e => setMapping(m => ({ ...m, [f.key]: e.target.value === '' ? '' : Number(e.target.value) }))}>
-                              <option value="">{t('imports.ignore')}</option>
-                              {headers.map((h, i) => <option key={i} value={i}>{h || `Column ${i + 1}`}</option>)}
-                            </select>
+                            <SearchSelect
+                              className="form-control"
+                              value={mapping[f.key] ?? ''}
+                              onChange={v => setMapping(m => ({ ...m, [f.key]: v === '' ? '' : Number(v) }))}
+                              placeholder={t('imports.ignore')}
+                              options={(headers).map((h, i) => ({ value: i, label: h || `Column ${i + 1}` }))} />
                           </td>
                         </tr>
                       ))}
@@ -185,10 +187,12 @@ export default function ImportWizard({ entity, title, onClose, onDone }) {
                 )}
                 <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginTop: 14 }}>
                   <label style={{ fontSize: 13, color: 'var(--text-2)' }}>{t('imports.onDuplicate')}</label>
-                  <select className="form-control" style={{ width: 200 }} value={onDup} onChange={e => setOnDup(e.target.value)}>
-                    <option value="skip">{t('imports.dupSkip')}</option>
-                    <option value="error">{t('imports.dupError')}</option>
-                  </select>
+                  <SearchSelect
+                    className="form-control"
+                    style={{ width: 200 }}
+                    value={onDup}
+                    onChange={v => setOnDup(v)}
+                    options={[{ value: 'skip', label: t('imports.dupSkip') }, { value: 'error', label: t('imports.dupError') }]} />
                 </div>
               </div>
             )}

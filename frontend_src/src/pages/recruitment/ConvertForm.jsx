@@ -3,6 +3,7 @@ import { useLocale } from '../../hooks/useLocale.jsx';
 import { Modal, toast, NumberInput } from '../../components/shared';
 import { convertApplicant, getApplicantOffers } from '../../api/client';
 import { EMP_TYPES, EMP_TYPE_KEY , tEnum } from './constants';
+import SearchSelect from '../../components/SearchSelect.jsx';
 
 function ConvertForm({ applicant, positions, onClose, onConverted }) {
   const { t } = useLocale();
@@ -94,10 +95,11 @@ function ConvertForm({ applicant, positions, onClose, onConverted }) {
             </div>
             <div className="form-group">
               <label className="form-label">{t('recruitment.fieldEmploymentType')}</label>
-              <select className="form-control" value={form.employment_type}
-                onChange={e => setForm(f => ({ ...f, employment_type: e.target.value }))}>
-                {EMP_TYPES.map(x => <option key={x} value={x}>{tEnum(t, EMP_TYPE_KEY, x)}</option>)}
-              </select>
+              <SearchSelect
+                className="form-control"
+                value={form.employment_type}
+                onChange={v => setForm(f => ({ ...f, employment_type: v }))}
+                options={(EMP_TYPES).map(x => ({ value: x, label: tEnum(t, EMP_TYPE_KEY, x) }))} />
             </div>
             <div className="form-group">
               <label className="form-label">{t('recruitment.fieldSalary')}</label>

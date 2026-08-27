@@ -198,12 +198,11 @@ function CheckoutModal({ pricing, clients, drawers, defaultCurrency = 'USD', onC
               </div>
               <div className="form-group">
                 <label className="form-label">{t('installments.frequency')}</label>
-                <select className="form-control" value={planFreq}
-                  onChange={e => { setPlanTouched(true); setPlanFreq(e.target.value); }}>
-                  <option value="monthly">{t('installments.monthly')}</option>
-                  <option value="quarterly">{t('installments.quarterly')}</option>
-                  <option value="yearly">{t('installments.yearly')}</option>
-                </select>
+                <SearchSelect
+                  className="form-control"
+                  value={planFreq}
+                  onChange={v => { setPlanTouched(true); setPlanFreq(v); }}
+                  options={[{ value: 'monthly', label: t('installments.monthly') }, { value: 'quarterly', label: t('installments.quarterly') }, { value: 'yearly', label: t('installments.yearly') }]} />
               </div>
               <div className="form-group">
                 <label className="form-label">{t('installments.firstDue')}</label>
@@ -228,27 +227,34 @@ function CheckoutModal({ pricing, clients, drawers, defaultCurrency = 'USD', onC
           )}
           <div className="form-group">
             <label className="form-label">{t('pos.paymentMethod')}</label>
-            <select className="form-control" value={method} onChange={e => setMethod(e.target.value)}>
-              <option value="Cash">{t('pos.cash')}</option>
-              <option value="Card">{t('pos.card')}</option>
-            </select>
+            <SearchSelect
+              className="form-control"
+              value={method}
+              onChange={v => setMethod(v)}
+              options={[{ value: 'Cash', label: t('pos.cash') }, { value: 'Card', label: t('pos.card') }]} />
           </div>
           <div className="form-group">
             <label className="form-label">{t('pos.currency')}</label>
-            <select className="form-control" value={currency} onChange={e => setCurrency(e.target.value)}>
-              <option value="USD">{exchangeRate?.base || 'USD'}</option>
-              {exchangeRate?.rate ? <option value="LBP">{exchangeRate.secondary || 'LBP'}</option> : null}
-            </select>
+            {/* The second currency only exists once a rate has been set for it. */}
+            <SearchSelect className="form-control" value={currency} onChange={setCurrency}
+              allowBlank={false}
+              options={[
+                { value: 'USD', label: exchangeRate?.base || 'USD' },
+                ...(exchangeRate?.rate
+                  ? [{ value: 'LBP', label: exchangeRate.secondary || 'LBP' }]
+                  : []),
+              ]} />
           </div>
           <BankField method={method} value={bankId} onChange={setBankId}
             accounts={bankAccounts} style={{ gridColumn: '1 / -1' }} />
           {method === 'Cash' && drawers.length > 0 && (
             <div className="form-group form-full">
               <label className="form-label">{t('pos.cashDrawer')}</label>
-              <select className="form-control" value={drawerId}
-                onChange={e => setDrawerId(e.target.value)}>
-                {drawers.map(d => <option key={d.id} value={d.id}>{d.name}</option>)}
-              </select>
+              <SearchSelect
+                className="form-control"
+                value={drawerId}
+                onChange={v => setDrawerId(v)}
+                options={(drawers).map(d => ({ value: d.id, label: d.name }))} />
             </div>
           )}
           {currency === 'LBP' && (

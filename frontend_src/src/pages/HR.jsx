@@ -24,6 +24,7 @@ import ImportWizard from '../components/ImportWizard';
 import { EmployeeDetail } from './hr/EmployeeDetail';
 import { PayrollRunPanel } from './hr/PayrollRunPanel';
 import { AttendanceTab } from './hr/AttendanceTab';
+import SearchSelect from '../components/SearchSelect.jsx';
 import {
   EMPLOYMENT_TYPES, EMPLOYEE_STATUS, LEAVE_TYPES,
   EMP_STATUS_BADGE, LEAVE_STATUS_BADGE, PAYROLL_BADGE, CHANGE_BADGE, CHANGE_TYPES,
@@ -502,37 +503,39 @@ export default function HR() {
                 </div>
                 <div className="form-group">
                   <label className="form-label">{t('hr.colDepartment')}</label>
-                  <select className="form-control" value={empForm.department_id}
-                    onChange={e => setEmpForm(f => ({ ...f, department_id: e.target.value }))}>
-                    <option value="">— {t('hr.none')} —</option>
-                    {depts.map(d => <option key={d.id} value={d.id}>{d.name}</option>)}
-                  </select>
+                  <SearchSelect
+                    className="form-control"
+                    value={empForm.department_id}
+                    onChange={v => setEmpForm(f => ({ ...f, department_id: v }))}
+                    placeholder={`— ${t('hr.none')} —`}
+                    options={(depts).map(d => ({ value: d.id, label: d.name }))} />
                 </div>
                 <BranchField value={empForm.branch_id}
                   onChange={v => setEmpForm(f => ({ ...f, branch_id: v }))} />
                 <div className="form-group">
                   <label className="form-label">{t('hr.fldEmploymentType')}</label>
-                  <select className="form-control" value={empForm.employment_type}
-                    onChange={e => setEmpForm(f => ({ ...f, employment_type: e.target.value }))}>
-                    {EMPLOYMENT_TYPES.map(x => <option key={x} value={x}>{tEnumValue(x)}</option>)}
-                  </select>
+                  <SearchSelect
+                    className="form-control"
+                    value={empForm.employment_type}
+                    onChange={v => setEmpForm(f => ({ ...f, employment_type: v }))}
+                    options={(EMPLOYMENT_TYPES).map(x => ({ value: x, label: tEnumValue(x) }))} />
                 </div>
                 <div className="form-group">
                   <label className="form-label">{t('common.status')}</label>
-                  <select className="form-control" value={empForm.status}
-                    onChange={e => setEmpForm(f => ({ ...f, status: e.target.value }))}>
-                    {EMPLOYEE_STATUS.map(x => <option key={x} value={x}>{tEnumValue(x)}</option>)}
-                  </select>
+                  <SearchSelect
+                    className="form-control"
+                    value={empForm.status}
+                    onChange={v => setEmpForm(f => ({ ...f, status: v }))}
+                    options={(EMPLOYEE_STATUS).map(x => ({ value: x, label: tEnumValue(x) }))} />
                 </div>
                 <div className="form-group">
                   <label className="form-label">{t('hr.fldManager')}</label>
-                  <select className="form-control" value={empForm.manager_id}
-                    onChange={e => setEmpForm(f => ({ ...f, manager_id: e.target.value }))}>
-                    <option value="">— {t('hr.none')} —</option>
-                    {emps.filter(e => e.id !== empEditId).map(e => (
-                      <option key={e.id} value={e.id}>{e.full_name}</option>
-                    ))}
-                  </select>
+                  <SearchSelect
+                    className="form-control"
+                    value={empForm.manager_id}
+                    onChange={v => setEmpForm(f => ({ ...f, manager_id: v }))}
+                    placeholder={`— ${t('hr.none')} —`}
+                    options={(emps.filter(e => e.id !== empEditId)).map(e => ({ value: e.id, label: e.full_name }))} />
                 </div>
                 <div className="form-group">
                   <label className="form-label">{t('hr.fldHireDate')}</label>
@@ -546,12 +549,11 @@ export default function HR() {
                 </div>
                 <div className="form-group">
                   <label className="form-label">{t('hr.fldPayType')}</label>
-                  <select className="form-control" value={empForm.pay_type}
-                    onChange={e => setEmpForm(f => ({ ...f, pay_type: e.target.value }))}>
-                    {PAY_TYPES.map(x => (
-                      <option key={x} value={x}>{t(`hr.payType${x}`)}</option>
-                    ))}
-                  </select>
+                  <SearchSelect
+                    className="form-control"
+                    value={empForm.pay_type}
+                    onChange={v => setEmpForm(f => ({ ...f, pay_type: v }))}
+                    options={(PAY_TYPES).map(x => ({ value: x, label: t(`hr.payType${x}`) }))} />
                 </div>
                 {empForm.pay_type === 'Hourly' && (
                   <div className="form-group">
@@ -603,12 +605,11 @@ export default function HR() {
                           {t('hr.changeTypeHint')}
                         </span>
                       </label>
-                      <select className="form-control" value={empForm.change_type || ''}
-                        onChange={e => setEmpForm(f => ({ ...f, change_type: e.target.value }))}>
-                        {CHANGE_TYPES.map(x =>
-                          <option key={x} value={x}>{x === '' ? t('hr.changeAutoDetect') : changeLabel(x, t)}</option>
-                        )}
-                      </select>
+                      <SearchSelect
+                        className="form-control"
+                        value={empForm.change_type || ''}
+                        onChange={v => setEmpForm(f => ({ ...f, change_type: v }))}
+                        options={(CHANGE_TYPES).map(x => ({ value: x, label: x === '' ? t('hr.changeAutoDetect') : changeLabel(x, t) }))} />
                     </div>
                     <div className="form-group" style={{ gridColumn: '1 / -1' }}>
                       <label className="form-label">{t('hr.changeReason')}</label>
@@ -686,21 +687,22 @@ export default function HR() {
             <div className="modal-body">
               <div className="form-group">
                 <label className="form-label">{t('hr.colEmployee')} *</label>
-                <select className="form-control" required value={leaveForm.employee_id}
-                  onChange={e => setLeaveForm(f => ({ ...f, employee_id: e.target.value }))}>
-                  <option value="">— {t('hr.selectEmployee')} —</option>
-                  {emps.filter(e => e.status !== 'Terminated').map(e => (
-                    <option key={e.id} value={e.id}>{e.full_name}</option>
-                  ))}
-                </select>
+                <SearchSelect
+                  className="form-control"
+                  required
+                  value={leaveForm.employee_id}
+                  onChange={v => setLeaveForm(f => ({ ...f, employee_id: v }))}
+                  placeholder={`— ${t('hr.selectEmployee')} —`}
+                  options={(emps.filter(e => e.status !== 'Terminated')).map(e => ({ value: e.id, label: e.full_name }))} />
               </div>
               <div className="form-grid">
                 <div className="form-group">
                   <label className="form-label">{t('hr.colLeaveType')}</label>
-                  <select className="form-control" value={leaveForm.leave_type}
-                    onChange={e => setLeaveForm(f => ({ ...f, leave_type: e.target.value }))}>
-                    {LEAVE_TYPES.map(x => <option key={x} value={x}>{tEnumValue(x)}</option>)}
-                  </select>
+                  <SearchSelect
+                    className="form-control"
+                    value={leaveForm.leave_type}
+                    onChange={v => setLeaveForm(f => ({ ...f, leave_type: v }))}
+                    options={(LEAVE_TYPES).map(x => ({ value: x, label: tEnumValue(x) }))} />
                 </div>
                 <div className="form-group">
                   <label className="form-label">{t('hr.fldStartDate')} *</label>

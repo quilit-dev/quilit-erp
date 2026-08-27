@@ -186,12 +186,11 @@ export default function Promotions() {
               <div className="form-grid">
                 <div className="form-group">
                   <label className="form-label">{t('promotions.appliesTo')}</label>
-                  <select className="form-control" value={form.scope_type}
-                    onChange={e => set('scope_type', e.target.value)}>
-                    <option value="all">{t('promotions.targetAll')}</option>
-                    <option value="category">{t('promotions.aCategory')}</option>
-                    <option value="item">{t('promotions.anItem')}</option>
-                  </select>
+                  <SearchSelect
+                    className="form-control"
+                    value={form.scope_type}
+                    onChange={v => set('scope_type', v)}
+                    options={[{ value: 'all', label: t('promotions.targetAll') }, { value: 'category', label: t('promotions.aCategory') }, { value: 'item', label: t('promotions.anItem') }]} />
                 </div>
                 <div className="form-group">
                   <label className="form-label">{t('promotions.discountPct')}</label>
@@ -203,10 +202,12 @@ export default function Promotions() {
               {form.scope_type === 'category' && (
                 <div className="form-group">
                   <label className="form-label">{t('promotions.category')}</label>
-                  <select className="form-control" value={form.scope_value} onChange={e => set('scope_value', e.target.value)}>
-                    <option value="">{t('promotions.selectCategory')}</option>
-                    {categories.map(c => <option key={c} value={c}>{tCategory(c)}</option>)}
-                  </select>
+                  <SearchSelect
+                    className="form-control"
+                    value={form.scope_value}
+                    onChange={v => set('scope_value', v)}
+                    placeholder={t('promotions.selectCategory')}
+                    options={(categories).map(c => ({ value: c, label: tCategory(c) }))} />
                 </div>
               )}
               {form.scope_type === 'item' && (

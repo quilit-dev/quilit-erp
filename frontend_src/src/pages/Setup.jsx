@@ -1,6 +1,7 @@
 import React, { useState } from 'react';
 import { completeSetup } from '../api/client';
 import { useLocale } from '../hooks/useLocale.jsx';
+import SearchSelect from '../components/SearchSelect.jsx';
 
 // Lebanon SMB market: the ERP operates in USD with LBP as the secondary
 // (dual-currency) unit, so only these two are offered.
@@ -183,18 +184,17 @@ export default function Setup() {
               </div>
               <div className="form-group">
                 <label className="form-label">{t('setup.defaultCurrency')}</label>
-                <select className="form-control" value={currency} onChange={e => setCurrency(e.target.value)}>
-                  {CURRENCIES.map(c => <option key={c}>{c}</option>)}
-                </select>
+                <SearchSelect className="form-control" value={currency} onChange={setCurrency}
+                  options={CURRENCIES.map(c => ({ value: c, label: c }))} />
               </div>
               <div className="form-group">
                 <label className="form-label">{t('setup.businessTypeLabel')} <span style={{ fontSize: 11, color: 'var(--text-3)' }}>{t('common.optional')}</span></label>
-                <select className="form-control" value={businessType} onChange={e => setBusinessType(e.target.value)}>
-                  <option value="">{t('setup.businessTypeGeneral')}</option>
-                  <option value="Apparel">{t('setup.businessTypeApparel')}</option>
-                  <option value="Electronics">{t('setup.businessTypeElectronics')}</option>
-                  <option value="Food & Beverage">{t('setup.businessTypeFnb')}</option>
-                </select>
+                <SearchSelect
+                  className="form-control"
+                  value={businessType}
+                  onChange={v => setBusinessType(v)}
+                  placeholder={t('setup.businessTypeGeneral')}
+                  options={[{ value: 'Apparel', label: t('setup.businessTypeApparel') }, { value: 'Electronics', label: t('setup.businessTypeElectronics') }, { value: 'Food & Beverage', label: t('setup.businessTypeFnb') }]} />
                 <div style={{ fontSize: 11, color: 'var(--text-3)', marginTop: 4 }}>{t('setup.businessTypeHint')}</div>
               </div>
               <div style={{ display: 'flex', gap: 10, marginTop: 8 }}>

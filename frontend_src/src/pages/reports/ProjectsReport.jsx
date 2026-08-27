@@ -3,6 +3,7 @@ import { Link } from 'react-router-dom';
 import { LoadingSpinner, ErrorAlert, Badge, fmt } from '../../components/shared';
 import { getReportProjects } from '../../api/client';
 import { StatCard, ExportButtons } from './charts';
+import SearchSelect from '../../components/SearchSelect.jsx';
 
 function ProjectsReport({ params, t }) {
   const [data, setData]       = useState([]);
@@ -59,12 +60,12 @@ function ProjectsReport({ params, t }) {
         <div className="card-header">
           <span className="card-title">{t('reports.projects')}</span>
           <div style={{ display: 'flex', gap: 8, alignItems: 'center' }}>
-            <select className="form-control" style={{ width: 160, fontSize: 12 }}
-              value={statusFilter} onChange={e => setStatusFilter(e.target.value)}>
-              {STATUSES.map(s => (
-                <option key={s} value={s}>{s || t('reports.allStatuses')}</option>
-              ))}
-            </select>
+            <SearchSelect
+              className="form-control"
+              style={{ width: 160, fontSize: 12 }}
+              value={statusFilter}
+              onChange={v => setStatusFilter(v)}
+              options={(STATUSES).map(s => ({ value: s, label: s || t('reports.allStatuses') }))} />
             <ExportButtons
               rows={data} columns={projectCols}
               baseName="project_profitability" pdfTitle={t('reports.projectProfit') || 'Project Profitability'} t={t} />

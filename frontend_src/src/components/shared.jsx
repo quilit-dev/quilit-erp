@@ -4,6 +4,7 @@ import { useLocale } from '../hooks/useLocale.jsx';
 import { useSettings } from '../hooks/useSettings.jsx';
 import { useScrollLock } from '../hooks/useScrollLock';
 import { getBranchContext, getBranchFilter } from '../api/client';
+import SearchSelect from '../components/SearchSelect.jsx';
 
 // ── Icon set ───────────────────────────────────────────────────
 // A small, consistent line-icon family (Lucide-style: 24-grid, currentColor
@@ -330,24 +331,25 @@ export function SelectOther({
 
   const showInput = other || isCustom;
 
-  const onSelect = (e) => {
-    const v = e.target.value;
+  const onSelect = (v) => {
     if (v === otherValue) { setOther(true); onChange(''); }
     else { setOther(false); onChange(v); }
   };
 
   return (
     <>
-      <select
+      <SearchSelect
         className={className}
         value={showInput ? otherValue : (value ?? '')}
         onChange={onSelect}
         required={required}
-      >
-        {includeNone && <option value="">{noneLabel}</option>}
-        {opts.map(o => <option key={o.value} value={o.value}>{o.label}</option>)}
-        <option value={otherValue}>{otherLabel || t('common.otherOption')}</option>
-      </select>
+        allowBlank={false}
+        placeholder={placeholder}
+        options={[
+          ...(includeNone ? [{ value: '', label: noneLabel }] : []),
+          ...opts.map(o => ({ value: o.value, label: o.label })),
+          { value: otherValue, label: otherLabel || t('common.otherOption') },
+        ]} />
       {showInput && (
         <input
           className={className}
@@ -404,10 +406,11 @@ export function BranchField({ value, onChange, label }) {
   return (
     <div className="form-group">
       <label className="form-label">{label || t('nav.branch')}</label>
-      <select className="form-control" value={value ?? ''}
-        onChange={e => onChange(e.target.value ? Number(e.target.value) : '')}>
-        {branches.map(b => <option key={b.id} value={b.id}>{b.name}</option>)}
-      </select>
+      <SearchSelect
+        className="form-control"
+        value={value ?? ''}
+        onChange={v => onChange(v ? Number(v) : '')}
+        options={(branches).map(b => ({ value: b.id, label: b.name }))} />
     </div>
   );
 }
@@ -742,14 +745,12 @@ export function Pagination({ page, totalPages, pageSize, pageSizes, totalRows, s
       <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
         <label style={{ display: 'flex', alignItems: 'center', gap: 6, color: 'var(--text-3)' }}>
           {t('common.rows')}
-          <select
+          <SearchSelect
             className="form-control"
             style={{ width: 64, height: 28, fontSize: 12, padding: '0 6px' }}
             value={pageSize}
-            onChange={e => setPageSize(Number(e.target.value))}
-          >
-            {pageSizes.map(n => <option key={n} value={n}>{n}</option>)}
-          </select>
+            onChange={v => setPageSize(Number(v))}
+            options={(pageSizes).map(n => ({ value: n, label: n }))} />
         </label>
         <div style={{ display: 'flex', gap: 3 }}>
           <button className="btn btn-sm btn-secondary btn-icon" disabled={page <= 1} onClick={() => setPage(1)} title="First">

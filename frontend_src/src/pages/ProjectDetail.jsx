@@ -10,6 +10,7 @@ import { usePermissions } from '../hooks/usePermissions';
 import { useWarehouses } from '../hooks/useWarehouses';
 import Attachments from '../components/Attachments.jsx';
 import { openSafeHtmlDocument } from '../utils/exportUtils';
+import SearchSelect from '../components/SearchSelect.jsx';
 
 
 function StatCard({ label, value, sub, color }) {
@@ -542,36 +543,24 @@ export default function ProjectDetail() {
             <div className="modal-body">
               <div className="form-group">
                 <label className="form-label">{t('projects.inventoryItemLabel')} *</label>
-                <select
+                <SearchSelect
                   className="form-control"
                   required
                   value={deductItem}
-                  onChange={e => { setDeductItem(e.target.value); setDeductQty(''); }}
-                >
-                  <option value="">{t('projects.selectItemOption')}</option>
-                  {inventory.filter(i => i.quantity > 0).map(i => (
-                    <option key={i.id} value={i.id}>
-                      {i.name} — {i.quantity} {i.unit} @ {fmt(i.unit_cost)}/{i.unit}
-                    </option>
-                  ))}
-                </select>
+                  onChange={v => { setDeductItem(v); setDeductQty(''); }}
+                  placeholder={t('projects.selectItemOption')}
+                  options={(inventory.filter(i => i.quantity > 0)).map(i => ({ value: i.id, label: `${i.name} — ${i.quantity} ${i.unit} @ ${fmt(i.unit_cost)}/${i.unit}` }))} />
               </div>
 
               {accessibleWarehouses.length > 1 && (
                 <div className="form-group">
                   <label className="form-label">{t('warehouses.field')}</label>
-                  <select
+                  <SearchSelect
                     className="form-control"
                     value={deductWarehouseId}
-                    onChange={e => setDeductWarehouseId(e.target.value)}
-                  >
-                    {accessibleWarehouses.map(w => (
-                      <option key={w.id} value={w.id}>
-                        {w.code} · {w.name}
-                        {w.is_default ? ` (${t('warehouses.defaultBadge').toLowerCase()})` : ''}
-                      </option>
-                    ))}
-                  </select>
+                    onChange={v => setDeductWarehouseId(v)}
+                    options={(accessibleWarehouses).map(w => ({ value: w.id, label: `${w.code} · ${w.name}
+                        ${w.is_default ? ` (${t('warehouses.defaultBadge').toLowerCase()})` : ''}` }))} />
                 </div>
               )}
 

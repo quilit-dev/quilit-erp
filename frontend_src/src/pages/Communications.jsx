@@ -12,6 +12,7 @@ import { useCallback, useEffect, useState } from 'react';
 import { commsHistory, commsRevoke } from '../api/client';
 import { useLocale } from '../hooks/useLocale.jsx';
 import { LoadingSpinner, toast, Icon } from '../components/shared';
+import SearchSelect from '../components/SearchSelect.jsx';
 
 const CHANNELS = ['', 'email', 'whatsapp'];
 const STATUSES = ['', 'sent', 'opened', 'failed'];
@@ -80,22 +81,18 @@ export default function Communications() {
                                             alignItems: 'center' }}>
           <input className="form-control" style={{ maxWidth: 240 }} value={q}
             onChange={e => setQ(e.target.value)} placeholder={t('comms.searchHint')} />
-          <select className="form-control" style={{ maxWidth: 170 }} value={channel}
-            onChange={e => setChannel(e.target.value)}>
-            {CHANNELS.map(v => (
-              <option key={v || 'all'} value={v}>
-                {v ? t(`comms.${v}`) : t('comms.allChannels')}
-              </option>
-            ))}
-          </select>
-          <select className="form-control" style={{ maxWidth: 170 }} value={status}
-            onChange={e => setStatus(e.target.value)}>
-            {STATUSES.map(v => (
-              <option key={v || 'all'} value={v}>
-                {v ? t(`comms.status${v[0].toUpperCase()}${v.slice(1)}`) : t('comms.allStatuses')}
-              </option>
-            ))}
-          </select>
+          <SearchSelect
+            className="form-control"
+            style={{ maxWidth: 170 }}
+            value={channel}
+            onChange={v => setChannel(v)}
+            options={(CHANNELS).map(v => ({ value: v, label: v ? t(`comms.${v}`) : t('comms.allChannels') }))} />
+          <SearchSelect
+            className="form-control"
+            style={{ maxWidth: 170 }}
+            value={status}
+            onChange={v => setStatus(v)}
+            options={(STATUSES).map(v => ({ value: v, label: v ? t(`comms.status${v[0].toUpperCase()}${v.slice(1)}`) : t('comms.allStatuses') }))} />
           <button className="btn btn-secondary btn-sm" onClick={load}>
             <Icon name="refresh-cw" size={13} /> {t('common.refresh')}
           </button>

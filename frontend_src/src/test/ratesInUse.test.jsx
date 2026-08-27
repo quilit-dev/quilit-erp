@@ -68,7 +68,9 @@ describe('a customer in euro pays in euro, at the euro rate', () => {
     const c = await mountPayment({ id: 1, name: 'Bruxelles SA',
                                    preferred_currency: 'EUR' });
 
-    expect(c.querySelector('select').value).toBeTruthy();
+    // The picker is a SearchSelect, so what it holds is the label on its
+    // trigger rather than the `value` of a <select>.
+    expect(c.querySelector('[role="combobox"]').textContent).toBeTruthy();
     expect(c.textContent).toContain('EUR');
   });
 
@@ -110,7 +112,9 @@ describe('a customer in euro pays in euro, at the euro rate', () => {
 
 describe('the invoice payment form stops using the pound rate for everything', () => {
   test('each currency inherits its own', () => {
-    expect(invoicesSrc).toMatch(/: \(rateFor\(e\.target\.value\) \|\| ''\),/);
+    // SearchSelect hands over the value itself, so the handler reads `v`
+    // where it used to read `e.target.value`.
+    expect(invoicesSrc).toMatch(/: \(rateFor\(v\) \|\| ''\),/);
     // The old rule — pounds inherit, everything else blank — is gone.
     expect(invoicesSrc).not.toMatch(/only pounds may/);
   });

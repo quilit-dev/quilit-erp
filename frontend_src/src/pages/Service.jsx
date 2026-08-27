@@ -32,6 +32,7 @@ import JobForm from './service/JobForm.jsx';
 import WriteUp from './service/WriteUp.jsx';
 import EquipmentForm from './service/EquipmentForm.jsx';
 import { printWorkOrder } from '../utils/workOrder';
+import SearchSelect from '../components/SearchSelect.jsx';
 
 const STATUS_COLOR = { Open: 'blue', Done: 'green', Cancelled: 'red' };
 const STATUSES = ['Open', 'Done', 'Cancelled'];
@@ -181,13 +182,13 @@ export default function Service() {
                        placeholder={t('service.searchPlaceholder')}
                        value={search} onChange={e => setSearch(e.target.value)} />
               </div>
-              <select className="form-control" style={{ width: 150 }} value={statusFilter}
-                      onChange={e => setStatusFilter(e.target.value)}>
-                <option value="">{t('common.all')}</option>
-                {STATUSES.map(s => (
-                  <option key={s} value={s}>{t(`service.status${s.replace(/\s/g, '')}`)}</option>
-                ))}
-              </select>
+              <SearchSelect
+                className="form-control"
+                style={{ width: 150 }}
+                value={statusFilter}
+                onChange={v => setStatusFilter(v)}
+                placeholder={t('common.all')}
+                options={(STATUSES).map(s => ({ value: s, label: t(`service.status${s.replace(/\s/g, '')}`) }))} />
               <input type="date" className="form-control" style={{ width: 150 }}
                      value={dateFrom} onChange={e => setDateFrom(e.target.value)}
                      title={t('service.dateFrom')} aria-label={t('service.dateFrom')} />

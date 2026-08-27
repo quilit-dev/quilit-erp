@@ -7,6 +7,7 @@ import {
 } from '../../api/client';
 import { money, VarianceTag, CATS } from './ui';
 import { CloseDayModal } from './modals';
+import SearchSelect from '../../components/SearchSelect.jsx';
 
 // ── Reconciliation detail modal ─────────────────────────────────────────────
 function ReconDetailModal({ reconId, canCreate, canEdit, canDelete, onClose, onChanged }) {
@@ -157,26 +158,30 @@ function ReconDetailModal({ reconId, canCreate, canEdit, canDelete, onClose, onC
                             marginTop: 8, borderTop: '1px solid var(--border)', paddingTop: 10 }}>
                 <div className="form-group" style={{ margin: 0 }}>
                   <label className="form-label">{t('cash.direction')}</label>
-                  <select className="form-control" style={{ height: 32 }} value={dir}
-                    onChange={e => { setDir(e.target.value); setCategory(CATS[e.target.value][0]); }}>
-                    <option value="in">{t('cash.cashIn')}</option>
-                    <option value="out">{t('cash.cashOut')}</option>
-                  </select>
+                  <SearchSelect
+                    className="form-control"
+                    style={{ height: 32 }}
+                    value={dir}
+                    onChange={v => { setDir(v); setCategory(CATS[v][0]); }}
+                    options={[{ value: 'in', label: t('cash.cashIn') }, { value: 'out', label: t('cash.cashOut') }]} />
                 </div>
                 <div className="form-group" style={{ margin: 0 }}>
                   <label className="form-label">{t('cash.currency')}</label>
-                  <select className="form-control" style={{ height: 32 }} value={currency}
-                    onChange={e => setCurrency(e.target.value)}>
-                    <option value="USD">USD</option>
-                    <option value="LBP">LBP</option>
-                  </select>
+                  <SearchSelect
+                    className="form-control"
+                    style={{ height: 32 }}
+                    value={currency}
+                    onChange={v => setCurrency(v)}
+                    options={[{ value: 'USD', label: 'USD' }, { value: 'LBP', label: 'LBP' }]} />
                 </div>
                 <div className="form-group" style={{ margin: 0 }}>
                   <label className="form-label">{t('cash.category')}</label>
-                  <select className="form-control" style={{ height: 32 }} value={category}
-                    onChange={e => setCategory(e.target.value)}>
-                    {CATS[dir].map(cat => <option key={cat} value={cat}>{tEnumValue(cat)}</option>)}
-                  </select>
+                  <SearchSelect
+                    className="form-control"
+                    style={{ height: 32 }}
+                    value={category}
+                    onChange={v => setCategory(v)}
+                    options={(CATS[dir]).map(cat => ({ value: cat, label: tEnumValue(cat) }))} />
                 </div>
                 <div className="form-group" style={{ margin: 0, flex: 1, minWidth: 110 }}>
                   <label className="form-label">{t('cash.description')}</label>

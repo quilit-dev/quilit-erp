@@ -143,7 +143,10 @@ describe('it mounts', () => {
           </MemoryRouter></LocaleProvider></ThemeProvider>));
         await new Promise(r => setTimeout(r, 0));
       });
-      expect(container.querySelectorAll('select').length).toBeGreaterThanOrEqual(1);
+      // Every dropdown in the app is a SearchSelect now; a <select> here
+      // would mean the page had missed the sweep.
+      expect(container.querySelectorAll('[role="combobox"]').length)
+        .toBeGreaterThanOrEqual(1);
     } finally {
       globalThis.fetch = realFetch;
     }

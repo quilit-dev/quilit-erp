@@ -1,11 +1,16 @@
 /**
  * A dropdown you can type into.
  *
- * The four lists this exists for — inventory, clients, projects, the chart of
- * accounts — are the ones that grow without bound. A business with nine hundred
- * products had a nine-hundred-row `<select>`, and picking from it meant
- * scrolling. Everything else in the app stays a plain select: a filter box over
- * five payment methods is more machinery than the problem needs.
+ * It began as a filter for the four lists that grow without bound — inventory,
+ * clients, projects, the chart of accounts — where a nine-hundred-row `<select>`
+ * meant scrolling. It is now every dropdown in the app, because a native select
+ * hands its list to the operating system: square corners, system font, no hover
+ * styling, opening next to a designed panel on the field beside it. The closed
+ * controls always matched to the pixel; only what opened gave it away.
+ *
+ * The filter box appears only when there is enough to filter. Below the
+ * threshold the panel is just a styled list, because a search box over three
+ * payment methods is a box nobody types in.
  *
  * The API is deliberately the shape of the `<select>` it replaces — `value` and
  * an `onChange` handed the same string a `<select>` would give — so a call site
@@ -56,15 +61,24 @@ function place(rect, panelH, rtl) {
   };
 }
 
+// Below this many rows the whole list is on screen at once, so a filter box
+// would be a control that never earns its keystroke.
+const SEARCH_FROM = 8;
+
 export default function SearchSelect({
   value,
   onChange,
   options = [],
   placeholder,            // the blank row's text, like <option value="">
   emptyText,              // shown when a query matches nothing
+  searchable,             // default: only once the list is long enough
   disabled = false,
   required = false,
-  allowBlank = true,
+  // A <select> has a blank row only when one was written into it, so this
+  // follows the placeholder that stands in for `<option value="">`. Defaulting
+  // it on gave a page-size picker a "—" row that meant nothing and, chosen,
+  // meant nothing twice.
+  allowBlank,
   className = 'form-control',
   style,
   id,
@@ -82,6 +96,9 @@ export default function SearchSelect({
   const panelRef = useRef(null);
   const listRef = useRef(null);
   const listId = useId();
+
+  const canSearch = searchable ?? options.length >= SEARCH_FROM;
+  const blankRow = allowBlank ?? !!placeholder;
 
   const selected = useMemo(
     () => options.find(o => String(o.value) === String(value ?? '')) || null,
@@ -121,7 +138,7 @@ export default function SearchSelect({
   useEffect(() => {
     if (open) inputRef.current?.focus();
     else setQuery('');
-  }, [open]);
+  }, [open, canSearch]);
 
   // Keep the highlighted row on a row that still exists after filtering.
   useEffect(() => { setCursor(0); }, [query]);
@@ -235,25 +252,27 @@ export default function SearchSelect({
             overflow: 'hidden',
           }}
         >
-          <input
-            ref={inputRef}
-            className="form-control"
-            value={query}
-            placeholder={t('common.search')}
-            onChange={e => setQuery(e.target.value)}
-            onKeyDown={onKeyDown}
-            style={{
-              border: 'none', borderBottom: '1px solid var(--rule)',
-              borderRadius: 0, boxShadow: 'none', flexShrink: 0,
-            }}
-          />
+          {canSearch && (
+            <input
+              ref={inputRef}
+              className="form-control"
+              value={query}
+              placeholder={t('common.search')}
+              onChange={e => setQuery(e.target.value)}
+              onKeyDown={onKeyDown}
+              style={{
+                border: 'none', borderBottom: '1px solid var(--rule)',
+                borderRadius: 0, boxShadow: 'none', flexShrink: 0,
+              }}
+            />
+          )}
           <div
             ref={listRef}
             id={listId}
             role="listbox"
             style={{ overflowY: 'auto', padding: 4 }}
           >
-            {allowBlank && !query && (
+            {blankRow && !query && (
               <Row
                 onPick={() => pick(null)}
                 active={!selected}

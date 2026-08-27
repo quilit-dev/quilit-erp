@@ -13,6 +13,7 @@
 // two can never disagree.
 import { useState } from 'react';
 import { ModulePicker, useModuleGraph } from './ModulePicker';
+import SearchSelect from '../../components/SearchSelect.jsx';
 
 const STEPS = ['Company', 'Access', 'Modules', 'Licence'];
 
@@ -61,12 +62,12 @@ export default function ProvisionWizard({ pfetch, onCreated, onCancel }) {
     <div className="form-group">
       <label className="form-label">{label}</label>
       {opts.options ? (
-        <select className="form-control" value={form[key]} onChange={e => set(key, e.target.value)}>
-          {opts.placeholder && <option value="">{opts.placeholder}</option>}
-          {opts.options.map(o => typeof o === 'string'
-            ? <option key={o} value={o}>{o}</option>
-            : <option key={o.code} value={o.code}>{o.label}</option>)}
-        </select>
+        <SearchSelect className="form-control" value={form[key]} onChange={v => set(key, v)}
+          placeholder={opts.placeholder}
+          allowBlank={!!opts.placeholder}
+          options={opts.options.map(o => (typeof o === 'string'
+            ? { value: o, label: o }
+            : { value: o.code, label: o.label }))} />
       ) : (
         <input className="form-control" type={opts.type || 'text'}
           value={form[key]} placeholder={opts.placeholder || ''}

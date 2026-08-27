@@ -103,15 +103,20 @@ function Journal({ t, tAccount, tEnumValue, fmt, fmtDate, canCreate, canEdit }) 
         <input type="date" className="form-control" style={{ width: 150 }} value={start} onChange={e => setStart(e.target.value)} />
         <span style={{ color: 'var(--text-3)' }}>→</span>
         <input type="date" className="form-control" style={{ width: 150 }} value={end} onChange={e => setEnd(e.target.value)} />
-        <select className="form-control" style={{ width: 160 }} value={sourceType} onChange={e => setSourceType(e.target.value)}>
-          <option value="">{t('accounting.allSources')}</option>
-          {sourceTypes.map(s => <option key={s} value={s}>{tEnumValue(s)}</option>)}
-        </select>
-        <select className="form-control" style={{ width: 140 }} value={status} onChange={e => setStatus(e.target.value)}>
-          <option value="">{t('accounting.allStatuses')}</option>
-          <option value="posted">{t('accounting.statusPosted')}</option>
-          <option value="reversed">{t('accounting.statusReversed')}</option>
-        </select>
+        <SearchSelect
+          className="form-control"
+          style={{ width: 160 }}
+          value={sourceType}
+          onChange={v => setSourceType(v)}
+          placeholder={t('accounting.allSources')}
+          options={(sourceTypes).map(s => ({ value: s, label: tEnumValue(s) }))} />
+        <SearchSelect
+          className="form-control"
+          style={{ width: 140 }}
+          value={status}
+          onChange={v => setStatus(v)}
+          placeholder={t('accounting.allStatuses')}
+          options={[{ value: 'posted', label: t('accounting.statusPosted') }, { value: 'reversed', label: t('accounting.statusReversed') }]} />
         <input className="form-control" style={{ minWidth: 180, flex: 1 }}
           placeholder={t('accounting.searchEntries') + '…'}
           value={search} onChange={e => setSearch(e.target.value)} />

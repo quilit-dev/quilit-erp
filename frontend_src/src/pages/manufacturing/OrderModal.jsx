@@ -4,6 +4,7 @@ import { useWarehouses } from '../../hooks/useWarehouses';
 import { Modal, toast, NumberInput } from '../../components/shared';
 import { createProductionOrder } from '../../api/client';
 import { Money, CostInput } from './ui';
+import SearchSelect from '../../components/SearchSelect.jsx';
 
 function OrderModal({ boms, initialBom, onClose, onCreated }) {
   const { t } = useLocale();
@@ -50,10 +51,12 @@ function OrderModal({ boms, initialBom, onClose, onCreated }) {
       <div className="modal-body">
         <div className="form-group">
           <label className="form-label">{t('manufacturing.bom')}</label>
-          <select className="form-control" value={bomId} onChange={e => setBomId(e.target.value)}>
-            <option value="">{t('manufacturing.selectBom')}</option>
-            {usable.map(b => <option key={b.id} value={b.id}>{b.name} → {b.output_name} (v{b.version})</option>)}
-          </select>
+          <SearchSelect
+            className="form-control"
+            value={bomId}
+            onChange={v => setBomId(v)}
+            placeholder={t('manufacturing.selectBom')}
+            options={(usable).map(b => ({ value: b.id, label: `${b.name} → ${b.output_name} (v${b.version})` }))} />
         </div>
         {bom && (
           <p style={{ fontSize: 12, color: 'var(--text-3)', margin: '0 0 8px' }}>
@@ -68,14 +71,11 @@ function OrderModal({ boms, initialBom, onClose, onCreated }) {
         {warehouses.length > 1 && (
           <div className="form-group">
             <label className="form-label">{t('warehouses.field')}</label>
-            <select className="form-control" value={warehouseId}
-              onChange={e => setWarehouseId(e.target.value)}>
-              {warehouses.map(w => (
-                <option key={w.id} value={w.id}>
-                  {w.code} · {w.name}{w.is_default ? ` (${t('warehouses.defaultBadge').toLowerCase()})` : ''}
-                </option>
-              ))}
-            </select>
+            <SearchSelect
+              className="form-control"
+              value={warehouseId}
+              onChange={v => setWarehouseId(v)}
+              options={(warehouses).map(w => ({ value: w.id, label: `${w.code} · ${w.name}${w.is_default ? ` (${t('warehouses.defaultBadge').toLowerCase()})` : ''}` }))} />
             <small style={{ color: 'var(--text-3)' }}>{t('warehouses.fieldHintMfg')}</small>
           </div>
         )}
@@ -94,10 +94,11 @@ function OrderModal({ boms, initialBom, onClose, onCreated }) {
         <div className="form-grid">
           <div className="form-group">
             <label className="form-label">{t('manufacturing.priority')}</label>
-            <select className="form-control" value={priority} onChange={e => setPriority(e.target.value)}>
-              {['Low', 'Normal', 'High', 'Urgent'].map(p =>
-                <option key={p} value={p}>{t(`manufacturing.prio_${p}`)}</option>)}
-            </select>
+            <SearchSelect
+              className="form-control"
+              value={priority}
+              onChange={v => setPriority(v)}
+              options={(['Low', 'Normal', 'High', 'Urgent']).map(p => ({ value: p, label: t(`manufacturing.prio_${p}`) }))} />
           </div>
           <div className="form-group">
             <label className="form-label">{t('manufacturing.dueDate')}</label>

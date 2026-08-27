@@ -6,6 +6,7 @@ import { logout as apiLogout, getAnnouncementsUnread, getBranchContext, getBranc
 import BrandLogo from './BrandLogo';
 import ChangePasswordModal from './ChangePasswordModal';
 import { useModules } from '../hooks/useModules';
+import SearchSelect from '../components/SearchSelect.jsx';
 
 const Icons = {
   communications: <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M22 2 11 13"/><path d="M22 2 15 22l-4-9-9-4Z"/></svg>,
@@ -146,8 +147,7 @@ export default function Sidebar() {
       .catch(() => { /* silent — non-critical chrome */ });
     return () => { alive = false; };
   }, []);
-  function onBranchChange(e) {
-    const val = e.target.value;
+  function onBranchChange(val) {
     setBranchSel(val);
     setBranchFilter(val === 'all' ? null : val);
     window.location.reload();
@@ -306,14 +306,14 @@ export default function Sidebar() {
           <label style={{ display: 'flex', alignItems: 'center', gap: 7, padding: '7px 10px',
             border: '1px solid var(--border)', borderRadius: 'var(--r-sm)', background: 'var(--surface)' }}>
             <span className="nav-link-icon" style={{ color: 'var(--text-3)', display: 'inline-flex', flexShrink: 0 }}>{Icons.warehouses}</span>
-            <select value={branchSel} onChange={onBranchChange} aria-label={t('nav.branch')}
+            <SearchSelect value={branchSel} onChange={onBranchChange} aria-label={t('nav.branch')}
+              className=""
               style={{ flex: 1, minWidth: 0, border: 'none', background: 'transparent', font: 'inherit',
-                fontSize: 12.5, fontWeight: 600, color: 'var(--text)', cursor: 'pointer', outline: 'none' }}>
-              <option value="all">{t('nav.allBranches')}</option>
-              {branches.map(b => (
-                <option key={b.id} value={b.id}>{b.name}</option>
-              ))}
-            </select>
+                fontSize: 12.5, fontWeight: 600, color: 'var(--text)', cursor: 'pointer', outline: 'none',
+                padding: 0 }}
+              allowBlank={false}
+              options={[{ value: 'all', label: t('nav.allBranches') },
+                        ...branches.map(b => ({ value: b.id, label: b.name }))]} />
           </label>
         </div>
       )}

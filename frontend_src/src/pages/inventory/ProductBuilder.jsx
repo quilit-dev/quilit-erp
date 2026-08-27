@@ -5,6 +5,7 @@ import { useSettings } from '../../hooks/useSettings.jsx';
 import { toast, NumberInput, swallowScannerEnter } from '../../components/shared';
 import { getAttributeDefs } from '../../api/client';
 import { fmtNum } from './ui';
+import SearchSelect from '../../components/SearchSelect.jsx';
 
 function ProductBuilder({ knownCategories = [], onSave, onCancel, saving }) {
   const { t, tCategory } = useLocale();
@@ -129,10 +130,12 @@ function ProductBuilder({ knownCategories = [], onSave, onCancel, saving }) {
           </div>
           <div className="form-group">
             <label className="form-label">{t('common.category')}</label>
-            <select className="form-control" value={form.category} onChange={e => set('category', e.target.value)}>
-              <option value="">{t('inventory.noCategory')}</option>
-              {allCats.map(c => <option key={c} value={c}>{tCategory(c)}</option>)}
-            </select>
+            <SearchSelect
+              className="form-control"
+              value={form.category}
+              onChange={v => set('category', v)}
+              placeholder={t('inventory.noCategory')}
+              options={(allCats).map(c => ({ value: c, label: tCategory(c) }))} />
           </div>
           <div className="form-group">
             <label className="form-label">{t('inventory.brandLabel')}</label>
@@ -221,11 +224,12 @@ function ProductBuilder({ knownCategories = [], onSave, onCancel, saving }) {
             <div style={{ display: 'flex', gap: 6 }}>
               <NumberInput className="form-control" step="any" min="0" style={{ flex: 1 }}
                 value={form.unit_cost} onChange={e => set('unit_cost', e.target.value)} />
-              <select className="form-control" style={{ width: 80 }} value={form.cost_currency}
-                onChange={e => set('cost_currency', e.target.value)}>
-                <option value="USD">USD</option>
-                <option value={secondary} disabled={!hasRate}>{secondary}</option>
-              </select>
+              <SearchSelect
+                className="form-control"
+                style={{ width: 80 }}
+                value={form.cost_currency}
+                onChange={v => set('cost_currency', v)}
+                options={[{ value: 'USD', label: 'USD' }]} />
             </div>
             {form.cost_currency === 'LBP' && <div style={{ fontSize: 11, color: 'var(--text-3)', marginTop: 3 }}>{t('inventory.costLockedToUsd')} {equiv(form.unit_cost, 'LBP')}</div>}
           </div>
@@ -234,11 +238,12 @@ function ProductBuilder({ knownCategories = [], onSave, onCancel, saving }) {
             <div style={{ display: 'flex', gap: 6 }}>
               <NumberInput className="form-control" step="any" min="0" style={{ flex: 1 }}
                 value={form.sale_price} onChange={e => set('sale_price', e.target.value)} />
-              <select className="form-control" style={{ width: 80 }} value={form.price_currency}
-                onChange={e => set('price_currency', e.target.value)}>
-                <option value="USD">USD</option>
-                <option value={secondary} disabled={!hasRate}>{secondary}</option>
-              </select>
+              <SearchSelect
+                className="form-control"
+                style={{ width: 80 }}
+                value={form.price_currency}
+                onChange={v => set('price_currency', v)}
+                options={[{ value: 'USD', label: 'USD' }]} />
             </div>
             {form.price_currency === 'LBP' && <div style={{ fontSize: 11, color: 'var(--text-3)', marginTop: 3 }}>{t('inventory.salePriceFloatsHint')} {equiv(form.sale_price, 'LBP')}</div>}
           </div>

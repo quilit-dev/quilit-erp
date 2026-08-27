@@ -3,6 +3,7 @@ import { useLocale } from '../../hooks/useLocale.jsx';
 import { Modal, toast, NumberInput } from '../../components/shared';
 import { scheduleInterview, updateInterview } from '../../api/client';
 import { INT_TYPES, INT_STATUS, INT_DECISIONS, INT_TYPE_KEY, INT_STATUS_KEY, INT_DECISION_KEY , tEnum } from './constants';
+import SearchSelect from '../../components/SearchSelect.jsx';
 
 function InterviewForm({ appId, existing, onClose, onSaved }) {
   const { t } = useLocale();
@@ -65,17 +66,19 @@ function InterviewForm({ appId, existing, onClose, onSaved }) {
           <div className="form-grid">
             <div className="form-group">
               <label className="form-label">{t('recruitment.intColType')}</label>
-              <select className="form-control" value={form.interview_type}
-                onChange={e => setForm(f => ({ ...f, interview_type: e.target.value }))}>
-                {INT_TYPES.map(x => <option key={x} value={x}>{tEnum(t, INT_TYPE_KEY, x)}</option>)}
-              </select>
+              <SearchSelect
+                className="form-control"
+                value={form.interview_type}
+                onChange={v => setForm(f => ({ ...f, interview_type: v }))}
+                options={(INT_TYPES).map(x => ({ value: x, label: tEnum(t, INT_TYPE_KEY, x) }))} />
             </div>
             <div className="form-group">
               <label className="form-label">{t('recruitment.colStatus')}</label>
-              <select className="form-control" value={form.status}
-                onChange={e => setForm(f => ({ ...f, status: e.target.value }))}>
-                {INT_STATUS.map(x => <option key={x} value={x}>{tEnum(t, INT_STATUS_KEY, x)}</option>)}
-              </select>
+              <SearchSelect
+                className="form-control"
+                value={form.status}
+                onChange={v => setForm(f => ({ ...f, status: v }))}
+                options={(INT_STATUS).map(x => ({ value: x, label: tEnum(t, INT_STATUS_KEY, x) }))} />
             </div>
             <div className="form-group">
               <label className="form-label">{t('recruitment.intFieldWhen')} *</label>
@@ -107,10 +110,11 @@ function InterviewForm({ appId, existing, onClose, onSaved }) {
             </div>
             <div className="form-group">
               <label className="form-label">{t('recruitment.intFieldDecision')}</label>
-              <select className="form-control" value={form.decision}
-                onChange={e => setForm(f => ({ ...f, decision: e.target.value }))}>
-                {INT_DECISIONS.map(x => <option key={x} value={x}>{x ? tEnum(t, INT_DECISION_KEY, x) : t('recruitment.intPending')}</option>)}
-              </select>
+              <SearchSelect
+                className="form-control"
+                value={form.decision}
+                onChange={v => setForm(f => ({ ...f, decision: v }))}
+                options={(INT_DECISIONS).map(x => ({ value: x, label: x ? tEnum(t, INT_DECISION_KEY, x) : t('recruitment.intPending') }))} />
             </div>
             <div className="form-group" style={{ gridColumn: '1 / -1' }}>
               <label className="form-label">{t('recruitment.intFieldNotes')}</label>

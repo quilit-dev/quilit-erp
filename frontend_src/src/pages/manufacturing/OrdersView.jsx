@@ -5,6 +5,7 @@ import { getProductionOrders } from '../../api/client';
 import { num, Money, StatusPill } from './ui';
 import { OrderModal } from './OrderModal';
 import { OrderDetailModal } from './OrderDetailModal';
+import SearchSelect from '../../components/SearchSelect.jsx';
 
 function OrdersView({ canCreate, canEdit, canDelete, boms, refreshKey, bump }) {
   const { t, fmtDate } = useLocale();
@@ -41,13 +42,13 @@ function OrdersView({ canCreate, canEdit, canDelete, boms, refreshKey, bump }) {
           <button className="btn btn-primary btn-sm" disabled={boms.filter(b => b.is_active).length === 0}
             onClick={() => setCreating(true)}>{t('manufacturing.newOrder')}</button>
         )}
-        <select className="form-control" style={{ width: 170, height: 32, fontSize: 13 }}
-          value={statusFilter} onChange={e => setStatusFilter(e.target.value)}>
-          <option value="">{t('manufacturing.allStatuses')}</option>
-          {['Draft', 'Confirmed', 'In Progress', 'Completed', 'Cancelled'].map(s => (
-            <option key={s} value={s}>{t(`manufacturing.st_${s.replace(/ /g, '')}`)}</option>
-          ))}
-        </select>
+        <SearchSelect
+          className="form-control"
+          style={{ width: 170, height: 32, fontSize: 13 }}
+          value={statusFilter}
+          onChange={v => setStatusFilter(v)}
+          placeholder={t('manufacturing.allStatuses')}
+          options={(['Draft', 'Confirmed', 'In Progress', 'Completed', 'Cancelled']).map(s => ({ value: s, label: t(`manufacturing.st_${s.replace(/ /g, '')}`) }))} />
         <button className={`btn btn-sm ${schedule ? 'btn-primary' : 'btn-secondary'}`}
           onClick={() => setSchedule(s => !s)} title={t('manufacturing.scheduleHint')}>
           🗓 {t('manufacturing.scheduleView')}

@@ -12,6 +12,7 @@ import { TaxRatesSection } from './settings/TaxRatesSection';
 import { RateBookPanel } from '../components/RateBook.jsx';
 import { BankAccountsSection } from './settings/BankAccountsSection';
 import UserManualSection from './settings/UserManualSection.jsx';
+import SearchSelect from '../components/SearchSelect.jsx';
 
 export default function Settings() {
   const { t } = useLocale();
@@ -259,11 +260,10 @@ export default function Settings() {
             </Field>
           </div>
           <Field label={t('settings.defaultCurrency')}>
-            <select value={form.default_currency} onChange={e => canEdit && set('default_currency')(e.target.value)}
+            <SearchSelect value={form.default_currency} onChange={v => canEdit && set('default_currency')(v)}
               className="form-control" style={{ minWidth: 140, width: 'auto', opacity: canEdit ? 1 : 0.6, cursor: canEdit ? 'auto' : 'not-allowed' }}
-              disabled={!canEdit}>
-              {CURRENCIES.map(c => <option key={c}>{c}</option>)}
-            </select>
+              disabled={!canEdit}
+              options={CURRENCIES.map(c => ({ value: c, label: c }))} />
           </Field>
         </Section>
 
@@ -298,11 +298,12 @@ export default function Settings() {
                       checked={isOn('service_auto_invoice')} onChange={bool('service_auto_invoice')} />
             </Field>
             <Field label={t('settings.receiptWidth')} hint={t('settings.receiptWidthHint')}>
-              <select className="form-control" disabled={!canEdit}
-                value={form.pos_receipt_width || '80'} onChange={set('pos_receipt_width')}>
-                <option value="80">80 mm</option>
-                <option value="58">58 mm</option>
-              </select>
+              {/* `set(key)` returns a value-taking setter, which is what the custom
+                  Input hands it. A raw <select> handed it the event object, so
+                  this setting stored one until it became a SearchSelect. */}
+              <SearchSelect className="form-control" disabled={!canEdit}
+                value={form.pos_receipt_width || '80'} onChange={set('pos_receipt_width')}
+                options={[{ value: '80', label: '80 mm' }, { value: '58', label: '58 mm' }]} />
             </Field>
             <Field label={t('settings.contractPrefix')}>
               <Input disabled={!canEdit} value={form.contract_prefix || ''} onChange={set('contract_prefix')} placeholder="CTR-" />
@@ -347,17 +348,13 @@ export default function Settings() {
               attributes nobody asked for. The presets themselves are
               unchanged and are managed per product. */}
           <Field label={t('settings.inventoryCostingMethod')} hint={t('settings.inventoryCostingMethodHint')}>
-            <select
+            <SearchSelect
               className="form-control"
               style={{ maxWidth: 360, opacity: canEdit ? 1 : 0.6, cursor: canEdit ? 'pointer' : 'not-allowed' }}
-              value={form.inventory_costing_method || 'weighted_avg'}
-              onChange={e => canEdit && set('inventory_costing_method')(e.target.value)}
               disabled={!canEdit}
-            >
-              <option value="weighted_avg">{t('settings.costingWeightedAvg')}</option>
-              <option value="fifo">{t('settings.costingFifo')}</option>
-              <option value="lifo">{t('settings.costingLifo')}</option>
-            </select>
+              value={form.inventory_costing_method || 'weighted_avg'}
+              onChange={v => canEdit && set('inventory_costing_method')(v)}
+              options={[{ value: 'weighted_avg', label: t('settings.costingWeightedAvg') }, { value: 'fifo', label: t('settings.costingFifo') }, { value: 'lifo', label: t('settings.costingLifo') }]} />
           </Field>
           <div style={{ marginTop: 4, padding: '10px 12px', background: 'var(--bg)', borderRadius: 6, fontSize: 12.5, color: 'var(--text-2)', lineHeight: 1.6 }}>
             {{

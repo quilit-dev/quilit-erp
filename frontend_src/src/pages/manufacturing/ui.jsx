@@ -2,6 +2,7 @@ import { useState } from 'react';
 import { useLocale } from '../../hooks/useLocale.jsx';
 import { useSettings } from '../../hooks/useSettings.jsx';
 import { DisplayCurrencyToggle, fmt, secondaryAmount, NumberInput } from '../../components/shared';
+import SearchSelect from '../../components/SearchSelect.jsx';
 
 const num = (v) => new Intl.NumberFormat('en-US', { maximumFractionDigits: 4 }).format(Number(v) || 0);
 
@@ -71,11 +72,12 @@ function CostInput({ valueUsd, onChange, placeholder }) {
       <NumberInput className="form-control" step="any" min="0"
         value={raw} placeholder={placeholder} onChange={e => handle(e.target.value)} />
       {lbp > 0 && (
-        <select className="form-control" style={{ width: 70, flexShrink: 0 }}
-          value={cur} onChange={e => switchCur(e.target.value)}>
-          <option value="USD">USD</option>
-          <option value="LBP">LBP</option>
-        </select>
+        <SearchSelect
+          className="form-control"
+          style={{ width: 70, flexShrink: 0 }}
+          value={cur}
+          onChange={v => switchCur(v)}
+          options={[{ value: 'USD', label: 'USD' }, { value: 'LBP', label: 'LBP' }]} />
       )}
     </div>
   );

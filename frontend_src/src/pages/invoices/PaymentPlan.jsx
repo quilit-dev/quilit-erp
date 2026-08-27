@@ -13,6 +13,7 @@ import { useState } from 'react';
 import { createPaymentPlan, deletePaymentPlan } from '../../api/client';
 import { Badge, fmt, fmtDate, toast, NumberInput, ConfirmModal } from '../../components/shared';
 import { useLocale } from '../../hooks/useLocale.jsx';
+import SearchSelect from '../../components/SearchSelect.jsx';
 
 const today = () => new Date().toISOString().slice(0, 10);
 
@@ -143,12 +144,11 @@ export default function PaymentPlan({ invoice, canEdit, onChange }) {
           </div>
           <div className="form-group" style={{ margin: 0, width: 130 }}>
             <label className="form-label">{t('installments.frequency')}</label>
-            <select className="form-control" value={form.frequency}
-              onChange={e => setForm(f => ({ ...f, frequency: e.target.value }))}>
-              <option value="monthly">{t('installments.monthly')}</option>
-              <option value="quarterly">{t('installments.quarterly')}</option>
-              <option value="yearly">{t('installments.yearly')}</option>
-            </select>
+            <SearchSelect
+              className="form-control"
+              value={form.frequency}
+              onChange={v => setForm(f => ({ ...f, frequency: v }))}
+              options={[{ value: 'monthly', label: t('installments.monthly') }, { value: 'quarterly', label: t('installments.quarterly') }, { value: 'yearly', label: t('installments.yearly') }]} />
           </div>
           <div className="form-group" style={{ margin: 0, width: 140 }}>
             <label className="form-label">{t('installments.deposit')}</label>

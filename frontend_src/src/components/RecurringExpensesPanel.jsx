@@ -306,10 +306,11 @@ export default function RecurringExpensesPanel() {
                 </div>
                 <div className="form-group">
                   <label className="form-label">{t('recurring.fldFrequency')} *</label>
-                  <select className="form-control" value={form.frequency}
-                    onChange={e => setForm(f => ({ ...f, frequency: e.target.value }))}>
-                    {FREQUENCIES.map(fr => <option key={fr} value={fr}>{t(`recurring.freq_${fr}`)}</option>)}
-                  </select>
+                  <SearchSelect
+                    className="form-control"
+                    value={form.frequency}
+                    onChange={v => setForm(f => ({ ...f, frequency: v }))}
+                    options={(FREQUENCIES).map(fr => ({ value: fr, label: t(`recurring.freq_${fr}`) }))} />
                 </div>
                 {['quarterly', 'annual'].includes(form.frequency) && (
                   <div className="form-group form-full">
@@ -364,13 +365,12 @@ export default function RecurringExpensesPanel() {
                 {taxEnabled && (
                   <div className="form-group">
                     <label className="form-label">{t('common.taxCol')}</label>
-                    <select className="form-control" value={form.tax_rate_id ?? ''}
-                      onChange={e => setForm(f => ({ ...f, tax_rate_id: Number(e.target.value) || null }))}>
-                      <option value="">{t('expenses.noTax')}</option>
-                      {activeTaxRates.map(r => (
-                        <option key={r.id} value={r.id}>{r.name} ({r.rate}%)</option>
-                      ))}
-                    </select>
+                    <SearchSelect
+                      className="form-control"
+                      value={form.tax_rate_id ?? ''}
+                      onChange={v => setForm(f => ({ ...f, tax_rate_id: Number(v) || null }))}
+                      placeholder={t('expenses.noTax')}
+                      options={(activeTaxRates).map(r => ({ value: r.id, label: `${r.name} (${r.rate}%)` }))} />
                   </div>
                 )}
                 <div className="form-group form-full">

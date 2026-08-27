@@ -252,10 +252,12 @@ describe('job type and priority read in Arabic', () => {
   });
 
   test('and the dropdowns show it', () => {
+    // Both are SearchSelects now, like every dropdown in the app, so the
+    // label goes through tEnumValue in the options rather than in JSX.
     expect(jobFormSrc).toContain(
-      '{JOB_TYPES.map(x => <option key={x} value={x}>{tEnumValue(x)}</option>)}');
+      'options={JOB_TYPES.map(x => ({ value: x, label: tEnumValue(x) }))}');
     expect(jobFormSrc).toContain(
-      '{PRIORITIES.map(x => <option key={x} value={x}>{tEnumValue(x)}</option>)}');
+      'options={PRIORITIES.map(x => ({ value: x, label: tEnumValue(x) }))}');
   });
 
   test('the option VALUE stays English so what is stored does not shift', () => {

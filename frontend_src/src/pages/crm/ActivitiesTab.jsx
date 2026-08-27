@@ -21,6 +21,8 @@ function ActivityForm({ initial, clients, leads, onSave, onClose, t }) {
   });
   const [saving, setSaving] = useState(false);
   const f = k => e => setForm(p => ({ ...p, [k]: e.target.value }));
+  // SearchSelect hands over the value itself, not an event.
+  const fv = k => v => setForm(p => ({ ...p, [k]: v }));
 
   const typeLabel = { call: t('crm.typeCall'), email: t('crm.typeEmail'), meeting: t('crm.typeMeeting'), task: t('crm.typeTask'), note: t('crm.typeNote') };
 
@@ -42,9 +44,8 @@ function ActivityForm({ initial, clients, leads, onSave, onClose, t }) {
         <div className="form-grid">
           <div className="form-group">
             <label className="form-label">{t('crm.activityType')}</label>
-            <select className="form-control" value={form.type} onChange={f('type')}>
-              {ACT_TYPES.map(tp => <option key={tp} value={tp}>{typeLabel[tp]}</option>)}
-            </select>
+            <SearchSelect className="form-control" value={form.type} onChange={fv('type')}
+              options={ACT_TYPES.map(tp => ({ value: tp, label: typeLabel[tp] }))} />
           </div>
           <div className="form-group">
             <label className="form-label">{t('crm.dueDate')}</label>
@@ -70,11 +71,12 @@ function ActivityForm({ initial, clients, leads, onSave, onClose, t }) {
                 {t('common.insteadOfClient')}
               </span>
             </label>
-            <select className="form-control" value={form.lead_id || ''}
-              onChange={e => setForm(p => ({ ...p, lead_id: e.target.value, client_id: e.target.value ? '' : p.client_id }))}>
-              <option value="">{t('crm.selectLead')}</option>
-              {(leads || []).map(l => <option key={l.id} value={l.id}>{l.name}</option>)}
-            </select>
+            <SearchSelect
+              className="form-control"
+              value={form.lead_id || ''}
+              onChange={v => setForm(p => ({ ...p, lead_id: v, client_id: v ? '' : p.client_id }))}
+              placeholder={t('crm.selectLead')}
+              options={((leads || [])).map(l => ({ value: l.id, label: l.name }))} />
           </div>
           <div className="form-group form-full">
             <label className="form-label">{t('crm.description')}</label>
@@ -149,15 +151,20 @@ function ActivitiesTab({ t }) {
               <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><circle cx="11" cy="11" r="8"/><path d="m21 21-4.35-4.35"/></svg>
               <input className="form-control search-input" placeholder={t('crm.searchActivities')} value={search} onChange={e => setSearch(e.target.value)} />
             </div>
-            <select className="form-control" style={{ width: 140 }} value={typeFilter} onChange={e => setType(e.target.value)}>
-              <option value="">{t('crm.allTypes')}</option>
-              {ACT_TYPES.map(tp => <option key={tp} value={tp}>{typeLabel[tp]}</option>)}
-            </select>
-            <select className="form-control" style={{ width: 120 }} value={doneFilter} onChange={e => setDone(e.target.value)}>
-              <option value="">{t('crm.allDone')}</option>
-              <option value="false">{t('crm.onlyOpen')}</option>
-              <option value="true">{t('crm.onlyDone')}</option>
-            </select>
+            <SearchSelect
+              className="form-control"
+              style={{ width: 140 }}
+              value={typeFilter}
+              onChange={v => setType(v)}
+              placeholder={t('crm.allTypes')}
+              options={(ACT_TYPES).map(tp => ({ value: tp, label: typeLabel[tp] }))} />
+            <SearchSelect
+              className="form-control"
+              style={{ width: 120 }}
+              value={doneFilter}
+              onChange={v => setDone(v)}
+              placeholder={t('crm.allDone')}
+              options={[{ value: 'false', label: t('crm.onlyOpen') }, { value: 'true', label: t('crm.onlyDone') }]} />
           </div>
           <button className="btn btn-primary btn-sm" onClick={() => { setSelected(null); setModal('form'); }}>
             {t('crm.addActivity')}

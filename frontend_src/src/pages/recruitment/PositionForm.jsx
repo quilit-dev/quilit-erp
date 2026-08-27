@@ -3,6 +3,7 @@ import { useLocale } from '../../hooks/useLocale.jsx';
 import { Modal, toast, NumberInput, BranchField } from '../../components/shared';
 import { createPosition, updatePosition } from '../../api/client';
 import { EMP_TYPES, POS_STATUS_KEY, EMP_TYPE_KEY, EMPTY_POSITION , tEnum } from './constants';
+import SearchSelect from '../../components/SearchSelect.jsx';
 
 function PositionForm({ posId, initial, departments, onClose, onSaved }) {
   const { t } = useLocale();
@@ -43,18 +44,20 @@ function PositionForm({ posId, initial, departments, onClose, onSaved }) {
             </div>
             <div className="form-group">
               <label className="form-label">{t('recruitment.fieldDepartment')}</label>
-              <select className="form-control" value={form.department_id || ''}
-                onChange={e => setForm(f => ({ ...f, department_id: e.target.value }))}>
-                <option value="">{t('recruitment.optNone')}</option>
-                {departments.map(d => <option key={d.id} value={d.id}>{d.name}</option>)}
-              </select>
+              <SearchSelect
+                className="form-control"
+                value={form.department_id || ''}
+                onChange={v => setForm(f => ({ ...f, department_id: v }))}
+                placeholder={t('recruitment.optNone')}
+                options={(departments).map(d => ({ value: d.id, label: d.name }))} />
             </div>
             <div className="form-group">
               <label className="form-label">{t('recruitment.fieldEmploymentType')}</label>
-              <select className="form-control" value={form.employment_type}
-                onChange={e => setForm(f => ({ ...f, employment_type: e.target.value }))}>
-                {EMP_TYPES.map(x => <option key={x} value={x}>{tEnum(t, EMP_TYPE_KEY, x)}</option>)}
-              </select>
+              <SearchSelect
+                className="form-control"
+                value={form.employment_type}
+                onChange={v => setForm(f => ({ ...f, employment_type: v }))}
+                options={(EMP_TYPES).map(x => ({ value: x, label: tEnum(t, EMP_TYPE_KEY, x) }))} />
             </div>
             <div className="form-group">
               <label className="form-label">{t('recruitment.fieldLocation')}</label>
@@ -78,11 +81,11 @@ function PositionForm({ posId, initial, departments, onClose, onSaved }) {
             </div>
             <div className="form-group">
               <label className="form-label">{t('recruitment.fieldStatus')}</label>
-              <select className="form-control" value={form.status}
-                onChange={e => setForm(f => ({ ...f, status: e.target.value }))}>
-                {['Open', 'On Hold', 'Filled', 'Cancelled'].map(s =>
-                  <option key={s} value={s}>{tEnum(t, POS_STATUS_KEY, s)}</option>)}
-              </select>
+              <SearchSelect
+                className="form-control"
+                value={form.status}
+                onChange={v => setForm(f => ({ ...f, status: v }))}
+                options={(['Open', 'On Hold', 'Filled', 'Cancelled']).map(s => ({ value: s, label: tEnum(t, POS_STATUS_KEY, s) }))} />
             </div>
             <BranchField value={form.branch_id}
               onChange={v => setForm(f => ({ ...f, branch_id: v }))} />

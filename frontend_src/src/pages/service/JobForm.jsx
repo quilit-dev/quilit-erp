@@ -118,27 +118,24 @@ export default function JobForm({ job, clients, onDone, onCancel }) {
         </div>
         <div className="form-group">
           <label className="form-label">{t('service.equipment')}</label>
-          <select className="form-control" value={form.equipment_id}
-                  onChange={set('equipment_id')} disabled={!form.client_id}>
-            <option value="">—</option>
-            {equipment.map(e => (
-              <option key={e.id} value={e.id}>
-                {e.name}{e.serial_number ? ` (${e.serial_number})` : ''}
-              </option>
-            ))}
-          </select>
+          <SearchSelect className="form-control" value={form.equipment_id}
+            onChange={setVal('equipment_id')} disabled={!form.client_id}
+            placeholder="—"
+            options={(equipment || []).map(e => ({
+              value: e.id, label: e.name, hint: e.serial_number,
+            }))} />
         </div>
         <div className="form-group">
           <label className="form-label">{t('service.jobType')}</label>
-          <select className="form-control" value={form.job_type} onChange={set('job_type')}>
-            {JOB_TYPES.map(x => <option key={x} value={x}>{tEnumValue(x)}</option>)}
-          </select>
+          <SearchSelect className="form-control" value={form.job_type}
+            onChange={setVal('job_type')} allowBlank={false}
+            options={JOB_TYPES.map(x => ({ value: x, label: tEnumValue(x) }))} />
         </div>
         <div className="form-group">
           <label className="form-label">{t('service.priority')}</label>
-          <select className="form-control" value={form.priority} onChange={set('priority')}>
-            {PRIORITIES.map(x => <option key={x} value={x}>{tEnumValue(x)}</option>)}
-          </select>
+          <SearchSelect className="form-control" value={form.priority}
+            onChange={setVal('priority')} allowBlank={false}
+            options={PRIORITIES.map(x => ({ value: x, label: tEnumValue(x) }))} />
         </div>
         <div className="form-group">
           <label className="form-label">{t('service.scheduledDate')}</label>
@@ -147,12 +144,11 @@ export default function JobForm({ job, clients, onDone, onCancel }) {
         </div>
         <div className="form-group">
           <label className="form-label">{t('service.assignedTo')}</label>
-          <select className="form-control" value={form.assigned_to} onChange={set('assigned_to')}>
-            <option value="">{t('service.unassigned')}</option>
-            {users.map(u => (
-              <option key={u.id} value={u.id}>{u.full_name || u.username}</option>
-            ))}
-          </select>
+          <SearchSelect className="form-control" value={form.assigned_to}
+            onChange={setVal('assigned_to')} placeholder={t('service.unassigned')}
+            options={(users || []).map(u => ({
+              value: u.id, label: u.full_name || u.username,
+            }))} />
         </div>
       </div>
 

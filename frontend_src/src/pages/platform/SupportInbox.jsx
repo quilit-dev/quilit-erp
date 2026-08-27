@@ -10,6 +10,7 @@
 import { useCallback, useEffect, useState } from 'react';
 import { LoadingSpinner, toast } from '../../components/shared';
 import { pfetch } from './api';
+import SearchSelect from '../../components/SearchSelect.jsx';
 
 const STATUSES   = ['open', 'investigating', 'resolved'];
 const SEVERITIES = ['low', 'medium', 'high', 'critical'];
@@ -84,11 +85,13 @@ export default function SupportInbox() {
           <input className="form-control" style={{ minWidth: 220, flex: 1 }}
             placeholder="Search title, message, description or user…"
             value={q} onChange={e => setQ(e.target.value)} />
-          <select className="form-control" style={{ width: 150 }}
-            value={severity} onChange={e => setSeverity(e.target.value)}>
-            <option value="">All severities</option>
-            {SEVERITIES.map(s => <option key={s} value={s}>{s}</option>)}
-          </select>
+          <SearchSelect
+            className="form-control"
+            style={{ width: 150 }}
+            value={severity}
+            onChange={v => setSeverity(v)}
+            placeholder={'All severities'}
+            options={(SEVERITIES).map(s => ({ value: s, label: s }))} />
           <button className="btn btn-secondary btn-sm" onClick={load}>Refresh</button>
         </div>
       </div>
@@ -198,10 +201,12 @@ function ReportDetail({ report: r, busy, onClose, onPatch }) {
               </div>
               <div className="form-group">
                 <label className="form-label">Severity</label>
-                <select className="form-control" value={r.severity}
-                  onChange={e => onPatch({ severity: e.target.value })} disabled={busy}>
-                  {SEVERITIES.map(s => <option key={s} value={s}>{s}</option>)}
-                </select>
+                <SearchSelect
+                  className="form-control"
+                  disabled={busy}
+                  value={r.severity}
+                  onChange={v => onPatch({ severity: v })}
+                  options={(SEVERITIES).map(s => ({ value: s, label: s }))} />
               </div>
               <div className="form-group form-full">
                 <label className="form-label">Notes</label>

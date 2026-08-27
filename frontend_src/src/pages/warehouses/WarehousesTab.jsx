@@ -6,6 +6,7 @@ import {
 } from '../../api/client';
 import { WAREHOUSE_TYPES, TYPE_COLOR } from './constants';
 import { StockAtWarehouseModal } from './StockAtWarehouseModal';
+import SearchSelect from '../../components/SearchSelect.jsx';
 
 function WarehousesTab({ canEdit, t }) {
   const [rows, setRows]       = useState([]);
@@ -206,10 +207,11 @@ function WarehousesTab({ canEdit, t }) {
             </div>
             <div className="form-group">
               <label className="form-label">{t('warehouses.typeLabel')}</label>
-              <select className="form-control" value={form.type}
-                onChange={e => setForm(f => ({ ...f, type: e.target.value }))}>
-                {WAREHOUSE_TYPES.map(typ => <option key={typ} value={typ}>{t(`warehouses.type_${typ}`)}</option>)}
-              </select>
+              <SearchSelect
+                className="form-control"
+                value={form.type}
+                onChange={v => setForm(f => ({ ...f, type: v }))}
+                options={(WAREHOUSE_TYPES).map(typ => ({ value: typ, label: t(`warehouses.type_${typ}`) }))} />
               <small style={{ color: 'var(--text-3)' }}>{t(`warehouses.desc_${form.type}`)}</small>
             </div>
             <div className="form-group">

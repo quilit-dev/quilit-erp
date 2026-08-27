@@ -521,11 +521,13 @@ export default function Invoices() {
               onChange={v => setProjectFilter(v)}
               placeholder={t('common.allProjects')}
               options={(projects || []).map(p => ({ value: p.id, label: p.name }))} />
-            <select className="form-control" style={{width:150}}
-              value={statusFilter} onChange={e => setStatusFilter(e.target.value)}>
-              <option value="">{t('common.allStatuses')}</option>
-              {['Unpaid','Partial','Paid','Overdue','Void'].map(s => <option key={s} value={s}>{tStatus(s)}</option>)}
-            </select>
+            <SearchSelect
+              className="form-control"
+              style={{width:150}}
+              value={statusFilter}
+              onChange={v => setStatusFilter(v)}
+              placeholder={t('common.allStatuses')}
+              options={(['Unpaid','Partial','Paid','Overdue','Void']).map(s => ({ value: s, label: tStatus(s) }))} />
             {(search||clientFilter||projectFilter||statusFilter) && (
               <button className="btn btn-secondary btn-sm" style={{whiteSpace:'nowrap'}}
                 onClick={() => { setSearch(''); setClientFilter(''); setProjectFilter(''); setStatusFilter(''); }}>
@@ -640,16 +642,15 @@ export default function Invoices() {
                     typed below are read as that currency. */}
                 <div className="form-group">
                   <label className="form-label">{t('invoices.currencyLabel')}</label>
-                  <select className="form-control" value={form.currency || ''}
-                    onChange={e => setForm(f => ({ ...f, currency: e.target.value,
-                                                  exchange_rate: '' }))}>
-                    <option value="">
-                      {billingCurrency
+                  <SearchSelect
+                    className="form-control"
+                    value={form.currency || ''}
+                    onChange={v => setForm(f => ({ ...f, currency: v,
+                                                  exchange_rate: '' }))}
+                    placeholder={billingCurrency
                         ? t('invoices.customersCurrency', { currency: billingCurrency })
                         : t('invoices.companyCurrency')}
-                    </option>
-                    {CURRENCIES.map(c => <option key={c} value={c}>{c}</option>)}
-                  </select>
+                    options={(CURRENCIES).map(c => ({ value: c, label: c }))} />
                 </div>
                 {invoiceCurrency && invoiceCurrency !== 'USD' && (
                   <div className="form-group">
@@ -785,14 +786,13 @@ export default function Invoices() {
                           {(rateById(item.tax_rate_id)?.rate ?? 0)}%
                         </span>
                       ) : (
-                        <select className="form-control" style={{ fontSize:12, padding:'6px 4px' }}
+                        <SearchSelect
+                          className="form-control"
+                          style={{ fontSize:12, padding:'6px 4px' }}
                           title={t('lineItem.taxTitle')}
                           value={item.tax_rate_id ?? (defaultTaxRate?.id ?? '')}
-                          onChange={e => setItem(i, 'tax_rate_id', Number(e.target.value) || null)}>
-                          {activeTaxRates.map(r => (
-                            <option key={r.id} value={r.id}>{r.name} ({r.rate}%)</option>
-                          ))}
-                        </select>
+                          onChange={v => setItem(i, 'tax_rate_id', Number(v) || null)}
+                          options={(activeTaxRates).map(r => ({ value: r.id, label: `${r.name} (${r.rate}%)` }))} />
                       )
                     )}
                     <span title={t('lineItem.lineTotalTitle')}
@@ -925,26 +925,23 @@ export default function Invoices() {
                     {(exchangeRate?.rate || Object.keys(rates || {}).length > 0) && (
                       <div className="form-group" style={{ margin:0, width:90 }}>
                         <label className="form-label">{t('invoices.paymentCurrency')}</label>
-                        <select className="form-control" value={payForm.currency}
-                          onChange={e => setPayForm(f => ({
-                            ...f, currency: e.target.value,
+                        <SearchSelect
+                          className="form-control"
+                          value={payForm.currency}
+                          onChange={v => setPayForm(f => ({
+                            ...f, currency: v,
                             // Each currency inherits ITS OWN stored rate. It
                             // used to inherit the pound one or nothing at all,
                             // because the pound rate was the only one the app
                             // could read — so a euro payment was either typed
                             // from memory or booked at 89,000.
-                            rate: e.target.value === 'USD'
+                            rate: v === 'USD'
                               ? f.rate
-                              : (rateFor(e.target.value) || ''),
-                          }))}>
-                          {CURRENCIES.map(cur => (
-                            <option key={cur} value={cur}>
-                              {cur === 'USD' ? (exchangeRate?.base || 'USD')
+                              : (rateFor(v) || ''),
+                          }))}
+                          options={(CURRENCIES).map(cur => ({ value: cur, label: cur === 'USD' ? (exchangeRate?.base || 'USD')
                                 : cur === 'LBP' ? (exchangeRate?.secondary || 'LBP')
-                                : cur}
-                            </option>
-                          ))}
-                        </select>
+                                : cur }))} />
                       </div>
                     )}
                     <div className="form-group" style={{ margin:0, flex:'1 1 130px', minWidth:120 }}>
@@ -969,10 +966,11 @@ export default function Invoices() {
                     )}
                     <div className="form-group" style={{ margin:0, width:130 }}>
                       <label className="form-label">{t('invoices.methodLabel')}</label>
-                      <select className="form-control" value={payForm.method}
-                        onChange={e => setPayForm(f => ({ ...f, method: e.target.value }))}>
-                        {METHODS.map(m => <option key={m} value={m}>{tEnumValue(m)}</option>)}
-                      </select>
+                      <SearchSelect
+                        className="form-control"
+                        value={payForm.method}
+                        onChange={v => setPayForm(f => ({ ...f, method: v }))}
+                        options={(METHODS).map(m => ({ value: m, label: tEnumValue(m) }))} />
                     </div>
                     <BankField method={payForm.method}
                       value={payForm.bank_account_id}
@@ -981,11 +979,12 @@ export default function Invoices() {
                     {payForm.method === 'Cash' && cashDrawers.length > 0 && (
                       <div className="form-group" style={{ margin:0, width:150 }}>
                         <label className="form-label">{t('pos.cashDrawer')}</label>
-                        <select className="form-control" value={payForm.cash_drawer_id}
-                          onChange={e => setPayForm(f => ({ ...f, cash_drawer_id: e.target.value }))}>
-                          <option value="">{t('expenses.defaultDrawer')}</option>
-                          {cashDrawers.map(d => <option key={d.id} value={d.id}>{d.name}</option>)}
-                        </select>
+                        <SearchSelect
+                          className="form-control"
+                          value={payForm.cash_drawer_id}
+                          onChange={v => setPayForm(f => ({ ...f, cash_drawer_id: v }))}
+                          placeholder={t('expenses.defaultDrawer')}
+                          options={(cashDrawers).map(d => ({ value: d.id, label: d.name }))} />
                       </div>
                     )}
                     <div className="form-group" style={{ margin:0, flex:'1 1 140px', minWidth:120 }}>

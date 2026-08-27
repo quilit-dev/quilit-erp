@@ -41,7 +41,7 @@ describe('it asks only when there is something to ask', () => {
   test('a method that settles through a bank gets the picker', async () => {
     for (const m of ['Bank Transfer', 'Cheque', 'Card', 'bank transfer']) {
       const c = await mount({ method: m });
-      expect(c.querySelector('select'), m).toBeTruthy();
+      expect(c.querySelector('[role="combobox"]'), m).toBeTruthy();
     }
   });
 
@@ -51,13 +51,13 @@ describe('it asks only when there is something to ask', () => {
     // reconcile against a statement.
     const c = await mount({ method: 'Cash' });
 
-    expect(c.querySelector('select')).toBeFalsy();
+    expect(c.querySelector('[role="combobox"]')).toBeFalsy();
   });
 
   test('and neither does a business with no accounts on file', async () => {
     const c = await mount({ method: 'Bank Transfer', accounts: [] });
 
-    expect(c.querySelector('select')).toBeFalsy();
+    expect(c.querySelector('[role="combobox"]')).toBeFalsy();
   });
 
   test('an archived account is not offered', async () => {
@@ -66,7 +66,7 @@ describe('it asks only when there is something to ask', () => {
       accounts: [{ ...ACCOUNTS[0], archived_at: '2026-01-01' }],
     });
 
-    expect(c.querySelector('select')).toBeFalsy();
+    expect(c.querySelector('[role="combobox"]')).toBeFalsy();
   });
 
   test('leaving it blank is allowed', async () => {

@@ -29,6 +29,7 @@ import { useLocale } from '../hooks/useLocale.jsx';
 import { useSettings } from '../hooks/useSettings.jsx';
 import { usePermissions } from '../hooks/usePermissions';
 import { useScrollLock } from '../hooks/useScrollLock';
+import SearchSelect from '../components/SearchSelect.jsx';
 
 const today = () => new Date().toISOString().slice(0, 10);
 
@@ -167,10 +168,11 @@ export function RateBookPanel({ onClose }) {
                         flexWrap: 'wrap' }}>
             <div className="form-group" style={{ margin: 0, width: 84 }}>
               <label className="form-label">{t('rates.currency')}</label>
-              <select className="form-control" value={form.currency}
-                onChange={e => setForm(f => ({ ...f, currency: e.target.value }))}>
-                {settable.map(c => <option key={c} value={c}>{c}</option>)}
-              </select>
+              <SearchSelect
+                className="form-control"
+                value={form.currency}
+                onChange={v => setForm(f => ({ ...f, currency: v }))}
+                options={(settable).map(c => ({ value: c, label: c }))} />
             </div>
             <div className="form-group" style={{ margin: 0, flex: '1 1 110px' }}>
               {/* The label follows the direction toggle, so the box always

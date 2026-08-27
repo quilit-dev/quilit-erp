@@ -119,23 +119,27 @@ function FxDifferences({ t, fmt, fmtDate, can }) {
             <input type="date" className="form-control" style={{ width: 150 }}
               value={end} onChange={e => setEnd(e.target.value)}
               aria-label={t('service.dateTo')} title={t('service.dateTo')} />
-            <select className="form-control" style={{ width: 140 }} value={kind}
-              onChange={e => setKind(e.target.value)}>
-              <option value="">{t('fx.allKinds')}</option>
-              <option value="realized">{t('fx.kind_realized')}</option>
-              <option value="unrealized">{t('fx.kind_unrealized')}</option>
-            </select>
-            <select className="form-control" style={{ width: 110 }} value={currency}
-              onChange={e => setCurrency(e.target.value)}>
-              <option value="">{t('fx.allCurrencies')}</option>
-              {CURRENCIES.map(c => <option key={c} value={c}>{c}</option>)}
-            </select>
-            <select className="form-control" style={{ width: 120 }} value={direction}
-              onChange={e => setDirection(e.target.value)}>
-              <option value="">{t('fx.gainOrLoss')}</option>
-              <option value="gain">{t('fx.gain')}</option>
-              <option value="loss">{t('fx.loss')}</option>
-            </select>
+            <SearchSelect
+              className="form-control"
+              style={{ width: 140 }}
+              value={kind}
+              onChange={v => setKind(v)}
+              placeholder={t('fx.allKinds')}
+              options={[{ value: 'realized', label: t('fx.kind_realized') }, { value: 'unrealized', label: t('fx.kind_unrealized') }]} />
+            <SearchSelect
+              className="form-control"
+              style={{ width: 110 }}
+              value={currency}
+              onChange={v => setCurrency(v)}
+              placeholder={t('fx.allCurrencies')}
+              options={(CURRENCIES).map(c => ({ value: c, label: c }))} />
+            <SearchSelect
+              className="form-control"
+              style={{ width: 120 }}
+              value={direction}
+              onChange={v => setDirection(v)}
+              placeholder={t('fx.gainOrLoss')}
+              options={[{ value: 'gain', label: t('fx.gain') }, { value: 'loss', label: t('fx.loss') }]} />
             <SearchSelect
               className="form-control"
               style={{ width: 170 }}
@@ -143,13 +147,13 @@ function FxDifferences({ t, fmt, fmtDate, can }) {
               onChange={v => setClientId(v)}
               placeholder={t('fx.allCustomers')}
               options={(clients || []).map(c => ({ value: c.id, label: c.name }))} />
-            <select className="form-control" style={{ width: 150 }} value={status}
-              onChange={e => setStatus(e.target.value)}>
-              <option value="">{t('fx.anyStatus')}</option>
-              <option value="open">{t('fx.stillToReview')}</option>
-              <option value="reconciled">{t('fx.reconciled')}</option>
-              <option value="reversed">{t('accounting.statusReversed')}</option>
-            </select>
+            <SearchSelect
+              className="form-control"
+              style={{ width: 150 }}
+              value={status}
+              onChange={v => setStatus(v)}
+              placeholder={t('fx.anyStatus')}
+              options={[{ value: 'open', label: t('fx.stillToReview') }, { value: 'reconciled', label: t('fx.reconciled') }, { value: 'reversed', label: t('accounting.statusReversed') }]} />
             {(kind || currency || direction || clientId || status) && (
               <button type="button" className="btn btn-secondary btn-sm"
                 style={{ whiteSpace: 'nowrap' }}

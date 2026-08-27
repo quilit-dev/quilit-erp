@@ -147,11 +147,13 @@ export default function Projects() {
               onChange={v => setClientFilter(v)}
               placeholder={t('common.allClients')}
               options={(clients || []).map(c => ({ value: c.id, label: c.name }))} />
-            <select className="form-control" style={{ width: 180 }}
-              value={statusFilter} onChange={e => setStatusFilter(e.target.value)}>
-              <option value="">{t('common.allStatuses')}</option>
-              {STATUSES.map(s => <option key={s} value={s}>{tStatus(s)}</option>)}
-            </select>
+            <SearchSelect
+              className="form-control"
+              style={{ width: 180 }}
+              value={statusFilter}
+              onChange={v => setStatusFilter(v)}
+              placeholder={t('common.allStatuses')}
+              options={(STATUSES).map(s => ({ value: s, label: tStatus(s) }))} />
             {(search||clientFilter||statusFilter) && (
               <button className="btn btn-secondary btn-sm" style={{whiteSpace:'nowrap'}}
                 onClick={() => { setSearch(''); setClientFilter(''); setStatusFilter(''); }}>
@@ -258,10 +260,11 @@ export default function Projects() {
                 </div>
                 <div className="form-group">
                   <label className="form-label">{t('projects.statusLabel')}</label>
-                  <select className="form-control" value={form.status}
-                    onChange={e => setForm(f => ({ ...f, status: e.target.value }))}>
-                    {STATUSES.map(s => <option key={s} value={s}>{tStatus(s)}</option>)}
-                  </select>
+                  <SearchSelect
+                    className="form-control"
+                    value={form.status}
+                    onChange={v => setForm(f => ({ ...f, status: v }))}
+                    options={(STATUSES).map(s => ({ value: s, label: tStatus(s) }))} />
                 </div>
                 <div className="form-group form-full">
                   <label className="form-label">{t('projects.locationLabel')}</label>

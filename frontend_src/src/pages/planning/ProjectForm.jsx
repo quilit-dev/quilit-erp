@@ -84,10 +84,12 @@ function ProjectForm({ initial, clients, srcProjects = [], onSave, onClose }) {
         {canImport && mode === 'import' && (
           <div className="form-group form-full">
             <label className="form-label">{t('planning.importProjectLabel')}</label>
-            <select className="form-control" value={srcId} onChange={e => pickSource(e.target.value)}>
-              <option value="">{t('planning.importProjectOption')}</option>
-              {srcProjects.map(p => <option key={p.id} value={p.id}>{p.name}</option>)}
-            </select>
+            <SearchSelect
+              className="form-control"
+              value={srcId}
+              onChange={v => pickSource(v)}
+              placeholder={t('planning.importProjectOption')}
+              options={(srcProjects).map(p => ({ value: p.id, label: p.name }))} />
             <div style={{ fontSize: 12, color: 'var(--text-3)', marginTop: 4 }}>{t('planning.importProjectHint')}</div>
           </div>
         )}
@@ -111,9 +113,11 @@ function ProjectForm({ initial, clients, srcProjects = [], onSave, onClose }) {
           </div>
           <div className="form-group">
             <label className="form-label">{t('planning.projectStatus')}</label>
-            <select className="form-control" value={form.status} onChange={e => set('status', e.target.value)}>
-              {PROJ_STATUSES.map(s => <option key={s} value={s}>{t(PROJ_STATUS_KEY[s])}</option>)}
-            </select>
+            <SearchSelect
+              className="form-control"
+              value={form.status}
+              onChange={v => set('status', v)}
+              options={(PROJ_STATUSES).map(s => ({ value: s, label: t(PROJ_STATUS_KEY[s]) }))} />
           </div>
           <div className="form-group">
             <label className="form-label">{t('planning.startDate')}</label>

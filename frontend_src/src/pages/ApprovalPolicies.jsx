@@ -2,6 +2,7 @@ import { useState, useEffect, useCallback } from 'react';
 import { useLocale } from '../hooks/useLocale.jsx';
 import { useData } from '../hooks/useData.js';
 import { Modal, ConfirmModal, LoadingSpinner, ErrorAlert, toast, NumberInput} from '../components/shared';
+import SearchSelect from '../components/SearchSelect.jsx';
 import {
   getApprovalPolicies, getApprovalPolicyMeta,
   createApprovalPolicy, updateApprovalPolicy,
@@ -58,17 +59,19 @@ function ConditionRow({ cond, index, fields, onUpdate, onRemove }) {
       )}
       {index === 0 && <span style={{ minWidth: 28 }} />}
 
-      <select className="form-control" style={{ flex: '0 0 130px' }}
+      <SearchSelect
+        className="form-control"
+        style={{ flex: '0 0 130px' }}
         value={cond.field}
-        onChange={e => onUpdate(index, { ...cond, field: e.target.value, op: '==', value: '' })}>
-        {fields.map(f => <option key={f.key} value={f.key}>{f.label}</option>)}
-      </select>
+        onChange={v => onUpdate(index, { ...cond, field: v, op: '==', value: '' })}
+        options={(fields).map(f => ({ value: f.key, label: f.label }))} />
 
-      <select className="form-control" style={{ flex: '0 0 80px' }}
+      <SearchSelect
+        className="form-control"
+        style={{ flex: '0 0 80px' }}
         value={cond.op}
-        onChange={e => onUpdate(index, { ...cond, op: e.target.value })}>
-        {ops.map(o => <option key={o} value={o}>{tEnumValue(o)}</option>)}
-      </select>
+        onChange={v => onUpdate(index, { ...cond, op: v })}
+        options={(ops).map(o => ({ value: o, label: tEnumValue(o) }))} />
 
       <input
         className="form-control"
@@ -103,12 +106,13 @@ function StepRow({ step, index, roles, total, onUpdate, onRemove, onMove }) {
         {index + 1}
       </span>
 
-      <select className="form-control" style={{ flex: 1 }}
+      <SearchSelect
+        className="form-control"
+        style={{ flex: 1 }}
         value={step.role}
-        onChange={e => onUpdate(index, { ...step, role: e.target.value })}>
-        <option value="">{t('approvals.selectRole')}</option>
-        {roles.map(r => <option key={r} value={r}>{tRole(r)}</option>)}
-      </select>
+        onChange={v => onUpdate(index, { ...step, role: v })}
+        placeholder={t('approvals.selectRole')}
+        options={(roles).map(r => ({ value: r, label: tRole(r) }))} />
 
       <div style={{ display: 'flex', gap: 2 }}>
         <button type="button" disabled={index === 0}
@@ -229,19 +233,19 @@ function PolicyForm({ initial, meta, roles, onSave, onClose }) {
           <div className="form-grid">
             <div className="form-group">
               <label className="form-label">{t('approvals.module')}</label>
-              <select className="form-control" value={form.module} onChange={e => set('module', e.target.value)}>
-                {(meta?.modules || ['expense', 'purchase', 'project']).map(m => (
-                  <option key={m} value={m}>{moduleLabel(meta, m)}</option>
-                ))}
-              </select>
+              <SearchSelect
+                className="form-control"
+                value={form.module}
+                onChange={v => set('module', v)}
+                options={((meta?.modules || ['expense', 'purchase', 'project'])).map(m => ({ value: m, label: moduleLabel(meta, m) }))} />
             </div>
             <div className="form-group">
               <label className="form-label">{t('approvals.triggerAction')}</label>
-              <select className="form-control" value={form.trigger_action} onChange={e => set('trigger_action', e.target.value)}>
-                {moduleActions.map(a => (
-                  <option key={a} value={a} style={{ textTransform: 'capitalize' }}>{a.charAt(0).toUpperCase() + a.slice(1)}</option>
-                ))}
-              </select>
+              <SearchSelect className="form-control" value={form.trigger_action}
+                onChange={v => set('trigger_action', v)}
+                options={moduleActions.map(a => ({
+                  value: a, label: a.charAt(0).toUpperCase() + a.slice(1),
+                }))} />
             </div>
             <div className="form-group">
               <label className="form-label">{t('approvals.priority')}</label>
@@ -575,10 +579,13 @@ export default function ApprovalPolicies() {
                 </button>
               ))}
             </div>
-            <select className="form-control" style={{ width: 160 }} value={modFilt} onChange={e => setModFilt(e.target.value)}>
-              <option value="">{t('common.allModules')}</option>
-              {modules.map(m => <option key={m} value={m}>{moduleLabel(meta, m)}</option>)}
-            </select>
+            <SearchSelect
+              className="form-control"
+              style={{ width: 160 }}
+              value={modFilt}
+              onChange={v => setModFilt(v)}
+              placeholder={t('common.allModules')}
+              options={(modules).map(m => ({ value: m, label: moduleLabel(meta, m) }))} />
             <span style={{ fontSize: 12, color: 'var(--text-3)', marginInlineStart: 'auto' }}>
               {filtered.length === 1
                 ? t('approvals.onePolicy', { count: filtered.length })

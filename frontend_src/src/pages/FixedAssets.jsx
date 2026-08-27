@@ -7,6 +7,7 @@ import BankField, { useBankAccounts } from '../components/BankField.jsx';
 import { useCategories } from '../hooks/useCategories';
 import { usePermissions } from '../hooks/usePermissions.js';
 import Attachments from '../components/Attachments.jsx';
+import SearchSelect from '../components/SearchSelect.jsx';
 import {
   LoadingSpinner, ErrorAlert, EmptyState, Modal, ConfirmModal,
   ExportButton, fmt, fmtDate, toast, SortableTh, Pagination, NumberInput} from '../components/shared';
@@ -257,13 +258,13 @@ export default function FixedAssets() {
         <div style={{ padding: '12px 16px', display: 'flex', gap: 10, flexWrap: 'wrap', alignItems: 'center' }}>
           <input className="form-control" style={{ flex: '1 1 200px', minWidth: 160, height: 34, fontSize: 13 }}
             placeholder={t('assets.searchPlaceholder')} value={search} onChange={e => setSearch(e.target.value)} />
-          <select className="form-control" style={{ width: 180, height: 34, fontSize: 13 }}
-            value={statusFilter} onChange={e => setStatus(e.target.value)}>
-            <option value="">{t('assets.allStatuses')}</option>
-            <option value="Active">{t('assets.statusActive')}</option>
-            <option value="Fully Depreciated">{t('assets.statusFull')}</option>
-            <option value="Disposed">{t('assets.statusDisposed')}</option>
-          </select>
+          <SearchSelect
+            className="form-control"
+            style={{ width: 180, height: 34, fontSize: 13 }}
+            value={statusFilter}
+            onChange={v => setStatus(v)}
+            placeholder={t('assets.allStatuses')}
+            options={[{ value: 'Active', label: t('assets.statusActive') }, { value: 'Fully Depreciated', label: t('assets.statusFull') }, { value: 'Disposed', label: t('assets.statusDisposed') }]} />
           {hasFilters && (
             <button className="btn btn-sm btn-secondary" onClick={() => { setSearch(''); setStatus(''); }}>
               {t('common.clear')}
@@ -337,19 +338,21 @@ export default function FixedAssets() {
                 </div>
                 <div className="form-group">
                   <label className="form-label">{t('assets.fldCategory')}</label>
-                  <select className="form-control" value={form.category}
-                    onChange={e => setForm(f => ({ ...f, category: e.target.value }))}>
-                    <option value="">—</option>
-                    {catOptions.map(c => <option key={c} value={c}>{tCategory(c)}</option>)}
-                  </select>
+                  <SearchSelect
+                    className="form-control"
+                    value={form.category}
+                    onChange={v => setForm(f => ({ ...f, category: v }))}
+                    placeholder={'—'}
+                    options={(catOptions).map(c => ({ value: c, label: tCategory(c) }))} />
                 </div>
                 <div className="form-group">
                   <label className="form-label">{t('assets.fldSupplier')}</label>
-                  <select className="form-control" value={form.supplier_id}
-                    onChange={e => setForm(f => ({ ...f, supplier_id: e.target.value }))}>
-                    <option value="">—</option>
-                    {(suppliers || []).map(s => <option key={s.id} value={s.id}>{s.name}</option>)}
-                  </select>
+                  <SearchSelect
+                    className="form-control"
+                    value={form.supplier_id}
+                    onChange={v => setForm(f => ({ ...f, supplier_id: v }))}
+                    placeholder={'—'}
+                    options={((suppliers || [])).map(s => ({ value: s.id, label: s.name }))} />
                 </div>
                 <div className="form-group">
                   <label className="form-label">{t('assets.fldCost')} *</label>
@@ -375,11 +378,11 @@ export default function FixedAssets() {
                 </div>
                 <div className="form-group">
                   <label className="form-label">{t('assets.fldMethod')}</label>
-                  <select className="form-control" value={form.depreciation_method}
-                    onChange={e => setForm(f => ({ ...f, depreciation_method: e.target.value }))}>
-                    <option value="straight_line">{t('assets.methodStraight')}</option>
-                    <option value="none">{t('assets.methodNone')}</option>
-                  </select>
+                  <SearchSelect
+                    className="form-control"
+                    value={form.depreciation_method}
+                    onChange={v => setForm(f => ({ ...f, depreciation_method: v }))}
+                    options={[{ value: 'straight_line', label: t('assets.methodStraight') }, { value: 'none', label: t('assets.methodNone') }]} />
                 </div>
                 {form.depreciation_method === 'straight_line' && (
                   <div className="form-group">
@@ -421,14 +424,13 @@ export default function FixedAssets() {
                 {!editId && !form.is_opening_balance && !form.on_credit && (
                   <div className="form-group">
                     <label className="form-label">{t('expenses.paymentMethodLabel')}</label>
-                    <select className="form-control" value={form.payment_method}
-                      onChange={e => setForm(f => ({
-                        ...f, payment_method: e.target.value,
-                        bank_account_id: '' }))}>
-                      {['Cash', 'Bank Transfer', 'Cheque', 'Card'].map(m => (
-                        <option key={m} value={m}>{m}</option>
-                      ))}
-                    </select>
+                    <SearchSelect
+                      className="form-control"
+                      value={form.payment_method}
+                      onChange={v => setForm(f => ({
+                        ...f, payment_method: v,
+                        bank_account_id: '' }))}
+                      options={(['Cash', 'Bank Transfer', 'Cheque', 'Card']).map(m => ({ value: m, label: m }))} />
                   </div>
                 )}
                 {!editId && !form.is_opening_balance && !form.on_credit && (
@@ -612,13 +614,12 @@ export default function FixedAssets() {
                 </div>
                 <div className="form-group">
                   <label className="form-label">{t('expenses.paymentMethodLabel')}</label>
-                  <select className="form-control" value={disposeForm.payment_method}
-                    onChange={e => setDisposeForm(f => ({
-                      ...f, payment_method: e.target.value, bank_account_id: '' }))}>
-                    {['Cash', 'Bank Transfer', 'Cheque', 'Card'].map(m => (
-                      <option key={m} value={m}>{m}</option>
-                    ))}
-                  </select>
+                  <SearchSelect
+                    className="form-control"
+                    value={disposeForm.payment_method}
+                    onChange={v => setDisposeForm(f => ({
+                      ...f, payment_method: v, bank_account_id: '' }))}
+                    options={(['Cash', 'Bank Transfer', 'Cheque', 'Card']).map(m => ({ value: m, label: m }))} />
                 </div>
                 <BankField method={disposeForm.payment_method}
                   value={disposeForm.bank_account_id}

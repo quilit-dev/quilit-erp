@@ -3,6 +3,7 @@ import { useLocale } from '../../hooks/useLocale.jsx';
 import { useWarehouses } from '../../hooks/useWarehouses';
 import { toast, NumberInput } from '../../components/shared';
 import { updateStock, getInventoryByWarehouse } from '../../api/client';
+import SearchSelect from '../../components/SearchSelect.jsx';
 
 function StockForm({ item, onDone, onCancel }) {
   const { t, tCategory } = useLocale();
@@ -57,17 +58,16 @@ function StockForm({ item, onDone, onCancel }) {
           {warehouses.length > 0 && (
             <div className="form-group form-full">
               <label className="form-label">{t('warehouses.field')}</label>
-              <select className="form-control" value={warehouseId}
-                onChange={e => setWarehouseId(e.target.value)}>
-                {warehouses.map(w => {
+              <SearchSelect className="form-control" value={warehouseId}
+                onChange={setWarehouseId} allowBlank={false}
+                options={warehouses.map(w => {
                   const onHand = perWarehouse.find(p => p.warehouse_id === w.id)?.quantity ?? 0;
-                  return (
-                    <option key={w.id} value={w.id}>
-                      {w.code} · {w.name} ({onHand}{t('warehouses.onHandSuffix')})
-                    </option>
-                  );
-                })}
-              </select>
+                  return {
+                    value: w.id,
+                    label: `${w.code} · ${w.name}`,
+                    hint: `${onHand}${t('warehouses.onHandSuffix')}`,
+                  };
+                })} />
               {selectedWh && (
                 <small style={{ color: 'var(--text-3)' }}>
                   {t('warehouses.adjustHint', { code: selectedWh.code })}
@@ -83,13 +83,11 @@ function StockForm({ item, onDone, onCancel }) {
           </div>
           <div className="form-group">
             <label className="form-label">{t('common.type')}</label>
-            <select className="form-control" value={type} onChange={e => setType(e.target.value)}>
-              <option value="adjustment">{t('inventory.manualAdj')}</option>
-              <option value="purchase">{t('inventory.purchaseReceipt')}</option>
-              <option value="usage">{t('inventory.usageConsumption')}</option>
-              <option value="return">{t('inventory.return')}</option>
-              <option value="loss">{t('inventory.lossDamage')}</option>
-            </select>
+            <SearchSelect
+              className="form-control"
+              value={type}
+              onChange={v => setType(v)}
+              options={[{ value: 'adjustment', label: t('inventory.manualAdj') }, { value: 'purchase', label: t('inventory.purchaseReceipt') }, { value: 'usage', label: t('inventory.usageConsumption') }, { value: 'return', label: t('inventory.return') }, { value: 'loss', label: t('inventory.lossDamage') }]} />
           </div>
           <div className="form-group">
             <label className="form-label">{t('inventory.noteOptional')}</label>

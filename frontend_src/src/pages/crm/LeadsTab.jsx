@@ -11,6 +11,7 @@ import {
 } from '../../api/client';
 import ImportWizard from '../../components/ImportWizard';
 import { fmtCurr, LEAD_STATUS_BADGE, LEAD_STATUSES, LEAD_SOURCES } from './constants';
+import SearchSelect from '../../components/SearchSelect.jsx';
 
 // ─── Lead Form ────────────────────────────────────────────────────────────────
 
@@ -23,6 +24,8 @@ function LeadForm({ initial, users, onSave, onClose, t }) {
   });
   const [saving, setSaving] = useState(false);
   const f = k => e => setForm(p => ({ ...p, [k]: e.target.value }));
+  // SearchSelect hands over the value itself, not an event.
+  const fv = k => v => setForm(p => ({ ...p, [k]: v }));
 
   const sourceLabel = { web: t('crm.sourceWeb'), referral: t('crm.sourceReferral'), cold_call: t('crm.sourceColdCall'), social: t('crm.sourceSocial'), other: t('crm.sourceOther') };
   const statusLabel = { New: t('crm.statusNew'), Contacted: t('crm.statusContacted'), Qualified: t('crm.statusQualified'), Proposal: t('crm.statusProposal'), Negotiation: t('crm.statusNegotiation'), Won: t('crm.statusWon'), Lost: t('crm.statusLost') };
@@ -72,9 +75,8 @@ function LeadForm({ initial, users, onSave, onClose, t }) {
           </div>
           <div className="form-group">
             <label className="form-label">{t('crm.status')}</label>
-            <select className="form-control" value={form.status || 'New'} onChange={f('status')}>
-              {LEAD_STATUSES.map(s => <option key={s} value={s}>{statusLabel[s]}</option>)}
-            </select>
+            <SearchSelect className="form-control" value={form.status || 'New'} onChange={fv('status')}
+              options={LEAD_STATUSES.map(s => ({ value: s, label: statusLabel[s] }))} />
           </div>
           <div className="form-group">
             <label className="form-label">{t('crm.estimatedValue')} ($)</label>
@@ -90,10 +92,9 @@ function LeadForm({ initial, users, onSave, onClose, t }) {
           </div>
           <div className="form-group">
             <label className="form-label">{t('crm.assignedTo')}</label>
-            <select className="form-control" value={form.assigned_to || ''} onChange={f('assigned_to')}>
-              <option value="">{t('crm.selectUser')}</option>
-              {(users || []).map(u => <option key={u.id} value={u.id}>{u.full_name || u.username}</option>)}
-            </select>
+            <SearchSelect className="form-control" value={form.assigned_to || ''} onChange={fv('assigned_to')}
+              placeholder={t('crm.selectUser')}
+              options={(users || []).map(u => ({ value: u.id, label: u.full_name || u.username }))} />
           </div>
           <div className="form-group form-full">
             <label className="form-label">{t('crm.notes')}</label>
@@ -180,10 +181,13 @@ function LeadsTab({ t }) {
               <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><circle cx="11" cy="11" r="8"/><path d="m21 21-4.35-4.35"/></svg>
               <input className="form-control search-input" placeholder={t('crm.searchLeads')} value={search} onChange={e => setSearch(e.target.value)} />
             </div>
-            <select className="form-control" style={{ width: 160 }} value={statusFilter} onChange={e => setStatus(e.target.value)}>
-              <option value="">{t('crm.allStatuses')}</option>
-              {LEAD_STATUSES.map(s => <option key={s} value={s}>{statusLabel[s]}</option>)}
-            </select>
+            <SearchSelect
+              className="form-control"
+              style={{ width: 160 }}
+              value={statusFilter}
+              onChange={v => setStatus(v)}
+              placeholder={t('crm.allStatuses')}
+              options={(LEAD_STATUSES).map(s => ({ value: s, label: statusLabel[s] }))} />
             <label className="archived-toggle">
               <input type="checkbox" checked={showArchived}
                 onChange={e => setShowArchived(e.target.checked)} />

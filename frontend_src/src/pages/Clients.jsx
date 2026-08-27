@@ -10,6 +10,7 @@ import {
 import { CURRENCIES } from './settings/ui';
 import { useLocale } from '../hooks/useLocale.jsx';
 import ImportWizard from '../components/ImportWizard';
+import SearchSelect from '../components/SearchSelect.jsx';
 
 const EMPTY = {
   name: '', company: '', phone: '', email: '', address: '', type: 'private', notes: '',
@@ -220,12 +221,11 @@ export default function Clients() {
                 </div>
                 <div className="form-group">
                   <label className="form-label">{t('clients.type')}</label>
-                  <select className="form-control" value={form.type || 'private'}
-                    onChange={e => setForm(f => ({ ...f, type: e.target.value }))}>
-                    <option value="private">{t('clients.typePrivate')}</option>
-                    <option value="corporate">{t('clients.typeCorporate')}</option>
-                    <option value="government">{t('clients.typeGovernment')}</option>
-                  </select>
+                  <SearchSelect
+                    className="form-control"
+                    value={form.type || 'private'}
+                    onChange={v => setForm(f => ({ ...f, type: v }))}
+                    options={[{ value: 'private', label: t('clients.typePrivate') }, { value: 'corporate', label: t('clients.typeCorporate') }, { value: 'government', label: t('clients.typeGovernment') }]} />
                 </div>
                 <div className="form-group">
                   <label className="form-label">{t('clients.phone')}</label>
@@ -266,19 +266,20 @@ export default function Clients() {
                 </div>
                 <div className="form-group">
                   <label className="form-label">{t('clients.preferredCurrency')}</label>
-                  <select className="form-control" value={form.preferred_currency || ''}
-                    onChange={e => setForm(f => ({ ...f, preferred_currency: e.target.value }))}>
-                    <option value="">{t('clients.currencyCompanyDefault')}</option>
-                    {CURRENCIES.map(c => <option key={c} value={c}>{c}</option>)}
-                  </select>
+                  <SearchSelect
+                    className="form-control"
+                    value={form.preferred_currency || ''}
+                    onChange={v => setForm(f => ({ ...f, preferred_currency: v }))}
+                    placeholder={t('clients.currencyCompanyDefault')}
+                    options={(CURRENCIES).map(c => ({ value: c, label: c }))} />
                 </div>
                 <div className="form-group">
                   <label className="form-label">{t('clients.vatStatus')}</label>
-                  <select className="form-control" value={form.vat_status || 'subject'}
-                    onChange={e => setForm(f => ({ ...f, vat_status: e.target.value }))}>
-                    <option value="subject">{t('clients.vatSubject')}</option>
-                    <option value="exempt">{t('clients.vatExempt')}</option>
-                  </select>
+                  <SearchSelect
+                    className="form-control"
+                    value={form.vat_status || 'subject'}
+                    onChange={v => setForm(f => ({ ...f, vat_status: v }))}
+                    options={[{ value: 'subject', label: t('clients.vatSubject') }, { value: 'exempt', label: t('clients.vatExempt') }]} />
                   {form.vat_status === 'exempt' && (
                     <div style={{ fontSize: 11, color: 'var(--text-3)', marginTop: 3 }}>
                       {t('clients.vatExemptHint')}
@@ -304,14 +305,12 @@ export default function Clients() {
                     </div>
                     <div className="form-group">
                       <label className="form-label">{t('clients.defaultFrequency')}</label>
-                      <select className="form-control"
+                      <SearchSelect
+                        className="form-control"
                         value={form.default_installment_frequency || ''}
-                        onChange={e => setForm(f => ({ ...f, default_installment_frequency: e.target.value }))}>
-                        <option value="">—</option>
-                        <option value="monthly">{t('installments.monthly')}</option>
-                        <option value="quarterly">{t('installments.quarterly')}</option>
-                        <option value="yearly">{t('installments.yearly')}</option>
-                      </select>
+                        onChange={v => setForm(f => ({ ...f, default_installment_frequency: v }))}
+                        placeholder={'—'}
+                        options={[{ value: 'monthly', label: t('installments.monthly') }, { value: 'quarterly', label: t('installments.quarterly') }, { value: 'yearly', label: t('installments.yearly') }]} />
                     </div>
                     <div className="form-full" style={{ fontSize: 11, color: 'var(--text-3)' }}>
                       {t('clients.installmentsHint')}

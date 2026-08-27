@@ -5,6 +5,7 @@ import { getContracts, createContract, updateContract,
          setContractStatus, getContractPrintData } from '../../api/client';
 import { contractStatusLabel } from './constants';
 import { Section } from './primitives';
+import SearchSelect from '../../components/SearchSelect.jsx';
 
 const CONTRACT_TYPES = ['Permanent', 'Fixed-term', 'Probation', 'Internship', 'Consultant'];
 const CONTRACT_BADGE = { Draft: 'gray', Active: 'green', Expired: 'yellow', Terminated: 'red' };
@@ -163,10 +164,11 @@ function ContractForm({ empId, existing, onClose, onSaved }) {
           <div className="form-grid">
             <div className="form-group">
               <label className="form-label">{t('hr.contractType')}</label>
-              <select className="form-control" value={form.contract_type}
-                onChange={e => setForm(f => ({ ...f, contract_type: e.target.value }))}>
-                {CONTRACT_TYPES.map(x => <option key={x} value={x}>{tEnumValue(x)}</option>)}
-              </select>
+              <SearchSelect
+                className="form-control"
+                value={form.contract_type}
+                onChange={v => setForm(f => ({ ...f, contract_type: v }))}
+                options={(CONTRACT_TYPES).map(x => ({ value: x, label: tEnumValue(x) }))} />
             </div>
             <div className="form-group">
               <label className="form-label">{t('hr.jobTitleField')}</label>
@@ -205,10 +207,11 @@ function ContractForm({ empId, existing, onClose, onSaved }) {
             </div>
             <div className="form-group">
               <label className="form-label">{t('hr.currencyField')}</label>
-              <select className="form-control" value={form.salary_currency}
-                onChange={e => setForm(f => ({ ...f, salary_currency: e.target.value }))}>
-                {['USD', 'EUR', 'LBP', 'AED', 'SAR'].map(c => <option key={c} value={c}>{c}</option>)}
-              </select>
+              <SearchSelect
+                className="form-control"
+                value={form.salary_currency}
+                onChange={v => setForm(f => ({ ...f, salary_currency: v }))}
+                options={(['USD', 'EUR', 'LBP', 'AED', 'SAR']).map(c => ({ value: c, label: c }))} />
             </div>
             <div className="form-group" style={{ gridColumn: '1 / -1' }}>
               <label className="form-label">{t('hr.benefitsField')}</label>

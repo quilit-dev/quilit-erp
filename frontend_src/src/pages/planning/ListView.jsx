@@ -48,14 +48,20 @@ function ListView({ tasks, projects, onEdit, onArchive, onRestore, onRefresh }) 
             onChange={v => setSelProject(v)}
             placeholder={t('planning.allProjects')}
             options={(projects || []).map(p => ({ value: p.id, label: p.name }))} />
-          <select className="form-control" style={{ width: 140 }} value={selStatus} onChange={e => setSelStatus(e.target.value)}>
-            <option value="">{t('common.allStatuses')}</option>
-            {STATUSES.map(s => <option key={s} value={s}>{t(STATUS_KEY[s])}</option>)}
-          </select>
-          <select className="form-control" style={{ width: 130 }} value={selPriority} onChange={e => setSelPriority(e.target.value)}>
-            <option value="">{t('planning.allPriorities')}</option>
-            {PRIORITIES.map(p => <option key={p} value={p}>{t(PRIORITY_KEY[p])}</option>)}
-          </select>
+          <SearchSelect
+            className="form-control"
+            style={{ width: 140 }}
+            value={selStatus}
+            onChange={v => setSelStatus(v)}
+            placeholder={t('common.allStatuses')}
+            options={(STATUSES).map(s => ({ value: s, label: t(STATUS_KEY[s]) }))} />
+          <SearchSelect
+            className="form-control"
+            style={{ width: 130 }}
+            value={selPriority}
+            onChange={v => setSelPriority(v)}
+            placeholder={t('planning.allPriorities')}
+            options={(PRIORITIES).map(p => ({ value: p, label: t(PRIORITY_KEY[p]) }))} />
         </div>
       </div>
 

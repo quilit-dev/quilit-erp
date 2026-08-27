@@ -2,6 +2,7 @@ import { useState, useEffect } from 'react';
 import { getTaxRates, createTaxRate, updateTaxRate, deleteTaxRate } from '../../api/client';
 import { useSettings } from '../../hooks/useSettings.jsx';
 import { Section, Field, Input, Toggle } from './ui';
+import SearchSelect from '../../components/SearchSelect.jsx';
 
 const TAX_TYPES = ['standard', 'zero', 'exempt'];
 const EMPTY_RATE = { name: '', rate: '', tax_type: 'standard', is_default: false, is_active: true };
@@ -110,10 +111,11 @@ function TaxRatesSection({ canEdit, t }) {
               <Input value={form.rate} onChange={setF('rate')} type="number" placeholder="11" />
             </Field>
             <Field label={t('settings.taxRateType')}>
-              <select className="form-control" value={form.tax_type}
-                onChange={e => setF('tax_type')(e.target.value)}>
-                {TAX_TYPES.map(tt => <option key={tt} value={tt}>{t(`settings.taxType_${tt}`)}</option>)}
-              </select>
+              <SearchSelect
+                className="form-control"
+                value={form.tax_type}
+                onChange={v => setF('tax_type')(v)}
+                options={(TAX_TYPES).map(tt => ({ value: tt, label: t(`settings.taxType_${tt}`) }))} />
             </Field>
           </div>
           <div style={{ display: 'flex', gap: 20, margin: '8px 0 12px', flexWrap: 'wrap' }}>

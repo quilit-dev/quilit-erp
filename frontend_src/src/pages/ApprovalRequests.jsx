@@ -2,6 +2,7 @@ import { useState, useCallback } from 'react';
 import { useLocale } from '../hooks/useLocale.jsx';
 import { useData } from '../hooks/useData.js';
 import { LoadingSpinner, ErrorAlert, toast } from '../components/shared';
+import SearchSelect from '../components/SearchSelect.jsx';
 import {
   getApprovalRequests,
   approveRequest,
@@ -365,13 +366,13 @@ export default function ApprovalRequests() {
             </button>
           ))}
         </div>
-        <select className="form-control" style={{ width: 160, marginLeft: 'auto' }}
-          value={modFil} onChange={e => setModFil(e.target.value)}>
-          <option value="">{t('common.allModules')}</option>
-          {MODULE_OPTIONS.map(m => (
-            <option key={m} value={m}>{m.charAt(0).toUpperCase() + m.slice(1)}</option>
-          ))}
-        </select>
+        <SearchSelect
+          className="form-control"
+          style={{ width: 160, marginLeft: 'auto' }}
+          value={modFil}
+          onChange={v => setModFil(v)}
+          placeholder={t('common.allModules')}
+          options={(MODULE_OPTIONS).map(m => ({ value: m, label: m.charAt(0).toUpperCase() + m.slice(1) }))} />
       </div>
 
       <div className="card" style={{ padding: 0 }}>

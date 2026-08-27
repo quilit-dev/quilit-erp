@@ -115,22 +115,28 @@ function TaskForm({ initial, projects, users, milestones, tasks, onSave, onClose
           </div>
           <div className="form-group">
             <label className="form-label">{t('planning.assignedTo')}</label>
-            <select className="form-control" value={form.assigned_to} onChange={e => set('assigned_to', e.target.value)}>
-              <option value="">{t('planning.unassignedOption')}</option>
-              {users.map(u => <option key={u.id} value={u.id}>{u.name}</option>)}
-            </select>
+            <SearchSelect
+              className="form-control"
+              value={form.assigned_to}
+              onChange={v => set('assigned_to', v)}
+              placeholder={t('planning.unassignedOption')}
+              options={(users).map(u => ({ value: u.id, label: u.name }))} />
           </div>
           <div className="form-group">
             <label className="form-label">{t('common.status')}</label>
-            <select className="form-control" value={form.status} onChange={e => set('status', e.target.value)}>
-              {STATUSES.map(s => <option key={s} value={s}>{t(STATUS_KEY[s])}</option>)}
-            </select>
+            <SearchSelect
+              className="form-control"
+              value={form.status}
+              onChange={v => set('status', v)}
+              options={(STATUSES).map(s => ({ value: s, label: t(STATUS_KEY[s]) }))} />
           </div>
           <div className="form-group">
             <label className="form-label">{t('planning.priority')}</label>
-            <select className="form-control" value={form.priority} onChange={e => set('priority', e.target.value)}>
-              {PRIORITIES.map(p => <option key={p} value={p}>{t(PRIORITY_KEY[p])}</option>)}
-            </select>
+            <SearchSelect
+              className="form-control"
+              value={form.priority}
+              onChange={v => set('priority', v)}
+              options={(PRIORITIES).map(p => ({ value: p, label: t(PRIORITY_KEY[p]) }))} />
           </div>
           <div className="form-group">
             <label className="form-label">{t('planning.startDate')}</label>
@@ -150,19 +156,23 @@ function TaskForm({ initial, projects, users, milestones, tasks, onSave, onClose
           {projMilestones.length > 0 && (
             <div className="form-group">
               <label className="form-label">{t('planning.milestone')}</label>
-              <select className="form-control" value={form.milestone_id} onChange={e => set('milestone_id', e.target.value)}>
-                <option value="">{t('planning.noneOption')}</option>
-                {projMilestones.map(m => <option key={m.id} value={m.id}>{m.name}</option>)}
-              </select>
+              <SearchSelect
+                className="form-control"
+                value={form.milestone_id}
+                onChange={v => set('milestone_id', v)}
+                placeholder={t('planning.noneOption')}
+                options={(projMilestones).map(m => ({ value: m.id, label: m.name }))} />
             </div>
           )}
           {projTasks.length > 0 && (
             <div className="form-group">
               <label className="form-label">{t('planning.dependsOn')}</label>
-              <select className="form-control" value={form.depends_on} onChange={e => set('depends_on', e.target.value)}>
-                <option value="">{t('planning.noneOption')}</option>
-                {projTasks.map(tk => <option key={tk.id} value={tk.id}>{tk.name}</option>)}
-              </select>
+              <SearchSelect
+                className="form-control"
+                value={form.depends_on}
+                onChange={v => set('depends_on', v)}
+                placeholder={t('planning.noneOption')}
+                options={(projTasks).map(tk => ({ value: tk.id, label: tk.name }))} />
             </div>
           )}
           <div className="form-group form-full">

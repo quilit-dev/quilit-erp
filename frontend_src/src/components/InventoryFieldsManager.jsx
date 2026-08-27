@@ -2,6 +2,7 @@ import { useState, useEffect, useCallback } from 'react';
 import { getAttributeDefs, createAttributeDef, updateAttributeDef, deleteAttributeDef } from '../api/client';
 import { Modal, ConfirmModal, toast } from './shared';
 import { useLocale } from '../hooks/useLocale.jsx';
+import SearchSelect from '../components/SearchSelect.jsx';
 
 // Owner-defined inventory fields (custom attributes). This is a CRUD UI over
 // attribute_defs — it never alters real DB columns, so it's safe for a
@@ -181,9 +182,11 @@ export default function InventoryFieldsManager({ canEdit }) {
               </div>
               <div className="form-group">
                 <label className="form-label">{t('settings.fieldType')}</label>
-                <select className="form-control" value={form.input_type} onChange={e => set('input_type', e.target.value)}>
-                  {TYPE_OPTIONS.map(o => <option key={o.value} value={o.value}>{t(`settings.${o.key}`)}</option>)}
-                </select>
+                <SearchSelect
+                  className="form-control"
+                  value={form.input_type}
+                  onChange={v => set('input_type', v)}
+                  options={(TYPE_OPTIONS).map(o => ({ value: o.value, label: t(`settings.${o.key}`) }))} />
               </div>
               {form.input_type === 'enum' && (
                 <>

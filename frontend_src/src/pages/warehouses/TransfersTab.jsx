@@ -139,29 +139,27 @@ function TransfersTab({ canEdit, t }) {
             <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 12, marginBottom: 12 }}>
               <div className="form-group" style={{ margin: 0 }}>
                 <label className="form-label">{t('warehouses.fromLabel')}</label>
-                <select className="form-control" value={form.from_warehouse_id}
-                  onChange={e => setForm(f => ({ ...f, from_warehouse_id: e.target.value }))}>
-                  <option value="">{t('warehouses.pickSource')}</option>
-                  {warehouses
+                <SearchSelect
+                  className="form-control"
+                  value={form.from_warehouse_id}
+                  onChange={v => setForm(f => ({ ...f, from_warehouse_id: v }))}
+                  placeholder={t('warehouses.pickSource')}
+                  options={(warehouses
                     // Scoped users may only pull from a central (non-branch) warehouse.
-                    .filter(w => branchCtx.is_global || (w.type || '').toLowerCase() !== 'branch')
-                    .map(w => <option key={w.id} value={w.id}>{w.code} · {w.name}</option>)}
-                </select>
+                    .filter(w => branchCtx.is_global || (w.type || '').toLowerCase() !== 'branch')).map(w => ({ value: w.id, label: `${w.code} · ${w.name}` }))} />
               </div>
               <div className="form-group" style={{ margin: 0 }}>
                 <label className="form-label">{t('warehouses.toLabel')}</label>
-                <select className="form-control" value={form.to_warehouse_id}
+                <SearchSelect
+                  className="form-control"
                   disabled={!branchCtx.is_global}
-                  onChange={e => setForm(f => ({ ...f, to_warehouse_id: e.target.value }))}>
-                  <option value="">{t('warehouses.pickDestination')}</option>
-                  {warehouses
+                  value={form.to_warehouse_id}
+                  onChange={v => setForm(f => ({ ...f, to_warehouse_id: v }))}
+                  placeholder={t('warehouses.pickDestination')}
+                  options={(warehouses
                     // Scoped users can only transfer INTO their own branch.
                     .filter(w => (branchCtx.is_global || Number(w.id) === Number(branchCtx.home_branch_id))
-                                 && Number(w.id) !== Number(form.from_warehouse_id))
-                    .map(w => (
-                    <option key={w.id} value={w.id}>{w.code} · {w.name}</option>
-                  ))}
-                </select>
+                                 && Number(w.id) !== Number(form.from_warehouse_id))).map(w => ({ value: w.id, label: `${w.code} · ${w.name}` }))} />
               </div>
             </div>
             <div className="form-group">
