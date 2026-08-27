@@ -16,6 +16,10 @@ unchanged, a *Dialect* rewrites each statement on its way to the driver:
                             - literal ``%``   → ``%%``   (psycopg escaping)
                             - ``datetime('now' [, '±N unit'…])`` → ``to_char(now() …)``
                             - ``date('now' …)``                  → ``to_char(now(), 'YYYY-MM-DD')``
+                            - ``LIKE``        → ``ILIKE`` (SQLite's LIKE ignores
+                              ASCII case and Postgres's does not; every search
+                              box in the app is a LIKE, so without this one
+                              search works on a laptop and not in production)
                             - ``INSERT OR IGNORE``               → ``INSERT … ON CONFLICT DO NOTHING``
                             - auto-append ``RETURNING id`` to plain INSERTs so the
                               compat cursor can emulate ``lastrowid``.
@@ -194,6 +198,51 @@ def _translate_pragma(sql: str) -> str:
 # NULL-safe `IS DISTINCT FROM` (leaving IS NOT NULL/TRUE/FALSE/DISTINCT untouched).
 _IS_NOT_VALUE = re.compile(
     r"\bIS\s+NOT\s+(?!NULL\b|TRUE\b|FALSE\b|UNKNOWN\b|DISTINCT\b)", re.IGNORECASE)
+
+
+# SQLite's LIKE ignores ASCII case; Postgres's does not, and ILIKE is its
+# case-insensitive form. Every search box in the app compiles to `col LIKE ?`,
+# so without this a product called "Ink Tube" is found by "Ink Tube" and not by
+# "ink tube" — in production only, because the tests run on SQLite where LIKE
+# already behaves the way everyone assumed.
+#
+# Every LIKE in the routers is over text a person typed into a search box:
+# names, descriptions, notes, emails, phone numbers, document numbers. There is
+# no site where case-sensitivity was the point, and `NOT LIKE` becomes
+# `NOT ILIKE`, which is the same statement about the same comparison.
+#
+# Only outside string literals: a memo containing the word "like" is data.
+_LIKE_WORD = re.compile(r"\bLIKE\b", re.IGNORECASE)
+
+
+def _translate_like(sql: str) -> str:
+    """Rewrite the LIKE operator to ILIKE, leaving quoted text alone."""
+    out, buf, in_str = [], [], False
+    i, n = 0, len(sql)
+    while i < n:
+        ch = sql[i]
+        if ch == "'":
+            if in_str and i + 1 < n and sql[i + 1] == "'":   # '' escape
+                buf.append("''")
+                i += 2
+                continue
+            if in_str:
+                out.append("".join(buf))
+                buf = []
+                out.append("'")
+                in_str = False
+            else:
+                out.append(_LIKE_WORD.sub("ILIKE", "".join(buf)))
+                buf = []
+                out.append("'")
+                in_str = True
+            i += 1
+            continue
+        buf.append(ch)
+        i += 1
+    tail = "".join(buf)
+    out.append(tail if in_str else _LIKE_WORD.sub("ILIKE", tail))
+    return "".join(out)
 
 
 def _translate_is_not(sql: str) -> str:
@@ -413,6 +462,7 @@ class PostgresDialect(Dialect):
         s = _translate_char(s)
         s = _translate_sqlite_master(s)
         s = _translate_is_not(s)
+        s = _translate_like(s)
         s = _translate_insert_or_replace(s)
         s = _translate_insert_or_ignore(s)
         s = _translate_param_is_null(s)
@@ -428,6 +478,7 @@ class PostgresDialect(Dialect):
         s = _translate_char(s)
         s = _translate_sqlite_master(s)
         s = _translate_is_not(s)
+        s = _translate_like(s)
         s = _translate_insert_or_replace(s)
         s = _translate_insert_or_ignore(s)
         s = qmark_to_format(s)

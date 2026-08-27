@@ -264,3 +264,68 @@ def test_insert_or_replace_becomes_upsert(pg):
 def test_param_is_null_gets_cast(pg):
     sql, _, _ = pg.translate("WHERE ? IS NULL", (None,))
     assert sql == "WHERE CAST(%s AS TEXT) IS NULL"
+
+# ── LIKE means different things on the two engines ───────────────────────
+
+# SQLite's LIKE ignores ASCII case; Postgres's does not. Every search box in the
+# app compiles to `col LIKE ?` — 119 of them across 21 routers — so a product
+# called "Ink Tube" was found by "Ink Tube" and not by "ink tube", in production
+# only, because every test here runs on SQLite where LIKE already behaved the
+# way everyone assumed.
+#
+# The translation is the guard, not an endpoint test: an endpoint test on SQLite
+# passes whether or not this exists.
+
+def test_like_becomes_ilike(pg):
+    sql, _, _ = pg.translate("SELECT * FROM t WHERE name LIKE ?", ("%ink%",))
+    assert sql == "SELECT * FROM t WHERE name ILIKE %s"
+
+
+def test_not_like_becomes_not_ilike(pg):
+    # The same statement about the same comparison, so it moves with it.
+    sql, _, _ = pg.translate("SELECT 1 WHERE a NOT LIKE ?", ("x",))
+    assert sql == "SELECT 1 WHERE a NOT ILIKE %s"
+
+
+def test_lowercase_like_is_translated_too(pg):
+    sql, _, _ = pg.translate("select 1 where a like ?", ("x",))
+    assert "ILIKE" in sql and " like " not in sql
+
+
+def test_the_word_like_inside_a_string_is_data(pg):
+    # A note that says "I like this" is text a person wrote, not an operator.
+    sql, _, _ = pg.translate(
+        "SELECT 'I like this' FROM t WHERE note LIKE ?", ("x",))
+
+    assert "'I like this'" in sql
+    assert "note ILIKE" in sql
+
+
+def test_an_escaped_quote_does_not_confuse_the_scanner(pg):
+    # `''` is one literal quote inside a string. Mis-reading it flips the
+    # scanner's idea of where the string ends, and every LIKE after it is
+    # treated as data.
+    sql, _, _ = pg.translate(
+        "SELECT 'it''s like that' FROM t WHERE a LIKE ? AND b LIKE ?", ("x", "y"))
+
+    assert "'it''s like that'" in sql
+    assert sql.count("ILIKE") == 2
+
+
+def test_a_column_called_like_something_is_untouched(pg):
+    # \b anchors the operator, so `dislike` and `liked` are not operators.
+    sql, _, _ = pg.translate("SELECT liked, dislike FROM t", ())
+
+    assert sql == "SELECT liked, dislike FROM t"
+
+
+def test_sqlite_leaves_like_alone():
+    # SQLite has no ILIKE, and does not need one.
+    sql, _, _ = SqliteDialect().translate("WHERE a LIKE ?", ("x",))
+
+    assert sql == "WHERE a LIKE ?"
+
+
+def test_executescript_gets_it_too(pg):
+    # Same rewrite on the DDL path, so the two cannot disagree.
+    assert "ILIKE" in pg.translate_many("SELECT 1 WHERE a LIKE 'x'")
