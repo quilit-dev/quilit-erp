@@ -73,3 +73,47 @@ def test_sequential_receipts_keep_moving_average(make_client, db):
     qty, cost = _inv(db, item)
     assert qty == pytest.approx(20)
     assert cost == pytest.approx(15.0, abs=1e-6)
+
+
+def test_a_purchase_that_cost_nothing_can_be_paid(make_client, db):
+    """Free goods still arrive; there is just nothing to post for them.
+
+    Free samples, a warranty replacement, a supplier making good on a short
+    delivery — all of them are a real receipt at zero cost. The GL entry for
+    one is all zeros, which `accounting.post_entry` refuses (correctly: an
+    all-zero entry records nothing). That refusal used to escape as a 500 on
+    the last step of marking the purchase Paid, AFTER the status had been
+    committed and the stock credited — so the operator saw a server error over
+    a purchase that had actually gone through.
+
+    The stock must land, the status must stick, and no journal entry may be
+    written for a value of zero.
+    """
+    c = make_client("superadmin")
+    item = _make_item(c, "Sample", qty=0, cost=0)
+
+    po = c.post("/api/purchases/", json={
+        "supplier": "Acme", "inventory_id": item, "product_name": "Sample",
+        "quantity": 10, "unit_cost": 0,
+    })
+    assert po.status_code in (200, 201), po.text
+    pid = po.json()["id"]
+
+    r = c.patch(f"/api/purchases/{pid}/status", json={"status": "Paid"})
+    assert r.status_code == 200, f"{r.status_code}: {r.text[:400]}"
+
+    qty, cost = _inv(db, item)
+    assert qty == pytest.approx(10)
+    assert cost == pytest.approx(0)
+
+    posted = db.execute(
+        "SELECT COUNT(*) AS n FROM journal_entries "
+        "WHERE source_type='purchase' AND source_id=?", (pid,)).fetchone()["n"]
+    assert posted == 0, "a purchase worth nothing must not post a journal entry"
+
+    # Flagged as dealt with, so a later status change does not retry and 500.
+    assert db.execute("SELECT expense_recorded AS e FROM purchases WHERE id=?",
+                      (pid,)).fetchone()["e"] == 1
+
+    # And the books are still straight.
+    assert c.get("/api/accounting/trial-balance").json()["balanced"] is True

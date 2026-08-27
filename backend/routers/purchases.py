@@ -434,6 +434,20 @@ def _record_expense(purchase_id: int, db: sqlite3.Connection):
     tax_amt = float(row["tax_amount"] or 0)
     gross   = money(base + tax_amt)   # expense amount is the tax-inclusive cost
     now = _now()
+    # A purchase that cost nothing still brings goods in — free samples, a
+    # warranty replacement, a supplier making good on a short delivery. There
+    # is simply no value to move and no cash to credit, and an all-zero journal
+    # entry is not a record of anything, so post_entry rightly refuses it.
+    # Before this, that refusal surfaced as a 500 on the very last step of
+    # marking the purchase paid: the stock had already been received and the
+    # status already changed, so the operator saw a server error over a
+    # purchase that had in fact gone through. Take the goods, post nothing, and
+    # do not leave the row looking unposted so it is retried on every status
+    # change from here on.
+    if gross <= 0:
+        db.execute("UPDATE purchases SET expense_recorded = 1 WHERE id = ?",
+                   (purchase_id,))
+        return
     exp_cur = db.execute(
         "INSERT INTO expenses (category, description, amount, date, created_at, "
         " tax_rate_id, tax_rate, tax_amount) VALUES (?,?,?,date('now'),?,?,?,?)",
