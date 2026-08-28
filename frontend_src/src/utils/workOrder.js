@@ -248,7 +248,7 @@ export function buildWorkOrderHTML(job, settings, logoDataURL = null, opts = {})
   const sheet = (!theme)
     ? `<div class="page">${body}</div>`
     : `<div class="page">
-  <table class="hj-sheet">
+  <table class="hj-sheet${C.preprinted ? ' hj-sheet--preprinted' : ''}">
     <thead><tr><td>${C.preprinted ? '' : theme.sheet(C, logoDataURL)}</td></tr></thead>
     <tbody><tr><td>${theme.open}${body}${theme.close}</td></tr></tbody>
     <tfoot><tr><td></td></tr></tfoot>

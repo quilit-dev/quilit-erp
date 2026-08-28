@@ -233,6 +233,25 @@ function hajoContacts(C) {
 // the bottom clears the contact strip and the bands beneath it.
 const PAGE = { top: 50, side: 16, bottom: 32, footFromEdge: 15, footRightInset: 16 };
 
+// ── The two numbers to turn when the print lands wrong on the real paper ─────
+//
+// PAGE.top (50mm) clears the letterhead this system DRAWS, and is measured
+// against it: the masthead ends at 42.2mm. Pre-printed stationery is a
+// different problem. The design on that sheet came from a printer, not from
+// here, so nothing in this file knows how far down the page it reaches — and a
+// sheet fed by a laser printer does not register to the tenth of a millimetre
+// either. It therefore gets its own, more generous, clearance.
+//
+// TOP_PREPRINTED is that clearance, and TYPE is how much larger the text
+// prints. Both are single numbers on purpose: getting them right is a matter
+// of holding a printed sheet up to the light, not of reading code, so they are
+// meant to be nudged. mm and a plain multiplier, nothing else to work out.
+const TOP_PREPRINTED = 62;    // mm from the paper's top edge to the first line
+const HJ_TYPE = 1.12;         // 1 = unchanged; 1.12 = twelve per cent larger
+
+/** A shared-stylesheet size, scaled for this theme. */
+const ts = (px) => `${Math.round(px * HJ_TYPE * 100) / 100}px`;
+
 // Measured off the original at 2551x3579, expressed in mm on the A4 trim.
 const MARK = {
   logoTop: 11.7, logoSize: 14.5,
@@ -294,6 +313,7 @@ const hajoCSS = `
 .hj-sheet > tbody > tr > td,
 .hj-sheet > tfoot > tr > td { padding: 0; border: none; vertical-align: top; }
 .hj-sheet > thead > tr > td { height: ${PAGE.top}mm; }
+.hj-sheet--preprinted > thead > tr > td { height: ${TOP_PREPRINTED}mm; }
 .hj-sheet > tfoot > tr > td { height: ${PAGE.bottom}mm; vertical-align: bottom; }
 .hj-inner { padding: 0 ${PAGE.side}mm; }
 
@@ -383,6 +403,30 @@ tbody td { border-bottom: 1px solid ${HAJO.rule}; }
 `;
 
 
+// Scaled text. Every selector here also exists in SHARED_CSS at an unscaled
+// size; these are scoped under .hj-inner, which no other template emits, so a
+// change to the scale cannot restyle anybody else's documents. Kept as one
+// block rather than sprinkled through hajoCSS so it is obvious what the scale
+// touches and what it leaves alone.
+const hajoTypeCSS = `
+.hj-inner { font-size: ${ts(9.5)}; }
+.hj-inner .company-name { font-size: ${ts(14)}; }
+.hj-inner .company-meta { font-size: ${ts(8)}; }
+.hj-inner .doc-title { font-size: ${ts(24)}; }
+.hj-inner .doc-ref { font-size: ${ts(9.5)}; }
+.hj-inner .doc-dates { font-size: ${ts(8.5)}; }
+.hj-inner .client-name { font-size: ${ts(10.5)}; }
+.hj-inner .client-line { font-size: ${ts(8.5)}; }
+.hj-inner .meta-row { font-size: ${ts(8.5)}; }
+.hj-inner thead th { font-size: ${ts(7)}; }
+.hj-inner tbody td { font-size: ${ts(9)}; }
+.hj-inner tbody td.barcode { font-size: ${ts(8.5)}; }
+.hj-inner .item-desc { font-size: ${ts(8)}; }
+.hj-inner .totals-row { font-size: ${ts(8.5)}; }
+.hj-inner .totals-row.grand .k { font-size: ${ts(9)}; }
+.hj-inner .hj-words { font-size: ${ts(9)}; }
+`;
+
 const hajoPrintCSS = `
 @media print {
   @page { margin: 0; size: A4; }
@@ -394,7 +438,7 @@ const hajoPrintCSS = `
 export const THEMES = {
   hajosign: {
     id: 'hajosign',
-    css: hajoCSS + hajoPrintCSS,
+    css: hajoCSS + hajoTypeCSS + hajoPrintCSS,
     sheet: hajoSheet,
     header: hajoHeader,
     // Wraps the flowed content so the padding that clears the artwork applies
@@ -404,6 +448,26 @@ export const THEMES = {
     words: text => (text ? `<div class="hj-words">${esc(text)}</div>` : ''),
   },
 };
+
+/**
+ * How a plain REPORT should print for this tenant — the statement of account
+ * and everything else that goes through exportReportPDF.
+ *
+ * Those do not use a theme: they are a title, a table and a total, drawn by the
+ * generic report builder. That was fine until the paper underneath them had a
+ * letterhead already printed on it, at which point the first line of a
+ * statement lands on top of the customer's own logo. They need the same
+ * clearance the themed documents get, and the same slightly larger text, and
+ * they need it from the same two numbers so all five document types move
+ * together when somebody nudges them.
+ *
+ * Returns null for every tenant printing on blank paper — which must leave the
+ * report builder's output exactly as it was.
+ */
+export function reportPrint(settings) {
+  if (settings?.preprinted_stationery !== '1') return null;
+  return { topMM: TOP_PREPRINTED, scale: HJ_TYPE };
+}
 
 /**
  * The theme for these settings, or null for the generic template.

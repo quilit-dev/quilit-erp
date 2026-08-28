@@ -247,7 +247,7 @@ export function buildReceiptVoucherHTML(invoice, voucher, settings, logoDataURL 
   const sheet = (!theme)
     ? `<div class="page">${bodyHtml}</div>`
     : `<div class="page">
-  <table class="hj-sheet">
+  <table class="hj-sheet${C.preprinted ? ' hj-sheet--preprinted' : ''}">
     <thead><tr><td>${C.preprinted ? '' : theme.sheet(C, logoDataURL)}</td></tr></thead>
     <tbody><tr><td>${theme.open}${bodyHtml}${theme.close}</td></tr></tbody>
     <tfoot><tr><td></td></tr></tfoot>
@@ -375,7 +375,7 @@ export function buildPaymentVoucherHTML(payment, settings, logoDataURL = null,
   const sheet = (!theme)
     ? `<div class="page">${bodyHtml}</div>`
     : `<div class="page">
-  <table class="hj-sheet">
+  <table class="hj-sheet${C.preprinted ? ' hj-sheet--preprinted' : ''}">
     <thead><tr><td>${C.preprinted ? '' : theme.sheet(C, logoDataURL)}</td></tr></thead>
     <tbody><tr><td>${theme.open}${bodyHtml}${theme.close}</td></tr></tbody>
     <tfoot><tr><td></td></tr></tfoot>

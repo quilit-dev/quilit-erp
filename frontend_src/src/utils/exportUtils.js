@@ -25,7 +25,7 @@
 // from one system start disagreeing about the date format or the rate.
 import * as XLSX from 'xlsx';
 import DOMPurify from 'dompurify';
-import { themeFor } from './documentThemes';
+import { themeFor, reportPrint } from './documentThemes';
 import { amountInWords } from './numberToWords';
 
 // Open a stored document snapshot in a new window for viewing / printing.
@@ -524,7 +524,7 @@ function docShell(theme, { C, logo, title, client, rows, statusHtml, defaultHead
   const sheet = C.preprinted ? '' : theme.sheet(C, logo);
 
   return `<div class="page">
-  <table class="hj-sheet">
+  <table class="hj-sheet${C.preprinted ? ' hj-sheet--preprinted' : ''}">
     <thead><tr><td>${sheet}</td></tr></thead>
     <tbody><tr><td>
       ${theme.open}
@@ -1057,8 +1057,34 @@ export async function exportReportPDF({
   const dateLabel = new Date().toLocaleDateString(undefined, {
     year: 'numeric', month: 'short', day: 'numeric',
   });
+  // Blank paper: null, and everything below prints exactly as it always has.
+  // Pre-printed: clear the letterhead already on the sheet, and match the
+  // larger text the themed documents use, so a statement and an invoice from
+  // the same company do not print at two different sizes.
+  const rp = reportPrint(settings);
+  const rpx = (n) => `${Math.round(n * (rp ? rp.scale : 1) * 100) / 100}px`;
 
-  const headerHTML = `
+  // On pre-printed paper the sheet already carries the logo and the company's
+  // name, so drawing them again prints the identity twice — once from the
+  // commercial printer and once from us, a few millimetres out, because no
+  // printer feeds a sheet to that tolerance. The themed documents have always
+  // suppressed it; this one had not, which is how a statement of account came
+  // out with two letterheads on it.
+  //
+  // What stays is the part that is DATA rather than identity: the report's
+  // title, its subtitle and the date it was run. Those are not on the
+  // stationery and nothing else prints them.
+  const headerHTML = rp
+    ? `
+    <header class="rpt-hdr rpt-hdr--bare">
+      <div class="rpt-doc">
+        <div class="rpt-doc-title">${escape(title)}</div>
+        ${subtitle ? `<div class="rpt-doc-sub">${escape(subtitle)}</div>` : ''}
+        <div class="rpt-doc-date">${escape(dateLabel)}</div>
+      </div>
+    </header>
+  `
+    : `
     <header class="rpt-hdr">
       ${logoSrc ? `<img class="rpt-logo" src="${logoSrc}" alt="logo" />` : ''}
       <div class="rpt-co">
@@ -1111,28 +1137,31 @@ export async function exportReportPDF({
 <title>${escape(filename || title)}</title>
 <style>
   ${SHARED_CSS}
-  body { padding: 18px 22px; }
+  body { padding: ${rp ? `${rp.topMM}mm 22px 18px` : '18px 22px'}; }
   .rpt-hdr {
     display: flex; align-items: center; gap: 14px;
     padding-bottom: 12px; margin-bottom: 14px;
     border-bottom: 2px solid var(--brand);
   }
   .rpt-logo { width: 44px; height: 44px; object-fit: contain; }
+  /* Nothing sits to the left of the title once the branding is gone, so it
+     stops being right-aligned against it. */
+  .rpt-hdr--bare .rpt-doc { text-align: left; }
   .rpt-co { flex: 1; }
-  .rpt-co-name { font-size: 14px; font-weight: 700; color: var(--text); letter-spacing: -.2px; }
-  .rpt-co-sub  { font-size: 9.5px; color: var(--text-muted); margin-top: 1px; }
+  .rpt-co-name { font-size: ${rpx(14)}; font-weight: 700; color: var(--text); letter-spacing: -.2px; }
+  .rpt-co-sub  { font-size: ${rpx(9.5)}; color: var(--text-muted); margin-top: 1px; }
   .rpt-doc { text-align: right; }
-  .rpt-doc-title { font-size: 16px; font-weight: 700; color: var(--brand); letter-spacing: -.3px; }
-  .rpt-doc-sub   { font-size: 9.5px; color: var(--text-mid); margin-top: 2px; }
-  .rpt-doc-date  { font-size: 9px; color: var(--text-muted); margin-top: 2px; }
+  .rpt-doc-title { font-size: ${rpx(16)}; font-weight: 700; color: var(--brand); letter-spacing: -.3px; }
+  .rpt-doc-sub   { font-size: ${rpx(9.5)}; color: var(--text-mid); margin-top: 2px; }
+  .rpt-doc-date  { font-size: ${rpx(9)}; color: var(--text-muted); margin-top: 2px; }
   .rpt-meta { display: flex; flex-wrap: wrap; gap: 14px; margin: 0 0 12px; padding: 8px 10px;
               background: var(--bg-alt); border: 1px solid var(--border); border-radius: 4px; }
   .rpt-meta-cell { display: flex; flex-direction: column; gap: 1px; min-width: 100px; }
-  .rpt-meta-k { font-size: 8px; text-transform: uppercase; letter-spacing: .5px; color: var(--text-muted); font-weight: 600; }
-  .rpt-meta-v { font-size: 10.5px; color: var(--text); font-weight: 600; }
-  table.rpt-tbl { width: 100%; border-collapse: collapse; font-size: 9.5px; }
+  .rpt-meta-k { font-size: ${rpx(8)}; text-transform: uppercase; letter-spacing: .5px; color: var(--text-muted); font-weight: 600; }
+  .rpt-meta-v { font-size: ${rpx(10.5)}; color: var(--text); font-weight: 600; }
+  table.rpt-tbl { width: 100%; border-collapse: collapse; font-size: ${rpx(9.5)}; }
   .rpt-th { background: var(--brand); color: #fff; font-weight: 600;
-            padding: 6px 8px; text-transform: uppercase; letter-spacing: .3px; font-size: 8.5px; }
+            padding: 6px 8px; text-transform: uppercase; letter-spacing: .3px; font-size: ${rpx(8.5)}; }
   .rpt-td { padding: 5px 8px; border-bottom: 1px solid var(--border); }
   tbody tr:nth-child(even) .rpt-td { background: var(--bg-alt); }
   .rpt-left   { text-align: left; }
@@ -1145,7 +1174,16 @@ export async function exportReportPDF({
   }
   .rpt-empty { padding: 24px; text-align: center; color: var(--text-muted); font-style: italic;
                border: 1px dashed var(--border); border-radius: 4px; }
-  @media print { @page { margin: 14mm 12mm; size: A4 portrait; } body { padding: 0; } }
+  /* Print drops the body padding and lets @page own the margins — which is
+     the right mechanism, because a page margin applies to EVERY sheet while
+     padding only indents where the flow starts. That also means the screen
+     padding above cannot be what clears a pre-printed letterhead: it would
+     look right in the preview and print straight onto the logo. The clearance
+     has to be the page's own top margin, and then it holds on page two. */
+  @media print {
+    @page { margin: ${rp ? `${rp.topMM}mm` : '14mm'} 12mm 14mm; size: A4 portrait; }
+    body { padding: 0; }
+  }
 </style>
 </head><body>
   ${headerHTML}
