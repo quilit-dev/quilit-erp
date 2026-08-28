@@ -100,7 +100,11 @@ def dashboard(branch_id: Optional[int] = None,
                                WHERE ip.invoice_id = i.id), 0)
                   ), 0) AS total
            FROM invoices i
-           WHERE i.deleted_at IS NULL
+           -- Voided: not owed. Archived: hidden from every other list, and the
+           -- aged-receivables report excludes it too. `deleted_at` is never
+           -- set on an invoice, so on its own this guarded nothing at all.
+           WHERE i.deleted_at IS NULL AND i.voided_at IS NULL
+             AND i.archived_at IS NULL
              AND i.amount > COALESCE(
                  (SELECT SUM(ip.amount) FROM invoice_payments ip WHERE ip.invoice_id = i.id), 0
              )""" + bf_i,
@@ -113,7 +117,9 @@ def dashboard(branch_id: Optional[int] = None,
                     COALESCE((SELECT SUM(ip.amount) FROM invoice_payments ip
                                WHERE ip.invoice_id = i.id), 0)), 0) AS total
            FROM invoices i
-           WHERE i.deleted_at IS NULL AND i.due_date IS NOT NULL AND i.due_date < ?
+           WHERE i.deleted_at IS NULL AND i.voided_at IS NULL
+             AND i.archived_at IS NULL
+             AND i.due_date IS NOT NULL AND i.due_date < ?
              AND i.amount > COALESCE(
                  (SELECT SUM(ip.amount) FROM invoice_payments ip WHERE ip.invoice_id = i.id), 0)""" + bf_i,
         (_today(), *bp_i),
@@ -123,7 +129,7 @@ def dashboard(branch_id: Optional[int] = None,
     monthly_income = _scalar(db,
         """SELECT COALESCE(SUM(ip.amount), 0)
            FROM invoice_payments ip JOIN invoices i ON ip.invoice_id = i.id
-           WHERE i.deleted_at IS NULL
+           WHERE i.deleted_at IS NULL AND i.voided_at IS NULL
              AND strftime('%Y-%m', ip.paid_at) = strftime('%Y-%m', 'now')""" + bf_i,
         bp_i,
     ) if (show_finance or show_invoices) else None
@@ -138,7 +144,7 @@ def dashboard(branch_id: Optional[int] = None,
     monthly_chart = db.execute(
         """SELECT strftime('%Y-%m', ip.paid_at) AS month, COALESCE(SUM(ip.amount),0) AS income
            FROM invoice_payments ip JOIN invoices i ON ip.invoice_id = i.id
-           WHERE i.deleted_at IS NULL""" + bf_i +
+           WHERE i.deleted_at IS NULL AND i.voided_at IS NULL""" + bf_i +
         " GROUP BY month ORDER BY month DESC LIMIT 6",
         bp_i,
     ).fetchall() if (show_finance or show_invoices) else []
@@ -407,7 +413,8 @@ def dashboard(branch_id: Optional[int] = None,
                              WHERE ip.invoice_id = i.id), 0) AS total_paid,
                   c.name AS client_name
            FROM invoices i LEFT JOIN clients c ON i.client_id = c.id
-           WHERE i.deleted_at IS NULL""" + bf_i +
+           WHERE i.deleted_at IS NULL AND i.voided_at IS NULL
+             AND i.archived_at IS NULL""" + bf_i +
         " ORDER BY i.created_at DESC LIMIT 5",
         bp_i,
     ).fetchall() if show_invoices else []
