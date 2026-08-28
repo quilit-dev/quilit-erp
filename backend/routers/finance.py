@@ -908,6 +908,13 @@ def reconciliation(
         })
 
     # ── 3. Payments on archived or voided invoices ─────────────────────────
+    # This is a WORKLIST, not an integrity check, which is easy to mistake for
+    # noise: the customer paid, the invoice was voided, so does their money go
+    # back? The void reverses the ledger either way — that is check 5's job —
+    # but somebody still has to decide about the refund, and nothing else in
+    # the system asks. It therefore fires on every voided invoice that took a
+    # payment, and keeps firing, because there is nowhere to record that the
+    # question was answered.
     rows = db.execute("""
         SELECT ip.id, ip.amount, ip.paid_at, i.invoice_number,
                i.voided_at, i.archived_at
@@ -952,30 +959,144 @@ def reconciliation(
     # ledger entry still booking revenue for a voided invoice. Archived
     # invoices are intentionally NOT flagged: archiving only hides a record, the
     # cash really was received, so the revenue legitimately stays on the books.
+    # A void reverses THREE kinds of entry, not one: the payments, the
+    # receivable raised by the invoice itself, and — for a till sale — the cost
+    # of the goods. This check only ever looked at payments, so an unreversed
+    # `pos_cogs` was invisible: the goods gone, their cost still in COGS, and a
+    # reconciliation reporting nothing wrong. That is exactly the defect voids
+    # carried until it was fixed, which means this could not detect its own
+    # subject. `invoice` is keyed by invoice id, `pos_cogs` likewise;
+    # `invoice_payment` is keyed by payment id, hence the join.
     rows = db.execute("""
-        SELECT je.id, je.entry_number, je.total_debit, i.invoice_number
+        SELECT je.id, je.entry_number, je.total_debit, je.source_type,
+               i.invoice_number
         FROM journal_entries je
         JOIN invoice_payments ip ON ip.id = je.source_id
         JOIN invoices i ON i.id = ip.invoice_id
         WHERE je.source_type = 'invoice_payment'
           AND je.status = 'posted' AND je.reversed_by IS NULL
           AND i.voided_at IS NOT NULL
+        UNION ALL
+        SELECT je.id, je.entry_number, je.total_debit, je.source_type,
+               i.invoice_number
+        FROM journal_entries je
+        JOIN invoices i ON i.id = je.source_id
+        WHERE je.source_type IN ('invoice', 'pos_cogs')
+          AND je.status = 'posted' AND je.reversed_by IS NULL
+          AND i.voided_at IS NOT NULL
     """).fetchall()
+    _WHAT = {"invoice_payment": "the payment", "invoice": "the receivable",
+             "pos_cogs": "the cost of the goods"}
     for r in rows:
+        what = _WHAT.get(r["source_type"], r["source_type"])
         issues.append({
             "type": "unreversed_void", "severity": "error",
             "invoice_number": r["invoice_number"],
             "params": {"entry": r["entry_number"] or r["id"],
                        "amount": round(float(r["total_debit"]), 2),
-                       "invoice_number": r["invoice_number"]},
+                       "invoice_number": r["invoice_number"],
+                       # The KEY, not the English — the client maps it through
+                       # finance.reconSource so an Arabic message does not end
+                       # up with an English clause dropped into the middle of
+                       # it. Same trick the `state` param already uses.
+                       "what": r["source_type"]},
             "message": (f"Ledger entry {r['entry_number'] or r['id']} still books "
-                        f"${float(r['total_debit']):.2f} for voided invoice "
-                        f"{r['invoice_number']} — it should have been reversed."),
+                        f"${float(r['total_debit']):.2f} for {what} on voided "
+                        f"invoice {r['invoice_number']} — it should have been "
+                        f"reversed."),
         })
+
+    # ── 5b. Goods that never came back from a voided till sale ─────────────
+    # The ledger half and the physical half of a void move together or the
+    # stock figure stops matching the books. A sale voided before the reversal
+    # was fixed left both wrong; this names the sale so it can be put right.
+    try:
+        rows = db.execute("""
+            SELECT i.invoice_number, ps.id AS sale_id,
+                   COALESCE(SUM(psi.quantity), 0) AS units
+            FROM pos_sales ps
+            JOIN invoices i ON i.id = ps.invoice_id
+            LEFT JOIN pos_sale_items psi ON psi.pos_sale_id = ps.id
+                                        AND psi.inventory_id IS NOT NULL
+            WHERE i.voided_at IS NOT NULL AND ps.status <> 'returned'
+            GROUP BY ps.id
+            HAVING COALESCE(SUM(psi.quantity), 0) > 0
+        """).fetchall()
+    except Exception:
+        rows = []
+    for r in rows:
+        issues.append({
+            "type": "unrestocked_void", "severity": "error",
+            "invoice_number": r["invoice_number"],
+            "params": {"invoice_number": r["invoice_number"],
+                       "units": round(float(r["units"]), 2)},
+            "message": (f"{r['invoice_number']}: the sale was voided but "
+                        f"{float(r['units']):g} units never went back on the "
+                        f"shelf."),
+        })
+
+    # ── 6. Stock on the shelf vs stock on the balance sheet ────────────────
+    # `inventory.unit_cost` is maintained as the weighted average of the
+    # remaining layers under every costing method (see costing.py), so
+    # SUM(quantity * unit_cost) is the stock value on fifo and lifo too.
+    #
+    # This is a WARNING, not an error, because the commonest cause is not a
+    # bug: opening stock typed in when an item is created posts nothing to the
+    # ledger, so any business that started with stock on the shelf carries a
+    # gap of exactly that value and always will, until an opening-balance
+    # entry is posted for it. A gap that GROWS is the one worth chasing.
+    tb = accounting.trial_balance(db)
+    _tb_row = {r["code"]: r for r in tb["rows"]}
+
+    def _gl(role):
+        try:
+            row = _tb_row.get(accounting.code(db, role))
+        except Exception:
+            return None
+        return (float(row["debit"]) - float(row["credit"])) if row else 0.0
+
+    gl_stock = _gl("inventory")
+    physical = float(db.execute(
+        "SELECT COALESCE(SUM(quantity * unit_cost), 0) FROM inventory "
+        "WHERE archived_at IS NULL").fetchone()[0])
+    if gl_stock is not None and abs(gl_stock - physical) > 0.5:
+        gap = round(physical - gl_stock, 2)
+        issues.append({
+            "type": "stock_gl_mismatch", "severity": "warning",
+            "params": {"gl": round(gl_stock, 2), "physical": round(physical, 2),
+                       "gap": gap},
+            "message": (f"Stock on hand is worth ${physical:.2f} but the ledger "
+                        f"carries ${gl_stock:.2f} — a difference of ${gap:.2f}. "
+                        f"Opening stock entered when an item is created does not "
+                        f"post to the ledger, which accounts for most gaps."),
+        })
+
+    # ── 7. Money held for goods not yet handed over ────────────────────────
+    # Deferred revenue is the customers' money until they get their goods, so
+    # the balance must be exactly what is still owed to them. A commitment
+    # closed without releasing its liability, or released without closing,
+    # shows up here and nowhere else.
+    try:
+        owed = float(db.execute(
+            "SELECT COALESCE(SUM((quantity_ordered - quantity_fulfilled) "
+            "                    * (unit_price - unit_tax)), 0) "
+            "FROM sale_commitments WHERE status = 'awaiting'").fetchone()[0])
+    except Exception:
+        owed = None
+    gl_deferred = _gl("deferred_revenue")
+    if owed is not None and gl_deferred is not None:
+        held = -gl_deferred          # a liability sits on the credit side
+        if abs(held - owed) > 0.02:
+            issues.append({
+                "type": "deferred_revenue_mismatch", "severity": "error",
+                "params": {"held": round(held, 2), "owed": round(owed, 2),
+                           "gap": round(held - owed, 2)},
+                "message": (f"Deferred revenue holds ${held:.2f} but only "
+                            f"${owed:.2f} of goods are still owed to customers."),
+            })
 
     # Trial balance must always tie out (entries are balanced by construction;
     # a failure here means data was written around the ledger API).
-    tb = accounting.trial_balance(db)
     if not tb["balanced"]:
         issues.append({
             "type": "gl_unbalanced", "severity": "error",

@@ -170,7 +170,8 @@ function exportExcel(sheets, filename) {
 // the message from params (money fields formatted via the currency toggle) so the
 // modal reads fully in the active language; if a key is missing we fall back to
 // the server text rather than showing a raw key.
-const _RECON_MONEY_FIELDS = ['stored', 'expected', 'over', 'paid', 'amount', 'debit', 'credit'];
+const _RECON_MONEY_FIELDS = ['stored', 'expected', 'over', 'paid', 'amount', 'debit',
+                             'credit', 'gl', 'physical', 'gap', 'held', 'owed'];
 
 function reconLabel(issue, t, fallback) {
   const key = 'finance.reconIssue.' + issue.type;
@@ -184,6 +185,15 @@ function reconMessage(issue, t, money) {
   const fp = { ...issue.params };
   _RECON_MONEY_FIELDS.forEach(k => { if (fp[k] != null) fp[k] = money(fp[k]); });
   if (fp.state) fp.state = t('finance.reconState.' + fp.state);
+  // `what` arrives as a source_type key so the sentence stays in one
+  // language; an untranslated key would read worse than the server text,
+  // so fall back to that whole message instead.
+  if (fp.what) {
+    const wk = 'finance.reconSource.' + fp.what;
+    const w = t(wk);
+    if (w === wk) return issue.message;
+    fp.what = w;
+  }
   const out = t(key, fp);
   return out === key ? issue.message : out;
 }
