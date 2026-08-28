@@ -236,17 +236,28 @@ const PAGE = { top: 50, side: 16, bottom: 32, footFromEdge: 15, footRightInset: 
 // ── The two numbers to turn when the print lands wrong on the real paper ─────
 //
 // PAGE.top (50mm) clears the letterhead this system DRAWS, and is measured
-// against it: the masthead ends at 42.2mm. Pre-printed stationery is a
-// different problem. The design on that sheet came from a printer, not from
-// here, so nothing in this file knows how far down the page it reaches — and a
-// sheet fed by a laser printer does not register to the tenth of a millimetre
-// either. It therefore gets its own, more generous, clearance.
+// against it. Pre-printed stationery is a separate number because it is a
+// separate fact, and the two do NOT agree.
 //
-// TOP_PREPRINTED is that clearance, and TYPE is how much larger the text
-// prints. Both are single numbers on purpose: getting them right is a matter
-// of holding a printed sheet up to the light, not of reading code, so they are
-// meant to be nudged. mm and a plain multiplier, nothing else to work out.
-const TOP_PREPRINTED = 62;    // mm from the paper's top edge to the first line
+// Measured off the supplied print file (216x303mm — A4 plus 3mm bleed), the
+// masthead's last ink is at 42.2mm from the trim top:
+//
+//     logo      11.7 .. 26.2 mm
+//     wordmark  30.6 .. 34.6 mm
+//     tagline   40.6 .. 42.2 mm
+//
+// By that arithmetic 50mm cleared it and this number should not exist. On the
+// actual paper it did not: text was landing on the logo on invoices and work
+// orders, which reserve exactly 50mm. So something puts the printed content
+// higher up the sheet than the artwork's own geometry predicts — feed offset,
+// the printer's unprintable border, or stock that differs from this file.
+// Which of those hardly matters; the paper is the authority and the file is
+// not, so this is set from what comes out of the printer.
+//
+// If it needs to move again: print one invoice, measure from the paper's top
+// edge to the first line of text, and compare that with where the logo ends.
+// The difference is what to add here.
+const TOP_PREPRINTED = 62;    // mm, empirical; artwork alone would say ~50
 const HJ_TYPE = 1.12;         // 1 = unchanged; 1.12 = twelve per cent larger
 
 /** A shared-stylesheet size, scaled for this theme. */
