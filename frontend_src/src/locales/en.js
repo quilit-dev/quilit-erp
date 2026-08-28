@@ -2122,6 +2122,7 @@ const en = {
     minStockAlert: 'Min Stock Alert',
     unitCostLabel: 'Unit Cost / Landed Cost',
     salePriceLabel: 'Sale Price (VAT incl.)',
+    salePriceHeader: 'Sale price',
     costLockedToUsd: 'Stored in USD at the current rate.',
     salePriceFloatsHint: 'Floats with the rate at sale time.',
     newProductBtn: '+ New Product',

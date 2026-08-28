@@ -14,7 +14,7 @@ import {
 } from '../api/client';
 import {
   LoadingSpinner, ErrorAlert, EmptyState, Modal, ConfirmModal,
-  ExportButton, toast, SortableTh, Pagination,
+  ExportButton, toast, SortableTh, Pagination, fmt,
 } from '../components/shared';
 import ImportWizard from '../components/ImportWizard';
 
@@ -213,7 +213,10 @@ export default function Inventory() {
         {showCost && (
           <td style={{ fontWeight: 600 }}>${fmtNum(item.quantity * item.unit_cost)}</td>
         )}
-        <td>{item.supplier || <span style={{ color: 'var(--text-3)' }}>—</span>}</td>
+        {/* Priced in its own currency: an item quoted in LBP must not be
+            shown with a dollar sign. A plain 0 is left visible rather than
+            dashed out — an unpriced item is something to go and fix. */}
+        <td>{fmt(item.sale_price, item.price_currency)}</td>
         <td>
           <div style={{ display: 'flex', gap: 6 }}>
             {isArchived ? (
@@ -378,7 +381,7 @@ export default function Inventory() {
                   <SortableTh label={t('inventory.minStock')} sortKey="min_stock"  currentKey={sortKey} currentDir={sortDir} onSort={requestSort} />
                   {showCost && <SortableTh label={t('inventory.unitCost')} sortKey="unit_cost"  currentKey={sortKey} currentDir={sortDir} onSort={requestSort} />}
                   {showCost && <th>{t('inventory.totalValueHeader')}</th>}
-                  <SortableTh label={t('common.supplier')}    sortKey="supplier"   currentKey={sortKey} currentDir={sortDir} onSort={requestSort} />
+                  <SortableTh label={t('inventory.salePriceHeader')} sortKey="sale_price" currentKey={sortKey} currentDir={sortDir} onSort={requestSort} />
                   <th>{t('common.actions')}</th>
                 </tr>
               </thead>

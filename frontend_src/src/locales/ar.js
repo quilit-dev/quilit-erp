@@ -2111,6 +2111,7 @@ const ar = {
     minStockAlert: 'تنبيه الحد الأدنى',
     unitCostLabel: 'تكلفة الوحدة / التكلفة الكاملة',
     salePriceLabel: 'سعر البيع (شامل الضريبة)',
+    salePriceHeader: 'سعر البيع',
     costLockedToUsd: 'يُخزَّن بالدولار وفق السعر الحالي.',
     salePriceFloatsHint: 'يتغيّر مع سعر الصرف عند البيع.',
     newProductBtn: '+ منتج جديد',
