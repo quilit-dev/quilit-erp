@@ -197,6 +197,11 @@ export const createInventoryItem    = (d)    => api.post('/api/inventory/', d);
 export const updateInventoryItem    = (id, d) => api.put(`/api/inventory/${id}`, d);
 export const archiveInventoryItem   = (id)   => api.patch(`/api/inventory/${id}/archive`);
 export const unarchiveInventoryItem = (id)   => api.patch(`/api/inventory/${id}/unarchive`);
+// Hard delete, for an item nothing refers to. `getInventoryItemUsage` is what
+// the screen asks first, so the operator is offered the button only when it
+// will work — and told what is in the way when it will not.
+export const getInventoryItemUsage  = (id)   => api.get(`/api/inventory/${id}/usage`);
+export const deleteInventoryItem    = (id)   => api.delete(`/api/inventory/${id}`);
 export const updateStock            = (id, d) => api.patch(`/api/inventory/${id}/stock`, d);
 export const getStockMovements      = (id)   => api.get(`/api/inventory/${id}/movements`);
 export const deductToProject        = (id, d) => api.post(`/api/inventory/${id}/deduct-to-project`, d);

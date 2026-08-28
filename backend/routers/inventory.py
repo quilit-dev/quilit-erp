@@ -665,6 +665,131 @@ def deduct_to_project(item_id: int, data: DeductToProject,
         "cost":       total_cost,
     }
 
+# Everything that can point at an inventory item, and what to call it when it
+# is the reason a delete was refused. Anything listed here is HISTORY: a record
+# of something that happened, which deleting the item would falsify. An invoice
+# line naming a product that no longer exists is not a tidier database, it is a
+# document that can no longer be explained.
+#
+# `test_inventory_delete.py` asserts this covers every table in the schema that
+# references an item, so a new table cannot quietly open a hole here.
+_USED_BY = [
+    ("invoice_items",          "inventory_id",           "invoices"),
+    ("quotation_items",        "inventory_id",           "quotations"),
+    ("pos_sale_items",         "inventory_id",           "till sales"),
+    ("purchases",              "inventory_id",           "purchase orders"),
+    ("stock_movements",        "inventory_id",           "stock movements"),
+    ("inventory_cost_layers",  "inventory_id",           "cost layers"),
+    ("inventory_lots",         "inventory_id",           "lots"),
+    ("lot_consumption",        "inventory_id",           "lot consumption"),
+    ("sale_commitments",       "inventory_id",           "customer orders"),
+    ("stock_reservations",     "inventory_id",           "reservations"),
+    ("bom_components",         "component_inventory_id", "bills of materials"),
+    ("boms",                   "output_inventory_id",    "bills of materials"),
+    ("production_order_items", "component_inventory_id", "production orders"),
+    ("production_orders",      "output_inventory_id",    "production orders"),
+    ("production_qc",          "output_inventory_id",    "quality checks"),
+    ("service_job_lines",      "inventory_id",           "service jobs"),
+    ("service_equipment",      "inventory_id",           "service equipment"),
+    ("stock_transfer_items",   "inventory_id",           "stock transfers"),
+]
+
+# The item's own definition rather than a record of anything: these go when it
+# does. `inventory_stock` is the per-warehouse quantity, which the zero-stock
+# precondition has already established is empty.
+_OWN_ROWS = [
+    ("item_attributes",  "inventory_id"),
+    ("inventory_stock",  "inventory_id"),
+]
+
+
+def _item_usage(db: sqlite3.Connection, item_id: int) -> dict:
+    """What refers to this item, counted per kind of record."""
+    used = {}
+    for table, column, label in _USED_BY:
+        try:
+            n = db.execute(
+                f"SELECT COUNT(*) AS n FROM {table} WHERE {column} = ?",
+                (item_id,)).fetchone()["n"]
+        except Exception:
+            # A table this install has not migrated to yet cannot hold a
+            # reference to anything, so it is not a reason to refuse.
+            continue
+        if n:
+            used[label] = used.get(label, 0) + n
+    return used
+
+
+@router.get("/{item_id}/usage")
+def item_usage(item_id: int, user=Depends(require_perm("inventory", "view")),
+               db: sqlite3.Connection = Depends(get_db)):
+    """Whether this item can be deleted, and what is stopping it if not.
+
+    The screen asks before offering the button, so the operator is told which
+    of the two things they can do BEFORE they commit to one.
+    """
+    row = db.execute("SELECT * FROM inventory WHERE id = ?", (item_id,)).fetchone()
+    if not row:
+        raise HTTPException(404, "Item not found")
+    used = _item_usage(db, item_id)
+    blockers = []
+    if float(row["quantity"] or 0) != 0:
+        blockers.append("stock on hand")
+    if float(row["reserved_quantity"] or 0) > 0:
+        blockers.append("reservations")
+    return {"used_by": used, "stock_blockers": blockers,
+            "can_delete": not used and not blockers}
+
+
+@router.delete("/{item_id}")
+def delete_item(item_id: int, user=Depends(require_perm("inventory", "delete")),
+                db: sqlite3.Connection = Depends(get_db)):
+    """Remove an item that was never used — a typo, a duplicate, a mistake.
+
+    An item that HAS been used is archived, never deleted. Its name sits on
+    invoices, purchase orders and stock movements that must go on making sense
+    for as long as those records are kept; removing the row it points at does
+    not clean anything up, it breaks the paper trail. Archive already covers
+    that case and is what the refusal points at.
+
+    So this is deliberately narrow: it deletes only an item nothing refers to,
+    and it says exactly what refers to one when it will not.
+    """
+    row = db.execute("SELECT * FROM inventory WHERE id = ?", (item_id,)).fetchone()
+    if not row:
+        raise HTTPException(404, "Item not found")
+
+    if float(row["quantity"] or 0) != 0:
+        raise HTTPException(
+            400, f"Cannot delete an item with {row['quantity']:g} units in stock. "
+                 f"Adjust the stock to zero first, or archive it instead.")
+    if float(row["reserved_quantity"] or 0) > 0:
+        raise HTTPException(
+            400, "Cannot delete an item that is reserved. Release the "
+                 "reservation first, or archive it instead.")
+
+    used = _item_usage(db, item_id)
+    if used:
+        detail = ", ".join(f"{n} {label}" for label, n in sorted(used.items()))
+        raise HTTPException(
+            409, f"'{row['name']}' has been used and cannot be deleted: it appears "
+                 f"on {detail}. Archive it instead — that takes it out of the "
+                 f"lists and leaves those records intact.")
+
+    for table, column in _OWN_ROWS:
+        try:
+            db.execute(f"DELETE FROM {table} WHERE {column} = ?", (item_id,))
+        except Exception:
+            pass
+    db.execute("DELETE FROM inventory WHERE id = ?", (item_id,))
+    # Logged before the commit so the record of the deletion lands with it.
+    log_action(db, user, "delete", "inventory", item_id, row["name"],
+               {"category": row["category"], "barcode": row["barcode"],
+                "unit_cost": row["unit_cost"], "sale_price": row["sale_price"]})
+    db.commit()
+    return {"message": "Item deleted", "name": row["name"]}
+
+
 @router.patch("/{item_id}/archive")
 def archive_item(item_id: int, user=Depends(require_perm("inventory", "delete")), db: sqlite3.Connection = Depends(get_db)):
     row = db.execute("SELECT * FROM inventory WHERE id = ? AND archived_at IS NULL", (item_id,)).fetchone()

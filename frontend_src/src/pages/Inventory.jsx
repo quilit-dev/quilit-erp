@@ -10,7 +10,8 @@ import { useFocusId } from '../hooks/useFocusId';
 import StockReservations from '../components/StockReservations.jsx';
 import {
   createInventoryItem, updateInventoryItem,
-  archiveInventoryItem, unarchiveInventoryItem, getSuppliers, createProduct,
+  archiveInventoryItem, unarchiveInventoryItem, deleteInventoryItem,
+  getInventoryItemUsage, getSuppliers, createProduct,
 } from '../api/client';
 import {
   LoadingSpinner, ErrorAlert, EmptyState, Modal, ConfirmModal,
@@ -126,6 +127,36 @@ export default function Inventory() {
     finally { setSaving(false); }
   }
 
+  // Asked before the confirm is shown, so an item that cannot be deleted
+  // says why instead of failing on the button. `null` while it is being asked.
+  const [usage, setUsage] = useState(null);
+
+  // t() returns the key when there is no translation, so an unmapped label
+  // would render as `inventory.usedBy.lots` on screen. Fall back to the plain
+  // English the server sent instead.
+  function usageLabel(ns, text) {
+    const key = `inventory.${ns}.${String(text).replace(/ /g, '_')}`;
+    const out = t(key);
+    return out === key ? text : out;
+  }
+
+  async function askDelete(item) {
+    setActiveItem(item);
+    setUsage(null);
+    setModal('destroy');
+    try { setUsage(await getInventoryItemUsage(item.id)); }
+    catch (err) { toast(err.message, 'red'); setModal(null); }
+  }
+
+  async function handleDestroy() {
+    try {
+      await deleteInventoryItem(activeItem.id);
+      toast(t('inventory.itemPermanentlyDeleted', { name: activeItem.name }));
+      setModal(null);
+      load();
+    } catch (err) { toast(err.message, 'red'); }
+  }
+
   async function handleArchive() {
     try {
       await archiveInventoryItem(activeItem.id);
@@ -232,6 +263,11 @@ export default function Inventory() {
                   onClick={() => { setActiveItem(item); setModal('edit'); }}>{t('common.edit')}</button>
                 <button className="btn btn-sm btn-danger"
                   onClick={() => { setActiveItem(item); setModal('delete'); }}>{t('common.archive')}</button>
+                {/* Archive keeps the record; this removes it. Only ever
+                    succeeds for an item nothing refers to — the modal asks
+                    the server first and says so when it does not. */}
+                <button className="btn btn-sm btn-danger" style={{ opacity: 0.85 }}
+                  onClick={() => askDelete(item)}>{t('common.delete')}</button>
               </>
             )}
           </div>
@@ -465,6 +501,48 @@ export default function Inventory() {
           onConfirm={handleArchive}
           onCancel={() => setModal(null)}
         />
+      )}
+      {modal === 'destroy' && activeItem && (
+        usage === null ? (
+          <Modal title={t('inventory.deleteItemTitle')} onClose={() => setModal(null)}>
+            <div className="modal-body"><LoadingSpinner /></div>
+          </Modal>
+        ) : usage.can_delete ? (
+          <ConfirmModal
+            title={t('inventory.deleteItemTitle')}
+            message={t('inventory.deleteItemConfirm', { name: activeItem.name })}
+            confirmLabel={t('common.delete')}
+            confirmClass="btn-danger"
+            onConfirm={handleDestroy}
+            onCancel={() => setModal(null)}
+          />
+        ) : (
+          /* Not a failure to report but a choice to offer: the item has a
+             history, so archiving is the thing that does what they wanted. */
+          <Modal title={t('inventory.deleteItemTitle')} onClose={() => setModal(null)}>
+            <div className="modal-body">
+              <p style={{ marginTop: 0, fontSize: 13.5 }}>
+                {t('inventory.deleteBlocked', { name: activeItem.name })}
+              </p>
+              <ul style={{ fontSize: 13, color: 'var(--text-2)', paddingInlineStart: 20 }}>
+                {Object.entries(usage.used_by).map(([label, n]) => (
+                  <li key={label}>{n} {usageLabel('usedBy', label)}</li>
+                ))}
+                {usage.stock_blockers.map(b => (
+                  <li key={b}>{usageLabel('blocker', b)}</li>
+                ))}
+              </ul>
+              <p style={{ fontSize: 13, marginBottom: 0 }}>{t('inventory.deleteBlockedHint')}</p>
+            </div>
+            <div className="modal-footer">
+              <button className="btn btn-secondary" onClick={() => setModal(null)}>
+                {t('common.close')}
+              </button>
+              <button className="btn btn-danger"
+                onClick={() => setModal('delete')}>{t('common.archive')}</button>
+            </div>
+          </Modal>
+        )
       )}
       {modal === 'restore' && activeItem && (
         <ConfirmModal
