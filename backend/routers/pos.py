@@ -30,6 +30,7 @@ import costing
 import costs
 import lots
 import accounting
+import sale_reversal
 import denomination
 import installments
 import commitments
@@ -1196,46 +1197,20 @@ def return_sale(
     # void is the record that this happened; the schedule is not.
     db.execute("DELETE FROM invoice_installments WHERE invoice_id=?", (inv["id"],))
 
-    # Restock every inventory-backed line, returning the goods to the same
-    # warehouse the original sale was deducted from (the session's warehouse).
+    # Restock every inventory-backed line, returning the goods to the warehouse
+    # the sale was deducted from. Shared with the invoice void, so the two ways
+    # of undoing a sale cannot grow different ideas of what that means.
     import warehouse_access as wha
     ret_sess_wid = None
     try:
         ret_sess_wid = session["warehouse_id"]
     except (IndexError, KeyError):
         pass
-    return_wid = wha.default_warehouse_id_for_row(db, ret_sess_wid)
-    for it in db.execute(
-        "SELECT * FROM pos_sale_items WHERE pos_sale_id=? AND inventory_id IS NOT NULL",
-        (sale_id,),
-    ).fetchall():
-        row = db.execute("SELECT * FROM inventory WHERE id=?", (it["inventory_id"],)).fetchone()
-        if not row:
-            continue
-        qty_before = float(row["quantity"])
-        qty_after  = round(qty_before + float(it["quantity"]), 6)
-        db.execute("UPDATE inventory SET quantity=? WHERE id=?", (qty_after, it["inventory_id"]))
-        wha.credit_warehouse_stock(db, inventory_id=it["inventory_id"],
-                                   warehouse_id=return_wid, delta=float(it["quantity"]))
-        # Put the returned stock back as a new lot / cost layer at the price it
-        # left at (the COGS snapshot on the sale line).
-        lots.record_stock_in(db, it["inventory_id"], float(it["quantity"]),
-                             it["unit_cost"] or 0, source_type="return",
-                             source_ref=inv["invoice_number"], now=now)
-        db.execute(
-            "INSERT INTO stock_movements "
-            "(inventory_id, type, delta, qty_before, qty_after, reference, note, warehouse_id, created_at) "
-            "VALUES (?,?,?,?,?,?,?,?,?)",
-            (it["inventory_id"], "return", float(it["quantity"]), qty_before, qty_after,
-             inv["invoice_number"], "POS return", return_wid, now),
-        )
-        # Hand the promo's quantity-cap allowance back when a discounted line is
-        # returned, so the campaign reflects reality (clamped at 0).
-        if it["promotion_id"]:
-            db.execute(
-                "UPDATE promotions SET used_quantity = MAX(0, used_quantity - ?) WHERE id = ?",
-                (int(float(it["quantity"])), it["promotion_id"]),
-            )
+    sale_reversal.restock_pos_sale(
+        db, sale, inv, note="POS return", now=now,
+        warehouse_id=wha.default_warehouse_id_for_row(db, ret_sess_wid))
+    # Goods promised on this sale and not yet handed over are not owed any more.
+    commitments.cancel_for_invoice(db, inv["id"], closed_by=user["id"])
 
     refund_amount = float(sale["total_usd"])
     db.execute(

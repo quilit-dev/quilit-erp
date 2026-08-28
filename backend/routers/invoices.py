@@ -23,6 +23,7 @@ from routers.projects import bump_project_status
 from approval_engine import evaluate_and_apply
 from utils import _now, _today, get_tax_context, resolve_line_tax, money, notify
 import accounting
+import sale_reversal
 import currency as currency_mod
 import denomination
 import branch_access
@@ -877,10 +878,18 @@ def void_invoice(
     accounting.reverse_source(db, "invoice", invoice_id,
                               memo=f"Reversal — voided invoice {inv['invoice_number']}",
                               created_by=user["id"])
+    # And whatever left the shelf under it. Reversing only the money left the
+    # goods gone and their cost sitting in COGS against no revenue — a loss the
+    # size of stock the business still owned, in books that balanced and so
+    # never complained. A no-op for an ordinary invoice, which moves nothing.
+    undone = sale_reversal.reverse_fulfilment(
+        db, inv, note=f"Voided invoice {inv['invoice_number']}",
+        user_id=user["id"], now=now)
     log_action(db, user, "void", "invoice", invoice_id,
-               inv["invoice_number"], {"reason": data.reason or "Voided"})
+               inv["invoice_number"],
+               {"reason": data.reason or "Voided", **undone})
     db.commit()
-    return {"message": "Invoice voided", "voided_at": now}
+    return {"message": "Invoice voided", "voided_at": now, **undone}
 
 
 @router.patch("/{invoice_id}/unvoid")
@@ -905,10 +914,27 @@ def unvoid_invoice(
     branch_access.assert_can_view_branch(user, db, inv["branch_id"])
     if not inv["voided_at"]:
         raise HTTPException(400, "Invoice is not voided.")
+    # An invoice that moved goods cannot be unvoided. Voiding it put the stock
+    # back and reversed the cost with it; bringing the invoice back would
+    # restore the revenue and the receivable while the goods stayed on the
+    # shelf — income against stock the business still has. Raise it again
+    # instead, which takes the goods back out the same way the first one did.
     if db.execute("SELECT 1 FROM pos_sales WHERE invoice_id=?", (invoice_id,)).fetchone():
         raise HTTPException(
-            400, "POS-sale invoices cannot be unvoided — the POS return already "
+            400, "POS-sale invoices cannot be unvoided — the void already "
                  "restocked the goods. Ring the sale up again instead.")
+    # A service job that has since been REOPENED has already had its parts put
+    # back and their cost reversed. Restoring the invoice would bill the
+    # customer for parts sitting in the warehouse. A job still marked Done kept
+    # its parts and its cost, so unvoiding it is sound.
+    job_id = _col(inv, "service_job_id")
+    if job_id:
+        job = db.execute("SELECT status FROM service_jobs WHERE id=?",
+                         (job_id,)).fetchone()
+        if job and job["status"] != "Done":
+            raise HTTPException(
+                400, "This job was reopened after the invoice was voided, and its "
+                     "parts went back to stock. Complete the job again to bill it.")
     # Same period rules as void: the invoice's month and today's (where the
     # re-recognition entries land) must both be open.
     _check_period_locked(db, inv["created_at"])

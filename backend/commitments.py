@@ -278,3 +278,20 @@ def cancel(db: sqlite3.Connection, commitment_id: int, *,
                "closed_at=?, closed_by=? WHERE id=?",
                (CANCELLED, _now(), closed_by, commitment_id))
     return {"outstanding": outstanding, "released": released}
+
+
+def cancel_for_invoice(db: sqlite3.Connection, invoice_id: int, *,
+                       closed_by: Optional[int] = None) -> int:
+    """Close every open promise made on one invoice. Returns how many.
+
+    For when the sale itself is undone — a void, a full return. The money side
+    is the caller's business and by that point is usually already reversed with
+    the payment; this releases the holds and takes the customer off the
+    collection list, because there is no longer a sale to collect against.
+    """
+    rows = db.execute(
+        "SELECT id FROM sale_commitments WHERE invoice_id=? AND status=?",
+        (invoice_id, AWAITING)).fetchall()
+    for row in rows:
+        cancel(db, row["id"], closed_by=closed_by)
+    return len(rows)
