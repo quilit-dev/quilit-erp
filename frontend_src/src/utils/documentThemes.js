@@ -152,7 +152,7 @@ function hajoSheet(C, logo) {
       <div class="hj-wordmark">${esc(C.name)}</div>
       ${C.tagline ? `<div class="hj-tagline">${esc(C.tagline)}</div>` : ''}
     </div>
-    ${hajoContacts(C)}
+    ${hajoContacts()}
   </div></div>`;
 }
 
@@ -181,8 +181,24 @@ function hajoHeader({ C, title, client, rows, statusHtml }) {
   </div>`;
 }
 
+// The contact strip is part of the LETTERHEAD, not of the tenant's settings.
+//
+// It is printed on hajosign's stationery in fixed ink. The customer holding a
+// printed invoice and the customer opening the link they were sent have to see
+// the same company, and settings drift — an old address, a personal mailbox,
+// a website spelled differently from the one on the paper. The paper does not
+// drift, so the screen copy follows the paper.
+//
+// Everything else on the document still comes from settings. This is only the
+// identity block that is already committed to ink.
+const HAJO_CONTACT = {
+  phones: ['+961 71771441', '+961 79177441'],
+  web:    ['www.hajosign.com', 'info@hajosign.com'],
+  place:  ['Beirut - St. Michael Church', 'Fawaz Center - First floor'],
+};
+
 /** The contact strip: phone, web, address — three columns with orange icons. */
-function hajoContacts(C) {
+function hajoContacts() {
   const icon = d => `<svg class="hj-ico" viewBox="0 0 24 24" fill="none"
       stroke="${HAJO.orange}" stroke-width="2" stroke-linecap="round"
       stroke-linejoin="round" aria-hidden="true">${d}</svg>`;
@@ -191,9 +207,7 @@ function hajoContacts(C) {
   const GLOBE = '<circle cx="12" cy="12" r="10"/><path d="M2 12h20"/><path d="M12 2a15.3 15.3 0 0 1 4 10 15.3 15.3 0 0 1-4 10 15.3 15.3 0 0 1-4-10 15.3 15.3 0 0 1 4-10z"/>';
   const PIN = '<path d="M20 10c0 6-8 12-8 12s-8-6-8-12a8 8 0 0 1 16 0z"/><circle cx="12" cy="10" r="3"/>';
 
-  const phones = String(C.phone || '').split(/\s*[/|,]\s*/).filter(Boolean);
-  const web = [C.website, C.email].filter(Boolean);
-  const place = String(C.address || '').split(/\s*,\s*/).filter(Boolean);
+  const { phones, web, place } = HAJO_CONTACT;
 
   const col = (svg, lines) => (lines.length ? `
     <div class="hj-foot-col">${icon(svg)}<div class="hj-foot-lines">
@@ -231,7 +245,7 @@ function hajoContacts(C) {
 // too. The top margin clears the masthead (which ends at 42.2mm); the sides
 // clear the left band and the top-right bracket's vertical leg (x >= 205.4mm);
 // the bottom clears the contact strip and the bands beneath it.
-const PAGE = { top: 50, side: 16, bottom: 32, footFromEdge: 15, footRightInset: 16 };
+const PAGE = { top: 54, side: 16, bottom: 32, footFromEdge: 15, footRightInset: 16 };
 
 // ── The two numbers to turn when the print lands wrong on the real paper ─────
 //
@@ -264,10 +278,15 @@ const HJ_TYPE = 1.12;         // 1 = unchanged; 1.12 = twelve per cent larger
 const ts = (px) => `${Math.round(px * HJ_TYPE * 100) / 100}px`;
 
 // Measured off the original at 2551x3579, expressed in mm on the A4 trim.
+// The mark is drawn larger than the original artwork's 14.5mm: on a phone,
+// which is where a sent invoice is actually read, the original was a smudge.
+// The gaps below it are preserved exactly (4.4mm to the wordmark, 6.0mm to the
+// tagline) so the block still reads as one lockup rather than three stacked
+// things, and the whole masthead is lifted 1.7mm to buy the height back.
 const MARK = {
-  logoTop: 11.7, logoSize: 14.5,
-  wordTop: 30.6, wordHeight: 4.0, wordWidth: 56.4,
-  tagTop: 40.6, tagHeight: 1.6,
+  logoTop: 10.0, logoSize: 21.0,          // was 11.7 / 14.5
+  wordTop: 35.4, wordHeight: 4.0, wordWidth: 56.4,
+  tagTop: 45.4, tagHeight: 1.6,
   wmTop: 88.3, wmWidth: 110.9,      // centred on x, and 5.8mm above page centre
 };
 
@@ -438,11 +457,30 @@ const hajoTypeCSS = `
 .hj-inner .hj-words { font-size: ${ts(9)}; }
 `;
 
+// The frame is drawn to the very edge of the sheet, which is right for a design
+// sent to a commercial printer and wrong for the one on somebody's desk. No
+// office printer reaches the paper edge — there is a hardware border of roughly
+// 4-6mm it physically cannot mark — so printing this at full bleed loses the
+// top band completely and clips the sides.
+//
+// So for print the whole letterhead is pulled in far enough to land inside that
+// border. The frame arrives complete, with a white margin around it, which is
+// what bleed artwork always looks like off a desktop printer. The flowed
+// content is NOT scaled: it already sits well inside, and scaling it would undo
+// the clearances that keep the text off the artwork.
+//
+// Screen keeps the full bleed, because a screen has no unprintable border.
+const BLEED_SAFE = 0.94;      // 210mm -> 197.4mm, leaving 6.3mm each side
+
 const hajoPrintCSS = `
 @media print {
   @page { margin: 0; size: A4; }
   .page { padding: 0 !important; width: 100%; min-height: 0; margin: 0; }
   .doc-footer { display: none !important; }
+  .hj-sheet-art {
+    transform: scale(${BLEED_SAFE});
+    transform-origin: 50% 50%;
+  }
 }
 `;
 

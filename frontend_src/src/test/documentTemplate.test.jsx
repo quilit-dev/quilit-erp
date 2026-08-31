@@ -222,13 +222,19 @@ describe('pre-printed stationery', () => {
     expect(markup).toContain('<thead><tr><td></td></tr></thead>');
   });
 
-  test('but the margins are unchanged, so the data still lands in the blank area', () => {
+  test('the margins still land the data in the blank area', () => {
     // The whole point: the text has to fall exactly where the paper is empty.
-    // If turning this on moved the content, it would print over the letterhead
-    // it was meant to avoid.
-    expect(build(ON)).toContain('height: 50mm');       // thead reservation
-    expect(build(ON)).toContain('height: 32mm');       // tfoot reservation
-    expect(build(ON)).toContain('padding: 0 16mm');    // side margins
+    //
+    // This used to assert `height: 50mm` — the shared thead reservation — and
+    // went on passing after pre-printed paper was given its own, larger
+    // clearance, because that string was still somewhere in the stylesheet.
+    // It was reading the wrong rule. What governs THIS document is the
+    // --preprinted override, so that is what is checked.
+    const html = build(ON);
+    expect(html).toMatch(/\.hj-sheet--preprinted > thead > tr > td \{ height: 62mm; \}/);
+    expect(html).toContain('class="hj-sheet hj-sheet--preprinted"');
+    expect(html).toContain('height: 32mm');            // tfoot reservation
+    expect(html).toContain('padding: 0 16mm');         // side margins
   });
 
   test('the document still says everything it said', () => {
