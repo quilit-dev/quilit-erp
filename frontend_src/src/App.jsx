@@ -12,7 +12,7 @@ import LicenceBanner from './components/LicenceBanner';
 import { LoadingSpinner } from './components/shared';
 import { useTheme } from './hooks/useTheme.jsx';
 import { useLocale } from './hooks/useLocale.jsx';
-import { logout, getSetupStatus } from './api/client';
+import { getSetupStatus } from './api/client';
 
 const Login               = lazy(() => import('./pages/Login'));
 const PlatformConsole     = lazy(() => import('./pages/PlatformConsole'));
@@ -56,39 +56,21 @@ const ApprovalRequests  = lazy(() => import('./pages/ApprovalRequests'));
 const Announcements     = lazy(() => import('./pages/Announcements'));
 const Warehouses        = lazy(() => import('./pages/Warehouses'));
 
-const INACTIVITY_MS = 30 * 60 * 1000; // 30 minutes
-
-function InactivityGuard({ children }) {
-  const navigate = useNavigate();
-
-  useEffect(() => {
-    let timer;
-    function reset() {
-      clearTimeout(timer);
-      timer = setTimeout(async () => {
-        try { await logout(); } catch {}
-        localStorage.removeItem('user');
-        navigate('/login');
-      }, INACTIVITY_MS);
-    }
-    const events = ['mousemove', 'mousedown', 'keydown', 'touchstart'];
-    events.forEach(e => document.addEventListener(e, reset, { passive: true }));
-    reset();
-    return () => {
-      clearTimeout(timer);
-      events.forEach(e => document.removeEventListener(e, reset));
-    };
-  }, [navigate]);
-
-  return children;
-}
+// Signing out on idle used to live here — a 30-minute timer, reset by any
+// mouse or key event, that logged the user out and sent them to /login. It is
+// gone, along with the server-side half that revoked the session (see
+// permissions.py). Being signed out mid-sale, or halfway through a long piece
+// of data entry, cost more than it protected.
+//
+// A session still ends: the token expires after TOKEN_EXPIRE_HOURS, the user
+// can sign out, and an admin can revoke a session from the admin dashboard.
 
 function RequireAuth({ children }) {
   const location = useLocation();
   let user = null;
   try { user = JSON.parse(localStorage.getItem('user') || 'null'); } catch {}
   if (!user) return <Navigate to="/login" state={{ from: location }} replace />;
-  return <InactivityGuard>{children}</InactivityGuard>;
+  return children;
 }
 
 // Admin tier: vendor superadmin OR an admin-tier role (e.g. "Business Owner").

@@ -3,12 +3,21 @@ Permission middleware for RBAC.
 Separated from auth_utils.py to avoid circular imports with database.py.
 """
 import sqlite3
-from datetime import datetime, timedelta
+from datetime import datetime
 from fastapi import Depends, HTTPException
 from auth_utils import get_current_user
 from database import get_db
 
-_SESSION_TIMEOUT = timedelta(minutes=30)
+# There is deliberately no idle timeout here any more. A session ends when
+# its token expires (TOKEN_EXPIRE_HOURS, 24 by default), when the user signs
+# out, or when an admin revokes it — not because nobody touched the keyboard
+# for half an hour. Being signed out mid-sale at a till, or halfway through a
+# long piece of data entry, cost more than it protected.
+#
+# `last_active` is still written on every request. It is what the admin
+# dashboard shows as online/idle and what the licence counts seats by
+# (_SEAT_IDLE_MINUTES in routers/auth.py) — neither of which signs anybody
+# out, and both of which would go blind without it.
 
 MODULES = [
     'dashboard', 'clients', 'projects', 'quotations', 'invoices',
@@ -74,16 +83,6 @@ def _resolve_user(user: dict, db: sqlite3.Connection) -> dict:
         ).fetchone()
         if not session or session["revoked"]:
             raise HTTPException(status_code=401, detail="Session expired. Please log in again.")
-
-        try:
-            last_active = datetime.strptime(session["last_active"], "%Y-%m-%d %H:%M:%S")
-        except (ValueError, TypeError):
-            last_active = datetime.utcnow()
-
-        if datetime.utcnow() - last_active > _SESSION_TIMEOUT:
-            db.execute("UPDATE user_sessions SET revoked=1 WHERE id=?", (session["id"],))
-            db.commit()
-            raise HTTPException(status_code=401, detail="Session expired due to inactivity. Please log in again.")
 
         now = datetime.utcnow().strftime("%Y-%m-%d %H:%M:%S")
         db.execute("UPDATE user_sessions SET last_active=? WHERE id=?", (now, session["id"]))
