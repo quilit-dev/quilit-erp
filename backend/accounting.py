@@ -1040,6 +1040,43 @@ def bank_account_code(db, bank_account_id=None, currency=None) -> str:
     return code(db, "bank")
 
 
+# The ways money actually arrives. This is not decoration: on the till the
+# METHOD decides whether the sale is settled, so the old catch-all — anything
+# that is not the word "cash" is charged exactly — quietly meant that an
+# unrecognised string was a payment in full. A sale sent with method "Later"
+# and nothing tendered completed, marked itself Paid, and debited cash that
+# never entered the drawer.
+# "Bank" is here because money_account_for has always honoured it, not
+# because a screen offers it. Deriving this list from the UI alone missed
+# it and started refusing a spelling the system settles perfectly well.
+PAYMENT_METHODS = ("Cash", "Bank Transfer", "Bank", "Cheque", "Card", "Other")
+
+# Of those, the ones a terminal or a bank settles for the exact amount: nothing
+# is counted into a drawer and no change is given. Everything else has to be
+# handed over and counted, which is why it must be tendered.
+# Kept in step with the routing list in money_account_for below — the two
+# happen to coincide, and a test asserts they still do rather than trusting
+# that they always will.
+SETTLED_EXACTLY = ("Bank Transfer", "Bank", "Cheque", "Card")
+
+
+def is_payment_method(value) -> bool:
+    """Is this a way money can arrive? Blank means the default, Cash."""
+    if value is None or not str(value).strip():
+        return True
+    return str(value).strip().lower() in {m.lower() for m in PAYMENT_METHODS}
+
+
+def settles_exactly(value) -> bool:
+    """Does this method deliver the exact amount without anything counted out?
+
+    Note which way round this is. It answers yes only for the methods that
+    genuinely do; anything unknown gets a no and is therefore made to tender,
+    so a string nobody anticipated cannot pass as money received.
+    """
+    return str(value or "").strip().lower() in {m.lower() for m in SETTLED_EXACTLY}
+
+
 def money_account_for(db, *, method=None, currency=None, bank_account_id=None) -> str:
     """Where money tendered by `method` in `currency` lands.
 

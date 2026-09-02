@@ -653,7 +653,23 @@ def checkout(
     if pos_drawer_id is not None and not db.execute(
         "SELECT 1 FROM cash_drawers WHERE id=?", (pos_drawer_id,)).fetchone():
         raise HTTPException(400, "Cash drawer not found")
-    if method.lower() == "cash":
+    # An unrecognised method is refused rather than interpreted. It used to be
+    # interpreted as "settled in full", which is the worst available reading of
+    # a word the system does not know.
+    if not accounting.is_payment_method(method):
+        raise HTTPException(
+            400, f"'{method}' is not a payment method. Use one of: "
+                 + ", ".join(accounting.PAYMENT_METHODS) + ".")
+
+    # Card, transfer and cheque arrive at the exact amount, so nothing is
+    # counted out and no change is given. EVERYTHING else — cash, other, and
+    # anything that somehow got past the check above — has to be tendered.
+    #
+    # The condition is deliberately this way round. Asking "is it cash?" and
+    # treating every other answer as settled meant the dangerous branch was the
+    # default; asking "does it settle itself?" makes the safe branch the
+    # default, so a method nobody anticipated cannot pass as money received.
+    if not accounting.settles_exactly(method):
         if data.amount_tendered + 0.01 < total_in_currency:
             raise HTTPException(400, "Amount tendered is less than the sale total.")
         # Cash offered against a plan with no deposit. Nothing is due at the

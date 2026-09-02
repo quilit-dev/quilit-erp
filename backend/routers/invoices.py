@@ -995,6 +995,15 @@ def add_payment(
 ):
     if data.amount <= 0:
         raise HTTPException(400, "Payment amount must be positive")
+    # Milder here than at the till — the amount is what the operator typed, so
+    # an unknown method cannot invent money — but it still decides which
+    # account the money lands in, and an unrecognised one silently lands it in
+    # cash. A transfer recorded under a word nobody recognises overstates the
+    # till and leaves the bank short by the same amount.
+    if not accounting.is_payment_method(data.method):
+        raise HTTPException(
+            400, f"'{data.method}' is not a payment method. Use one of: "
+                 + ", ".join(accounting.PAYMENT_METHODS) + ".")
 
     # ── Resolve the currency the client paid in ───────────────────────────
     # `amount` is what the client tendered, in `currency`. The invoice balance
