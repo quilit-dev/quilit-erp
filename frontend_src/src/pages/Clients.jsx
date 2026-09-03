@@ -3,6 +3,7 @@ import { useState } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { useServerList } from '../hooks/useServerList';
 import { getClients, createClient, updateClient, archiveClient, unarchiveClient } from '../api/client';
+import { exportReportPDF } from '../utils/exportUtils';
 import {
   LoadingSpinner, ErrorAlert, EmptyState, Modal, ConfirmModal,
   ExportButton, fmtDate, fmt, toast, SortableTh, Pagination, NumberInput
@@ -102,6 +103,46 @@ export default function Clients() {
     } catch (err) { toast(err.message, 'red'); }
   }
 
+  // A chase-up sheet: every account that owes, biggest first, with the two
+  // figures the balance is made of so the number can be checked rather than
+  // taken on trust. Always the OWING set, whatever the screen is filtered to —
+  // the button says outstanding, so it prints outstanding.
+  //
+  // Fetched without a `limit` so the sheet is never silently truncated to the
+  // page on screen, and ordered by the server so it matches what the list
+  // shows.
+  const [pdfBusy, setPdfBusy] = useState(false);
+
+  async function downloadOwingPDF() {
+    setPdfBusy(true);
+    try {
+      const res = await getClients({ owing: 1, sort: 'outstanding', dir: 'desc' });
+      const rows = Array.isArray(res) ? res : res.items || [];
+      if (!rows.length) { toast(t('clients.owingNone')); return; }
+      const owed = rows.reduce((a, r) => a + Number(r.outstanding || 0), 0);
+      await exportReportPDF({
+        title: t('clients.owingTitle'),
+        subtitle: t('clients.owingSubtitle', { count: rows.length }),
+        filename: `outstanding-${new Date().toISOString().slice(0, 10)}`,
+        rows,
+        columns: [
+          { label: t('clients.name'),        align: 'left',  value: r => r.name },
+          { label: t('clients.company'),     align: 'left',  value: r => r.company || '—' },
+          { label: t('clients.phone'),       align: 'left',  value: r => r.phone || '—' },
+          // Formatted rather than left as bare numbers: the report builder
+          // adds separators but no currency symbol, and a chase-up sheet goes
+          // to a person who should not have to assume which currency it is in.
+          { label: t('clients.totalInvoiced'), align: 'right', value: r => fmt(r.total_invoiced) },
+          { label: t('clients.totalPaid'),   align: 'right', value: r => fmt(r.total_paid) },
+          { label: t('clients.outstanding'), align: 'right', value: r => fmt(r.outstanding) },
+        ],
+        totals: { label: t('clients.owingTotal'),
+                  columns: [null, null, null, null, null, fmt(owed)] },
+      });
+    } catch (err) { toast(err.message, 'red'); }
+    finally { setPdfBusy(false); }
+  }
+
   // Fetches the whole filtered set (no `limit`), so an export is never
   // silently truncated to the page on screen.
   const fetchExportRows = async () => {
@@ -125,6 +166,9 @@ export default function Clients() {
         </div>
         <div style={{ display: 'flex', gap: 8 }}>
           <ExportButton fetchData={fetchExportRows} filename="Clients" sheetName="Clients" />
+          <button className="btn btn-secondary" onClick={downloadOwingPDF} disabled={pdfBusy}>
+            📄 {pdfBusy ? t('common.loading') : t('clients.owingPdf')}
+          </button>
           <button className="btn btn-secondary" onClick={() => setImporting(true)}>⬆ {t('imports.importBtn')}</button>
           <button className="btn btn-primary" onClick={openCreate}>{t('clients.addClient')}</button>
         </div>

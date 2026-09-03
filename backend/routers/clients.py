@@ -73,39 +73,32 @@ class ClientCreate(BaseModel):
 class ArchiveRequest(BaseModel):
     reason: Optional[str] = None
 
-# What an account owes, as a correlated subquery over `clients`.
+# What an account owes, and the two figures it is made of.
 #
-# There is one definition on purpose. The figure on the list and the figure on
-# the customer's own page have to be the same number, and the way they stop
-# being the same number is two queries written months apart, one of which
-# forgets that voided invoices are not debts. That exact omission has been
-# found four times in this codebase. `_client_outstanding` below runs the same
-# conditions for a single client.
+# There is one definition on purpose. The figure on the list, the figure on the
+# customer's own page and the figure on a chase-up PDF have to be the same
+# number, and the way they stop being the same number is queries written months
+# apart, one of which forgets that a voided invoice is not a debt. That exact
+# omission has been found four times in this codebase.
 #
-# CASE rather than MAX(0, x): MAX with two arguments is SQLite's scalar max and
-# is not portable — Postgres reads MAX as an aggregate. An overpaid account
-# reads zero owed rather than a negative.
-_OWED_SQL = """
-    CASE WHEN COALESCE((
-        SELECT SUM(i.amount - COALESCE((
-                   SELECT SUM(p.amount) FROM invoice_payments p
-                    WHERE p.invoice_id = i.id), 0))
-          FROM invoices i
-         WHERE i.client_id = clients.id
-           AND i.voided_at IS NULL
-           AND i.archived_at IS NULL
-           AND COALESCE(i.approval_status, '') != 'Pending Approval'), 0) > 0
-    THEN COALESCE((
-        SELECT SUM(i.amount - COALESCE((
-                   SELECT SUM(p.amount) FROM invoice_payments p
-                    WHERE p.invoice_id = i.id), 0))
-          FROM invoices i
-         WHERE i.client_id = clients.id
-           AND i.voided_at IS NULL
-           AND i.archived_at IS NULL
-           AND COALESCE(i.approval_status, '') != 'Pending Approval'), 0)
-    ELSE 0 END
-"""
+# Built from the two halves rather than as one expression so `invoiced` and
+# `paid` can be reported alongside the balance without a third definition of
+# what counts.
+_LIVE_INVOICE = ("i.client_id = clients.id "
+                 "AND i.voided_at IS NULL "
+                 "AND i.archived_at IS NULL "
+                 "AND COALESCE(i.approval_status, '') != 'Pending Approval'")
+
+_INVOICED_SQL = f"COALESCE((SELECT SUM(i.amount) FROM invoices i WHERE {_LIVE_INVOICE}), 0)"
+
+_PAID_SQL = ("COALESCE((SELECT SUM(p.amount) FROM invoice_payments p "
+             f"JOIN invoices i ON i.id = p.invoice_id WHERE {_LIVE_INVOICE}), 0)")
+
+# CASE rather than MAX(0, x): two-argument MAX is SQLite's scalar max and is
+# not portable — Postgres reads MAX as an aggregate and errors. An overpaid
+# account reads zero owed rather than a negative.
+_OWED_SQL = (f"CASE WHEN ({_INVOICED_SQL}) - ({_PAID_SQL}) > 0 "
+             f"THEN ({_INVOICED_SQL}) - ({_PAID_SQL}) ELSE 0 END")
 
 
 @router.get("/")
@@ -161,13 +154,15 @@ def list_clients(search: Optional[str] = None, type: Optional[str] = None,
         total = db.execute(f"SELECT COUNT(*) FROM clients{where_clause}",
                            params).fetchone()[0]
         rows  = db.execute(
-            f"SELECT *, ({_OWED_SQL}) AS outstanding FROM clients{where_clause}{order_sql}"
+            f"SELECT *, ({_INVOICED_SQL}) AS total_invoiced, ({_PAID_SQL}) AS total_paid, "
+            f"({_OWED_SQL}) AS outstanding FROM clients{where_clause}{order_sql}"
             f" LIMIT ? OFFSET ?", params + [cap, offset]).fetchall()
         return {"items": [dict(r) for r in rows], "total": total,
                 "limit": cap, "offset": offset}
 
     rows = db.execute(
-        f"SELECT *, ({_OWED_SQL}) AS outstanding FROM clients{where_clause}{order_sql}",
+        f"SELECT *, ({_INVOICED_SQL}) AS total_invoiced, ({_PAID_SQL}) AS total_paid, "
+            f"({_OWED_SQL}) AS outstanding FROM clients{where_clause}{order_sql}",
         params).fetchall()
     return [dict(r) for r in rows]
 
