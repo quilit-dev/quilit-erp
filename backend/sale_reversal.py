@@ -87,6 +87,42 @@ def _pos_warehouse(db: sqlite3.Connection, sale) -> Optional[int]:
     return wha.default_warehouse_id_for_row(db, wid)
 
 
+def delivered_quantity(db: sqlite3.Connection, item) -> float:
+    """How much of this line actually left the shelf.
+
+    Not the same as what was invoiced. A back-ordered line is billed in full,
+    but only the units that were physically there came off the count; the rest
+    were a promise. Each later handover deducts what it hands over. So the stock
+    this line has genuinely taken is:
+
+        invoiced  -  promised  +  since handed over
+
+    Putting back the invoiced quantity instead — which is what happened before —
+    returns goods that never left, and the shop gains stock it never had. Sell
+    five with three promised and the count went from two to five on a return.
+    """
+    qty = float(item["quantity"] or 0)
+    try:
+        invoice_item_id = item["invoice_item_id"]
+    except (IndexError, KeyError):
+        return qty
+    if not invoice_item_id:
+        return qty
+    try:
+        row = db.execute(
+            "SELECT COALESCE(SUM(quantity_ordered), 0)   AS promised, "
+            "       COALESCE(SUM(quantity_fulfilled), 0) AS handed "
+            "FROM sale_commitments WHERE invoice_item_id = ?",
+            (invoice_item_id,)).fetchone()
+    except Exception:
+        # An install without the commitments table cannot have back-ordered
+        # anything, so the invoiced quantity is the delivered quantity.
+        return qty
+    if row is None:
+        return qty
+    return round(qty - float(row["promised"] or 0) + float(row["handed"] or 0), 6)
+
+
 def restock_pos_sale(db: sqlite3.Connection, sale, invoice, *, note: str,
                      now: str, warehouse_id: Optional[int] = None) -> float:
     """Return every inventory-backed line of a till sale. Returns units moved."""
@@ -96,13 +132,26 @@ def restock_pos_sale(db: sqlite3.Connection, sale, invoice, *, note: str,
         "SELECT * FROM pos_sale_items "
         "WHERE pos_sale_id=? AND inventory_id IS NOT NULL", (sale["id"],)
     ).fetchall():
-        qty = float(it["quantity"])
+        # What left the shelf, which on a back-ordered line is less than what
+        # was invoiced.
+        qty = delivered_quantity(db, it)
+        if qty <= 0:
+            continue
         put_back(db, inventory_id=it["inventory_id"], quantity=qty,
                  unit_cost=it["unit_cost"] or 0, warehouse_id=wid,
                  reference=invoice["invoice_number"], note=note, now=now)
         moved += qty
-        # A returned line hands its allowance back to the campaign, so a
-        # quantity-capped promotion reflects what was actually kept.
+        # A returned line hands its allowance back to the campaign.
+        #
+        # KNOWN, DEFERRED: this gives back `int(qty)` of the whole line, while
+        # checkout only consumed the CAPPED eligible count (routers/pos.py,
+        # `_promo_left`). Where the cap truncated the line the campaign gets
+        # back more allowance than the sale took and can oversell its cap; the
+        # int() also truncates fractional quantities. Fixing it properly means
+        # recording the eligible count on the line at checkout — a column, and
+        # a schema change in three places — which is more than this defect
+        # justifies. The error is one-directional and small: the campaign is
+        # never short-changed, only over-credited.
         if it["promotion_id"]:
             db.execute(
                 "UPDATE promotions SET used_quantity = MAX(0, used_quantity - ?) "
