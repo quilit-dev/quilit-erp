@@ -1265,6 +1265,11 @@ def return_sale(
         warehouse_id=wha.default_warehouse_id_for_row(db, ret_sess_wid))
     # Goods promised on this sale and not yet handed over are not owed any more.
     commitments.cancel_for_invoice(db, inv["id"], closed_by=user["id"])
+    # Goods already handed over posted revenue and cost against the DELIVERY,
+    # not the invoice, so the reversals above cannot see them.
+    commitments.reverse_deliveries(
+        db, inv["id"], memo=f"POS return — handover {inv['invoice_number']}",
+        created_by=user["id"])
 
     refund_amount = float(sale["total_usd"])
     db.execute(

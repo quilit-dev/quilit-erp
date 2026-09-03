@@ -247,6 +247,76 @@ def test_a_live_sale_still_counts_into_the_drawer(make_client):
     assert r.json()["variance"] == pytest.approx(0)
 
 
+# ── D: money posted for goods that came back ────────────────────────────────
+def _backorder_then_deliver(c, db):
+    """A sale with 3 promised, 2 of which arrive and are handed over."""
+    item, cl = _item(c, qty=2), _client(c)
+    _open(c)
+    sale = _sell(c, item, cl, qty=5)
+    po = c.post("/api/purchases/", json={
+        "supplier": "RD Mill", "inventory_id": item,
+        "product_name": "RD Item", "quantity": 2, "unit_cost": 4})
+    assert c.patch(f"/api/purchases/{po.json()['id']}/status",
+                   json={"status": "Paid"}).status_code == 200
+    cid = c.get("/api/commitments/").json()[0]["id"]
+    assert c.post(f"/api/commitments/{cid}/deliver", json={}).status_code == 200
+    return item, sale
+
+
+def _live(db, source_type):
+    return db.execute(
+        "SELECT COALESCE(SUM(total_debit), 0) AS d FROM journal_entries "
+        "WHERE source_type=? AND status='posted' AND reversed_by IS NULL",
+        (source_type,)).fetchone()["d"]
+
+
+def test_returning_undoes_the_money_posted_at_handover(make_client, db):
+    """Handover posts revenue and cost keyed by DELIVERY, not by invoice.
+
+    The reversal walks invoice_payment, pos_cogs and invoice — none of which
+    reach these — so the money stayed posted for goods that had come back, on
+    a trial balance that still balanced.
+    """
+    c = make_client("superadmin")
+    item, sale = _backorder_then_deliver(c, db)
+    assert _live(db, "commitment_delivered") > 0, "expected a handover posting"
+
+    assert c.post(f"/api/pos/sales/{_sale_id(db, sale['invoice_id'])}/return",
+                  json={"reason": "test"}).status_code == 200
+
+    assert _live(db, "commitment_delivered") == pytest.approx(0)
+    assert _live(db, "commitment_cogs") == pytest.approx(0)
+    assert _balanced(c) is True
+
+
+def test_voiding_undoes_it_too(make_client, db):
+    c = make_client("superadmin")
+    item, sale = _backorder_then_deliver(c, db)
+
+    assert c.patch(f"/api/invoices/{sale['invoice_id']}/void",
+                   json={"reason": "test"}).status_code == 200
+
+    assert _live(db, "commitment_delivered") == pytest.approx(0)
+    assert _live(db, "commitment_cogs") == pytest.approx(0)
+    assert _balanced(c) is True
+
+
+def test_the_handover_entries_are_reversed_not_deleted(make_client, db):
+    """History is added to, never removed — the rule the ledger runs on."""
+    c = make_client("superadmin")
+    item, sale = _backorder_then_deliver(c, db)
+    before = db.execute("SELECT COUNT(*) n FROM journal_entries").fetchone()["n"]
+
+    assert c.patch(f"/api/invoices/{sale['invoice_id']}/void",
+                   json={"reason": "test"}).status_code == 200
+
+    after = db.execute("SELECT COUNT(*) n FROM journal_entries").fetchone()["n"]
+    assert after > before, "entries were removed rather than reversed"
+    assert db.execute(
+        "SELECT COUNT(*) n FROM journal_entries WHERE source_type='commitment_delivered'"
+    ).fetchone()["n"] >= 1
+
+
 # ── G: a reversal must not land in a period nobody checked ──────────────────
 def test_a_return_cannot_post_into_a_locked_period(make_client, db):
     """The lock is the control that says these books are closed.

@@ -194,4 +194,10 @@ def reverse_fulfilment(db: sqlite3.Connection, invoice, *, note: str,
     # delivery for a sale that was cancelled.
     out["commitments_cancelled"] = commitments.cancel_for_invoice(
         db, invoice["id"], closed_by=user_id)
+    # And the money posted for goods already handed over. Those entries are
+    # keyed by delivery, not by invoice, so the three source types walked above
+    # never reach them.
+    out["deliveries_reversed"] = commitments.reverse_deliveries(
+        db, invoice["id"],
+        memo=f"{note} — handover {invoice['invoice_number']}", created_by=user_id)
     return out

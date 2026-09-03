@@ -295,3 +295,40 @@ def cancel_for_invoice(db: sqlite3.Connection, invoice_id: int, *,
     for row in rows:
         cancel(db, row["id"], closed_by=closed_by)
     return len(rows)
+
+
+def reverse_deliveries(db: sqlite3.Connection, invoice_id: int, *,
+                       memo: str, created_by: Optional[int] = None) -> int:
+    """Walk back the ledger for goods already handed over on this invoice.
+
+    A handover posts two entries — the deferred revenue it releases and the
+    cost of the goods — both keyed by the DELIVERY's id, not the invoice's. So
+    undoing the sale never found them: the reversal walks `invoice_payment`,
+    `pos_cogs` and `invoice`, and those three do not include these two.
+
+    The effect was revenue and cost left standing for goods that had come back,
+    on a trial balance that still balanced. The stock half is handled elsewhere
+    — `sale_reversal.delivered_quantity` counts fulfilled units as having left
+    the shelf, so they are restocked — but the money stayed posted.
+
+    Returns how many entries were reversed. `reverse_source` is a no-op on
+    anything already reversed, so calling this twice is safe.
+    """
+    try:
+        rows = db.execute(
+            "SELECT d.id FROM commitment_deliveries d "
+            "JOIN sale_commitments sc ON sc.id = d.commitment_id "
+            "WHERE sc.invoice_id = ?", (invoice_id,)).fetchall()
+    except Exception:
+        # An install with no commitments tables cannot have delivered anything.
+        return 0
+
+    import accounting
+    reversed_count = 0
+    for row in rows:
+        for source_type in ("commitment_delivered", "commitment_cogs"):
+            if accounting.reverse_source(db, source_type, row["id"],
+                                         memo=memo, created_by=created_by):
+                reversed_count += 1
+    return reversed_count
+
