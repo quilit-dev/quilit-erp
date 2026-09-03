@@ -208,12 +208,34 @@ def close_session(
         ).fetchone()[0])
 
     def _cash_out(currency):
-        return float(db.execute(
+        # Money handed back, from the two ways a sale is undone.
+        #
+        # A POS return writes a `pos_returns` row against the session that
+        # processed it. Voiding the invoice does not — there may be no register
+        # open at all when somebody voids from the invoice screen — so a voided
+        # sale used to be counted IN and never OUT, and the drawer read over by
+        # the value of the sale. A cashier who had correctly handed the money
+        # back came up short against a figure that was wrong.
+        #
+        # The void half is attributed to the session that RANG THE SALE UP,
+        # which is the only session it can be tied to. `NOT EXISTS` keeps a
+        # return — which voids the invoice as well as writing its own row —
+        # from being counted twice.
+        refunded = float(db.execute(
             "SELECT COALESCE(SUM(s.amount_tendered - s.change_given), 0) "
             "FROM pos_returns r JOIN pos_sales s ON r.pos_sale_id = s.id "
             "WHERE r.session_id=? AND s.payment_method='Cash' AND s.paid_currency=?",
             (session["id"], currency),
         ).fetchone()[0])
+        voided = float(db.execute(
+            "SELECT COALESCE(SUM(s.amount_tendered - s.change_given), 0) "
+            "FROM pos_sales s JOIN invoices i ON i.id = s.invoice_id "
+            "WHERE s.session_id=? AND s.payment_method='Cash' AND s.paid_currency=? "
+            "  AND i.voided_at IS NOT NULL "
+            "  AND NOT EXISTS (SELECT 1 FROM pos_returns r WHERE r.pos_sale_id = s.id)",
+            (session["id"], currency),
+        ).fetchone()[0])
+        return refunded + voided
 
     exp_usd = round(float(session["opening_float"]) + _cash_in("USD") - _cash_out("USD"), 2)
     exp_lbp = round(float(session["opening_float_lbp"] or 0) + _cash_in("LBP") - _cash_out("LBP"), 2)
@@ -1177,7 +1199,13 @@ def return_sale(
         raise HTTPException(400, "The linked invoice is already voided.")
 
     # The original sale's accounting period must still be open.
+    # BOTH months, not just the sale's. The reversing entries are dated TODAY,
+    # so checking only the original month let a return post into a period that
+    # had been explicitly locked — the one control that says these books are
+    # closed, walked straight past. Same pairing as unvoid
+    # (routers/invoices.py), for the same reason.
     _check_period_locked(db, str(sale["created_at"])[:7] + "-01")
+    _check_period_locked(db, _now()[:7] + "-01")
 
     now = _now()
 
@@ -1197,20 +1225,30 @@ def return_sale(
     ).fetchall():
         accounting.reverse_source(db, "invoice_payment", pay["id"],
                                   memo=f"POS return — {inv['invoice_number']}",
-                                  created_by=user["id"])
+                                  entry_date=now[:10], created_by=user["id"])
     accounting.reverse_source(db, "pos_cogs", inv["id"],
                               memo=f"POS return COGS — {inv['invoice_number']}",
-                              created_by=user["id"])
+                              entry_date=now[:10], created_by=user["id"])
     # An instalment sale also raised a receivable. Left standing, the books
     # would keep a claim on a customer who has handed the goods back, and the
     # deferred revenue behind it would never clear. A no-op on an ordinary
     # till sale, which never had one.
     accounting.reverse_source(db, "invoice", inv["id"],
                               memo=f"POS return — {inv['invoice_number']}",
-                              created_by=user["id"])
-    # The agreed schedule goes with it: the arrears sweep walks unpaid
-    # instalments by date and would chase a returned sale every month. The
-    # void is the record that this happened; the schedule is not.
+                              entry_date=now[:10], created_by=user["id"])
+    # The agreed schedule goes with it.
+    #
+    # The reason originally given for this — that the arrears sweep would
+    # otherwise chase a returned sale every month — is NOT true, and was
+    # checked: every dunning and aging query filters `voided_at IS NULL`
+    # (routers/notifications.py, and the aged-receivables report), so a
+    # schedule on a voided invoice is inert. The invoice void path leaves it
+    # standing and nothing chases it.
+    #
+    # The deletion is kept anyway because it is harmless and removing it would
+    # be a behaviour change with no defect behind it. Worth knowing if the two
+    # paths are ever reconciled: leaving the schedule is the better default —
+    # it is evidence of what was agreed.
     db.execute("DELETE FROM invoice_installments WHERE invoice_id=?", (inv["id"],))
 
     # Restock every inventory-backed line, returning the goods to the warehouse
