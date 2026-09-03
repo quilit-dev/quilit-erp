@@ -73,9 +73,48 @@ class ClientCreate(BaseModel):
 class ArchiveRequest(BaseModel):
     reason: Optional[str] = None
 
+# What an account owes, as a correlated subquery over `clients`.
+#
+# There is one definition on purpose. The figure on the list and the figure on
+# the customer's own page have to be the same number, and the way they stop
+# being the same number is two queries written months apart, one of which
+# forgets that voided invoices are not debts. That exact omission has been
+# found four times in this codebase. `_client_outstanding` below runs the same
+# conditions for a single client.
+#
+# CASE rather than MAX(0, x): MAX with two arguments is SQLite's scalar max and
+# is not portable — Postgres reads MAX as an aggregate. An overpaid account
+# reads zero owed rather than a negative.
+_OWED_SQL = """
+    CASE WHEN COALESCE((
+        SELECT SUM(i.amount - COALESCE((
+                   SELECT SUM(p.amount) FROM invoice_payments p
+                    WHERE p.invoice_id = i.id), 0))
+          FROM invoices i
+         WHERE i.client_id = clients.id
+           AND i.voided_at IS NULL
+           AND i.archived_at IS NULL
+           AND COALESCE(i.approval_status, '') != 'Pending Approval'), 0) > 0
+    THEN COALESCE((
+        SELECT SUM(i.amount - COALESCE((
+                   SELECT SUM(p.amount) FROM invoice_payments p
+                    WHERE p.invoice_id = i.id), 0))
+          FROM invoices i
+         WHERE i.client_id = clients.id
+           AND i.voided_at IS NULL
+           AND i.archived_at IS NULL
+           AND COALESCE(i.approval_status, '') != 'Pending Approval'), 0)
+    ELSE 0 END
+"""
+
+
 @router.get("/")
 def list_clients(search: Optional[str] = None, type: Optional[str] = None,
                  include_archived: bool = False,
+                 # Only accounts that owe something. Sorted biggest first by
+                 # default, because the reason for asking is to know who to
+                 # chase and the answer is read from the top.
+                 owing: bool = False,
                  limit: Optional[int] = None, offset: int = 0,
                  sort: Optional[str] = None, dir: str = "asc",
                  user=Depends(require_perm("clients", "view")), db: sqlite3.Connection = Depends(get_db)):
@@ -95,15 +134,23 @@ def list_clients(search: Optional[str] = None, type: Optional[str] = None,
     if type:
         where.append("type = ?")
         params.append(type)
+    if owing:
+        where.append(f"({_OWED_SQL}) > 0.005")
     where_clause = " WHERE " + " AND ".join(where)
 
     # Sorting from a fixed allow-list: `sort` reaches ORDER BY, which takes no
     # bind parameters, so only a value from this map may be interpolated.
     _SORTABLE = {"name": "name", "company": "company", "type": "type",
-                 "phone": "phone", "email": "email", "created_at": "created_at"}
+                 "phone": "phone", "email": "email", "created_at": "created_at",
+                 "outstanding": f"({_OWED_SQL})"}
     _direction = "DESC" if str(dir).lower() == "desc" else "ASC"
-    order_sql = (f" ORDER BY {_SORTABLE[sort]} {_direction}"
-                 if sort in _SORTABLE else " ORDER BY created_at DESC")
+    if sort in _SORTABLE:
+        order_sql = f" ORDER BY {_SORTABLE[sort]} {_direction}"
+    elif owing:
+        # Whoever owes most, first.
+        order_sql = f" ORDER BY ({_OWED_SQL}) DESC"
+    else:
+        order_sql = " ORDER BY created_at DESC"
 
     # Pagination, matching the invoices convention: with no `limit` the response
     # is the full array exactly as before, so every existing caller is
@@ -114,13 +161,13 @@ def list_clients(search: Optional[str] = None, type: Optional[str] = None,
         total = db.execute(f"SELECT COUNT(*) FROM clients{where_clause}",
                            params).fetchone()[0]
         rows  = db.execute(
-            f"SELECT * FROM clients{where_clause}{order_sql}"
+            f"SELECT *, ({_OWED_SQL}) AS outstanding FROM clients{where_clause}{order_sql}"
             f" LIMIT ? OFFSET ?", params + [cap, offset]).fetchall()
         return {"items": [dict(r) for r in rows], "total": total,
                 "limit": cap, "offset": offset}
 
     rows = db.execute(
-        f"SELECT * FROM clients{where_clause}{order_sql}",
+        f"SELECT *, ({_OWED_SQL}) AS outstanding FROM clients{where_clause}{order_sql}",
         params).fetchall()
     return [dict(r) for r in rows]
 

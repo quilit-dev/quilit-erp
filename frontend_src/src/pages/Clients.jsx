@@ -5,7 +5,7 @@ import { useServerList } from '../hooks/useServerList';
 import { getClients, createClient, updateClient, archiveClient, unarchiveClient } from '../api/client';
 import {
   LoadingSpinner, ErrorAlert, EmptyState, Modal, ConfirmModal,
-  ExportButton, fmtDate, toast, SortableTh, Pagination, NumberInput
+  ExportButton, fmtDate, fmt, toast, SortableTh, Pagination, NumberInput
 } from '../components/shared';
 import { CURRENCIES } from './settings/ui';
 import { useLocale } from '../hooks/useLocale.jsx';
@@ -25,11 +25,15 @@ const EMPTY = {
 export default function Clients() {
   const navigate = useNavigate();
   const [showArchived, setShowArchived] = usePersistedState('clients.showArchived', false);
+  // Only accounts that owe something, biggest first. Remembered, because
+  // somebody chasing debts is doing it repeatedly, not once.
+  const [owingOnly, setOwingOnly] = usePersistedState('clients.owingOnly', false);
   // Paged, searched and sorted BY THE SERVER. This screen used to download
   // every client and do all three in the browser.
   const list = useServerList(
     (query, s) => getClients(query, s),
-    showArchived ? { include_archived: 1 } : {},
+    { ...(showArchived ? { include_archived: 1 } : {}),
+      ...(owingOnly ? { owing: 1 } : {}) },
   );
   const { items: sorted, total, loading, error, reload,
           page, pageSize, totalPages, setPage, setPageSize,
@@ -143,6 +147,11 @@ export default function Clients() {
             </div>
           </div>
           <label className="archived-toggle">
+            <input type="checkbox" checked={owingOnly}
+              onChange={e => setOwingOnly(e.target.checked)} />
+            {t('clients.owingOnly')}
+          </label>
+          <label className="archived-toggle">
             <input type="checkbox" checked={showArchived}
               onChange={e => setShowArchived(e.target.checked)} />
             {t('common.showArchived')}
@@ -161,6 +170,7 @@ export default function Clients() {
                   <SortableTh label={t('clients.type')}    sortKey="type"       currentKey={sortKey} currentDir={sortDir} onSort={requestSort} />
                   <SortableTh label={t('clients.phone')}   sortKey="phone"      currentKey={sortKey} currentDir={sortDir} onSort={requestSort} />
                   <SortableTh label={t('clients.email')}   sortKey="email"      currentKey={sortKey} currentDir={sortDir} onSort={requestSort} />
+                  <SortableTh label={t('clients.outstanding')} sortKey="outstanding" currentKey={sortKey} currentDir={sortDir} onSort={requestSort} />
                   <SortableTh label={t('common.created')}  sortKey="created_at" currentKey={sortKey} currentDir={sortDir} onSort={requestSort} />
                   <th>{t('common.actions')}</th>
                 </tr>
@@ -178,6 +188,12 @@ export default function Clients() {
                     <td><span className="badge badge-gray">{c.type}</span></td>
                     <td>{c.phone || '—'}</td>
                     <td>{c.email || '—'}</td>
+                    {/* Owed money is the one figure on this row worth
+                        looking at, so it is the only one coloured. */}
+                    <td style={{ fontWeight: c.outstanding > 0 ? 600 : 400,
+                                 color: c.outstanding > 0 ? 'var(--red)' : 'var(--text-3)' }}>
+                      {c.outstanding > 0 ? fmt(c.outstanding) : '—'}
+                    </td>
                     <td>{fmtDate(c.created_at)}</td>
                     <td>
                       <div style={{ display: 'flex', gap: 6 }}>

@@ -1271,6 +1271,7 @@ const en = {
     noActivity: 'No activity yet.',
     totalInvoiced: 'Total Invoiced',
     totalPaid: 'Total Paid',
+    owingOnly: 'Owing only',
     outstanding: 'Outstanding',
     totalQuoted: '{{amount}} quoted',
     noRecordsFound: 'No records found.',

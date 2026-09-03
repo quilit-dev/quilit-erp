@@ -1265,6 +1265,7 @@ const ar = {
     noActivity: 'لا يوجد نشاط بعد.',
     totalInvoiced: 'إجمالي الفواتير',
     totalPaid: 'إجمالي المدفوع',
+    owingOnly: 'المدينون فقط',
     outstanding: 'المستحق',
     totalQuoted: '{{amount}} عروض',
     noRecordsFound: 'لم يتم العثور على سجلات.',
