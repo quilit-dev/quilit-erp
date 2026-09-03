@@ -115,8 +115,10 @@ def get_project(project_id: int, user=Depends(require_perm("projects", "view")),
 
     invoices = db.execute(
         """SELECT i.id, i.invoice_number, i.amount, i.due_date, i.created_at,
+                  i.voided_at,
                   COALESCE(SUM(ip.amount), 0) AS paid_amount,
                   CASE
+                    WHEN i.voided_at IS NOT NULL THEN 'Void'
                     WHEN COALESCE(SUM(ip.amount), 0) = 0 THEN 'Unpaid'
                     WHEN COALESCE(SUM(ip.amount), 0) >= i.amount THEN 'Paid'
                     ELSE 'Partial'
@@ -141,8 +143,12 @@ def get_project(project_id: int, user=Depends(require_perm("projects", "view")),
         (project_id,)
     ).fetchall()
 
-    total_invoiced = sum(i["amount"] or 0 for i in invoices)
-    total_paid     = sum(i["paid_amount"] or 0 for i in invoices)
+    # Voided invoices stay in the list, labelled, but out of the figures — the
+    # same rule the client profile follows. A cancelled invoice must not make a
+    # project look billed.
+    live_invoices  = [i for i in invoices if not i["voided_at"]]
+    total_invoiced = sum(i["amount"] or 0 for i in live_invoices)
+    total_paid     = sum(i["paid_amount"] or 0 for i in live_invoices)
     total_expenses = sum(e["amount"] or 0 for e in expenses if not e["voided_at"])
     total_quoted   = sum(q["total"] or 0 for q in quotations)
     estimated      = dict(row).get("estimated_cost") or 0

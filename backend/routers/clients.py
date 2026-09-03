@@ -149,9 +149,11 @@ def get_client(client_id: int, user=Depends(require_perm("clients", "view")), db
 
     invoices = db.execute(
         """SELECT i.id, i.invoice_number, i.amount, i.due_date, i.created_at, i.project_id,
+                  i.voided_at,
                   p.name AS project_name,
                   COALESCE(SUM(ip.amount), 0) AS paid_amount,
                   CASE
+                    WHEN i.voided_at IS NOT NULL THEN 'Void'
                     WHEN COALESCE(SUM(ip.amount), 0) = 0 THEN 'Unpaid'
                     WHEN COALESCE(SUM(ip.amount), 0) >= i.amount THEN 'Paid'
                     ELSE 'Partial'
@@ -194,8 +196,13 @@ def get_client(client_id: int, user=Depends(require_perm("clients", "view")), db
         (client_id,)
     ).fetchall()
 
-    total_invoiced = sum(i["amount"] or 0 for i in invoices)
-    total_paid     = sum(i["paid_amount"] or 0 for i in invoices)
+    # A voided invoice is not money. It stays in the list — the customer's
+    # history should show that it happened, and it is labelled Void — but it
+    # must not reach the figures, or the account goes on showing a balance for
+    # a document that was cancelled and a payment that was handed back.
+    live_invoices  = [i for i in invoices if not i["voided_at"]]
+    total_invoiced = sum(i["amount"] or 0 for i in live_invoices)
+    total_paid     = sum(i["paid_amount"] or 0 for i in live_invoices)
     total_quoted   = sum(q["total"] or 0 for q in quotations)
 
     result = dict(row)
