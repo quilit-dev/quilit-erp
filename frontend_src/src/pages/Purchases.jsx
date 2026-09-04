@@ -342,6 +342,16 @@ function PurchaseForm({ initial = {}, inventoryItems = [], inventoryCategories =
   );
 }
 
+// One label over its value, for the header of the order view.
+function Field({ label, children }) {
+  return (
+    <div>
+      <div style={{ fontSize: 11, color: 'var(--text-3)', marginBottom: 2 }}>{label}</div>
+      <div style={{ fontSize: 13, fontWeight: 600 }}>{children}</div>
+    </div>
+  );
+}
+
 // ── Status badge ─────────────────────────────────────────────────────────────
 
 function StatusBadge({ status }) {
@@ -626,7 +636,10 @@ export default function Purchases() {
                   const isArchived = !!p.archived_at;
                   const isVoided   = !!p.voided_at;
                   return (
-                  <tr key={p.id} className={isArchived || isVoided ? 'row-archived' : undefined}>
+                  <tr key={p.id} className={isArchived || isVoided ? 'row-archived' : undefined}
+                    style={{ cursor: 'pointer' }}
+                    title={t('purchases.viewOrder')}
+                    onClick={() => { setActivePurchase(p); setModal('details'); }}>
                     <td className="td-primary text-mono">
                       {p.po_number}
                       {isArchived && <span className="badge badge-gray" style={{ marginInlineStart: 8 }}>{t('common.archivedBadge')}</span>}
@@ -654,15 +667,21 @@ export default function Purchases() {
                       ? <StatusBadge status="Void" />
                       : <StatusBadge status={p.status} />}</td>
                     <td style={{ whiteSpace: 'nowrap' }}>{fmtDate(p.ordered_at)}</td>
-                    <td>
+                    <td onClick={e => e.stopPropagation()}>
                       <div style={{ display: 'flex', gap: 6 }}>
                         {isArchived ? (
                           <button className="btn btn-sm btn-secondary" style={{ color: '#166534', whiteSpace: 'nowrap' }}
                             onClick={() => setRestoreTarget(p)}><svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true"><polyline points="1 4 1 10 7 10"/><path d="M3.51 15a9 9 0 1 0 2.13-9.36L1 10"/></svg>{t('common.restore')}</button>
                         ) : isVoided ? (
-                          <span style={{ color: 'var(--text-3)', fontSize: 12 }}>
-                            {p.void_reason || t('purchases.voidedBadge')}
-                          </span>
+                          /* Cancelled. The only thing left to do with it is
+                             file it away — and archiving is refused until a
+                             purchase IS cancelled, which is why the button
+                             lives here and not on a live row. */
+                          <button className="btn btn-sm btn-secondary"
+                            title={p.void_reason || undefined}
+                            onClick={() => { setActivePurchase(p); setModal('delete'); }}>
+                            {t('common.archive')}
+                          </button>
                         ) : (
                           <>
                             {p.status === 'Ordered' && (
@@ -671,8 +690,6 @@ export default function Purchases() {
                                   onClick={() => handleStatus(p, 'Received')}>{t('purchases.receive')}</button>
                                 <button className="btn btn-sm btn-secondary"
                                   onClick={() => { setActivePurchase(p); setModal('edit'); }}>{t('common.edit')}</button>
-                                <button className="btn btn-sm btn-danger"
-                                  onClick={() => { setActivePurchase(p); setModal('delete'); }}>{t('common.archive')}</button>
                               </>
                             )}
                             {p.status === 'Received' && (
@@ -745,6 +762,100 @@ export default function Purchases() {
           </div>
         </Modal>
       )}
+      {/* THE ORDER, AS THE SUPPLIER SENT IT. A purchase holds several products
+          now, and the list can only show the first one and a count — so the row
+          opens the document itself. The landed cost is worth showing beside the
+          unit cost: it is what the goods are actually worth on the shelf once
+          the delivery charge has been shared out, and it is the figure the
+          costing engine works from. */}
+      {modal === 'details' && activePurchase && (
+        <Modal title={activePurchase.po_number} onClose={() => setModal(null)} size="modal-xl">
+          <div className="modal-body">
+            <div style={{ display: 'flex', flexWrap: 'wrap', gap: 20, marginBottom: 16 }}>
+              <Field label={t('purchases.supplier')}>{activePurchase.supplier}</Field>
+              <Field label={t('common.status')}>
+                {activePurchase.voided_at
+                  ? <StatusBadge status="Void" />
+                  : <StatusBadge status={activePurchase.status} />}
+              </Field>
+              <Field label={t('purchases.orderedAt')}>{fmtDate(activePurchase.ordered_at)}</Field>
+              {activePurchase.received_at && (
+                <Field label={t('purchases.receivedAt')}>{fmtDate(activePurchase.received_at)}</Field>
+              )}
+              {activePurchase.paid_at && (
+                <Field label={t('purchases.paidAt')}>{fmtDate(activePurchase.paid_at)}</Field>
+              )}
+              {activePurchase.void_reason && (
+                <Field label={t('purchases.voidReason')}>{activePurchase.void_reason}</Field>
+              )}
+            </div>
+
+            <div style={{ overflowX: 'auto' }}>
+              <table style={{ width: '100%', minWidth: 720 }}>
+                <thead>
+                  <tr>
+                    <th>{t('purchases.product')}</th>
+                    <th>{t('common.category')}</th>
+                    <th style={{ textAlign: 'right' }}>{t('common.quantity')}</th>
+                    <th style={{ textAlign: 'right' }}>{t('purchases.unitCost')}</th>
+                    <th style={{ textAlign: 'right' }}>{t('common.taxCol')}</th>
+                    <th style={{ textAlign: 'right' }}>{t('common.total')}</th>
+                    <th style={{ textAlign: 'right' }}>{t('purchases.landedCost')}</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {(activePurchase.items || []).map(l => (
+                    <tr key={l.id}>
+                      <td className="td-primary">{l.product_name}</td>
+                      <td>{l.category ? tCategory(l.category) : '—'}</td>
+                      <td style={{ textAlign: 'right' }}>{l.quantity}</td>
+                      <td style={{ textAlign: 'right' }}>${fmtNum(l.unit_cost)}</td>
+                      <td style={{ textAlign: 'right' }}>
+                        {Number(l.tax_amount) ? `$${fmtNum(l.tax_amount)}` : '—'}
+                      </td>
+                      <td style={{ textAlign: 'right', fontWeight: 600 }}>${fmtNum(l.line_total)}</td>
+                      <td style={{ textAlign: 'right', color: 'var(--text-2)' }}>
+                        {l.landed_unit_cost != null ? `$${fmtNum(l.landed_unit_cost)}` : '—'}
+                      </td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            </div>
+
+            <div style={{ display: 'flex', justifyContent: 'flex-end', marginTop: 14 }}>
+              <table style={{ width: 280 }}>
+                <tbody>
+                  <tr>
+                    <td style={{ color: 'var(--text-2)' }}>{t('purchases.itemsLabel')}</td>
+                    <td style={{ textAlign: 'right' }}>${fmtNum(activePurchase.subtotal)}</td>
+                  </tr>
+                  <tr>
+                    {/* Charged once for the delivery, then shared across the
+                        lines by value — which is what the landed column shows. */}
+                    <td style={{ color: 'var(--text-2)' }}>{t('purchases.additionalCostsDollar')}</td>
+                    <td style={{ textAlign: 'right' }}>${fmtNum(activePurchase.additional_costs)}</td>
+                  </tr>
+                  <tr>
+                    <td style={{ color: 'var(--text-2)' }}>{t('common.taxCol')}</td>
+                    <td style={{ textAlign: 'right' }}>${fmtNum(activePurchase.tax_total)}</td>
+                  </tr>
+                  <tr style={{ fontWeight: 700 }}>
+                    <td>{t('common.total')}</td>
+                    <td style={{ textAlign: 'right' }}>${fmtNum(activePurchase.grand_total)}</td>
+                  </tr>
+                </tbody>
+              </table>
+            </div>
+          </div>
+          <div className="modal-footer">
+            <button className="btn btn-secondary" onClick={() => setModal(null)}>
+              {t('common.close')}
+            </button>
+          </div>
+        </Modal>
+      )}
+
       {modal === 'delete' && activePurchase && (
         <ConfirmModal
           title={t('purchases.deleteTitle')}

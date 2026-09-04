@@ -83,9 +83,14 @@ describe('a voided row', () => {
     expect(pageSrc).toMatch(/\) : isVoided \? \(/);
   });
 
-  test('and the reason it was voided is visible', () => {
-    expect(pageSrc).toMatch(/p\.void_reason \|\| t\('purchases\.voidedBadge'\)/);
-    expect(pageSrc).toMatch(/title=\{p\.void_reason \|\| undefined\}/);
+  test('and the reason it was voided is reachable', () => {
+    // The actions cell used to spell the reason out, but that space now holds
+    // the Archive button — filing it away is the only thing left to do with a
+    // cancelled order. The reason is on the Void badge's tooltip, on the
+    // button, and spelled out in the order view the row opens.
+    const tooltips = pageSrc.match(/title=\{p\.void_reason \|\| undefined\}/g) || [];
+    expect(tooltips.length).toBeGreaterThanOrEqual(1);
+    expect(pageSrc).toMatch(/purchases\.voidReason/);
   });
 });
 

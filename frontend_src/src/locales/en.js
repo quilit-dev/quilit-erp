@@ -2275,6 +2275,10 @@ const en = {
     statsPaid: 'Paid',
     statsTotalSpent: 'Total Spent',
     itemsLabel: 'Items',
+    viewOrder: 'Open this order',
+    // What a unit is worth on the shelf once the delivery charge has
+    // been shared out — the figure the costing engine works from.
+    landedCost: 'Landed',
     addLine: 'Add item',
     removeLine: 'Remove this item',
     selectItem: 'Select an item…',

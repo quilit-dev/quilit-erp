@@ -2264,6 +2264,8 @@ const ar = {
     statsPaid: 'مدفوع',
     statsTotalSpent: 'إجمالي الإنفاق',
     itemsLabel: 'الأصناف',
+    viewOrder: 'فتح هذا الأمر',
+    landedCost: 'التكلفة النهائية',
     addLine: 'إضافة صنف',
     removeLine: 'حذف هذا الصنف',
     selectItem: 'اختر صنفاً…',
