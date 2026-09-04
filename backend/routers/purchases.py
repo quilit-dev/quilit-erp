@@ -1,6 +1,6 @@
 ﻿from fastapi import APIRouter, Depends, HTTPException
 from pydantic import BaseModel
-from typing import Optional
+from typing import List, Optional
 from database import get_db
 from permissions import require_perm
 import commitments
@@ -20,12 +20,35 @@ from datetime import datetime
 
 router = APIRouter()
 
-class PurchaseCreate(BaseModel):
-    supplier: str
+class PurchaseLineIn(BaseModel):
+    """One product on a supplier's invoice.
+
+    `discount` is an amount and is what the arithmetic uses; `discount_pct`
+    only records how that amount was arrived at, so a percentage typed on the
+    screen survives a reload. Exactly the division of labour invoice lines have.
+    """
     inventory_id: Optional[int] = None
     product_name: str
+    category:     Optional[str] = "Other"
+    quantity:     float
+    unit_cost:    float = 0
+    discount:     float = 0
+    discount_pct: Optional[float] = None
+    tax_rate_id:  Optional[int] = None
+
+
+class PurchaseCreate(BaseModel):
+    supplier: str
+    # A purchase is a document with lines. The flat single-item fields below
+    # are still accepted and are normalised into one line, because every
+    # existing caller — the seed data and 25 test files among them — sends
+    # that shape, and rewriting them all alongside a costing change would make
+    # the diff unreadable. `items` wins when both are present.
+    items: Optional[List[PurchaseLineIn]] = None
+    inventory_id: Optional[int] = None
+    product_name: Optional[str] = None
     category: Optional[str] = "Other"
-    quantity: float
+    quantity: Optional[float] = None
     unit_cost: float = 0
     additional_costs: float = 0
     tax_rate_id: Optional[int] = None
@@ -44,6 +67,10 @@ class PurchaseCreate(BaseModel):
 
 class PurchaseUpdate(BaseModel):
     supplier: Optional[str] = None
+    # As on create: either a full set of lines, or the legacy flat fields for
+    # the single-line case. `None` means "this request is not about the lines"
+    # and leaves them alone.
+    items: Optional[List[PurchaseLineIn]] = None
     product_name: Optional[str] = None
     category: Optional[str] = None
     quantity: Optional[float] = None
@@ -86,6 +113,46 @@ def _total_cost(quantity, unit_cost, additional_costs):
     """Pre-tax cost: goods value plus additional (shipping, handling) costs."""
     return money(float(quantity) * float(unit_cost) + float(additional_costs))
 
+def _line_net(quantity, unit_cost, discount=0) -> float:
+    """What a line is worth before tax: goods value less its own discount.
+
+    Floored at zero. A discount larger than the line would otherwise make the
+    taxable base negative, which turns into a negative tax and a credit nobody
+    granted.
+    """
+    return money(max(float(quantity) * float(unit_cost) - float(discount or 0), 0.0))
+
+
+def _apportion(total, weights) -> list:
+    """Split `total` across `weights` so the parts sum to it EXACTLY.
+
+    Shipping and customs are charged once for a whole delivery but have to
+    reach each line, because a line's landed cost is what its goods are worth
+    on the shelf. Rounding each share independently leaves a cent unallocated,
+    and that cent is the difference between the stock value and the ledger's
+    inventory debit — which is precisely what the reconciliation report exists
+    to notice. The residue goes to the largest line, where it is least visible
+    as a per-unit distortion.
+
+    Falls back to an equal split when every weight is zero (a delivery of free
+    samples still carries freight).
+    """
+    n = len(weights)
+    if n == 0:
+        return []
+    total = money(total)
+    w = [max(float(x or 0), 0.0) for x in weights]
+    pool = sum(w)
+    if pool <= 0:
+        w, pool = [1.0] * n, float(n)
+    shares = [money(total * x / pool) for x in w]
+    residue = money(total - money(sum(shares)))
+    if residue:
+        biggest = max(range(n), key=lambda k: w[k])
+        shares[biggest] = money(shares[biggest] + residue)
+    return shares
+
+
 def _compute_purchase_tax(db, quantity, unit_cost, tax_rate_id):
     """Resolve (tax_rate_id, tax_rate, tax_amount) for a purchase. Tax applies
     to the goods value (quantity × unit_cost) only — shipping, customs and
@@ -93,6 +160,154 @@ def _compute_purchase_tax(db, quantity, unit_cost, tax_rate_id):
     ctx = get_tax_context(db)
     net = money(float(quantity) * float(unit_cost))
     return resolve_purchase_tax(ctx, tax_rate_id, net)
+
+
+# ── Lines ────────────────────────────────────────────────────────────────────
+# A purchase is a header and its lines. These five functions are the only place
+# that writes them, so the header's money and the lines cannot drift apart.
+
+def _normalise_lines(data, *, required=True):
+    """One shape for the handlers, whatever the caller sent.
+
+    `items` when present; otherwise the flat single-item fields folded into one
+    line. Returns None when the request says nothing about the lines at all,
+    which on an update means "leave them alone" and is different from an empty
+    list.
+    """
+    if data.items is not None:
+        if not data.items:
+            raise HTTPException(400, "A purchase needs at least one item.")
+        return list(data.items)
+    if getattr(data, "product_name", None) is None and getattr(data, "quantity", None) is None:
+        if required:
+            raise HTTPException(400, "A purchase needs at least one item.")
+        return None
+    return [PurchaseLineIn(
+        inventory_id=data.inventory_id if hasattr(data, "inventory_id") else None,
+        product_name=data.product_name or "Item",
+        category=data.category,
+        quantity=data.quantity if data.quantity is not None else 0,
+        unit_cost=data.unit_cost or 0,
+        tax_rate_id=data.tax_rate_id,
+    )]
+
+
+def _validate_lines(lines):
+    for i, ln in enumerate(lines, 1):
+        if ln.quantity is None or ln.quantity <= 0:
+            raise HTTPException(400, f"Line {i}: quantity must be positive.")
+        validate_int_qty(ln.quantity, f"Line {i} quantity")
+        if float(ln.discount or 0) < 0:
+            raise HTTPException(400, f"Line {i}: a discount cannot be negative.")
+
+
+def _link_inventory(db, line, supplier, now):
+    """The inventory item this line is for, created if it is a new product."""
+    inventory_id = line.inventory_id
+    if inventory_id and line.category:
+        db.execute(
+            "UPDATE inventory SET category = ? WHERE id = ? AND "
+            "(category IS NULL OR category = '' OR category = 'Other')",
+            (line.category, inventory_id))
+    if not inventory_id:
+        cur = db.execute(
+            """INSERT INTO inventory
+               (name, category, quantity, min_stock, unit_cost, supplier, unit, created_at)
+               VALUES (?, ?, 0, 0, 0, ?, 'pcs', ?)""",
+            (line.product_name, line.category or "Other", supplier, now))
+        inventory_id = cur.lastrowid
+    return inventory_id
+
+
+def _write_lines(db, purchase_id, lines, *, supplier, cost_currency, cost_rate, now):
+    """Replace this purchase's lines. Costs arrive in the entry currency and are
+    stored in USD, because inventory is carried at historical USD cost."""
+    db.execute("DELETE FROM purchase_items WHERE purchase_id = ?", (purchase_id,))
+    ctx = get_tax_context(db)
+    for ln in lines:
+        inventory_id = _link_inventory(db, ln, supplier, now)
+        unit_cost = currency.to_usd(ln.unit_cost or 0, cost_currency, db, cost_rate)
+        discount  = currency.to_usd(ln.discount or 0, cost_currency, db, cost_rate)
+        net = _line_net(ln.quantity, unit_cost, discount)
+        t_rid, t_rate, t_amt = resolve_purchase_tax(ctx, ln.tax_rate_id, net)
+        db.execute(
+            """INSERT INTO purchase_items
+               (purchase_id, inventory_id, product_name, category, quantity,
+                unit_cost, discount, discount_pct, tax_rate_id, tax_rate,
+                tax_amount, line_total)
+               VALUES (?,?,?,?,?,?,?,?,?,?,?,?)""",
+            (purchase_id, inventory_id, ln.product_name, ln.category or "Other",
+             ln.quantity, unit_cost, discount, ln.discount_pct,
+             t_rid, t_rate, t_amt, net))
+
+
+def _layer_ref(po_number, line_id) -> str:
+    """The key a receipt's cost layer is filed under.
+
+    The PO number alone is not enough: two lines of the same item on one order
+    would share it, and reversing one of them would draw down the other's
+    goods. The line's own id is never reused, so it names exactly one receipt.
+    """
+    return f"{po_number}#{line_id}"
+
+
+def _lines_of(db, purchase_id):
+    return db.execute(
+        "SELECT * FROM purchase_items WHERE purchase_id = ? ORDER BY id",
+        (purchase_id,)).fetchall()
+
+
+def _recalc_totals(db, purchase_id):
+    """The ONLY writer of the header's money.
+
+    The supplier and insights figures GROUP BY over `purchases`; joining the
+    lines into those queries would turn COUNT(purchases.id) into a count of
+    lines. They read these columns instead, which is safe only because this is
+    the single place they are set — and `test_purchase_lines.py` asserts they
+    equal the sum of the lines for every purchase in the database.
+    """
+    row = db.execute(
+        "SELECT COALESCE(SUM(line_total), 0) AS sub, COALESCE(SUM(tax_amount), 0) AS tax "
+        "FROM purchase_items WHERE purchase_id = ?", (purchase_id,)).fetchone()
+    db.execute("UPDATE purchases SET subtotal = ?, tax_total = ? WHERE id = ?",
+               (money(row["sub"]), money(row["tax"]), purchase_id))
+
+
+def _sync_legacy_header(db, purchase_id):
+    """Keep the old per-item header columns in step with the lines.
+
+    TRANSITIONAL. Those columns are dropped at the end of this piece of work;
+    until then they are still what a handful of un-migrated readers look at, so
+    they carry a roll-up rather than being left stale. Every value here is
+    defensible for a document with several lines — `unit_cost` is the weighted
+    average, `quantity` the sum — except `product_name`, which names the first
+    line and says how many others there are.
+    """
+    lines = _lines_of(db, purchase_id)
+    if not lines:
+        return
+    first = lines[0]
+    qty = money(sum(float(l["quantity"] or 0) for l in lines))
+    sub = money(sum(float(l["line_total"] or 0) for l in lines))
+    name = first["product_name"]
+    if len(lines) > 1:
+        name = f"{name} (+{len(lines) - 1} more)"
+    db.execute(
+        "UPDATE purchases SET inventory_id=?, product_name=?, category=?, "
+        " quantity=?, unit_cost=?, tax_rate_id=?, tax_rate=?, tax_amount=? WHERE id=?",
+        (first["inventory_id"], name, first["category"], qty,
+         money(sub / qty) if qty else 0,
+         first["tax_rate_id"], first["tax_rate"],
+         money(sum(float(l["tax_amount"] or 0) for l in lines)), purchase_id))
+
+
+def _save_lines(db, purchase_id, lines, *, supplier, cost_currency, cost_rate, now):
+    """Write the lines and bring every derived figure back into step."""
+    _write_lines(db, purchase_id, lines, supplier=supplier,
+                 cost_currency=cost_currency, cost_rate=cost_rate, now=now)
+    _recalc_totals(db, purchase_id)
+    _sync_legacy_header(db, purchase_id)
+
 
 @router.get("/")
 def list_purchases(status: Optional[str] = None, supplier: Optional[str] = None,
@@ -168,65 +383,59 @@ def get_purchase(purchase_id: int, user=Depends(require_perm("purchases", "view"
 
 @router.post("/")
 def create_purchase(data: PurchaseCreate, user=Depends(require_perm("purchases", "create")), db: sqlite3.Connection = Depends(get_db)):
-    if data.quantity <= 0:
-        raise HTTPException(400, "Quantity must be positive")
-    validate_int_qty(data.quantity, "Purchase quantity")
+    lines = _normalise_lines(data)
+    _validate_lines(lines)
     po = next_po_number(db)
     now = _now()
     # Lock LBP-entered cost to USD now (inventory = historical USD cost). Keep
-    # the entry currency + the rate used as provenance on the PO row.
+    # the entry currency + the rate used as provenance on the PO row. The
+    # currency belongs to the document: a supplier invoice is written in one.
     cost_currency = (data.cost_currency or "USD").upper()
     if cost_currency not in ("USD", "LBP"):
         raise HTTPException(400, "Unsupported cost currency.")
     cost_rate = currency.resolve_rate(db, data.exchange_rate) if cost_currency == "LBP" else None
-    unit_cost = currency.to_usd(data.unit_cost or 0, cost_currency, db, cost_rate)
     additional_costs = currency.to_usd(data.additional_costs or 0, cost_currency, db, cost_rate)
     # Resolve the destination warehouse — falls back to the user's default
     # so existing API callers keep working. Validates row-level access.
     import warehouse_access as wha
     warehouse_id = wha.resolve_warehouse_id(user, db, data.warehouse_id)
 
-    # Auto-create inventory item if no existing item was linked
-    inventory_id = data.inventory_id
-    if inventory_id and data.category:
-        db.execute(
-            "UPDATE inventory SET category = ? WHERE id = ? AND (category IS NULL OR category = '' OR category = 'Other')",
-            (data.category, inventory_id)
-        )
-    if not inventory_id:
-        cur = db.execute(
-            """INSERT INTO inventory
-               (name, category, quantity, min_stock, unit_cost, supplier, unit, created_at)
-               VALUES (?, ?, 0, 0, 0, ?, 'pcs', ?)""",
-            (data.product_name, data.category or 'Other', data.supplier, now),
-        )
-        inventory_id = cur.lastrowid
-
-    tax_rate_id, tax_rate, tax_amount = _compute_purchase_tax(
-        db, data.quantity, unit_cost, data.tax_rate_id)
+    # The header is inserted first so the lines have something to hang off.
+    # Its per-item columns are placeholders; `_save_lines` fills them from the
+    # lines a moment later, and they disappear entirely once the last reader
+    # has moved across.
     c = db.execute(
         """INSERT INTO purchases
            (po_number, supplier, inventory_id, product_name, category, quantity, unit_cost,
             additional_costs, tax_rate_id, tax_rate, tax_amount, status, notes, warehouse_id,
             cost_currency, cost_exchange_rate, ordered_at)
            VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)""",
-        (po, data.supplier, inventory_id, data.product_name, (data.category or 'Other'),
-         data.quantity, unit_cost, additional_costs,
-         tax_rate_id, tax_rate, tax_amount, data.status, data.notes, warehouse_id,
+        (po, data.supplier, None, lines[0].product_name, (lines[0].category or 'Other'),
+         0, 0, additional_costs, None, 0, 0, data.status, data.notes, warehouse_id,
          cost_currency, cost_rate, now)
     )
     purchase_id = c.lastrowid
+    _save_lines(db, purchase_id, lines, supplier=data.supplier,
+                cost_currency=cost_currency, cost_rate=cost_rate, now=now)
 
     if data.status in ("Received", "Paid"):
         _credit_stock(purchase_id, db)
     if data.status == "Paid":
         _record_expense(purchase_id, db)
 
-    # Evaluate approval policies before commit
-    total_cost = _total_cost(data.quantity, unit_cost, additional_costs)
+    # Evaluate approval policies before commit. `quantity` is now the total
+    # across the lines and `category` the distinct set, so a policy written
+    # against a single-item purchase keeps the meaning it had while a
+    # multi-line one gets an honest answer rather than the first line's.
+    head = db.execute("SELECT subtotal FROM purchases WHERE id=?",
+                      (purchase_id,)).fetchone()
+    rows = _lines_of(db, purchase_id)
+    total_cost = money(float(head["subtotal"]) + additional_costs)
     entity_data = {
         "total_cost": total_cost,
-        "quantity":   data.quantity,
+        "quantity":   money(sum(float(r["quantity"] or 0) for r in rows)),
+        "category":   ", ".join(sorted({(r["category"] or "Other") for r in rows})),
+        "line_count": len(rows),
         "status":     data.status,
         "supplier":   data.supplier,
     }
@@ -236,7 +445,7 @@ def create_purchase(data: PurchaseCreate, user=Depends(require_perm("purchases",
         entity_data=entity_data,
         user_id=user["id"],
         entity_id=purchase_id,
-        entity_label=f"{po} — {data.product_name}",
+        entity_label=f"{po} — {lines[0].product_name}",
     )
     if needs_approval:
         db.execute(
@@ -258,56 +467,58 @@ def update_purchase(purchase_id: int, data: PurchaseUpdate,
         raise HTTPException(404, "Purchase not found")
     if row["status"] != "Ordered":
         raise HTTPException(400, "Can only edit purchases in Ordered status")
-    if data.quantity is not None:
-        validate_int_qty(data.quantity, "Purchase quantity")
 
     # Lock any LBP-entered cost to USD before storing (see PurchaseCreate).
     cost_currency = (data.cost_currency or "USD").upper()
     if cost_currency not in ("USD", "LBP"):
         raise HTTPException(400, "Unsupported cost currency.")
     cost_rate = currency.resolve_rate(db, data.exchange_rate) if cost_currency == "LBP" else None
-    new_unit_cost = (currency.to_usd(data.unit_cost, cost_currency, db, cost_rate)
-                     if data.unit_cost is not None else None)
     new_additional = (currency.to_usd(data.additional_costs, cost_currency, db, cost_rate)
                       if data.additional_costs is not None else None)
 
+    # `None` means the request is not about the lines and leaves them alone;
+    # a list replaces them wholesale. Replacing rather than patching is the
+    # invoice-line pattern, and it is the only way a request can remove a line.
+    lines = _normalise_lines(data, required=False)
+    if lines is not None:
+        _validate_lines(lines)
+
     fields, params = [], []
     if data.supplier is not None:
-        fields.append("supplier=?");         params.append(data.supplier)
-    if data.product_name is not None:
-        fields.append("product_name=?");     params.append(data.product_name)
-    if data.category is not None:
-        fields.append("category=?");         params.append(data.category)
-    if data.quantity is not None:
-        fields.append("quantity=?");          params.append(data.quantity)
-    if new_unit_cost is not None:
-        fields.append("unit_cost=?");         params.append(new_unit_cost)
-        fields.append("cost_currency=?");     params.append(cost_currency)
-        fields.append("cost_exchange_rate=?"); params.append(cost_rate)
+        fields.append("supplier=?");           params.append(data.supplier)
     if new_additional is not None:
-        fields.append("additional_costs=?");  params.append(new_additional)
+        fields.append("additional_costs=?");   params.append(new_additional)
     if data.notes is not None:
-        fields.append("notes=?");             params.append(data.notes)
+        fields.append("notes=?");              params.append(data.notes)
+    if lines is not None:
+        fields.append("cost_currency=?");      params.append(cost_currency)
+        fields.append("cost_exchange_rate=?"); params.append(cost_rate)
     if data.warehouse_id is not None:
         # Re-route the destination — only legal while the PO is still Ordered.
         # (Already enforced above; `_credit_stock` runs at receipt and reads
         # this column to land the units in the right warehouse.)
         import warehouse_access as wha
         new_wid = wha.resolve_warehouse_id(user, db, data.warehouse_id)
-        fields.append("warehouse_id=?");      params.append(new_wid)
+        fields.append("warehouse_id=?");       params.append(new_wid)
+
+    if not fields and lines is None:
+        return {"message": "Purchase updated"}
 
     if fields:
-        # Recompute tax from the effective (new or unchanged) values.
-        eff_qty  = data.quantity    if data.quantity    is not None else row["quantity"]
-        eff_cost = new_unit_cost    if new_unit_cost    is not None else row["unit_cost"]
-        eff_trid = data.tax_rate_id if data.tax_rate_id is not None else row["tax_rate_id"]
-        t_rid, t_rate, t_amt = _compute_purchase_tax(db, eff_qty, eff_cost, eff_trid)
-        fields += ["tax_rate_id=?", "tax_rate=?", "tax_amount=?"]
-        params += [t_rid, t_rate, t_amt]
         params.append(purchase_id)
         db.execute(f"UPDATE purchases SET {', '.join(fields)} WHERE id=?", params)
-        log_action(db, user, "update", "purchase", purchase_id, row["po_number"])
-        db.commit()
+    if lines is not None:
+        _save_lines(db, purchase_id, lines,
+                    supplier=data.supplier or row["supplier"],
+                    cost_currency=cost_currency, cost_rate=cost_rate, now=_now())
+    elif new_additional is not None:
+        # Shipping changed but the lines did not. Their share of it — and so
+        # what the goods will land at — moves with it, and the header totals
+        # have to be recomputed from the lines either way.
+        _recalc_totals(db, purchase_id)
+        _sync_legacy_header(db, purchase_id)
+    log_action(db, user, "update", "purchase", purchase_id, row["po_number"])
+    db.commit()
     return {"message": "Purchase updated"}
 
 @router.patch("/{purchase_id}/status")
@@ -375,71 +586,101 @@ def _credit_stock(purchase_id: int, db: sqlite3.Connection):
     way. Selling prices are NEVER set here — those live exclusively on
     quotation_items.
     """
-    # Atomic claim: only one concurrent request can credit stock
-    # `voided_at IS NULL` belongs in the claim itself, not only in the callers.
-    # Voiding releases the stock_updated flag so the receipt cannot be counted
-    # twice, which is exactly what would let a later status change credit the
-    # goods a second time if this only checked the flag.
+    # Atomic claim: only one concurrent request can credit stock. It is taken on
+    # the HEADER, so it guards the whole loop below rather than a single line.
+    # `voided_at IS NULL` belongs in the claim itself, not only in the callers:
+    # voiding releases the flag so the receipt cannot be counted twice, which is
+    # exactly what would let a later status change credit the goods again.
     claimed = db.execute(
         "UPDATE purchases SET stock_updated=1 WHERE id=? AND stock_updated=0 "
-        "AND inventory_id IS NOT NULL AND archived_at IS NULL AND voided_at IS NULL",
+        "AND archived_at IS NULL AND voided_at IS NULL",
         (purchase_id,),
     ).rowcount
     if claimed == 0:
         return  # already credited or not eligible
     row = db.execute("SELECT * FROM purchases WHERE id = ? AND archived_at IS NULL", (purchase_id,)).fetchone()
-    if not row or not row["inventory_id"]:
+    if not row:
         return
-
-    inv = db.execute("SELECT * FROM inventory WHERE id = ?", (row["inventory_id"],)).fetchone()
-    if not inv:
+    lines = _lines_of(db, purchase_id)
+    if not lines:
         return
-
-    qty_before = float(inv["quantity"])
-    old_cost   = float(inv["unit_cost"] or 0)
-    qty        = float(row["quantity"])
-    qty_after  = round(qty_before + qty, 6)
-
-    # Landed VALUE of this receipt = goods value + apportioned additional
-    # (shipping / customs / handling) costs.
-    lot_value = float(row["unit_cost"]) * qty + float(row["additional_costs"])
-    # Weighted-average the receipt into the value already on hand. With no
-    # prior stock this reduces to the lot's landed cost; with existing stock
-    # it correctly blends, instead of overwriting the average with this lot's
-    # price (which would mis-state inventory value and every downstream COGS).
-    new_unit_cost = (round((qty_before * old_cost + lot_value) / qty_after, 6)
-                     if qty_after > 0 else old_cost)
-    # Landed cost per unit for this receipt — the cost basis of the new lot.
-    lot_unit_cost = round(lot_value / qty, 6) if qty > 0 else new_unit_cost
 
     now = _now()
-
-    db.execute(
-        "UPDATE inventory SET quantity = ?, unit_cost = ? WHERE id = ?",
-        (qty_after, new_unit_cost, row["inventory_id"])
-    )
-    # Land the receipt in the purchase's warehouse (or the company default if
-    # the purchase was created before warehouses existed) — maintains the
-    # per-warehouse breakdown alongside the company-wide quantity above.
     import warehouse_access as wha
     wid = wha.default_warehouse_id_for_row(db, row["warehouse_id"])
-    wha.credit_warehouse_stock(db, inventory_id=row["inventory_id"],
-                                warehouse_id=wid, delta=qty)
-    # Somebody has already paid for some of this. Their claim on it is older
-    # than anybody else's, and without this the next walk-in buys it.
-    filled = commitments.allocate(db, row["inventory_id"], warehouse_id=wid)
+    # Shipping and customs are charged once for the delivery but belong to the
+    # goods, so each line carries its share and lands at that cost.
+    shares = _apportion(row["additional_costs"] or 0,
+                        [l["line_total"] for l in lines])
+    filled = []
+
+    for line, share in zip(lines, shares):
+        inventory_id = line["inventory_id"]
+        if not inventory_id:
+            continue
+        # Re-read the item INSIDE the loop. Two lines of the same product on one
+        # order is an ordinary delivery, and hoisting this read would blend the
+        # second line against the stock level from before the first one landed.
+        inv = db.execute("SELECT * FROM inventory WHERE id = ?", (inventory_id,)).fetchone()
+        if not inv:
+            continue
+
+        qty_before = float(inv["quantity"])
+        old_cost   = float(inv["unit_cost"] or 0)
+        qty        = float(line["quantity"] or 0)
+        if qty <= 0:
+            continue
+        qty_after  = round(qty_before + qty, 6)
+
+        # Landed VALUE of this line = its goods value, net of its own discount,
+        # plus its share of the delivery's additional costs.
+        lot_value = money(float(line["line_total"] or 0) + share)
+        # Weighted-average the receipt into the value already on hand. With no
+        # prior stock this reduces to the lot's landed cost; with existing stock
+        # it correctly blends, instead of overwriting the average with this
+        # lot's price (which would mis-state inventory value and every
+        # downstream COGS).
+        new_unit_cost = (round((qty_before * old_cost + lot_value) / qty_after, 6)
+                         if qty_after > 0 else old_cost)
+        # Landed cost per unit for this line — the cost basis of the new lot,
+        # and the number a reversal has to un-blend with. Stored on the line
+        # rather than recomputed later, so the two cannot round differently.
+        lot_unit_cost = round(lot_value / qty, 6) if qty > 0 else new_unit_cost
+        db.execute(
+            "UPDATE purchase_items SET additional_cost_share=?, landed_unit_cost=?, "
+            " stock_updated=1 WHERE id=?",
+            (money(share), lot_unit_cost, line["id"]))
+
+        db.execute(
+            "UPDATE inventory SET quantity = ?, unit_cost = ? WHERE id = ?",
+            (qty_after, new_unit_cost, inventory_id)
+        )
+        # Land the receipt in the purchase's warehouse (or the company default
+        # if the purchase was created before warehouses existed) — maintains the
+        # per-warehouse breakdown alongside the company-wide quantity above.
+        wha.credit_warehouse_stock(db, inventory_id=inventory_id,
+                                   warehouse_id=wid, delta=qty)
+        # Somebody has already paid for some of this. Their claim on it is older
+        # than anybody else's, and without this the next walk-in buys it.
+        filled += commitments.allocate(db, inventory_id, warehouse_id=wid)
+        # Record the receipt as a tracked lot (lot-tracked items) or a FIFO/LIFO
+        # cost layer, keyed to the LINE: two lines of the same item would
+        # otherwise share one key, and reversing either would draw down the
+        # other's goods.
+        lots.record_stock_in(db, inventory_id, qty, lot_unit_cost,
+                             source_type="purchase",
+                             source_ref=_layer_ref(row["po_number"], line["id"]), now=now)
+        db.execute(
+            """INSERT INTO stock_movements
+               (inventory_id, type, delta, qty_before, qty_after, reference, note, warehouse_id, created_at)
+               VALUES (?,?,?,?,?,?,?,?,?)""",
+            (inventory_id, "purchase", qty, qty_before, qty_after,
+             row["po_number"], f"Purchase received: {row['po_number']}", wid, now)
+        )
+
+    # Told once for the whole delivery. Notifying inside the loop would send a
+    # customer the same "your order is ready" twice for a two-line receipt.
     commitments.notify_allocated(db, filled, source="purchase received")
-    # Record the receipt as a tracked lot (lot-tracked items) or a FIFO/LIFO
-    # cost layer. The weighted-average unit_cost above already reflects this lot.
-    lots.record_stock_in(db, row["inventory_id"], qty, lot_unit_cost,
-                         source_type="purchase", source_ref=row["po_number"], now=now)
-    db.execute(
-        """INSERT INTO stock_movements
-           (inventory_id, type, delta, qty_before, qty_after, reference, note, warehouse_id, created_at)
-           VALUES (?,?,?,?,?,?,?,?,?)""",
-        (row["inventory_id"], "purchase", qty, qty_before, qty_after,
-         row["po_number"], f"Purchase received: {row['po_number']}", wid, now)
-    )
 
 def _record_expense(purchase_id: int, db: sqlite3.Connection):
     """Record purchase cost as Finance expense. Idempotent."""
@@ -597,7 +838,7 @@ def void_purchase(
     return {"message": "Purchase voided", "voided_at": now, **undone}
 
 
-def _can_reverse(row, db) -> tuple:
+def _can_reverse(row, lines, db) -> tuple:
     """Whether this receipt's goods are all still here. Returns (ok, why_not).
 
     Three questions, because three things can hold the goods:
@@ -611,47 +852,71 @@ def _can_reverse(row, db) -> tuple:
         for even though they are physically present;
       * the warehouse it landed in, since company-wide stock says nothing about
         whether this particular location still holds it.
+
+    All three are asked PER ITEM, totalled across the lines that carry it — not
+    per line. Two lines of ten of the same product, with twelve on hand, would
+    each pass a line-by-line check and together take the item to minus eight.
     """
-    inventory_id = row["inventory_id"]
-    if not inventory_id or not row["stock_updated"]:
+    if not row["stock_updated"]:
         return True, None
-    qty = float(row["quantity"] or 0)
-    name = row["product_name"]
 
-    intact = lots.remaining_from(db, inventory_id, source_type="purchase",
-                                 source_ref=row["po_number"])
-    if intact is not None and intact + 1e-6 < qty:
-        return False, (
-            f"Only {intact:g} of the {qty:g} units received are still in stock — "
-            f"the rest of this receipt has been sold or used. Voiding it would "
-            f"remove goods that are no longer there. Record a supplier return "
-            f"or a stock adjustment instead.")
+    need, names, layer_have = {}, {}, {}
+    for line in lines:
+        iid = line["inventory_id"]
+        if not iid or not line["stock_updated"]:
+            continue
+        qty = float(line["quantity"] or 0)
+        need[iid] = need.get(iid, 0.0) + qty
+        names.setdefault(iid, line["product_name"])
+        # Each line has its own layer, so the answer for the item is the sum of
+        # its lines' answers. `None` means the costing method keeps no such
+        # record and the question cannot be asked of a specific receipt.
+        intact = lots.remaining_from(db, iid, source_type="purchase",
+                                     source_ref=_layer_ref(row["po_number"], line["id"]))
+        if intact is None:
+            layer_have[iid] = None
+        elif layer_have.get(iid, 0.0) is not None:
+            layer_have[iid] = layer_have.get(iid, 0.0) + intact
 
-    free = reservations.available(db, inventory_id)
-    if free + 1e-6 < qty:
-        on_hand = float(db.execute(
-            "SELECT COALESCE(quantity, 0) AS q FROM inventory WHERE id=?",
-            (inventory_id,)).fetchone()["q"] or 0)
-        if on_hand + 1e-6 < qty:
-            return False, (
-                f"Only {on_hand:g} of '{name}' is in stock but this purchase "
-                f"brought in {qty:g}. Voiding it would take the item negative.")
-        return False, (
-            f"{qty:g} units of '{name}' are needed to reverse this purchase but "
-            f"only {free:g} are unspoken for — the rest is reserved for a "
-            f"customer. Release the reservation first, or record a supplier "
-            f"return instead.")
+    if not need:
+        return True, None
 
     wid = wha.default_warehouse_id_for_row(db, row["warehouse_id"])
-    ws = db.execute(
-        "SELECT COALESCE(quantity, 0) AS q FROM inventory_stock "
-        "WHERE inventory_id=? AND warehouse_id=?", (inventory_id, wid)).fetchone()
-    at_location = float(ws["q"] or 0) if ws else 0.0
-    if at_location + 1e-6 < qty:
-        return False, (
-            f"The goods landed in this warehouse but only {at_location:g} of "
-            f"{qty:g} are still there — the rest has moved or been sold. "
-            f"Transfer it back before voiding, or record a supplier return.")
+    for iid, qty in need.items():
+        name = names[iid]
+        intact = layer_have.get(iid)
+        if intact is not None and intact + 1e-6 < qty:
+            return False, (
+                f"Only {intact:g} of the {qty:g} units of '{name}' received are "
+                f"still in stock — the rest of this receipt has been sold or "
+                f"used. Voiding it would remove goods that are no longer there. "
+                f"Record a supplier return or a stock adjustment instead.")
+
+        free = reservations.available(db, iid)
+        if free + 1e-6 < qty:
+            on_hand = float(db.execute(
+                "SELECT COALESCE(quantity, 0) AS q FROM inventory WHERE id=?",
+                (iid,)).fetchone()["q"] or 0)
+            if on_hand + 1e-6 < qty:
+                return False, (
+                    f"Only {on_hand:g} of '{name}' is in stock but this purchase "
+                    f"brought in {qty:g}. Voiding it would take the item negative.")
+            return False, (
+                f"{qty:g} units of '{name}' are needed to reverse this purchase "
+                f"but only {free:g} are unspoken for — the rest is reserved for "
+                f"a customer. Release the reservation first, or record a "
+                f"supplier return instead.")
+
+        ws = db.execute(
+            "SELECT COALESCE(quantity, 0) AS q FROM inventory_stock "
+            "WHERE inventory_id=? AND warehouse_id=?", (iid, wid)).fetchone()
+        at_location = float(ws["q"] or 0) if ws else 0.0
+        if at_location + 1e-6 < qty:
+            return False, (
+                f"The goods landed in this warehouse but only {at_location:g} of "
+                f"{qty:g} '{name}' are still there — the rest has moved or been "
+                f"sold. Transfer it back before voiding, or record a supplier "
+                f"return.")
     return True, None
 
 
@@ -659,56 +924,70 @@ def _reverse_stock(row, db: sqlite3.Connection, now: str) -> dict:
     """Take the received goods back off the shelf. The mirror of _credit_stock.
 
     Refuses rather than improvises: a receipt whose goods have moved on cannot
-    be reversed without inventing stock, and the check is made before a single
-    write so a refusal leaves nothing half-done.
+    be reversed without inventing stock, and the whole order is checked before a
+    single write so a refusal leaves nothing half-done.
     """
     purchase_id = row["id"]
-    if not row["stock_updated"] or not row["inventory_id"]:
-        return {"restocked": 0.0}
+    if not row["stock_updated"]:
+        return {"restocked": 0.0, "lines": []}
 
-    ok, why = _can_reverse(row, db)
+    lines = _lines_of(db, purchase_id)
+    ok, why = _can_reverse(row, lines, db)
     if not ok:
         raise HTTPException(409, why)
 
-    inventory_id = row["inventory_id"]
-    inv = db.execute("SELECT * FROM inventory WHERE id=?", (inventory_id,)).fetchone()
-    if not inv:
-        return {"restocked": 0.0}
-
-    qty        = float(row["quantity"] or 0)
-    qty_before = float(inv["quantity"] or 0)
-    qty_after  = round(qty_before - qty, 6)
-    # The landed cost this receipt came in at — goods plus its share of
-    # shipping and customs. Reversing at the item's CURRENT average would leave
-    # behind the difference between the two as a silent gain or loss.
-    lot_value     = float(row["unit_cost"] or 0) * qty + float(row["additional_costs"] or 0)
-    lot_unit_cost = round(lot_value / qty, 6) if qty > 0 else 0.0
-
-    # Order matters: draw the receipt's own layer down first, then un-blend the
-    # average, then move the quantity. `reverse_stock_in` recomputes unit_cost
-    # from the remaining LOTS for a lot-tracked item, so the un-blend below must
-    # not run for those or it would overwrite the authoritative figure.
-    tracked = lots.is_lot_tracked(db, inventory_id)
-    lots.reverse_stock_in(db, inventory_id, qty,
-                          source_type="purchase", source_ref=row["po_number"])
-    if not tracked:
-        costing.reverse_stock_in(db, inventory_id, qty_before=qty_before,
-                                 qty_out=qty, unit_cost_out=lot_unit_cost)
-    db.execute("UPDATE inventory SET quantity=? WHERE id=?", (qty_after, inventory_id))
-
     wid = wha.default_warehouse_id_for_row(db, row["warehouse_id"])
-    wha.credit_warehouse_stock(db, inventory_id=inventory_id,
-                               warehouse_id=wid, delta=-qty)
-    db.execute(
-        "INSERT INTO stock_movements "
-        "(inventory_id, type, delta, qty_before, qty_after, reference, note, "
-        " warehouse_id, created_at) VALUES (?,?,?,?,?,?,?,?,?)",
-        (inventory_id, "purchase_void", -qty, qty_before, qty_after,
-         row["po_number"], "Purchase voided", wid, now))
+    undone, total = [], 0.0
+
+    for line in lines:
+        inventory_id = line["inventory_id"]
+        if not inventory_id or not line["stock_updated"]:
+            continue
+        qty = float(line["quantity"] or 0)
+        if qty <= 0:
+            continue
+        # Re-read per line, for the same reason the receipt does: two lines of
+        # the same product must each see the level the previous one left.
+        inv = db.execute("SELECT * FROM inventory WHERE id=?", (inventory_id,)).fetchone()
+        if not inv:
+            continue
+        qty_before = float(inv["quantity"] or 0)
+        qty_after  = round(qty_before - qty, 6)
+        # The cost this line actually landed at, read back rather than
+        # recomputed. Reversing at the item's CURRENT average would leave the
+        # difference between the two behind as a silent gain or loss, and
+        # recomputing the apportionment would re-round it.
+        lot_unit_cost = float(line["landed_unit_cost"] or 0)
+
+        # Order matters: draw the line's own layer down first, then un-blend the
+        # average, then move the quantity. `reverse_stock_in` recomputes
+        # unit_cost from the remaining LOTS for a lot-tracked item, so the
+        # un-blend below must not run for those or it would overwrite the
+        # authoritative figure.
+        tracked = lots.is_lot_tracked(db, inventory_id)
+        lots.reverse_stock_in(db, inventory_id, qty, source_type="purchase",
+                              source_ref=_layer_ref(row["po_number"], line["id"]))
+        if not tracked:
+            costing.reverse_stock_in(db, inventory_id, qty_before=qty_before,
+                                     qty_out=qty, unit_cost_out=lot_unit_cost)
+        db.execute("UPDATE inventory SET quantity=? WHERE id=?", (qty_after, inventory_id))
+        wha.credit_warehouse_stock(db, inventory_id=inventory_id,
+                                   warehouse_id=wid, delta=-qty)
+        db.execute(
+            "INSERT INTO stock_movements "
+            "(inventory_id, type, delta, qty_before, qty_after, reference, note, "
+            " warehouse_id, created_at) VALUES (?,?,?,?,?,?,?,?,?)",
+            (inventory_id, "purchase_void", -qty, qty_before, qty_after,
+             row["po_number"], "Purchase voided", wid, now))
+        db.execute("UPDATE purchase_items SET stock_updated=0 WHERE id=?", (line["id"],))
+        undone.append({"product": line["product_name"], "quantity": qty,
+                       "unit_cost": lot_unit_cost})
+        total += qty
+
     # The claim is released, so the receipt cannot be credited a second time by
     # a later status change replaying _credit_stock.
     db.execute("UPDATE purchases SET stock_updated=0 WHERE id=?", (purchase_id,))
-    return {"restocked": qty, "unit_cost": lot_unit_cost}
+    return {"restocked": money(total), "lines": undone}
 
 
 @router.patch("/{purchase_id}/archive")

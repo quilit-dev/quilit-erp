@@ -128,7 +128,8 @@ def test_the_landed_cost_is_what_comes_back_out(make_client, db):
 
     r = _void(c, second)
     assert r.status_code == 200, r.text
-    assert r.json()["unit_cost"] == pytest.approx(25.0)
+    # The payload reports what each LINE gave back, since an order has several.
+    assert [l["unit_cost"] for l in r.json()["lines"]] == [pytest.approx(25.0)]
     assert _stock(db, item) == (10.0, 10.0)
     assert _layers(db, item) == (10.0, 100.0)
 
