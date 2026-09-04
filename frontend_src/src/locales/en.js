@@ -711,6 +711,7 @@ const en = {
   accountNames: {
     '1000': 'Cash & Bank',
     '1010': 'Cash — LBP',
+    '1020': 'Cash — EUR',
     '1100': 'Accounts Receivable',
     '1200': 'Inventory',
     '1300': 'Prepaid Expenses',

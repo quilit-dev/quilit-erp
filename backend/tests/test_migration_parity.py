@@ -34,6 +34,19 @@ _REQUIRED = [
     # A purchase can be reversed, the way an invoice can.
     ("purchases", "voided_at"),
     ("purchases", "void_reason"),
+    # A purchase is a document with lines. The header carries the money the
+    # supplier and insights aggregates read; the lines carry everything
+    # per-item. `landed_unit_cost` and `additional_cost_share` are the frozen
+    # receipt facts a reversal has to un-blend with.
+    ("purchases", "subtotal"),
+    ("purchases", "tax_total"),
+    ("purchase_items", "discount"),
+    ("purchase_items", "discount_pct"),
+    ("purchase_items", "tax_amount"),
+    ("purchase_items", "line_total"),
+    ("purchase_items", "additional_cost_share"),
+    ("purchase_items", "landed_unit_cost"),
+    ("purchase_items", "stock_updated"),
     ("invoice_items", "inventory_id"),
     ("invoice_items", "promotion_id"),
     ("invoice_items", "discount_pct"),
@@ -69,6 +82,8 @@ _REQUIRED = [
 # production only.
 _REQUIRED_TABLES = [
     "company_logo",
+    # A purchase is a document with lines, like an invoice.
+    "purchase_items",
     # A payment plan against one invoice.
     "invoice_installments",
     # Stock held for a named customer.

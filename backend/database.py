@@ -4060,6 +4060,74 @@ def _run_migrations(conn, c):
     add_col("171a_purchase_void_reason", "purchases", "void_reason",
             "ALTER TABLE purchases ADD COLUMN void_reason TEXT DEFAULT NULL")
 
+    # ── 172: a purchase is a document with LINES ─────────────────────────
+    # A supplier invoice covering six products had to be keyed as six separate
+    # purchase orders, so the document in the system stopped matching the one
+    # on the desk, and a single shipping charge could only be attached to
+    # whichever of them the operator picked. A purchase becomes a header with
+    # lines — the shape invoices and quotations have always had.
+    if need("172_purchase_items"):
+        c.execute("""
+            CREATE TABLE IF NOT EXISTS purchase_items (
+                id                    INTEGER PRIMARY KEY AUTOINCREMENT,
+                purchase_id           INTEGER NOT NULL REFERENCES purchases(id) ON DELETE CASCADE,
+                inventory_id          INTEGER REFERENCES inventory(id),
+                product_name          TEXT    NOT NULL,
+                category              TEXT,
+                quantity              REAL    NOT NULL DEFAULT 1,
+                unit_cost             REAL    NOT NULL DEFAULT 0,
+                -- `discount` (an amount) is what the arithmetic uses;
+                -- `discount_pct` only records how it was arrived at. Exactly
+                -- the division of labour invoice_items already has.
+                discount              REAL    NOT NULL DEFAULT 0,
+                discount_pct          REAL,
+                tax_rate_id           INTEGER,
+                tax_rate              REAL    NOT NULL DEFAULT 0,
+                tax_amount            REAL    NOT NULL DEFAULT 0,
+                -- pre-tax, net of the line discount, EXCLUDING shipping
+                line_total            REAL    NOT NULL DEFAULT 0,
+                -- This line's slice of the order's shipping/customs, and what
+                -- the goods therefore cost on the shelf. Both are STORED, not
+                -- derived: reversing a receipt has to un-blend with exactly the
+                -- number the receipt blended in, and recomputing re-runs the
+                -- apportionment and re-rounds it. A cent of drift there becomes
+                -- a silent gain or loss in inventory.unit_cost.
+                additional_cost_share REAL    NOT NULL DEFAULT 0,
+                landed_unit_cost      REAL,
+                stock_updated         INTEGER NOT NULL DEFAULT 0
+            )""")
+        c.execute("CREATE INDEX IF NOT EXISTS idx_purchase_items_purchase "
+                  "ON purchase_items(purchase_id)")
+        c.execute("CREATE INDEX IF NOT EXISTS idx_purchase_items_inventory "
+                  "ON purchase_items(inventory_id)")
+        done("172_purchase_items")
+
+    # The document's own totals. The supplier and insights aggregates GROUP BY
+    # over `purchases`; joining the lines into those queries would turn
+    # COUNT(purchases.id) into a count of LINES — a fan-out that shows up as a
+    # wrong figure with nothing failing. They read these columns instead, and
+    # exactly one function writes them.
+    add_col("172a_purchases_subtotal", "purchases", "subtotal",
+            "ALTER TABLE purchases ADD COLUMN subtotal REAL NOT NULL DEFAULT 0")
+    add_col("172b_purchases_tax_total", "purchases", "tax_total",
+            "ALTER TABLE purchases ADD COLUMN tax_total REAL NOT NULL DEFAULT 0")
+
+    # Every purchase that already exists becomes a one-line purchase.
+    if need("172c_purchase_items_backfill"):
+        c.execute(_PURCHASE_ITEMS_BACKFILL)
+        c.execute(_PURCHASE_TOTALS_BACKFILL)
+        done("172c_purchase_items_backfill")
+
+    if need("172d_purchase_layer_refs"):
+        for _tbl in ("inventory_lots", "inventory_cost_layers"):
+            try:
+                c.execute(_layer_ref_sql(_tbl))
+            except sqlite3.OperationalError:
+                # The table predates this migration on some installs; there is
+                # then nothing to re-point.
+                pass
+        done("172d_purchase_layer_refs")
+
     # Last, after every migration that might have added an account: if this
     # tenant is on a statutory chart, anything not on it is retired. Migrations
     # insert accounts ACTIVE, which on such a tenant means a default-chart code
@@ -4194,6 +4262,69 @@ def _apply_pg_baseline(raw):
         for stmt in _split_sql_statements(script):
             cur.execute(stmt)
     raw.commit()
+
+
+# ── Purchase lines: SQL shared by both backends ──────────────────────────────
+# The SQLite chain and the PostgreSQL path have to perform the SAME backfill.
+# Writing it twice is how the two schemas drift, and a drift here is invisible
+# until a hosted customer opens a purchase order.
+
+_PURCHASE_ITEMS_BACKFILL = """
+    INSERT INTO purchase_items
+      (purchase_id, inventory_id, product_name, category, quantity, unit_cost,
+       discount, discount_pct, tax_rate_id, tax_rate, tax_amount, line_total,
+       additional_cost_share, landed_unit_cost, stock_updated)
+    SELECT p.id, p.inventory_id, p.product_name, p.category,
+           COALESCE(p.quantity, 0), COALESCE(p.unit_cost, 0),
+           0, NULL,
+           p.tax_rate_id, COALESCE(p.tax_rate, 0), COALESCE(p.tax_amount, 0),
+           ROUND(CAST(COALESCE(p.quantity, 0) * COALESCE(p.unit_cost, 0) AS NUMERIC), 2),
+           COALESCE(p.additional_costs, 0),
+           CASE WHEN COALESCE(p.quantity, 0) > 0
+                THEN ROUND(CAST((COALESCE(p.quantity, 0) * COALESCE(p.unit_cost, 0)
+                                 + COALESCE(p.additional_costs, 0))
+                                / p.quantity AS NUMERIC), 6)
+                ELSE NULL END,
+           COALESCE(p.stock_updated, 0)
+      FROM purchases p
+     WHERE NOT EXISTS (SELECT 1 FROM purchase_items x WHERE x.purchase_id = p.id)
+"""
+
+_PURCHASE_TOTALS_BACKFILL = """
+    UPDATE purchases SET
+      subtotal  = COALESCE((SELECT ROUND(CAST(SUM(line_total) AS NUMERIC), 2)
+                              FROM purchase_items WHERE purchase_id = purchases.id), 0),
+      tax_total = COALESCE((SELECT ROUND(CAST(SUM(tax_amount) AS NUMERIC), 2)
+                              FROM purchase_items WHERE purchase_id = purchases.id), 0)
+"""
+
+
+def _layer_ref_sql(tbl: str, id_expr: str = "pi.id") -> str:
+    """Re-point one receipt's cost layers at the LINE that brought the goods in.
+
+    A cost layer used to be keyed by the PO number alone. With several lines on
+    one order, two lines of the same item would share a single key, and
+    reversing one of them would draw down the other's goods. The line's own id
+    is appended so each layer names exactly what created it.
+
+    Deterministic only because the backfill above creates exactly one line per
+    existing purchase; it must run in the same migration. `id_expr` differs per
+    backend because Postgres will not concatenate an integer onto text.
+    """
+    return f"""
+    UPDATE {tbl} SET source_ref = source_ref || '#' || (
+             SELECT {id_expr} FROM purchase_items pi
+               JOIN purchases p ON pi.purchase_id = p.id
+              WHERE p.po_number = {tbl}.source_ref
+                AND pi.inventory_id = {tbl}.inventory_id)
+     WHERE source_type = 'purchase'
+       AND source_ref IS NOT NULL
+       AND source_ref NOT LIKE '%#%'
+       AND EXISTS (SELECT 1 FROM purchase_items pi
+                     JOIN purchases p ON pi.purchase_id = p.id
+                    WHERE p.po_number = {tbl}.source_ref
+                      AND pi.inventory_id = {tbl}.inventory_id)
+"""
 
 
 def _ensure_pg_post_baseline(raw):
@@ -4923,6 +5054,51 @@ def _ensure_pg_post_baseline(raw):
             "VALUES ('1300','Prepaid Expenses','Asset','Current Asset','debit',1,1,"
             "to_char(now(),'YYYY-MM-DD HH24:MI:SS')) ON CONFLICT (code) DO NOTHING"
         )
+        # 172: a purchase is a document with LINES.
+        cur.execute("""CREATE TABLE IF NOT EXISTS purchase_items (
+            id                    INTEGER GENERATED BY DEFAULT AS IDENTITY PRIMARY KEY,
+            purchase_id           INTEGER NOT NULL,
+            inventory_id          INTEGER,
+            product_name          TEXT NOT NULL,
+            category              TEXT,
+            quantity              DOUBLE PRECISION NOT NULL DEFAULT 1,
+            unit_cost             DOUBLE PRECISION NOT NULL DEFAULT 0,
+            discount              DOUBLE PRECISION NOT NULL DEFAULT 0,
+            discount_pct          DOUBLE PRECISION,
+            tax_rate_id           INTEGER,
+            tax_rate              DOUBLE PRECISION NOT NULL DEFAULT 0,
+            tax_amount            DOUBLE PRECISION NOT NULL DEFAULT 0,
+            line_total            DOUBLE PRECISION NOT NULL DEFAULT 0,
+            additional_cost_share DOUBLE PRECISION NOT NULL DEFAULT 0,
+            landed_unit_cost      DOUBLE PRECISION,
+            stock_updated         INTEGER NOT NULL DEFAULT 0)""")
+        cur.execute("CREATE INDEX IF NOT EXISTS idx_purchase_items_purchase "
+                    "ON purchase_items(purchase_id)")
+        cur.execute("CREATE INDEX IF NOT EXISTS idx_purchase_items_inventory "
+                    "ON purchase_items(inventory_id)")
+        cur.execute("ALTER TABLE purchases ADD COLUMN IF NOT EXISTS "
+                    "subtotal DOUBLE PRECISION NOT NULL DEFAULT 0")
+        cur.execute("ALTER TABLE purchases ADD COLUMN IF NOT EXISTS "
+                    "tax_total DOUBLE PRECISION NOT NULL DEFAULT 0")
+        # The backfills are guarded by their own markers. This function runs on
+        # EVERY boot and every tenant provision, so an unguarded INSERT would
+        # duplicate every line each time the app restarted — doubling stock
+        # value and spend, quietly, across every hosted tenant. NOT EXISTS
+        # inside the statement is the second belt.
+        cur.execute("SELECT 1 FROM schema_migrations "
+                    "WHERE name='172c_purchase_items_backfill'")
+        if not cur.fetchone():
+            cur.execute(_PURCHASE_ITEMS_BACKFILL)
+            cur.execute(_PURCHASE_TOTALS_BACKFILL)
+            cur.execute("INSERT INTO schema_migrations (name, applied_at) "
+                        "VALUES ('172c_purchase_items_backfill', now()::text)")
+        cur.execute("SELECT 1 FROM schema_migrations "
+                    "WHERE name='172d_purchase_layer_refs'")
+        if not cur.fetchone():
+            for _tbl in ("inventory_lots", "inventory_cost_layers"):
+                cur.execute(_layer_ref_sql(_tbl, "pi.id::text"))
+            cur.execute("INSERT INTO schema_migrations (name, applied_at) "
+                        "VALUES ('172d_purchase_layer_refs', now()::text)")
     raw.commit()
 
 
