@@ -655,6 +655,16 @@ def complete_job(
         line_cogs = lots.value_stock_out(db, inv_id, qty, source_type="service",
                                          source_ref=job["job_number"], now=now)
         cogs_total += line_cogs
+        # What this part actually cost, per unit, recorded on the line itself.
+        # A reopen gives the parts back and has to value each one at what it
+        # left at; with nothing on the line it could only spread the job's total
+        # across everything returned, which prices a $500 component and a $1
+        # washer identically and mis-states both items' stock.
+        db.execute(
+            "UPDATE service_job_lines SET unit_cost=?, consumed_at=? "
+            "WHERE job_id=? AND line_type=? AND inventory_id=?",
+            (round(line_cogs / qty, 6) if qty else 0.0, now,
+             job_id, LINE_PART, inv_id))
         db.execute("UPDATE inventory SET quantity=? WHERE id=?", (qty_after, inv_id))
         wha.credit_warehouse_stock(db, inventory_id=inv_id, warehouse_id=wid,
                                    delta=-qty)
@@ -852,6 +862,7 @@ def reopen_job(
     trail.
     """
     import accounting
+    import costing
     import lots
     import warehouse_access as wha
     from utils import money
@@ -870,13 +881,24 @@ def reopen_job(
     now = _now()
     wid = wha.default_warehouse_id_for_row(db, job["warehouse_id"])
     parts = db.execute(
-        "SELECT l.inventory_id, l.quantity, i.name, i.quantity AS on_hand "
+        "SELECT l.inventory_id, l.quantity, l.unit_cost, i.name, i.quantity AS on_hand "
         "FROM service_job_lines l JOIN inventory i ON i.id = l.inventory_id "
         "WHERE l.job_id=? AND l.line_type=?", (job_id, LINE_PART)).fetchall()
 
-    returned = {}
+    # Each part goes back at the cost IT was consumed at, snapshotted on the
+    # line when the job closed. `costed` accumulates that value, and `qty_costed`
+    # tracks how much of the item the snapshots actually cover — a job closed
+    # before the snapshot existed has none, and a partial cover cannot be
+    # averaged into a trustworthy figure, so both fall back below.
+    returned, costed, qty_costed = {}, {}, {}
     for p in parts:
-        returned[p["inventory_id"]] = returned.get(p["inventory_id"], 0) + float(p["quantity"] or 0)
+        iid = p["inventory_id"]
+        q = float(p["quantity"] or 0)
+        returned[iid] = returned.get(iid, 0) + q
+        if p["unit_cost"] is not None:
+            costed[iid] = costed.get(iid, 0) + q * float(p["unit_cost"])
+            qty_costed[iid] = qty_costed.get(iid, 0) + q
+    total_returned = sum(returned.values())
 
     for inv_id, qty in returned.items():
         row = db.execute("SELECT name, quantity FROM inventory WHERE id=?",
@@ -884,12 +906,21 @@ def reopen_job(
         qty_before = float(row["quantity"])
         qty_after = round(qty_before + qty, 6)
         # Back in at the cost it left at, so returning a part cannot invent
-        # margin. add_layer values the stock-IN for fifo/lifo.
-        unit_cost = (job["parts_cost"] / sum(returned.values())
-                     if job["parts_cost"] and sum(returned.values()) else 0)
+        # margin. record_stock_in values the stock-IN for fifo/lifo and lots.
+        if qty > 0 and abs(qty_costed.get(inv_id, 0) - qty) < 1e-9:
+            unit_cost = round(costed[inv_id] / qty, 6)
+        else:
+            # Jobs closed before the per-line snapshot existed: the job's whole
+            # parts cost spread evenly over everything returned. That is what
+            # this always did, and it is wrong whenever the parts differ in
+            # price — which is why the snapshot above now exists.
+            unit_cost = (job["parts_cost"] / total_returned
+                         if job["parts_cost"] and total_returned else 0)
         db.execute("UPDATE inventory SET quantity=? WHERE id=?", (qty_after, inv_id))
         wha.credit_warehouse_stock(db, inventory_id=inv_id, warehouse_id=wid,
                                    delta=qty)
+        costing.blend_stock_in(db, inv_id, qty_before=qty_before, qty_in=qty,
+                               unit_cost_in=unit_cost)
         lots.record_stock_in(db, inv_id, qty, unit_cost,
                              source_type="service_reopen",
                              source_ref=job["job_number"], now=now)
@@ -899,6 +930,14 @@ def reopen_job(
             " warehouse_id, created_at) VALUES (?,?,?,?,?,?,?,?,?)",
             (inv_id, "service_return", qty, qty_before, qty_after,
              job["job_number"], "Service job reopened", wid, now))
+
+    # The parts are back on the shelf, so the lines are no longer consumed.
+    # Leaving the marker set would be worse than never having written it: the
+    # next reader would trust a flag that says stock and the ledger were touched
+    # for a line whose goods are sitting in the warehouse. Closing the job again
+    # rewrites both.
+    db.execute("UPDATE service_job_lines SET unit_cost=NULL, consumed_at=NULL "
+               "WHERE job_id=? AND line_type=?", (job_id, LINE_PART))
 
     # Reverse through accounting.reverse_source rather than posting an opposite
     # entry by hand. It mirrors the original and, crucially, marks it

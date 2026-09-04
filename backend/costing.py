@@ -140,6 +140,47 @@ def consume(db: sqlite3.Connection, method: str, inventory_id: int, qty: float,
     return round(cogs, 6)
 
 
+def blend_stock_in(db: sqlite3.Connection, inventory_id: int, *,
+                   qty_before: float, qty_in: float, unit_cost_in: float):
+    """Re-blend `inventory.unit_cost` for stock arriving at a different cost.
+
+    Goods coming back onto the shelf — a voided sale, a reopened service job —
+    return at the cost they left at, which is rarely today's average. Adding the
+    quantity without moving the average leaves the item valued at a price it no
+    longer has: `quantity * unit_cost` then disagrees with the ledger's own
+    inventory balance, and with the cost layers under FIFO/LIFO.
+
+    This is the same moving average a purchase receipt applies, and it is
+    deliberately method-independent: `unit_cost` is the per-unit valuation every
+    reader falls back on, whichever costing method is configured. Call it BEFORE
+    `lots.record_stock_in`, so a lot-tracked item's recompute from its own lots
+    stays the authority for that case.
+
+    Returns the new unit cost, or None when there was nothing to blend.
+    """
+    qty_in = float(qty_in or 0)
+    if qty_in <= _EPS:
+        return None
+    row = db.execute("SELECT unit_cost FROM inventory WHERE id=?",
+                     (inventory_id,)).fetchone()
+    if row is None:
+        return None
+    old_cost = float(row["unit_cost"] or 0)
+    qty_before = float(qty_before or 0)
+    qty_after = qty_before + qty_in
+    if qty_after <= _EPS:
+        return old_cost
+    # Negative on-hand should not be possible, but if it ever is, the blend
+    # would invert the sign of the average. Leave the cost alone instead.
+    if qty_before < 0:
+        return old_cost
+    new_cost = round(
+        (qty_before * old_cost + qty_in * float(unit_cost_in or 0)) / qty_after, 6)
+    db.execute("UPDATE inventory SET unit_cost=? WHERE id=?",
+               (new_cost, inventory_id))
+    return new_cost
+
+
 def rebase_layers(db: sqlite3.Connection, now: str) -> None:
     """Reset cost layers to a single opening layer per item, valued at the
     item's current `unit_cost`. Called when the method is switched to fifo/lifo

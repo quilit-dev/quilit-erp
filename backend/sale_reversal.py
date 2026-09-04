@@ -33,6 +33,7 @@ from typing import Optional
 
 import accounting
 import commitments
+import costing
 import lots
 import warehouse_access as wha
 
@@ -45,6 +46,12 @@ def put_back(db: sqlite3.Connection, *, inventory_id: int, quantity: float,
     The lot goes in at the cost it left at — the snapshot taken when the line
     was sold — not at today's moving average. Returning goods at a price they
     were never bought at would quietly re-cost the remaining stock.
+
+    That cost then has to move the item's average, because the average is what
+    every reader outside the layers uses. Without the blend the quantity rose
+    and the valuation did not: an item sold at $10 and voided after the average
+    had climbed to $15 went on being valued at $15 a unit, so the inventory list
+    reported more than the ledger's own inventory balance said was there.
     """
     if quantity <= 0:
         return
@@ -58,6 +65,8 @@ def put_back(db: sqlite3.Connection, *, inventory_id: int, quantity: float,
                (qty_after, inventory_id))
     wha.credit_warehouse_stock(db, inventory_id=inventory_id,
                                warehouse_id=warehouse_id, delta=float(quantity))
+    costing.blend_stock_in(db, inventory_id, qty_before=qty_before,
+                           qty_in=float(quantity), unit_cost_in=unit_cost or 0)
     lots.record_stock_in(db, inventory_id, float(quantity), unit_cost or 0,
                          source_type="return", source_ref=reference, now=now)
     db.execute(
