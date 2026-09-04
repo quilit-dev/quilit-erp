@@ -5,7 +5,7 @@ from datetime import datetime
 from database import get_db
 from permissions import require_perm, can_view
 from routers.audit import log_action
-from utils import _now, money
+from utils import _now, money, ArchiveMode, archive_clause
 import sqlite3
 
 import accounting
@@ -103,7 +103,7 @@ _OWED_SQL = (f"CASE WHEN ({_INVOICED_SQL}) - ({_PAID_SQL}) > 0 "
 
 @router.get("/")
 def list_clients(search: Optional[str] = None, type: Optional[str] = None,
-                 include_archived: bool = False,
+                 archived: ArchiveMode = "exclude",
                  # Only accounts that owe something. Sorted biggest first by
                  # default, because the reason for asking is to know who to
                  # chase and the answer is read from the top.
@@ -118,8 +118,7 @@ def list_clients(search: Optional[str] = None, type: Optional[str] = None,
     # so the two can never drift apart and disagree about the total.
     where  = ["1=1"]
     params = []
-    if not include_archived:
-        where.append("archived_at IS NULL")
+    where.append(archive_clause(archived))
     if search:
         where.append("(name LIKE ? OR company LIKE ? OR phone LIKE ? OR email LIKE ?)")
         s = f"%{search}%"

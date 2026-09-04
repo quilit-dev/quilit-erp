@@ -77,7 +77,7 @@ export default function Inventory() {
       if (search)         params.append('search',    search);
       if (categoryFilter) params.append('category',  categoryFilter);
       if (lowStockOnly)   params.append('low_stock', 'true');
-      if (showArchived)   params.append('include_archived', '1');
+      if (showArchived)   params.append('archived', 'only');
 
       const [inv, cats] = await Promise.all([
         fetch(`/api/inventory/?${params}`, { headers }).then(r => r.json()),

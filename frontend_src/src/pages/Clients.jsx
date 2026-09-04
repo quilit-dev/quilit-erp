@@ -33,7 +33,7 @@ export default function Clients() {
   // every client and do all three in the browser.
   const list = useServerList(
     (query, s) => getClients(query, s),
-    { ...(showArchived ? { include_archived: 1 } : {}),
+    { ...(showArchived ? { archived: 'only' } : {}),
       ...(owingOnly ? { owing: 1 } : {}) },
   );
   const { items: sorted, total, loading, error, reload,
@@ -147,7 +147,7 @@ export default function Clients() {
   // silently truncated to the page on screen.
   const fetchExportRows = async () => {
     const all = await getClients({
-      ...(showArchived ? { include_archived: 1 } : {}),
+      ...(showArchived ? { archived: 'only' } : {}),
       ...(search.trim() ? { search: search.trim() } : {}),
     });
     return (Array.isArray(all) ? all : all.items || []).map(c => ({

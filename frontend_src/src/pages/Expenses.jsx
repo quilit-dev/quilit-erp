@@ -2,7 +2,8 @@ import { usePersistedState } from '../hooks/usePersistedState';
 import { useState, useMemo, useEffect } from 'react';
 import { useData } from '../hooks/useData';
 import { useFocusId } from '../hooks/useFocusId';
-import { getExpenses, getProjects, createExpense, updateExpense, voidExpense, getCashDrawers } from '../api/client';
+import { getExpenses, getProjects, createExpense, updateExpense, voidExpense,
+         archiveExpense, unarchiveExpense, getCashDrawers } from '../api/client';
 import {
   LoadingSpinner, ErrorAlert, EmptyState, Modal,
   ExportButton, fmt, fmtDate, toast, SortableTh, Pagination,
@@ -19,7 +20,12 @@ import RecurringExpensesPanel from '../components/RecurringExpensesPanel';
 import SearchSelect from '../components/SearchSelect.jsx';
 
 function TransactionsPanel() {
-  const { data: expenses, loading, error, reload } = useData(getExpenses);
+  // Ticking this SWAPS the list for the archive rather than widening it, so
+  // the archive can be reviewed on its own.
+  const [showArchived, setShowArchived] = usePersistedState('expenses.showArchived', false);
+  const { data: expenses, loading, error, reload } =
+    useData((s) => getExpenses({ archived: showArchived ? 'only' : 'exclude' }, s),
+            [showArchived]);
   const { data: projects } = useData((s) => getProjects({}, s));
   const { data: cashDrawersData } = useData(getCashDrawers);
   const cashDrawers = (cashDrawersData || []).filter(d => d.is_active);
@@ -123,6 +129,22 @@ function TransactionsPanel() {
       e => e.recurring_occurrence_id === g && !e.voided_at).length;
     return n || 1;
   }, [voidTarget, expenses]);
+
+  // Offered only on a voided expense; the server enforces the same rule, so
+  // its refusal is the message worth showing.
+  async function handleArchive(exp) {
+    try {
+      await archiveExpense(exp.id);
+      toast(t('common.archived')); reload();
+    } catch (err) { toast(err.message, 'red'); }
+  }
+
+  async function handleRestore(exp) {
+    try {
+      await unarchiveExpense(exp.id);
+      toast(t('common.restored')); reload();
+    } catch (err) { toast(err.message, 'red'); }
+  }
 
   async function handleVoid() {
     try {
@@ -250,6 +272,12 @@ function TransactionsPanel() {
             placeholder={t('expenses.allMonths')}
             options={(months).map(m => ({ value: m, label: m }))} />
 
+          <label className="archived-toggle">
+            <input type="checkbox" checked={showArchived}
+              onChange={e => setShowArchived(e.target.checked)} />
+            {t('common.showArchived')}
+          </label>
+
           {hasFilters && (
             <button className="btn btn-sm btn-secondary" onClick={() => {
               setCatFilter(''); setProjFilter(''); setMonthFilter(''); setSearch('');
@@ -309,7 +337,12 @@ function TransactionsPanel() {
                         {fmt(exp.amount)}
                       </td>
                       <td style={{ textAlign: 'right' }}>
-                        {!exp.voided_at ? (
+                        {exp.archived_at ? (
+                          <button className="btn btn-sm btn-secondary"
+                            onClick={() => handleRestore(exp)}>
+                            {t('common.restore')}
+                          </button>
+                        ) : !exp.voided_at ? (
                           <div style={{ display: 'flex', gap: 6, justifyContent: 'flex-end' }}>
                             <button className="btn btn-sm btn-secondary" onClick={() => openEdit(exp)}>
                               {t('common.edit')}
@@ -319,7 +352,12 @@ function TransactionsPanel() {
                             </button>
                           </div>
                         ) : (
-                          <span style={{ fontSize: 12, color: 'var(--text-3)' }}>—</span>
+                          /* Voided: the money is already reversed, so the only
+                             thing left to do with it is file it away. */
+                          <button className="btn btn-sm btn-secondary"
+                            onClick={() => handleArchive(exp)}>
+                            {t('common.archive')}
+                          </button>
                         )}
                       </td>
                     </tr>

@@ -5,7 +5,7 @@ from database import get_db
 from permissions import require_perm, require_auth
 import costs
 from routers.audit import log_action
-from utils import _now, notify, validate_int_qty
+from utils import _now, notify, validate_int_qty, ArchiveMode, archive_clause
 import costing
 import currency
 import lots
@@ -81,13 +81,12 @@ class StockUpdate(BaseModel):
 
 @router.get("/")
 def list_inventory(search: Optional[str] = None, category: Optional[str] = None,
-                   low_stock: Optional[bool] = None, include_archived: bool = False,
+                   low_stock: Optional[bool] = None, archived: ArchiveMode = "exclude",
                    user=Depends(require_perm("inventory", "view")), db: sqlite3.Connection = Depends(get_db)):
     query = ("SELECT i.*, p.name AS product_name FROM inventory i "
              "LEFT JOIN products p ON i.product_id = p.id WHERE 1=1")
     params = []
-    if not include_archived:
-        query += " AND i.archived_at IS NULL"
+    query += f" AND {archive_clause(archived, 'i.archived_at')}"
     if search:
         query += " AND (i.name LIKE ? OR i.supplier LIKE ? OR i.barcode = ?)"
         s = f"%{search}%"

@@ -1,10 +1,12 @@
 import { useState, useRef, useEffect } from 'react';
+import { usePersistedState } from '../hooks/usePersistedState';
 import { useData } from '../hooks/useData';
 import { useServerList } from '../hooks/useServerList';
 import { useSettings } from '../hooks/useSettings';
 import {
   getInvoices, getInvoice, getClients, getProjects, getInventory,
   createInvoice, updateInvoice, voidInvoice, unvoidInvoice,
+  archiveInvoice, unarchiveInvoice,
   addInvoicePayment, deleteInvoicePayment, getCashDrawers, promoPreview, issueReceiptVoucher
 } from '../api/client';
 import {
@@ -86,6 +88,9 @@ export default function Invoices() {
   // "Show archived" view here.
   const [statusFilter,  setStatusFilter]  = useState('');
   const [clientFilter,  setClientFilter]  = useState('');
+  // Ticking this SWAPS the list for the archive rather than widening it, so
+  // the archive can actually be reviewed.
+  const [showArchived,  setShowArchived]  = usePersistedState('invoices.showArchived', false);
   const [projectFilter, setProjectFilter] = useState('');
 
   // Paged, searched and sorted BY THE SERVER. This screen used to download
@@ -97,6 +102,7 @@ export default function Invoices() {
       status:     statusFilter  || undefined,
       client_id:  clientFilter  || undefined,
       project_id: projectFilter || undefined,
+      archived:   showArchived ? 'only' : undefined,
     },
   );
   const { items: pagedInvoices, total, loading, error, reload,
@@ -381,6 +387,23 @@ export default function Invoices() {
     } catch (err) { toast(err.message, 'red'); }
   }
 
+  // Archiving is offered only on a voided invoice, and the server enforces the
+  // same rule — so a refusal here is worth showing verbatim rather than
+  // replacing with something generic.
+  async function handleArchive(inv) {
+    try {
+      await archiveInvoice(inv.id);
+      toast(t('common.archived')); reload();
+    } catch (err) { toast(err.message, 'red'); }
+  }
+
+  async function handleRestore(inv) {
+    try {
+      await unarchiveInvoice(inv.id);
+      toast(t('common.restored')); reload();
+    } catch (err) { toast(err.message, 'red'); }
+  }
+
 
 
   async function openPayModal(inv) {
@@ -528,6 +551,11 @@ export default function Invoices() {
               onChange={v => setStatusFilter(v)}
               placeholder={t('common.allStatuses')}
               options={(['Unpaid','Partial','Paid','Overdue','Void']).map(s => ({ value: s, label: tStatus(s) }))} />
+            <label className="archived-toggle">
+              <input type="checkbox" checked={showArchived}
+                onChange={e => setShowArchived(e.target.checked)} />
+              {t('common.showArchived')}
+            </label>
             {(search||clientFilter||projectFilter||statusFilter) && (
               <button className="btn btn-secondary btn-sm" style={{whiteSpace:'nowrap'}}
                 onClick={() => { setSearch(''); setClientFilter(''); setProjectFilter(''); setStatusFilter(''); }}>
@@ -603,6 +631,8 @@ export default function Invoices() {
                           onReceipt={() => handleReceipt(inv)}
                           onVoid={() => { setVoidId(inv.id); setVoidReason(''); }}
                           onUnvoid={() => setUnvoidTarget(inv)}
+                          onArchive={() => handleArchive(inv)}
+                          onRestore={() => handleRestore(inv)}
                         />
                       </td>
                     </tr>

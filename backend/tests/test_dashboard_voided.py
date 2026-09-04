@@ -16,11 +16,10 @@ The two rules are NOT the same, which is why they are tested apart:
   * Receivables (unpaid, overdue) exclude voided AND archived. Archiving hides
     a record from every other list, and the aged-receivables report already
     excludes it.
-  * Income excludes voided ONLY — deliberately, though it makes no difference
-    today: an invoice carrying a payment cannot be archived at all (the router
-    refuses it and points at void), so there is no archived income to exclude.
-    Adding the filter anyway would state a rule the system does not hold, and
-    would start silently erasing income the day that restriction is relaxed.
+  * Income excludes voided ONLY — deliberately, and it still makes no
+    difference: archiving now requires a void first, so anything archived has
+    already been reversed and there is no archived income left to exclude.
+    Adding the filter anyway would state a rule the system does not hold.
 """
 import pytest
 
@@ -107,27 +106,54 @@ def test_it_drops_off_the_recent_list(make_client):
 
 
 # ── the distinction that is easy to get wrong ───────────────────────────────
-def test_an_archived_invoice_is_not_chased(make_client):
+def test_an_archived_invoice_is_not_chased(make_client, db):
     """Archiving is not voiding, but an archived debt is still off the list.
 
-    An invoice that has taken a payment CANNOT be archived — the router refuses
-    it and points at void instead — so an archived invoice never carries one,
-    and the income queries deliberately do not filter on `archived_at`: there
-    is nothing there for them to exclude. Only the receivable side needs it.
+    Archiving now REQUIRES a void first, so the endpoint cannot produce this
+    shape any more. It exists all the same: every tenant carries invoices
+    archived under the older rule, when archiving was independent of voiding.
+    The row is therefore written directly, because what is under test is the
+    receivable query's `archived_at` filter — and that has to keep working for
+    the rows already out there, not only for ones created from here on.
     """
     c = make_client("superadmin")
     cl = c.post("/api/clients/", json={"name": "DV Archived"}).json()["id"]
     inv = _invoice(c, cl, 1000)
 
     assert _dash(c)["unpaid_invoices_amount"] == pytest.approx(1000)
-    r = c.patch(f"/api/invoices/{inv}/archive", json={})
-    assert r.status_code == 200, r.text
+    db.execute("UPDATE invoices SET archived_at = '2026-01-01 00:00:00' WHERE id = ?",
+               (inv,))
+    db.commit()
 
     assert _dash(c)["unpaid_invoices_amount"] == pytest.approx(0)
 
 
-def test_a_paid_invoice_cannot_be_archived_only_voided(make_client):
-    """The rule the test above leans on, pinned so it cannot drift."""
+def test_an_invoice_must_be_voided_before_it_is_archived(make_client):
+    """The rule that makes the archive trustworthy.
+
+    Hiding a live invoice from the list left its money owed on the customer's
+    balance with nothing on screen to explain it. Voiding is what cancels the
+    claim; archiving only files the cancelled document away.
+    """
+    c = make_client("superadmin")
+    cl = c.post("/api/clients/", json={"name": "DV Gate"}).json()["id"]
+    inv = _invoice(c, cl, 500)
+
+    r = c.patch(f"/api/invoices/{inv}/archive", json={})
+    assert r.status_code == 400
+    assert "void" in r.text.lower()
+
+    assert c.patch(f"/api/invoices/{inv}/void",
+                   json={"reason": "test"}).status_code == 200
+    assert c.patch(f"/api/invoices/{inv}/archive", json={}).status_code == 200
+
+
+def test_an_invoice_with_payments_is_no_exception(make_client):
+    """It used to be refused BECAUSE it had payments; now because it is live.
+
+    Same answer, better reason. The old rule turned away a properly voided
+    invoice too, which was the one document that should have been filed.
+    """
     c = make_client("superadmin")
     cl = c.post("/api/clients/", json={"name": "DV Rule"}).json()["id"]
     inv = _invoice(c, cl, 500)
@@ -135,6 +161,11 @@ def test_a_paid_invoice_cannot_be_archived_only_voided(make_client):
 
     r = c.patch(f"/api/invoices/{inv}/archive", json={})
     assert r.status_code == 400, r.text
+
+    # ...and once voided it files away like anything else, payments and all.
+    assert c.patch(f"/api/invoices/{inv}/void",
+                   json={"reason": "test"}).status_code == 200
+    assert c.patch(f"/api/invoices/{inv}/archive", json={}).status_code == 200
 
 
 def test_a_live_invoice_is_untouched(make_client):

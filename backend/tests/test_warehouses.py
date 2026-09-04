@@ -504,7 +504,7 @@ def test_warehouse_archive_unarchive_roundtrip(make_client):
 
     assert c.patch(f"/api/warehouses/{wid}/archive").status_code == 200
     assert "ARCH1" not in {w["code"] for w in c.get("/api/warehouses/").json()}     # hidden
-    arch = c.get("/api/warehouses/", params={"include_archived": True}).json()
+    arch = c.get("/api/warehouses/", params={"archived": "only"}).json()
     assert next(w for w in arch if w["code"] == "ARCH1")["archived_at"] is not None  # shows when asked
 
     assert c.patch(f"/api/warehouses/{wid}/unarchive").status_code == 200

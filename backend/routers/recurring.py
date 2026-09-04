@@ -22,7 +22,7 @@ import accounting
 from database import get_db
 from permissions import require_perm
 from routers.audit import log_action
-from utils import _now, _today, get_tax_context, resolve_expense_tax, money, notify
+from utils import _now, _today, get_tax_context, resolve_expense_tax, money, notify, ArchiveMode, archive_clause
 
 router = APIRouter()
 
@@ -315,7 +315,7 @@ def _generate(db, tpl: dict, user: dict, now: str, today: str):
 @router.get("")
 @router.get("/")
 def list_recurring(
-    include_archived: bool = False,
+    archived: ArchiveMode = "exclude",
     user=Depends(require_perm("expenses", "view")),
     db: sqlite3.Connection = Depends(get_db),
 ):
@@ -324,8 +324,7 @@ def list_recurring(
                FROM recurring_expenses r
                LEFT JOIN projects p ON r.project_id = p.id
                WHERE 1=1"""
-    if not include_archived:
-        query += " AND r.archived_at IS NULL"
+    query += f" AND {archive_clause(archived, 'r.archived_at')}"
     query += " ORDER BY r.is_active DESC, r.next_run_date ASC"
     return [_enrich(dict(r), today) for r in db.execute(query).fetchall()]
 

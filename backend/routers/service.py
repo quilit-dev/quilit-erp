@@ -49,7 +49,7 @@ import warehouse_access
 from database import get_db
 from permissions import require_perm
 from routers.audit import log_action
-from utils import _now, notify
+from utils import _now, notify, ArchiveMode, archive_clause
 
 router = APIRouter()
 
@@ -263,13 +263,12 @@ def _job_dict(db, job) -> dict:
 def list_equipment(
     client_id: Optional[int] = None,
     search: Optional[str] = None,
-    include_archived: bool = False,
+    archived: ArchiveMode = "exclude",
     user=Depends(require_perm("service", "view")),
     db: sqlite3.Connection = Depends(get_db),
 ):
     where, params = ["1=1"], []
-    if not include_archived:
-        where.append("e.archived_at IS NULL")
+    where.append(archive_clause(archived, "e.archived_at"))
     if client_id:
         where.append("e.client_id = ?")
         params.append(client_id)
@@ -408,13 +407,12 @@ def list_jobs(
     search: Optional[str] = None,
     sort: str = "desc",
     uninvoiced: bool = False,
-    include_archived: bool = False,
+    archived: ArchiveMode = "exclude",
     user=Depends(require_perm("service", "view")),
     db: sqlite3.Connection = Depends(get_db),
 ):
     where, params = ["1=1"], []
-    if not include_archived:
-        where.append("j.archived_at IS NULL")
+    where.append(archive_clause(archived, "j.archived_at"))
     for col, val in (("j.status", status), ("j.client_id", client_id),
                      ("j.equipment_id", equipment_id), ("j.assigned_to", assigned_to)):
         if val:

@@ -57,8 +57,15 @@ def test_vat_report_reconciles_to_the_cent(make_client, db):
     # ── Excluded — must NOT appear anywhere in the report ───────────────────
     v = _inv(c, cl, [{"name": "Void me",    "quantity": 1, "unit_price": 999, "tax_rate_id": default_id}])
     assert c.patch(f"/api/invoices/{v}/void",    json={"reason": "t"}).status_code == 200
+    # Archived but NOT voided, deliberately: the report has two independent
+    # filters and this is the one that proves `archived_at` is doing work of
+    # its own. Voiding it first would make it excluded either way and the test
+    # would pass without testing anything. The endpoint now requires a void, so
+    # the row is written directly — which is also the shape every tenant holds
+    # from before that rule.
     ar = _inv(c, cl, [{"name": "Archive me", "quantity": 1, "unit_price": 777, "tax_rate_id": default_id}])
-    assert c.patch(f"/api/invoices/{ar}/archive", json={"reason": "t"}).status_code == 200
+    db.execute("UPDATE invoices SET archived_at = '2026-01-01 00:00:00' WHERE id = ?", (ar,))
+    db.commit()
 
     # ── Input side — direct expenses (inclusive) + a paid purchase ──────────
     assert c.post("/api/finance/expenses",

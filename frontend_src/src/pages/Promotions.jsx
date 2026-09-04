@@ -38,7 +38,7 @@ export default function Promotions() {
 
   const load = useCallback(() => {
     setLoading(true);
-    getPromotions(showArchived ? { include_archived: 1 } : {})
+    getPromotions(showArchived ? { archived: 'only' } : {})
       .then(d => setPromos(Array.isArray(d) ? d : []))
       .catch(e => setError(e.message))
       .finally(() => setLoading(false));

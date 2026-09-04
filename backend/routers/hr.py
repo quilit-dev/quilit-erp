@@ -25,7 +25,7 @@ from datetime import date, datetime
 from database import get_db
 from permissions import require_perm
 from routers.audit import log_action
-from utils import _now, notify
+from utils import _now, notify, ArchiveMode, archive_clause
 import accounting
 import branch_access
 import io
@@ -370,11 +370,11 @@ def _compute_payroll_line(base, bonus, deduct, overtime_amount, settings):
 
 @router.get("/departments")
 def list_departments(
-    include_archived: bool = False,
+    archived: ArchiveMode = "exclude",
     user=Depends(require_perm("hr", "view")),
     db: sqlite3.Connection = Depends(get_db),
 ):
-    arch = "" if include_archived else "WHERE d.archived_at IS NULL"
+    arch = f"WHERE {archive_clause(archived, 'd.archived_at')}"
     rows = db.execute(
         f"""SELECT d.*,
                   (SELECT COUNT(*) FROM hr_employees e
@@ -584,7 +584,7 @@ def list_employees(
     search:        Optional[str] = None,
     department_id: Optional[int] = None,
     status:        Optional[str] = None,
-    include_archived: bool = False,
+    archived: ArchiveMode = "exclude",
     branch_id:     Optional[int] = None,
     user=Depends(require_perm("hr", "view")),
     db: sqlite3.Connection = Depends(get_db),
@@ -596,8 +596,8 @@ def list_employees(
     # include_archived=1 drops the active-only filter so archived employees
     # surface for the in-module "Show archived" view (each carries archived_at).
     sql = _EMPLOYEE_LIST_SQL
-    if include_archived:
-        sql = sql.replace("WHERE e.archived_at IS NULL", "WHERE 1=1")
+    sql = sql.replace("WHERE e.archived_at IS NULL",
+                      f"WHERE {archive_clause(archived, 'e.archived_at')}")
     # Branch scoping: restricted users see only their branches' employees.
     bf, bp = branch_access.branch_filter(user, db, column="e.branch_id", selected=branch_id)
     if bf:

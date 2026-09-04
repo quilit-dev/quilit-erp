@@ -392,7 +392,7 @@ export default function Purchases() {
       const qs = new URLSearchParams({
         ...(statusFilter   ? { status:   statusFilter   } : {}),
         ...(supplierSearch ? { supplier: supplierSearch } : {}),
-        ...(showArchived   ? { include_archived: '1' }    : {}),
+        ...(showArchived   ? { archived: 'only' }         : {}),
       }).toString();
       const [purch, st, cats] = await Promise.all([
         getPurchases(qs ? `?${qs}` : ''),

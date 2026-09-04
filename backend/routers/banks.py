@@ -25,7 +25,7 @@ import currency as currency_mod
 from database import get_db
 from permissions import require_perm
 from routers.audit import log_action
-from utils import _now, money
+from utils import _now, money, ArchiveMode, archive_clause
 
 router = APIRouter()
 
@@ -107,10 +107,10 @@ def _balance(db, row) -> float:
 
 
 @router.get("/")
-def list_bank_accounts(include_archived: bool = False,
+def list_bank_accounts(archived: ArchiveMode = "exclude",
                        user=Depends(require_perm("finance", "view")),
                        db: sqlite3.Connection = Depends(get_db)):
-    where = "" if include_archived else " WHERE archived_at IS NULL"
+    where = f" WHERE {archive_clause(archived)}"
     rows = db.execute(
         f"SELECT * FROM bank_accounts{where} ORDER BY is_active DESC, name").fetchall()
     out = []

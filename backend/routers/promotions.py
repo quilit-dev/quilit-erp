@@ -17,7 +17,7 @@ from pydantic import BaseModel
 from database import get_db
 from permissions import require_perm, require_any_perm
 from routers.audit import log_action
-from utils import _now
+from utils import _now, ArchiveMode, archive_clause
 
 router = APIRouter()
 
@@ -211,12 +211,11 @@ def _validate(data: PromotionBody):
 
 
 @router.get("/")
-def list_promotions(include_archived: bool = False,
+def list_promotions(archived: ArchiveMode = "exclude",
                     user=Depends(require_perm("inventory", "view")),
                     db: sqlite3.Connection = Depends(get_db)):
     q = "SELECT * FROM promotions WHERE 1=1"
-    if not include_archived:
-        q += " AND archived_at IS NULL"
+    q += f" AND {archive_clause(archived)}"
     q += " ORDER BY active DESC, id DESC"
     return [_row(p) for p in db.execute(q).fetchall()]
 

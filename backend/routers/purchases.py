@@ -6,7 +6,8 @@ from permissions import require_perm
 import commitments
 from routers.audit import log_action
 from utils import (_now, notify, get_tax_context, resolve_purchase_tax, money,
-                   summarise_lines as _summarise, validate_int_qty)
+                   summarise_lines as _summarise, validate_int_qty,
+                   ArchiveMode, archive_clause)
 from approval_engine import evaluate_and_apply
 import branch_access
 import costing
@@ -295,14 +296,13 @@ def _save_lines(db, purchase_id, lines, *, supplier, cost_currency, cost_rate, n
 
 @router.get("/")
 def list_purchases(status: Optional[str] = None, supplier: Optional[str] = None,
-                   include_archived: bool = False,
+                   archived: ArchiveMode = "exclude",
                    user=Depends(require_perm("purchases", "view")), db: sqlite3.Connection = Depends(get_db)):
     query = """SELECT p.* FROM purchases p WHERE p.deleted_at IS NULL"""
     params = []
-    # Default view hides archived purchases (previously they leaked into the
-    # list — only deleted_at was filtered); include_archived=1 surfaces them.
-    if not include_archived:
-        query += " AND p.archived_at IS NULL"
+    # The default view is the working list; `archived=only` swaps it for the
+    # archive rather than widening it.
+    query += f" AND {archive_clause(archived, 'p.archived_at')}"
     if status:
         query += " AND p.status = ?"
         params.append(status)
@@ -1033,8 +1033,17 @@ def archive_purchase(purchase_id: int, user=Depends(require_perm("purchases", "d
     row = db.execute("SELECT * FROM purchases WHERE id = ? AND archived_at IS NULL", (purchase_id,)).fetchone()
     if not row:
         raise HTTPException(404, "Purchase not found")
-    if row["status"] in ("Received", "Paid"):
-        raise HTTPException(400, f"Cannot archive a '{row['status']}' purchase — stock and accounting records are already committed.")
+    # Void first, then archive. The old rule refused anything Received or Paid,
+    # because its stock and its ledger entry were committed — but that also
+    # refused a purchase that had been properly voided, which is precisely the
+    # one that SHOULD be filed away. Voiding is what releases the stock and
+    # reverses the entry; archiving is only what hides the row afterwards.
+    if not _col(row, "voided_at"):
+        raise HTTPException(
+            400,
+            "Void this purchase before archiving it. Until it is voided its "
+            "goods are on the shelf and its cost is in the ledger, and "
+            "archiving would only hide the record of them.")
     now = _now()
     db.execute("UPDATE purchases SET archived_at=?, archive_reason='Archived' WHERE id=?", (now, purchase_id))
     log_action(db, user, "archive", "purchase", purchase_id, row["po_number"], {"supplier": row["supplier"]})

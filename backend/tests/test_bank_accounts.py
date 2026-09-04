@@ -135,7 +135,7 @@ def test_archiving_keeps_the_account(client, db):
     assert client.patch(f"/api/banks/{made['id']}/archive").status_code == 200
 
     assert client.get("/api/banks/").json() == []
-    assert len(client.get("/api/banks/?include_archived=true").json()) == 1
+    assert len(client.get("/api/banks/?archived=only").json()) == 1
     assert db.execute("SELECT 1 FROM chart_of_accounts WHERE code=?",
                       (made["account_code"],)).fetchone() is not None
 

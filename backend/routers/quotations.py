@@ -16,7 +16,7 @@ from permissions import require_perm
 from routers.audit import log_action
 from routers.promotions import apply_promotions_to_lines
 from types import SimpleNamespace
-from utils import _now, get_tax_context, resolve_line_tax, money, notify
+from utils import _now, get_tax_context, resolve_line_tax, money, notify, ArchiveMode, archive_clause
 from routers.projects import bump_project_status
 from approval_engine import evaluate_and_apply
 import denomination
@@ -149,7 +149,7 @@ def _next_quote_number(db):
 @router.get("/")
 def list_quotations(
     status: Optional[str] = None,
-    include_archived: bool = False,
+    archived: ArchiveMode = "exclude",
     branch_id: Optional[int] = None,
     limit: Optional[int] = None,
     offset: int = 0,
@@ -191,8 +191,7 @@ def list_quotations(
     # Predicates are collected once and shared by the row query and the COUNT,
     # so the two cannot drift apart and disagree about the total.
     where, params = [], []
-    if not include_archived:
-        where.append("q.archived_at IS NULL")
+    where.append(archive_clause(archived, "q.archived_at"))
     if status:
         where.append("q.status = ?")
         params.append(status)
@@ -792,6 +791,15 @@ def archive_quotation(
     # record belonging to another: the list is filtered, but an id in the
     # URL was not checked. 404 (not 403) so ids cannot be probed.
     branch_access.assert_can_view_branch(user, db, q["branch_id"])
+    # Void first, then archive — the archive holds cancelled documents only.
+    # A quotation records this in `status`, and BOTH words mean cancelled here:
+    # `void_quotation` writes "Voided", and "Cancelled" is the older spelling it
+    # still treats as already-voided.
+    if q["status"] not in ("Voided", "Cancelled"):
+        raise HTTPException(
+            400,
+            "Void this quotation before archiving it. A live quotation is an "
+            "offer that still stands, and archiving would only hide it.")
     inv = db.execute("SELECT id FROM invoices WHERE quotation_id = ? AND archived_at IS NULL", (quote_id,)).fetchone()
     if inv:
         raise HTTPException(400, "Cannot archive a quotation that has an active invoice. Archive the invoice first.")

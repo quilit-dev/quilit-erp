@@ -6,7 +6,7 @@ from database import get_db
 from permissions import require_perm
 from routers.audit import log_action
 from approval_engine import evaluate_and_apply
-from utils import _now
+from utils import _now, ArchiveMode, archive_clause
 import sqlite3
 
 router = APIRouter()
@@ -66,7 +66,7 @@ class ArchiveRequest(BaseModel):
 
 @router.get("/")
 def list_projects(search: Optional[str] = None, status: Optional[str] = None,
-                  include_archived: bool = False,
+                  archived: ArchiveMode = "exclude",
                   user=Depends(require_perm("projects", "view")), db: sqlite3.Connection = Depends(get_db)):
     query = """SELECT p.*, c.name as client_name,
                (p.expected_revenue - p.estimated_cost) as profit,
@@ -76,8 +76,7 @@ def list_projects(search: Optional[str] = None, status: Optional[str] = None,
                LEFT JOIN quotations q ON p.source_quotation_id = q.id
                WHERE 1=1"""
     params = []
-    if not include_archived:
-        query += " AND p.archived_at IS NULL"
+    query += f" AND {archive_clause(archived, 'p.archived_at')}"
     if search:
         query += " AND (p.name LIKE ? OR p.location LIKE ?)"
         s = f"%{search}%"

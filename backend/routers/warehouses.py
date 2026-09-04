@@ -25,7 +25,7 @@ from database import get_db
 from permissions import require_perm, require_auth
 import costs
 from routers.audit import log_action
-from utils import _now, notify
+from utils import _now, notify, ArchiveMode, archive_clause
 import warehouse_access as wha
 import branch_access
 
@@ -193,7 +193,7 @@ def _adjust_stock(db: sqlite3.Connection, inventory_id: int, warehouse_id: int,
 
 @router.get("/")
 def list_warehouses(
-    include_archived: bool = False,
+    archived: ArchiveMode = "exclude",
     user=Depends(require_auth),
     db: sqlite3.Connection = Depends(get_db),
 ):
@@ -202,8 +202,7 @@ def list_warehouses(
     operational endpoints (POS, Purchases, etc.) need to pick from the list."""
     where = []
     params: list = []
-    if not include_archived:
-        where.append("archived_at IS NULL")
+    where.append(archive_clause(archived))
     ids = wha.accessible_ids(user, db)
     if ids is not None:
         if not ids:

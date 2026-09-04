@@ -42,8 +42,8 @@ export default function Planning() {
 
   // Data
   const fetchSummary  = useCallback(s => getPlanningSummary(s), []);
-  const fetchProjects = useCallback(s => getPlanningProjects({ include_archived: showArchived }, s), [showArchived]);
-  const fetchTasks    = useCallback(s => getPlanningTasks({ include_archived: showArchived }, s), [showArchived]);
+  const fetchProjects = useCallback(s => getPlanningProjects({ archived: showArchived ? 'only' : 'exclude' }, s), [showArchived]);
+  const fetchTasks    = useCallback(s => getPlanningTasks({ archived: showArchived ? 'only' : 'exclude' }, s), [showArchived]);
   const fetchMilestones = useCallback(s => getPlanningMilestones({}, s), []);
 
   const { data: summary,    reload: reloadSummary }    = useData(fetchSummary);

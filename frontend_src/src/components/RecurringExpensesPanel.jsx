@@ -27,7 +27,7 @@ const EMPTY_FORM = {
 export default function RecurringExpensesPanel() {
   const [showArchived, setShowArchived] = useState(false);
   const { data: templates, loading, error, reload } =
-    useData((s) => getRecurringExpenses({ include_archived: showArchived }, s), [showArchived]);
+    useData((s) => getRecurringExpenses({ archived: showArchived ? 'only' : 'exclude' }, s), [showArchived]);
   const { data: projects } = useData((s) => getProjects({}, s));
   const { t, tCategory } = useLocale();
   const expenseCats = useCategories('expense');

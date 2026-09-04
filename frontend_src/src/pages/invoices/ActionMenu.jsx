@@ -7,7 +7,8 @@ import { Icon } from '../../components/shared';
 import { SendDocumentButton } from '../../components/SendDocument';
 
 // ── Per-row action dropdown ───────────────────────────────────────────────
-function ActionMenu({ inv, exporting, onEdit, onPay, onExport, onReceipt, onVoid, onUnvoid }) {
+function ActionMenu({ inv, exporting, onEdit, onPay, onExport, onReceipt,
+                      onVoid, onUnvoid, onArchive, onRestore }) {
   const { t, lang } = useLocale();
   const [open, setOpen] = useState(false);
   const [dropUp, setDropUp] = useState(false);
@@ -29,6 +30,7 @@ function ActionMenu({ inv, exporting, onEdit, onPay, onExport, onReceipt, onVoid
   }, [open]);
 
   const isVoided    = inv.payment_status === 'Void' || !!inv.voided_at;
+  const isArchived  = !!inv.archived_at;
   // The list row carries the running total, so "has anything been paid?" is
   // answerable without fetching the payment rows.
   const hasPayments = Number(inv.total_paid || 0) > 0;
@@ -162,6 +164,28 @@ function ActionMenu({ inv, exporting, onEdit, onPay, onExport, onReceipt, onVoid
               >
                 <Icon name="ban" size={14} />
                 <span>{t('invoices.voidInvoiceTitle')}</span>
+              </button>
+            )}
+
+            {/* Void cancels the document; archiving files the cancelled thing
+                away. Offered only once it IS cancelled, because the server
+                refuses it otherwise — an invoice that still counts towards a
+                customer's balance should never be hideable. */}
+            {isArchived ? (
+              <button
+                onClick={() => { setOpen(false); onRestore(); }}
+                style={{ ...menuItemStyle, color: '#166534' }}
+              >
+                <Icon name="rotate-ccw" size={14} />
+                <span>{t('common.restore')}</span>
+              </button>
+            ) : isVoided && (
+              <button
+                onClick={() => { setOpen(false); onArchive(); }}
+                style={menuItemStyle}
+              >
+                <Icon name="archive" size={14} />
+                <span>{t('common.archive')}</span>
               </button>
             )}
           </div>

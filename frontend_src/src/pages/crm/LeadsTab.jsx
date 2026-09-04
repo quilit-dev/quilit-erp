@@ -128,7 +128,7 @@ function LeadsTab({ t }) {
     const p = {};
     if (search) p.search = search;
     if (statusFilter) p.status = statusFilter;
-    if (showArchived) p.include_archived = 1;
+    if (showArchived) p.archived = 'only';
     return getCRMLeads(p, sig);
   }, [search, statusFilter, showArchived]);
 

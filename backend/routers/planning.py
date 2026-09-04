@@ -8,7 +8,7 @@ from typing import Optional
 from database import get_db
 from permissions import require_perm
 from routers.audit import log_action
-from utils import _now, notify
+from utils import _now, notify, ArchiveMode, archive_clause
 import sqlite3
 
 router = APIRouter()
@@ -127,7 +127,7 @@ def row_to_dict(row):
 def list_projects(
     search: str = Query(""),
     status: str = Query(""),
-    include_archived: bool = False,
+    archived: ArchiveMode = "exclude",
     user=Depends(require_perm("planning", "view")),
     db: sqlite3.Connection = Depends(get_db),
 ):
@@ -140,8 +140,7 @@ def list_projects(
         WHERE 1=1
     """
     params = []
-    if not include_archived:
-        sql += " AND p.archived_at IS NULL"
+    sql += f" AND {archive_clause(archived, 'p.archived_at')}"
     if search:
         sql += " AND (p.name LIKE ? OR p.description LIKE ?)"
         params += [f"%{search}%", f"%{search}%"]
@@ -255,7 +254,7 @@ def list_tasks(
     status: str = Query(""),
     assigned_to: Optional[int] = Query(None),
     search: str = Query(""),
-    include_archived: bool = False,
+    archived: ArchiveMode = "exclude",
     user=Depends(require_perm("planning", "view")),
     db: sqlite3.Connection = Depends(get_db),
 ):
@@ -272,8 +271,7 @@ def list_tasks(
         WHERE 1=1
     """
     params = []
-    if not include_archived:
-        sql += " AND t.archived_at IS NULL"
+    sql += f" AND {archive_clause(archived, 't.archived_at')}"
     if project_id:
         sql += " AND t.project_id=?"
         params.append(project_id)

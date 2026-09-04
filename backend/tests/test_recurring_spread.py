@@ -376,16 +376,22 @@ def test_the_void_reverses_the_input_vat_too(client):
     assert balanced
 
 
-def test_an_archived_month_is_still_unwound(client):
+def test_an_archived_month_is_still_unwound(client, db):
     """Archiving hides a row from the lists but leaves its ledger entry live.
     Skipping archived siblings would reverse the payment while one month's cost
-    stayed on the books, and the trial balance would not come back to nil."""
+    stayed on the books, and the trial balance would not come back to nil.
+
+    The row is archived directly rather than through the endpoint, which now
+    requires a void first. Rows in exactly this shape — archived, not voided —
+    are on every tenant from before that rule, and the sweep has to keep
+    finding them."""
     tpl = _template(client, amount=3000, frequency="quarterly",
                     start_date="2026-01-15")
     _run(client, tpl)
     ids = _expense_ids(client)
-    assert client.patch(f"/api/finance/expenses/{ids[2]}/archive",
-                        json={"reason": "tidy"}).status_code == 200
+    db.execute("UPDATE expenses SET archived_at = '2026-01-01 00:00:00' WHERE id = ?",
+               (ids[2],))
+    db.commit()
 
     _void(client, ids[0])
 

@@ -21,7 +21,7 @@ export default function Suppliers() {
   const { can } = usePermissions();
   const [showArchived, setShowArchived] = usePersistedState('suppliers.showArchived', false);
   const { data: suppliers, loading, error, reload } = useData(
-    (s) => getSuppliers(showArchived ? { include_archived: 1 } : {}),
+    (s) => getSuppliers(showArchived ? { archived: 'only' } : {}),
     [showArchived],
   );
   const [modal,      setModal]      = useState(null);

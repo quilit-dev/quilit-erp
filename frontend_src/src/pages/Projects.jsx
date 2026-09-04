@@ -23,7 +23,7 @@ export default function Projects() {
   const navigate = useNavigate();
   const [showArchived, setShowArchived] = usePersistedState('projects.showArchived', false);
   const { data: projects, loading, error, reload } = useData(
-    (s) => getProjects(showArchived ? { include_archived: 1 } : {}, s),
+    (s) => getProjects(showArchived ? { archived: 'only' } : {}, s),
     [showArchived],
   );
   const { data: clients } = useData((s) => getClients({}, s));

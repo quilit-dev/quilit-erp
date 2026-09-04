@@ -21,7 +21,7 @@ from routers.promotions import apply_promotions_to_lines
 from routers.finance import _check_period_locked
 from routers.projects import bump_project_status
 from approval_engine import evaluate_and_apply
-from utils import _now, _today, get_tax_context, resolve_line_tax, money, notify
+from utils import _now, _today, get_tax_context, resolve_line_tax, money, notify, ArchiveMode, archive_clause
 import accounting
 import sale_reversal
 import currency as currency_mod
@@ -293,7 +293,7 @@ def _price_items(db, items, fallback_amount, client_id=None):
 @router.get("/")
 def list_invoices(
     status: Optional[str] = None,
-    include_archived: bool = False,
+    archived: ArchiveMode = "exclude",
     branch_id: Optional[int] = None,
     limit: Optional[int] = None,
     offset: int = 0,
@@ -315,8 +315,7 @@ def list_invoices(
     # `include_archived=1` returns archived invoices too (for the in-module
     # "Show archived" filter); the default view still hides them.
     conditions, params = [], []
-    if not include_archived:
-        conditions.append("i.archived_at IS NULL")
+    conditions.append(archive_clause(archived, "i.archived_at"))
     # Branch scoping: restricted users see only their branches; admins may pass
     # branch_id to focus one branch, or omit it to see all.
     bf, bp = branch_access.branch_filter(user, db, column="i.branch_id", selected=branch_id)
@@ -1527,11 +1526,21 @@ def archive_invoice(
     # record belonging to another: the list is filtered, but an id in the
     # URL was not checked. 404 (not 403) so ids cannot be probed.
     branch_access.assert_can_view_branch(user, db, inv["branch_id"])
-    if _has_payments(db, invoice_id):
+    # Void first, then archive. The archive is where cancelled documents go,
+    # so nothing in it is still counting towards a customer's balance — which
+    # is the failure this replaces: an invoice could be hidden from the list
+    # while its money went on being owed, and the only sign was a total that
+    # nobody could account for.
+    #
+    # This supersedes the old "not while it has payments" rule. That existed to
+    # stop exactly the same thing, but it also refused a document that had been
+    # properly voided, which is the one case that should be allowed.
+    if not inv["voided_at"]:
         raise HTTPException(
             400,
-            "Cannot archive an invoice with recorded payments. Use 'Void' instead to preserve the audit trail."
-        )
+            "Void this invoice before archiving it. An invoice that has not "
+            "been voided still counts towards the customer's balance, and "
+            "archiving would only hide it.")
     now = _now()
     db.execute(
         "UPDATE invoices SET archived_at=?, archive_reason='Archived' WHERE id=?",

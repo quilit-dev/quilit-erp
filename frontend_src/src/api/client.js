@@ -255,7 +255,8 @@ export const unarchivePurchase    = (id)   => api.patch(`/api/purchases/${id}/un
 
 // Finance
 export const getMonthlyReport = (s) => api.get('/api/finance/monthly', s);
-export const getExpenses        = (s) => api.get('/api/finance/expenses', s);
+export const getExpenses        = (params = {}, s) =>
+  api.get(`/api/finance/expenses${_qs(params)}`, s);
 export const createExpense      = (d) => api.post('/api/finance/expenses', d);
 export const updateExpense      = (id, d) => api.put(`/api/finance/expenses/${id}`, d);
 export const voidExpense        = (id, reason) => api.patch(`/api/finance/expenses/${id}/void`, { reason });
@@ -704,6 +705,10 @@ export const updateRecurringExpense = (id, d) => api.put(`/api/recurring-expense
 export const toggleRecurringExpense = (id)    => api.patch(`/api/recurring-expenses/${id}/toggle`);
 export const runRecurringExpense    = (id)    => api.post(`/api/recurring-expenses/${id}/run`);
 export const runDueRecurringExpenses = ()     => api.post('/api/recurring-expenses/run-due');
+// Archiving files a CANCELLED document away; the server refuses one that has
+// not been voided, so the archive only ever holds things that no longer count.
+export const archiveExpense   = (id) => api.patch(`/api/finance/expenses/${id}/archive`);
+export const unarchiveExpense = (id) => api.patch(`/api/finance/expenses/${id}/unarchive`);
 export const archiveRecurringExpense = (id)   => api.patch(`/api/recurring-expenses/${id}/archive`);
 export const unarchiveRecurringExpense = (id) => api.patch(`/api/recurring-expenses/${id}/unarchive`);
 

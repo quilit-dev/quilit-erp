@@ -6,6 +6,7 @@ import { useSettings } from '../hooks/useSettings';
 import {
   getQuotations, getQuotation, getClients, getProjects, getInventory,
   createQuotation, updateQuotation, voidQuotation, unvoidQuotation,
+  archiveQuotation, unarchiveQuotation,
   convertToInvoice, convertToProject, getCRMLeads, promoPreview
 } from '../api/client';
 import {
@@ -88,7 +89,8 @@ const menuItemStyle = {
 const SPIN = { animation: 'spin .7s linear infinite' };
 
 // ── Per-row action dropdown (Edit / exports / Void / Unvoid) ──────────────
-function QuoteActionMenu({ doc, exporting, isVoided, onEdit, onExport, onVoid, onUnvoid }) {
+function QuoteActionMenu({ doc, exporting, isVoided, onEdit, onExport,
+                          onVoid, onUnvoid, onArchive, onRestore }) {
   const { t, lang } = useLocale();
   const [open, setOpen]     = useState(false);
   const [dropUp, setDropUp] = useState(false);
@@ -192,6 +194,21 @@ function QuoteActionMenu({ doc, exporting, isVoided, onEdit, onExport, onVoid, o
               <span>{t('quotations.voidQuote')}</span>
             </button>
           )}
+
+          {/* Void cancels the offer; archiving files the cancelled one away.
+              Only offered once it is cancelled, which is what the server
+              enforces — a live quotation is an offer that still stands. */}
+          {doc.archived_at ? (
+            <button style={{ ...menuItemStyle, color: '#166534' }} onClick={() => { setOpen(false); onRestore(); }}>
+              <Icon name="rotate-ccw" size={14} />
+              <span>{t('common.restore')}</span>
+            </button>
+          ) : isVoided && (
+            <button style={menuItemStyle} onClick={() => { setOpen(false); onArchive(); }}>
+              <Icon name="archive" size={14} />
+              <span>{t('common.archive')}</span>
+            </button>
+          )}
         </div>
       )}
     </div>
@@ -208,6 +225,8 @@ export default function Quotations() {
   const [clientFilter, setClientFilter]   = usePersistedState('quotations.clientFilter', '');
   const [projectFilter, setProjectFilter] = usePersistedState('quotations.projectFilter', '');
   const [savedSearch, setSavedSearch]     = usePersistedState('quotations.search', '');
+  // Ticking this SWAPS the list for the archive rather than widening it.
+  const [showArchived, setShowArchived]   = usePersistedState('quotations.showArchived', false);
 
   // Paged, searched and sorted BY THE SERVER; this screen used to fetch every
   // quotation and do all three in the browser.
@@ -217,6 +236,7 @@ export default function Quotations() {
       status:     statusFilter  || undefined,
       client_id:  clientFilter  || undefined,
       project_id: projectFilter || undefined,
+      archived:   showArchived ? 'only' : undefined,
     },
     { initialSearch: savedSearch },
   );
@@ -425,6 +445,22 @@ export default function Quotations() {
     finally { setSaving(false); }
   }
 
+  // The server refuses archiving anything that is not voided, so its message
+  // is the useful one to show.
+  async function handleArchive(q) {
+    try {
+      await archiveQuotation(q.id);
+      toast(t('common.archived')); reload();
+    } catch (err) { toast(err.message, 'red'); }
+  }
+
+  async function handleRestore(q) {
+    try {
+      await unarchiveQuotation(q.id);
+      toast(t('common.restored')); reload();
+    } catch (err) { toast(err.message, 'red'); }
+  }
+
   async function handleVoid() {
     try {
       await voidQuotation(voidQuoteId, 'Voided by user');
@@ -538,6 +574,11 @@ export default function Quotations() {
               onChange={v => setStatusFilter(v)}
               placeholder={t('common.allStatuses')}
               options={([...STATUSES, 'Voided']).map(s => ({ value: s, label: tStatus(s) }))} />
+            <label className="archived-toggle">
+              <input type="checkbox" checked={showArchived}
+                onChange={e => setShowArchived(e.target.checked)} />
+              {t('common.showArchived')}
+            </label>
             {(search||clientFilter||projectFilter||statusFilter) && (
               <button className="btn btn-secondary btn-sm" style={{whiteSpace:'nowrap'}}
                 onClick={() => { setSearch(''); setClientFilter(''); setProjectFilter(''); setStatusFilter(''); }}>
@@ -632,6 +673,8 @@ export default function Quotations() {
                             onEdit={() => openEdit(q)}
                             onExport={(type) => handleExport(q, type)}
                             onVoid={() => setVoidQuoteId(q.id)}
+                            onArchive={() => handleArchive(q)}
+                            onRestore={() => handleRestore(q)}
                             onUnvoid={() => handleUnvoid(q)}
                           />
                         </div>

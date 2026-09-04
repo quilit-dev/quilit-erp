@@ -8,7 +8,7 @@ from typing import Optional
 from database import get_db
 from permissions import require_perm
 from routers.audit import log_action
-from utils import _now, notify
+from utils import _now, notify, ArchiveMode, archive_clause
 import sqlite3
 
 router = APIRouter()
@@ -150,7 +150,7 @@ def list_leads(
     search: Optional[str] = None,
     status: Optional[str] = None,
     source: Optional[str] = None,
-    include_archived: bool = False,
+    archived: ArchiveMode = "exclude",
     user=Depends(require_perm("crm", "view")),
     db: sqlite3.Connection = Depends(get_db),
 ):
@@ -160,8 +160,7 @@ def list_leads(
            LEFT JOIN clients c ON c.id = l.client_id
            WHERE 1=1"""
     params = []
-    if not include_archived:
-        q += " AND l.archived_at IS NULL"
+    q += f" AND {archive_clause(archived, 'l.archived_at')}"
     if search:
         q += " AND (l.name LIKE ? OR l.company LIKE ? OR l.email LIKE ? OR l.phone LIKE ?)"
         s = f"%{search}%"; params.extend([s, s, s, s])
@@ -507,7 +506,7 @@ def delete_activity(
 def list_deals(
     stage: Optional[str] = None,
     client_id: Optional[int] = None,
-    include_archived: bool = False,
+    archived: ArchiveMode = "exclude",
     user=Depends(require_perm("crm", "view")),
     db: sqlite3.Connection = Depends(get_db),
 ):
@@ -520,8 +519,7 @@ def list_deals(
            LEFT JOIN users u ON u.id = d.assigned_to
            WHERE 1=1"""
     params = []
-    if not include_archived:
-        q += " AND d.archived_at IS NULL"
+    q += f" AND {archive_clause(archived, 'd.archived_at')}"
     if stage:
         q += " AND d.stage = ?"; params.append(stage)
     if client_id:

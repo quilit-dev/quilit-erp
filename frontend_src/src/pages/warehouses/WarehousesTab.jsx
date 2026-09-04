@@ -20,7 +20,7 @@ function WarehousesTab({ canEdit, t }) {
 
   const load = useCallback(async () => {
     setLoading(true); setError('');
-    try { setRows(await getWarehouses({ include_archived: true })); }
+    try { setRows(await getWarehouses({ archived: 'all' })); }
     catch (e) { setError(e.message); }
     finally { setLoading(false); }
   }, []);

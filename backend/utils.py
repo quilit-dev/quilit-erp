@@ -1,5 +1,6 @@
 """Shared utilities imported by all routers."""
 from datetime import datetime, timedelta
+from typing import Literal
 from decimal import Decimal, ROUND_HALF_UP
 from fastapi import HTTPException
 import json
@@ -87,6 +88,35 @@ def summarise_lines(first_name, count) -> str:
     """
     first_name = first_name or "Item"
     return f"{first_name} (+{count - 1} more)" if count and count > 1 else first_name
+
+
+# The archive filter every list shares.
+#
+# Three states, because a screen wants one of three things and a boolean can
+# only say two:
+#
+#   * `exclude` (the default) — the working list, with archived rows hidden;
+#   * `only` — the archive itself. Ticking "show archived" SWAPS the list
+#     rather than widening it. Mixing archived rows in among the live ones made
+#     the archive impossible to review, and left one control meaning two
+#     different things depending on which screen you were on;
+#   * `all` — both at once, for a screen that renders them as separate
+#     sections. The warehouse admin does exactly that, and is the reason this
+#     is not simply a boolean.
+#
+# Declared as a Literal so FastAPI rejects anything else at the door: a typo in
+# a query string falling back to a default is how a list quietly shows the
+# wrong rows.
+ArchiveMode = Literal["exclude", "only", "all"]
+
+
+def archive_clause(mode: str, column: str = "archived_at") -> str:
+    """The WHERE fragment for one list's archive filter."""
+    if mode == "only":
+        return f"{column} IS NOT NULL"
+    if mode == "all":
+        return "1=1"
+    return f"{column} IS NULL"
 
 
 def money(v) -> float:

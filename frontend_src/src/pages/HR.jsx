@@ -54,9 +54,9 @@ export default function HR() {
 
   const { data: summary,     reload: reloadSummary }                   = useData(getHRSummary);
   const { data: departments, reload: reloadDepts }                     = useData(
-    useCallback(() => getDepartments(showArchived ? { include_archived: 1 } : {}), [showArchived]), [showArchived]);
+    useCallback(() => getDepartments(showArchived ? { archived: 'only' } : {}), [showArchived]), [showArchived]);
   const { data: employees, loading, error, reload: reloadEmps }        = useData(
-    useCallback(() => getEmployees(showArchived ? { include_archived: 1 } : {}), [showArchived]), [showArchived]);
+    useCallback(() => getEmployees(showArchived ? { archived: 'only' } : {}), [showArchived]), [showArchived]);
   const { data: leave,       reload: reloadLeave }                     = useData(useCallback(() => getLeaveRequests(), []));
   const { data: payrollRuns, reload: reloadPayroll }                   = useData(useCallback(() => getPayrollRuns(), []));
 

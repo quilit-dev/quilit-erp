@@ -10,7 +10,7 @@ from typing import Optional
 from database import get_db
 from permissions import require_perm
 from routers.audit import log_action
-from utils import _now, summarise_lines
+from utils import _now, summarise_lines, ArchiveMode, archive_clause
 import sqlite3
 
 router = APIRouter()
@@ -27,7 +27,7 @@ class SupplierCreate(BaseModel):
 @router.get("/")
 def list_suppliers(
     search: Optional[str] = None,
-    include_archived: bool = False,
+    archived: ArchiveMode = "exclude",
     user=Depends(require_perm("suppliers", "view")),
     db: sqlite3.Connection = Depends(get_db),
 ):
@@ -47,8 +47,7 @@ def list_suppliers(
         WHERE 1=1
     """
     params = []
-    if not include_archived:
-        query += " AND s.archived_at IS NULL"
+    query += f" AND {archive_clause(archived, 's.archived_at')}"
     if search:
         query += " AND (s.name LIKE ? OR s.contact_name LIKE ? OR s.email LIKE ?)"
         q = f"%{search}%"

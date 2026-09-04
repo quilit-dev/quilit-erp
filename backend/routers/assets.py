@@ -25,7 +25,7 @@ import sqlite3
 from database import get_db
 from permissions import require_perm
 from routers.audit import log_action
-from utils import _now, _today, notify
+from utils import _now, _today, notify, ArchiveMode, archive_clause
 from approval_engine import evaluate_and_apply
 import accounting
 
@@ -378,7 +378,7 @@ def _post_depreciation(db, asset: dict, target_period: str, user: dict, now: str
 def list_assets(
     status:   Optional[str] = None,
     category: Optional[str] = None,
-    include_archived: bool = False,
+    archived: ArchiveMode = "exclude",
     user=Depends(require_perm("assets", "view")),
     db: sqlite3.Connection = Depends(get_db),
 ):
@@ -387,8 +387,7 @@ def list_assets(
                LEFT JOIN suppliers s ON a.supplier_id = s.id
                WHERE 1=1"""
     params = []
-    if not include_archived:
-        query += " AND a.archived_at IS NULL"
+    query += f" AND {archive_clause(archived, 'a.archived_at')}"
     if status:
         query += " AND a.status = ?"
         params.append(status)

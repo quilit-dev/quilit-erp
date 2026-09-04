@@ -22,7 +22,7 @@ from pydantic import BaseModel
 from database import get_db
 from permissions import require_perm, require_admin
 from routers.audit import log_action
-from utils import _now
+from utils import _now, ArchiveMode, archive_clause
 import currency
 from routers.inventory import insert_inventory_row
 
@@ -215,13 +215,12 @@ def _product_dict(db, row):
 
 @router.get("/")
 def list_products(search: Optional[str] = None, category: Optional[str] = None,
-                  include_archived: bool = False,
+                  archived: ArchiveMode = "exclude",
                   user=Depends(require_perm("inventory", "view")),
                   db: sqlite3.Connection = Depends(get_db)):
     q = "SELECT * FROM products WHERE 1=1"
     params: list = []
-    if not include_archived:
-        q += " AND archived_at IS NULL"
+    q += f" AND {archive_clause(archived)}"
     if search:
         q += " AND (name LIKE ? OR brand LIKE ?)"
         s = f"%{search}%"; params += [s, s]

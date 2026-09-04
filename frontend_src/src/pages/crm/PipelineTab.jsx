@@ -131,7 +131,7 @@ function PipelineTab({ t }) {
   const [showArchived, setShowArchived] = useState(false);
 
   const { data: deals, loading, error, reload } = useData(
-    (s) => getCRMDeals(showArchived ? { include_archived: 1 } : {}, s),
+    (s) => getCRMDeals(showArchived ? { archived: 'only' } : {}, s),
     [showArchived],
   );
   const { data: clients }    = useData(getCRMDropdownClients);
