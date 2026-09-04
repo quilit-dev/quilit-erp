@@ -677,13 +677,8 @@ _USED_BY = [
     ("invoice_items",          "inventory_id",           "invoices"),
     ("quotation_items",        "inventory_id",           "quotations"),
     ("pos_sale_items",         "inventory_id",           "till sales"),
-    ("purchases",              "inventory_id",           "purchase orders"),
-    # A purchase is a document with lines now, and the line is where the item
-    # reference lives. Both are listed while the header column still exists:
-    # the counts share a label so they add up, which over-states a purchase as
-    # two references until the header column is dropped. Over-counting only
-    # makes deletion more conservative; a gap here would let somebody delete an
-    # item that a receipt's cost layers still point at.
+    # A purchase is a document with lines, and the line is where the item
+    # reference lives. The header column that used to hold it is gone.
     ("purchase_items",         "inventory_id",           "purchase orders"),
     ("stock_movements",        "inventory_id",           "stock movements"),
     ("inventory_cost_layers",  "inventory_id",           "cost layers"),

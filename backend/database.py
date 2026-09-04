@@ -4128,6 +4128,27 @@ def _run_migrations(conn, c):
                 pass
         done("172d_purchase_layer_refs")
 
+    # ── 172e: the header stops pretending to be an item ──────────────────
+    # Every reader now works from `purchase_items` and from the header totals.
+    # These eight columns are what a purchase used to be, and leaving them
+    # would be the worst of the options: `SELECT p.*` ships them into the API
+    # and the Excel export, so a reader anybody forgot goes on quietly
+    # returning the roll-up of a document rather than a fact about it.
+    # Dropping makes such a reader raise instead, which is loud, immediate and
+    # findable. Nulling would have been worse still -- SUM(NULL * NULL) is 0,
+    # and money silently disappearing beats no error every time.
+    if need("172e_drop_purchase_line_cols"):
+        for _col in ("inventory_id", "product_name", "category", "quantity",
+                     "unit_cost", "tax_rate_id", "tax_rate", "tax_amount"):
+            try:
+                c.execute(f"ALTER TABLE purchases DROP COLUMN {_col}")
+            except sqlite3.OperationalError:
+                # SQLite gained DROP COLUMN in 3.35; older builds, and installs
+                # that never had the column, are both harmless no-ops. Same
+                # idiom as 083_drop_invoice_writeoff.
+                pass
+        done("172e_drop_purchase_line_cols")
+
     # Last, after every migration that might have added an account: if this
     # tenant is on a statutory chart, anything not on it is retired. Migrations
     # insert accounts ACTIVE, which on such a tenant means a default-chart code
@@ -5092,6 +5113,10 @@ def _ensure_pg_post_baseline(raw):
             cur.execute(_PURCHASE_TOTALS_BACKFILL)
             cur.execute("INSERT INTO schema_migrations (name, applied_at) "
                         "VALUES ('172c_purchase_items_backfill', now()::text)")
+        # 172e: the eight per-item columns, now that every reader is off them.
+        for _col in ("inventory_id", "product_name", "category", "quantity",
+                     "unit_cost", "tax_rate_id", "tax_rate", "tax_amount"):
+            cur.execute(f"ALTER TABLE purchases DROP COLUMN IF EXISTS {_col}")
         cur.execute("SELECT 1 FROM schema_migrations "
                     "WHERE name='172d_purchase_layer_refs'")
         if not cur.fetchone():

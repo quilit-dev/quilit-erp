@@ -286,46 +286,18 @@ def _recalc_totals(db, purchase_id):
                (money(row["sub"]), money(row["tax"]), purchase_id))
 
 
-def _sync_legacy_header(db, purchase_id):
-    """Keep the old per-item header columns in step with the lines.
-
-    TRANSITIONAL. Those columns are dropped at the end of this piece of work;
-    until then they are still what a handful of un-migrated readers look at, so
-    they carry a roll-up rather than being left stale. Every value here is
-    defensible for a document with several lines — `unit_cost` is the weighted
-    average, `quantity` the sum — except `product_name`, which names the first
-    line and says how many others there are.
-    """
-    lines = _lines_of(db, purchase_id)
-    if not lines:
-        return
-    first = lines[0]
-    qty = money(sum(float(l["quantity"] or 0) for l in lines))
-    sub = money(sum(float(l["line_total"] or 0) for l in lines))
-    name = _summarise(first["product_name"], len(lines))
-    db.execute(
-        "UPDATE purchases SET inventory_id=?, product_name=?, category=?, "
-        " quantity=?, unit_cost=?, tax_rate_id=?, tax_rate=?, tax_amount=? WHERE id=?",
-        (first["inventory_id"], name, first["category"], qty,
-         money(sub / qty) if qty else 0,
-         first["tax_rate_id"], first["tax_rate"],
-         money(sum(float(l["tax_amount"] or 0) for l in lines)), purchase_id))
-
-
 def _save_lines(db, purchase_id, lines, *, supplier, cost_currency, cost_rate, now):
     """Write the lines and bring every derived figure back into step."""
     _write_lines(db, purchase_id, lines, supplier=supplier,
                  cost_currency=cost_currency, cost_rate=cost_rate, now=now)
     _recalc_totals(db, purchase_id)
-    _sync_legacy_header(db, purchase_id)
 
 
 @router.get("/")
 def list_purchases(status: Optional[str] = None, supplier: Optional[str] = None,
                    include_archived: bool = False,
                    user=Depends(require_perm("purchases", "view")), db: sqlite3.Connection = Depends(get_db)):
-    query = """SELECT p.*, i.name as inventory_name, i.unit as inventory_unit
-               FROM purchases p LEFT JOIN inventory i ON p.inventory_id = i.id WHERE p.deleted_at IS NULL"""
+    query = """SELECT p.* FROM purchases p WHERE p.deleted_at IS NULL"""
     params = []
     # Default view hides archived purchases (previously they leaked into the
     # list — only deleted_at was filtered); include_archived=1 surfaces them.
@@ -397,8 +369,7 @@ def purchase_stats(user=Depends(require_perm("purchases", "view")), db: sqlite3.
 @router.get("/{purchase_id}")
 def get_purchase(purchase_id: int, user=Depends(require_perm("purchases", "view")), db: sqlite3.Connection = Depends(get_db)):
     row = db.execute(
-        """SELECT p.*, i.name as inventory_name, i.unit as inventory_unit, i.quantity as current_stock
-           FROM purchases p LEFT JOIN inventory i ON p.inventory_id = i.id WHERE p.id = ?""",
+        """SELECT p.* FROM purchases p WHERE p.id = ?""",
         (purchase_id,)
     ).fetchone()
     if not row:
@@ -436,13 +407,11 @@ def create_purchase(data: PurchaseCreate, user=Depends(require_perm("purchases",
     # has moved across.
     c = db.execute(
         """INSERT INTO purchases
-           (po_number, supplier, inventory_id, product_name, category, quantity, unit_cost,
-            additional_costs, tax_rate_id, tax_rate, tax_amount, status, notes, warehouse_id,
+           (po_number, supplier, additional_costs, status, notes, warehouse_id,
             cost_currency, cost_exchange_rate, ordered_at)
-           VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)""",
-        (po, data.supplier, None, lines[0].product_name, (lines[0].category or 'Other'),
-         0, 0, additional_costs, None, 0, 0, data.status, data.notes, warehouse_id,
-         cost_currency, cost_rate, now)
+           VALUES (?,?,?,?,?,?,?,?,?)""",
+        (po, data.supplier, additional_costs, data.status, data.notes,
+         warehouse_id, cost_currency, cost_rate, now)
     )
     purchase_id = c.lastrowid
     _save_lines(db, purchase_id, lines, supplier=data.supplier,
@@ -546,7 +515,6 @@ def update_purchase(purchase_id: int, data: PurchaseUpdate,
         # what the goods will land at — moves with it, and the header totals
         # have to be recomputed from the lines either way.
         _recalc_totals(db, purchase_id)
-        _sync_legacy_header(db, purchase_id)
     log_action(db, user, "update", "purchase", purchase_id, row["po_number"])
     db.commit()
     return {"message": "Purchase updated"}
@@ -597,7 +565,7 @@ def update_status(purchase_id: int, data: StatusUpdate,
         got = db.execute("SELECT * FROM purchases WHERE id=?", (purchase_id,)).fetchone()
         got_lines = _lines_of(db, purchase_id)
         total_val = _doc_total(got)
-        product = _summarise(got_lines[0]["product_name"] if got_lines else got["product_name"],
+        product = _summarise(got_lines[0]["product_name"] if got_lines else None,
                              len(got_lines))
         qty = money(sum(float(l["quantity"] or 0) for l in got_lines))
         notify(db, type="purchase_received",
@@ -770,8 +738,7 @@ def _record_expense(purchase_id: int, db: sqlite3.Connection):
         g = groups.setdefault((None, 0.0), {"net": 0.0, "tax": 0.0})
         g["net"] += add
 
-    label = _summarise(lines[0]["product_name"] if lines else row["product_name"],
-                       len(lines))
+    label = _summarise(lines[0]["product_name"] if lines else None, len(lines))
     for (t_rid, t_rate), g in groups.items():
         amount = money(g["net"] + g["tax"])
         if amount <= 0:

@@ -133,7 +133,10 @@ def test_purchase_tax_recorded(make_client):
     })
     assert r.status_code in (200, 201), r.text
     d = c.get(f"/api/purchases/{r.json()['id']}").json()
-    assert d["tax_amount"]  == pytest.approx(11, abs=0.01)   # 100 @ 11%
+    # Tax is resolved per LINE, so the document's figure is the sum of them —
+    # which is what lets one delivery carry goods at two different rates.
+    assert d["tax_total"]   == pytest.approx(11, abs=0.01)   # 100 @ 11%
+    assert d["items"][0]["tax_amount"] == pytest.approx(11, abs=0.01)
     assert d["grand_total"] == pytest.approx(111, abs=0.01)
 
 

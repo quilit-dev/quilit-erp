@@ -73,9 +73,8 @@ def get_supplier(
         raise HTTPException(404, "Supplier not found")
 
     purchases = db.execute(
-        """SELECT p.*, i.name AS item_name
+        """SELECT p.*
            FROM purchases p
-           LEFT JOIN inventory i ON p.inventory_id = i.id
            WHERE (p.supplier_id = ? OR (p.supplier_id IS NULL AND p.supplier = ?))
              AND p.archived_at IS NULL
            ORDER BY p.ordered_at DESC""",
@@ -108,7 +107,7 @@ def get_supplier(
         rows_l = by_purchase.get(p["id"], [])
         d["line_count"] = len(rows_l)
         d["item_summary"] = summarise_lines(
-            rows_l[0]["product_name"] if rows_l else d.get("product_name"), len(rows_l))
+            rows_l[0]["product_name"] if rows_l else None, len(rows_l))
         d["total_quantity"] = round(sum(float(x["quantity"] or 0) for x in rows_l), 4)
         out.append(d)
     result["purchases"]   = out

@@ -163,7 +163,10 @@ def test_postgres_path_uses_if_not_exists(pg_block):
     """The function runs on every boot and on every tenant provision, so each
     statement has to be idempotent or the second run raises."""
     alters = re.findall(r"ALTER TABLE[^\"']*", pg_block)
-    missing = [a for a in alters if "IF NOT EXISTS" not in a]
+    # `DROP COLUMN IF EXISTS` is idempotent too, and does not contain the
+    # literal "IF NOT EXISTS" the ADD form uses.
+    missing = [a for a in alters
+               if "IF NOT EXISTS" not in a and "IF EXISTS" not in a]
     assert not missing, f"non-idempotent ALTER in the Postgres path: {missing}"
 
 

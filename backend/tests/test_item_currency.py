@@ -113,10 +113,13 @@ def test_purchase_lbp_cost_converts_to_usd(make_client):
     po = c.get("/api/purchases/").json()
     po = po if isinstance(po, list) else po.get("items", po)
     row = [p for p in po if p["id"] == r.json()["id"]][0]
-    # 90,000 LBP / 90,000 = $1.00 unit cost, recorded in USD.
-    assert row["unit_cost"] == pytest.approx(1.0, abs=0.001)
+    # 90,000 LBP / 90,000 = $1.00 unit cost, recorded in USD. The cost is a
+    # property of the LINE; the currency it was typed in belongs to the
+    # document, because a supplier invoice is written in one currency.
+    line = row["items"][0]
+    assert line["unit_cost"] == pytest.approx(1.0, abs=0.001)
     assert row["cost_currency"] == "LBP"
-    iid = row["inventory_id"]
+    iid = line["inventory_id"]
     item = _get_item(c, iid)
     assert item["unit_cost"] == pytest.approx(1.0, abs=0.001)
 
@@ -133,5 +136,5 @@ def test_purchase_usd_cost_unchanged(make_client):
     po = c.get("/api/purchases/").json()
     po = po if isinstance(po, list) else po.get("items", po)
     row = [p for p in po if p["id"] == r.json()["id"]][0]
-    assert row["unit_cost"] == pytest.approx(2.5)
+    assert row["items"][0]["unit_cost"] == pytest.approx(2.5)
     assert row["cost_currency"] == "USD"
