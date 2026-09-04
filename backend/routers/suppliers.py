@@ -10,7 +10,7 @@ from typing import Optional
 from database import get_db
 from permissions import require_perm
 from routers.audit import log_action
-from utils import _now
+from utils import _now, summarise_lines
 import sqlite3
 
 router = APIRouter()
@@ -90,8 +90,28 @@ def get_supplier(
         for r in purchases
     )
 
+    # Describe each order by its lines, the way the purchases list does — the
+    # header's product_name and quantity are a roll-up that is going away.
+    by_purchase = {}
+    if purchases:
+        marks = ",".join("?" for _ in purchases)
+        for l in db.execute(
+                f"SELECT purchase_id, product_name, quantity FROM purchase_items "
+                f"WHERE purchase_id IN ({marks}) ORDER BY id",
+                [p["id"] for p in purchases]).fetchall():
+            by_purchase.setdefault(l["purchase_id"], []).append(l)
+
     result = dict(row)
-    result["purchases"]   = [dict(p) for p in purchases]
+    out = []
+    for p in purchases:
+        d = dict(p)
+        rows_l = by_purchase.get(p["id"], [])
+        d["line_count"] = len(rows_l)
+        d["item_summary"] = summarise_lines(
+            rows_l[0]["product_name"] if rows_l else d.get("product_name"), len(rows_l))
+        d["total_quantity"] = round(sum(float(x["quantity"] or 0) for x in rows_l), 4)
+        out.append(d)
+    result["purchases"]   = out
     result["total_spend"] = round(total_spend, 2)
     return result
 

@@ -47,23 +47,56 @@ function PurchaseForm({ initial = {}, inventoryItems = [], inventoryCategories =
   // workflows don't change.
   const { warehouses, defaultId: defaultWarehouseId } = useWarehouses();
 
+  // The DOCUMENT: one supplier, one delivery, one currency, one freight
+  // charge. Everything that varies per product lives on a line instead.
   const [form, setForm] = useState({
     supplier:         initial.supplier         || '',
-    product_name:     initial.product_name     || '',
-    category:         initial.category         || '',
-    customCategory:   '',
-    inventory_id:     initial.inventory_id     || '',
-    quantity:         initial.quantity         || '',
-    unit_cost:        initial.unit_cost        || '',
     // Cost may be typed in LBP; it converts to USD on the server at save. Edits
     // always start in USD (the stored PO cost is already USD).
     cost_currency:    'USD',
     additional_costs: initial.additional_costs || 0,
-    tax_rate_id:      initial.tax_rate_id      ?? null,
     status:           initial.status           || 'Ordered',
     notes:            initial.notes            || '',
     warehouse_id:     initial.warehouse_id     ?? '',
   });
+
+  const blankLine = () => ({
+    inventory_id: '', product_name: '', category: '',
+    quantity: '', unit_cost: '', discount: '', tax_rate_id: null,
+  });
+  // An existing purchase arrives with its lines from the detail endpoint. One
+  // opened before this shipped has none, so its header is folded back into a
+  // single line rather than showing an empty editor.
+  const [lines, setLines] = useState(() => {
+    if (initial.items?.length) {
+      return initial.items.map(l => ({
+        inventory_id: l.inventory_id ?? '',
+        product_name: l.product_name || '',
+        category:     l.category || '',
+        quantity:     l.quantity ?? '',
+        unit_cost:    l.unit_cost ?? '',
+        discount:     l.discount || '',
+        tax_rate_id:  l.tax_rate_id ?? null,
+      }));
+    }
+    if (initial.product_name) {
+      return [{
+        inventory_id: initial.inventory_id ?? '',
+        product_name: initial.product_name,
+        category:     initial.category || '',
+        quantity:     initial.quantity ?? '',
+        unit_cost:    initial.unit_cost ?? '',
+        discount:     '',
+        tax_rate_id:  initial.tax_rate_id ?? null,
+      }];
+    }
+    return [blankLine()];
+  });
+
+  const setLine = (i, patch) =>
+    setLines(ls => ls.map((l, n) => (n === i ? { ...l, ...patch } : l)));
+  const addLine  = () => setLines(ls => [...ls, blankLine()]);
+  const dropLine = (i) => setLines(ls => ls.filter((_, n) => n !== i));
 
   // Pre-select the resolved default warehouse once it arrives, but only if
   // the operator hasn't already chosen one. Lets the user override.
@@ -74,46 +107,56 @@ function PurchaseForm({ initial = {}, inventoryItems = [], inventoryCategories =
 
   }, [defaultWarehouseId]);
 
-  const useCustom = form.category === '__custom__';
   const set = (k, v) => setForm(f => ({ ...f, [k]: v }));
 
-  function handleInventorySelect(id) {
-    set('inventory_id', id);
-    if (id) {
-      const item = inventoryItems.find(i => String(i.id) === String(id));
-      if (item) {
-        if (item.name)       set('product_name', item.name);
-        if (item.category)   set('category',     item.category);
-        if (item.unit_price) set('unit_cost',     item.unit_price);
-      }
+  function pickInventory(i, id) {
+    const patch = { inventory_id: id };
+    const item = id && inventoryItems.find(x => String(x.id) === String(id));
+    if (item) {
+      if (item.name)       patch.product_name = item.name;
+      if (item.category)   patch.category     = item.category;
+      if (item.unit_price) patch.unit_cost    = item.unit_price;
     }
+    setLine(i, patch);
   }
+
+  const lineNet = (l) => Math.max(
+    (parseFloat(l.quantity) || 0) * (parseFloat(l.unit_cost) || 0)
+      - (parseFloat(l.discount) || 0), 0);
+
+  const rateOf = (l) => (taxEnabled
+    ? ((taxRates || []).find(r => r.id === l.tax_rate_id) || defaultTaxRate)
+    : null);
 
   function submit(e) {
     e.preventDefault();
-    const category = useCustom ? form.customCategory.trim() : form.category.trim();
     onSave({
       supplier:         form.supplier,
-      product_name:     form.product_name,
-      category:         category || 'Other',
-      inventory_id:     form.inventory_id ? parseInt(form.inventory_id) : null,
-      quantity:         parseFloat(form.quantity),
-      unit_cost:        parseFloat(form.unit_cost)        || 0,
+      items: lines.map(l => ({
+        inventory_id: l.inventory_id ? parseInt(l.inventory_id) : null,
+        product_name: l.product_name,
+        category:     (l.category || '').trim() || 'Other',
+        quantity:     parseFloat(l.quantity),
+        unit_cost:    parseFloat(l.unit_cost) || 0,
+        discount:     parseFloat(l.discount)  || 0,
+        tax_rate_id:  taxEnabled ? (l.tax_rate_id ?? null) : null,
+      })),
       additional_costs: parseFloat(form.additional_costs) || 0,
       cost_currency:    form.cost_currency,
       exchange_rate:    form.cost_currency === 'LBP' ? fxRate : undefined,
-      tax_rate_id:      taxEnabled ? (form.tax_rate_id ?? null) : null,
       status:           form.status,
       notes:            form.notes,
       warehouse_id:     form.warehouse_id ? parseInt(form.warehouse_id) : null,
     });
   }
 
-  const goods   = (parseFloat(form.quantity) || 0) * (parseFloat(form.unit_cost) || 0);
-  const selRate = taxEnabled
-    ? ((taxRates || []).find(r => r.id === form.tax_rate_id) || defaultTaxRate)
-    : null;
-  const taxAmt  = selRate ? goods * (Number(selRate.rate) || 0) / 100 : 0;
+  // Mirrors the server: tax is per line on the discounted goods value, and
+  // freight is outside the taxable base.
+  const goods   = lines.reduce((a, l) => a + lineNet(l), 0);
+  const taxAmt  = lines.reduce((a, l) => {
+    const r = rateOf(l);
+    return a + (r ? lineNet(l) * (Number(r.rate) || 0) / 100 : 0);
+  }, 0);
   const total   = goods + (parseFloat(form.additional_costs) || 0) + taxAmt;
 
   return (
@@ -141,89 +184,124 @@ function PurchaseForm({ initial = {}, inventoryItems = [], inventoryCategories =
             </div>
           )}
 
-          {!isEdit && (
-            <div className="form-group form-full">
-              <label className="form-label">{t('purchases.linkInventory')}</label>
-              {/* Variants used to sit under an <optgroup> per product, so the list
-                  was not a flat wall of "iPhone 15 — 256GB/Black" rows. A panel
-                  you type into does not need the grouping to stay readable, and
-                  a filtered list cannot keep group headings in a sensible place
-                  — so the product name moved to the hint column, where it is
-                  still shown and still searched. */}
-              <SearchSelect className="form-control" value={form.inventory_id}
-                onChange={handleInventorySelect}
-                placeholder={t('purchases.newNotLinked')}
-                options={inventoryItems.map(i => ({
-                  value: i.id,
-                  label: i.product_id ? (i.variant_label || i.name) : i.name,
-                  hint: i.product_id ? (i.product_name || i.name) : i.category,
-                }))} />
-            </div>
-          )}
-
+          {/* THE LINES. A supplier invoice covering six products is one
+              document with six lines, not six purchase orders — and the
+              freight below is charged once for the delivery, then shared
+              across them by value on the server. */}
           <div className="form-group form-full">
-            <label className="form-label">{t('purchases.productNameLabel')}</label>
-            <input className="form-control" required value={form.product_name}
-              onChange={e => set('product_name', e.target.value)} />
+            <label className="form-label">{t('purchases.itemsLabel')}</label>
+            <div style={{ overflowX: 'auto' }}>
+              <table style={{ width: '100%', minWidth: 720 }}>
+                <thead>
+                  <tr>
+                    <th style={{ minWidth: 190 }}>{t('purchases.productNameLabel')}</th>
+                    <th style={{ minWidth: 130 }}>{t('common.category')}</th>
+                    <th style={{ width: 90,  textAlign: 'right' }}>{t('purchases.quantityLabel')}</th>
+                    <th style={{ width: 110, textAlign: 'right' }}>{t('purchases.unitCost')}</th>
+                    <th style={{ width: 100, textAlign: 'right' }}>{t('purchases.discountLabel')}</th>
+                    {taxEnabled && <th style={{ width: 130 }}>{t('common.taxCol')}</th>}
+                    <th style={{ width: 90,  textAlign: 'right' }}>{t('common.total')}</th>
+                    <th style={{ width: 34 }} />
+                  </tr>
+                </thead>
+                <tbody>
+                  {lines.map((l, i) => (
+                    <tr key={i}>
+                      <td>
+                        {/* Picking a stocked item fills the name, category and
+                            last cost; typing a name instead creates the item. */}
+                        <SearchSelect className="form-control" value={l.inventory_id}
+                          onChange={v => pickInventory(i, v)}
+                          placeholder={t('purchases.newNotLinked')}
+                          options={inventoryItems.map(x => ({
+                            value: x.id,
+                            label: x.product_id ? (x.variant_label || x.name) : x.name,
+                            hint: x.product_id ? (x.product_name || x.name) : x.category,
+                          }))} />
+                        <input className="form-control" required
+                          style={{ marginTop: 4 }}
+                          placeholder={t('purchases.productNameLabel')}
+                          value={l.product_name}
+                          onChange={e => setLine(i, { product_name: e.target.value })} />
+                      </td>
+                      <td>
+                        <SearchSelect className="form-control" value={l.category}
+                          onChange={v => setLine(i, { category: v })}
+                          placeholder={t('purchases.selectCategory')}
+                          options={(allCats).map(c => ({ value: c, label: tCategory(c) }))} />
+                      </td>
+                      <td>
+                        <NumberInput className="form-control" step="1" min="1" required
+                          style={{ textAlign: 'right' }}
+                          value={l.quantity}
+                          onChange={e => setLine(i, { quantity: e.target.value })} />
+                      </td>
+                      <td>
+                        <NumberInput className="form-control" step="any" min="0"
+                          style={{ textAlign: 'right' }}
+                          value={l.unit_cost}
+                          onChange={e => setLine(i, { unit_cost: e.target.value })} />
+                      </td>
+                      <td>
+                        <NumberInput className="form-control" step="any" min="0"
+                          style={{ textAlign: 'right' }}
+                          value={l.discount}
+                          onChange={e => setLine(i, { discount: e.target.value })} />
+                      </td>
+                      {taxEnabled && (
+                        <td>
+                          <SearchSelect className="form-control"
+                            value={l.tax_rate_id ?? (defaultTaxRate?.id ?? '')}
+                            onChange={v => setLine(i, { tax_rate_id: Number(v) || null })}
+                            options={(activeTaxRates).map(r => ({
+                              value: r.id, label: `${r.name} (${r.rate}%)` }))} />
+                        </td>
+                      )}
+                      <td style={{ textAlign: 'right', fontWeight: 600 }}>
+                        {fmt(lineNet(l))}
+                      </td>
+                      <td>
+                        {lines.length > 1 && (
+                          <button type="button" className="btn btn-sm btn-secondary"
+                            title={t('purchases.removeLine')}
+                            onClick={() => dropLine(i)}>&times;</button>
+                        )}
+                      </td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            </div>
+            <button type="button" className="btn btn-sm btn-secondary"
+              style={{ marginTop: 8 }} onClick={addLine}>
+              + {t('purchases.addLine')}
+            </button>
           </div>
 
-          <div className="form-group form-full">
-            <label className="form-label">{t('common.category')}</label>
+          <div className="form-group">
+            <label className="form-label">{t('purchases.costCurrency')}</label>
             <SearchSelect
               className="form-control"
-              value={form.category}
-              onChange={v => set('category', v)}
-              placeholder={t('purchases.selectCategory')}
-              options={[...(allCats).map(c => ({ value: c, label: tCategory(c) })), { value: '__custom__', label: t('purchases.addCategoryOption') }]} />
-            {useCustom && (
-              <input className="form-control" style={{ marginTop: 8 }}
-                placeholder={t('purchases.typeCategoryName')}
-                value={form.customCategory}
-                onChange={e => set('customCategory', e.target.value)} />
-            )}
-          </div>
-
-          <div className="form-group">
-            <label className="form-label">{t('purchases.quantityLabel')}</label>
-            <NumberInput className="form-control" step="1" min="1" required
-              value={form.quantity} onChange={e => set('quantity', e.target.value)} />
-          </div>
-
-          <div className="form-group">
-            <label className="form-label">{t('purchases.unitCostDollar')}</label>
-            <div style={{ display: 'flex', gap: 6 }}>
-              <NumberInput className="form-control" step="any" min="0" style={{ flex: 1 }}
-                value={form.unit_cost} onChange={e => set('unit_cost', e.target.value)} />
-              <SearchSelect
-                className="form-control"
-                style={{ width: 86 }}
-                value={form.cost_currency}
-                onChange={v => set('cost_currency', v)}
-                options={[{ value: 'USD', label: 'USD' }]} />
-            </div>
+              value={form.cost_currency}
+              onChange={v => set('cost_currency', v)}
+              options={[{ value: 'USD', label: 'USD' }]} />
             {form.cost_currency === 'LBP' && hasRate && (
               <div style={{ fontSize: 12, color: 'var(--text-3)', marginTop: 4 }}>
-                {t('inventory.costLockedToUsd')} ≈ ${fmtNum((parseFloat(form.unit_cost) || 0) / fxRate)}
+                {t('inventory.costLockedToUsd')}
               </div>
             )}
           </div>
 
           <div className="form-group">
+            {/* Charged once for the delivery, then shared across the lines by
+                value so each product lands at what it really cost. */}
             <label className="form-label">{t('purchases.additionalCostsDollar')}</label>
             <NumberInput className="form-control" step="any" min="0"
               value={form.additional_costs} onChange={e => set('additional_costs', e.target.value)} />
-          </div>
-
-          {taxEnabled && (
-            <div className="form-group">
-              <label className="form-label">{t('common.taxCol')}</label>
-              <SearchSelect
-                className="form-control"
-                value={form.tax_rate_id ?? (defaultTaxRate?.id ?? '')}
-                onChange={v => set('tax_rate_id', Number(v) || null)}
-                options={(activeTaxRates).map(r => ({ value: r.id, label: `${r.name} (${r.rate}%)` }))} />
+            <div style={{ fontSize: 11, color: 'var(--text-3)', marginTop: 4 }}>
+              {t('purchases.shippingSharedHint')}
             </div>
-          )}
+          </div>
 
           {!isEdit && (
             <div className="form-group">
@@ -403,31 +481,45 @@ export default function Purchases() {
     } catch (err) { toast(err.message, 'red'); }
   }
 
+  // An order can span categories, so it matches if ANY of its lines does.
   const filtered = categoryFilter
-    ? purchases.filter(p => p.category === categoryFilter)
+    ? purchases.filter(p => (p.categories || []).includes(categoryFilter))
     : purchases;
 
-  const purchaseCategories = [...new Set(purchases.map(p => p.category).filter(Boolean))].sort();
+  const purchaseCategories =
+    [...new Set(purchases.flatMap(p => p.categories || []).filter(Boolean))].sort();
   const hasFilters = statusFilter || categoryFilter || supplierSearch;
 
   const { sorted: pagedPurchases, page, pageSize, totalPages, setPage, setPageSize, sortKey, sortDir, requestSort, PAGE_SIZES } = useSortPaginate(filtered);
 
-  const exportData = filtered.map(p => ({
-    'PO Number':       p.po_number,
-    Supplier:          p.supplier,
-    Product:           p.product_name,
-    Category:          p.category     || '',
-    Quantity:          p.quantity,
-    'Unit Cost':       p.unit_cost,
-    'Additional':      p.additional_costs,
-    'VAT %':           p.tax_rate || 0,
-    'VAT Amount':      p.tax_amount || 0,
-    Total:             p.total_cost,
-    Status:            p.status,
-    'Order Date':      fmtDate(p.ordered_at),
-    'Received Date':   fmtDate(p.received_at),
-    'Paid Date':       fmtDate(p.paid_at),
-  }));
+  // ONE ROW PER LINE, with the document's own fields repeated. An accountant
+  // reconciling a supplier statement works line by line; a row per order hides
+  // exactly the detail they opened the export for. The freight and the order
+  // total are written against the first line only, so summing the column still
+  // gives the amount spent rather than counting the delivery charge once per
+  // product.
+  const exportData = filtered.flatMap(p => {
+    const rows = (p.items || []).length ? p.items : [null];
+    return rows.map((l, i) => ({
+      'PO Number':       p.po_number,
+      Supplier:          p.supplier,
+      Line:              i + 1,
+      Product:           l ? l.product_name : p.item_summary,
+      Category:          (l ? l.category : (p.categories || [])[0]) || '',
+      Quantity:          l ? l.quantity : p.total_quantity,
+      'Unit Cost':       l ? l.unit_cost : '',
+      Discount:          l ? (l.discount || 0) : 0,
+      'Line Total':      l ? l.line_total : '',
+      'VAT %':           l ? (l.tax_rate || 0) : 0,
+      'VAT Amount':      l ? (l.tax_amount || 0) : 0,
+      'Additional':      i === 0 ? p.additional_costs : '',
+      'Order Total':     i === 0 ? p.total_cost : '',
+      Status:            p.status,
+      'Order Date':      fmtDate(p.ordered_at),
+      'Received Date':   fmtDate(p.received_at),
+      'Paid Date':       fmtDate(p.paid_at),
+    }));
+  });
 
   return (
     <div>
@@ -516,10 +608,10 @@ export default function Purchases() {
                 <tr>
                   <SortableTh label={t('purchases.poNumber')}        sortKey="po_number"    currentKey={sortKey} currentDir={sortDir} onSort={requestSort} />
                   <SortableTh label={t('purchases.supplier')}        sortKey="supplier"     currentKey={sortKey} currentDir={sortDir} onSort={requestSort} />
-                  <SortableTh label={t('purchases.product')}         sortKey="product_name" currentKey={sortKey} currentDir={sortDir} onSort={requestSort} />
+                  <SortableTh label={t('purchases.product')}         sortKey="item_summary" currentKey={sortKey} currentDir={sortDir} onSort={requestSort} />
                   <SortableTh label={t('common.category')}           sortKey="category"     currentKey={sortKey} currentDir={sortDir} onSort={requestSort} />
-                  <SortableTh label={t('common.quantity')}           sortKey="quantity"     currentKey={sortKey} currentDir={sortDir} onSort={requestSort} />
-                  <SortableTh label={t('purchases.unitCost')}        sortKey="unit_cost"    currentKey={sortKey} currentDir={sortDir} onSort={requestSort} />
+                  <SortableTh label={t('common.quantity')}           sortKey="total_quantity" currentKey={sortKey} currentDir={sortDir} onSort={requestSort} />
+                  <SortableTh label={t('purchases.linesCol')}        sortKey="line_count"   currentKey={sortKey} currentDir={sortDir} onSort={requestSort} />
                   <SortableTh label={t('common.total')}              sortKey="total_cost"   currentKey={sortKey} currentDir={sortDir} onSort={requestSort} />
                   <SortableTh label={t('common.status')}             sortKey="status"       currentKey={sortKey} currentDir={sortDir} onSort={requestSort} />
                   <SortableTh label={t('purchases.orderedAt')}       sortKey="ordered_at"   currentKey={sortKey} currentDir={sortDir} onSort={requestSort} />
@@ -541,14 +633,19 @@ export default function Purchases() {
                         title={p.void_reason || undefined}>{t('purchases.voidedBadge')}</span>}
                     </td>
                     <td className="td-primary">{p.supplier}</td>
-                    <td>{p.product_name}</td>
+                    <td>{p.item_summary || p.product_name}</td>
                     <td>
-                      {p.category
-                        ? <span className="badge badge-blue">{tCategory(p.category)}</span>
+                      {(p.categories || []).length
+                        ? (p.categories || []).slice(0, 2).map(cat => (
+                            <span key={cat} className="badge badge-blue"
+                              style={{ marginInlineEnd: 4 }}>{tCategory(cat)}</span>
+                          ))
                         : <span style={{ color: 'var(--text-3)' }}>—</span>}
                     </td>
-                    <td>{p.quantity}</td>
-                    <td>${fmtNum(p.unit_cost)}</td>
+                    <td>{p.total_quantity ?? p.quantity}</td>
+                    {/* A unit cost is not a property of an order with several
+                        lines, so the column says how many there are instead. */}
+                    <td>{p.line_count ?? 1}</td>
                     <td style={{ fontWeight: 600 }}>${fmtNum(p.total_cost)}</td>
                     <td>{isVoided
                       ? <StatusBadge status="Void" />
@@ -674,8 +771,8 @@ export default function Purchases() {
               <span style={{ fontSize: 13, color: '#78350f' }}>
                 {voidTarget.stock_updated
                   ? t('purchases.voidWarningStock', {
-                      quantity: voidTarget.quantity,
-                      product: voidTarget.product_name,
+                      quantity: voidTarget.total_quantity ?? voidTarget.quantity,
+                      product: voidTarget.item_summary || voidTarget.product_name,
                     })
                   : t('purchases.voidWarning')}
               </span>

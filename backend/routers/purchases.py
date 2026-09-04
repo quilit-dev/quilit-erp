@@ -342,11 +342,31 @@ def list_purchases(status: Optional[str] = None, supplier: Optional[str] = None,
     query += bf; params += bp
     query += " ORDER BY p.ordered_at DESC"
     rows = db.execute(query, params).fetchall()
+    # One query for the whole page's lines. A per-row lookup would be a query
+    # per purchase, which is how a list page quietly becomes slow.
+    by_purchase = {}
+    if rows:
+        marks = ",".join("?" for _ in rows)
+        for l in db.execute(
+                f"SELECT * FROM purchase_items WHERE purchase_id IN ({marks}) ORDER BY id",
+                [r["id"] for r in rows]).fetchall():
+            by_purchase.setdefault(l["purchase_id"], []).append(l)
     result = []
     for r in rows:
         d = dict(r)
         d["total_cost"]  = _doc_total(r)
         d["grand_total"] = _doc_grand_total(r)
+        # What the list needs to DESCRIBE a document that has several lines.
+        # `product_name` and `quantity` on the header are a roll-up that is
+        # about to go away; these are derived from the lines and are what the
+        # screen and the export read.
+        rows_l = by_purchase.get(r["id"], [])
+        d["items"]         = [dict(x) for x in rows_l]
+        d["line_count"]    = len(rows_l)
+        d["item_summary"]  = _summarise(rows_l[0]["product_name"] if rows_l else None,
+                                        len(rows_l))
+        d["total_quantity"] = money(sum(float(x["quantity"] or 0) for x in rows_l))
+        d["categories"]    = sorted({(x["category"] or "Other") for x in rows_l})
         result.append(d)
     return result
 

@@ -51,8 +51,10 @@ describe('the warning before confirming', () => {
   });
 
   test('the stock warning names the quantity and the item', () => {
-    expect(pageSrc).toMatch(/quantity: voidTarget\.quantity/);
-    expect(pageSrc).toMatch(/product: voidTarget\.product_name/);
+    // A purchase has lines now, so these read the document-level roll-up the
+    // list serves, falling back to the header for an order saved before that.
+    expect(pageSrc).toMatch(/quantity: voidTarget\.total_quantity \?\? voidTarget\.quantity/);
+    expect(pageSrc).toMatch(/product: voidTarget\.item_summary \|\| voidTarget\.product_name/);
   });
 
   test('and the plain one promises no stock movement', () => {

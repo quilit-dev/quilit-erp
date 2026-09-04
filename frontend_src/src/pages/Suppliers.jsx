@@ -297,7 +297,7 @@ export default function Suppliers() {
                           <th>{t('purchases.poNumber')}</th>
                           <th>{t('purchases.product')}</th>
                           <th>{t('common.quantity')}</th>
-                          <th>{t('purchases.unitCost')}</th>
+                          <th>{t('purchases.linesCol')}</th>
                           <th>{t('common.total')}</th>
                           <th>{t('common.status')}</th>
                           <th>{t('common.date')}</th>
@@ -305,13 +305,16 @@ export default function Suppliers() {
                       </thead>
                       <tbody>
                         {detail.purchases.map(p => {
-                          const total = (p.quantity * p.unit_cost) + (p.additional_costs || 0);
+                          // The document's own total, maintained from its
+                          // lines. quantity x unit_cost on the header stopped
+                          // being what an order cost when it gained lines.
+                          const total = (p.subtotal || 0) + (p.additional_costs || 0);
                           return (
                             <tr key={p.id}>
                               <td className="text-mono">{p.po_number}</td>
-                              <td>{p.product_name}</td>
-                              <td>{p.quantity}</td>
-                              <td>{fmt(p.unit_cost)}</td>
+                              <td>{p.item_summary || p.product_name}</td>
+                              <td>{p.total_quantity ?? p.quantity}</td>
+                              <td>{p.line_count ?? 1}</td>
                               <td className="fw-600">{fmt(total)}</td>
                               <td>
                                 <span className={`badge badge-${p.status === 'Paid' ? 'green' : p.status === 'Received' ? 'blue' : 'gray'}`}>
