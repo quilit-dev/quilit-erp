@@ -245,6 +245,11 @@ export const updatePurchase       = (id, d) => api.put(`/api/purchases/${id}`, d
 // did and posts to cash.
 export const updatePurchaseStatus = (id, status, payout = null) =>
   api.patch(`/api/purchases/${id}/status`, { status, ...(payout || {}) });
+// Voiding reverses a purchase: goods off the shelf, entry mirrored in the
+// ledger, expense voided. Refused with a 409 naming the shortfall when the
+// goods have already moved on — surface that message rather than a generic one.
+export const voidPurchase         = (id, reason) =>
+  api.patch(`/api/purchases/${id}/void`, { reason });
 export const archivePurchase      = (id)   => api.patch(`/api/purchases/${id}/archive`);
 export const unarchivePurchase    = (id)   => api.patch(`/api/purchases/${id}/unarchive`);
 

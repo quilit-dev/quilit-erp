@@ -11,7 +11,10 @@ import branch_access
 import costing
 import currency
 import lots
+import reservations
+import warehouse_access as wha
 import accounting
+from routers.finance import _check_period_locked
 import sqlite3
 from datetime import datetime
 
@@ -124,14 +127,18 @@ def list_purchases(status: Optional[str] = None, supplier: Optional[str] = None,
 @router.get("/stats")
 def purchase_stats(user=Depends(require_perm("purchases", "view")), db: sqlite3.Connection = Depends(get_db)):
     bf, bp = branch_access.branch_filter(user, db, column="warehouse_id")
+    # A voided purchase counts as nothing: not an outstanding order, not a
+    # receipt, not money spent. The row stays in the list so the history reads
+    # true, exactly as a voided invoice does — it is only the figures it has to
+    # stay out of.
     rows = db.execute(
         "SELECT status, COUNT(*) as count FROM purchases "
-        "WHERE deleted_at IS NULL" + bf + " GROUP BY status", bp
+        "WHERE deleted_at IS NULL AND voided_at IS NULL" + bf + " GROUP BY status", bp
     ).fetchall()
     stats = {r["status"]: r["count"] for r in rows}
     paid_rows = db.execute(
         "SELECT quantity, unit_cost, additional_costs, tax_amount FROM purchases "
-        "WHERE status='Paid' AND archived_at IS NULL" + bf, bp
+        "WHERE status='Paid' AND archived_at IS NULL AND voided_at IS NULL" + bf, bp
     ).fetchall()
     total_spent = money(sum(
         _total_cost(r["quantity"], r["unit_cost"], r["additional_costs"]) + float(r["tax_amount"] or 0)
@@ -310,6 +317,10 @@ def update_status(purchase_id: int, data: StatusUpdate,
     if not row:
         raise HTTPException(404, "Purchase not found")
 
+    if _col(row, "voided_at"):
+        raise HTTPException(
+            400, "This purchase has been voided. Raise a new one rather than "
+                 "moving this one forward.")
     valid = ["Ordered", "Received", "Paid"]
     if data.status not in valid:
         raise HTTPException(400, f"Status must be one of: {', '.join(valid)}")
@@ -365,8 +376,13 @@ def _credit_stock(purchase_id: int, db: sqlite3.Connection):
     quotation_items.
     """
     # Atomic claim: only one concurrent request can credit stock
+    # `voided_at IS NULL` belongs in the claim itself, not only in the callers.
+    # Voiding releases the stock_updated flag so the receipt cannot be counted
+    # twice, which is exactly what would let a later status change credit the
+    # goods a second time if this only checked the flag.
     claimed = db.execute(
-        "UPDATE purchases SET stock_updated=1 WHERE id=? AND stock_updated=0 AND inventory_id IS NOT NULL AND archived_at IS NULL",
+        "UPDATE purchases SET stock_updated=1 WHERE id=? AND stock_updated=0 "
+        "AND inventory_id IS NOT NULL AND archived_at IS NULL AND voided_at IS NULL",
         (purchase_id,),
     ).rowcount
     if claimed == 0:
@@ -497,6 +513,203 @@ def _record_expense(purchase_id: int, db: sqlite3.Connection):
         source_type="purchase", source_id=purchase_id, created_by=None,
         branch_id=row["warehouse_id"],
     )
+
+class VoidRequest(BaseModel):
+    reason: Optional[str] = None
+
+
+@router.patch("/{purchase_id}/void")
+def void_purchase(
+    purchase_id: int,
+    data: VoidRequest,
+    user=Depends(require_perm("purchases", "delete")),
+    db: sqlite3.Connection = Depends(get_db),
+):
+    """Take a purchase back: the goods off the shelf, the money out of the books.
+
+    The mirror of voiding an invoice, and needed for the same reason. A purchase
+    entered against the wrong supplier, keyed twice, or received for goods that
+    never arrived had no way out: archiving hid the row while leaving the stock
+    on the shelf and the entry in the ledger, and editing is refused once
+    received — correctly, because by then the goods and the money have moved. So
+    the only remedy was a hand-typed stock adjustment plus a manual journal,
+    from memory, with nothing tying the two together.
+
+    Everything the purchase did is undone, and nothing is deleted:
+
+      * the goods come off the shelf, drawing down THIS receipt's own lot or
+        cost layer rather than whatever the costing method would sell next;
+      * `inventory.unit_cost` is un-blended, so the average returns to what it
+        was before the receipt landed;
+      * the ledger entry is reversed by a mirror entry, never edited;
+      * the expense row is voided, so the cash-basis view drops it too.
+
+    It is refused while the goods are not all still here — see `_can_reverse`.
+    That is the one thing this cannot do honestly: units already sold cannot be
+    unbought, and inventing the shortfall would put the ledger and the shelf
+    into exactly the disagreement this endpoint exists to prevent.
+    """
+    row = db.execute(
+        "SELECT * FROM purchases WHERE id=? AND archived_at IS NULL",
+        (purchase_id,)).fetchone()
+    if not row:
+        raise HTTPException(404, "Purchase not found")
+    branch_access.assert_can_view_branch(user, db, row["warehouse_id"])
+    if _col(row, "voided_at"):
+        raise HTTPException(400, "Purchase is already voided.")
+
+    # Both months matter. The receipt posted into the month it was received and
+    # the reversal posts into today, so a lock on either has to stop it — the
+    # same rule the invoice unvoid and the till return follow.
+    _check_period_locked(db, row["paid_at"] or row["received_at"] or row["ordered_at"])
+    _check_period_locked(db, _now())
+
+    now = _now()
+    undone = _reverse_stock(row, db, now)
+
+    # The ledger, by a mirror entry rather than an edit. A no-op when the
+    # purchase was never paid: nothing was posted, so there is nothing to undo.
+    if row["expense_recorded"]:
+        accounting.reverse_source(
+            db, "purchase", purchase_id,
+            memo=f"Reversal — voided purchase {row['po_number']}",
+            created_by=user["id"])
+        # And the cash-basis view of the same money. The expense row carries no
+        # link back to its purchase, but `_record_expense` opens its description
+        # with the PO number, which is unique.
+        #
+        # The trailing space matters. PO numbers are zero-padded to four digits
+        # and then grow, so a bare prefix would let PO-2026-1000 also match
+        # PO-2026-10000 — and void a different purchase's expense. The
+        # description is "<po> - <product> from <supplier>", so the space after
+        # the number is always there and always ends it.
+        db.execute(
+            "UPDATE expenses SET voided_at=?, void_reason=? "
+            "WHERE category='Purchase' AND voided_at IS NULL "
+            "AND description LIKE ?",
+            (now, f"Voided purchase {row['po_number']}", f"{row['po_number']} %"))
+
+    db.execute("UPDATE purchases SET voided_at=?, void_reason=? WHERE id=?",
+               (now, data.reason or "Voided", purchase_id))
+    log_action(db, user, "void", "purchase", purchase_id, row["po_number"],
+               {"reason": data.reason or "Voided", **undone})
+    db.commit()
+    return {"message": "Purchase voided", "voided_at": now, **undone}
+
+
+def _can_reverse(row, db) -> tuple:
+    """Whether this receipt's goods are all still here. Returns (ok, why_not).
+
+    Three questions, because three things can hold the goods:
+
+      * the receipt's own lot or cost layer, which answers exactly whether THESE
+        units are still on the shelf. Under weighted_avg there is no such
+        record — the receipt was blended into one average the moment it landed —
+        so on-hand quantity is the best available answer;
+      * what a customer has already been promised. Receiving stock hands it to
+        whoever was waiting (`commitments.allocate`), and those units are spoken
+        for even though they are physically present;
+      * the warehouse it landed in, since company-wide stock says nothing about
+        whether this particular location still holds it.
+    """
+    inventory_id = row["inventory_id"]
+    if not inventory_id or not row["stock_updated"]:
+        return True, None
+    qty = float(row["quantity"] or 0)
+    name = row["product_name"]
+
+    intact = lots.remaining_from(db, inventory_id, source_type="purchase",
+                                 source_ref=row["po_number"])
+    if intact is not None and intact + 1e-6 < qty:
+        return False, (
+            f"Only {intact:g} of the {qty:g} units received are still in stock — "
+            f"the rest of this receipt has been sold or used. Voiding it would "
+            f"remove goods that are no longer there. Record a supplier return "
+            f"or a stock adjustment instead.")
+
+    free = reservations.available(db, inventory_id)
+    if free + 1e-6 < qty:
+        on_hand = float(db.execute(
+            "SELECT COALESCE(quantity, 0) AS q FROM inventory WHERE id=?",
+            (inventory_id,)).fetchone()["q"] or 0)
+        if on_hand + 1e-6 < qty:
+            return False, (
+                f"Only {on_hand:g} of '{name}' is in stock but this purchase "
+                f"brought in {qty:g}. Voiding it would take the item negative.")
+        return False, (
+            f"{qty:g} units of '{name}' are needed to reverse this purchase but "
+            f"only {free:g} are unspoken for — the rest is reserved for a "
+            f"customer. Release the reservation first, or record a supplier "
+            f"return instead.")
+
+    wid = wha.default_warehouse_id_for_row(db, row["warehouse_id"])
+    ws = db.execute(
+        "SELECT COALESCE(quantity, 0) AS q FROM inventory_stock "
+        "WHERE inventory_id=? AND warehouse_id=?", (inventory_id, wid)).fetchone()
+    at_location = float(ws["q"] or 0) if ws else 0.0
+    if at_location + 1e-6 < qty:
+        return False, (
+            f"The goods landed in this warehouse but only {at_location:g} of "
+            f"{qty:g} are still there — the rest has moved or been sold. "
+            f"Transfer it back before voiding, or record a supplier return.")
+    return True, None
+
+
+def _reverse_stock(row, db: sqlite3.Connection, now: str) -> dict:
+    """Take the received goods back off the shelf. The mirror of _credit_stock.
+
+    Refuses rather than improvises: a receipt whose goods have moved on cannot
+    be reversed without inventing stock, and the check is made before a single
+    write so a refusal leaves nothing half-done.
+    """
+    purchase_id = row["id"]
+    if not row["stock_updated"] or not row["inventory_id"]:
+        return {"restocked": 0.0}
+
+    ok, why = _can_reverse(row, db)
+    if not ok:
+        raise HTTPException(409, why)
+
+    inventory_id = row["inventory_id"]
+    inv = db.execute("SELECT * FROM inventory WHERE id=?", (inventory_id,)).fetchone()
+    if not inv:
+        return {"restocked": 0.0}
+
+    qty        = float(row["quantity"] or 0)
+    qty_before = float(inv["quantity"] or 0)
+    qty_after  = round(qty_before - qty, 6)
+    # The landed cost this receipt came in at — goods plus its share of
+    # shipping and customs. Reversing at the item's CURRENT average would leave
+    # behind the difference between the two as a silent gain or loss.
+    lot_value     = float(row["unit_cost"] or 0) * qty + float(row["additional_costs"] or 0)
+    lot_unit_cost = round(lot_value / qty, 6) if qty > 0 else 0.0
+
+    # Order matters: draw the receipt's own layer down first, then un-blend the
+    # average, then move the quantity. `reverse_stock_in` recomputes unit_cost
+    # from the remaining LOTS for a lot-tracked item, so the un-blend below must
+    # not run for those or it would overwrite the authoritative figure.
+    tracked = lots.is_lot_tracked(db, inventory_id)
+    lots.reverse_stock_in(db, inventory_id, qty,
+                          source_type="purchase", source_ref=row["po_number"])
+    if not tracked:
+        costing.reverse_stock_in(db, inventory_id, qty_before=qty_before,
+                                 qty_out=qty, unit_cost_out=lot_unit_cost)
+    db.execute("UPDATE inventory SET quantity=? WHERE id=?", (qty_after, inventory_id))
+
+    wid = wha.default_warehouse_id_for_row(db, row["warehouse_id"])
+    wha.credit_warehouse_stock(db, inventory_id=inventory_id,
+                               warehouse_id=wid, delta=-qty)
+    db.execute(
+        "INSERT INTO stock_movements "
+        "(inventory_id, type, delta, qty_before, qty_after, reference, note, "
+        " warehouse_id, created_at) VALUES (?,?,?,?,?,?,?,?,?)",
+        (inventory_id, "purchase_void", -qty, qty_before, qty_after,
+         row["po_number"], "Purchase voided", wid, now))
+    # The claim is released, so the receipt cannot be credited a second time by
+    # a later status change replaying _credit_stock.
+    db.execute("UPDATE purchases SET stock_updated=0 WHERE id=?", (purchase_id,))
+    return {"restocked": qty, "unit_cost": lot_unit_cost}
+
 
 @router.patch("/{purchase_id}/archive")
 def archive_purchase(purchase_id: int, user=Depends(require_perm("purchases", "delete")),

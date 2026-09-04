@@ -2,7 +2,7 @@ import { usePersistedState } from '../hooks/usePersistedState';
 import { useState, useCallback, useEffect, useRef } from 'react';
 import {
   getPurchases, getPurchaseStats, createPurchase,
-  updatePurchase, updatePurchaseStatus, archivePurchase, unarchivePurchase,
+  updatePurchase, updatePurchaseStatus, voidPurchase, archivePurchase, unarchivePurchase,
   getInventory, getUsedCategories, getSuppliers,
 } from '../api/client';
 import {
@@ -286,6 +286,9 @@ export default function Purchases() {
   const [categoryFilter, setCategoryFilter] = usePersistedState('purchases.categoryFilter', '');
   const [supplierSearch, setSupplierSearch] = usePersistedState('purchases.supplierSearch', '');
   const [showArchived, setShowArchived] = usePersistedState('purchases.showArchived', false);
+  const [voidTarget, setVoidTarget] = useState(null);
+  const [voidReason, setVoidReason] = useState('');
+  const [voiding,    setVoiding]    = useState(false);
   const [restoreTarget, setRestoreTarget] = useState(null);
 
   const [modal,          setModal]          = useState(null);
@@ -372,6 +375,23 @@ export default function Purchases() {
       setModal(null);
       load();
     } catch (err) { toast(err.message, 'red'); }
+  }
+
+  async function handleVoid() {
+    setVoiding(true);
+    try {
+      await voidPurchase(voidTarget.id, voidReason || 'Voided');
+      toast(t('purchases.voided'), 'green');
+      setVoidTarget(null); setVoidReason('');
+      load();
+    } catch (err) {
+      // The server refuses with a 409 that says exactly how much of the receipt
+      // is left. That sentence is the whole answer, so show it rather than a
+      // generic failure the user would have to go and investigate.
+      toast(err.message || t('purchases.voidFailed'), 'red');
+    } finally {
+      setVoiding(false);
+    }
   }
 
   async function handleUnarchive() {
@@ -509,11 +529,16 @@ export default function Purchases() {
               <tbody>
                 {pagedPurchases.map(p => {
                   const isArchived = !!p.archived_at;
+                  const isVoided   = !!p.voided_at;
                   return (
-                  <tr key={p.id} className={isArchived ? 'row-archived' : undefined}>
+                  <tr key={p.id} className={isArchived || isVoided ? 'row-archived' : undefined}>
                     <td className="td-primary text-mono">
                       {p.po_number}
                       {isArchived && <span className="badge badge-gray" style={{ marginInlineStart: 8 }}>{t('common.archivedBadge')}</span>}
+                      {/* The row stays in the list so the history reads true —
+                          it is only the figures a void keeps it out of. */}
+                      {isVoided && <span className="badge badge-red" style={{ marginInlineStart: 8 }}
+                        title={p.void_reason || undefined}>{t('purchases.voidedBadge')}</span>}
                     </td>
                     <td className="td-primary">{p.supplier}</td>
                     <td>{p.product_name}</td>
@@ -525,13 +550,19 @@ export default function Purchases() {
                     <td>{p.quantity}</td>
                     <td>${fmtNum(p.unit_cost)}</td>
                     <td style={{ fontWeight: 600 }}>${fmtNum(p.total_cost)}</td>
-                    <td><StatusBadge status={p.status} /></td>
+                    <td>{isVoided
+                      ? <StatusBadge status="Void" />
+                      : <StatusBadge status={p.status} />}</td>
                     <td style={{ whiteSpace: 'nowrap' }}>{fmtDate(p.ordered_at)}</td>
                     <td>
                       <div style={{ display: 'flex', gap: 6 }}>
                         {isArchived ? (
                           <button className="btn btn-sm btn-secondary" style={{ color: '#166534', whiteSpace: 'nowrap' }}
                             onClick={() => setRestoreTarget(p)}><svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true"><polyline points="1 4 1 10 7 10"/><path d="M3.51 15a9 9 0 1 0 2.13-9.36L1 10"/></svg>{t('common.restore')}</button>
+                        ) : isVoided ? (
+                          <span style={{ color: 'var(--text-3)', fontSize: 12 }}>
+                            {p.void_reason || t('purchases.voidedBadge')}
+                          </span>
                         ) : (
                           <>
                             {p.status === 'Ordered' && (
@@ -551,6 +582,14 @@ export default function Purchases() {
                             {p.status === 'Paid' && (
                               <span style={{ color: 'var(--text-3)', fontSize: 12 }}>{t('purchases.completed')}</span>
                             )}
+                            {/* Offered whatever the status. An order voided
+                                before it arrived reverses nothing; one voided
+                                after takes the goods back off the shelf and
+                                mirrors the ledger entry. */}
+                            <button className="btn btn-sm btn-danger"
+                              onClick={() => { setVoidTarget(p); setVoidReason(''); }}>
+                              {t('purchases.void')}
+                            </button>
                           </>
                         )}
                       </div>
@@ -621,6 +660,42 @@ export default function Purchases() {
           onConfirm={handleUnarchive}
           onCancel={() => setRestoreTarget(null)}
         />
+      )}
+      {voidTarget && (
+        <Modal title={t('purchases.voidTitle')}
+          onClose={() => { setVoidTarget(null); setVoidReason(''); }}>
+          <div className="modal-body">
+            <div style={{
+              display: 'flex', gap: 10, padding: '12px 14px',
+              background: '#fef3c7', border: '1px solid #f59e0b',
+              borderRadius: 8, marginBottom: 16,
+            }}>
+              <span style={{ fontSize: 18 }}>&#9888;&#65039;</span>
+              <span style={{ fontSize: 13, color: '#78350f' }}>
+                {voidTarget.stock_updated
+                  ? t('purchases.voidWarningStock', {
+                      quantity: voidTarget.quantity,
+                      product: voidTarget.product_name,
+                    })
+                  : t('purchases.voidWarning')}
+              </span>
+            </div>
+            <div className="form-group">
+              <label className="form-label">{t('purchases.voidReason')}</label>
+              <input className="form-control" value={voidReason}
+                onChange={e => setVoidReason(e.target.value)} />
+            </div>
+          </div>
+          <div className="modal-footer">
+            <button className="btn btn-secondary"
+              onClick={() => { setVoidTarget(null); setVoidReason(''); }}>
+              {t('common.cancel')}
+            </button>
+            <button className="btn btn-danger" onClick={handleVoid} disabled={voiding}>
+              {voiding ? t('purchases.voiding') : t('purchases.void')}
+            </button>
+          </div>
+        </Modal>
       )}
     </div>
   );

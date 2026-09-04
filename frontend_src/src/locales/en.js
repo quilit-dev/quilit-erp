@@ -2273,6 +2273,20 @@ const en = {
     statsTotalSpent: 'Total Spent',
     receive: 'Receive',
     completed: 'Completed',
+    void: 'Void',
+    voiding: 'Voiding…',
+    voidTitle: 'Void Purchase',
+    voidedBadge: 'Void',
+    voided: 'Purchase voided',
+    voidFailed: 'Could not void this purchase',
+    voidReason: 'Reason for voiding',
+    voidWarning: 'Voiding a purchase keeps the record for audit but removes it '
+      + 'from every purchasing total. Nothing was received against this order, '
+      + 'so no stock or ledger entry changes.',
+    voidWarningStock: 'This will take {{quantity}} of {{product}} back off the '
+      + 'shelf, return the item’s average cost to what it was before the '
+      + 'receipt, and reverse the ledger entry with a mirror entry. The record '
+      + 'is kept for audit. It is refused if the goods have already been sold.',
     poCreated: 'Purchase order {{po}} created',
     purchaseUpdatedMsg: 'Purchase updated',
     markedAs: 'Marked as {{status}}',

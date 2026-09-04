@@ -156,7 +156,8 @@ def archive_supplier(
     if not row:
         raise HTTPException(404, "Supplier not found")
     active = db.execute(
-        "SELECT COUNT(*) FROM purchases WHERE supplier_id = ? AND archived_at IS NULL AND status NOT IN ('Paid')",
+        "SELECT COUNT(*) FROM purchases WHERE supplier_id = ? AND archived_at IS NULL "
+        "AND voided_at IS NULL AND status NOT IN ('Paid')",
         (supplier_id,),
     ).fetchone()[0]
     if active:

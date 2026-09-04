@@ -31,6 +31,9 @@ _DB = pathlib.Path(__file__).resolve().parents[1] / "database.py"
 # Columns on shared tables that BOTH backends must create. Add a row here
 # whenever a migration touches one of these tables.
 _REQUIRED = [
+    # A purchase can be reversed, the way an invoice can.
+    ("purchases", "voided_at"),
+    ("purchases", "void_reason"),
     ("invoice_items", "inventory_id"),
     ("invoice_items", "promotion_id"),
     ("invoice_items", "discount_pct"),

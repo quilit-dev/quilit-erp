@@ -181,6 +181,84 @@ def blend_stock_in(db: sqlite3.Connection, inventory_id: int, *,
     return new_cost
 
 
+def reverse_stock_in(db: sqlite3.Connection, inventory_id: int, *,
+                     qty_before: float, qty_out: float, unit_cost_out: float):
+    """Un-blend `inventory.unit_cost` for stock being taken back out.
+
+    The exact inverse of `blend_stock_in`: a voided receipt removes the value it
+    added, leaving the average the item had before it landed — not today's
+    average, which that receipt itself moved. Removing the quantity without
+    removing its value would re-price what remains using goods no longer there.
+
+    Returns the new unit cost, or None when there was nothing to reverse.
+    """
+    qty_out = float(qty_out or 0)
+    if qty_out <= _EPS:
+        return None
+    row = db.execute("SELECT unit_cost FROM inventory WHERE id=?",
+                     (inventory_id,)).fetchone()
+    if row is None:
+        return None
+    old_cost = float(row["unit_cost"] or 0)
+    qty_before = float(qty_before or 0)
+    qty_after = round(qty_before - qty_out, 6)
+    # Nothing left to carry a cost. Keep the last known figure rather than
+    # dividing by zero — what `_recompute_unit_cost` does when the layers run
+    # out, so an item at zero stock still values its next movement.
+    if qty_after <= _EPS:
+        return old_cost
+    value_after = qty_before * old_cost - qty_out * float(unit_cost_out or 0)
+    # A negative valuation means the average and the receipt disagree about
+    # history — legacy stock, or a cost edited underneath. Leave the average
+    # alone rather than writing a negative cost that would spread into COGS.
+    if value_after < 0:
+        return old_cost
+    new_cost = round(value_after / qty_after, 6)
+    db.execute("UPDATE inventory SET unit_cost=? WHERE id=?",
+               (new_cost, inventory_id))
+    return new_cost
+
+
+def layer_remaining(db: sqlite3.Connection, inventory_id: int,
+                    source_type: str, source_ref) -> float:
+    """How much of ONE receipt's own cost layer is still on the shelf.
+
+    Under FIFO/LIFO a receipt is a layer of its own, so "are these particular
+    goods still here?" has an exact answer. That is what makes reversing a
+    specific receipt safe rather than a guess.
+    """
+    row = db.execute(
+        "SELECT COALESCE(SUM(qty_remaining), 0) AS q FROM inventory_cost_layers "
+        "WHERE inventory_id=? AND source_type=? AND source_ref=?",
+        (inventory_id, source_type, str(source_ref))).fetchone()
+    return round(float(row["q"] or 0), 6) if row else 0.0
+
+
+def draw_layer(db: sqlite3.Connection, inventory_id: int, qty: float,
+               source_type: str, source_ref) -> float:
+    """Remove `qty` from a NAMED receipt's own layer. Returns what it could not.
+
+    Not `consume`, which draws in the method's own order. Reversing a receipt
+    has to take back the units that receipt brought in, wherever they sit in the
+    queue, or the layer left behind describes goods that are gone.
+    """
+    remaining = float(qty or 0)
+    rows = db.execute(
+        "SELECT id, qty_remaining FROM inventory_cost_layers "
+        "WHERE inventory_id=? AND source_type=? AND source_ref=? "
+        "AND qty_remaining > ? ORDER BY id",
+        (inventory_id, source_type, str(source_ref), _EPS)).fetchall()
+    for lyr in rows:
+        if remaining <= _EPS:
+            break
+        take = min(float(lyr["qty_remaining"]), remaining)
+        db.execute(
+            "UPDATE inventory_cost_layers SET qty_remaining = qty_remaining - ? "
+            "WHERE id=?", (take, lyr["id"]))
+        remaining -= take
+    return round(max(remaining, 0.0), 6)
+
+
 def rebase_layers(db: sqlite3.Connection, now: str) -> None:
     """Reset cost layers to a single opening layer per item, valued at the
     item's current `unit_cost`. Called when the method is switched to fifo/lifo

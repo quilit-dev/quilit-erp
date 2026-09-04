@@ -4048,6 +4048,18 @@ def _run_migrations(conn, c):
                   "WHERE COALESCE(allow_installments, 0) = 0")
         done("159b_installments_backfill")
 
+    # ── 171: a purchase can be taken back ────────────────────────────────
+    # A purchase received in error had no way out. Archiving hid the row and
+    # left the stock on the shelf and the money in the ledger; editing it was
+    # refused once received, correctly, because the goods and the entry had
+    # already moved. So the only remedy was a hand-typed stock adjustment plus
+    # a manual journal, done from memory, with nothing tying the two together.
+    # `voided_at` gives a purchase the same reversal an invoice has.
+    add_col("171_purchase_void", "purchases", "voided_at",
+            "ALTER TABLE purchases ADD COLUMN voided_at TEXT DEFAULT NULL")
+    add_col("171a_purchase_void_reason", "purchases", "void_reason",
+            "ALTER TABLE purchases ADD COLUMN void_reason TEXT DEFAULT NULL")
+
     # Last, after every migration that might have added an account: if this
     # tenant is on a statutory chart, anything not on it is retired. Migrations
     # insert accounts ACTIVE, which on such a tenant means a default-chart code
@@ -4787,6 +4799,11 @@ def _ensure_pg_post_baseline(raw):
                     "bank_account_id INTEGER")
         cur.execute("ALTER TABLE customer_payments ADD COLUMN IF NOT EXISTS "
                     "bank_account_id INTEGER")
+        # 171: a purchase can be taken back, the way an invoice can.
+        cur.execute("ALTER TABLE purchases ADD COLUMN IF NOT EXISTS "
+                    "voided_at TEXT")
+        cur.execute("ALTER TABLE purchases ADD COLUMN IF NOT EXISTS "
+                    "void_reason TEXT")
         # 166: how a supplier and a payroll were paid.
         cur.execute("ALTER TABLE purchases ADD COLUMN IF NOT EXISTS "
                     "payment_method TEXT")

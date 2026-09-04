@@ -271,15 +271,18 @@ def _quotations(db, start, end):
 def _purchases(db, start, end):
     """Who the money goes to, and what was ordered and never received."""
     span = (start, end + " 23:59:59")
+    # Voided purchases are excluded throughout: money that was taken back is
+    # not money spent, and a voided order is not one anybody is still waiting on.
     spend = _one(db, "SELECT COALESCE(SUM(quantity * unit_cost + "
                      "COALESCE(additional_costs,0)),0) FROM purchases "
                      "WHERE deleted_at IS NULL AND archived_at IS NULL "
+                     "AND voided_at IS NULL "
                      "AND ordered_at >= ? AND ordered_at <= ?", span)
     top = _rows(db, """
         SELECT supplier AS name,
                COALESCE(SUM(quantity * unit_cost + COALESCE(additional_costs,0)),0) AS total
           FROM purchases
-         WHERE deleted_at IS NULL AND archived_at IS NULL
+         WHERE deleted_at IS NULL AND archived_at IS NULL AND voided_at IS NULL
            AND ordered_at >= ? AND ordered_at <= ? AND supplier IS NOT NULL
          GROUP BY supplier ORDER BY total DESC LIMIT 1""", span)
 
@@ -288,7 +291,7 @@ def _purchases(db, start, end):
         SELECT COUNT(*) AS n,
                COALESCE(SUM(quantity * unit_cost + COALESCE(additional_costs,0)),0) AS value
           FROM purchases
-         WHERE deleted_at IS NULL AND archived_at IS NULL
+         WHERE deleted_at IS NULL AND archived_at IS NULL AND voided_at IS NULL
            AND status = 'Ordered' AND ordered_at < ?""", (cutoff,))
     return {
         "spend": round(float(spend), 2),

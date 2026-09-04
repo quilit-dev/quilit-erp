@@ -150,6 +150,63 @@ def record_stock_in(db, inventory_id, qty, unit_cost, *, source_type, source_ref
     return None
 
 
+def remaining_from(db, inventory_id, *, source_type, source_ref):
+    """How much of one stock-IN is still on the shelf, or None when nothing can
+    say.
+
+    A lot-tracked item answers from its lot, and a FIFO/LIFO item from its cost
+    layer. Under weighted_avg there is neither: the receipt was blended into a
+    single average the moment it landed, and no record survives of which units
+    came from where. The caller has to fall back to the quantity on hand, which
+    is a weaker guarantee, and that is a property of the method rather than
+    something this can paper over.
+    """
+    if is_lot_tracked(db, inventory_id):
+        row = db.execute(
+            "SELECT COALESCE(SUM(quantity_remaining), 0) AS q FROM inventory_lots "
+            "WHERE inventory_id=? AND source_type=? AND source_ref=?",
+            (inventory_id, source_type, str(source_ref))).fetchone()
+        return round(float(row["q"] or 0), 6) if row else 0.0
+    import costing
+    if costing.get_method(db) not in ("fifo", "lifo"):
+        return None
+    return costing.layer_remaining(db, inventory_id, source_type, source_ref)
+
+
+def reverse_stock_in(db, inventory_id, qty, *, source_type, source_ref):
+    """Take back what one stock-IN brought in — the mirror of record_stock_in.
+
+    Draws down that receipt's own lot or cost layer, never the method's queue:
+    the units being reversed are the ones that arrived, not the ones that would
+    be sold next. Returns the quantity it could NOT take back, which is zero
+    whenever the receipt was still intact.
+    """
+    qty = float(qty or 0)
+    if qty <= _EPS:
+        return 0.0
+    if is_lot_tracked(db, inventory_id):
+        remaining = qty
+        rows = db.execute(
+            "SELECT id, quantity_remaining FROM inventory_lots "
+            "WHERE inventory_id=? AND source_type=? AND source_ref=? "
+            "AND quantity_remaining > ? ORDER BY id",
+            (inventory_id, source_type, str(source_ref), _EPS)).fetchall()
+        for lot in rows:
+            if remaining <= _EPS:
+                break
+            take = min(float(lot["quantity_remaining"]), remaining)
+            db.execute(
+                "UPDATE inventory_lots SET quantity_remaining = quantity_remaining - ? "
+                "WHERE id=?", (take, lot["id"]))
+            remaining -= take
+        _recompute_unit_cost(db, inventory_id)
+        return round(max(remaining, 0.0), 6)
+    import costing
+    if costing.get_method(db) not in ("fifo", "lifo"):
+        return 0.0
+    return costing.draw_layer(db, inventory_id, qty, source_type, source_ref)
+
+
 def value_stock_out(db, inventory_id, qty, *, source_type, source_ref, now,
                     production_order_id=None):
     """Stock-OUT COGS: lot-tracked items draw lots FEFO; others use the
