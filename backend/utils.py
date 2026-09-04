@@ -75,6 +75,20 @@ def get_setting(db, key: str, default=None):
 _TWO_PLACES = Decimal("0.01")
 
 
+def summarise_lines(first_name, count) -> str:
+    """Name a document that has several lines: "Bolts (+3 more)".
+
+    One phrase, used by the purchase list, the search index, the expense
+    description and the receipt notification, so a multi-line order reads the
+    same wherever it is named. Its Arabic counterpart lives in the locale
+    files; this only ever produces the English "+N more", which is why the
+    notification passes the WHOLE phrase as a parameter rather than the raw
+    name — the Arabic template interpolates it as an opaque value.
+    """
+    first_name = first_name or "Item"
+    return f"{first_name} (+{count - 1} more)" if count and count > 1 else first_name
+
+
 def money(v) -> float:
     """Round a money amount to 2 dp using bankers'-tax half-up. Use this
     whenever a computed amount is about to be stored or summed into a header

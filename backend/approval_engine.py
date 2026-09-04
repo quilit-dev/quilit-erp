@@ -496,12 +496,20 @@ MODULE_REGISTRY = {
         "label": "Purchase Order",
         "table": "purchases",
         "status_column": "status",
+        # A purchase is a document with lines, so two of these changed
+        # meaning: `quantity` is the total across the lines, and `category` is
+        # the distinct set on the order, comma-joined. A rule reading
+        # `category == "Materials"` therefore stops matching a MIXED order —
+        # which is honest, but it is a policy quietly not firing, so it is
+        # called out in the release notes. `line_count` is offered so an
+        # approver can require review of anything with several lines.
         "fields": [
-            {"key": "total_cost", "label": "Total Cost", "type": "number"},
-            {"key": "quantity",   "label": "Quantity",   "type": "number"},
-            {"key": "supplier",   "label": "Supplier",   "type": "text"},
-            {"key": "category",   "label": "Category",   "type": "text"},
-            {"key": "status",     "label": "Status",     "type": "text"},
+            {"key": "total_cost", "label": "Total Cost",   "type": "number"},
+            {"key": "quantity",   "label": "Total Units",  "type": "number"},
+            {"key": "line_count", "label": "Line Count",   "type": "number"},
+            {"key": "supplier",   "label": "Supplier",     "type": "text"},
+            {"key": "category",   "label": "Category",     "type": "text"},
+            {"key": "status",     "label": "Status",       "type": "text"},
         ],
         "actions": {
             "create": {"approved": "Ordered", "rejected": "Cancelled"},

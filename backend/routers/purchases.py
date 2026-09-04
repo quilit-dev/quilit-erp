@@ -5,7 +5,8 @@ from database import get_db
 from permissions import require_perm
 import commitments
 from routers.audit import log_action
-from utils import _now, notify, get_tax_context, resolve_purchase_tax, money, validate_int_qty
+from utils import (_now, notify, get_tax_context, resolve_purchase_tax, money,
+                   summarise_lines as _summarise, validate_int_qty)
 from approval_engine import evaluate_and_apply
 import branch_access
 import costing
@@ -109,9 +110,21 @@ def next_po_number(db):
     year = datetime.utcnow().year
     return f"PO-{year}-{n:04d}"
 
-def _total_cost(quantity, unit_cost, additional_costs):
-    """Pre-tax cost: goods value plus additional (shipping, handling) costs."""
-    return money(float(quantity) * float(unit_cost) + float(additional_costs))
+def _doc_total(row):
+    """A purchase's pre-tax cost: its lines, plus the delivery's own charges.
+
+    `subtotal` is maintained from the lines by `_recalc_totals` and is the only
+    figure the money aggregates read. They GROUP BY over `purchases`, and
+    joining the lines into those queries would turn COUNT(purchases.id) into a
+    count of LINES — a fan-out that shows up as a wrong number with nothing
+    failing.
+    """
+    return money(float(row["subtotal"] or 0) + float(row["additional_costs"] or 0))
+
+
+def _doc_grand_total(row):
+    """...and with the VAT the lines carry."""
+    return money(_doc_total(row) + float(row["tax_total"] or 0))
 
 def _line_net(quantity, unit_cost, discount=0) -> float:
     """What a line is worth before tax: goods value less its own discount.
@@ -289,9 +302,7 @@ def _sync_legacy_header(db, purchase_id):
     first = lines[0]
     qty = money(sum(float(l["quantity"] or 0) for l in lines))
     sub = money(sum(float(l["line_total"] or 0) for l in lines))
-    name = first["product_name"]
-    if len(lines) > 1:
-        name = f"{name} (+{len(lines) - 1} more)"
+    name = _summarise(first["product_name"], len(lines))
     db.execute(
         "UPDATE purchases SET inventory_id=?, product_name=?, category=?, "
         " quantity=?, unit_cost=?, tax_rate_id=?, tax_rate=?, tax_amount=? WHERE id=?",
@@ -334,8 +345,8 @@ def list_purchases(status: Optional[str] = None, supplier: Optional[str] = None,
     result = []
     for r in rows:
         d = dict(r)
-        d["total_cost"]  = _total_cost(d["quantity"], d["unit_cost"], d["additional_costs"])
-        d["grand_total"] = money(d["total_cost"] + float(d.get("tax_amount") or 0))
+        d["total_cost"]  = _doc_total(r)
+        d["grand_total"] = _doc_grand_total(r)
         result.append(d)
     return result
 
@@ -352,13 +363,10 @@ def purchase_stats(user=Depends(require_perm("purchases", "view")), db: sqlite3.
     ).fetchall()
     stats = {r["status"]: r["count"] for r in rows}
     paid_rows = db.execute(
-        "SELECT quantity, unit_cost, additional_costs, tax_amount FROM purchases "
+        "SELECT subtotal, additional_costs, tax_total FROM purchases "
         "WHERE status='Paid' AND archived_at IS NULL AND voided_at IS NULL" + bf, bp
     ).fetchall()
-    total_spent = money(sum(
-        _total_cost(r["quantity"], r["unit_cost"], r["additional_costs"]) + float(r["tax_amount"] or 0)
-        for r in paid_rows
-    ))
+    total_spent = money(sum(_doc_grand_total(r) for r in paid_rows))
     return {
         "ordered":     stats.get("Ordered", 0),
         "received":    stats.get("Received", 0),
@@ -377,8 +385,10 @@ def get_purchase(purchase_id: int, user=Depends(require_perm("purchases", "view"
         raise HTTPException(404, "Purchase not found")
     branch_access.assert_can_view_branch(user, db, row["warehouse_id"])
     d = dict(row)
-    d["total_cost"]  = _total_cost(d["quantity"], d["unit_cost"], d["additional_costs"])
-    d["grand_total"] = money(d["total_cost"] + float(d.get("tax_amount") or 0))
+    d["total_cost"]  = _doc_total(row)
+    d["grand_total"] = _doc_grand_total(row)
+    # The lines are the document. A caller opening one purchase wants them.
+    d["items"] = [dict(l) for l in _lines_of(db, purchase_id)]
     return d
 
 @router.post("/")
@@ -562,12 +572,19 @@ def update_status(purchase_id: int, data: StatusUpdate,
         db.execute("UPDATE purchases SET status=? WHERE id=?", (data.status, purchase_id))
 
     if data.status == "Received":
-        total_val = round(float(row["quantity"]) * float(row["unit_cost"]) + float(row["additional_costs"]), 2)
+        # Re-read: the totals and the lines are what arrived, and `row` was
+        # loaded before the receipt ran.
+        got = db.execute("SELECT * FROM purchases WHERE id=?", (purchase_id,)).fetchone()
+        got_lines = _lines_of(db, purchase_id)
+        total_val = _doc_total(got)
+        product = _summarise(got_lines[0]["product_name"] if got_lines else got["product_name"],
+                             len(got_lines))
+        qty = money(sum(float(l["quantity"] or 0) for l in got_lines))
         notify(db, type="purchase_received",
                title=f"Purchase order {row['po_number']} received",
-               body=f"{row['product_name']} from {row['supplier']} — {row['quantity']} units, ${total_val:,.2f}",
-               msg="purchase_received", params={"po": row["po_number"], "product": row["product_name"],
-                                                "supplier": row["supplier"], "qty": row["quantity"],
+               body=f"{product} from {row['supplier']} — {qty:g} units, ${total_val:,.2f}",
+               msg="purchase_received", params={"po": row["po_number"], "product": product,
+                                                "supplier": row["supplier"], "qty": qty,
                                                 "total": float(total_val)},
                link=f"/purchases", entity_type="purchase", entity_id=purchase_id)
     log_action(db, user, "status_change", "purchase", purchase_id,
@@ -687,8 +704,11 @@ def _record_expense(purchase_id: int, db: sqlite3.Connection):
     row = db.execute("SELECT * FROM purchases WHERE id = ? AND archived_at IS NULL", (purchase_id,)).fetchone()
     if not row or row["expense_recorded"]:
         return
-    base    = _total_cost(row["quantity"], row["unit_cost"], row["additional_costs"])
-    tax_amt = float(row["tax_amount"] or 0)
+    lines   = _lines_of(db, purchase_id)
+    add     = float(row["additional_costs"] or 0)
+    net     = money(sum(float(l["line_total"] or 0) for l in lines))
+    tax_amt = money(sum(float(l["tax_amount"] or 0) for l in lines))
+    base    = money(net + add)
     gross   = money(base + tax_amt)   # expense amount is the tax-inclusive cost
     now = _now()
     # A purchase that cost nothing still brings goods in — free samples, a
@@ -705,12 +725,42 @@ def _record_expense(purchase_id: int, db: sqlite3.Connection):
         db.execute("UPDATE purchases SET expense_recorded = 1 WHERE id = ?",
                    (purchase_id,))
         return
-    exp_cur = db.execute(
-        "INSERT INTO expenses (category, description, amount, date, created_at, "
-        " tax_rate_id, tax_rate, tax_amount) VALUES (?,?,?,date('now'),?,?,?,?)",
-        ("Purchase", f"{row['po_number']} – {row['product_name']} from {row['supplier']}",
-         gross, now, row["tax_rate_id"], row["tax_rate"] or 0, tax_amt)
-    )
+    # ONE EXPENSE ROW PER VAT RATE, not one per purchase.
+    #
+    # The VAT return groups input tax by `expenses.tax_rate` (see
+    # routers/reports.py). A single row carries a single rate snapshot, so the
+    # moment one delivery mixes a standard-rated item with a zero-rated one,
+    # that row cannot describe both — and the per-rate table on the return goes
+    # wrong while the headline total still balances, which is the kind of error
+    # nobody notices until an auditor does.
+    #
+    # Shipping is outside the taxable base in this model, so it is its own
+    # zero-rated row rather than being folded into a rated one, where it would
+    # overstate that rate's base.
+    #
+    # Every description still opens with the PO number and a space, which is
+    # how voiding finds them all (`LIKE '<po> %'`, no LIMIT).
+    groups = {}
+    for l in lines:
+        key = (l["tax_rate_id"], money(l["tax_rate"] or 0))
+        g = groups.setdefault(key, {"net": 0.0, "tax": 0.0})
+        g["net"] += float(l["line_total"] or 0)
+        g["tax"] += float(l["tax_amount"] or 0)
+    if add:
+        g = groups.setdefault((None, 0.0), {"net": 0.0, "tax": 0.0})
+        g["net"] += add
+
+    label = _summarise(lines[0]["product_name"] if lines else row["product_name"],
+                       len(lines))
+    for (t_rid, t_rate), g in groups.items():
+        amount = money(g["net"] + g["tax"])
+        if amount <= 0:
+            continue
+        db.execute(
+            "INSERT INTO expenses (category, description, amount, date, created_at, "
+            " tax_rate_id, tax_rate, tax_amount) VALUES (?,?,?,date('now'),?,?,?,?)",
+            ("Purchase", f"{row['po_number']} – {label} from {row['supplier']}",
+             amount, now, t_rid, t_rate, money(g["tax"])))
     db.execute("UPDATE purchases SET expense_recorded = 1 WHERE id = ?", (purchase_id,))
     # Auto-post to the General Ledger (F-2 audit fix — perpetual inventory).
     # Inventory is debited at the EX-VAT landed cost — the same value the cost
@@ -749,7 +799,7 @@ def _record_expense(purchase_id: int, db: sqlite3.Connection):
     accounting.post_entry(
         db,
         entry_date=now[:10],
-        memo=f"Purchase {row['po_number']} — {row['product_name']}",
+        memo=f"Purchase {row['po_number']} — {label}",
         lines=lines,
         source_type="purchase", source_id=purchase_id, created_by=None,
         branch_id=row["warehouse_id"],
@@ -1025,6 +1075,6 @@ def supplier_history(supplier_name: str, user=Depends(require_perm("purchases", 
     result = []
     for r in rows:
         d = dict(r)
-        d["total_cost"] = _total_cost(d["quantity"], d["unit_cost"], d["additional_costs"])
+        d["total_cost"] = _doc_total(r)
         result.append(d)
     return result

@@ -34,8 +34,11 @@ def list_suppliers(
     query = """
         SELECT s.*,
                COUNT(p.id)              AS purchase_count,
+               -- Read off the header, never a join to purchase_items: this
+               -- SELECT also does COUNT(p.id), and a join would turn that into
+               -- a count of LINES rather than of orders.
                COALESCE(SUM(
-                 (p.quantity * p.unit_cost) + COALESCE(p.additional_costs, 0)
+                 COALESCE(p.subtotal, 0) + COALESCE(p.additional_costs, 0)
                ), 0)                   AS total_spend
         FROM suppliers s
         LEFT JOIN purchases p ON (
@@ -79,8 +82,11 @@ def get_supplier(
         (supplier_id, row["name"]),
     ).fetchall()
 
+    # From the document's own total, maintained from its lines. A purchase is
+    # no longer one item, so quantity x unit_cost on the header is not what it
+    # cost.
     total_spend = sum(
-        (r["quantity"] * r["unit_cost"]) + (r["additional_costs"] or 0)
+        float(r["subtotal"] or 0) + float(r["additional_costs"] or 0)
         for r in purchases
     )
 

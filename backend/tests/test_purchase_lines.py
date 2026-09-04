@@ -19,6 +19,7 @@ Three properties carry the change, and each is silent when it breaks:
     receipt loop which reads the stock level once.
 """
 import uuid
+from contextlib import contextmanager
 
 import pytest
 
@@ -63,6 +64,29 @@ def _lines(db, pid):
 
 def _head(db, pid):
     return db.execute("SELECT * FROM purchases WHERE id=?", (pid,)).fetchone()
+
+
+@contextmanager
+def _tax_on(c):
+    """VAT is off in a fresh database, and the suite shares one — so it is
+    switched on for the test that needs it and switched back afterwards."""
+    c.put("/api/settings/", json={"tax_enabled": "1", "default_tax_rate": "11.0"})
+    try:
+        yield
+    finally:
+        c.put("/api/settings/", json={"tax_enabled": "0"})
+
+
+def _two_rates(c):
+    """A taxed rate and a zero rate. A line with NO rate falls back to the
+    company default, which is right but makes every line share one group."""
+    body = c.get("/api/tax-rates/").json()
+    rates = body if isinstance(body, list) else body.get("items", [])
+    taxed = next((r for r in rates if float(r.get("rate") or 0) > 0), None)
+    zero  = next((r for r in rates if float(r.get("rate") or 0) == 0), None)
+    if not taxed or not zero:
+        pytest.skip("this build has no taxed and zero-rated pair to compare")
+    return taxed, zero
 
 
 def _gl(c, code):
@@ -371,3 +395,127 @@ def test_apportion_is_exact_and_weighted():
     assert sum(_apportion(9, [0, 0, 0])) == pytest.approx(9.0, abs=1e-9)
     # The residue goes to the largest line, so it is least visible per unit.
     assert _apportion(10, [1, 1, 1])[0] == pytest.approx(3.34)
+
+
+# ── what the readers see ────────────────────────────────────────────────────
+def test_input_vat_is_recorded_per_rate(make_client, db):
+    """The trap a single expense row per purchase would have hidden.
+
+    The VAT return groups input tax by `expenses.tax_rate`. One row carries one
+    rate, so a delivery mixing a standard-rated item with a zero-rated one
+    cannot be described by it — and the per-rate table goes wrong while the
+    headline total still balances, which is the kind of error an auditor finds
+    rather than a user.
+    """
+    c = make_client("superadmin")
+    taxed, zero = _two_rates(c)
+
+    a, b = _item(c, "PL VAT A"), _item(c, "PL VAT B")
+    with _tax_on(c):
+        pid = _po(c, [_line(a, 10, 10, tax_rate_id=taxed["id"]),
+                      _line(b, 10, 10, tax_rate_id=zero["id"])])
+
+    rows = db.execute(
+        "SELECT tax_rate, amount, tax_amount FROM expenses "
+        "WHERE category='Purchase' AND description LIKE ? ORDER BY tax_rate",
+        (f"{_head(db, pid)['po_number']} %",)).fetchall()
+    assert len(rows) == 2, "both rates need their own row for the VAT return"
+    by_rate = {round(float(r["tax_rate"]), 4): r for r in rows}
+    assert 0.0 in by_rate, "the zero-rated goods lost their own row"
+    assert float(by_rate[0.0]["tax_amount"]) == pytest.approx(0.0)
+    rated = by_rate[round(float(taxed["rate"]), 4)]
+    assert float(rated["tax_amount"]) > 0
+
+    # And together they still describe the whole purchase.
+    head = _head(db, pid)
+    assert sum(float(r["amount"]) for r in rows) == pytest.approx(
+        head["subtotal"] + head["tax_total"], abs=0.01)
+
+
+def test_shipping_is_recorded_untaxed(make_client, db):
+    """Freight is outside the taxable base, so it gets its own zero-rated row
+    rather than inflating a rated one's base."""
+    c = make_client("superadmin")
+    taxed, _zero = _two_rates(c)
+
+    a = _item(c, "PL VAT Ship")
+    with _tax_on(c):
+        pid = _po(c, [_line(a, 10, 10, tax_rate_id=taxed["id"])], shipping=25)
+
+    rows = db.execute(
+        "SELECT tax_rate, amount, tax_amount FROM expenses "
+        "WHERE category='Purchase' AND description LIKE ?",
+        (f"{_head(db, pid)['po_number']} %",)).fetchall()
+    zero = [r for r in rows if round(float(r["tax_rate"]), 4) == 0.0]
+    assert zero and float(zero[0]["amount"]) == pytest.approx(25.0)
+
+
+def test_the_ledger_still_balances_across_rates(make_client, db):
+    c = make_client("superadmin")
+    a, b = _item(c, "PL GL A"), _item(c, "PL GL B")
+    gl0 = _gl(c, "1200")
+    _po(c, [_line(a, 10, 10), _line(b, 5, 4)], shipping=10)
+
+    tb = c.get("/api/accounting/trial-balance").json()
+    assert tb["balanced"]
+    # Inventory is debited at the ex-VAT landed value: 100 + 20 goods + 10 freight.
+    assert _gl(c, "1200") - gl0 == pytest.approx(130.0, abs=0.01)
+
+
+def test_the_supplier_total_counts_orders_not_lines(make_client, db):
+    """A join to the lines would turn COUNT(purchases.id) into a line count."""
+    c = make_client("superadmin")
+    name = f"Fan {uuid.uuid4().hex[:6]}"
+    s = c.post("/api/suppliers/", json={"name": name})
+    assert s.status_code in (200, 201), s.text
+    a, b = _item(c, "PL S A"), _item(c, "PL S B")
+    r = c.post("/api/purchases/", json={
+        "supplier": name, "supplier_id": s.json()["id"],
+        "items": [_line(a, 10, 10), _line(b, 10, 10)],
+        "additional_costs": 0, "status": "Paid"})
+    assert r.status_code in (200, 201), r.text
+
+    row = next(x for x in c.get("/api/suppliers/").json() if x["name"] == name)
+    assert row["purchase_count"] == 1, "one order, however many lines"
+    assert row["total_spend"] == pytest.approx(200.0)
+
+
+def test_the_search_returns_one_hit_per_order(make_client, db):
+    """Without GROUP BY, a five-line order returns five hits and eats the limit."""
+    c = make_client("superadmin")
+    tag = f"Srch{uuid.uuid4().hex[:6]}"
+    a, b = _item(c, "PL Q A"), _item(c, "PL Q B")
+    _po(c, [dict(_line(a, 1, 1), product_name=tag),
+            dict(_line(b, 1, 1), product_name=tag)], status="Ordered")
+
+    res = c.get("/api/search/", params={"q": tag}).json()
+    hits = [x for x in (res if isinstance(res, list) else res.get("results", []))
+            if x.get("type") == "purchase"]
+    assert len(hits) == 1, f"one document, one hit: {hits}"
+    assert "more" in hits[0]["subtitle"], "it should say there are other lines"
+
+
+def test_a_line_product_finds_the_order(make_client, db):
+    """The product is on the line now, so the index has to reach it."""
+    c = make_client("superadmin")
+    tag = f"Deep{uuid.uuid4().hex[:6]}"
+    a, b = _item(c, "PL D A"), _item(c, "PL D B")
+    _po(c, [_line(a, 1, 1), dict(_line(b, 1, 1), product_name=tag)], status="Ordered")
+
+    res = c.get("/api/search/", params={"q": tag}).json()
+    hits = [x for x in (res if isinstance(res, list) else res.get("results", []))
+            if x.get("type") == "purchase"]
+    assert len(hits) == 1, "a product on the second line did not find its order"
+
+
+def test_the_list_and_detail_report_the_document(make_client, db):
+    c = make_client("superadmin")
+    a, b = _item(c, "PL L A"), _item(c, "PL L B")
+    pid = _po(c, [_line(a, 2, 10), _line(b, 3, 10)], shipping=5)
+
+    body = c.get(f"/api/purchases/{pid}").json()
+    assert body["total_cost"] == pytest.approx(55.0)       # 20 + 30 + 5
+    assert len(body["items"]) == 2, "the detail should carry its lines"
+
+    row = next(p for p in c.get("/api/purchases/").json() if p["id"] == pid)
+    assert row["total_cost"] == pytest.approx(55.0)

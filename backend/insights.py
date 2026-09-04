@@ -273,14 +273,17 @@ def _purchases(db, start, end):
     span = (start, end + " 23:59:59")
     # Voided purchases are excluded throughout: money that was taken back is
     # not money spent, and a voided order is not one anybody is still waiting on.
-    spend = _one(db, "SELECT COALESCE(SUM(quantity * unit_cost + "
+    # `subtotal` is the sum of the order's lines, maintained on the header so
+    # these stay single-table: a join to purchase_items would fan the GROUP BY
+    # out over lines instead of orders.
+    spend = _one(db, "SELECT COALESCE(SUM(COALESCE(subtotal,0) + "
                      "COALESCE(additional_costs,0)),0) FROM purchases "
                      "WHERE deleted_at IS NULL AND archived_at IS NULL "
                      "AND voided_at IS NULL "
                      "AND ordered_at >= ? AND ordered_at <= ?", span)
     top = _rows(db, """
         SELECT supplier AS name,
-               COALESCE(SUM(quantity * unit_cost + COALESCE(additional_costs,0)),0) AS total
+               COALESCE(SUM(COALESCE(subtotal,0) + COALESCE(additional_costs,0)),0) AS total
           FROM purchases
          WHERE deleted_at IS NULL AND archived_at IS NULL AND voided_at IS NULL
            AND ordered_at >= ? AND ordered_at <= ? AND supplier IS NOT NULL
@@ -289,7 +292,7 @@ def _purchases(db, start, end):
     cutoff = (date.today() - timedelta(days=PO_STUCK_DAYS)).isoformat()
     stuck = _rows(db, """
         SELECT COUNT(*) AS n,
-               COALESCE(SUM(quantity * unit_cost + COALESCE(additional_costs,0)),0) AS value
+               COALESCE(SUM(COALESCE(subtotal,0) + COALESCE(additional_costs,0)),0) AS value
           FROM purchases
          WHERE deleted_at IS NULL AND archived_at IS NULL AND voided_at IS NULL
            AND status = 'Ordered' AND ordered_at < ?""", (cutoff,))

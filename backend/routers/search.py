@@ -19,6 +19,7 @@ import logging
 from fastapi import APIRouter, Depends, Query
 from database import get_db
 from permissions import require_auth, can_view as permissions_can_view
+from utils import summarise_lines as _summarise
 import branch_access
 import sqlite3
 
@@ -184,16 +185,25 @@ def search_all(
 
     # ── Purchases ─────────────────────────────────────────────────────────
     if _can(user, db, "purchases"):
+        # A purchase is a document with lines, and a product on any line
+        # should find it. GROUP BY the document, or a five-line order returns
+        # five identical hits and eats the whole LIMIT.
         run(
-            "SELECT id, po_number, product_name, supplier, status, category FROM purchases"
-            " WHERE deleted_at IS NULL AND ("
-            "   po_number LIKE ? OR product_name LIKE ? OR supplier LIKE ?"
-            "   OR category LIKE ? OR notes LIKE ? OR status LIKE ?)"
+            "SELECT p.id, p.po_number, p.supplier, p.status,"
+            "       MIN(pi.product_name) AS product_name,"
+            "       COUNT(pi.id)         AS line_count"
+            "  FROM purchases p LEFT JOIN purchase_items pi ON pi.purchase_id = p.id"
+            " WHERE p.deleted_at IS NULL AND ("
+            "   p.po_number LIKE ? OR p.supplier LIKE ? OR p.notes LIKE ?"
+            "   OR p.status LIKE ? OR pi.product_name LIKE ? OR pi.category LIKE ?)"
+            " GROUP BY p.id, p.po_number, p.supplier, p.status"
             " LIMIT ?",
             (term, term, term, term, term, term, limit),
             lambda r: {
                 "id": r["id"], "type": "purchase", "title": r["po_number"],
-                "subtitle": _join(r["product_name"], r["supplier"], r["status"]),
+                "subtitle": _join(
+                    _summarise(r["product_name"], r["line_count"]),
+                    r["supplier"], r["status"]),
                 "url": f"/purchases?focus={r['id']}",
             },
         )
