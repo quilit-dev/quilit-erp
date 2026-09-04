@@ -2275,7 +2275,7 @@ const en = {
     itemsLabel: 'Items',
     addLine: 'Add item',
     removeLine: 'Remove this item',
-    discountLabel: 'Discount',
+    selectItem: 'Select an item…',
     linesCol: 'Items',
     costCurrency: 'Cost currency',
     shippingSharedHint: 'Charged once for the delivery and shared across the '

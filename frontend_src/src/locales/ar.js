@@ -2264,7 +2264,7 @@ const ar = {
     itemsLabel: 'الأصناف',
     addLine: 'إضافة صنف',
     removeLine: 'حذف هذا الصنف',
-    discountLabel: 'خصم',
+    selectItem: 'اختر صنفاً…',
     linesCol: 'الأصناف',
     costCurrency: 'عملة التكلفة',
     shippingSharedHint: 'تُحتسب مرة واحدة للشحنة وتُوزّع على '

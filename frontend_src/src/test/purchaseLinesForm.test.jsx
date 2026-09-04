@@ -18,7 +18,7 @@ import ar from '../locales/ar';
 import pageSrc from '../pages/Purchases.jsx?raw';
 import suppliersSrc from '../pages/Suppliers.jsx?raw';
 
-const STRINGS = ['itemsLabel', 'addLine', 'removeLine', 'discountLabel',
+const STRINGS = ['itemsLabel', 'addLine', 'removeLine', 'selectItem',
                  'linesCol', 'costCurrency', 'shippingSharedHint'];
 
 describe('the form is a line editor', () => {

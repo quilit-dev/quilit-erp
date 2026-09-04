@@ -120,6 +120,9 @@ function PurchaseForm({ initial = {}, inventoryItems = [], inventoryCategories =
     setLine(i, patch);
   }
 
+  // The form no longer offers a discount, but a line that already carries one
+  // keeps it: it stays in state, in this total and in what is posted back, so
+  // editing an order does not quietly cancel a discount somebody agreed.
   const lineNet = (l) => Math.max(
     (parseFloat(l.quantity) || 0) * (parseFloat(l.unit_cost) || 0)
       - (parseFloat(l.discount) || 0), 0);
@@ -188,17 +191,30 @@ function PurchaseForm({ initial = {}, inventoryItems = [], inventoryCategories =
               document with six lines, not six purchase orders — and the
               freight below is charged once for the delivery, then shared
               across them by value on the server. */}
-          <div className="form-group form-full">
-            <label className="form-label">{t('purchases.itemsLabel')}</label>
-            <div style={{ overflowX: 'auto' }}>
-              <table style={{ width: '100%', minWidth: 720 }}>
+          {/* `minWidth: 0` on both this and the scroll box below is what lets
+              them shrink narrower than the table. A grid or flex child defaults
+              to min-width:auto, so without it the box grows to the table's full
+              width and the whole DIALOG scrolls sideways instead — dragging the
+              supplier and notes fields along with it. */}
+          <div className="form-group form-full" style={{ minWidth: 0 }}>
+            <div style={{ display: 'flex', alignItems: 'center',
+                          justifyContent: 'space-between', gap: 10 }}>
+              <label className="form-label" style={{ margin: 0 }}>
+                {t('purchases.itemsLabel')}
+              </label>
+              <button type="button" className="btn btn-sm btn-secondary"
+                onClick={addLine}>+ {t('purchases.addLine')}</button>
+            </div>
+            {/* The dialog is wide enough for every column at desktop size, so
+                this only ever scrolls on a narrow screen. */}
+            <div style={{ overflowX: 'auto', minWidth: 0 }}>
+              <table style={{ width: '100%', minWidth: 760 }}>
                 <thead>
                   <tr>
                     <th style={{ minWidth: 190 }}>{t('purchases.productNameLabel')}</th>
                     <th style={{ minWidth: 130 }}>{t('common.category')}</th>
                     <th style={{ width: 90,  textAlign: 'right' }}>{t('purchases.quantityLabel')}</th>
                     <th style={{ width: 110, textAlign: 'right' }}>{t('purchases.unitCost')}</th>
-                    <th style={{ width: 100, textAlign: 'right' }}>{t('purchases.discountLabel')}</th>
                     {taxEnabled && <th style={{ width: 130 }}>{t('common.taxCol')}</th>}
                     <th style={{ width: 90,  textAlign: 'right' }}>{t('common.total')}</th>
                     <th style={{ width: 34 }} />
@@ -208,21 +224,18 @@ function PurchaseForm({ initial = {}, inventoryItems = [], inventoryCategories =
                   {lines.map((l, i) => (
                     <tr key={i}>
                       <td>
-                        {/* Picking a stocked item fills the name, category and
-                            last cost; typing a name instead creates the item. */}
-                        <SearchSelect className="form-control" value={l.inventory_id}
+                        {/* One control, and the item's full name in it. Typing a
+                            name here used to create a new inventory item, which
+                            quietly produced a duplicate whenever somebody typed
+                            the name of something already stocked. A purchase
+                            restocks what you carry, so it picks from it. */}
+                        <SearchSelect className="form-control" required
+                          value={l.inventory_id}
                           onChange={v => pickInventory(i, v)}
-                          placeholder={t('purchases.newNotLinked')}
+                          placeholder={t('purchases.selectItem')}
                           options={inventoryItems.map(x => ({
-                            value: x.id,
-                            label: x.product_id ? (x.variant_label || x.name) : x.name,
-                            hint: x.product_id ? (x.product_name || x.name) : x.category,
+                            value: x.id, label: x.name,
                           }))} />
-                        <input className="form-control" required
-                          style={{ marginTop: 4 }}
-                          placeholder={t('purchases.productNameLabel')}
-                          value={l.product_name}
-                          onChange={e => setLine(i, { product_name: e.target.value })} />
                       </td>
                       <td>
                         <SearchSelect className="form-control" value={l.category}
@@ -241,12 +254,6 @@ function PurchaseForm({ initial = {}, inventoryItems = [], inventoryCategories =
                           style={{ textAlign: 'right' }}
                           value={l.unit_cost}
                           onChange={e => setLine(i, { unit_cost: e.target.value })} />
-                      </td>
-                      <td>
-                        <NumberInput className="form-control" step="any" min="0"
-                          style={{ textAlign: 'right' }}
-                          value={l.discount}
-                          onChange={e => setLine(i, { discount: e.target.value })} />
                       </td>
                       {taxEnabled && (
                         <td>
@@ -272,10 +279,6 @@ function PurchaseForm({ initial = {}, inventoryItems = [], inventoryCategories =
                 </tbody>
               </table>
             </div>
-            <button type="button" className="btn btn-sm btn-secondary"
-              style={{ marginTop: 8 }} onClick={addLine}>
-              + {t('purchases.addLine')}
-            </button>
           </div>
 
           <div className="form-group">
@@ -703,7 +706,7 @@ export default function Purchases() {
       </div>
 
       {modal === 'add' && (
-        <Modal title={t('purchases.newPurchase')} onClose={() => setModal(null)} size="modal-lg">
+        <Modal title={t('purchases.newPurchase')} onClose={() => setModal(null)} size="modal-xl">
           <PurchaseForm
             inventoryItems={inventoryItems}
             inventoryCategories={inventoryCategories}
@@ -726,7 +729,7 @@ export default function Purchases() {
           onClose={() => setPayingFor(null)} />
       )}
       {modal === 'edit' && activePurchase && (
-        <Modal title={t('purchases.editPOTitle', { po_number: activePurchase.po_number })} onClose={() => setModal(null)} size="modal-lg">
+        <Modal title={t('purchases.editPOTitle', { po_number: activePurchase.po_number })} onClose={() => setModal(null)} size="modal-xl">
           <PurchaseForm
             initial={activePurchase}
             inventoryItems={inventoryItems}
