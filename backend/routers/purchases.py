@@ -458,14 +458,188 @@ def create_purchase(data: PurchaseCreate, user=Depends(require_perm("purchases",
     return {"id": purchase_id, "po_number": po, "message": "Purchase created", "pending_approval": needs_approval}
 
 
+
+# ── Correcting a purchase whose goods have already landed ────────────────────
+# A unit cost keyed wrong used to be uncorrectable. Editing was refused once a
+# purchase was received -- rightly, because by then the stock and the ledger
+# had both moved -- so the only remedy was a hand-typed stock adjustment plus a
+# manual journal, from memory, with nothing tying the two together.
+#
+# Two quite different things hide under "edit", and they are separated here:
+#
+#   * the MONEY was wrong. The same goods are on the same shelf; only what they
+#     are worth changes. This is allowed even when some have already been sold,
+#     which is the case that matters most and the one a reverse-and-redo cannot
+#     serve;
+#   * the GOODS were wrong -- a different item, or a different quantity. That
+#     has to move stock, so it goes through the reversal and is refused if the
+#     goods are no longer there.
+
+def _same_goods(old_lines, new_lines) -> bool:
+    """Do these lines describe the same items in the same quantities?"""
+    if len(old_lines) != len(new_lines):
+        return False
+    for old, new in zip(old_lines, new_lines):
+        if old["inventory_id"] != new.inventory_id:
+            return False
+        if abs(float(old["quantity"] or 0) - float(new.quantity or 0)) > 1e-9:
+            return False
+    return True
+
+
+def _live_cost_adjustment(db, purchase_id) -> float:
+    """The cost correction currently standing against this purchase.
+
+    Corrections accumulate: a cost moved 10 -> 12 -> 15 has cost the business
+    the same as one moved 10 -> 15. But a journal entry is keyed by
+    (source_type, source_id) and `post_entry` returns the LIVE one unchanged
+    rather than posting a second, so a second correction would be swallowed in
+    silence. Instead the standing entry is read, reversed, and re-posted at the
+    new cumulative figure — which is also easier to explain to an auditor than
+    a pile of increments.
+    """
+    je = accounting.source_entry(db, "purchase_cost_adjustment", purchase_id)
+    if not je:
+        return 0.0
+    row = db.execute(
+        "SELECT COALESCE(SUM(l.debit),0) - COALESCE(SUM(l.credit),0) AS n "
+        "FROM journal_entry_lines l JOIN chart_of_accounts a ON a.id = l.account_id "
+        "WHERE l.journal_entry_id = ? AND a.code = ?",
+        (je["id"], accounting.code(db, "cogs"))).fetchone()
+    return float(row["n"] or 0)
+
+
+def _restate_money(row, old_lines, new_lines, db, user, *,
+                   additional_costs, cost_currency, cost_rate, now) -> dict:
+    """Correct what a received purchase cost, without moving any goods.
+
+    Per line, with `remaining` the part of that receipt still on the shelf:
+
+        d_unit    = new landed cost - old landed cost
+        inventory =  remaining x d_unit    (the goods are simply worth more)
+        COGS      =  consumed  x d_unit    (what was sold cost more than we said)
+
+    The ledger entry is reversed and re-posted at the new figures, cash
+    included, and the COGS share is corrected separately and dated TODAY. That
+    composes exactly: the re-post moves Inventory by the whole difference, and
+    the correction moves the already-sold share of it out into COGS, leaving
+    `remaining x d_unit` on the balance sheet — which is precisely what the
+    re-priced layers now say the stock is worth.
+    """
+    purchase_id = row["id"]
+    ctx = get_tax_context(db)
+
+    priced = []
+    for ln in new_lines:
+        unit_cost = currency.to_usd(ln.unit_cost or 0, cost_currency, db, cost_rate)
+        discount  = currency.to_usd(ln.discount or 0, cost_currency, db, cost_rate)
+        net = _line_net(ln.quantity, unit_cost, discount)
+        t_rid, t_rate, t_amt = resolve_purchase_tax(ctx, ln.tax_rate_id, net)
+        priced.append({"unit_cost": unit_cost, "discount": discount, "net": net,
+                       "pct": ln.discount_pct, "t_rid": t_rid, "t_rate": t_rate,
+                       "t_amt": t_amt})
+    shares = _apportion(additional_costs, [p["net"] for p in priced])
+
+    cogs_delta = 0.0
+    touched = []
+    for old, ln, p, share in zip(old_lines, new_lines, priced, shares):
+        qty = float(old["quantity"] or 0)
+        old_landed = float(old["landed_unit_cost"] or 0)
+        new_landed = round((p["net"] + share) / qty, 6) if qty else 0.0
+        d_unit = new_landed - old_landed
+
+        db.execute(
+            "UPDATE purchase_items SET unit_cost=?, discount=?, discount_pct=?, "
+            " tax_rate_id=?, tax_rate=?, tax_amount=?, line_total=?, "
+            " additional_cost_share=?, landed_unit_cost=? WHERE id=?",
+            (p["unit_cost"], p["discount"], p["pct"], p["t_rid"], p["t_rate"],
+             p["t_amt"], p["net"], money(share), new_landed, old["id"]))
+
+        iid = old["inventory_id"]
+        if not iid or not old["stock_updated"] or abs(d_unit) < 1e-9:
+            continue
+
+        ref = _layer_ref(row["po_number"], old["id"])
+        remaining = lots.remaining_from(db, iid, source_type="purchase", source_ref=ref)
+        if remaining is None:
+            # weighted_avg keeps no record of which units came from where, so
+            # "how much of THIS receipt is left" cannot be answered. On hand is
+            # the closest honest answer, and it is the same limitation voiding
+            # already has.
+            on_hand = float(db.execute(
+                "SELECT COALESCE(quantity,0) AS q FROM inventory WHERE id=?",
+                (iid,)).fetchone()["q"] or 0)
+            remaining = max(min(qty, on_hand), 0.0)
+        consumed = max(qty - remaining, 0.0)
+        cogs_delta += consumed * d_unit
+
+        inv = db.execute("SELECT quantity, unit_cost FROM inventory WHERE id=?",
+                         (iid,)).fetchone()
+        exact = lots.revalue_stock_in(db, iid, new_landed,
+                                      source_type="purchase", source_ref=ref)
+        if not exact and inv:
+            # No per-receipt record to re-price, so move the average by the
+            # value that changed, spread over what is on hand.
+            on_hand = float(inv["quantity"] or 0)
+            if on_hand > 1e-9:
+                db.execute(
+                    "UPDATE inventory SET unit_cost=? WHERE id=?",
+                    (round(float(inv["unit_cost"] or 0) + remaining * d_unit / on_hand, 6),
+                     iid))
+        touched.append({"product": old["product_name"], "was": old_landed,
+                        "now": new_landed, "sold": round(consumed, 6)})
+
+    db.execute("UPDATE purchases SET additional_costs=?, cost_currency=?, "
+               " cost_exchange_rate=? WHERE id=?",
+               (additional_costs, cost_currency, cost_rate, purchase_id))
+    _recalc_totals(db, purchase_id)
+
+    # The ledger: reverse what was posted and post it again at the corrected
+    # figures. The money that actually left the business changed too, so the
+    # cash side is restated with the rest rather than left standing.
+    if row["expense_recorded"]:
+        accounting.reverse_source(
+            db, "purchase", purchase_id,
+            memo=f"Restated — purchase {row['po_number']}", created_by=user["id"])
+        db.execute(
+            "UPDATE expenses SET voided_at=?, void_reason=? "
+            "WHERE category='Purchase' AND voided_at IS NULL AND description LIKE ?",
+            (now, f"Restated purchase {row['po_number']}", f"{row['po_number']} %"))
+        db.execute("UPDATE purchases SET expense_recorded=0 WHERE id=?", (purchase_id,))
+        _record_expense(purchase_id, db)
+
+    # ...and the part of the difference that belongs to goods already sold.
+    standing = _live_cost_adjustment(db, purchase_id)
+    total = money(standing + cogs_delta)
+    if standing:
+        accounting.reverse_source(
+            db, "purchase_cost_adjustment", purchase_id,
+            memo=f"Superseded — purchase {row['po_number']}", created_by=user["id"])
+    if abs(total) >= 0.005:
+        cogs_code = accounting.code(db, "cogs")
+        inv_code  = accounting.code(db, "inventory")
+        lines = ([{"code": cogs_code, "debit": total},
+                  {"code": inv_code,  "credit": total}] if total > 0 else
+                 [{"code": inv_code,  "debit": -total},
+                  {"code": cogs_code, "credit": -total}])
+        accounting.post_entry(
+            db, entry_date=now[:10],
+            memo=f"Cost correction — purchase {row['po_number']} (goods already sold)",
+            lines=lines, source_type="purchase_cost_adjustment",
+            source_id=purchase_id, created_by=user["id"], branch_id=row["warehouse_id"])
+    return {"restated": touched, "cogs_correction": money(cogs_delta)}
+
+
 @router.put("/{purchase_id}")
 def update_purchase(purchase_id: int, data: PurchaseUpdate,
                     user=Depends(require_perm("purchases", "edit")), db: sqlite3.Connection = Depends(get_db)):
     row = db.execute("SELECT * FROM purchases WHERE id = ? AND archived_at IS NULL", (purchase_id,)).fetchone()
     if not row:
         raise HTTPException(404, "Purchase not found")
-    if row["status"] != "Ordered":
-        raise HTTPException(400, "Can only edit purchases in Ordered status")
+    if _col(row, "voided_at"):
+        raise HTTPException(
+            400, "This purchase has been voided. Raise a new one rather than "
+                 "correcting this one.")
 
     # Lock any LBP-entered cost to USD before storing (see PurchaseCreate).
     cost_currency = (data.cost_currency or "USD").upper()
@@ -503,21 +677,87 @@ def update_purchase(purchase_id: int, data: PurchaseUpdate,
     if not fields and lines is None:
         return {"message": "Purchase updated"}
 
-    if fields:
-        params.append(purchase_id)
-        db.execute(f"UPDATE purchases SET {', '.join(fields)} WHERE id=?", params)
-    if lines is not None:
+    now = _now()
+    landed = row["stock_updated"] or row["expense_recorded"]
+
+    # ── Still on order: nothing has moved, so just write what was typed ──────
+    if not landed:
+        if fields:
+            params.append(purchase_id)
+            db.execute(f"UPDATE purchases SET {', '.join(fields)} WHERE id=?", params)
+        if lines is not None:
+            _save_lines(db, purchase_id, lines,
+                        supplier=data.supplier or row["supplier"],
+                        cost_currency=cost_currency, cost_rate=cost_rate, now=now)
+        elif new_additional is not None:
+            # Shipping changed but the lines did not. Their share of it — and so
+            # what the goods will land at — moves with it, and the header totals
+            # have to be recomputed from the lines either way.
+            _recalc_totals(db, purchase_id)
+        log_action(db, user, "update", "purchase", purchase_id, row["po_number"])
+        db.commit()
+        return {"message": "Purchase updated"}
+
+    # ── Received or paid: this is a RESTATEMENT ─────────────────────────────
+    # Both months have to be open: the receipt posted into its own, and the
+    # correction posts into today.
+    _check_period_locked(db, row["paid_at"] or row["received_at"] or row["ordered_at"])
+    _check_period_locked(db, now)
+
+    old_lines = _lines_of(db, purchase_id)
+    if lines is None:
+        # Only the shipping changed. It is money on the goods like any other,
+        # so it takes the same path — rebuilt from the lines as they stand.
+        lines = [PurchaseLineIn(
+            inventory_id=l["inventory_id"], product_name=l["product_name"],
+            category=l["category"], quantity=l["quantity"],
+            unit_cost=l["unit_cost"], discount=l["discount"],
+            discount_pct=l["discount_pct"], tax_rate_id=l["tax_rate_id"])
+            for l in old_lines]
+
+    effective_additional = (new_additional if new_additional is not None
+                            else float(row["additional_costs"] or 0))
+
+    if data.supplier is not None:
+        db.execute("UPDATE purchases SET supplier=? WHERE id=?",
+                   (data.supplier, purchase_id))
+    if data.notes is not None:
+        db.execute("UPDATE purchases SET notes=? WHERE id=?", (data.notes, purchase_id))
+
+    if _same_goods(old_lines, lines):
+        result = _restate_money(
+            row, old_lines, lines, db, user,
+            additional_costs=effective_additional, cost_currency=cost_currency,
+            cost_rate=cost_rate, now=now)
+        detail = {"kind": "restated", **result}
+    else:
+        # The goods themselves changed, so stock has to move. That means taking
+        # the receipt back first, which is refused when it is no longer there —
+        # the same guard voiding uses, for the same reason.
+        _reverse_stock(row, db, now)
+        if row["expense_recorded"]:
+            accounting.reverse_source(
+                db, "purchase", purchase_id,
+                memo=f"Restated — purchase {row['po_number']}", created_by=user["id"])
+            db.execute(
+                "UPDATE expenses SET voided_at=?, void_reason=? "
+                "WHERE category='Purchase' AND voided_at IS NULL AND description LIKE ?",
+                (now, f"Restated purchase {row['po_number']}", f"{row['po_number']} %"))
+            db.execute("UPDATE purchases SET expense_recorded=0 WHERE id=?", (purchase_id,))
+        db.execute("UPDATE purchases SET additional_costs=?, cost_currency=?, "
+                   " cost_exchange_rate=? WHERE id=?",
+                   (effective_additional, cost_currency, cost_rate, purchase_id))
         _save_lines(db, purchase_id, lines,
                     supplier=data.supplier or row["supplier"],
-                    cost_currency=cost_currency, cost_rate=cost_rate, now=_now())
-    elif new_additional is not None:
-        # Shipping changed but the lines did not. Their share of it — and so
-        # what the goods will land at — moves with it, and the header totals
-        # have to be recomputed from the lines either way.
-        _recalc_totals(db, purchase_id)
-    log_action(db, user, "update", "purchase", purchase_id, row["po_number"])
+                    cost_currency=cost_currency, cost_rate=cost_rate, now=now)
+        _credit_stock(purchase_id, db)
+        if row["status"] == "Paid":
+            _record_expense(purchase_id, db)
+        detail = {"kind": "re-received"}
+
+    log_action(db, user, "update", "purchase", purchase_id, row["po_number"], detail)
     db.commit()
-    return {"message": "Purchase updated"}
+    return {"message": "Purchase updated", **detail}
 
 @router.patch("/{purchase_id}/status")
 def update_status(purchase_id: int, data: StatusUpdate,

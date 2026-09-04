@@ -2276,6 +2276,10 @@ const en = {
     statsTotalSpent: 'Total Spent',
     itemsLabel: 'Items',
     viewOrder: 'Open this order',
+    restateWarning: 'These goods have already been received. Saving will '
+      + 're-value the stock still on the shelf, post a cost correction '
+      + 'dated today for anything already sold, and restate the payment. '
+      + 'Changing an item or a quantity is refused if the goods have gone.',
     // What a unit is worth on the shelf once the delivery charge has
     // been shared out — the figure the costing engine works from.
     landedCost: 'Landed',

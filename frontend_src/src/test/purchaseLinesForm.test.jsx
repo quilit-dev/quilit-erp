@@ -158,3 +158,34 @@ describe('both languages', () => {
     expect(ar.purchases[key]).not.toBe(en.purchases[key]);
   });
 });
+
+
+describe('correcting a purchase after the goods have landed', () => {
+  test('Edit is offered whatever the status', () => {
+    // A cost keyed wrong used to be uncorrectable once received. The button no
+    // longer sits inside the Ordered branch.
+    const ordered = pageSrc.match(/\{p\.status === 'Ordered' && \([\s\S]*?\)\}/)[0];
+    expect(ordered).not.toMatch(/common\.edit/);
+    expect(pageSrc).toMatch(
+      /setActivePurchase\(p\); setModal\('edit'\);[\s\S]{0,80}t\('common\.edit'\)/);
+  });
+
+  test('the form warns before restating', () => {
+    // Saving is a restatement, not a correction on paper, so it says so BEFORE
+    // it happens rather than after.
+    expect(pageSrc).toMatch(/const landed = !!\(initial\.stock_updated \|\| initial\.expense_recorded\)/);
+    expect(pageSrc).toMatch(/\{isEdit && landed && \(/);
+    expect(pageSrc).toMatch(/purchases\.restateWarning/);
+  });
+
+  test('and the warning says what will actually happen', () => {
+    for (const phrase of [/re-value/i, /cost correction/i, /dated today/i, /refused/i]) {
+      expect(en.purchases.restateWarning, String(phrase)).toMatch(phrase);
+    }
+  });
+
+  test('the warning exists in both languages', () => {
+    expect(ar.purchases.restateWarning).toBeTruthy();
+    expect(ar.purchases.restateWarning).not.toBe(en.purchases.restateWarning);
+  });
+});

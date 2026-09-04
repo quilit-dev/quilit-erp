@@ -32,6 +32,9 @@ function PurchaseForm({ initial = {}, inventoryItems = [], inventoryCategories =
   const hasRate = fxRate > 0;
   const secondary = exchangeRate?.secondary || 'LBP';
   const isEdit = !!initial.id;
+  // Whether this order's goods and money have already moved. Editing one
+  // that has is a restatement, not a correction on paper.
+  const landed = !!(initial.stock_updated || initial.expense_recorded);
 
   const taxEnabled     = settings?.tax_enabled === '1';
   const activeTaxRates = (taxRates || []).filter(r => r.is_active);
@@ -165,6 +168,20 @@ function PurchaseForm({ initial = {}, inventoryItems = [], inventoryCategories =
   return (
     <form onSubmit={submit}>
       <div className="modal-body">
+        {/* Once the goods have landed, saving is a RESTATEMENT rather than an
+            edit — so say so before it happens, not after. */}
+        {isEdit && landed && (
+          <div style={{
+            display: 'flex', gap: 10, padding: '12px 14px',
+            background: '#fef3c7', border: '1px solid #f59e0b',
+            borderRadius: 8, marginBottom: 16,
+          }}>
+            <span style={{ fontSize: 18 }}>&#9888;&#65039;</span>
+            <span style={{ fontSize: 13, color: '#78350f' }}>
+              {t('purchases.restateWarning')}
+            </span>
+          </div>
+        )}
         <div className="form-grid">
           <div className="form-group form-full">
             <label className="form-label">{t('purchases.supplierLabel')}</label>
@@ -685,20 +702,22 @@ export default function Purchases() {
                         ) : (
                           <>
                             {p.status === 'Ordered' && (
-                              <>
-                                <button className="btn btn-sm btn-secondary"
-                                  onClick={() => handleStatus(p, 'Received')}>{t('purchases.receive')}</button>
-                                <button className="btn btn-sm btn-secondary"
-                                  onClick={() => { setActivePurchase(p); setModal('edit'); }}>{t('common.edit')}</button>
-                              </>
+                              <button className="btn btn-sm btn-secondary"
+                                onClick={() => handleStatus(p, 'Received')}>{t('purchases.receive')}</button>
                             )}
                             {p.status === 'Received' && (
                               <button className="btn btn-sm btn-secondary"
                                 onClick={() => setPayingFor(p)}>{t('purchases.markPaid')}</button>
                             )}
-                            {p.status === 'Paid' && (
-                              <span style={{ color: 'var(--text-3)', fontSize: 12 }}>{t('purchases.completed')}</span>
-                            )}
+                            {/* Offered whatever the status. A cost keyed wrong
+                                used to be uncorrectable once the goods had
+                                landed: the server restates the purchase
+                                instead, re-valuing what is still on the shelf
+                                and posting the rest as a cost correction. */}
+                            <button className="btn btn-sm btn-secondary"
+                              onClick={() => { setActivePurchase(p); setModal('edit'); }}>
+                              {t('common.edit')}
+                            </button>
                             {/* Offered whatever the status. An order voided
                                 before it arrived reverses nothing; one voided
                                 after takes the goods back off the shelf and

@@ -97,10 +97,29 @@ describe('a voided row', () => {
 describe('the action', () => {
   test('is offered whatever the status', () => {
     // An order voided before it arrives reverses nothing; one voided after
-    // takes the goods back. Both are legitimate, so neither is gated.
-    const block = pageSrc.match(
-      /\{p\.status === 'Paid' && \([\s\S]*?onClick=\{\(\) => \{ setVoidTarget\(p\); setVoidReason\(''\); \}\}/);
-    expect(block, 'the void button is not offered outside a status branch').toBeTruthy();
+    // takes the goods back. Both are legitimate, so neither is gated — and nor
+    // is Edit, since a cost keyed wrong has to be correctable once the goods
+    // have landed. Asserted by slicing out each status branch and showing
+    // neither action lives INSIDE one.
+    // Slice out exactly one branch by matching its parentheses — the last
+    // branch has no next one to stop at, and a fixed window ran past its end
+    // into the buttons that follow.
+    const branch = (status) => {
+      const open = pageSrc.indexOf(`{p.status === '${status}' && (`);
+      expect(open, `no ${status} branch`).toBeGreaterThan(-1);
+      let i = pageSrc.indexOf('(', open + `{p.status === '${status}' &&`.length);
+      let depth = 0;
+      for (let j = i; j < pageSrc.length; j++) {
+        if (pageSrc[j] === '(') depth++;
+        else if (pageSrc[j] === ')' && --depth === 0) return pageSrc.slice(open, j + 1);
+      }
+      throw new Error(`unbalanced ${status} branch`);
+    };
+    for (const status of ['Ordered', 'Received']) {
+      expect(branch(status), `void inside ${status}`).not.toMatch(/setVoidTarget/);
+      expect(branch(status), `edit inside ${status}`).not.toMatch(/setModal\('edit'\)/);
+    }
+    expect(pageSrc).toMatch(/setVoidTarget\(p\); setVoidReason\(''\);/);
   });
 
   test('opens with an empty reason each time', () => {

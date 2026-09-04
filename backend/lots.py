@@ -207,6 +207,30 @@ def reverse_stock_in(db, inventory_id, qty, *, source_type, source_ref):
     return costing.draw_layer(db, inventory_id, qty, source_type, source_ref)
 
 
+def revalue_stock_in(db, inventory_id, new_unit_cost, *, source_type, source_ref):
+    """Restate what one receipt's goods cost — the mirror of record_stock_in.
+
+    Returns True when the item keeps a per-receipt record (a lot, or a FIFO/LIFO
+    layer) and `inventory.unit_cost` has therefore been recomputed exactly.
+    Returns False under weighted_avg, where the receipt was blended into a
+    single average on arrival and nothing remembers it separately: the caller
+    has to move the average by the value that changed instead.
+    """
+    if is_lot_tracked(db, inventory_id):
+        db.execute(
+            "UPDATE inventory_lots SET unit_cost=? "
+            "WHERE inventory_id=? AND source_type=? AND source_ref=?",
+            (float(new_unit_cost or 0), inventory_id, source_type, str(source_ref)))
+        _recompute_unit_cost(db, inventory_id)
+        return True
+    import costing
+    if costing.get_method(db) not in ("fifo", "lifo"):
+        return False
+    costing.revalue_layer(db, inventory_id, source_type, source_ref, new_unit_cost)
+    costing.sync_unit_cost(db, inventory_id, new_unit_cost)
+    return True
+
+
 def value_stock_out(db, inventory_id, qty, *, source_type, source_ref, now,
                     production_order_id=None):
     """Stock-OUT COGS: lot-tracked items draw lots FEFO; others use the

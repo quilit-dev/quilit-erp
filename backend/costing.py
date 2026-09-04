@@ -259,6 +259,28 @@ def draw_layer(db: sqlite3.Connection, inventory_id: int, qty: float,
     return round(max(remaining, 0.0), 6)
 
 
+def revalue_layer(db: sqlite3.Connection, inventory_id: int, source_type: str,
+                  source_ref, new_unit_cost: float) -> None:
+    """Restate what ONE receipt's cost layer says its goods cost.
+
+    Correcting a unit cost that was keyed wrong does not move any goods — the
+    same units are on the same shelf. What changes is what they are worth, so
+    the layer they arrived in is re-priced in place and the item's average is
+    recomputed from the layers afterwards.
+    """
+    db.execute(
+        "UPDATE inventory_cost_layers SET unit_cost=? "
+        "WHERE inventory_id=? AND source_type=? AND source_ref=?",
+        (float(new_unit_cost or 0), inventory_id, source_type, str(source_ref)))
+
+
+def sync_unit_cost(db: sqlite3.Connection, inventory_id: int, fallback: float) -> float:
+    """Set `inventory.unit_cost` from what the layers now say. Returns it."""
+    new_cost = _recompute_unit_cost(db, inventory_id, fallback)
+    db.execute("UPDATE inventory SET unit_cost=? WHERE id=?", (new_cost, inventory_id))
+    return new_cost
+
+
 def rebase_layers(db: sqlite3.Connection, now: str) -> None:
     """Reset cost layers to a single opening layer per item, valued at the
     item's current `unit_cost`. Called when the method is switched to fifo/lifo
