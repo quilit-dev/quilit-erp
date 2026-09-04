@@ -10,12 +10,35 @@
 // in the form above, oldest instalment first. Offering a "pay" button per row
 // would imply an earmarking the backend does not do.
 import { useState } from 'react';
-import { createPaymentPlan, deletePaymentPlan } from '../../api/client';
+import { createPaymentPlan, editPaymentPlan, deletePaymentPlan } from '../../api/client';
 import { Badge, fmt, fmtDate, toast, NumberInput, ConfirmModal } from '../../components/shared';
 import { useLocale } from '../../hooks/useLocale.jsx';
 import SearchSelect from '../../components/SearchSelect.jsx';
 
 const today = () => new Date().toISOString().slice(0, 10);
+
+// One month on, clamped to the end of the target month, so a plan running from
+// the 31st does not skip February. Only used to suggest a date for a row the
+// user has just added; the server imposes no spacing of its own.
+//
+// Worked out on the calendar fields directly rather than through a Date. A date
+// input holds a plain calendar day with no timezone, and round-tripping one
+// through `toISOString` converts local midnight to UTC — east of Greenwich that
+// lands on the day BEFORE, so stepping from the 15th suggested the 14th.
+export function nextMonth(iso) {
+  const m = /^(\d{4})-(\d{2})-(\d{2})$/.exec(String(iso || ''));
+  if (!m) return today();
+  const [y, mo, day] = [Number(m[1]), Number(m[2]), Number(m[3])];
+  const year = mo === 12 ? y + 1 : y;
+  const month = mo === 12 ? 1 : mo + 1;
+  const last = new Date(year, month, 0).getDate();   // day 0 of the next month
+  const pad = (n) => String(n).padStart(2, '0');
+  return `${year}-${pad(month)}-${pad(Math.min(day, last))}`;
+}
+
+// A cent of rounding is not a mismatch; a dollar is. The same tolerance the
+// server applies, so Save is never enabled for something it would refuse.
+const CENT = 0.005;
 
 export default function PaymentPlan({ invoice, canEdit, onChange }) {
   const { t } = useLocale();
@@ -24,6 +47,10 @@ export default function PaymentPlan({ invoice, canEdit, onChange }) {
   const [open,     setOpen]     = useState(false);
   const [busy,     setBusy]     = useState(false);
   const [confirm,  setConfirm]  = useState(false);
+  // The schedule being edited, or null. Rows money has already reached are
+  // marked `settled` and rendered read-only: the server refuses to change them,
+  // and a box you can type into but not save is worse than no box.
+  const [draft,    setDraft]    = useState(null);
   // Prefilled from the terms recorded against this customer, so the shape
   // they usually agree to is already in the boxes.
   const [form,     setForm]     = useState({
@@ -44,9 +71,11 @@ export default function PaymentPlan({ invoice, canEdit, onChange }) {
 
   const total = Number(invoice.amount) || 0;
   const paid  = Number(invoice.total_paid) || 0;
-  // Renegotiating after money has arrived would re-interpret what was already
-  // settled — three of twelve silently becoming one of four. The server refuses
-  // it; saying so up front is kinder than a 409.
+  // Whether the plan may be REBUILT from a count and a frequency. Once money
+  // has arrived that would re-interpret what was already settled — three of
+  // twelve silently becoming one of four — so the server refuses it, and saying
+  // so up front is kinder than a 409. Editing the rows is a different question
+  // and stays available: see the Edit schedule button below.
   const locked = paid > 0.005;
 
   async function save(e) {
@@ -66,6 +95,50 @@ export default function PaymentPlan({ invoice, canEdit, onChange }) {
       onChange?.();
     } catch (err) {
       toast(err.message || t('installments.saveFailed'), 'red');
+    } finally {
+      setBusy(false);
+    }
+  }
+
+  function startEdit() {
+    setDraft(plan.map(r => ({
+      due_date: String(r.due_date).slice(0, 10),
+      amount:   String(r.amount),
+      note:     r.note || '',
+      settled:  Number(r.paid) > CENT,
+    })));
+  }
+
+  const setRow  = (i, patch) =>
+    setDraft(d => d.map((r, n) => (n === i ? { ...r, ...patch } : r)));
+  const addRow  = () => setDraft(d => [...d, {
+    due_date: nextMonth(d.length ? d[d.length - 1].due_date : today()),
+    amount: '', note: '', settled: false,
+  }]);
+  const dropRow = (i) => setDraft(d => d.filter((_, n) => n !== i));
+
+  // What the draft comes to, against what it has to come to. Shown live so
+  // somebody moving money between rows can watch the plan close, rather than
+  // finding out from a rejection.
+  const drafted = (draft || []).reduce((a, r) => a + (Number(r.amount) || 0), 0);
+  const gap     = total - drafted;
+
+  async function saveEdit(e) {
+    e.preventDefault();
+    setBusy(true);
+    try {
+      await editPaymentPlan(invoice.id, {
+        installments: draft.map(r => ({
+          due_date: r.due_date,
+          amount:   Number(r.amount),
+          note:     r.note || null,
+        })),
+      });
+      toast(t('installments.editSaved'), 'green');
+      setDraft(null);
+      onChange?.();
+    } catch (err) {
+      toast(err.message || t('installments.editFailed'), 'red');
     } finally {
       setBusy(false);
     }
@@ -106,7 +179,15 @@ export default function PaymentPlan({ invoice, canEdit, onChange }) {
               {t('installments.setUp')}
             </button>
           )}
-          {canEdit && plan.length > 0 && !locked && !open && (
+          {/* Offered whether or not money has arrived. It is the only way to
+              renegotiate a running plan: rebuilding one from a count and a
+              frequency would re-read what the customer has already settled. */}
+          {canEdit && plan.length > 0 && !open && !draft && (
+            <button className="btn btn-sm btn-secondary" onClick={startEdit}>
+              {t('installments.edit')}
+            </button>
+          )}
+          {canEdit && plan.length > 0 && !locked && !open && !draft && (
             <>
               <button className="btn btn-sm btn-secondary" onClick={() => setOpen(true)}>
                 {t('installments.change')}
@@ -169,7 +250,86 @@ export default function PaymentPlan({ invoice, canEdit, onChange }) {
         </form>
       )}
 
-      {plan.length > 0 && (
+      {draft && (
+        <form onSubmit={saveEdit}>
+          <table>
+            <thead>
+              <tr>
+                <th>#</th>
+                <th>{t('installments.dueDate')}</th>
+                <th style={{ textAlign: 'right' }}>{t('common.amount')}</th>
+                <th />
+              </tr>
+            </thead>
+            <tbody>
+              {draft.map((row, i) => (
+                <tr key={i}>
+                  <td style={{ color: 'var(--text-3)', fontSize: 12 }}>{i + 1}</td>
+                  <td>
+                    <input type="date" className="form-control" required
+                      style={{ width: 150 }}
+                      value={row.due_date} disabled={row.settled}
+                      title={row.settled ? t('installments.settledRow') : undefined}
+                      onChange={e => setRow(i, { due_date: e.target.value })} />
+                  </td>
+                  <td style={{ textAlign: 'right' }}>
+                    <NumberInput className="form-control" min="0" step="0.01" required
+                      style={{ width: 120, textAlign: 'right' }}
+                      value={row.amount} disabled={row.settled}
+                      title={row.settled ? t('installments.settledRow') : undefined}
+                      onChange={e => setRow(i, { amount: e.target.value })} />
+                  </td>
+                  <td>
+                    {!row.settled && draft.length > 1 && (
+                      <button type="button" className="btn btn-sm btn-secondary"
+                        title={t('installments.removeRow')}
+                        onClick={() => dropRow(i)}>&times;</button>
+                    )}
+                    {row.settled && (
+                      <span style={{ fontSize: 11, color: 'var(--text-3)' }}>
+                        {t('installments.settledRow')}
+                      </span>
+                    )}
+                  </td>
+                </tr>
+              ))}
+            </tbody>
+          </table>
+
+          <div style={{ display: 'flex', alignItems: 'center', gap: 10,
+                        flexWrap: 'wrap', marginTop: 8 }}>
+            <button type="button" className="btn btn-sm btn-secondary" onClick={addRow}>
+              {t('installments.addRow')}
+            </button>
+            <span style={{ fontSize: 12 }}>
+              {t('installments.scheduled')}: <strong>{fmt(drafted)}</strong>
+              {' / '}{fmt(total)}
+            </span>
+            <span style={{ fontSize: 12,
+                           color: Math.abs(gap) <= CENT ? 'var(--green)' : 'var(--red)' }}>
+              {Math.abs(gap) <= CENT
+                ? t('installments.matches')
+                : gap > 0 ? t('installments.shortBy', { amount: fmt(gap) })
+                          : t('installments.overBy', { amount: fmt(-gap) })}
+            </span>
+            <div style={{ marginLeft: 'auto', display: 'flex', gap: 6 }}>
+              <button type="submit" className="btn btn-primary"
+                disabled={busy || Math.abs(gap) > CENT}>
+                {busy ? t('installments.saving') : t('installments.save')}
+              </button>
+              <button type="button" className="btn btn-secondary"
+                onClick={() => setDraft(null)}>
+                {t('common.cancel')}
+              </button>
+            </div>
+            <div style={{ flexBasis: '100%', fontSize: 11, color: 'var(--text-3)' }}>
+              {t('installments.editHint', { total: fmt(total) })}
+            </div>
+          </div>
+        </form>
+      )}
+
+      {plan.length > 0 && !draft && (
         <table>
           <thead>
             <tr>
@@ -198,7 +358,7 @@ export default function PaymentPlan({ invoice, canEdit, onChange }) {
         </table>
       )}
 
-      {plan.length > 0 && locked && (
+      {plan.length > 0 && locked && !draft && (
         <p style={{ fontSize: 11, color: 'var(--text-3)', marginTop: 6 }}>
           {t('installments.lockedHint')}
         </p>

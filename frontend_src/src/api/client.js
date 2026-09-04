@@ -180,6 +180,10 @@ export const unvoidInvoice     = (id)         => api.patch(`/api/invoices/${id}/
 // with the balance. See backend/installments.py.
 export const getPaymentPlan    = (id)    => api.get(`/api/invoices/${id}/plan`);
 export const createPaymentPlan = (id, d) => api.post(`/api/invoices/${id}/plan`, d);
+// A rebuild (POST) is refused once money has arrived, because regenerating the
+// schedule re-reads what has already been settled. The edit states the rows
+// instead, and the server freezes the ones payments have reached.
+export const editPaymentPlan   = (id, d) => api.patch(`/api/invoices/${id}/plan`, d);
 export const deletePaymentPlan = (id)    => api.delete(`/api/invoices/${id}/plan`);
 
 export const addInvoicePayment    = (id, d)       => api.post(`/api/invoices/${id}/payments`, d);

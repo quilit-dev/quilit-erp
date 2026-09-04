@@ -13,7 +13,7 @@ Financial safety rules enforced here:
 """
 from fastapi import APIRouter, Depends, HTTPException
 from pydantic import BaseModel
-from typing import Optional
+from typing import List, Optional
 from database import get_db
 from permissions import require_perm
 from routers.audit import log_action
@@ -1293,7 +1293,8 @@ def create_plan(
             (invoice_id,)).fetchone():
         raise HTTPException(
             409, "Payments have already been made against this plan. "
-                 "Changing it now would re-interpret what has been settled.")
+                 "Rebuilding it now would re-interpret what has been settled — "
+                 "edit the instalments still to come instead.")
 
     try:
         rows = installments.build_schedule(
@@ -1335,6 +1336,94 @@ def get_plan(
     branch_access.assert_can_view_branch(user, db, inv["branch_id"])
     plan = installments.plan_for(db, invoice_id, _payment_total(db, invoice_id))
     return {"installments": plan, "next_due": installments.next_due(plan)}
+
+
+class InstalmentRow(BaseModel):
+    due_date: str
+    amount:   float
+    note:     Optional[str] = None
+
+
+class PlanEditBody(BaseModel):
+    installments: List[InstalmentRow]
+
+
+@router.patch("/{invoice_id}/plan")
+def edit_plan(
+    invoice_id: int,
+    data: PlanEditBody,
+    user=Depends(require_perm("invoices", "edit")),
+    db: sqlite3.Connection = Depends(get_db),
+):
+    """Change the instalments still to come.
+
+    Terms get renegotiated, and `POST /plan` cannot answer that once money has
+    arrived: it regenerates the whole schedule from a count and a frequency, and
+    since settlement is derived from cumulative paid against cumulative
+    scheduled, regenerating re-reads what the customer has already settled.
+
+    This states the rows instead. The part payments have already reached is
+    frozen — what is past is a record of what happened — and everything after it
+    can be moved, resized, split or merged, so long as the plan still sums to the
+    invoice. Rows may be added or dropped, and are renumbered in the order they
+    fall due.
+
+    An overpaid invoice therefore freezes its whole schedule, and one whose total
+    has dropped below what is already frozen admits no valid edit at all. Both
+    say so by naming the two figures; the answer in either case is to remove the
+    plan and agree a new one, which is a decision rather than an edit.
+
+    No money moves. The schedule carries no accounting of its own (revenue is
+    recognised on payment and split there), so this touches due dates and
+    amounts on the agreement and nothing else. That is exactly why it is safe on
+    a plan with payments against it when a rebuild is not.
+    """
+    inv = db.execute("SELECT * FROM invoices WHERE id=? AND archived_at IS NULL",
+                     (invoice_id,)).fetchone()
+    if not inv:
+        raise HTTPException(404, "Invoice not found")
+    branch_access.assert_can_view_branch(user, db, inv["branch_id"])
+    if inv["voided_at"]:
+        raise HTTPException(400, "A voided invoice cannot carry a payment plan.")
+
+    existing = db.execute(
+        "SELECT id, seq, due_date, amount, note FROM invoice_installments "
+        "WHERE invoice_id=? ORDER BY seq", (invoice_id,)).fetchall()
+    if not existing:
+        raise HTTPException(
+            404, "This invoice has no payment plan to edit. Set one up first.")
+
+    paid = _payment_total(db, invoice_id)
+    try:
+        rows = installments.validate_edit(
+            existing, [r.model_dump() for r in data.installments],
+            paid, inv["amount"])
+    except ValueError as e:
+        raise HTTPException(400, str(e))
+
+    now = _now()
+    # Replace wholesale rather than diffing: the rows carry no identity anything
+    # else refers to (no payment points at an instalment — allocation is
+    # derived), so a rewrite inside one transaction is the simple correct move.
+    db.execute("DELETE FROM invoice_installments WHERE invoice_id=?", (invoice_id,))
+    for seq, due, amount, note in rows:
+        db.execute(
+            "INSERT INTO invoice_installments "
+            "(invoice_id, seq, due_date, amount, note, created_at) "
+            "VALUES (?,?,?,?,?,?)",
+            (invoice_id, seq, due, amount, note, now))
+
+    # As on creation: anything still reading a single date says the plan ends
+    # when the last instalment falls, not that it was all due on day one.
+    db.execute("UPDATE invoices SET due_date=? WHERE id=?", (rows[-1][1], invoice_id))
+
+    log_action(db, user, "plan_edited", "invoice", invoice_id, inv["invoice_number"],
+               {"was": [{"due_date": str(r["due_date"])[:10],
+                         "amount": float(r["amount"])} for r in existing],
+                "now": [{"due_date": d, "amount": a} for _s, d, a, _n in rows]})
+    db.commit()
+    return {"message": "Payment plan updated",
+            "installments": installments.plan_for(db, invoice_id, paid)}
 
 
 @router.delete("/{invoice_id}/plan")

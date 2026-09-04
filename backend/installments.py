@@ -183,6 +183,101 @@ def next_due(plan):
 
 
 # ══════════════════════════════════════════════════════════════════════════════
+# EDITING A SCHEDULE THAT IS ALREADY RUNNING
+# ══════════════════════════════════════════════════════════════════════════════
+# Terms get renegotiated. A customer three payments into a plan asks to stretch
+# the rest over longer, or to move a date past a month they know will be thin.
+# Rebuilding the plan from scratch cannot answer that: settlement is derived
+# from cumulative paid against cumulative scheduled, so regenerating five equal
+# instalments where there were twelve silently re-reads what the customer has
+# already settled — three of twelve becomes one of five, and their receipts stop
+# matching their statement.
+#
+# So an edit states the rows it wants rather than the shape to generate them
+# from, and the part money has already reached is FROZEN. What is past is a
+# record of what happened; only the future is still an agreement.
+#
+# Nothing here touches money. The schedule carries no accounting — revenue is
+# recognised on payment and split there — so an edit moves due dates and nothing
+# else. That is precisely why it can be allowed on a plan with payments against
+# it when a rebuild cannot.
+
+def frozen_count(rows, total_paid) -> int:
+    """How many leading instalments payments have already reached.
+
+    Allocation is oldest-first, so money always settles a PREFIX of the
+    schedule. Those rows are the ones an edit must leave exactly alone,
+    including the one only partly covered: changing the amount of an instalment
+    the customer has already paid against rewrites what they were told they
+    were paying.
+    """
+    left = money(total_paid or 0)
+    n = 0
+    for r in rows:
+        if left <= _CENT:
+            break
+        left = money(left - money(r["amount"]))
+        n += 1
+    return n
+
+
+def validate_edit(existing, proposed, total_paid, invoice_total):
+    """Check a proposed schedule against the one running, and normalise it.
+
+    `existing` are the stored rows in seq order; `proposed` is a list of
+    ``{"due_date", "amount", "note"}`` dicts in the order they fall due.
+    Returns ``[(seq, due_date, amount, note), ...]`` renumbered from 1, or
+    raises ValueError with a message written for the person on the screen.
+    """
+    if not proposed:
+        raise ValueError("A plan needs at least one instalment.")
+
+    rows = []
+    previous = None
+    for i, r in enumerate(proposed):
+        try:
+            due = date.fromisoformat(str(r.get("due_date") or "")[:10]).isoformat()
+        except ValueError:
+            raise ValueError(
+                f"Instalment {i + 1} has no valid due date.")
+        amount = money(r.get("amount"))
+        if amount <= 0:
+            raise ValueError(
+                f"Instalment {i + 1} must be for more than zero.")
+        # Out-of-order dates would make the schedule disagree with the order it
+        # is settled in — the fourth row paid off before the third is due.
+        if previous is not None and due < previous:
+            raise ValueError(
+                "The instalments must be in date order; instalment "
+                f"{i + 1} falls before the one before it.")
+        previous = due
+        rows.append((i + 1, due, amount, (r.get("note") or None)))
+
+    booked = money(sum(a for _, _, a, _ in rows))
+    invoice_total = money(invoice_total)
+    if abs(booked - invoice_total) > _CENT:
+        raise ValueError(
+            f"The instalments come to {booked:,.2f} but the invoice is "
+            f"{invoice_total:,.2f}. A plan that does not add up leaves a "
+            "balance nobody can settle.")
+
+    frozen = frozen_count(existing, total_paid)
+    if frozen:
+        if len(rows) < frozen:
+            raise ValueError(
+                f"The first {frozen} instalment(s) have been paid against and "
+                "cannot be removed.")
+        for i in range(frozen):
+            was, now = existing[i], rows[i]
+            if str(was["due_date"])[:10] != now[1] or money(was["amount"]) != now[2]:
+                raise ValueError(
+                    f"Instalment {i + 1} has already been paid against, so its "
+                    "date and amount cannot change. Edit the ones still to come.")
+
+    return rows
+
+
+# ══════════════════════════════════════════════════════════════════════════════
 # A PLAN AGAINST THE ACCOUNT
 # ══════════════════════════════════════════════════════════════════════════════
 # A customer owing 4,000 who agrees to eight payments of 500 has agreed ONE

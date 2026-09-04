@@ -918,8 +918,21 @@ const en = {
     needCount: 'Enter how many instalments.',
     dueDate: 'Due',
     nextDue: 'Next: {{amount}} on {{date}}',
-    lockedHint: 'Payments have been made against this plan, so it can no longer '
-      + 'be changed. Payments settle the oldest unpaid instalment first.',
+    lockedHint: 'Payments settle the oldest unpaid instalment first, so the ones '
+      + 'already paid against are fixed. Use Edit schedule to change the rest.',
+    edit: 'Edit schedule',
+    editHint: 'Move dates or change amounts for the instalments still to come. '
+      + 'The plan must still add up to {{total}}; nothing already paid against '
+      + 'can be changed, and no money moves.',
+    editSaved: 'Schedule updated',
+    editFailed: 'Could not update the schedule',
+    addRow: 'Add instalment',
+    removeRow: 'Remove this instalment',
+    settledRow: 'Already paid against — fixed',
+    scheduled: 'Scheduled',
+    shortBy: 'Short by {{amount}}',
+    overBy: 'Over by {{amount}}',
+    matches: 'Adds up',
   },
   status: {
     Draft: 'Draft',
