@@ -20,6 +20,10 @@ export default function POS() {
   const [session, setSession] = useState(undefined);   // undefined = loading, null = none
   const [error, setError] = useState(null);
   const [receipt, setReceipt] = useState(null);
+  // The completed sale the cashier is correcting, if any. It seeds the
+  // register with what was sold so they can change it and ring it again —
+  // the server takes the original off the books in the same breath.
+  const [amending, setAmending] = useState(null);
 
   const canCreate = can('pos', 'create');
   const canReturn = can('pos', 'edit');
@@ -39,6 +43,10 @@ export default function POS() {
   useEffect(() => {
     getCommitmentCount().then(setWaiting).catch(() => {});
   }, [view]);
+
+  // Correcting starts from the history and finishes at the register, so it
+  // switches the tab as well as setting the sale.
+  const startAmend = (sale) => { setAmending(sale); setView('register'); };
 
   const tabs = [
     { key: 'register', label: t('pos.register') },
@@ -77,13 +85,15 @@ export default function POS() {
         : session === null ? <OpenRegisterPanel onOpened={loadSession} />
         : <RegisterView
             session={session}
+            amending={amending}
+            onCancelAmend={() => setAmending(null)}
             onClose={loadSession}
-            onSold={(res) => { setReceipt(res); loadSession(); }}
+            onSold={(res) => { setReceipt(res); setAmending(null); loadSession(); }}
           />
       )}
 
       {view === 'sessions' && <SessionsView />}
-      {view === 'history'  && <HistoryView canReturn={canReturn} />}
+      {view === 'history'  && <HistoryView canReturn={canReturn} onAmend={startAmend} />}
       {view === 'waiting'  && <WaitingView canEdit={canReturn} />}
     </div>
   );

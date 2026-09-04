@@ -2,12 +2,13 @@ import { useState, useEffect } from 'react';
 import { useLocale } from '../../hooks/useLocale.jsx';
 import { useSettings } from '../../hooks/useSettings.jsx';
 import { Modal, toast, NumberInput } from '../../components/shared';
-import { posCheckout } from '../../api/client';
-import { num } from './pricing';
+import { posCheckout, amendPosSale } from '../../api/client';
+import { num, r2 } from './pricing';
 import BankField, { useBankAccounts } from '../../components/BankField.jsx';
 import SearchSelect from '../../components/SearchSelect.jsx';
 
-function CheckoutModal({ pricing, clients, drawers, defaultCurrency = 'USD', onClose, onDone }) {
+function CheckoutModal({ pricing, clients, drawers, amending = null,
+                         defaultCurrency = 'USD', onClose, onDone }) {
   const { t, fmt, tCategory } = useLocale();
   const { exchangeRate } = useSettings();
   const [clientId, setClientId] = useState('');
@@ -61,11 +62,28 @@ function CheckoutModal({ pricing, clients, drawers, defaultCurrency = 'USD', onC
 
   const fxRate = parseFloat(rate) || 0;
   const depositNum = parseFloat(deposit) || 0;
+  // Money already taken against the sale being corrected. The PAYMENT, not the
+  // invoice: an instalment sale was only ever paid its deposit, and treating
+  // the whole invoice as money in the drawer would offer a refund nobody took.
+  const alreadyPaid = amending ? Number(amending.payment?.amount || 0) : 0;
   // What the customer hands over now: the whole sale, or the deposit on a plan.
   const dueNow = onPlan ? depositNum : pricing.total;
   const totalInCurrency = currency === 'LBP' ? dueNow * (fxRate || 0) : dueNow;
+  // Correcting a sale: what was already taken stays in the drawer, so only the
+  // difference crosses the counter — collected, or handed back when the
+  // corrected sale is worth less. The server decides both; these are what the
+  // cashier is shown so they know what to count.
+  const tillDue           = r2(dueNow - alreadyPaid);   // negative = handed back
+  const collectNow        = Math.max(0, tillDue);
+  const refundNow         = Math.max(0, -tillDue);
+  const tillDueInCurrency = currency === 'LBP' ? r2(tillDue * (fxRate || 0)) : tillDue;
+  const collectInCurrency = Math.max(0, tillDueInCurrency);
   const tenderedNum = parseFloat(tendered) || 0;
-  const change = method === 'Cash' ? tenderedNum - totalInCurrency : 0;
+  // Change is measured against what is actually being collected. On a
+  // correction that is the difference, so a shrinking sale shows the money
+  // going back to the customer rather than a nonsense negative.
+  const change = method === 'Cash'
+    ? tenderedNum - (amending ? tillDueInCurrency : totalInCurrency) : 0;
   const balance = Math.round((pricing.total - dueNow) * 100) / 100;
 
   // Refused by the server too — checked here so the cashier is told which part
@@ -75,10 +93,11 @@ function CheckoutModal({ pricing, clients, drawers, defaultCurrency = 'USD', onC
   // deposit with a 300 note is still ordinary change-making.
   useEffect(() => {
     if (tenderTouched || method !== 'Cash') return;
+    if (amending) { setTendered(collectNow > 0.005 ? String(collectInCurrency) : ''); return; }
     setTendered(onPlan && totalInCurrency > 0.005
       ? String(Math.round(totalInCurrency * 100) / 100)
       : '');
-  }, [onPlan, totalInCurrency, tenderTouched, method]);
+  }, [onPlan, totalInCurrency, tenderTouched, method, amending, collectNow, collectInCurrency]);
 
   // Cash typed against a plan with no deposit. Nothing is due at the till, so
   // every note of it comes straight back as change: the sale completes, the
@@ -96,6 +115,12 @@ function CheckoutModal({ pricing, clients, drawers, defaultCurrency = 'USD', onC
     : Number(planCount) < 1 ? t('installments.needCount')
     : null;
 
+  // Correcting a sale: the money already taken stays in the drawer, so only
+  // the difference is collected — or handed back, when the corrected sale is
+  // worth less. The server is the authority on both figures; these are what
+  // the cashier is shown so they know what to count out.
+
+
   // The till refused a short sale outright until now. It still does — unless
   // somebody says the missing units can be got, which is a decision about the
   // business, not about the cart, so it is asked rather than assumed.
@@ -103,21 +128,25 @@ function CheckoutModal({ pricing, clients, drawers, defaultCurrency = 'USD', onC
 
   async function confirm({ allowBackorder = false } = {}) {
     if (currency === 'LBP' && fxRate <= 0) { toast(t('pos.exchangeRate'), 'red'); return; }
-    if (method === 'Cash' && tenderedNum + 0.01 < totalInCurrency) {
+    // On a correction the cashier only counts out the difference, so that is
+    // what the tender has to cover — not the whole corrected total.
+    const mustCover = amending ? collectInCurrency : totalInCurrency;
+    if (method === 'Cash' && tenderedNum + 0.01 < mustCover) {
       toast(t('pos.amountTendered'), 'red'); return;
     }
     if (planProblem)   { toast(planProblem, 'red'); return; }
     if (tenderProblem) { toast(tenderProblem, 'red'); return; }
     setBusy(true);
     try {
-      const res = await posCheckout({
+      const body = {
         client_id: clientId ? Number(clientId) : null,
         items: pricing.items,
         order_discount: pricing.orderDiscount,
         payment_method: method,
         currency,
         exchange_rate: currency === 'LBP' ? fxRate : null,
-        amount_tendered: method === 'Cash' ? tenderedNum : totalInCurrency,
+        amount_tendered: method === 'Cash' ? tenderedNum
+          : (amending ? collectInCurrency : totalInCurrency),
         cash_drawer_id: method === 'Cash' && drawerId ? Number(drawerId) : null,
         idempotency_key: crypto.randomUUID(),
         bank_account_id: bankId ? Number(bankId) : null,
@@ -130,7 +159,10 @@ function CheckoutModal({ pricing, clients, drawers, defaultCurrency = 'USD', onC
             start_date:   planStart || null,
           },
         } : {}),
-      });
+      };
+      const res = amending
+        ? await amendPosSale(amending.id, body)
+        : await posCheckout(body);
       // The checkout endpoint returns only totals + ids. Stitch in the
       // presentation data the receipt needs (line items, client name,
       // payment method, amount tendered) so the receipt doesn't have to
@@ -177,6 +209,15 @@ function CheckoutModal({ pricing, clients, drawers, defaultCurrency = 'USD', onC
             )}
             <tr><td><strong>{t('pos.total')}</strong></td>
                 <td style={{ textAlign: 'end' }}><strong>{fmt(pricing.total)}</strong></td></tr>
+            {amending && (
+              <>
+                <tr><td style={{ color: 'var(--text-3)' }}>{t('pos.alreadyPaid')}</td>
+                    <td style={{ textAlign: 'end', color: 'var(--text-3)' }}>−{fmt(alreadyPaid)}</td></tr>
+                <tr><td><strong>{refundNow > 0.005 ? t('pos.toRefund') : t('pos.toCollect')}</strong></td>
+                    <td style={{ textAlign: 'end', color: refundNow > 0.005 ? 'var(--red)' : 'var(--green)' }}>
+                      <strong>{fmt(refundNow > 0.005 ? refundNow : collectNow)}</strong></td></tr>
+              </>
+            )}
           </tbody>
         </table>
         <div className="form-grid">

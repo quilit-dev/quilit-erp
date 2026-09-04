@@ -632,6 +632,9 @@ export const allocateCommitments = (invId)    => api.post(`/api/commitments/allo
 export const getPosSales       = (params = {}) => api.get(`/api/pos/sales${_qs(params)}`);
 export const getPosSale        = (id)         => api.get(`/api/pos/sales/${id}`);
 export const returnPosSale     = (id, reason) => api.post(`/api/pos/sales/${id}/return`, { reason });
+// Correcting a completed sale: the same body a checkout takes, plus the
+// reason. The server unwinds the original and rings this one in its place.
+export const amendPosSale      = (id, d)      => api.post(`/api/pos/sales/${id}/amend`, d);
 export const getPosProducts    = (search, s)  => api.get(`/api/pos/products${_qs(search ? { search } : {})}`, s);
 export const getPosCashDrawers = ()            => api.get('/api/pos/cash-drawers');
 

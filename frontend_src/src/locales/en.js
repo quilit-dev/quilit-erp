@@ -1931,6 +1931,19 @@ const en = {
     returned: 'Returned',
     viewSale: 'View',
     processReturn: 'Process Return',
+    // Correcting a completed sale. The wording avoids "edit" everywhere it
+    // matters: the original is not changed, it is replaced, and the cashier
+    // needs to know that before they save rather than after.
+    editSale: 'Edit sale',
+    saveCorrection: 'Save correction',
+    correctingSale: 'Correcting sale',
+    correctingHint: 'saving replaces the original and settles the difference at the till',
+    superseded: 'Replaced by a correction',
+    replacedBy: 'This sale was corrected. It has been replaced by',
+    corrects: 'Corrects',
+    alreadyPaid: 'Already paid',
+    toCollect: 'To collect',
+    toRefund: 'To refund',
     returnConfirm: 'Return this sale? Stock will be restocked and the invoice voided.',
     returnReason: 'Reason for return',
     saleReturned: 'Sale returned',

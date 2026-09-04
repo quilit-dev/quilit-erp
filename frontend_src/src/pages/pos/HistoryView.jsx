@@ -4,7 +4,7 @@ import { LoadingSpinner, ErrorAlert, EmptyState, Badge, ExportButton } from '../
 import { getPosSales } from '../../api/client';
 import { SaleDetailModal } from './SaleDetailModal';
 
-function HistoryView({ canReturn }) {
+function HistoryView({ canReturn, onAmend }) {
   const { t, fmt, fmtDate } = useLocale();
   const [rows, setRows] = useState(null);
   const [error, setError] = useState(null);
@@ -31,7 +31,8 @@ function HistoryView({ canReturn }) {
     Total_LBP:     s.total_lbp || 0,
     Discount:      s.discount_total || 0,
     COGS:          s.cogs_total || 0,
-    Status:        s.payment_status || (s.status === 'returned' ? 'Returned' : 'Paid'),
+    Status:        s.payment_status || (s.status === 'returned' ? 'Returned'
+                     : s.status === 'amended' ? 'Superseded' : 'Paid'),
     Balance:       s.balance || 0,
     Date:          fmtDate(s.created_at),
   }));
@@ -43,6 +44,7 @@ function HistoryView({ canReturn }) {
           saleId={openId} canReturn={canReturn}
           onClose={() => setOpenId(null)}
           onReturned={() => { setOpenId(null); load(); }}
+          onAmend={onAmend ? (sale) => { setOpenId(null); onAmend(sale); } : null}
         />
       )}
       <div className="card-header" style={{ justifyContent: 'flex-end' }}>
@@ -71,11 +73,21 @@ function HistoryView({ canReturn }) {
               <td>{fmt(s.total_usd)}</td>
               <td>
                 <Badge status={s.status === 'returned' ? 'Rejected'
+                  : s.status === 'amended' ? 'Cancelled'
                   : s.payment_status === 'Paid' || !s.payment_status ? 'Paid'
                   : 'Pending'} />
+                {/* A sale that has been corrected is not a sale any more. It
+                    is kept because the books are kept, and saying so is the
+                    difference between a clear history and two rows that look
+                    like the customer bought the same thing twice. */}
+                {s.status === 'amended' && (
+                  <div style={{ fontSize: 11, color: 'var(--text-3)', marginTop: 2 }}>
+                    {t('pos.superseded')}
+                  </div>
+                )}
                 {/* A sale still owing money says how much, on the screen
                     the owner reviews the day with. */}
-                {s.balance > 0.005 && s.status !== 'returned' && (
+                {s.balance > 0.005 && s.status !== 'returned' && s.status !== 'amended' && (
                   <div style={{ fontSize: 11, color: 'var(--red)', marginTop: 2 }}>
                     {fmt(s.balance)}
                   </div>

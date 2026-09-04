@@ -31,7 +31,7 @@ function tilesFor(rows) {
   return tiles;
 }
 
-function RegisterView({ session, onClose, onSold }) {
+function RegisterView({ session, amending, onCancelAmend, onClose, onSold }) {
   const { t, fmt, tCategory } = useLocale();
   const { settings, taxRates, exchangeRate } = useSettings();
   const fxRate = Number(exchangeRate?.rate) || 0;
@@ -189,6 +189,35 @@ function RegisterView({ session, onClose, onSold }) {
       .filter(l => Number(l.quantity) > 0));
   };
 
+  // Correcting a sale opens the register holding what was sold. The lines
+  // come from `pos_sale_items`, which is the receipt-native view: the price
+  // there is VAT-INCLUSIVE and the discount is the one that was applied, which
+  // is exactly the shape a cart line takes. Seeding from `invoice_items`
+  // instead would put the ex-VAT unit price into a VAT-inclusive box and quietly
+  // reprice the whole sale.
+  //
+  // Keyed on the sale id so re-rendering does not keep resetting a cart the
+  // cashier is in the middle of editing.
+  const seededFor = useRef(null);
+  useEffect(() => {
+    if (!amending) { seededFor.current = null; return; }
+    if (seededFor.current === amending.id) return;
+    seededFor.current = amending.id;
+    setCart((amending.items || []).map(it => ({
+      key: ++keyRef.current,
+      name: it.name,
+      inventory_id: it.inventory_id,
+      quantity: Number(it.quantity) || 0,
+      unit_price: Number(it.unit_price) || 0,
+      discount: Number(it.discount) || 0,
+      tax_rate_id: taxEnabled ? (it.tax_rate_id ?? (posDefaultRate ? posDefaultRate.id : null)) : null,
+      line_type: it.line_type || (it.inventory_id != null ? 'product' : 'service'),
+      stock: null,
+      category: it.category || null,
+    })));
+    setOrderDiscount('');
+  }, [amending, taxEnabled, posDefaultRate]);
+
   async function onSearchKeyDown(e) {
     if (e.key !== 'Enter') return;
     e.preventDefault();
@@ -250,6 +279,7 @@ function RegisterView({ session, onClose, onSold }) {
           pricing={{ ...pricing, items: checkoutItems }}
           clients={clients}
           drawers={drawers}
+          amending={amending}
           defaultCurrency={inLbp ? 'LBP' : 'USD'}
           onClose={() => setCheckout(false)}
           onDone={(res) => { setCheckout(false); setCart([]); setOrderDiscount(''); onSold(res); }}
@@ -323,6 +353,20 @@ function RegisterView({ session, onClose, onSold }) {
           </button>
         </div>
       </div>
+
+      {amending && (
+        <div className="alert alert-warning"
+             style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between',
+                      gap: 10, flexWrap: 'wrap', marginBottom: 10, fontSize: 13 }}>
+          <span>
+            <strong>{t('pos.correctingSale')} {amending.invoice_number}</strong>
+            {' — '}{t('pos.correctingHint')}
+          </span>
+          <button className="btn btn-secondary btn-sm" onClick={onCancelAmend}>
+            {t('common.cancel')}
+          </button>
+        </div>
+      )}
 
       {/* ── Workspace grid ───────────────────────────────────────── */}
       <div className="pos-workspace">
@@ -611,7 +655,7 @@ function RegisterView({ session, onClose, onSold }) {
                 <rect x="2" y="5" width="20" height="14" rx="2"/>
                 <line x1="2" y1="10" x2="22" y2="10"/>
               </svg>
-              {t('pos.checkout')}
+              {amending ? t('pos.saveCorrection') : t('pos.checkout')}
               <span className="pos-charge-btn-amount">· {posMoney(pricing.total)}</span>
             </button>
           </div>

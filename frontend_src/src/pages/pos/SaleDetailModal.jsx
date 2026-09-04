@@ -4,7 +4,7 @@ import { LoadingSpinner, ErrorAlert, Modal, ConfirmModal, Badge, toast } from '.
 import { getPosSale, returnPosSale } from '../../api/client';
 import { num } from './pricing';
 
-function SaleDetailModal({ saleId, canReturn, onClose, onReturned }) {
+function SaleDetailModal({ saleId, canReturn, onClose, onReturned, onAmend }) {
   const { t, fmt, fmtDate } = useLocale();
   const [sale, setSale] = useState(null);
   const [error, setError] = useState(null);
@@ -35,9 +35,22 @@ function SaleDetailModal({ saleId, canReturn, onClose, onReturned }) {
             <div style={{ fontSize: 13, color: 'var(--text-2)', marginBottom: 10 }}>
               {sale.client_name || t('pos.walkIn')} · {fmtDate(sale.created_at)} · {sale.cashier_name}
               {' · '}<Badge status={sale.status === 'returned' ? 'Rejected'
+                : sale.status === 'amended' ? 'Cancelled'
                 : sale.payment_status === 'Paid' || !sale.payment_status ? 'Paid'
                 : 'Pending'} />
             </div>
+            {/* Which half of a correction this is. Without it the two sales
+                are indistinguishable from a customer who bought twice. */}
+            {sale.status === 'amended' && sale.amended_by && (
+              <div className="alert alert-warning" style={{ fontSize: 12.5, marginBottom: 10 }}>
+                {t('pos.replacedBy')} {sale.amended_by.invoice_number}
+              </div>
+            )}
+            {sale.amended_from_sale && (
+              <div style={{ fontSize: 12, color: 'var(--text-3)', marginBottom: 10 }}>
+                {t('pos.corrects')} {sale.amended_from_sale.invoice_number}
+              </div>
+            )}
             <table className="table" style={{ fontSize: 13 }}>
               <thead>
                 <tr><th>{t('pos.customLineName')}</th><th>{t('pos.qty')}</th>
@@ -88,7 +101,12 @@ function SaleDetailModal({ saleId, canReturn, onClose, onReturned }) {
       </div>
       <div className="modal-footer">
         <button className="btn btn-secondary" onClick={onClose}>{t('common.close')}</button>
-        {sale && canReturn && sale.status !== 'returned' && (
+        {sale && canReturn && sale.status === 'completed' && onAmend && (
+          <button className="btn btn-secondary" onClick={() => onAmend(sale)}>
+            {t('pos.editSale')}
+          </button>
+        )}
+        {sale && canReturn && sale.status === 'completed' && (
           <button className="btn btn-danger" onClick={() => setConfirmReturn(true)}>
             {t('pos.processReturn')}
           </button>
