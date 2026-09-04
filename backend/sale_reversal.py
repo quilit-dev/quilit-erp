@@ -180,7 +180,10 @@ def reverse_fulfilment(db: sqlite3.Connection, invoice, *, note: str,
 
     sale = db.execute("SELECT * FROM pos_sales WHERE invoice_id=?",
                       (invoice["id"],)).fetchone()
-    if sale and sale["status"] != "returned":
+    # "returned" and "amended" both mean the goods are already back and the
+    # postings already walked — a correction unwinds the sale in full before
+    # ringing the replacement. Doing it again would restock a second time.
+    if sale and sale["status"] not in ("returned", "amended"):
         accounting.reverse_source(
             db, "pos_cogs", invoice["id"],
             memo=f"{note} — COGS {invoice['invoice_number']}", created_by=user_id)

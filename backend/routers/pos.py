@@ -117,6 +117,16 @@ class PosReturn(BaseModel):
     reason: Optional[str] = None
 
 
+class PosAmend(PosCheckout):
+    """A completed sale, rung again as it should have been.
+
+    Everything a checkout carries, because the corrected sale IS a checkout —
+    the cart, the customer, the payment method. `amount_tendered` means only
+    what crosses the counter NOW: the money already in the drawer stays there.
+    """
+    reason: Optional[str] = None
+
+
 # ── Helpers ────────────────────────────────────────────────────────────────
 def _open_session(db, user_id):
     """The caller's currently-open register session, or None."""
@@ -227,11 +237,20 @@ def close_session(
             "WHERE r.session_id=? AND s.payment_method='Cash' AND s.paid_currency=?",
             (session["id"], currency),
         ).fetchone()[0])
+        # A CORRECTED sale is excluded, and that exclusion is load-bearing.
+        # Its invoice is voided like any other, but the customer never got the
+        # money back: the corrected sale that replaced it recorded only the
+        # DIFFERENCE as tender, because only the difference crossed the
+        # counter. Counting the original out as well would take the whole
+        # original sale off a drawer that is still holding it, and the cashier
+        # would come up over by exactly that amount — in the ORIGINAL session,
+        # which may have been closed and counted days before anybody noticed
+        # the sale was wrong.
         voided = float(db.execute(
             "SELECT COALESCE(SUM(s.amount_tendered - s.change_given), 0) "
             "FROM pos_sales s JOIN invoices i ON i.id = s.invoice_id "
             "WHERE s.session_id=? AND s.payment_method='Cash' AND s.paid_currency=? "
-            "  AND i.voided_at IS NOT NULL "
+            "  AND i.voided_at IS NOT NULL AND s.status <> 'amended' "
             "  AND NOT EXISTS (SELECT 1 FROM pos_returns r WHERE r.pos_sale_id = s.id)",
             (session["id"], currency),
         ).fetchone()[0])
@@ -404,6 +423,36 @@ def checkout(
     if not session:
         raise HTTPException(409, "Open a register session before recording a sale.")
 
+    result = _ring_sale(db, user, data, session)
+    db.commit()
+    return result
+
+
+def _ring_sale(db, user, data: PosCheckout, session, *,
+               reuse_number: Optional[str] = None,
+               prepaid: float = 0.0,
+               amends_sale_id: Optional[int] = None):
+    """Everything a sale IS, rung up from a validated cart.
+
+    Split out of `checkout` so that amending a completed sale can unwind the
+    old one and ring the corrected one inside a SINGLE transaction, without a
+    second copy of the pricing, tax, promotion, stock and posting rules. A
+    second copy is how the two paths would come to disagree about what a sale
+    means, and this is the till.
+
+    `prepaid` is money already in the drawer against this sale — what the
+    original invoice had been paid, IN THE PAYMENT'S OWN CURRENCY, which was
+    reversed in the ledger but never physically handed back. It counts towards
+    the total, so only the DIFFERENCE has to cross the counter.
+
+    Deliberately it does NOT inflate the recorded tender:
+    `pos_sales.amount_tendered - change_given` is what the session close counts
+    as cash taken, and only the difference actually was. It has to be what the
+    INVOICE was paid rather than what the previous till row tendered, or a
+    sale corrected twice forgets the money the first correction collected.
+
+    Does not commit. The caller owns the transaction.
+    """
     # 3. Validate the cart and the optional customer.
     if not data.items:
         raise HTTPException(400, "Cannot complete a sale with an empty cart.")
@@ -691,9 +740,21 @@ def checkout(
     # treating every other answer as settled meant the dangerous branch was the
     # default; asking "does it settle itself?" makes the safe branch the
     # default, so a method nobody anticipated cannot pass as money received.
+    #
+    # Money already taken against this sale (a correction) is in the drawer
+    # already, so what has to be handed over now is only the shortfall. A
+    # NEGATIVE shortfall means the corrected sale is worth less than what was
+    # paid, and the balance goes back to the customer as change — which is
+    # why `due_at_till` is not floored at zero here, only in the check above.
+    prepaid_in_currency = round(prepaid, 2)
+    due_at_till = round(total_in_currency - prepaid_in_currency, 2)
     if not accounting.settles_exactly(method):
-        if data.amount_tendered + 0.01 < total_in_currency:
-            raise HTTPException(400, "Amount tendered is less than the sale total.")
+        if data.amount_tendered + 0.01 < max(0.0, due_at_till):
+            raise HTTPException(
+                400, "Amount tendered is less than the sale total."
+                     if prepaid_in_currency <= 0 else
+                     f"Amount tendered is less than the {due_at_till:,.2f} "
+                     "still to collect on the corrected sale.")
         # Cash offered against a plan with no deposit. Nothing is due at the
         # till, so every note of it comes straight back as change — the sale
         # completes, the balance is untouched, and the customer watches their
@@ -708,9 +769,9 @@ def checkout(
                 "would be handed straight back. Enter it as the deposit if "
                 "the customer is paying some of it now.")
         tendered     = float(data.amount_tendered)
-        change_given = round(tendered - total_in_currency, 2)
+        change_given = round(tendered - due_at_till, 2)
     else:
-        tendered     = total_in_currency       # card etc. — charged exactly
+        tendered     = max(0.0, due_at_till)   # card etc. — charged exactly
         change_given = 0.0
 
     now, today = _now(), _today()
@@ -760,8 +821,19 @@ def checkout(
     # `pos_invoice_prefix` is deliberately no longer consulted. Invoices already
     # issued under it keep their numbers — the number is stored, not derived.
     from routers.invoices import _invoice_prefix
-    inv_no = _finalize_invoice_number(db, invoice_id, _invoice_prefix(db),
-                                      "pos", f"POS-{invoice_id}")
+    if reuse_number:
+        # A correction is the same sale, so it carries the same number: the
+        # customer may be holding the receipt. `invoice_number` is UNIQUE and
+        # that constraint stays — the superseded row was stamped with a
+        # revision suffix before this ran, which is what frees the number.
+        inv_no = reuse_number
+        db.execute(
+            "UPDATE invoices SET invoice_number=?, source_type='pos', "
+            " source_reference=? WHERE id=?",
+            (inv_no, f"POS-{invoice_id}", invoice_id))
+    else:
+        inv_no = _finalize_invoice_number(db, invoice_id, _invoice_prefix(db),
+                                          "pos", f"POS-{invoice_id}")
 
     # 10. Invoice line items — normalised to the exclusive form (unit_price =
     #     post-discount NET unit price) so every existing invoice / VAT /
@@ -971,11 +1043,11 @@ def checkout(
         "INSERT INTO pos_sales "
         "(session_id, invoice_id, cashier_id, cashier_name, payment_method, paid_currency, "
         " amount_tendered, change_given, total_usd, discount_total, cogs_total, "
-        " bank_account_id, status, created_at) "
-        "VALUES (?,?,?,?,?,?,?,?,?,?,?,?, 'completed', ?)",
+        " bank_account_id, amended_from, status, created_at) "
+        "VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?, 'completed', ?)",
         (session["id"], invoice_id, user["id"], user.get("username"), method, currency,
          tendered, change_given, grand_total, discount_total, cogs_total,
-         data.bank_account_id, now),
+         data.bank_account_id, amends_sale_id, now),
     )
     pos_sale_id = ps.lastrowid
 
@@ -1064,12 +1136,12 @@ def checkout(
         db.execute("UPDATE invoices SET due_date=? WHERE id=?",
                    (plan_rows[-1][1], invoice_id))
 
-    # 15. Audit + single commit.
+    # 15. Audit. The commit belongs to the caller — see `_ring_sale`.
     log_action(db, user, "create", "pos", pos_sale_id, inv_no,
                {"total": grand_total, "method": method, "currency": currency,
                 **({"plan": len(plan_rows), "deposit": due_now}
-                   if plan is not None else {})})
-    db.commit()
+                   if plan is not None else {}),
+                **({"amends": amends_sale_id} if amends_sale_id else {})})
     return {
         "id":             pos_sale_id,
         "invoice_id":     invoice_id,
@@ -1082,6 +1154,7 @@ def checkout(
         "paid_now":       due_now,
         "balance":        money(grand_total - due_now),
         "change_given":   change_given,
+        "due_at_till":    due_at_till,
         "payment_status": "Paid" if plan is None else "Partial",
         "installments":   [{"seq": s, "due_date": str(d), "amount": a}
                            for s, d, a in plan_rows],
@@ -1132,6 +1205,10 @@ def list_sales(
         d["balance"] = money((d.get("total_usd") or 0) - (d.get("amount_paid") or 0))
         d["payment_status"] = (
             "Returned" if d.get("status") == "returned"
+            # A corrected sale keeps its payment row for audit, so its balance
+            # reads zero and it would otherwise sit in the history looking like
+            # an ordinary paid sale beside the one that replaced it.
+            else "Superseded" if d.get("status") == "amended"
             else "Paid" if d["balance"] <= 0.005
             else "Partial" if (d.get("amount_paid") or 0) > 0.005
             else "Unpaid")
@@ -1167,6 +1244,18 @@ def get_sale(
         (d["invoice_id"],),
     ).fetchone()
     d["payment"] = dict(payment) if payment else None
+    # The other half of a correction, in whichever direction this row sits.
+    nxt = db.execute(
+        "SELECT ps.id, i.invoice_number FROM pos_sales ps "
+        "JOIN invoices i ON ps.invoice_id = i.id WHERE ps.amended_from=?",
+        (sale_id,)).fetchone()
+    d["amended_by"] = dict(nxt) if nxt else None
+    if d.get("amended_from"):
+        prev = db.execute(
+            "SELECT ps.id, i.invoice_number FROM pos_sales ps "
+            "JOIN invoices i ON ps.invoice_id = i.id WHERE ps.id=?",
+            (d["amended_from"],)).fetchone()
+        d["amended_from_sale"] = dict(prev) if prev else None
     # Margin = net (ex-VAT) revenue − cost of goods sold.
     d["margin"] = round(float(d["subtotal"] or 0) - float(d["cogs_total"] or 0), 2)
     return d
@@ -1208,11 +1297,43 @@ def return_sale(
     _check_period_locked(db, _now()[:7] + "-01")
 
     now = _now()
+    _unwind_sale(db, user, sale, inv, now=now, session=session,
+                 void_reason=f"POS return: {data.reason or 'Customer return'}",
+                 note="POS return")
 
+    refund_amount = float(sale["total_usd"])
+    db.execute(
+        "INSERT INTO pos_returns "
+        "(pos_sale_id, session_id, invoice_id, cashier_id, refund_amount, reason, created_at) "
+        "VALUES (?,?,?,?,?,?,?)",
+        (sale_id, session["id"], inv["id"], user["id"], refund_amount, data.reason, now),
+    )
+    db.execute("UPDATE pos_sales SET status='returned', returned_at=? WHERE id=?", (now, sale_id))
+
+    log_action(db, user, "return", "pos", sale_id, inv["invoice_number"],
+               {"refund_amount": refund_amount, "reason": data.reason})
+    db.commit()
+    return {"message": "Sale returned", "refund_amount": refund_amount}
+
+
+def _unwind_sale(db, user, sale, inv, *, now: str, session, void_reason: str,
+                 note: str) -> None:
+    """Take a completed till sale back off the books, in full.
+
+    Voids the invoice, walks the ledger back, puts the goods on the shelf,
+    drops the agreed schedule and closes the promises. Shared by the POS
+    return and by an amendment, so that correcting a sale and returning one
+    cannot grow two different ideas of what undoing a sale means — the whole
+    reason `sale_reversal` exists.
+
+    The caller decides what it becomes afterwards: a return writes a
+    `pos_returns` row and marks the sale returned; an amendment marks it
+    superseded and rings the corrected sale in the same transaction.
+    """
     # Void the invoice (keeps the payment row for audit; finance/VAT exclude voids).
     db.execute(
         "UPDATE invoices SET voided_at=?, void_reason=?, version=version+1 WHERE id=?",
-        (now, f"POS return: {data.reason or 'Customer return'}", inv["id"]),
+        (now, void_reason, inv["id"]),
     )
 
     # Walk the general ledger back with the void (mirrors PATCH /invoices/{id}/void,
@@ -1224,17 +1345,17 @@ def return_sale(
         "SELECT id FROM invoice_payments WHERE invoice_id=?", (inv["id"],)
     ).fetchall():
         accounting.reverse_source(db, "invoice_payment", pay["id"],
-                                  memo=f"POS return — {inv['invoice_number']}",
+                                  memo=f"{note} — {inv['invoice_number']}",
                                   entry_date=now[:10], created_by=user["id"])
     accounting.reverse_source(db, "pos_cogs", inv["id"],
-                              memo=f"POS return COGS — {inv['invoice_number']}",
+                              memo=f"{note} COGS — {inv['invoice_number']}",
                               entry_date=now[:10], created_by=user["id"])
     # An instalment sale also raised a receivable. Left standing, the books
     # would keep a claim on a customer who has handed the goods back, and the
     # deferred revenue behind it would never clear. A no-op on an ordinary
     # till sale, which never had one.
     accounting.reverse_source(db, "invoice", inv["id"],
-                              memo=f"POS return — {inv['invoice_number']}",
+                              memo=f"{note} — {inv['invoice_number']}",
                               entry_date=now[:10], created_by=user["id"])
     # The agreed schedule goes with it.
     #
@@ -1261,26 +1382,162 @@ def return_sale(
     except (IndexError, KeyError):
         pass
     sale_reversal.restock_pos_sale(
-        db, sale, inv, note="POS return", now=now,
+        db, sale, inv, note=note, now=now,
         warehouse_id=wha.default_warehouse_id_for_row(db, ret_sess_wid))
     # Goods promised on this sale and not yet handed over are not owed any more.
     commitments.cancel_for_invoice(db, inv["id"], closed_by=user["id"])
     # Goods already handed over posted revenue and cost against the DELIVERY,
     # not the invoice, so the reversals above cannot see them.
     commitments.reverse_deliveries(
-        db, inv["id"], memo=f"POS return — handover {inv['invoice_number']}",
+        db, inv["id"], memo=f"{note} — handover {inv['invoice_number']}",
         created_by=user["id"])
 
-    refund_amount = float(sale["total_usd"])
-    db.execute(
-        "INSERT INTO pos_returns "
-        "(pos_sale_id, session_id, invoice_id, cashier_id, refund_amount, reason, created_at) "
-        "VALUES (?,?,?,?,?,?,?)",
-        (sale_id, session["id"], inv["id"], user["id"], refund_amount, data.reason, now),
-    )
-    db.execute("UPDATE pos_sales SET status='returned', returned_at=? WHERE id=?", (now, sale_id))
 
-    log_action(db, user, "return", "pos", sale_id, inv["invoice_number"],
-               {"refund_amount": refund_amount, "reason": data.reason})
+# ── Correcting a completed sale ────────────────────────────────────────────
+@router.post("/sales/{sale_id}/amend")
+def amend_sale(
+    sale_id: int,
+    data: PosAmend,
+    user=Depends(require_perm("pos", "edit")),
+    db: sqlite3.Connection = Depends(get_db),
+):
+    """Correct a sale that is already complete — a wrong price, an item that
+    should not be on it, one that should.
+
+    The sale is taken back off the books in full and the corrected one is rung
+    in the SAME transaction. That is deliberate, and it is the whole design:
+    every one of the nine things a checkout touches — invoice, payment, ledger,
+    stock, cost of goods, back-orders, promotions, held stock and the payment
+    plan — is undone by the reversal that already exists for returns, and
+    re-applied by the checkout that already exists for sales. Nothing here
+    edits any of them in place, so there is no second, half-written idea of
+    what a sale means for the two to drift apart into.
+
+    What the customer holds still matches: the corrected invoice takes the
+    original's number, and the superseded one is stamped with a revision
+    suffix. Numbers are UNIQUE and stay that way.
+
+    Only the DIFFERENCE crosses the counter. The reversal credits the whole
+    original payment back out of cash and the new sale debits the new total in,
+    so the ledger nets to the difference on its own; the recorded tender is the
+    difference too, which is what keeps the drawer count honest (see
+    `close_session`).
+    """
+    sale = db.execute("SELECT * FROM pos_sales WHERE id=?", (sale_id,)).fetchone()
+    if not sale:
+        raise HTTPException(404, "Sale not found")
+    if sale["status"] == "returned":
+        raise HTTPException(
+            400, "This sale was returned. The goods are back and the money has "
+                 "been refunded — ring a new sale rather than correcting this one.")
+    if sale["status"] == "amended":
+        raise HTTPException(
+            400, "This sale has already been corrected. Edit the corrected sale "
+                 "instead — it is the one that stands.")
+
+    inv = db.execute("SELECT * FROM invoices WHERE id=?", (sale["invoice_id"],)).fetchone()
+    if not inv:
+        raise HTTPException(404, "Linked invoice not found")
+    if inv["voided_at"]:
+        raise HTTPException(
+            400, "The invoice behind this sale is voided, so there is nothing "
+                 "standing to correct.")
+    # A filtered list proves nothing on its own: every by-id endpoint has to
+    # carry the branch guard itself, or a manager at one branch can correct a
+    # sale rung at another simply by knowing its id.
+    branch_access.assert_can_view_branch(user, db, inv["branch_id"])
+
+    # Correcting moves cash: the difference is collected or handed back.
+    session = _open_session(db, user["id"])
+    if not session:
+        raise HTTPException(409, "Open a register session before correcting a sale.")
+
+    # Both months, exactly as a return does: the sale is unwound out of its own
+    # period and the corrected one posts into today's.
+    _check_period_locked(db, str(sale["created_at"])[:7] + "-01")
+    _check_period_locked(db, _now()[:7] + "-01")
+
+    # Money taken after the till is money this cannot speak for. An instalment
+    # sale paid down over three months has three payments behind it; unwinding
+    # reverses all of them, and the customer would have to be asked for it all
+    # again. Refused rather than guessed at.
+    pay_rows = db.execute(
+        "SELECT id FROM invoice_payments WHERE invoice_id=? ORDER BY id",
+        (inv["id"],)).fetchall()
+    if len(pay_rows) > 1:
+        raise HTTPException(
+            400, "This sale has been paid down since it was rung up, so "
+                 "correcting it would unpick payments taken later. Return it "
+                 "and ring it again if it is wrong.")
+
+    # Goods already handed over against a back-order were a separate movement
+    # with its own posting. The reversal handles them, but re-ringing cannot
+    # know they were collected, so the customer would be promised them twice.
+    handed = db.execute(
+        "SELECT COALESCE(SUM(quantity_fulfilled), 0) AS n FROM sale_commitments "
+        "WHERE invoice_id=?", (inv["id"],)).fetchone()
+    if handed and float(handed["n"] or 0) > 0:
+        raise HTTPException(
+            400, "Part of what was promised on this sale has already been "
+                 "handed over, so it cannot be re-rung as one transaction. "
+                 "Return it and ring the corrected sale.")
+
+    if (data.currency or "USD").upper() != (sale["paid_currency"] or "USD"):
+        raise HTTPException(
+            400, f"This sale was paid in {sale['paid_currency']}. Settle the "
+                 "correction in the same currency, so the difference is "
+                 "counted out in the notes that are in the drawer.")
+
+    now = _now()
+    # What this invoice has actually been paid, in the notes it was paid in.
+    # That money stays in the drawer through the correction — only the
+    # difference moves — so it counts towards the corrected total.
+    #
+    # Read off the PAYMENT rather than off the previous till row on purpose. A
+    # corrected sale records only the difference as its tender, so a sale
+    # corrected a second time would otherwise see only what the first
+    # correction collected and ask the customer for the rest all over again.
+    #
+    # `paid_amount` is in the payment's own currency, which is the currency the
+    # correction has to settle in — enforced just above — so no rate is
+    # involved and none can be got wrong.
+    paid_row = db.execute(
+        "SELECT COALESCE(SUM(paid_amount), 0) AS n FROM invoice_payments "
+        "WHERE invoice_id=?", (inv["id"],)).fetchone()
+    prepaid = round(float(paid_row["n"] or 0), 2)
+
+    old_number = inv["invoice_number"]
+    old_total  = float(sale["total_usd"] or 0)
+
+    _unwind_sale(db, user, sale, inv, now=now, session=session,
+                 void_reason=f"Corrected: {data.reason or 'sale amended'}",
+                 note="POS correction")
+    db.execute("UPDATE pos_sales SET status='amended', returned_at=? WHERE id=?",
+               (now, sale_id))
+    # Free the number for the corrected invoice. The superseded row keeps a
+    # readable trace of what it was — -V2, -V3 on a sale corrected twice —
+    # rather than a number nobody can tie back to the receipt.
+    rev = 1 + db.execute(
+        "SELECT COUNT(*) AS n FROM invoices WHERE invoice_number LIKE ?",
+        (old_number + "-V%",)).fetchone()["n"]
+    db.execute("UPDATE invoices SET invoice_number=? WHERE id=?",
+               (f"{old_number}-V{rev}", inv["id"]))
+
+    result = _ring_sale(db, user, data, session, reuse_number=old_number,
+                        prepaid=prepaid, amends_sale_id=sale_id)
+
+    log_action(db, user, "amend", "pos", result["id"], old_number,
+               {"replaces": sale_id, "was": old_total,
+                "now": result["total"], "reason": data.reason})
     db.commit()
-    return {"message": "Sale returned", "refund_amount": refund_amount}
+    difference = money(float(result["total"]) - old_total)
+    return {
+        **result,
+        "amended_from":    sale_id,
+        "previous_total":  money(old_total),
+        "previous_number": f"{old_number}-V{rev}",
+        "difference":      difference,
+        "collect":         max(0.0, difference),
+        "refund":          max(0.0, -difference),
+        "message":         "Sale corrected",
+    }

@@ -47,6 +47,9 @@ _REQUIRED = [
     ("purchase_items", "additional_cost_share"),
     ("purchase_items", "landed_unit_cost"),
     ("purchase_items", "stock_updated"),
+    # A corrected till sale points at the one it replaced, so the pair can be
+    # told apart from a customer who came back and bought twice.
+    ("pos_sales", "amended_from"),
     ("invoice_items", "inventory_id"),
     ("invoice_items", "promotion_id"),
     ("invoice_items", "discount_pct"),

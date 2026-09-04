@@ -4149,6 +4149,17 @@ def _run_migrations(conn, c):
                 pass
         done("172e_drop_purchase_line_cols")
 
+    # ── 173: a corrected till sale points back at the one it replaced ─────
+    # An amended sale is not a return and not a fresh sale: the goods went
+    # back, the money was walked back, and a corrected sale was rung in the
+    # same breath. Without the link the two rows sit side by side in the
+    # sales list looking like two sales, and the drawer looks like it took
+    # both. This is what lets a reader tell the pair apart from a genuine
+    # repeat purchase.
+    add_col("173_pos_sale_amended_from", "pos_sales", "amended_from",
+            "ALTER TABLE pos_sales ADD COLUMN amended_from INTEGER "
+            "REFERENCES pos_sales(id)")
+
     # Last, after every migration that might have added an account: if this
     # tenant is on a statutory chart, anything not on it is retired. Migrations
     # insert accounts ACTIVE, which on such a tenant means a default-chart code
@@ -5124,6 +5135,9 @@ def _ensure_pg_post_baseline(raw):
                 cur.execute(_layer_ref_sql(_tbl, "pi.id::text"))
             cur.execute("INSERT INTO schema_migrations (name, applied_at) "
                         "VALUES ('172d_purchase_layer_refs', now()::text)")
+        # 173: a corrected till sale points back at the one it replaced.
+        cur.execute("ALTER TABLE pos_sales ADD COLUMN IF NOT EXISTS "
+                    "amended_from INTEGER")
     raw.commit()
 
 
