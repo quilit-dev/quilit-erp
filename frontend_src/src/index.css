@@ -1140,6 +1140,14 @@ html[lang="ar"], html[lang="ar"] body {
   display: grid;
   grid-template-columns: repeat(auto-fit, minmax(220px, 1fr));
   gap: 14px;
+  /* A KPI strip is never the last thing on a page — a filter bar or a table
+     always follows it — so the space below belongs to the strip, not to every
+     page that uses one. Nineteen call sites set it inline, in four different
+     values; the two that forgot had their cards sitting flush against the card
+     underneath. Pages that want something else still override it, and the
+     dashboard's stacked strips already pass `marginBottom: 0` because their
+     author assumed this rule existed. */
+  margin-bottom: 16px;
 }
 
 .stat-card {

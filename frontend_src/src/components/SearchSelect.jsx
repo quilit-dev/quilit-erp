@@ -26,7 +26,9 @@
  * "ink" finds "Ink Tube" and "4111" finds an account whose code that is. The
  * same rule the server-side search now follows.
  */
-import { useState, useRef, useEffect, useMemo, useCallback, useId } from 'react';
+import {
+  useState, useRef, useEffect, useLayoutEffect, useMemo, useCallback, useId,
+} from 'react';
 import { createPortal } from 'react-dom';
 import { useLocale } from '../hooks/useLocale.jsx';
 
@@ -34,7 +36,21 @@ const norm = (s) => String(s ?? '').toLowerCase();
 
 const MIN_WIDTH = 200;
 
+// Only what to assume on the very first frame, when the panel is not in the
+// document yet and there is nothing to measure. It is corrected before the
+// browser paints, so it is never seen — but it used to be the ONLY height this
+// component ever knew, which is what put a four-row payment-method list 300px
+// above its own field with a gap of empty page between them.
+const FIRST_GUESS_H = 300;
+
 /** Where to put the panel, in viewport coordinates.
+ *
+ *  `panelH` must be the panel's REAL height. Flipping subtracts it from the
+ *  top of the field, so a guessed height that is too large lifts the panel by
+ *  the guess while it renders at its own size — leaving it floating well above
+ *  the control it belongs to. The same guess also decides whether to flip at
+ *  all, so a short list would jump upwards out of space it fitted in perfectly
+ *  well.
  *
  *  Flipped above the field when there is more room there — a picker near the
  *  bottom of a dialog would otherwise open into a few pixels of space.
@@ -47,7 +63,7 @@ const MIN_WIDTH = 200;
  *
  *  Clamped to the viewport last, so a field near either edge of the window
  *  still opens something entirely on screen. */
-function place(rect, panelH, rtl) {
+export function place(rect, panelH, rtl) {
   const below = window.innerHeight - rect.bottom;
   const above = rect.top;
   const flip = below < panelH && above > below;
@@ -56,7 +72,15 @@ function place(rect, panelH, rtl) {
   return {
     width,
     left: Math.min(Math.max(8, start), window.innerWidth - width - 8),
-    top: flip ? Math.max(8, rect.top - panelH - 4) : rect.bottom + 4,
+    // Anchored by the edge that touches the field: `top` under it, `bottom`
+    // over it. A flipped panel positioned by `top` has to be told how tall it
+    // is, and it was told 300 whatever it actually was — so a three-row page
+    // size picker opened 194px above its own control with a strip of empty
+    // page in between. Pinning the far edge instead lets it grow from the
+    // field, and the height stops mattering at all.
+    top:    flip ? undefined : rect.bottom + 4,
+    bottom: flip ? Math.max(8, window.innerHeight - rect.top + 4) : undefined,
+    flip,
     maxHeight: Math.max(120, (flip ? above : below) - 12),
   };
 }
@@ -120,7 +144,10 @@ export default function SearchSelect({
     const el = btnRef.current;
     if (!el) return;
     const rtl = (document.documentElement.dir || '').toLowerCase() === 'rtl';
-    setPos(place(el.getBoundingClientRect(), 300, rtl));
+    // Measure the panel whenever it is on screen; the constant is a first
+    // frame only.
+    const h = panelRef.current?.offsetHeight || FIRST_GUESS_H;
+    setPos(place(el.getBoundingClientRect(), h, rtl));
   }, []);
 
   useEffect(() => {
@@ -134,6 +161,27 @@ export default function SearchSelect({
       window.removeEventListener('resize', reposition);
     };
   }, [open, reposition]);
+
+  // The panel is attached to the field either way now, so what is left to get
+  // right is only WHETHER to flip: a short list with 200px under it fits
+  // below, and the first-frame estimate of 300 would send it above for no
+  // reason. Once the panel is in the document its height can be measured, so
+  // the decision is made again with the real number.
+  //
+  // `placedH` is what stops this looping: repositioning re-renders, the effect
+  // runs again, measures the same height and returns. It only acts when the
+  // panel's height is not the one the current placement assumed.
+  const placedH = useRef(0);
+  useLayoutEffect(() => {
+    if (!open) { placedH.current = 0; return; }
+    const h = panelRef.current?.offsetHeight;
+    if (!h || Math.abs(h - placedH.current) < 1) return;
+    placedH.current = h;
+    reposition();
+    // `matches.length` and `canSearch` are what change the panel's height:
+    // rows, and whether a search box sits above them. `pos` is here because
+    // the first placement is what puts the panel on screen to be measured.
+  }, [open, pos, matches.length, canSearch, reposition]);
 
   useEffect(() => {
     if (open) inputRef.current?.focus();
@@ -240,7 +288,7 @@ export default function SearchSelect({
         <div
           ref={panelRef}
           style={{
-            position: 'fixed', top: pos.top, left: pos.left,
+            position: 'fixed', top: pos.top, bottom: pos.bottom, left: pos.left,
             width: pos.width, maxHeight: pos.maxHeight,
             // Above .modal (1000), because most of these sit inside one.
             zIndex: 1200,
