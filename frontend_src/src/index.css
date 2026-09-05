@@ -147,7 +147,11 @@
   --ink:              #1F1F2E;
   --text:             #1F1F2E;
   --text-2:           #5A5C6F;
-  --text-3:           #8A8C9D;
+  /* Darkened from #8A8C9D, which measured 3.11:1 on the page and 3.32:1 on a
+     white card — below the 4.5:1 AA floor. This token carries labels, helper
+     text and table metadata, which is content, not decoration. Now 4.78 / 5.11
+     / 4.58 across page, card and surface-2. Pinned by tokenContrast.test.js. */
+  --text-3:           #6C6D7A;
   --text-inv:         #FFFFFF;
 
   /* Accent — the plum primary. The Odoo nod is deliberate but slightly
@@ -349,7 +353,9 @@
   --ink:              #F2F0F7;
   --text:             #F2F0F7;
   --text-2:           #A4A1B0;
-  --text-3:           #6F6C7C;
+  /* Lightened from #6F6C7C — 3.55:1 on the page and 3.23:1 on a card, under
+     the 4.5:1 AA floor. Now 5.58 / 5.07 / 4.58. See the light-theme note. */
+  --text-3:           #908CA1;
   --text-inv:         #15151D;
 
   /* Lifted plum — visible against the dark slate without losing the
@@ -675,7 +681,12 @@ html[lang="ar"], html[lang="ar"] body {
 /* Active state — plum fill with white text. Friendly, Odoo-feeling,
    instantly readable. No left rail required. */
 .nav-link.active {
-  color: #FFFFFF;
+  /* var(--text-inv), not a literal white: the dark theme lifts --accent to a
+     pale lavender (#C49AB8) so it stays visible on the deep slate ground, and
+     white text on that measures 2.42:1 — well under the 4.5:1 AA floor. The
+     token is already #FFFFFF in light and #15151D in dark, giving 7.23 and
+     7.49. It existed all along; this rule simply was not using it. */
+  color: var(--text-inv);
   background: var(--accent);
   font-weight: 600;
 }
@@ -709,7 +720,7 @@ html[lang="ar"], html[lang="ar"] body {
   width: 30px; height: 30px;
   border-radius: 50%;
   background: var(--accent);
-  color: #FFFFFF;
+  color: var(--text-inv);
   display: flex; align-items: center; justify-content: center;
   font-family: var(--font-sans);
   font-size: 11.5px;
@@ -1114,7 +1125,12 @@ html[lang="ar"], html[lang="ar"] body {
 
 .btn-primary {
   background: var(--accent);
-  color: #FFFFFF;
+  /* var(--text-inv), not a literal white: the dark theme lifts --accent to a
+     pale lavender (#C49AB8) so it stays visible on the deep slate ground, and
+     white text on that measures 2.42:1 — well under the 4.5:1 AA floor. The
+     token is already #FFFFFF in light and #15151D in dark, giving 7.23 and
+     7.49. It existed all along; this rule simply was not using it. */
+  color: var(--text-inv);
   border-color: var(--accent);
   box-shadow: var(--field-shadow);
 }
@@ -4042,4 +4058,58 @@ textarea.form-control {
    discoverable but has no room for it on a phone. */
 @media (max-width: 640px) {
   .hide-on-mobile { display: none !important; }
+}
+
+/* ── Print: paper is white and ink is black, whatever the screen theme is ────
+ *
+ * The app prints through `window.print()` on the LIVE document — the POS
+ * receipt adds `.pos-receipt-printing` and hides everything else by
+ * visibility, and the Finance screen prints itself directly. Neither forces a
+ * colour, so under the dark theme the customer's receipt printed on a dark
+ * ground: light text on a background the printer either renders as a solid
+ * block of ink or drops entirely, leaving pale text on white.
+ *
+ * The tokens are re-declared rather than the components restyled, because the
+ * theme lives as an attribute on <html> and every surface colour descends from
+ * these. `[data-theme="dark"]` is listed explicitly: it outranks a bare
+ * `:root`, so redefining only `:root` here would leave the dark values
+ * standing. This block is deliberately LAST in the file.
+ *
+ * Colour only — layout, page size and the receipt's visibility rules stay
+ * exactly where they are, in the components that own them.
+ */
+@media print {
+  :root,
+  :root[data-theme="dark"],
+  [data-theme="dark"] {
+    --bg:            #FFFFFF;
+    --vellum:        #FFFFFF;
+    --surface:       #FFFFFF;
+    --surface-2:     #FFFFFF;
+    --surface-3:     #FFFFFF;
+    --bg-elevated:   #FFFFFF;
+    --paper:         #FFFFFF;
+    --surface-glass: #FFFFFF;
+
+    --rule:          #CCCCCC;
+    --rule-strong:   #999999;
+    --rule-subtle:   #E0E0E0;
+
+    --ink:           #000000;
+    --text:          #000000;
+    --text-2:        #333333;
+    --text-3:        #555555;
+    --text-inv:      #FFFFFF;
+  }
+
+  body {
+    background: #FFFFFF !important;
+    color: #000000 !important;
+  }
+
+  /* Ink is expensive and a shadow prints as grey mud. */
+  * {
+    box-shadow: none !important;
+    text-shadow: none !important;
+  }
 }
