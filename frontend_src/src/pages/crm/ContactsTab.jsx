@@ -156,7 +156,7 @@ function ContactsTab({ t }) {
           </div>
         </div>
 
-        {loading ? <LoadingSpinner /> :
+        {loading && !contacts?.length ? <LoadingSpinner /> :
          error   ? <ErrorAlert message={error} onRetry={reload} /> :
          !contacts?.length ? <EmptyState message={t('crm.noContacts')} /> : (
           <div className="table-wrap">

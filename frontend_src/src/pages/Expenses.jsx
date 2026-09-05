@@ -290,7 +290,7 @@ function TransactionsPanel() {
 
       {/* Table */}
       <div className="card">
-        {loading ? <LoadingSpinner /> :
+        {loading && !filtered.length ? <LoadingSpinner /> :
          error   ? <ErrorAlert message={error} onRetry={reload} /> :
          !filtered.length ? (
           <EmptyState message={hasFilters ? t('expenses.noExpensesFiltered') : t('expenses.noExpensesYet')} />

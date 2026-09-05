@@ -192,7 +192,7 @@ export default function UserManagement() {
       </div>
 
       {error && <ErrorAlert message={error} onRetry={load} />}
-      {loading ? <LoadingSpinner /> : (
+      {loading && !users.length ? <LoadingSpinner /> : (
         <div className="card" style={{ overflow: 'hidden' }}>
           <table className="table">
             <thead>

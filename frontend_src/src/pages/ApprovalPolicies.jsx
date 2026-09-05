@@ -594,7 +594,7 @@ export default function ApprovalPolicies() {
           </div>
         </div>
 
-        {loading ? <LoadingSpinner /> : error ? <ErrorAlert message={error} onRetry={reload} /> : (
+        {loading && !safePolicies.length ? <LoadingSpinner /> : error ? <ErrorAlert message={error} onRetry={reload} /> : (
           <div className="table-wrap">
             <table>
               <thead>

@@ -223,7 +223,7 @@ function LeadsTab({ t }) {
             onClose={() => setImporting(false)} onDone={reload} />
         )}
 
-        {loading ? <LoadingSpinner /> :
+        {loading && !leads?.length ? <LoadingSpinner /> :
          error   ? <ErrorAlert message={error} onRetry={reload} /> :
          !leads?.length ? <EmptyState message={t('crm.noLeads')} /> : (
           <div className="table-wrap">

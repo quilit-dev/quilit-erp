@@ -201,7 +201,7 @@ export default function Clients() {
           </label>
         </div>
 
-        {loading ? <LoadingSpinner /> :
+        {loading && !sorted.length ? <LoadingSpinner /> :
          error   ? <ErrorAlert message={error} onRetry={reload} /> :
          sorted.length === 0 ? <EmptyState message={t('clients.noClientsFound')} /> : (
           <div className="table-wrap">

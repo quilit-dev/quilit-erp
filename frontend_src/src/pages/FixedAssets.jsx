@@ -275,7 +275,7 @@ export default function FixedAssets() {
 
       {/* Table */}
       <div className="card">
-        {loading ? <LoadingSpinner /> :
+        {loading && !filtered.length ? <LoadingSpinner /> :
          error   ? <ErrorAlert message={error} onRetry={reload} /> :
          !filtered.length ? (
           <EmptyState message={hasFilters ? t('assets.noAssetsFiltered') : t('assets.noAssets')} />

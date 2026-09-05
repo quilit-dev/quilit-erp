@@ -376,7 +376,7 @@ export default function ApprovalRequests() {
       </div>
 
       <div className="card" style={{ padding: 0 }}>
-        {loading ? <LoadingSpinner /> : error ? <ErrorAlert message={error} onRetry={reload} /> : (
+        {loading && !safeReqs.length ? <LoadingSpinner /> : error ? <ErrorAlert message={error} onRetry={reload} /> : (
           <div className="table-wrap">
             <table>
               <thead>

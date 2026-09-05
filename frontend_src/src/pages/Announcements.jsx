@@ -104,6 +104,13 @@ export default function Announcements() {
     });
   }, [inbox, search, priority, status]);
 
+  // Show the spinner only when there is nothing on screen yet. Swapping a full
+  // list for a spinner on every refresh collapses the document, the browser
+  // clamps the scroll position, and whoever was reading row 40 is thrown back
+  // to the top. Keeping the rows mounted keeps the height, and the scroll with
+  // it. See listKeepsScroll.test.js.
+  const firstLoad = loading && !(tab === 'inbox' ? filtered.length : (sent || []).length);
+
   return (
     <div>
       {/* Page header */}
@@ -176,8 +183,8 @@ export default function Announcements() {
       )}
 
       {/* List */}
-      {loading && <LoadingSpinner />}
-      {!loading && tab === 'inbox' && (
+      {firstLoad && <LoadingSpinner />}
+      {!firstLoad && tab === 'inbox' && (
         filtered.length === 0
           ? <EmptyState icon="📭" message={t('announcements.emptyInbox')} />
           : (
@@ -188,7 +195,7 @@ export default function Announcements() {
             </div>
           )
       )}
-      {!loading && tab === 'sent' && (
+      {!firstLoad && tab === 'sent' && (
         (sent || []).length === 0
           ? <EmptyState icon="📤" message={t('announcements.emptySent')} />
           : (

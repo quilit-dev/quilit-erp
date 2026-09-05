@@ -569,7 +569,7 @@ export default function Invoices() {
           )}
         </div>
 
-        {loading ? <LoadingSpinner /> :
+        {loading && !pagedInvoices.length ? <LoadingSpinner /> :
          error   ? <ErrorAlert message={error} onRetry={reload} /> :
          pagedInvoices.length === 0 ? <EmptyState message={t('invoices.noInvoicesFound')} /> : (
           <div className="table-wrap">

@@ -289,7 +289,7 @@ export default function RoleManagement() {
       </div>
 
       {error && <ErrorAlert message={error} onRetry={load} />}
-      {loading ? <LoadingSpinner /> : (
+      {loading && !roles.length ? <LoadingSpinner /> : (
         <div style={{ display: 'flex', flexDirection: 'column', gap: 8 }}>
           {roles.length === 0 && <div style={{ textAlign: 'center', color: 'var(--text-3)', padding: 40 }}>{t('roles.noRolesFound')}</div>}
           {roles.map(r => (

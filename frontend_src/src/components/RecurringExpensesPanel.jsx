@@ -184,7 +184,7 @@ export default function RecurringExpensesPanel() {
       </div>
 
       <div className="card">
-        {loading ? <LoadingSpinner /> :
+        {loading && !(templates || []).length ? <LoadingSpinner /> :
          error   ? <ErrorAlert message={error} onRetry={reload} /> :
          !(templates || []).length ? (
           <EmptyState message={t('recurring.noTemplates')} />

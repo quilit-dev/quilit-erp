@@ -145,7 +145,7 @@ export default function Suppliers() {
           </label>
         </div>
 
-        {loading ? <LoadingSpinner /> :
+        {loading && !filtered.length ? <LoadingSpinner /> :
          error   ? <ErrorAlert message={error} onRetry={reload} /> :
          filtered.length === 0 ? <EmptyState message={t('suppliers.noSuppliersFound')} /> : (
           <div className="table-wrap">

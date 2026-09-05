@@ -47,7 +47,7 @@ function ContractsSection({ empId, canEdit }) {
         {t('hr.newContract')}
       </button>
     )}>
-      {loading ? <LoadingSpinner /> :
+      {loading && !list.length ? <LoadingSpinner /> :
        list.length === 0 ? <EmptyState message={t('hr.noContractsOnFile')} /> : (
         <div className="table-wrap">
           <table>

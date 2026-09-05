@@ -282,7 +282,7 @@ export default function HR() {
       {/* ── Employees tab ──────────────────────────────────────────────────── */}
       {tab === 'employees' && (
         <div className="card" style={{ padding: 0 }}>
-          {loading ? <LoadingSpinner /> : error ? <ErrorAlert message={error} onRetry={reloadEmps} /> :
+          {loading && !emps.length ? <LoadingSpinner /> : error ? <ErrorAlert message={error} onRetry={reloadEmps} /> :
            emps.length === 0 ? <EmptyState message={t('hr.noEmployees')} /> : (
             <div className="table-wrap">
               <table>

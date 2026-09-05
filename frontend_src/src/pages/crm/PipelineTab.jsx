@@ -245,7 +245,7 @@ function PipelineTab({ t }) {
         </div>
       )}
 
-      {loading ? <LoadingSpinner /> :
+      {loading && !activeDeals.length ? <LoadingSpinner /> :
        error   ? <ErrorAlert message={error} onRetry={reload} /> :
        !activeDeals.length ? <EmptyState message={t('crm.noDeals')} /> : (
         <div className="kanban-board" style={{ display: 'grid', gridTemplateColumns: 'repeat(5, 1fr)', gap: 12, overflowX: 'auto', minWidth: 0 }}>

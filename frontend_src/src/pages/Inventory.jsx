@@ -411,7 +411,7 @@ export default function Inventory() {
 
       {/* Table */}
       {view === 'items' && <div className="card">
-        {loading    ? <LoadingSpinner /> :
+        {loading && !items.length ? <LoadingSpinner /> :
          fetchError ? <ErrorAlert message={fetchError} onRetry={load} /> :
          items.length === 0 ? (
           <EmptyState message={hasFilters

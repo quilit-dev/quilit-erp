@@ -171,7 +171,7 @@ function ActivitiesTab({ t }) {
           </button>
         </div>
 
-        {loading ? <LoadingSpinner /> :
+        {loading && !activities?.length ? <LoadingSpinner /> :
          error   ? <ErrorAlert message={error} onRetry={reload} /> :
          !activities?.length ? <EmptyState message={t('crm.noActivities')} /> : (
           <div style={{ padding: '12px 18px', display: 'flex', flexDirection: 'column', gap: 8 }}>

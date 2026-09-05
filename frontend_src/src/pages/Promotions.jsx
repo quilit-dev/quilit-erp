@@ -119,7 +119,7 @@ export default function Promotions() {
       </div>
 
       <div className="card">
-        {loading ? <LoadingSpinner /> :
+        {loading && !promos.length ? <LoadingSpinner /> :
          error   ? <ErrorAlert message={error} onRetry={load} /> :
          promos.length === 0 ? <EmptyState message={t('promotions.none')} /> : (
           <div className="table-wrap">

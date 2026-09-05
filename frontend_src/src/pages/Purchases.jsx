@@ -625,7 +625,7 @@ export default function Purchases() {
 
       {/* Table */}
       <div className="card">
-        {loading    ? <LoadingSpinner /> :
+        {loading && !filtered.length ? <LoadingSpinner /> :
          fetchError ? <ErrorAlert message={fetchError} onRetry={load} /> :
          filtered.length === 0 ? (
           <EmptyState message={hasFilters

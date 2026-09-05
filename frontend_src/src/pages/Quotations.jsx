@@ -593,7 +593,7 @@ export default function Quotations() {
           )}
         </div>
 
-        {loading ? <LoadingSpinner /> :
+        {loading && !pagedQuotations.length ? <LoadingSpinner /> :
          error   ? <ErrorAlert message={error} onRetry={reload} /> :
          pagedQuotations.length === 0 ? <EmptyState message={t('quotations.noQuotationsFound')} /> : (
           <div className="table-wrap">
