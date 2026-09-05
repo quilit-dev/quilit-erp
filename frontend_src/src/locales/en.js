@@ -1117,7 +1117,13 @@ const en = {
     operatingCosts: 'Operating costs',
     netProfit: 'Net Profit',
     margin: 'Margin: {{pct}}%',
-    unpaidInvoices: 'Unpaid Invoices',
+    // NOT "Unpaid". The figure beside it is every invoice with a balance
+    // left on it, part-paid ones included — which is the money actually owed
+    // to the business, and the number worth having on a front page. The
+    // Invoices list means something narrower by "Unpaid": nothing paid at
+    // all, with a part-paid invoice filed under "Partial". Two counts, one
+    // word, and the card looked wrong against the page it links to.
+    unpaidInvoices: 'Outstanding Invoices',
     outstanding: '{{count}} outstanding',
     overdueInvoices: 'Overdue Invoices',
     pastDue: '{{count}} past due',
@@ -1134,8 +1140,8 @@ const en = {
     strongMargin: 'Strong margin at {{pct}}%',
     thinMargin: 'Thin margin — {{pct}}%',
     operatingLoss: 'Operating at a loss',
-    unpaidInvoiceCount: '{{count}} unpaid invoice',
-    unpaidInvoiceCount_plural: '{{count}} unpaid invoices',
+    unpaidInvoiceCount: '{{count}} invoice still owing',
+    unpaidInvoiceCount_plural: '{{count}} invoices still owing',
     overdueAction: '{{count}} overdue — action needed',
     lowStockAlert: '{{count}} item low on stock',
     lowStockAlert_plural: '{{count}} items low on stock',

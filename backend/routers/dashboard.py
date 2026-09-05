@@ -76,20 +76,31 @@ def dashboard(branch_id: Optional[int] = None,
     uid = user.get("id")
 
     # ── Projects / Quotations / Inventory ────────────────────────────────
+    # Every count below has to answer the same question its own module page
+    # answers, because that page is where the card links. The pattern that got
+    # this wrong repeatedly: filtering `deleted_at` — which most of these
+    # tables never set — while the list screens filter `archived_at`. An
+    # archived row was then counted here and invisible there, and the two
+    # numbers disagreed with nothing failing.
     active_projects = _scalar(db,
         "SELECT COUNT(*) FROM projects"
-        " WHERE status IN ('In Progress', 'Approved') AND deleted_at IS NULL"
+        " WHERE status IN ('In Progress', 'Approved')"
+        "   AND deleted_at IS NULL AND archived_at IS NULL"
     ) if show_projects else None
 
     pending_quotes = _scalar(db,
         "SELECT COUNT(*) FROM quotations"
-        " WHERE status IN ('Draft', 'Sent') AND deleted_at IS NULL" + bf_q,
+        " WHERE status IN ('Draft', 'Sent')"
+        "   AND deleted_at IS NULL AND archived_at IS NULL" + bf_q,
         bp_q,
     ) if show_quotes else None
 
+    # The warehouse block further down already had this right; this one
+    # counted archived items the Inventory list hides.
     low_stock = _scalar(db,
         "SELECT COUNT(*) FROM inventory"
-        " WHERE deleted_at IS NULL AND quantity <= min_stock AND min_stock > 0"
+        " WHERE deleted_at IS NULL AND archived_at IS NULL"
+        "   AND quantity <= min_stock AND min_stock > 0"
     ) if show_inventory else None
 
     # ── Invoices: unpaid + overdue (both shown when invoices visible) ────
@@ -117,8 +128,14 @@ def dashboard(branch_id: Optional[int] = None,
                     COALESCE((SELECT SUM(ip.amount) FROM invoice_payments ip
                                WHERE ip.invoice_id = i.id), 0)), 0) AS total
            FROM invoices i
+           -- An invoice awaiting approval is a draft: routers/invoices.py
+           -- forces `is_overdue` false on it, so counting it here put a
+           -- document on the overdue card that the Invoices page says is not
+           -- overdue, and that nobody can chase because it has not been
+           -- issued.
            WHERE i.deleted_at IS NULL AND i.voided_at IS NULL
              AND i.archived_at IS NULL
+             AND COALESCE(i.approval_status, '') <> 'Pending Approval'
              AND i.due_date IS NOT NULL AND i.due_date < ?
              AND i.amount > COALESCE(
                  (SELECT SUM(ip.amount) FROM invoice_payments ip WHERE ip.invoice_id = i.id), 0)""" + bf_i,
@@ -129,14 +146,21 @@ def dashboard(branch_id: Optional[int] = None,
     monthly_income = _scalar(db,
         """SELECT COALESCE(SUM(ip.amount), 0)
            FROM invoice_payments ip JOIN invoices i ON ip.invoice_id = i.id
+           -- routers/finance.py — which owns the page this card links to —
+           -- has always excluded archived invoices from revenue. So does the
+           -- unpaid card above. This one did not.
            WHERE i.deleted_at IS NULL AND i.voided_at IS NULL
+             AND i.archived_at IS NULL
              AND strftime('%Y-%m', ip.paid_at) = strftime('%Y-%m', 'now')""" + bf_i,
         bp_i,
     ) if (show_finance or show_invoices) else None
 
+    # Voiding a purchase voids its expense rows. Without this the cost of a
+    # cancelled delivery stayed in the month's expenses on the dashboard while
+    # Finance, the P&L and the VAT return had all dropped it.
     monthly_expenses = _scalar(db,
         """SELECT COALESCE(SUM(amount), 0) FROM expenses
-           WHERE deleted_at IS NULL
+           WHERE deleted_at IS NULL AND voided_at IS NULL AND archived_at IS NULL
              AND strftime('%Y-%m', date) = strftime('%Y-%m', 'now')""" + bf_e,
         bp_e,
     ) if show_finance else None
@@ -144,7 +168,8 @@ def dashboard(branch_id: Optional[int] = None,
     monthly_chart = db.execute(
         """SELECT strftime('%Y-%m', ip.paid_at) AS month, COALESCE(SUM(ip.amount),0) AS income
            FROM invoice_payments ip JOIN invoices i ON ip.invoice_id = i.id
-           WHERE i.deleted_at IS NULL AND i.voided_at IS NULL""" + bf_i +
+           WHERE i.deleted_at IS NULL AND i.voided_at IS NULL
+             AND i.archived_at IS NULL""" + bf_i +
         " GROUP BY month ORDER BY month DESC LIMIT 6",
         bp_i,
     ).fetchall() if (show_finance or show_invoices) else []
@@ -154,8 +179,14 @@ def dashboard(branch_id: Optional[int] = None,
         """SELECT COUNT(*) AS c, COALESCE(SUM(total_usd),0) AS total,
                   MAX(created_at) AS last_at
            FROM pos_sales
+           -- An ALLOW-list, matching the running total the till itself shows
+           -- (`status='completed'` in routers/pos.py). A deny-list of one
+           -- value silently admitted every status invented afterwards:
+           -- 'returned' was already being counted as a sale, and 'amended'
+           -- meant a corrected sale AND its replacement both landed in
+           -- today's takings — the same money, twice, on the front page.
            WHERE date(created_at) = date('now')
-             AND COALESCE(status,'completed') != 'voided'"""
+             AND COALESCE(status,'completed') = 'completed'"""
     ).fetchone() if show_pos else None
 
     # ── Cash: open sessions + last reconciliation status ─────────────────
@@ -292,7 +323,7 @@ def dashboard(branch_id: Optional[int] = None,
         won_month = db.execute(
             """SELECT COUNT(*) AS c, COALESCE(SUM(value),0) AS total
                FROM crm_deals
-               WHERE won_at IS NOT NULL
+               WHERE archived_at IS NULL AND won_at IS NOT NULL
                  AND strftime('%Y-%m', won_at) = strftime('%Y-%m','now')"""
         ).fetchone()
         new_leads = _scalar(db,
