@@ -125,56 +125,56 @@
      familiar contemporary SaaS shape (Odoo, Notion, Linear all sit here).
      The page bg is just dark enough to read each card as its own object
      without floating off the page. */
-  --vellum:           #F7F7FA;
-  --bg:               #F7F7FA;
-  --surface:          #FFFFFF;
-  --surface-2:        #F2F2F6;
-  --surface-3:        #E9E9EF;
+  --vellum:           #F3F0EC;
+  --bg:               #F3F0EC;
+  --surface:          #FCFAF7;
+  --surface-2:        #F2EDE8;
+  --surface-3:        #E9E2DA;
   --bg-elevated:      #FFFFFF;
-  --paper:            #F2F2F6;
-  --surface-glass:    rgba(255, 255, 255, 0.82);
+  --paper:            #F2EDE8;
+  --surface-glass:    rgba(252, 250, 247, 0.86);
 
   /* Rules. Cool greys that sit naturally on the white-on-grey palette. */
-  --rule:             #E5E5EC;
-  --rule-strong:      #CFCFD9;
-  --rule-subtle:      rgba(31, 31, 46, 0.05);
+  --rule:             #D8D0C9;
+  --rule-strong:      #8D7C6E;
+  --rule-subtle:      rgba(33, 29, 26, 0.06);
   --border:           var(--rule);
   --border-strong:    var(--rule-strong);
   --border-subtle:    var(--rule-subtle);
 
   /* Text scale. A touch of plum in the very darkest text mirrors the
      accent, so even the body reads as part of the system identity. */
-  --ink:              #1F1F2E;
-  --text:             #1F1F2E;
-  --text-2:           #5A5C6F;
+  --ink:              #211D1A;
+  --text:             #211D1A;
+  --text-2:           #5E5650;
   /* Darkened from #8A8C9D, which measured 3.11:1 on the page and 3.32:1 on a
      white card — below the 4.5:1 AA floor. This token carries labels, helper
      text and table metadata, which is content, not decoration. Now 4.78 / 5.11
      / 4.58 across page, card and surface-2. Pinned by tokenContrast.test.js. */
-  --text-3:           #6C6D7A;
+  --text-3:           #655C55;
   --text-inv:         #FFFFFF;
 
   /* Accent — the plum primary. The Odoo nod is deliberate but slightly
      deeper than their stock #875A7B; works better against white at small
      sizes and keeps high enough contrast for AA on buttons. */
-  --accent:           #714B67;
-  --accent-2:         #5C3D54;
-  --accent-hover:     #5C3D54;
-  --accent-3:         #8C6080;
-  --accent-tint:      rgba(113, 75, 103, 0.08);
-  --accent-light:     rgba(113, 75, 103, 0.08);
-  --accent-ring:      rgba(113, 75, 103, 0.22);
-  --accent-gradient:  linear-gradient(180deg, #714B67 0%, #5C3D54 100%);
+  --accent:           #211B18;
+  --accent-2:         #3A302B;
+  --accent-hover:     #3A302B;
+  --accent-3:         #4A3D37;
+  --accent-tint:      rgba(33, 27, 24, 0.07);
+  --accent-light:     rgba(33, 27, 24, 0.07);
+  --accent-ring:      rgba(141, 124, 110, 0.40);
+  --accent-gradient:  linear-gradient(180deg, #211B18 0%, #3A302B 100%);
 
   /* Semantics — modern Odoo / Bootstrap-ish brightness but slightly
      muted so they don't fight the plum primary. */
-  --affirm:           #1FA362;
+  --affirm:           #147A48;
   --affirm-tint:      rgba(31, 163, 98, 0.10);
-  --caution:          #E29A2C;
+  --caution:          #A35C18;
   --caution-tint:     rgba(226, 154, 44, 0.12);
-  --negate:           #D14545;
+  --negate:           #A63834;
   --negate-tint:      rgba(209, 69, 69, 0.10);
-  --info:             #2C7BC4;
+  --info:             #35658E;
   --info-tint:        rgba(44, 123, 196, 0.10);
 
   /* Compatibility aliases — every page still references --green/--red/etc.
@@ -234,12 +234,12 @@
   /* Radii — friendlier than the editorial sharp corners. Cards 8px, the
      fundamental UI feel; buttons 6px; status badges 4px (still
      restrained — not full pills); modals 12px. */
-  --r-xs:             4px;
-  --r-sm:             6px;
-  --r:                8px;
-  --r-md:             8px;
-  --r-lg:             12px;
-  --r-xl:             14px;
+  --r-xs:             3px;
+  --r-sm:             4px;
+  --r:                5px;
+  --r-md:             5px;
+  --r-lg:             7px;
+  --r-xl:             7px;
   --r-pill:           999px;     /* avatars + the rare full-pill badge */
   --radius-xs:        var(--r-xs);
   --radius-sm:        var(--r-sm);
@@ -252,12 +252,16 @@
   /* Elevation. Soft, low — cards float just enough off the page to read
      as objects without screaming for attention. Modals get a deeper
      drop. The focus ring is the only "glow" in the system. */
-  --shadow-xs:        0 1px 2px rgba(31, 31, 46, 0.04);
+  /* Flattened for the graphite direction: hierarchy is carried by 1px
+     borders and tonal surface steps, not by lifting every card off the
+     page. The three overlay shadows survive because a menu, a dialog and
+     the command palette DO float above the document and need to read that
+     way. Changing the token flattens every consumer at once — no card
+     component had to be edited. */
+  --shadow-xs:        none;
   --shadow-edge:      0 1px 0 0 var(--rule);
-  --shadow:           0 1px 2px rgba(31, 31, 46, 0.04),
-                      0 1px 3px rgba(31, 31, 46, 0.05);
-  --shadow-md:        0 2px 4px rgba(31, 31, 46, 0.04),
-                      0 4px 12px rgba(31, 31, 46, 0.06);
+  --shadow:        none;
+  --shadow-md:        none;
   --shadow-lg:        0 8px 20px -4px rgba(31, 31, 46, 0.10),
                       0 4px 8px rgba(31, 31, 46, 0.05);
   --shadow-xl:        0 24px 48px -12px rgba(31, 31, 46, 0.20),
@@ -334,48 +338,48 @@
  * ────────────────────────────────────────────────────────────────────────── */
 
 [data-theme="dark"] {
-  --vellum:           #15151D;
-  --bg:               #15151D;
-  --surface:          #1E1E28;
-  --surface-2:        #262633;
-  --surface-3:        #30303F;
-  --bg-elevated:      #1E1E28;
-  --paper:            #262633;
-  --surface-glass:    rgba(30, 30, 40, 0.82);
+  --vellum:           #171310;
+  --bg:               #171310;
+  --surface:          #211B18;
+  --surface-2:        #2B2421;
+  --surface-3:        #352C28;
+  --bg-elevated:      #2B2421;
+  --paper:            #2B2421;
+  --surface-glass:    rgba(33, 27, 24, 0.86);
 
-  --rule:             rgba(255, 255, 255, 0.08);
-  --rule-strong:      rgba(255, 255, 255, 0.16);
-  --rule-subtle:      rgba(255, 255, 255, 0.04);
+  --rule:             #403632;
+  --rule-strong:      #846F66;
+  --rule-subtle:      rgba(255, 255, 255, 0.05);
   --border:           var(--rule);
   --border-strong:    var(--rule-strong);
   --border-subtle:    var(--rule-subtle);
 
-  --ink:              #F2F0F7;
-  --text:             #F2F0F7;
-  --text-2:           #A4A1B0;
+  --ink:              #F2EEE9;
+  --text:             #F2EEE9;
+  --text-2:           #B1A8A1;
   /* Lightened from #6F6C7C — 3.55:1 on the page and 3.23:1 on a card, under
      the 4.5:1 AA floor. Now 5.58 / 5.07 / 4.58. See the light-theme note. */
-  --text-3:           #908CA1;
-  --text-inv:         #15151D;
+  --text-3:           #988C85;
+  --text-inv:         #171310;
 
   /* Lifted plum — visible against the dark slate without losing the
      identity. The hover steps to a slightly lighter lavender. */
-  --accent:           #C49AB8;
-  --accent-2:         #D5B0CA;
-  --accent-hover:     #D5B0CA;
-  --accent-3:         #E2C5D8;
-  --accent-tint:      rgba(196, 154, 184, 0.14);
-  --accent-light:     rgba(196, 154, 184, 0.14);
-  --accent-ring:      rgba(196, 154, 184, 0.30);
-  --accent-gradient:  linear-gradient(180deg, #C49AB8 0%, #B084A6 100%);
+  --accent:           #E9E5E0;
+  --accent-2:         #D8D2CB;
+  --accent-hover:     #D8D2CB;
+  --accent-3:         #C7C0B8;
+  --accent-tint:      rgba(233, 229, 224, 0.10);
+  --accent-light:     rgba(233, 229, 224, 0.10);
+  --accent-ring:      rgba(233, 229, 224, 0.32);
+  --accent-gradient:  linear-gradient(180deg, #E9E5E0 0%, #D8D2CB 100%);
 
-  --affirm:           #4FBC85;
+  --affirm:           #35A36B;
   --affirm-tint:      rgba(79, 188, 133, 0.16);
-  --caution:          #E6B05A;
+  --caution:          #D28B45;
   --caution-tint:     rgba(230, 176, 90, 0.16);
-  --negate:           #E27272;
+  --negate:           #C9605A;
   --negate-tint:      rgba(226, 114, 114, 0.16);
-  --info:             #5FA0DD;
+  --info:             #6E91B8;
   --info-tint:        rgba(95, 160, 221, 0.16);
 
   --green:            var(--affirm);

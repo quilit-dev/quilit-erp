@@ -1,34 +1,51 @@
-# Workspace — Design System
+# Workspace Graphite — Design System
 
-The ERP's visual language is **Workspace**: a clean, friendly business-
-software aesthetic that draws on Odoo's recognisable shape language —
-plum primary accent, soft white cards on a cool light surface, gently
-rounded corners — and ships it with more breathing room and less visual
-chatter so the operator's eye lands on the work, not the chrome.
+The ERP's visual language is **Workspace Graphite**: a restrained, dense
+operations console. Warm neutral grounds rather than cool grey, hierarchy
+carried by hairline borders and tonal surface steps rather than floating
+cards, low near-square corners, and semantic colour spent sparingly so the
+operator's eye lands on the numbers, not the chrome.
+
+It replaces the earlier plum-accented "Workspace" palette. The shape
+language, spacing scale, typography and component patterns carried over
+unchanged; the colour, radius and elevation did not.
 
 This file is the reference for adopting the system across pages not yet
-touched and for adding new components.
+touched and for adding new components. It is kept in step with
+`frontend_src/src/index.css` — the tokens below are the ones that ship, and
+`src/test/tokenContrast.test.js` fails the build if they drift below WCAG
+AA.
 
 ---
 
 ## Principles
 
-1. **Friendly geometry.** 6–10px radii, soft drop shadows on cards, no
-   sharp document corners. Reads as a modern product, not a printed page.
-2. **Plum primary, used with restraint.** The signature colour shows up on
-   the primary CTA, the active sidebar item, focus rings, and small
-   accent rules — never as a background fill on entire panels.
-3. **White-on-light density.** Surfaces sit on a cool light background;
-   the contrast is just enough to read each card as its own object
-   without floating away from the page.
+1. **Quiet geometry.** 3–7px radii and no routine drop shadow. Depth is a
+   1px border and a tonal step between surfaces. Only things that genuinely
+   float — menus, dialogs, the command palette — carry a shadow.
+2. **Inverse primary, used once per screen.** The primary control is an
+   inverse fill: dark-on-light in the light theme, light-on-dark in the
+   dark one. It is deliberately not a brand hue, so it never competes with
+   the semantic colours and never reads as a status.
+3. **Warm neutral density.** Surfaces sit a single tonal step off the
+   ground. Rows are dense and aligned; the eye should travel down a column
+   of figures without furniture in the way.
 4. **Simple before clever.** Where Odoo overloads a screen, we don't.
    Empty whitespace is a feature, not a bug. Two clearly-arranged figures
    beat seven crammed ones.
 5. **Numbers are first-class citizens.** JetBrains Mono with tabular
    numerals, right-aligned in cells, slashed zeros.
-6. **Dark mode is real dark.** Deep slate-violet background with white
-   text; the plum lifts to a brighter lavender for visibility. Not just
-   inverted greys — the violet undertone keeps the identity intact.
+6. **Dark mode is the reference rendition.** A warm near-black ground,
+   not a pure black and not an inverted grey. The warmth is what keeps it
+   from reading as a terminal.
+7. **Contrast is not negotiable.** Every text token clears 4.5:1 on every
+   surface it can land on, and anything that outlines a control clears
+   3:1. Both are asserted by a test, because contrast is invisible to a
+   suite that greps source text — which is how the previous palette
+   shipped muted text at 3.11:1 without anyone noticing.
+8. **Paper is white.** A print block re-declares the tokens so a document
+   never inherits the screen theme. A dark invoice reaching a customer is
+   a defect, not a preference.
 
 ---
 
@@ -38,30 +55,44 @@ touched and for adding new components.
 
 | Token | Value | Use |
 |---|---|---|
-| `--bg` | `#F7F7FA` | Page background — cool light grey |
-| `--surface` | `#FFFFFF` | Card surface — pure white |
-| `--surface-2` | `#F2F2F6` | Card header band, hover row tint, footer |
-| `--surface-3` | `#E9E9EF` | Inset chips, table strong header band |
-| `--rule` | `#E5E5EC` | Hairline border |
-| `--rule-strong` | `#CFCFD9` | Stronger column rule, table footer top |
-| `--ink` / `--text` | `#1F1F2E` | Body text (slight plum undertone) |
-| `--text-2` | `#5A5C6F` | Secondary text |
-| `--text-3` | `#8A8C9D` | Muted text / labels |
-| `--accent` | `#714B67` | **Plum primary — the signature colour** |
-| `--accent-2` | `#5C3D54` | Plum hover |
-| `--affirm` | `#1FA362` | Positive / paid / balanced |
-| `--caution` | `#E29A2C` | Warning / pending |
-| `--negate` | `#D14545` | Overdue / error / critical |
-| `--info` | `#2C7BC4` | Informational status |
+| `--bg` | `#F3F0EC` | Page background — warm neutral |
+| `--surface` | `#FCFAF7` | Panel surface |
+| `--surface-2` | `#F2EDE8` | Panel header band, hover row tint, footer |
+| `--surface-3` | `#E9E2DA` | Inset chips, table strong header band |
+| `--rule` | `#D8D0C9` | Hairline divider — decorative, may stay faint |
+| `--rule-strong` | `#8D7C6E` | **Control boundary — 3.85:1, WCAG 1.4.11** |
+| `--ink` / `--text` | `#211D1A` | Body text — 16.06:1 on a panel |
+| `--text-2` | `#5E5650` | Secondary text — 6.90:1 |
+| `--text-3` | `#655C55` | Muted text / labels — 6.27:1 |
+| `--accent` | `#211B18` | **Inverse primary** — white label at 17.01:1 |
+| `--accent-2` | `#3A302B` | Inverse hover |
+| `--affirm` | `#147A48` | Positive / paid / balanced |
+| `--caution` | `#A35C18` | Warning / pending |
+| `--negate` | `#A63834` | Overdue / error / critical |
+| `--info` | `#35658E` | Informational status |
 
 ### Colours — dark (Workspace Night)
 
 | Token | Value | Use |
 |---|---|---|
-| `--bg` | `#15151D` | Deep slate-violet page bg |
-| `--surface` | `#1E1E28` | Card surface |
-| `--ink` / `--text` | `#F2F0F7` | Soft white body text |
-| `--accent` | `#C49AB8` | Lifted lavender — visible against deep slate |
+| `--bg` | `#171310` | Warm near-black page ground |
+| `--surface` | `#211B18` | Panel surface |
+| `--surface-2` | `#2B2421` | Panel header band, hover row tint |
+| `--rule` | `#403632` | Hairline divider — decorative |
+| `--rule-strong` | `#846F66` | **Control boundary — 3.60:1 on a panel** |
+| `--ink` / `--text` | `#F2EEE9` | Body text — 14.73:1 on a panel |
+| `--text-2` | `#B1A8A1` | Secondary text — 7.28:1 |
+| `--text-3` | `#988C85` | Muted text — 5.20:1 |
+| `--accent` | `#E9E5E0` | **Inverse primary** — dark label at 14.73:1 |
+| `--affirm` | `#35A36B` | Positive / paid / balanced |
+| `--caution` | `#D28B45` | Warning / pending |
+| `--negate` | `#C9605A` | Overdue / error / critical |
+| `--info` | `#6E91B8` | Informational status |
+
+A control filled with `--accent` must take its label from `--text-inv`, never
+a literal white. The dark theme's accent is pale, so a hardcoded `#FFFFFF`
+label measures 2.42:1 — that was a real defect on the primary button, the
+active sidebar row and the user avatar until it was fixed.
 
 ### Typography
 
@@ -87,16 +118,16 @@ Built-in helpers:
 
 `--r-xs` 4 · `--r-sm` 6 · `--r` 8 · `--r-lg` 12 · `--r-xl` 14 · `--r-pill` 999 (avatars, the rare full-pill badge).
 
-Cards 8px, buttons 6px, badges 4px, modals 12px. The friendlier rounding
+Panels 5px, buttons 4px, badges 3px, dialogs 7px. The near-square rounding
 is the single biggest geometric move from the previous direction.
 
 ### Shadows — soft and low
 
 | Token | Use |
 |---|---|
-| `--shadow-xs` | Subtle drop on cards at rest (1px + light blur) |
-| `--shadow` | Card hover (2px + soft blur) |
-| `--shadow-md` | Sub-card surfaces, KPI tile hover |
+| `--shadow-xs` | **`none`** — panels sit flat; a border does the work |
+| `--shadow` | **`none`** — hover is a surface tint, not a lift |
+| `--shadow-md` | **`none`** |
 | `--shadow-lg` | Dropdowns + notification panel |
 | `--shadow-xl` | Modals + command palette |
 | `--shadow-focus` | Input focus ring (accent at 22 % alpha) |
@@ -117,8 +148,8 @@ is the single biggest geometric move from the previous direction.
 </div>
 ```
 
-- White surface, 8px radius, hairline border, **subtle drop shadow at
-  rest**. On hover the shadow steps up to `--shadow`.
+- Panel surface, 5px radius, hairline border, **no shadow at rest**.
+  On hover the row or panel takes a `--surface-2` tint instead of lifting.
 - Header has a hairline rule beneath, surface-2 band optional.
 - Title is Inter 700 with tight tracking; subtitle is Inter 400 slate.
 
@@ -136,13 +167,13 @@ plain Inter slate caption              ← optional
 
 Signature touches:
 
-1. **Soft white surface + drop shadow** — the card floats just enough to
+1. **Panel surface + hairline border** — the card sits flat rather than
    read as its own object on the cool light background.
 2. **Hero value is Inter 700 at 28px**, -0.028em tracking, tabular figures
    with slashed zeros.
 3. **Trend pill is monospace** with `▲` / `▼` arrow glyphs and tabular
    percentages — calm, not loud.
-4. **Hover gently lifts the shadow + reveals a click chevron** when the
+4. **Hover tints the surface + reveals a click chevron** when the
    tile is interactive.
 
 ### Tables (`.table-wrap` + plain `<table>`)
@@ -166,10 +197,10 @@ Signature touches:
 
 | Variant | When |
 |---|---|
-| `.btn .btn-primary` | The single most important action on a screen (plum fill) |
+| `.btn .btn-primary` | The single most important action on a screen (inverse fill, label from `--text-inv`) |
 | `.btn .btn-secondary` | Default action with chrome (white + hairline) |
 | `.btn .btn-ghost` | Tertiary, blends into the surface |
-| `.btn .btn-outline` | Plum-bordered, transparent fill |
+| `.btn .btn-outline` | Accent-bordered, transparent fill |
 | `.btn .btn-danger` | Destructive (negate red fill) |
 | `.btn .btn-success` | Confirm / complete (affirm green fill) |
 | `.btn-sm` / `.btn-xs` | Size modifiers |
@@ -182,11 +213,11 @@ engineered feel.
 Soft rounded pills, sentence-case Inter — friendlier than the editorial
 stamps the previous direction used. 4px radius. Six built-in colour
 modifiers: `.badge-gray .badge-blue .badge-green .badge-yellow .badge-red
-.badge-purple` (purple is the same plum as the primary accent).
+.badge-purple` (a legacy alias; it now resolves to the inverse accent).
 
 ### Tabs (`.tabs` + `.tab-btn.active`)
 
-Underline style. Active tab has a 2px accent rule beneath + plum text +
+Underline style. Active tab has a 2px accent rule beneath + accent text +
 slight tracking tightening.
 
 ### Modal (`.modal-overlay` + `.modal`)
@@ -208,16 +239,16 @@ the `icon` prop only when category-specific empties call for it.
 
 - 236px wide, white fill, hairline right border.
 - Logo block: 60px tall, `--surface-2` background, hairline bottom rule,
-  **plum-filled monogram mark** (white text inside) + Inter 700 company
+  **accent-filled monogram mark** (label from `--text-inv`) + Inter 700 company
   name + mono 10px "ERP PLATFORM" eyebrow.
 - Items grouped into **workflow directories**: `SALES`, `DELIVERY`,
   `OPERATIONS`, `FINANCE`, `PEOPLE`. Section labels are clean uppercase
   Inter eyebrows — no monospace, no glyph prefix.
-- **Active item is a solid plum fill** with white text + 600 weight. No
+- **Active item is a solid inverse fill** with `--text-inv` text + 600 weight. No
   rail. (This is the biggest visual change from the previous direction
   and the strongest Odoo nod in the system.)
 - Hover: light `surface-2` tint.
-- Footer: surface-2 band with a plum-filled avatar circle (white initials)
+- Footer: surface-2 band with an accent-filled avatar circle (`--text-inv` initials)
   and the user's role in mono 11px.
 
 ---
@@ -239,7 +270,7 @@ Every page that renders figures should:
 ## What to NOT do
 
 - ❌ Don't add gradient backgrounds (purple → pink, blue → cyan, etc.).
-- ❌ Don't introduce a new accent colour. The plum is the single
+- ❌ Don't introduce a new accent colour. The inverse accent is the single
    chromatic move; semantics appear only when meaning requires them.
 - ❌ Don't put emoji inside coloured-circle backgrounds on KPI tiles.
 - ❌ Don't add heavy `box-shadow` to interactive elements at rest. Hover
@@ -265,7 +296,7 @@ Every page that renders figures should:
 
 1. **CSS variables cascade** — every `var(--accent)`, `var(--surface)`,
    `var(--border)` reference in inline styles updates with the new tokens
-   (plum primary, cool surface, friendlier radii).
+   (inverse primary, warm neutral surface, near-square radii).
 2. **Base class definitions changed** — `.btn`, `.card`, `.table-wrap`,
    `.modal`, `.form-control`, `.tabs`, `.badge`, `.stat-card`, `.sidebar`,
    `.nav-link` all carry the new geometry without JSX changes.
@@ -280,7 +311,7 @@ When you do touch a page, the polish list:
       hover elevation on cards already.
 - [ ] Replace emoji-on-coloured-bubble icons with thin marks or none.
 - [ ] If an old "active item indicator" used a left-rail style, swap to
-      the solid plum fill pattern.
+      the solid inverse fill pattern.
 
 That's the system. Read it once, internalise the principles, and the rest
 of the surface area takes care of itself.
