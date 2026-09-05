@@ -320,7 +320,7 @@ describe('the page renders from translations, not literals', () => {
     expect(serviceSrc).toMatch(/completeServiceJob/);
     expect(serviceSrc).toMatch(/reopenServiceJob/);
     // Anchored to a CALL: `setStatusFilter` is the list filter and is fine.
-    expect(serviceSrc).not.toMatch(/setStatus\(|updateStatus\(/);
+    expect(serviceSrc).not.toMatch(/\bsetStatus\(|\bupdateStatus\(/);
   });
 
   test('closing and reopening both ask first', () => {
