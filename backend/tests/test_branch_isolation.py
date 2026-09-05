@@ -374,3 +374,84 @@ def test_the_clients_report_does_not_total_another_branchs_revenue(world):
 
     assert alice_total > 0, "the branch's own manager must still see their own"
     assert bob_total == 0, "another branch's invoicing must not appear"
+
+
+# ── a till sale belongs to the branch that rang it ──────────────────────────
+#
+# A POS sale's branch is its invoice's, which comes from the register session's
+# warehouse. Undoing one moves that branch's stock and that branch's cash, so
+# every by-id endpoint on a sale needs the guard — the list being filtered
+# proves nothing, exactly as it proved nothing for invoices above.
+
+@pytest.fixture
+def pos_world(app, db, world):
+    """Alice rings a sale at her own branch; Bob has a register open at his."""
+    alice, bob = world["alice"], world["bob"]
+    b_id = db.execute(
+        "SELECT id FROM warehouses WHERE code='BR2'").fetchone()["id"]
+    a_id = db.execute(
+        "SELECT id FROM warehouses WHERE is_default=1").fetchone()["id"]
+    # Each cashier transacts at their own branch.
+    for u, w in (("br_alice", a_id), ("br_bob", b_id)):
+        uid = db.execute("SELECT id FROM users WHERE username=?", (u,)).fetchone()["id"]
+        db.execute("INSERT INTO user_warehouse_access "
+                   "(user_id, warehouse_id, granted_at) "
+                   "VALUES (?,?,datetime('now'))", (uid, w))
+    db.commit()
+
+    item = world["owner"].post("/api/inventory/", json={
+        "name": "BRANCH-WIDGET", "quantity": 40, "unit_cost": 2,
+        "sale_price": 10}).json()["id"]
+
+    ra = alice.post("/api/pos/session/open",
+                    json={"opening_float": 0, "warehouse_id": a_id})
+    assert ra.status_code == 200, ra.text
+    rb = bob.post("/api/pos/session/open",
+                  json={"opening_float": 0, "warehouse_id": b_id})
+    assert rb.status_code == 200, rb.text
+
+    sale = alice.post("/api/pos/checkout", json={
+        "items": [{"name": "BRANCH-WIDGET", "inventory_id": item,
+                   "quantity": 2, "unit_price": 10}],
+        "payment_method": "Cash", "amount_tendered": 20,
+        "idempotency_key": str(uuid.uuid4())})
+    assert sale.status_code == 200, sale.text
+    return {**world, "sale": sale.json(), "item": item}
+
+
+def test_cannot_return_another_branchs_sale(pos_world):
+    """A refund from another branch's till: it puts the goods back into a
+    warehouse Bob cannot transact in and takes the money out of Alice's
+    drawer, against a session Bob has never seen."""
+    r = pos_world["bob"].post(
+        f"/api/pos/sales/{pos_world['sale']['id']}/return", json={"reason": "x"})
+    assert r.status_code == 404, r.text
+
+
+def test_cannot_correct_another_branchs_sale(pos_world):
+    r = pos_world["bob"].post(
+        f"/api/pos/sales/{pos_world['sale']['id']}/amend",
+        json={"items": [{"name": "BRANCH-WIDGET",
+                         "inventory_id": pos_world["item"],
+                         "quantity": 2, "unit_price": 50}],
+              "payment_method": "Cash", "amount_tendered": 80,
+              "idempotency_key": str(uuid.uuid4())})
+    assert r.status_code == 404, r.text
+
+
+def test_cannot_read_another_branchs_sale(pos_world):
+    """What was sold, to whom, at what cost and what margin."""
+    r = pos_world["bob"].get(f"/api/pos/sales/{pos_world['sale']['id']}")
+    assert r.status_code == 404, r.text
+
+
+def test_another_branchs_sale_is_not_in_the_history(pos_world):
+    rows = pos_world["bob"].get("/api/pos/sales").json()
+    assert not [s for s in rows if s["id"] == pos_world["sale"]["id"]]
+
+
+def test_the_branchs_own_cashier_can_still_undo_the_sale(pos_world):
+    """The guard must not lock the till out of its own work."""
+    r = pos_world["alice"].post(
+        f"/api/pos/sales/{pos_world['sale']['id']}/return", json={"reason": "ok"})
+    assert r.status_code == 200, r.text

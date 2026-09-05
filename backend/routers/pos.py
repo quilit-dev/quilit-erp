@@ -1286,6 +1286,12 @@ def return_sale(
         raise HTTPException(404, "Linked invoice not found")
     if inv["voided_at"]:
         raise HTTPException(400, "The linked invoice is already voided.")
+    # A filtered list proves nothing on its own: every by-id endpoint has to
+    # carry the branch guard itself, or knowing an id is enough for a manager
+    # at one branch to refund a sale rung at another — moving that branch's
+    # stock and its cash. 404 rather than 403, so a scoped user cannot probe
+    # which ids exist elsewhere.
+    branch_access.assert_can_view_branch(user, db, inv["branch_id"])
 
     # The original sale's accounting period must still be open.
     # BOTH months, not just the sale's. The reversing entries are dated TODAY,
