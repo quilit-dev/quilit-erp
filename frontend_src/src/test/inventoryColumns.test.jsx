@@ -31,8 +31,15 @@ describe('the inventory list shows the sale price', () => {
   });
 
   test('fmt is actually imported, or the column throws on render', () => {
+    // Pinned to the exact neighbours once — `Pagination, fmt,\n}` — which meant
+    // adding a sixth name to the same import broke a test about `fmt`. What
+    // matters is that `fmt` is a named import from ../components/shared, in
+    // whatever order and whatever company.
     const imports = inventorySrc.slice(0, inventorySrc.indexOf('export'));
-    expect(imports).toMatch(/Pagination, fmt,?\s*\n\} from '\.\.\/components\/shared'/);
+    const block = imports.match(/import\s*\{([^}]*)\}\s*from\s*'\.\.\/components\/shared'/);
+    expect(block, "nothing is imported from '../components/shared'").toBeTruthy();
+    const names = block[1].split(',').map((n) => n.trim()).filter(Boolean);
+    expect(names, `fmt is missing from: ${names.join(', ')}`).toContain('fmt');
   });
 
   test('supplier survives where procurement needs it', () => {

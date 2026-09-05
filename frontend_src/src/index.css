@@ -1356,9 +1356,28 @@ html[lang="ar"], html[lang="ar"] body {
 
 .btn-sm  { padding: 6px 10px; font-size: 12px; }
 .btn-xs  { padding: 4px 8px;  font-size: 11px; }
+/* A square, label-less action. Used for row actions in a dense table, where
+ * five TEXT buttons cost 380px of a 1279px table — 30% of it — and pushed the
+ * last action off the edge of a laptop screen.
+ *
+ * 30px rather than 32: the two pixels are four columns' worth of table width
+ * across a five-action row, and at 1366px that was the difference between the
+ * table fitting and not. Every icon button carries an aria-label and a title;
+ * see iconActions.test.jsx, which fails if one does not.
+ */
 .btn-icon {
-  width: 32px; height: 32px; padding: 0;
+  width: 30px; height: 30px; padding: 0;
+  /* Without a fixed basis these shrink in a flex row before the text columns
+     do, so the icons squash while the whitespace stays. */
+  flex: 0 0 30px;
   display: inline-flex; align-items: center; justify-content: center;
+}
+.btn-icon svg { width: 15px; height: 15px; }
+
+/* A coarse pointer gets a real target: 30px is comfortable with a mouse and
+   far too small with a thumb. */
+@media (pointer: coarse) {
+  .btn-icon { width: 44px; height: 44px; flex-basis: 44px; }
 }
 
 /* ── Segmented control ── a connected toggle group for picking ONE option
@@ -1437,18 +1456,22 @@ table thead th {
   font-family: var(--font-sans);
   font-size: var(--fs-2xs);
   font-weight: 600;
-  letter-spacing: 0.08em;
+  /* 0.08em of tracking on nine uppercase headers is ~25px of table width for
+     no information. 0.04em still reads as a header band. */
+  letter-spacing: 0.04em;
   text-transform: uppercase;
   color: var(--text-3);
   text-align: start;
-  padding: 10px 14px;
+  /* 14px -> 10px across nine columns is 72px of table width. A dense
+     operations table is the point; the row is still 45px tall. */
+  padding: 10px 10px;
   background: var(--surface-2);
   border-bottom: 1px solid var(--rule-emphasis);
   white-space: nowrap;
 }
 
 table tbody td {
-  padding: 11px 14px;
+  padding: 9px 10px;
   border-bottom: 1px solid var(--rule);
   vertical-align: middle;
   color: var(--text);
@@ -1466,7 +1489,7 @@ table tbody tr:hover {
 }
 
 table tfoot td {
-  padding: 12px 14px;
+  padding: 10px 10px;
   font-weight: 600;
   border-top: 2px solid var(--rule-emphasis);
   background: var(--surface-2);

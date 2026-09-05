@@ -15,7 +15,7 @@ import {
 } from '../api/client';
 import {
   LoadingSpinner, ErrorAlert, EmptyState, Modal, ConfirmModal,
-  ExportButton, toast, SortableTh, Pagination, fmt,
+  ExportButton, toast, SortableTh, Pagination, fmt, Icon,
 } from '../components/shared';
 import ImportWizard from '../components/ImportWizard';
 
@@ -255,19 +255,31 @@ export default function Inventory() {
                 onClick={() => { setActiveItem(item); setModal('restore'); }}><svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true"><polyline points="1 4 1 10 7 10"/><path d="M3.51 15a9 9 0 1 0 2.13-9.36L1 10"/></svg>{t('common.restore')}</button>
             ) : (
               <>
-                <button className="btn btn-sm btn-secondary"
-                  onClick={() => { setActiveItem(item); setModal('stock'); }}>{t('inventory.adjustStock')}</button>
-                <button className="btn btn-sm btn-secondary"
-                  onClick={() => { setActiveItem(item); setModal('history'); }}>{t('common.history')}</button>
-                <button className="btn btn-sm btn-secondary"
-                  onClick={() => { setActiveItem(item); setModal('edit'); }}>{t('common.edit')}</button>
-                <button className="btn btn-sm btn-danger"
-                  onClick={() => { setActiveItem(item); setModal('delete'); }}>{t('common.archive')}</button>
+                {/* Icons, not words. As five text buttons this column was
+                    380px of a 1279px table — 30% of it — so the table could
+                    not fit a laptop and Delete fell off the right edge. All
+                    five stay VISIBLE rather than folding into an overflow
+                    menu: the complaint was that Delete could not be seen, and
+                    hiding it behind a click does not answer that. Each keeps
+                    its label as the accessible name and the tooltip. */}
+                <button className="btn btn-sm btn-secondary btn-icon"
+                  title={t('inventory.adjustStock')} aria-label={t('inventory.adjustStock')}
+                  onClick={() => { setActiveItem(item); setModal('stock'); }}><Icon name="sliders" /></button>
+                <button className="btn btn-sm btn-secondary btn-icon"
+                  title={t('common.history')} aria-label={t('common.history')}
+                  onClick={() => { setActiveItem(item); setModal('history'); }}><Icon name="clock" /></button>
+                <button className="btn btn-sm btn-secondary btn-icon"
+                  title={t('common.edit')} aria-label={t('common.edit')}
+                  onClick={() => { setActiveItem(item); setModal('edit'); }}><Icon name="pencil" /></button>
+                <button className="btn btn-sm btn-danger btn-icon"
+                  title={t('common.archive')} aria-label={t('common.archive')}
+                  onClick={() => { setActiveItem(item); setModal('delete'); }}><Icon name="archive" /></button>
                 {/* Archive keeps the record; this removes it. Only ever
                     succeeds for an item nothing refers to — the modal asks
                     the server first and says so when it does not. */}
-                <button className="btn btn-sm btn-danger" style={{ opacity: 0.85 }}
-                  onClick={() => askDelete(item)}>{t('common.delete')}</button>
+                <button className="btn btn-sm btn-danger btn-icon" style={{ opacity: 0.85 }}
+                  title={t('common.delete')} aria-label={t('common.delete')}
+                  onClick={() => askDelete(item)}><Icon name="trash" /></button>
               </>
             )}
           </div>
