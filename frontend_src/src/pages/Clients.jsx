@@ -1,5 +1,6 @@
 import { usePersistedState } from '../hooks/usePersistedState';
 import { useState } from 'react';
+import PageMasthead from '../components/PageMasthead.jsx';
 import { useNavigate } from 'react-router-dom';
 import { useServerList } from '../hooks/useServerList';
 import { getClients, createClient, updateClient, archiveClient, unarchiveClient } from '../api/client';
@@ -159,20 +160,18 @@ export default function Clients() {
 
   return (
     <div>
-      <div className="page-header">
-        <div>
-          <h1 className="page-title">{t('clients.title')}</h1>
-          <p className="page-subtitle">{t('clients.totalClients', { count: total })}</p>
-        </div>
-        <div style={{ display: 'flex', gap: 8 }}>
+      <PageMasthead
+        title={t('clients.title')}
+        subtitle={t('clients.totalClients', { count: total })}
+        actions={<>
           <ExportButton fetchData={fetchExportRows} filename="Clients" sheetName="Clients" />
           <button className="btn btn-secondary" onClick={downloadOwingPDF} disabled={pdfBusy}>
             📄 {pdfBusy ? t('common.loading') : t('clients.owingPdf')}
           </button>
           <button className="btn btn-secondary" onClick={() => setImporting(true)}>⬆ {t('imports.importBtn')}</button>
           <button className="btn btn-primary" onClick={openCreate}>{t('clients.addClient')}</button>
-        </div>
-      </div>
+        </>}
+      />
 
       {importing && (
         <ImportWizard entity="clients" title={`${t('imports.importBtn')} — ${t('clients.title')}`}

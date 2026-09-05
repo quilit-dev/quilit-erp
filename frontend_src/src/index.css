@@ -4220,3 +4220,65 @@ textarea.form-control {
     text-shadow: none !important;
   }
 }
+
+/* ── Page masthead ──────────────────────────────────────────────────────────
+ * The action cluster and breadcrumb that `components/PageMasthead.jsx` owns.
+ * `.page-header` / `.page-title` / `.page-subtitle` already existed and are
+ * deliberately untouched, so a page that has adopted the masthead and one that
+ * has not look identical.
+ *
+ * Logical properties throughout (`inline-start`, not `left`): the app ships
+ * Arabic, and a physical margin survives the direction flip on the wrong side.
+ */
+.page-actions {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  flex-wrap: wrap;
+}
+.page-breadcrumb {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  font-size: 11.5px;
+  color: var(--text-3);
+  margin-block-end: 4px;
+}
+.page-breadcrumb a {
+  color: var(--text-3);
+  text-decoration: none;
+}
+.page-breadcrumb a:hover {
+  color: var(--text);
+  text-decoration: underline;
+}
+.page-breadcrumb-sep {
+  color: var(--text-3);
+  opacity: 0.7;
+}
+
+/* ── Panel header shapes ────────────────────────────────────────────────────
+ * The two arrangements `components/Panel.jsx` encodes. Both were previously
+ * written as inline style objects on `.card-header`, about fifteen times
+ * between them, with the gap and alignment drifting between copies.
+ */
+.card-header-split {
+  justify-content: space-between;
+}
+.card-header-stacked {
+  flex-direction: column;
+  align-items: stretch;
+  gap: 10px;
+}
+.card-header-titles {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  min-width: 0;
+}
+.card-header-actions {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  flex-wrap: wrap;
+}

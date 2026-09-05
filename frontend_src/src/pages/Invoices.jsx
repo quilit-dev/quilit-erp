@@ -1,5 +1,6 @@
 import { useState, useRef, useEffect } from 'react';
 import { usePersistedState } from '../hooks/usePersistedState';
+import PageMasthead from '../components/PageMasthead.jsx';
 import { useData } from '../hooks/useData';
 import { useServerList } from '../hooks/useServerList';
 import { useSettings } from '../hooks/useSettings';
@@ -509,18 +510,16 @@ export default function Invoices() {
 
   return (
     <div>
-      <div className="page-header">
-        <div>
-          <h1 className="page-title">{t('invoices.title')}</h1>
-          <p className="page-subtitle">{t('invoices.totalInvoices', { count: total })}</p>
-        </div>
-        <div style={{display:'flex',gap:8,alignItems:'center'}}>
+      <PageMasthead
+        title={t('invoices.title')}
+        subtitle={t('invoices.totalInvoices', { count: total })}
+        actions={<>
           <ExchangeRateBadge />
           <DisplayCurrencyToggle />
           <ExportButton fetchData={fetchExportRows} filename="Invoices" sheetName="Invoices" />
           <button className="btn btn-primary" onClick={openCreate}>{t('invoices.addInvoice')}</button>
-        </div>
-      </div>
+        </>}
+      />
 
       <div className="card">
         <div className="card-header" style={{flexDirection:'column',alignItems:'stretch',gap:10}}>
