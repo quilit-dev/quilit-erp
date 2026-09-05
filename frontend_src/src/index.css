@@ -406,6 +406,22 @@
   --doc-accent:       #211B18;
   --doc-affirm:       #15803D;
 
+
+  /* ── Category chips ───────────────────────────────────────────────────────
+     Categorical, NOT semantic: an expense category is not a status, and
+     borrowing --affirm for "Materials" makes green mean two things. Each hue
+     clears 4.5:1 against its own 12% wash; the wash is derived below with
+     color-mix so the pair cannot drift. */
+  --cat-1:            #4A4FA8;
+  --cat-2:            #0F6E6E;
+  --cat-3:            #6B4E8C;
+  --cat-4:            #8E541E;
+  --cat-5:            #A33A5E;
+  --cat-6:            #1B6B45;
+  --cat-7:            #2F6D91;
+  --cat-8:            #6E5443;
+  --cat-wash:         12%;
+
 }
 
 
@@ -533,6 +549,19 @@
   --chart-5:          #A98CC9;
   --chart-6:          #B1A8A1;
   --chart-crit:       #E0857C;
+
+
+  /* Category chips — lifted for the dark ground; the wash is heavier there
+     (18%) because a 12% wash of a light hue on a dark panel barely reads. */
+  --cat-1:            #9AA0E8;
+  --cat-2:            #4FC2C2;
+  --cat-3:            #B797D9;
+  --cat-4:            #D9975A;
+  --cat-5:            #E289A5;
+  --cat-6:            #52BC8A;
+  --cat-7:            #77ACD4;
+  --cat-8:            #BCA48D;
+  --cat-wash:         18%;
 
 }
 
@@ -4291,4 +4320,21 @@ textarea.form-control {
   align-items: center;
   gap: 8px;
   flex-wrap: wrap;
+}
+
+/* ── Category chip ──────────────────────────────────────────────────────────
+ * `components/shared.jsx` maps a category name to one of the eight hues; this
+ * turns the hue into a chip. The background is mixed from the hue itself, so
+ * adding a category means picking a number, not inventing two more colours.
+ */
+.cat-chip {
+  display: inline-flex;
+  align-items: center;
+  padding: 2px 9px;
+  border-radius: 20px;
+  font-size: 11px;
+  font-weight: 600;
+  white-space: nowrap;
+  color: var(--cat-hue, var(--text-2));
+  background: color-mix(in oklab, var(--cat-hue, var(--surface-3)) var(--cat-wash), var(--surface));
 }

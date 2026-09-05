@@ -25,24 +25,7 @@ const css = readFileSync(
   'utf8',
 );
 
-// ── WCAG 2.1 relative luminance and contrast ratio ──────────────────────────
-function channel(value) {
-  const c = value / 255;
-  return c <= 0.03928 ? c / 12.92 : ((c + 0.055) / 1.055) ** 2.4;
-}
-
-function luminance(hex) {
-  const h = hex.replace('#', '');
-  const full = h.length === 3 ? h.split('').map((c) => c + c).join('') : h;
-  const [r, g, b] = [0, 2, 4].map((i) => parseInt(full.slice(i, i + 2), 16));
-  return 0.2126 * channel(r) + 0.7152 * channel(g) + 0.0722 * channel(b);
-}
-
-export function contrast(fg, bg) {
-  const a = luminance(fg);
-  const b = luminance(bg);
-  return (Math.max(a, b) + 0.05) / (Math.min(a, b) + 0.05);
-}
+import { contrast, over } from './contrastUtil.js';
 
 // ── Read the tokens straight out of the stylesheet ──────────────────────────
 /** The declarations inside one top-level block, e.g. `:root` or `[data-theme="dark"]`. */
@@ -162,18 +145,6 @@ describe.each([
   // which is why --*-ink exists. Four of the eight pairs failed before it did.
   const value = (t) => tokens[t] || LIGHT[t];
 
-  const rgb = (hex) => {
-    const h = hex.replace('#', '');
-    return [0, 2, 4].map((i) => parseInt(h.slice(i, i + 2), 16));
-  };
-  // The tint is an alpha wash, so the effective background is the blend.
-  const over = (fg, a, bg) => {
-    const f = rgb(fg);
-    const b = rgb(bg);
-    return '#' + [0, 1, 2]
-      .map((i) => Math.round(f[i] * a + b[i] * (1 - a)).toString(16).padStart(2, '0'))
-      .join('');
-  };
 
   it.each(['affirm', 'caution', 'negate', 'info'])('%s-ink on its tint clears 4.5:1', (sem) => {
     const base = value(`--${sem}`);

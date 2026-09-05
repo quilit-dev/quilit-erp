@@ -7,7 +7,7 @@ import { getExpenses, getProjects, createExpense, updateExpense, voidExpense,
 import {
   LoadingSpinner, ErrorAlert, EmptyState, Modal,
   ExportButton, fmt, fmtDate, toast, SortableTh, Pagination,
-  CATEGORY_COLORS, CategoryBadge, SelectOther, NumberInput, BranchField} from '../components/shared';
+  CATEGORY_HUE, CategoryBadge, SelectOther, NumberInput, BranchField} from '../components/shared';
 import { useSortPaginate } from '../hooks/useSortPaginate';
 import { useLocale } from '../hooks/useLocale.jsx';
 import BankField, { useBankAccounts } from '../components/BankField.jsx';
@@ -380,7 +380,9 @@ function TransactionsPanel() {
               <div style={{ display: 'flex', gap: 24, alignItems: 'center' }}>
                 {byCategory.slice(0, 3).map(b => (
                   <span key={b.category} style={{ color: 'var(--text-2)', fontSize: 12 }}>
-                    <span style={{ color: CATEGORY_COLORS[b.category]?.color || 'var(--text-3)', fontWeight: 600 }}>
+                    <span style={{ color: CATEGORY_HUE[b.category]
+                      ? `var(--cat-${CATEGORY_HUE[b.category]})`
+                      : 'var(--text-3)', fontWeight: 600 }}>
                       {tCategory(b.category)}
                     </span>
                     {' '}{fmt(b.amount)}

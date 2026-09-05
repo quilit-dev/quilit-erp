@@ -416,32 +416,64 @@ export function BranchField({ value, onChange, label }) {
 }
 
 // ── Expense category badge ─────────────────────────────────────
-export const CATEGORY_COLORS = {
-  Labour:        { bg: 'var(--info-tint)', color: 'var(--info-ink)' },
-  Materials:     { bg: 'var(--affirm-tint)', color: 'var(--affirm)' },
-  Equipment:     { bg: 'var(--caution-tint)', color: 'var(--caution)' },
-  Transport:     { bg: '#F5F3FF', color: '#7C3AED' },
-  Subcontractor: { bg: '#FFF7ED', color: '#EA580C' },
-  Permits:       { bg: 'var(--affirm-tint)', color: 'var(--affirm)' },
-  Purchase:      { bg: '#EEF2FF', color: '#4F46E5' },
-  Rent:          { bg: 'var(--negate-tint)', color: 'var(--negate)' },
-  Utilities:     { bg: '#ECFEFF', color: '#0891B2' },
-  Salary:        { bg: '#FDF2F8', color: '#DB2777' },
-  Subscription:  { bg: 'var(--info-tint)', color: '#0284C7' },
-  Insurance:     { bg: '#F0FDFA', color: '#0D9488' },
-  Depreciation:  { bg: 'var(--surface-2)', color: 'var(--text-2)' },
-  Other:         { bg: 'var(--surface-2)', color: 'var(--text-3)' },
+// Which of the eight categorical hues each category wears.
+//
+// A number, not a colour: the hue and its background wash live in index.css as
+// --cat-N and are derived from one another, so adding a category here cannot
+// introduce an unverified colour pair. Deliberately NOT semantic — an expense
+// category is not a status, and the previous table borrowed --affirm for both
+// "Materials" and "Permits", which made green mean three things and made those
+// two chips identical.
+//
+// Neighbours differ: the categories that habitually appear in the same list
+// are given different hues, which is what the colour is actually for. Past
+// eight hues nothing is tellable apart anyway, and the chip carries its name
+// in text — the colour reinforces, it does not inform.
+export const CATEGORY_HUE = {
+  Labour:        1,
+  Materials:     6,
+  Equipment:     4,
+  Transport:     3,
+  Subcontractor: 8,
+  Permits:       2,
+  Purchase:      1,
+  Rent:          5,
+  Utilities:     7,
+  Salary:        5,
+  Subscription:  7,
+  Insurance:     2,
+  Depreciation:  null,   // neutral: not a spending category anybody sorts by
+  Other:         null,
 };
+
+// Categories are tenant-defined — Settings has a manager for them — so a fixed
+// list of names will always miss some. "Maintenance" and "Payroll" were both
+// live in the demo data and both fell through to grey. Anything unmapped gets a
+// hue derived from its own name instead: stable across sessions and machines
+// (the same name always lands on the same hue), spread across all eight, and
+// no chip is grey unless it was chosen to be.
+function hueFromName(name) {
+  let h = 0;
+  for (let i = 0; i < name.length; i += 1) h = (h * 31 + name.charCodeAt(i)) % 1000003;
+  return (h % 8) + 1;
+}
+
+/** The chip's inline custom property, or nothing for the neutral categories. */
+export function categoryHueStyle(category) {
+  if (!category) return undefined;
+  // An explicit `null` means "deliberately neutral" and is not the same as
+  // "not listed" — Depreciation and Other are meant to recede.
+  if (Object.prototype.hasOwnProperty.call(CATEGORY_HUE, category)) {
+    const n = CATEGORY_HUE[category];
+    return n ? { '--cat-hue': `var(--cat-${n})` } : undefined;
+  }
+  return { '--cat-hue': `var(--cat-${hueFromName(category)})` };
+}
 
 export function CategoryBadge({ category }) {
   const { tCategory } = useLocale();
-  const style = CATEGORY_COLORS[category] || CATEGORY_COLORS.Other;
   return (
-    <span style={{
-      display: 'inline-flex', alignItems: 'center', padding: '2px 9px',
-      borderRadius: 20, fontSize: 11, fontWeight: 600, whiteSpace: 'nowrap',
-      background: style.bg, color: style.color,
-    }}>
+    <span className="cat-chip" style={categoryHueStyle(category)}>
       {tCategory(category)}
     </span>
   );
