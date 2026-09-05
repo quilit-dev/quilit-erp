@@ -705,9 +705,29 @@ export function ConfirmModal({
 // ── Sortable table header ──────────────────────────────────────
 export function SortableTh({ label, sortKey, currentKey, currentDir, onSort, style }) {
   const active = sortKey === currentKey;
+  // `aria-sort` is what tells a screen reader which column the table is
+  // ordered by and which way; without it the header reads as an ordinary
+  // caption and the ordering is invisible. "none" on the inactive columns is
+  // meaningful too — it says the column IS sortable but is not sorted, which
+  // omitting the attribute does not.
+  const sort = active ? (currentDir === 'asc' ? 'ascending' : 'descending') : 'none';
+  // It was a `<th onClick>` with nothing else: no tab stop and no key handler,
+  // so a keyboard user could not reorder any of the fifteen tables that use
+  // this. Enter and Space are what a button responds to, so it announces
+  // itself as one.
+  const activate = (e) => {
+    if (e.key === 'Enter' || e.key === ' ' || e.key === 'Spacebar') {
+      e.preventDefault();
+      onSort(sortKey);
+    }
+  };
   return (
     <th
       onClick={() => onSort(sortKey)}
+      onKeyDown={activate}
+      tabIndex={0}
+      role="button"
+      aria-sort={sort}
       style={{
         cursor: 'pointer', userSelect: 'none', whiteSpace: 'nowrap',
         color: active ? 'var(--accent)' : undefined, ...style,

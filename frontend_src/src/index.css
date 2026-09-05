@@ -137,6 +137,11 @@
   /* Rules. Cool greys that sit naturally on the white-on-grey palette. */
   --rule:             #D8D0C9;
   --rule-strong:      #8D7C6E;
+  /* A divider with weight — a table's header underline, a totals rule.
+     Stronger than --rule, deliberately WEAKER than --rule-strong: that one
+     is the 3:1 outline a control needs, and a 3:1 line under a column
+     heading reads as a bar. ~1.78:1 on the header band. */
+  --rule-emphasis:    #BEB2A7;
   --rule-subtle:      rgba(33, 29, 26, 0.06);
   --border:           var(--rule);
   --border-strong:    var(--rule-strong);
@@ -420,6 +425,7 @@
 
   --rule:             #403632;
   --rule-strong:      #846F66;
+  --rule-emphasis:    #574B45;
   --rule-subtle:      rgba(255, 255, 255, 0.05);
   --border:           var(--rule);
   --border-strong:    var(--rule-strong);
@@ -981,7 +987,7 @@ html[lang="ar"], html[lang="ar"] body {
 /* An archived row shown inline among active ones reads as muted/struck so it's
  * clearly inert until restored. */
 .row-archived { opacity: 0.62; }
-.row-archived .td-primary { text-decoration: line-through; text-decoration-color: var(--rule-strong); }
+.row-archived .td-primary { text-decoration: line-through; text-decoration-color: var(--rule-emphasis); }
 
 .card-title {
   font-family: var(--font-display);
@@ -1389,7 +1395,7 @@ table thead th {
   text-align: start;
   padding: 10px 14px;
   background: var(--surface-2);
-  border-bottom: 1px solid var(--rule-strong);
+  border-bottom: 1px solid var(--rule-emphasis);
   white-space: nowrap;
 }
 
@@ -1414,7 +1420,7 @@ table tbody tr:hover {
 table tfoot td {
   padding: 12px 14px;
   font-weight: 600;
-  border-top: 2px solid var(--rule-strong);
+  border-top: 2px solid var(--rule-emphasis);
   background: var(--surface-2);
   color: var(--text);
 }
@@ -1861,7 +1867,7 @@ textarea.form-control {
   flex: 1 1 auto;
   min-height: 0;
   scrollbar-width: thin;
-  scrollbar-color: var(--rule-strong) transparent;
+  scrollbar-color: var(--rule-emphasis) transparent;
 }
 .modal-body::-webkit-scrollbar { width: 8px; }
 .modal-body::-webkit-scrollbar-thumb {
@@ -3029,7 +3035,7 @@ textarea.form-control {
   overflow-x: auto;
   overflow-y: hidden;
   scrollbar-width: thin;
-  scrollbar-color: var(--rule-strong) transparent;
+  scrollbar-color: var(--rule-emphasis) transparent;
 }
 .pos-categories::-webkit-scrollbar { height: 8px; }
 .pos-categories::-webkit-scrollbar-thumb {
@@ -3113,7 +3119,7 @@ textarea.form-control {
   min-height: 0;
   align-content: start;
   scrollbar-width: thin;
-  scrollbar-color: var(--rule-strong) transparent;
+  scrollbar-color: var(--rule-emphasis) transparent;
 }
 .pos-products-grid::-webkit-scrollbar { width: 8px; }
 .pos-products-grid::-webkit-scrollbar-thumb {
@@ -3296,7 +3302,7 @@ textarea.form-control {
   min-height: 0;
   padding: 6px;
   scrollbar-width: thin;
-  scrollbar-color: var(--rule-strong) transparent;
+  scrollbar-color: var(--rule-emphasis) transparent;
 }
 .pos-cart-list::-webkit-scrollbar { width: 8px; }
 .pos-cart-list::-webkit-scrollbar-thumb {
