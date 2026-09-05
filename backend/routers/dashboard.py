@@ -114,8 +114,14 @@ def dashboard(branch_id: Optional[int] = None,
            -- Voided: not owed. Archived: hidden from every other list, and the
            -- aged-receivables report excludes it too. `deleted_at` is never
            -- set on an invoice, so on its own this guarded nothing at all.
+           -- An invoice awaiting approval is not owed to anyone yet: it has
+           -- not been issued, so nobody has been asked for the money and
+           -- nobody can be chased for it. The Invoices list gives it its own
+           -- status for that reason, which also keeps it out of the
+           -- Outstanding filter this card links to — one rule, both ends.
            WHERE i.deleted_at IS NULL AND i.voided_at IS NULL
              AND i.archived_at IS NULL
+             AND COALESCE(i.approval_status, '') <> 'Pending Approval'
              AND i.amount > COALESCE(
                  (SELECT SUM(ip.amount) FROM invoice_payments ip WHERE ip.invoice_id = i.id), 0
              )""" + bf_i,

@@ -389,7 +389,10 @@ export default function Dashboard() {
                 icon="receipt"
                 accentColor={(data.unpaid_invoices_count ?? 0) > 0 ? 'var(--yellow)' : 'var(--green)'}
                 accentBg={(data.unpaid_invoices_count ?? 0) > 0 ? 'var(--yellow-light)' : 'var(--green-light)'}
-                onClick={() => navigate('/invoices')} />
+                /* Land on exactly the set this card counted. Sending the user
+                   to an unfiltered list made a correct number look wrong:
+                   nothing on the screen they arrived at added up to it. */
+                onClick={() => navigate('/invoices?status=Outstanding')} />
             )}
             {can.invoices && (
               <KpiCard compact
@@ -460,7 +463,7 @@ export default function Dashboard() {
                 {can.finance && margin > 20 && <Insight icon="check-circle" text={t('dashboard.strongMargin', { pct: margin })} color="var(--green)" onClick={() => navigate('/finance')} />}
                 {can.finance && margin > 0 && margin <= 20 && <Insight icon="alert-triangle" text={t('dashboard.thinMargin', { pct: margin })} color="var(--yellow)" onClick={() => navigate('/finance')} />}
                 {can.finance && margin < 0 && <Insight icon="alert-circle" text={t('dashboard.operatingLoss')} color="var(--red)" onClick={() => navigate('/finance')} />}
-                {can.invoices && (data.unpaid_invoices_count ?? 0) > 0 && <Insight icon="mail" text={t(data.unpaid_invoices_count > 1 ? 'dashboard.unpaidInvoiceCount_plural' : 'dashboard.unpaidInvoiceCount', { count: data.unpaid_invoices_count })} color="var(--yellow)" onClick={() => navigate('/invoices')} />}
+                {can.invoices && (data.unpaid_invoices_count ?? 0) > 0 && <Insight icon="mail" text={t(data.unpaid_invoices_count > 1 ? 'dashboard.unpaidInvoiceCount_plural' : 'dashboard.unpaidInvoiceCount', { count: data.unpaid_invoices_count })} color="var(--yellow)" onClick={() => navigate('/invoices?status=Outstanding')} />}
                 {can.invoices && overdueCount > 0 && <Insight icon="clock" text={t('dashboard.overdueAction', { count: overdueCount })} color="var(--red)" onClick={() => navigate('/invoices')} />}
                 {can.inventory && (data.low_stock_alerts ?? 0) > 0 && <Insight icon="package" text={t(data.low_stock_alerts > 1 ? 'dashboard.lowStockAlert_plural' : 'dashboard.lowStockAlert', { count: data.low_stock_alerts })} color="var(--red)" onClick={() => navigate('/inventory')} />}
                 {can.projects && (data.active_projects ?? 0) > 0 && <Insight icon="building" text={t(data.active_projects > 1 ? 'dashboard.projectsInProgress_plural' : 'dashboard.projectsInProgress', { count: data.active_projects })} color="var(--blue)" onClick={() => navigate('/projects')} />}

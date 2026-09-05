@@ -1,4 +1,5 @@
 import { useState, useRef, useEffect } from 'react';
+import { useSearchParams } from 'react-router-dom';
 import { usePersistedState } from '../hooks/usePersistedState';
 import PageMasthead from '../components/PageMasthead.jsx';
 import { useData } from '../hooks/useData';
@@ -87,7 +88,12 @@ export default function Invoices() {
   const { can } = usePermissions();
   // Invoices use Void/Unvoid as their lifecycle, not archive — no in-module
   // "Show archived" view here.
-  const [statusFilter,  setStatusFilter]  = useState('');
+  // Seeded from `?status=`, so a dashboard card can link to the exact set it
+  // counted. Read once on mount rather than kept in the URL: the filter is
+  // then an ordinary control the user can change or clear, and the link is
+  // just how they arrived at it.
+  const [params] = useSearchParams();
+  const [statusFilter,  setStatusFilter]  = useState(() => params.get('status') || '');
   const [clientFilter,  setClientFilter]  = useState('');
   // Ticking this SWAPS the list for the archive rather than widening it, so
   // the archive can actually be reviewed.
@@ -549,7 +555,8 @@ export default function Invoices() {
               value={statusFilter}
               onChange={v => setStatusFilter(v)}
               placeholder={t('common.allStatuses')}
-              options={(['Unpaid','Partial','Paid','Overdue','Void']).map(s => ({ value: s, label: tStatus(s) }))} />
+              options={(['Outstanding','Unpaid','Partial','Paid','Overdue','Void'])
+                .map(s => ({ value: s, label: tStatus(s) }))} />
             <label className="archived-toggle">
               <input type="checkbox" checked={showArchived}
                 onChange={e => setShowArchived(e.target.checked)} />

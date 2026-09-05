@@ -950,6 +950,9 @@ const en = {
     'On Hold': 'On Hold',
     Completed: 'Completed',
     Invoiced: 'Invoiced',
+    // Unpaid AND Partial together — everything still owing. The dashboard's
+    // Outstanding card counts this set, so the list can show the same one.
+    Outstanding: 'Outstanding',
     Unpaid: 'Unpaid',
     Partial: 'Partial',
     Paid: 'Paid',
@@ -2306,8 +2309,11 @@ const en = {
     updateStock: 'Update Stock',
     recordExpense: 'Record Expense',
     statsOrdered: 'Ordered',
-    statsPrepaid: 'Paid, awaiting delivery',
-    statsAdvances: 'With suppliers',
+    // The COUNT of orders paid for and still coming; statsAdvances is the
+    // money in them. Near-identical wording on two cards side by side is
+    // how a reader stops trusting either.
+    statsPrepaid: 'Orders awaiting delivery',
+    statsAdvances: 'Paid, not yet delivered',
     statsReceived: 'Received',
     statsPaid: 'Paid',
     statsTotalSpent: 'Total Spent',

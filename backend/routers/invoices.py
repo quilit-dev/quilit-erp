@@ -412,6 +412,17 @@ def list_invoices(
     result = [_derive(r) for r in db.execute(select_sql, params).fetchall()]
     if status == "Overdue":
         result = [r for r in result if r["is_overdue"]]
+    elif status == "Outstanding":
+        # Everything still owing, which is Unpaid AND Partial together. It
+        # exists because the dashboard's Outstanding card counts exactly this
+        # set, and until now clicking it landed on an unfiltered list where the
+        # 20 it promised could not be found — the card looked wrong when it was
+        # the drill-down that was missing.
+        #
+        # An invoice awaiting approval is not in it: `_apply_pending` gives it
+        # its own status, so it falls out here by construction rather than by a
+        # second rule that could drift from the card's.
+        result = [r for r in result if r["payment_status"] in ("Unpaid", "Partial")]
     elif status == "Void":
         result = [r for r in result if r["payment_status"] == "Void"]
     elif status:

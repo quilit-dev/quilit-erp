@@ -201,12 +201,62 @@ def test_the_outstanding_card_counts_what_the_invoice_list_shows_owing(make_clie
     # The card counts it, because it is money still owed.
     assert _dash(c)["unpaid_invoices_count"] == before + 1
 
-    # And the amount agrees with the list's own `remaining`, which is the
-    # property that makes the count meaningful.
-    owed = sum(x["remaining"] for x in rows
-               if x["payment_status"] in ("Unpaid", "Partial", "Pending Approval"))
+    # And the amount agrees with the list's own `remaining` over exactly the
+    # rows the Outstanding filter returns — which is the property that makes
+    # the count mean anything.
+    owed = sum(x["remaining"] for x in _invoices(c, status="Outstanding"))
     assert _dash(c)["unpaid_invoices_amount"] == pytest.approx(owed, abs=0.01), \
         "the money on the card must be the money the list says is outstanding"
+
+
+def test_the_card_and_its_drill_down_return_the_same_set(make_client):
+    """Clicking the card lands on `?status=Outstanding`.
+
+    It used to land on an unfiltered list, where nothing on screen added up to
+    the number that had just been clicked — which is how a correct figure comes
+    to look wrong.
+    """
+    c = make_client("superadmin")
+    cid = _client(c)
+    paid = _invoice(c, cid, 100)
+    assert c.post(f"/api/invoices/{paid}/payments",
+                  json={"amount": 100, "method": "Cash",
+                        "idempotency_key": str(uuid.uuid4())}).status_code == 200
+    part = _invoice(c, cid, 300)
+    assert c.post(f"/api/invoices/{part}/payments",
+                  json={"amount": 100, "method": "Cash",
+                        "idempotency_key": str(uuid.uuid4())}).status_code == 200
+    owing = _invoice(c, cid, 250)
+
+    rows = _invoices(c, status="Outstanding")
+    ids = {x["id"] for x in rows}
+    assert owing in ids and part in ids, "both still owe something"
+    assert paid not in ids, "a settled invoice owes nothing"
+    assert {x["payment_status"] for x in rows} <= {"Unpaid", "Partial"}
+    assert len(rows) == _dash(c)["unpaid_invoices_count"], \
+        "the filter and the card have to return the same set"
+
+
+def test_an_invoice_awaiting_approval_is_not_money_owed(make_client, db):
+    """It has not been issued, so nobody has been asked for it.
+
+    The Invoices list already gives it its own status, which keeps it out of
+    the Outstanding filter by construction; the card had to agree or the
+    drill-down would come up one short.
+    """
+    c = make_client("superadmin")
+    inv = _invoice(c, _client(c), 700)
+    before = _dash(c)["unpaid_invoices_count"]
+    before_amt = _dash(c)["unpaid_invoices_amount"]
+
+    db.execute("UPDATE invoices SET approval_status='Pending Approval' WHERE id=?",
+               (inv,))
+    db.commit()
+
+    assert _dash(c)["unpaid_invoices_count"] == before - 1
+    assert _dash(c)["unpaid_invoices_amount"] == pytest.approx(before_amt - 700, abs=0.01)
+    assert not any(x["id"] == inv for x in _invoices(c, status="Outstanding")), \
+        "and the list it links to leaves it out too"
 
 
 def test_an_invoice_awaiting_approval_is_not_overdue(make_client, db):
