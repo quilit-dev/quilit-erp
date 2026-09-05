@@ -47,6 +47,12 @@ _REQUIRED = [
     ("purchase_items", "additional_cost_share"),
     ("purchase_items", "landed_unit_cost"),
     ("purchase_items", "stock_updated"),
+    # Paying and receiving are separate events; these carry the money side.
+    ("purchases", "paid_total"),
+    ("purchase_payments", "amount"),
+    ("purchase_payments", "paid_at"),
+    ("purchase_payments", "applied_as"),
+    ("purchase_payments", "folded_into_purchase"),
     # A corrected till sale points at the one it replaced, so the pair can be
     # told apart from a customer who came back and bought twice.
     ("pos_sales", "amended_from"),
@@ -87,6 +93,8 @@ _REQUIRED_TABLES = [
     "company_logo",
     # A purchase is a document with lines, like an invoice.
     "purchase_items",
+    # Money to a supplier, in as many instalments as it took.
+    "purchase_payments",
     # A payment plan against one invoice.
     "invoice_installments",
     # Stock held for a named customer.
@@ -108,6 +116,8 @@ _REQUIRED_TABLES = [
 _REQUIRED_LITERALS = [
     "1020",        # Cash — EUR
     "cash_eur",    # the role that points at it
+    "1250",              # Advances to Suppliers — paid for, not yet delivered
+    "supplier_advance",  # the role that points at it
 ]
 
 

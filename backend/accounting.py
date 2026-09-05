@@ -68,6 +68,13 @@ INVENTORY    = "1200"   # Inventory (perpetual)
 # two look good for no business reason, and the two months of occupancy the
 # business has already bought appear nowhere on the balance sheet.
 PREPAID      = "1300"   # Prepaid Expenses (paid in advance, not yet incurred)
+# Money handed to a supplier for goods that have not arrived is not an expense
+# and not stock — it is a claim on that supplier, and it belongs on the balance
+# sheet until the delivery turns it into inventory. Kept apart from 1300, which
+# holds period costs bought forward (rent, insurance): mixing goods in transit
+# into that balance makes both unreadable, and only one of them unwinds when a
+# lorry arrives.
+SUPPLIER_ADV = "1250"   # Advances to Suppliers (paid, goods not yet received)
 ACC_DEP      = "1510"   # Accumulated Depreciation (contra-asset)
 FIXED_ASSET  = "1500"   # the cost of what the register tracks
 AP           = "2000"   # Accounts Payable
@@ -170,6 +177,7 @@ _ROLE_DEFAULTS = {
     "bank": CASH,
     "receivable": AR,                 "inventory": INVENTORY,
     "prepaid": PREPAID,               "accumulated_dep": ACC_DEP,
+    "supplier_advance": SUPPLIER_ADV,
     "payable": AP,                    "vat_control": VAT_CONTROL,
     "vat_input": VAT_CONTROL,         "vat_output": VAT_CONTROL,
     "deferred_revenue": DEFERRED_REV, "retained_earnings": RETAINED_EARNINGS,

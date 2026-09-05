@@ -36,14 +36,28 @@ def bank(client):
                        json={"name": "Byblos current", "currency": "USD"}).json()
 
 
-def _codes(db, source_type):
+def _codes(db, *source_types):
+    """Debits and credits by account code, across the given entry sources.
+
+    A purchase is TWO entries now, not one. Receiving the goods debits stock
+    and credits the supplier's account; paying debits that account and credits
+    whatever the money came out of. So the question this file asks — did a
+    transfer come out of the bank or the till — is answered by the payment
+    entry, and looking only at `purchase` would find no money side at all.
+    """
+    marks = ",".join("?" for _ in source_types)
     rows = db.execute(
         "SELECT a.code, SUM(l.debit) AS dr, SUM(l.credit) AS cr "
         "  FROM journal_entry_lines l "
         "  JOIN journal_entries je ON je.id = l.journal_entry_id "
         "  JOIN chart_of_accounts a ON a.id = l.account_id "
-        " WHERE je.source_type = ? GROUP BY a.code", (source_type,)).fetchall()
+        f" WHERE je.source_type IN ({marks}) GROUP BY a.code",
+        source_types).fetchall()
     return {r["code"]: (float(r["dr"] or 0), float(r["cr"] or 0)) for r in rows}
+
+
+# Everything a purchase posts: the receipt and the payments that settle it.
+PURCHASE = ("purchase", "purchase_payment")
 
 
 # ── Paying a supplier ────────────────────────────────────────────────────────
@@ -64,9 +78,11 @@ def test_a_supplier_paid_by_transfer_credits_the_bank(client, bank, db):
         "status": "Paid", "payment_method": "Bank Transfer",
         "bank_account_id": bank["id"]})
 
-    touched = _codes(db, "purchase")
+    touched = _codes(db, *PURCHASE)
     assert TILL not in touched, "a supplier transfer came out of the till"
     assert touched[bank["account_code"]][1] == _pytest.approx(200)
+    # ...and it is the PAYMENT that moved it, not the receipt.
+    assert _codes(db, "purchase_payment")[bank["account_code"]][1] == _pytest.approx(200)
 
 
 def test_a_supplier_paid_in_cash_still_credits_the_till(client, db):
@@ -75,7 +91,7 @@ def test_a_supplier_paid_in_cash_still_credits_the_till(client, db):
     client.patch(f"/api/purchases/{po}/status",
                  json={"status": "Paid", "payment_method": "Cash"})
 
-    assert _codes(db, "purchase")[TILL][1] == _pytest.approx(200)
+    assert _codes(db, *PURCHASE)[TILL][1] == _pytest.approx(200)
 
 
 def test_saying_nothing_behaves_as_it_always_did(client, db):
@@ -85,7 +101,7 @@ def test_saying_nothing_behaves_as_it_always_did(client, db):
     r = client.patch(f"/api/purchases/{po}/status", json={"status": "Paid"})
 
     assert r.status_code == 200, r.text
-    assert _codes(db, "purchase")[TILL][1] == _pytest.approx(200)
+    assert _codes(db, *PURCHASE)[TILL][1] == _pytest.approx(200)
 
 
 def test_how_it_was_paid_is_kept_on_the_purchase(client, bank, db):

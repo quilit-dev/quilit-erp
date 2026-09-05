@@ -97,6 +97,20 @@ class StatusUpdate(BaseModel):
     bank_account_id: Optional[int] = None
 
 
+class PaymentIn(BaseModel):
+    """Money going to the supplier, whether or not the goods have arrived.
+
+    `amount` is in the base currency, like every other money field on a
+    purchase — the cost currency is a property of the document, and the header
+    already carries the rate it was entered at.
+    """
+    amount:          float
+    payment_method:  Optional[str] = None
+    bank_account_id: Optional[int] = None
+    paid_at:         Optional[str] = None   # defaults to now
+    note:            Optional[str] = None
+
+
 def _col(row, key, default=None):
     """A column that may not exist yet on an un-migrated tenant."""
     try:
@@ -126,6 +140,80 @@ def _doc_total(row):
 def _doc_grand_total(row):
     """...and with the VAT the lines carry."""
     return money(_doc_total(row) + float(row["tax_total"] or 0))
+
+
+# ── Settlement ───────────────────────────────────────────────────────────────
+# Receiving and paying used to be one ladder: Ordered, then Received, then
+# Paid. That made "the money has moved" un-sayable without also saying "the
+# goods are here", so a pre-ordered delivery — paid up front, shipped weeks
+# later — could only be entered by booking stock that was still at the
+# supplier.
+#
+# They are two independent facts now. `received_at` records the goods and
+# `purchase_payments` records the money, in any order and in any number of
+# instalments. `status` survives as a computed LABEL written back onto the row,
+# because every filter, statistic, export and approval rule reads it, and a
+# derived column keeps all of them working unchanged.
+
+# Set by the approval engine, not by settlement. Recomputing over them would
+# quietly wave an unapproved purchase through.
+_UNSETTLED_STATUSES = ("Pending Approval", "Cancelled", "Rejected")
+
+
+def _status_label(received: bool, paid: float, gross: float) -> str:
+    """The one word that describes where a purchase has got to.
+
+    The three original labels keep their original meanings: a purchase that is
+    received and settled is still "Paid", and one with nothing done to it is
+    still "Ordered". The two new ones only describe states that could not
+    happen before.
+    """
+    settled = paid >= gross - 0.005 and gross > 0
+    if received:
+        return "Paid" if settled else "Received"
+    if paid <= 0.005:
+        return "Ordered"
+    return "Prepaid" if settled else "Deposit Paid"
+
+
+def _payments_of(db, purchase_id):
+    return db.execute(
+        "SELECT * FROM purchase_payments WHERE purchase_id=? AND voided_at IS NULL "
+        "ORDER BY paid_at, id", (purchase_id,)).fetchall()
+
+
+def _recalc_settlement(db, purchase_id):
+    """Rewrite `paid_total`, `paid_at` and `status` from the payment rows.
+
+    The single writer of all three, for the same reason `_recalc_totals` is the
+    single writer of `subtotal`: the supplier and insights aggregates GROUP BY
+    over `purchases`, and joining payments into them would turn
+    COUNT(purchases.id) into a count of payments.
+    """
+    row = db.execute("SELECT * FROM purchases WHERE id=?", (purchase_id,)).fetchone()
+    if not row:
+        return
+    rows = _payments_of(db, purchase_id)
+    paid = money(sum(float(r["amount"] or 0) for r in rows))
+    gross = _doc_grand_total(row)
+    received = bool(_col(row, "received_at"))
+    settled = paid >= gross - 0.005 and gross > 0
+    # `paid_at` means "settled in full", which is what the export column and
+    # every report that reads it have always meant by it. A deposit does not
+    # set it; the payment rows carry the individual dates.
+    paid_at = (_col(row, "paid_at") or (rows[-1]["paid_at"] if rows else None)) if settled else None
+    fields = {"paid_total": paid, "paid_at": paid_at}
+    if row["status"] not in _UNSETTLED_STATUSES and not _col(row, "voided_at"):
+        fields["status"] = _status_label(received, paid, gross)
+    db.execute(
+        "UPDATE purchases SET " + ", ".join(f"{k}=?" for k in fields) + " WHERE id=?",
+        (*fields.values(), purchase_id))
+
+
+def _outstanding(db, purchase_id) -> float:
+    row = db.execute("SELECT * FROM purchases WHERE id=?", (purchase_id,)).fetchone()
+    paid = money(sum(float(r["amount"] or 0) for r in _payments_of(db, purchase_id)))
+    return money(_doc_grand_total(row) - paid)
 
 def _line_net(quantity, unit_cost, discount=0) -> float:
     """What a line is worth before tax: goods value less its own discount.
@@ -328,6 +416,11 @@ def list_purchases(status: Optional[str] = None, supplier: Optional[str] = None,
         d = dict(r)
         d["total_cost"]  = _doc_total(r)
         d["grand_total"] = _doc_grand_total(r)
+        # Paying and receiving are separate now, so "what is still owed on
+        # this order" is a fact the list has to carry rather than infer from
+        # the status word.
+        d["paid_total"]  = money(float(_col(r, "paid_total", 0) or 0))
+        d["outstanding"] = money(d["grand_total"] - d["paid_total"])
         # What the list needs to DESCRIBE a document that has several lines.
         # `product_name` and `quantity` on the header are a roll-up that is
         # about to go away; these are derived from the lines and are what the
@@ -359,11 +452,21 @@ def purchase_stats(user=Depends(require_perm("purchases", "view")), db: sqlite3.
         "WHERE status='Paid' AND archived_at IS NULL AND voided_at IS NULL" + bf, bp
     ).fetchall()
     total_spent = money(sum(_doc_grand_total(r) for r in paid_rows))
+    # Money already with suppliers for goods that have not turned up. It is an
+    # asset, not a cost, and it is the number somebody chasing a late
+    # pre-order actually wants.
+    adv = db.execute(
+        "SELECT COALESCE(SUM(paid_total), 0) AS a FROM purchases "
+        "WHERE received_at IS NULL AND deleted_at IS NULL AND archived_at IS NULL "
+        "AND voided_at IS NULL" + bf, bp).fetchone()
     return {
         "ordered":     stats.get("Ordered", 0),
         "received":    stats.get("Received", 0),
         "paid":        stats.get("Paid", 0),
+        # Ordered and paid for, in part or in full, still waiting on delivery.
+        "prepaid":     stats.get("Prepaid", 0) + stats.get("Deposit Paid", 0),
         "total_spent": total_spent,
+        "advances":    money(float(adv["a"] or 0)),
     }
 
 @router.get("/{purchase_id}")
@@ -378,6 +481,11 @@ def get_purchase(purchase_id: int, user=Depends(require_perm("purchases", "view"
     d = dict(row)
     d["total_cost"]  = _doc_total(row)
     d["grand_total"] = _doc_grand_total(row)
+    d["paid_total"]  = money(float(_col(row, "paid_total", 0) or 0))
+    d["outstanding"] = money(d["grand_total"] - d["paid_total"])
+    d["payments"]    = [dict(x) for x in db.execute(
+        "SELECT * FROM purchase_payments WHERE purchase_id=? ORDER BY paid_at, id",
+        (purchase_id,)).fetchall()]
     # The lines are the document. A caller opening one purchase wants them.
     d["items"] = [dict(l) for l in _lines_of(db, purchase_id)]
     return d
@@ -417,10 +525,22 @@ def create_purchase(data: PurchaseCreate, user=Depends(require_perm("purchases",
     _save_lines(db, purchase_id, lines, supplier=data.supplier,
                 cost_currency=cost_currency, cost_rate=cost_rate, now=now)
 
+    # A purchase can be created already received, or received and settled —
+    # importing history, or keying a delivery that is already on the shelf.
+    # The timestamps were never written on this path, which left such a row
+    # looking un-received to anything that reads them; settlement now depends
+    # on them, so they are set here.
     if data.status in ("Received", "Paid"):
+        db.execute("UPDATE purchases SET received_at=? WHERE id=?", (now, purchase_id))
         _credit_stock(purchase_id, db)
-    if data.status == "Paid":
         _record_expense(purchase_id, db)
+    if data.status == "Paid":
+        head = db.execute("SELECT * FROM purchases WHERE id=?", (purchase_id,)).fetchone()
+        due = _outstanding(db, purchase_id)
+        if due > 0.005:
+            _add_payment(db, user, head, amount=due, paid_at=now,
+                         note="Settled on entry")
+    _recalc_settlement(db, purchase_id)
 
     # Evaluate approval policies before commit. `quantity` is now the total
     # across the lines and `category` the distinct set, so a policy written
@@ -751,9 +871,16 @@ def update_purchase(purchase_id: int, data: PurchaseUpdate,
                     supplier=data.supplier or row["supplier"],
                     cost_currency=cost_currency, cost_rate=cost_rate, now=now)
         _credit_stock(purchase_id, db)
-        if row["status"] == "Paid":
+        # The goods are back on the shelf, so the receipt posts again. It used
+        # to wait for 'Paid'; receiving is the moment now, and a purchase that
+        # was received before this edit is still received after it.
+        if _col(row, "received_at"):
             _record_expense(purchase_id, db)
         detail = {"kind": "re-received"}
+
+    # The document is worth something different now, so what is outstanding on
+    # it — and therefore the label the list shows — has changed with it.
+    _recalc_settlement(db, purchase_id)
 
     log_action(db, user, "update", "purchase", purchase_id, row["po_number"], detail)
     db.commit()
@@ -773,31 +900,42 @@ def update_status(purchase_id: int, data: StatusUpdate,
     valid = ["Ordered", "Received", "Paid"]
     if data.status not in valid:
         raise HTTPException(400, f"Status must be one of: {', '.join(valid)}")
-    # Enforce forward-only transitions to prevent accounting inconsistencies
-    order = {"Ordered": 0, "Received": 1, "Paid": 2}
+    # Forward-only, ranked by what has happened to the GOODS. A purchase that
+    # has been paid for but not delivered is not "further along" than one that
+    # has been delivered — it is a different axis, and the two prepaid labels
+    # therefore share rank 0 with Ordered so a prepaid order can still be
+    # received.
+    order = {"Ordered": 0, "Deposit Paid": 0, "Prepaid": 0, "Received": 1, "Paid": 2}
     current_rank = order.get(row["status"], 0)
     new_rank = order.get(data.status, 0)
     if new_rank < current_rank:
         raise HTTPException(400, f"Cannot move status backward from '{row['status']}' to '{data.status}'. Received/Paid purchases have updated stock and accounting records.")
 
     now = _now()
-    if data.status == "Received":
-        db.execute("UPDATE purchases SET status=?, received_at=? WHERE id=?",
-                   (data.status, now, purchase_id))
-        db.commit()
-        _credit_stock(purchase_id, db)
-    elif data.status == "Paid":
-        db.execute(
-            "UPDATE purchases SET status=?, paid_at=?, "
-            " payment_method=COALESCE(?, payment_method), "
-            " bank_account_id=COALESCE(?, bank_account_id) WHERE id=?",
-            (data.status, now, data.payment_method, data.bank_account_id,
-             purchase_id))
-        db.commit()
-        _credit_stock(purchase_id, db)
+    if data.status in ("Received", "Paid"):
+        # 'Paid' has always meant "the goods are here AND it is settled", and
+        # every existing caller uses it that way — the seed data, the tests and
+        # the Mark paid button, which is only offered on a received purchase.
+        # It keeps that meaning. Paying for goods that have NOT arrived is what
+        # the payments endpoint below is for.
+        if not _col(row, "received_at"):
+            db.execute("UPDATE purchases SET received_at=? WHERE id=?",
+                       (now, purchase_id))
+            db.commit()
+            _credit_stock(purchase_id, db)
+        row = db.execute("SELECT * FROM purchases WHERE id=?", (purchase_id,)).fetchone()
         _record_expense(purchase_id, db)
-    else:
+    if data.status == "Paid":
+        row = db.execute("SELECT * FROM purchases WHERE id=?", (purchase_id,)).fetchone()
+        due = _outstanding(db, purchase_id)
+        if due > 0.005:
+            _add_payment(db, user, row, amount=due,
+                         method=data.payment_method,
+                         bank_account_id=data.bank_account_id, paid_at=now,
+                         note="Settled in full")
+    if data.status == "Ordered":
         db.execute("UPDATE purchases SET status=? WHERE id=?", (data.status, purchase_id))
+    _recalc_settlement(db, purchase_id)
 
     if data.status == "Received":
         # Re-read: the totals and the lines are what arrived, and `row` was
@@ -927,8 +1065,66 @@ def _credit_stock(purchase_id: int, db: sqlite3.Connection):
     # customer the same "your order is ready" twice for a two-line receipt.
     commitments.notify_allocated(db, filled, source="purchase received")
 
+def _settlement_credits(db, row, gross):
+    """The credit side of a receipt: what is already paid, and what is owed.
+
+    Receiving goods creates the asset. Something has to fund it, and there are
+    three possible sources, which is why this is not simply "credit cash":
+
+      * money already handed over for this delivery, which has been sitting in
+        1250 Advances since it was paid. The delivery is what it was for, so
+        the delivery is what relieves it;
+      * money that was already inside this purchase's own journal entry under
+        the old single-status model — the rows migration 174c invented. They
+        carry no entry of their own, so the cash credit still belongs here or
+        a restated historical purchase would credit a payable that nothing
+        settles;
+      * the rest, which is owed to the supplier: 2000 Payable, cleared by
+        whatever is paid afterwards.
+
+    Advances are capped at the value of the goods. Paying more than a delivery
+    turns out to be worth leaves the excess in 1250 as a debit balance, which
+    is the honest description — the supplier is holding money of ours.
+    """
+    rows = _payments_of(db, row["id"])
+    folded = money(sum(float(r["amount"] or 0) for r in rows
+                       if _col(r, "folded_into_purchase")))
+    advanced = money(sum(float(r["amount"] or 0) for r in rows
+                         if not _col(r, "folded_into_purchase")
+                         and (_col(r, "applied_as") or "advance") == "advance"))
+    folded   = money(min(folded, gross))
+    advanced = money(min(advanced, money(gross - folded)))
+    payable  = money(gross - folded - advanced)
+
+    out = []
+    if folded > 0:
+        out.append({"code": accounting.money_account_for(
+                        db, method=_col(row, "payment_method"),
+                        bank_account_id=_col(row, "bank_account_id")),
+                    "credit": folded})
+    if advanced > 0:
+        out.append({"code": accounting.code(db, "supplier_advance"),
+                    "credit": advanced,
+                    "memo": f"Advance applied — {row['po_number']}"})
+    if payable > 0:
+        out.append({"code": accounting.code(db, "payable"), "credit": payable,
+                    "memo": f"Owed to {row['supplier']} — {row['po_number']}"})
+    return out
+
+
 def _record_expense(purchase_id: int, db: sqlite3.Connection):
-    """Record purchase cost as Finance expense. Idempotent."""
+    """Book the goods, on the day they arrive. Idempotent.
+
+    This used to run when a purchase was marked Paid, which was the only moment
+    the old single ladder could offer. It runs at RECEIPT now, and that is a
+    change worth naming: the cost of a delivery lands in the month the goods
+    came in rather than the month the invoice was settled.
+
+    It is also the correct moment. Between Received and Paid the stock was on
+    the shelf and its cost layers existed, while GL 1200 had never been
+    debited — so a sale in that window drew a layer and relieved inventory that
+    was never booked. Debiting at receipt closes that.
+    """
     row = db.execute("SELECT * FROM purchases WHERE id = ? AND archived_at IS NULL", (purchase_id,)).fetchone()
     if not row or row["expense_recorded"]:
         return
@@ -1015,14 +1211,11 @@ def _record_expense(purchase_id: int, db: sqlite3.Connection):
         # the reclaim — the same error the sales side made in reverse.
         lines.append({"code": accounting.code(db, "vat_control"), "debit": tax_part,
                       "memo": f"Input VAT — {row['po_number']}"})
-    # Out of whatever actually paid it. Crediting cash for a transfer
-    # overstates the till and understates the bank by the same amount, and
-    # neither can then be held against anything.
-    lines.append({
-        "code": accounting.money_account_for(
-            db, method=_col(row, "payment_method"),
-            bank_account_id=_col(row, "bank_account_id")),
-        "credit": gross})
+    # Out of whatever actually funded it — an advance already paid, cash
+    # handed over under the old model, or the supplier's account. Crediting
+    # cash for a bank transfer overstates the till and understates the bank by
+    # the same amount, and neither can then be held against anything.
+    lines.extend(_settlement_credits(db, row, gross))
     accounting.post_entry(
         db,
         entry_date=now[:10],
@@ -1034,6 +1227,184 @@ def _record_expense(purchase_id: int, db: sqlite3.Connection):
 
 class VoidRequest(BaseModel):
     reason: Optional[str] = None
+
+
+def _add_payment(db, user, row, *, amount, method=None, bank_account_id=None,
+                 paid_at=None, note=None):
+    """Record money moving to the supplier, and post it. Returns the row id.
+
+    Where it lands depends on one thing only — whether the goods are already
+    here:
+
+        goods not yet received   DR 1250 Advances to Suppliers   CR Cash/Bank
+        goods already received   DR 2000 Accounts Payable        CR Cash/Bank
+
+    and that choice is STORED on the row rather than re-derived later, because
+    a purchase restated months afterwards has to relieve the advances it
+    actually took while leaving the post-receipt settlements alone.
+    """
+    purchase_id = row["id"]
+    amount = money(amount)
+    if amount <= 0:
+        raise HTTPException(400, "A payment has to be for more than nothing.")
+    when = paid_at or _now()
+    # A date the caller supplied reaches post_entry as `when[:10]` and reaches
+    # the period lock as-is. Garbage would post an entry into a nonsense month
+    # and be a chore to unpick, so it is rejected at the door.
+    try:
+        datetime.strptime(str(when)[:10], "%Y-%m-%d")
+    except ValueError:
+        raise HTTPException(400, "Payment date must be YYYY-MM-DD.")
+    # Both months, as everywhere else money moves: the payment posts into its
+    # own date, which may not be today.
+    _check_period_locked(db, when)
+    received = bool(_col(row, "received_at"))
+    method = method or _col(row, "payment_method")
+    bank_id = bank_account_id if bank_account_id is not None else _col(row, "bank_account_id")
+
+    cur = db.execute(
+        "INSERT INTO purchase_payments (purchase_id, amount, paid_currency, method, "
+        " bank_account_id, note, paid_at, created_at, created_by, applied_as) "
+        "VALUES (?,?,?,?,?,?,?,?,?,?)",
+        (purchase_id, amount, "USD", method or "Cash", bank_id, note, when,
+         _now(), user["id"], "payable" if received else "advance"))
+    payment_id = cur.lastrowid
+    # Keep the header's idea of how this purchase is settled current — the
+    # detail screen reads it, and so does the legacy cash credit in
+    # _settlement_credits.
+    db.execute("UPDATE purchases SET payment_method=COALESCE(?, payment_method), "
+               " bank_account_id=COALESCE(?, bank_account_id) WHERE id=?",
+               (method, bank_account_id, purchase_id))
+
+    accounting.post_entry(
+        db, entry_date=when[:10],
+        memo=(f"Payment to {row['supplier']} — {row['po_number']}"
+              + ("" if received else " (goods not yet received)")),
+        lines=[
+            {"code": accounting.code(db, "payable" if received else "supplier_advance"),
+             "debit": amount},
+            {"code": accounting.money_account_for(db, method=method,
+                                                  bank_account_id=bank_id),
+             "credit": amount},
+        ],
+        source_type="purchase_payment", source_id=payment_id,
+        created_by=user["id"], branch_id=row["warehouse_id"])
+    _recalc_settlement(db, purchase_id)
+    return payment_id
+
+
+@router.get("/{purchase_id}/payments")
+def list_purchase_payments(purchase_id: int,
+                           user=Depends(require_perm("purchases", "view")),
+                           db: sqlite3.Connection = Depends(get_db)):
+    row = db.execute("SELECT * FROM purchases WHERE id=?", (purchase_id,)).fetchone()
+    if not row:
+        raise HTTPException(404, "Purchase not found")
+    branch_access.assert_can_view_branch(user, db, row["warehouse_id"])
+    rows = db.execute(
+        "SELECT * FROM purchase_payments WHERE purchase_id=? ORDER BY paid_at, id",
+        (purchase_id,)).fetchall()
+    gross = _doc_grand_total(row)
+    paid = money(sum(float(r["amount"] or 0) for r in rows if not r["voided_at"]))
+    return {
+        "payments":    [dict(r) for r in rows],
+        "grand_total": gross,
+        "paid_total":  paid,
+        "outstanding": money(gross - paid),
+    }
+
+
+@router.post("/{purchase_id}/payments")
+def add_purchase_payment(purchase_id: int, data: PaymentIn,
+                         user=Depends(require_perm("purchases", "edit")),
+                         db: sqlite3.Connection = Depends(get_db)):
+    """Pay for a purchase — before the goods arrive, or after.
+
+    This is what makes a pre-order enterable: the money is recorded on the day
+    it leaves, and receiving stays a separate act on the day the lorry turns
+    up. Paying does not bring stock in, and never should: booking goods that
+    are still at the supplier is exactly the wrong answer that made this
+    necessary.
+    """
+    row = db.execute(
+        "SELECT * FROM purchases WHERE id=? AND archived_at IS NULL",
+        (purchase_id,)).fetchone()
+    if not row:
+        raise HTTPException(404, "Purchase not found")
+    branch_access.assert_can_view_branch(user, db, row["warehouse_id"])
+    if _col(row, "voided_at"):
+        raise HTTPException(400, "This purchase has been voided.")
+    if row["status"] in _UNSETTLED_STATUSES:
+        raise HTTPException(
+            400, f"This purchase is {row['status'].lower()} and cannot take payments yet.")
+
+    due = _outstanding(db, purchase_id)
+    if due <= 0.005:
+        raise HTTPException(400, "This purchase is already settled in full.")
+    amount = money(data.amount)
+    if amount > due + 0.005:
+        # Overpaying would leave money stranded in the supplier's advance
+        # account with no delivery to relieve it, and the operator almost
+        # always meant a different purchase.
+        raise HTTPException(
+            400, f"That is more than is outstanding on {row['po_number']} "
+                 f"(${due:,.2f}).")
+
+    payment_id = _add_payment(db, user, row, amount=amount,
+                              method=data.payment_method,
+                              bank_account_id=data.bank_account_id,
+                              paid_at=data.paid_at, note=data.note)
+    after = db.execute("SELECT status, paid_total FROM purchases WHERE id=?",
+                       (purchase_id,)).fetchone()
+    log_action(db, user, "payment", "purchase", purchase_id, row["po_number"],
+               {"amount": amount, "received": bool(_col(row, "received_at"))})
+    db.commit()
+    return {"id": payment_id, "message": "Payment recorded",
+            "status": after["status"], "paid_total": money(after["paid_total"] or 0),
+            "outstanding": _outstanding(db, purchase_id)}
+
+
+@router.patch("/{purchase_id}/payments/{payment_id}/void")
+def void_purchase_payment(purchase_id: int, payment_id: int, data: VoidRequest,
+                          user=Depends(require_perm("purchases", "edit")),
+                          db: sqlite3.Connection = Depends(get_db)):
+    """Take back a payment that should not have been recorded."""
+    row = db.execute("SELECT * FROM purchases WHERE id=?", (purchase_id,)).fetchone()
+    if not row:
+        raise HTTPException(404, "Purchase not found")
+    branch_access.assert_can_view_branch(user, db, row["warehouse_id"])
+    pay = db.execute(
+        "SELECT * FROM purchase_payments WHERE id=? AND purchase_id=?",
+        (payment_id, purchase_id)).fetchone()
+    if not pay:
+        raise HTTPException(404, "Payment not found")
+    if pay["voided_at"]:
+        raise HTTPException(400, "That payment is already voided.")
+    if _col(pay, "folded_into_purchase"):
+        raise HTTPException(
+            400, "This payment predates separate payment records — its money is "
+                 "part of the purchase's own entry. Void the purchase instead.")
+    if (_col(pay, "applied_as") or "advance") == "advance" and _col(row, "received_at"):
+        # The receipt has already relieved this advance against the goods.
+        # Reversing it here would leave 1250 holding a credit balance with
+        # nothing to explain it; the delivery has to be undone first.
+        raise HTTPException(
+            400, "The goods this advance paid for have already been received. "
+                 "Void the purchase to undo both together.")
+    now = _now()
+    _check_period_locked(db, pay["paid_at"])
+    _check_period_locked(db, now)
+    accounting.reverse_source(
+        db, "purchase_payment", payment_id,
+        memo=f"Reversal — payment on {row['po_number']}", created_by=user["id"])
+    db.execute("UPDATE purchase_payments SET voided_at=?, void_reason=? WHERE id=?",
+               (now, data.reason or "Voided", payment_id))
+    _recalc_settlement(db, purchase_id)
+    log_action(db, user, "void_payment", "purchase", purchase_id, row["po_number"],
+               {"payment_id": payment_id, "amount": money(pay["amount"] or 0)})
+    db.commit()
+    return {"message": "Payment voided", "outstanding": _outstanding(db, purchase_id)}
+
 
 
 @router.patch("/{purchase_id}/void")
@@ -1081,6 +1452,10 @@ def void_purchase(
     # same rule the invoice unvoid and the till return follow.
     _check_period_locked(db, row["paid_at"] or row["received_at"] or row["ordered_at"])
     _check_period_locked(db, _now())
+    # ...and every month a payment landed in. A deposit taken in a closed
+    # quarter cannot be reversed out of it.
+    for _pay in _payments_of(db, purchase_id):
+        _check_period_locked(db, _pay["paid_at"])
 
     now = _now()
     undone = _reverse_stock(row, db, now)
@@ -1107,8 +1482,27 @@ def void_purchase(
             "AND description LIKE ?",
             (now, f"Voided purchase {row['po_number']}", f"{row['po_number']} %"))
 
-    db.execute("UPDATE purchases SET voided_at=?, void_reason=? WHERE id=?",
+    # Money handed over for this delivery comes back too. Each payment posted
+    # its own entry — into 1250 Advances if the goods had not arrived, into
+    # 2000 Payable if they had — so each is reversed by its own mirror rather
+    # than netted, and the supplier's account returns to where it started.
+    # Rows folded in from before payments were recorded separately have no
+    # entry of their own: the reversal above already covered their money.
+    refunded = 0.0
+    for pay in _payments_of(db, purchase_id):
+        if not _col(pay, "folded_into_purchase"):
+            accounting.reverse_source(
+                db, "purchase_payment", pay["id"],
+                memo=f"Reversal — voided purchase {row['po_number']}",
+                created_by=user["id"])
+        refunded = money(refunded + float(pay["amount"] or 0))
+    db.execute("UPDATE purchase_payments SET voided_at=?, void_reason=? "
+               "WHERE purchase_id=? AND voided_at IS NULL",
+               (now, f"Voided purchase {row['po_number']}", purchase_id))
+
+    db.execute("UPDATE purchases SET voided_at=?, void_reason=?, paid_total=0 WHERE id=?",
                (now, data.reason or "Voided", purchase_id))
+    undone["refunded"] = refunded
     log_action(db, user, "void", "purchase", purchase_id, row["po_number"],
                {"reason": data.reason or "Voided", **undone})
     db.commit()

@@ -2358,6 +2358,7 @@ def _run_migrations(conn, c):
             ("1000", "Cash & Bank",              "Asset",     "debit",  "Current Asset"),
             ("1100", "Accounts Receivable",      "Asset",     "debit",  "Current Asset"),
             ("1200", "Inventory",                "Asset",     "debit",  "Current Asset"),
+            ("1250", "Advances to Suppliers",    "Asset",     "debit",  "Current Asset"),
             ("1300", "Prepaid Expenses",         "Asset",     "debit",  "Current Asset"),
             ("1500", "Fixed Assets",             "Asset",     "debit",  "Non-Current Asset"),
             ("1510", "Accumulated Depreciation", "Asset",     "credit", "Contra Asset"),
@@ -4160,6 +4161,84 @@ def _run_migrations(conn, c):
             "ALTER TABLE pos_sales ADD COLUMN amended_from INTEGER "
             "REFERENCES pos_sales(id)")
 
+    # ── 174: paying for a purchase is its own event ──────────────────────
+    # Receiving and paying were one ladder — Ordered, Received, Paid — so the
+    # only way to record money was to say the goods had arrived. Pre-ordered
+    # stock, paid up front and delivered weeks later, could not be entered
+    # without booking stock that was still at the supplier.
+    #
+    # They are two independent facts, and a purchase can now take any number of
+    # payments: a deposit on order, the balance on delivery. `status` stays on
+    # the row as a computed LABEL so every existing filter, statistic, export
+    # and approval rule keeps reading what it always read.
+    if need("174_purchase_payments"):
+        c.execute("""
+            CREATE TABLE IF NOT EXISTS purchase_payments (
+                id            INTEGER PRIMARY KEY AUTOINCREMENT,
+                purchase_id   INTEGER NOT NULL REFERENCES purchases(id) ON DELETE CASCADE,
+                -- Base (functional) currency, like every other money column.
+                -- The three below record what was actually handed over.
+                amount        REAL    NOT NULL,
+                paid_currency TEXT    NOT NULL DEFAULT 'USD',
+                paid_amount   REAL,
+                exchange_rate REAL,
+                method        TEXT    DEFAULT 'Cash',
+                bank_account_id INTEGER,
+                note          TEXT,
+                paid_at       TEXT    NOT NULL,
+                created_at    TEXT    NOT NULL,
+                created_by    INTEGER,
+                voided_at     TEXT,
+                void_reason   TEXT,
+                -- Which account this payment was posted AGAINST, decided by
+                -- whether the goods had arrived yet: 'advance' debited 1250,
+                -- 'payable' debited 2000, 'folded' posted nothing of its own.
+                -- Stored rather than re-derived because a purchase restated
+                -- months later must relieve the advances it actually took and
+                -- leave the post-receipt settlements alone; recomputing from
+                -- today's received_at would count every payment as an advance
+                -- and credit a payable that nothing settles.
+                applied_as    TEXT NOT NULL DEFAULT 'advance',
+                -- 1 for the rows the migration below invented from the old
+                -- single `paid_at` stamp. Their money is already inside the
+                -- purchase's own journal entry, posted when the purchase was
+                -- marked Paid under the old model, so they must never get an
+                -- entry of their own and must never be counted as an advance.
+                -- Without this a restatement of a historical purchase would
+                -- credit a payable that nothing ever settles.
+                folded_into_purchase INTEGER NOT NULL DEFAULT 0
+            )""")
+        c.execute("CREATE INDEX IF NOT EXISTS idx_purchase_payments_purchase "
+                  "ON purchase_payments(purchase_id)")
+        done("174_purchase_payments")
+
+    # Denormalised for the same reason `subtotal` is: the supplier and insights
+    # aggregates GROUP BY over `purchases`, and joining payments into them would
+    # turn COUNT(purchases.id) into a count of PAYMENTS. One function writes it.
+    add_col("174a_purchases_paid_total", "purchases", "paid_total",
+            "ALTER TABLE purchases ADD COLUMN paid_total REAL NOT NULL DEFAULT 0")
+
+    if need("174b_account_1250"):
+        _ts = datetime.utcnow().strftime("%Y-%m-%d %H:%M:%S")
+        c.execute(
+            "INSERT OR IGNORE INTO chart_of_accounts "
+            "(code, name, type, subtype, normal_balance, is_system, is_active, created_at) "
+            "VALUES (?,?,?,?,?,1,1,?)",
+            ("1250", "Advances to Suppliers", "Asset", "Current Asset", "debit", _ts),
+        )
+        c.execute("INSERT OR IGNORE INTO account_roles (role, code) VALUES (?,?)",
+                  ("supplier_advance", "1250"))
+        done("174b_account_1250")
+
+    # Every purchase already marked Paid becomes one payment for its full value,
+    # so `paid_total` is right from the first request and the history reads the
+    # same way new purchases will.
+    if need("174c_purchase_payments_backfill"):
+        c.execute(_PURCHASE_RECEIVED_AT_BACKFILL)
+        c.execute(_PURCHASE_PAYMENTS_BACKFILL)
+        c.execute(_PURCHASE_PAID_TOTAL_BACKFILL)
+        done("174c_purchase_payments_backfill")
+
     # Last, after every migration that might have added an account: if this
     # tenant is on a statutory chart, anything not on it is retired. Migrations
     # insert accounts ACTIVE, which on such a tenant means a default-chart code
@@ -4328,6 +4407,57 @@ _PURCHASE_TOTALS_BACKFILL = """
                               FROM purchase_items WHERE purchase_id = purchases.id), 0),
       tax_total = COALESCE((SELECT ROUND(CAST(SUM(tax_amount) AS NUMERIC), 2)
                               FROM purchase_items WHERE purchase_id = purchases.id), 0)
+"""
+
+# Every purchase that carried the old single `paid_at` stamp becomes one payment
+# for its whole value. `folded_into_purchase = 1` records that this money is
+# already inside the purchase's journal entry and must not be posted again.
+#
+# `NOT EXISTS` rather than a marker check alone: this runs from
+# _ensure_pg_post_baseline too, which executes on EVERY boot and every tenant
+# provision, and a second pass would otherwise double every historical payment.
+_PURCHASE_PAYMENTS_BACKFILL = """
+    INSERT INTO purchase_payments
+      (purchase_id, amount, paid_currency, method, bank_account_id, note,
+       paid_at, created_at, applied_as, folded_into_purchase)
+    SELECT p.id,
+           ROUND(CAST(COALESCE(p.subtotal, 0) + COALESCE(p.additional_costs, 0)
+                      + COALESCE(p.tax_total, 0) AS NUMERIC), 2),
+           'USD', p.payment_method, p.bank_account_id,
+           'Settled before payments were recorded separately',
+           COALESCE(p.paid_at, p.received_at, p.ordered_at),
+           COALESCE(p.paid_at, p.received_at, p.ordered_at),
+           'folded', 1
+      FROM purchases p
+     WHERE (p.paid_at IS NOT NULL OR p.status = 'Paid')
+       AND COALESCE(p.paid_at, p.received_at, p.ordered_at) IS NOT NULL
+       AND NOT EXISTS (SELECT 1 FROM purchase_payments x WHERE x.purchase_id = p.id)
+"""
+
+# Before this release `received_at` was written only by the move to 'Received'.
+# A purchase created already Paid never got one, and seeded history has none at
+# all — so rows whose goods demonstrably arrived (their stock was credited)
+# carry no record of when.
+#
+# Settlement now READS that column: an empty one means "not yet delivered", so
+# without this every historical purchase would relabel itself 'Prepaid', appear
+# in the money-with-suppliers figure, and take its next payment into 1250
+# Advances instead of against the payable. The goods are on the shelf; the
+# books have to say so.
+_PURCHASE_RECEIVED_AT_BACKFILL = """
+    UPDATE purchases
+       SET received_at = COALESCE(paid_at, ordered_at)
+     WHERE received_at IS NULL
+       AND COALESCE(paid_at, ordered_at) IS NOT NULL
+       AND (COALESCE(stock_updated, 0) = 1 OR status IN ('Received', 'Paid'))
+"""
+
+_PURCHASE_PAID_TOTAL_BACKFILL = """
+    UPDATE purchases SET
+      paid_total = COALESCE((SELECT ROUND(CAST(SUM(amount) AS NUMERIC), 2)
+                               FROM purchase_payments
+                              WHERE purchase_id = purchases.id
+                                AND voided_at IS NULL), 0)
 """
 
 
@@ -5138,6 +5268,49 @@ def _ensure_pg_post_baseline(raw):
         # 173: a corrected till sale points back at the one it replaced.
         cur.execute("ALTER TABLE pos_sales ADD COLUMN IF NOT EXISTS "
                     "amended_from INTEGER")
+        # 174: paying for a purchase is its own event, so a pre-ordered
+        # delivery can be paid for before the goods arrive.
+        cur.execute("""CREATE TABLE IF NOT EXISTS purchase_payments (
+            id              INTEGER GENERATED BY DEFAULT AS IDENTITY PRIMARY KEY,
+            purchase_id     INTEGER NOT NULL,
+            amount          DOUBLE PRECISION NOT NULL,
+            paid_currency   TEXT NOT NULL DEFAULT 'USD',
+            paid_amount     DOUBLE PRECISION,
+            exchange_rate   DOUBLE PRECISION,
+            method          TEXT DEFAULT 'Cash',
+            bank_account_id INTEGER,
+            note            TEXT,
+            paid_at         TEXT NOT NULL,
+            created_at      TEXT NOT NULL,
+            created_by      INTEGER,
+            voided_at       TEXT,
+            void_reason     TEXT,
+            applied_as      TEXT NOT NULL DEFAULT 'advance',
+            folded_into_purchase INTEGER NOT NULL DEFAULT 0)""")
+        cur.execute("CREATE INDEX IF NOT EXISTS idx_purchase_payments_purchase "
+                    "ON purchase_payments(purchase_id)")
+        cur.execute("ALTER TABLE purchases ADD COLUMN IF NOT EXISTS "
+                    "paid_total DOUBLE PRECISION NOT NULL DEFAULT 0")
+        cur.execute(
+            "INSERT INTO chart_of_accounts "
+            "(code, name, type, subtype, normal_balance, is_system, is_active, created_at) "
+            "VALUES ('1250','Advances to Suppliers','Asset','Current Asset','debit',1,1,"
+            "to_char(now(),'YYYY-MM-DD HH24:MI:SS')) ON CONFLICT (code) DO NOTHING")
+        cur.execute("INSERT INTO account_roles (role, code, updated_at) "
+                    "VALUES ('supplier_advance','1250',now()::text) "
+                    "ON CONFLICT (role) DO NOTHING")
+        # Marker-guarded, same as 172c and for the same reason: this function
+        # runs on every boot, and an unguarded pass would invent a second
+        # payment for every historical purchase — doubling what the books say
+        # each supplier has been given.
+        cur.execute("SELECT 1 FROM schema_migrations "
+                    "WHERE name='174c_purchase_payments_backfill'")
+        if not cur.fetchone():
+            cur.execute(_PURCHASE_RECEIVED_AT_BACKFILL)
+            cur.execute(_PURCHASE_PAYMENTS_BACKFILL)
+            cur.execute(_PURCHASE_PAID_TOTAL_BACKFILL)
+            cur.execute("INSERT INTO schema_migrations (name, applied_at) "
+                        "VALUES ('174c_purchase_payments_backfill', now()::text)")
     raw.commit()
 
 
@@ -5522,6 +5695,7 @@ _DEFAULT_ACCOUNT_ROLES = [
     ("cash_eur",          "1020"),
     ("receivable",        "1100"),
     ("inventory",         "1200"),
+    ("supplier_advance",  "1250"),
     ("prepaid",           "1300"),
     ("accumulated_dep",   "1510"),
     ("payable",           "2000"),

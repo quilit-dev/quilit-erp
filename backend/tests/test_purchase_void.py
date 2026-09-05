@@ -170,19 +170,31 @@ def test_an_order_that_never_arrived_reverses_nothing(make_client, db):
     assert _gl(c, "1200") == pytest.approx(gl0, abs=0.01)
 
 
-def test_a_received_but_unpaid_purchase_moves_stock_only(make_client, db):
-    """Nothing was posted, so there is nothing to reverse in the ledger."""
+def test_a_received_but_unpaid_purchase_books_the_goods_and_the_debt(make_client, db):
+    """Receiving is what books the goods, whether or not they are paid for.
+
+    This test used to assert the opposite — that an unpaid receipt posted
+    nothing — because the ledger entry waited for the move to 'Paid'. That was
+    a real gap, not a policy: between Received and Paid the stock sat on the
+    shelf with cost layers under it while GL 1200 had never been debited, so a
+    sale in that window drew a layer and relieved inventory that was never
+    booked. Receiving posts it now, and what is not yet paid is a debt to the
+    supplier rather than nothing at all.
+    """
     c = make_client("superadmin")
     _method(c, "fifo")
     item = _item(c, "PVR")
-    gl0 = _gl(c, "1200")
+    gl0, ap0 = _gl(c, "1200"), _gl(c, "2000")
     pid = _po(c, item, 10, 10, status="Received")
     assert _stock(db, item) == (10.0, 10.0)
-    assert _gl(c, "1200") == pytest.approx(gl0, abs=0.01), "setup: unpaid posts nothing"
+    assert _gl(c, "1200") == pytest.approx(gl0 + 100, abs=0.01),         "receiving 10 at 10 has to put 100 of stock into the ledger"
+    # 2000 is a liability, so _gl's debit-minus-credit goes DOWN by what is owed.
+    assert _gl(c, "2000") == pytest.approx(ap0 - 100, abs=0.01),         "the supplier is owed for goods delivered and not yet paid for"
 
     assert _void(c, pid).status_code == 200
     assert _stock(db, item)[0] == pytest.approx(0)
     assert _gl(c, "1200") == pytest.approx(gl0, abs=0.01)
+    assert _gl(c, "2000") == pytest.approx(ap0, abs=0.01),         "and the debt goes with the goods"
 
 
 # ── when it must refuse ─────────────────────────────────────────────────────

@@ -52,6 +52,12 @@ SOURCES: dict[str, _Doc] = {
     "prepaid_payment":  _Doc("expenses", "description", "/expenses",
                              fallback="Paid in advance"),
     "purchase":         _Doc("purchases", "po_number", "/purchases"),
+    # Paying a supplier is its own entry now — a deposit before the goods
+    # arrive, the balance after — so the money side of a purchase no longer
+    # lives inside the receipt. Its document is the purchase it settles, the
+    # same way a payment's document is the invoice it settles.
+    "purchase_payment": _Doc("purchase_payments", None, "/purchases",
+                             via="purchase_id"),
     # POS sales and service jobs are invoices by the time they reach the GL.
     "pos_cogs":         _Doc("invoices", "invoice_number", "/invoices"),
     "service_cogs":     _Doc("service_jobs", "job_number", "/service"),
@@ -149,7 +155,15 @@ def postings_for(db: sqlite3.Connection, document: str,
         return [("expense", doc_id), ("depreciation", doc_id),
                 ("prepaid_payment", doc_id)]
     if document == "purchase":
-        return [("purchase", doc_id)]
+        pairs = [("purchase", doc_id)]
+        try:
+            pairs += [("purchase_payment", r["id"]) for r in db.execute(
+                "SELECT id FROM purchase_payments WHERE purchase_id=?", (doc_id,))]
+        except sqlite3.Error:
+            # The table predates nothing that matters here: an install mid
+            # upgrade simply has no payments to show.
+            pass
+        return pairs
     if document == "payroll_run":
         return [("payroll", doc_id)]
     if document == "service_job":

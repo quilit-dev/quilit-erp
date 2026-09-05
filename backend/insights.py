@@ -38,7 +38,13 @@ from permissions import can_view
 # sitting on a shelf. A quarter is the shortest window that does not simply
 # rediscover seasonality.
 DEAD_STOCK_DAYS = 90
-# A purchase order still "Ordered" after this long is either goods that never
+# Read from `received_at`, not from the status word. A purchase that has been
+# paid for and never delivered reads 'Prepaid', not 'Ordered' — and money
+# already with a supplier who has sent nothing is MORE urgent than an unpaid
+# order, not less. Keying this off the label would have quietly dropped exactly
+# the orders worth chasing.
+#
+# A purchase order still undelivered after this long is either goods that never
 # arrived or a receipt nobody recorded. Both leave the books wrong.
 PO_STUCK_DAYS = 30
 # A deal nobody has touched in this long is not a pipeline, it is a list.
@@ -295,7 +301,7 @@ def _purchases(db, start, end):
                COALESCE(SUM(COALESCE(subtotal,0) + COALESCE(additional_costs,0)),0) AS value
           FROM purchases
          WHERE deleted_at IS NULL AND archived_at IS NULL AND voided_at IS NULL
-           AND status = 'Ordered' AND ordered_at < ?""", (cutoff,))
+           AND received_at IS NULL AND ordered_at < ?""", (cutoff,))
     return {
         "spend": round(float(spend), 2),
         "top_supplier": top[0]["name"] if top else None,

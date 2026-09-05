@@ -82,7 +82,7 @@ def _sell(c, item, qty, price=90):
     assert r.status_code == 200, r.text
 
 
-INV, COGS, CASH = "1200", "5000", "1000"
+INV, COGS, CASH, AP = "1200", "5000", "1000", "2000"
 
 
 # ── nothing sold: the whole difference stays on the shelf ───────────────────
@@ -91,18 +91,33 @@ def test_a_cost_correction_re_values_stock_still_held(make_client, db, method):
     c = make_client("superadmin")
     _method(c, method)
     item = _item(c, "PE Held")
-    inv0, cogs0, cash0 = _gl(c, INV), _gl(c, COGS), _gl(c, CASH)
+    inv0, cogs0, cash0, ap0 = _gl(c, INV), _gl(c, COGS), _gl(c, CASH), _gl(c, AP)
     pid = _po(c, [_line(item, 10, 10)])
     assert _stock(db, item) == (10.0, 10.0)
 
     r = _edit(c, pid, [_line(item, 10, 12)])
     assert r.status_code == 200, r.text
 
-    # 10 units now worth 12 each, and the money followed.
+    # 10 units now worth 12 each, and the extra 20 is a debt, not a payment.
     assert _stock(db, item) == (10.0, 12.0)
     assert _gl(c, INV) - inv0 == pytest.approx(120.0, abs=0.01)
     assert _gl(c, COGS) - cogs0 == pytest.approx(0.0, abs=0.01), "nothing was sold"
-    assert _gl(c, CASH) - cash0 == pytest.approx(-120.0, abs=0.01), "cash was not restated"
+
+    # This assertion used to read `cash == -120`: correcting the cost restated
+    # the cash side too, because under the old model there was no record of
+    # what had actually been paid — "Paid" was a status, not an amount, so the
+    # only coherent thing to do was assume the corrected figure had left the
+    # bank.
+    #
+    # Payments are real rows now. $100 left the bank and $100 is what the bank
+    # says; rewriting it to $120 to match a corrected cost would be a plain
+    # falsehood, and the first thing to fall over would be the reconciliation.
+    # The $20 the goods turned out to cost is owed to the supplier until
+    # somebody pays it.
+    assert _gl(c, CASH) - cash0 == pytest.approx(-100.0, abs=0.01),         "only the money that actually moved may be on the cash account"
+    assert _gl(c, AP) - ap0 == pytest.approx(-20.0, abs=0.01),         "the correction is a debt to the supplier (2000 is a credit-balance account)"
+    assert c.get(f"/api/purchases/{pid}").json()["outstanding"] == pytest.approx(20.0, abs=0.01)
+    assert c.get(f"/api/purchases/{pid}").json()["status"] == "Received",         "no longer settled in full, so it is not 'Paid' any more"
 
 
 # ── everything sold: the whole difference is a cost correction ──────────────

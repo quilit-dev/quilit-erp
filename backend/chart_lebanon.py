@@ -81,6 +81,13 @@ ACCOUNTS = [
      "Liability", "Current Liability", "credit", HEADER),
     ("4011", "فواتير موردو الاستثمار", "Operating supplier invoices",
      "Liability", "Current Liability", "credit", POSTABLE),
+    # Money paid to a supplier before the goods arrive sits on the DEBIT side
+    # of class 40: the supplier owes it back in merchandise. 409 is where the
+    # published plan puts it, under Suppliers rather than with prepaid charges.
+    ("409",  "الموردون المدينون", "Suppliers — debit balances",
+     "Asset", "Current Asset", "debit", HEADER),
+    ("4091", "الموردون- دفعات على الحساب", "Suppliers — advances and payments on account",
+     "Asset", "Current Asset", "debit", POSTABLE),
     ("41",   "الزبائن", "Customers", "Asset", "Current Asset", "debit", HEADER),
     ("411",  "فواتير الزبائن", "Customer invoices", "Asset", "Current Asset", "debit", HEADER),
     ("4111", "زبائن عاديون", "Ordinary customers", "Asset", "Current Asset", "debit", POSTABLE),
@@ -238,6 +245,7 @@ ROLES = {
     "prepaid":           "472",
     "accumulated_dep":   "282",
     "payable":           "4011",
+    "supplier_advance":  "4091",
     "vat_control":       "4425",
     "vat_input":         "4426",
     "vat_output":        "4427",
