@@ -162,9 +162,13 @@ def restock_pos_sale(db: sqlite3.Connection, sale, invoice, *, note: str,
         # justifies. The error is one-directional and small: the campaign is
         # never short-changed, only over-credited.
         if it["promotion_id"]:
+            # CASE rather than MAX(0, x): two-argument MAX is SQLite-only and
+            # Postgres reads it as an aggregate, so returning a promoted line
+            # errors on a hosted tenant. See routers/clients.py.
             db.execute(
-                "UPDATE promotions SET used_quantity = MAX(0, used_quantity - ?) "
-                "WHERE id = ?", (int(qty), it["promotion_id"]),
+                "UPDATE promotions SET used_quantity = "
+                " CASE WHEN used_quantity - ? > 0 THEN used_quantity - ? ELSE 0 END "
+                "WHERE id = ?", (int(qty), int(qty), it["promotion_id"]),
             )
     return moved
 

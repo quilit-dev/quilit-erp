@@ -367,9 +367,14 @@ def _apply_reservation(db, order_id, sign):
                 "UPDATE inventory SET reserved_quantity = COALESCE(reserved_quantity,0) + ? "
                 "WHERE id=?", (qty, cid))
         else:
+            # CASE rather than MAX(0, x): two-argument MAX is SQLite-only and
+            # Postgres reads it as an aggregate, so releasing a production
+            # reservation errors on a hosted tenant. See routers/clients.py.
             db.execute(
-                "UPDATE inventory SET reserved_quantity = MAX(0, COALESCE(reserved_quantity,0) - ?) "
-                "WHERE id=?", (qty, cid))
+                "UPDATE inventory SET reserved_quantity = CASE "
+                " WHEN COALESCE(reserved_quantity,0) - ? > 0 "
+                " THEN COALESCE(reserved_quantity,0) - ? ELSE 0 END "
+                "WHERE id=?", (qty, qty, cid))
 
 
 def _material_status(db, order_id):

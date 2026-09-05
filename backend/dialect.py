@@ -39,6 +39,13 @@ import re
 UNTRANSLATED = (
     "json_extract(", "json_each(", "strftime(", "julianday(", "typeof(",
     "INSERT OR REPLACE", "'start of ",
+    # Two-argument MAX is SQLite's SCALAR max. Postgres has only the aggregate,
+    # so `MAX(0, x)` is rejected there — and because every test runs on SQLite
+    # it passed the whole suite and broke only on a hosted tenant. Write it as
+    # `CASE WHEN x > 0 THEN x ELSE 0 END`, which both engines accept; GREATEST
+    # is the Postgres spelling and breaks SQLite, so it is not the answer.
+    # See _OWED_SQL in routers/clients.py for the idiom.
+    "MAX(0,",
 )
 
 

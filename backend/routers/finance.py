@@ -449,9 +449,17 @@ def void_expense(
     for row in targets:
         # Reverse the project actual_cost contribution
         if row["project_id"]:
+            # CASE rather than MAX(0, x): two-argument MAX is SQLite's scalar
+            # max and is not portable — Postgres reads MAX as an aggregate and
+            # errors, so voiding an expense against a project 500s on a hosted
+            # tenant while every SQLite test passes. Same idiom as _OWED_SQL in
+            # routers/clients.py. GREATEST is the Postgres spelling and breaks
+            # SQLite, so it is not the answer either.
             db.execute(
-                "UPDATE projects SET actual_cost = MAX(0, actual_cost - ?) WHERE id = ?",
-                (row["amount"], row["project_id"]),
+                "UPDATE projects SET actual_cost = "
+                " CASE WHEN actual_cost - ? > 0 THEN actual_cost - ? ELSE 0 END "
+                "WHERE id = ?",
+                (row["amount"], row["amount"], row["project_id"]),
             )
 
         db.execute(
@@ -624,9 +632,12 @@ def update_expense(
 
     # Reverse old project actual_cost contribution
     if old_project_id:
+        # Portable floor-at-zero — see the note on the void path above.
         db.execute(
-            "UPDATE projects SET actual_cost = MAX(0, actual_cost - ?) WHERE id = ?",
-            (old_amount, old_project_id),
+            "UPDATE projects SET actual_cost = "
+            " CASE WHEN actual_cost - ? > 0 THEN actual_cost - ? ELSE 0 END "
+            "WHERE id = ?",
+            (old_amount, old_amount, old_project_id),
         )
 
     # Apply new project actual_cost contribution
