@@ -111,15 +111,16 @@ describe.each([
 
   it('label text on the primary accent clears 4.5:1', () => {
     // Everything that fills with --accent and carries a label: the primary
-    // button, the active sidebar row, the user avatar. All three had a
-    // hardcoded `color: #FFFFFF`, which is right in light and wrong in dark —
-    // the dark theme lifts --accent to a pale lavender so it stays visible on
-    // the slate ground, and white on that is 2.42:1. They now use --text-inv,
-    // which is what this asserts.
+    // button, the active sidebar row, the user avatar, the quotation
+    // convert-to-invoice button. The accent is a brand colour and it moves
+    // between themes, so a hardcoded white label is a bug waiting for the next
+    // palette change — when a pale inverse accent was tried here it measured
+    // 1.25:1 and those buttons were white on white. They use --accent-ink.
     const accent = value('--accent');
-    const label = value('--text-inv');
+    const label = value('--accent-ink');
+    expect(label, `--accent-ink is not defined in the ${name} theme`).toBeTruthy();
     const ratio = contrast(label, accent);
-    expect(ratio, `${name}: --text-inv (${label}) on --accent (${accent}) = ${ratio.toFixed(2)}:1`)
+    expect(ratio, `${name}: --accent-ink (${label}) on --accent (${accent}) = ${ratio.toFixed(2)}:1`)
       .toBeGreaterThanOrEqual(4.5);
   });
 
@@ -184,6 +185,29 @@ describe.each([
       .toBeGreaterThanOrEqual(4.5);
   });
 });
+
+describe.each([['light', LIGHT], ['dark', DARK]])(
+  '%s primary fill is a control, not a lamp', (name, tokens) => {
+    const value = (t) => tokens[t] || LIGHT[t];
+
+    it('does not glare against the page', () => {
+      // A pale inverse accent was tried here and reverted. It measured 14.73:1
+      // against the page — brighter than the body text — and this app puts an
+      // accent-filled control on every table row, so the screen filled with
+      // bright blocks. Readable in theory; unusable in practice.
+      const ratio = contrast(value('--accent'), value('--bg'));
+      expect(ratio, `${name}: --accent (${value('--accent')}) on --bg = ${ratio.toFixed(2)}:1`)
+        .toBeLessThanOrEqual(9);
+    });
+
+    it('is still clearly a filled control against the page', () => {
+      // The other side of the same coin: too close to the ground and the
+      // button stops looking like a button.
+      const ratio = contrast(value('--accent'), value('--bg'));
+      expect(ratio, `${name}: --accent on --bg = ${ratio.toFixed(2)}:1`)
+        .toBeGreaterThanOrEqual(3);
+    });
+  });
 
 describe('badge rules pair a tint with its ink', () => {
   // The token values passing is only half of it: the RULES have to use them.

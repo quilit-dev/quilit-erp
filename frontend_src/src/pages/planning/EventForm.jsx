@@ -164,7 +164,7 @@ function EventForm({ initial, defaultDate, currentUserId, onSave, onClose, onDel
             {form.attendees.length > 0 && (
               <span style={{
                 fontSize: 10, fontWeight: 700, letterSpacing: '.3px',
-                background: 'var(--accent)', color: '#fff',
+                background: 'var(--accent)', color: 'var(--accent-ink)',
                 padding: '1px 7px', borderRadius: 999,
               }}>{form.attendees.length}</span>
             )}

@@ -23,10 +23,13 @@ AA.
 1. **Quiet geometry.** 3–7px radii and no routine drop shadow. Depth is a
    1px border and a tonal step between surfaces. Only things that genuinely
    float — menus, dialogs, the command palette — carry a shadow.
-2. **Inverse primary, used once per screen.** The primary control is an
-   inverse fill: dark-on-light in the light theme, light-on-dark in the
-   dark one. It is deliberately not a brand hue, so it never competes with
-   the semantic colours and never reads as a status.
+2. **Brand plum for the primary control, semantic colour for status.** The
+   plum is the identity; green/amber/red mean something. Never mix them.
+   A pale inverse fill was tried here, copied from the reference, and
+   reverted: the reference has ONE primary action on screen, this ERP has
+   one per table row, and a near-white fill at 14.73:1 against the ground
+   turned every list into a wall of bright blocks. A filled control should
+   sit around 3-6:1 against the page — clearly a control, never a lamp.
 3. **Warm neutral density.** Surfaces sit a single tonal step off the
    ground. Rows are dense and aligned; the eye should travel down a column
    of figures without furniture in the way.
@@ -64,8 +67,8 @@ AA.
 | `--ink` / `--text` | `#211D1A` | Body text — 16.06:1 on a panel |
 | `--text-2` | `#5E5650` | Secondary text — 6.90:1 |
 | `--text-3` | `#655C55` | Muted text / labels — 6.27:1 |
-| `--accent` | `#211B18` | **Inverse primary** — white label at 17.01:1 |
-| `--accent-2` | `#3A302B` | Inverse hover |
+| `--accent` | `#714B67` | **Brand plum** — white label at 7.23:1 |
+| `--accent-2` | `#5C3D54` | Plum hover |
 | `--affirm` | `#147A48` | Positive / paid / balanced |
 | `--caution` | `#A35C18` | Warning / pending |
 | `--negate` | `#A63834` | Overdue / error / critical |
@@ -83,16 +86,20 @@ AA.
 | `--ink` / `--text` | `#F2EEE9` | Body text — 14.73:1 on a panel |
 | `--text-2` | `#B1A8A1` | Secondary text — 7.28:1 |
 | `--text-3` | `#988C85` | Muted text — 5.20:1 |
-| `--accent` | `#E9E5E0` | **Inverse primary** — dark label at 14.73:1 |
+| `--accent` | `#8B5E7E` | **Brand plum, lifted** — white label at 5.25:1, and 3.52:1 against the ground |
 | `--affirm` | `#35A36B` | Positive / paid / balanced |
 | `--caution` | `#D28B45` | Warning / pending |
 | `--negate` | `#C9605A` | Overdue / error / critical |
 | `--info` | `#6E91B8` | Informational status |
 
-A control filled with `--accent` must take its label from `--text-inv`, never
-a literal white. The dark theme's accent is pale, so a hardcoded `#FFFFFF`
-label measures 2.42:1 — that was a real defect on the primary button, the
-active sidebar row and the user avatar until it was fixed.
+A control filled with `--accent` takes its label from `--accent-ink`; one
+filled with `--affirm` / `--caution` / `--negate` takes `--text-inv`. Two
+tokens, because the accent and the semantic fills sit at different lightnesses
+and one value cannot serve both. Never a literal white: the accent moves
+between themes and the label has to move with it. When a pale accent was
+briefly in place, five inline-styled controls kept a hardcoded `#fff` and
+rendered white on white at 1.25:1 — the convert-to-invoice button on every
+quotation row was invisible.
 
 ### Typography
 
@@ -197,7 +204,7 @@ Signature touches:
 
 | Variant | When |
 |---|---|
-| `.btn .btn-primary` | The single most important action on a screen (inverse fill, label from `--text-inv`) |
+| `.btn .btn-primary` | The single most important action on a screen (plum fill, label from `--accent-ink`) |
 | `.btn .btn-secondary` | Default action with chrome (white + hairline) |
 | `.btn .btn-ghost` | Tertiary, blends into the surface |
 | `.btn .btn-outline` | Accent-bordered, transparent fill |
@@ -213,7 +220,7 @@ engineered feel.
 Soft rounded pills, sentence-case Inter — friendlier than the editorial
 stamps the previous direction used. 4px radius. Six built-in colour
 modifiers: `.badge-gray .badge-blue .badge-green .badge-yellow .badge-red
-.badge-purple` (a legacy alias; it now resolves to the inverse accent).
+.badge-purple` (a legacy alias; it resolves to the plum accent).
 
 ### Tabs (`.tabs` + `.tab-btn.active`)
 
@@ -244,7 +251,7 @@ the `icon` prop only when category-specific empties call for it.
 - Items grouped into **workflow directories**: `SALES`, `DELIVERY`,
   `OPERATIONS`, `FINANCE`, `PEOPLE`. Section labels are clean uppercase
   Inter eyebrows — no monospace, no glyph prefix.
-- **Active item is a solid inverse fill** with `--text-inv` text + 600 weight. No
+- **Active item is a solid plum fill** with `--accent-ink` text + 600 weight. No
   rail. (This is the biggest visual change from the previous direction
   and the strongest Odoo nod in the system.)
 - Hover: light `surface-2` tint.
@@ -270,7 +277,7 @@ Every page that renders figures should:
 ## What to NOT do
 
 - ❌ Don't add gradient backgrounds (purple → pink, blue → cyan, etc.).
-- ❌ Don't introduce a new accent colour. The inverse accent is the single
+- ❌ Don't introduce a new accent colour. The plum is the single
    chromatic move; semantics appear only when meaning requires them.
 - ❌ Don't put emoji inside coloured-circle backgrounds on KPI tiles.
 - ❌ Don't add heavy `box-shadow` to interactive elements at rest. Hover
@@ -296,7 +303,7 @@ Every page that renders figures should:
 
 1. **CSS variables cascade** — every `var(--accent)`, `var(--surface)`,
    `var(--border)` reference in inline styles updates with the new tokens
-   (inverse primary, warm neutral surface, near-square radii).
+   (plum primary, warm neutral surface, near-square radii).
 2. **Base class definitions changed** — `.btn`, `.card`, `.table-wrap`,
    `.modal`, `.form-control`, `.tabs`, `.badge`, `.stat-card`, `.sidebar`,
    `.nav-link` all carry the new geometry without JSX changes.
@@ -311,7 +318,7 @@ When you do touch a page, the polish list:
       hover elevation on cards already.
 - [ ] Replace emoji-on-coloured-bubble icons with thin marks or none.
 - [ ] If an old "active item indicator" used a left-rail style, swap to
-      the solid inverse fill pattern.
+      the solid plum fill pattern.
 
 That's the system. Read it once, internalise the principles, and the rest
 of the surface area takes care of itself.

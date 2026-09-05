@@ -99,7 +99,7 @@ function StepRow({ step, index, roles, total, onUpdate, onRemove, onMove }) {
     <div style={{ display: 'flex', gap: 8, alignItems: 'center', marginBottom: 6 }}>
       <span style={{
         width: 24, height: 24, borderRadius: '50%',
-        background: 'var(--accent)', color: '#fff',
+        background: 'var(--accent)', color: 'var(--accent-ink)',
         fontSize: 11, fontWeight: 700, display: 'flex', alignItems: 'center', justifyContent: 'center',
         flexShrink: 0,
       }}>

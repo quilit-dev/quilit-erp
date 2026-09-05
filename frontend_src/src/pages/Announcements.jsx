@@ -137,7 +137,7 @@ export default function Announcements() {
         <button className={`tab-btn${tab === 'inbox' ? ' active' : ''}`} onClick={() => setTab('inbox')}>
           {t('announcements.inbox')} {kpis.unread > 0 && (
             <span style={{ marginInlineStart: 6, fontSize: 10, fontWeight: 700,
-                            background: 'var(--accent)', color: '#fff', padding: '1px 6px', borderRadius: 999 }}>
+                            background: 'var(--accent)', color: 'var(--accent-ink)', padding: '1px 6px', borderRadius: 999 }}>
               {kpis.unread}
             </span>
           )}

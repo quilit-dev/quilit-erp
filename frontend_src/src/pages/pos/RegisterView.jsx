@@ -341,7 +341,7 @@ function RegisterView({ session, amending, onCancelAmend, onClose, onSold }) {
                   <button key={cur} type="button"
                     onClick={() => setPosDisplay(cur === 'USD' ? 'USD' : 'LBP')}
                     style={{ border: 'none', cursor: 'pointer', padding: '6px 12px', fontSize: 13, fontWeight: 700,
-                      background: on ? 'var(--accent)' : 'transparent', color: on ? '#fff' : 'var(--text-2)' }}>
+                      background: on ? 'var(--accent)' : 'transparent', color: on ? 'var(--accent-ink)' : 'var(--text-2)' }}>
                     {cur}
                   </button>
                 );

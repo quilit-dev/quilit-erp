@@ -654,7 +654,7 @@ export default function Quotations() {
                           {q.invoice_count === 0 && !isVoided && (
                             <button
                               className="btn btn-sm btn-secondary"
-                              style={{ background:'var(--accent)', color:'#fff', whiteSpace:'nowrap' }}
+                              style={{ background:'var(--accent)', color:'var(--accent-ink)', whiteSpace:'nowrap' }}
                               onClick={() => setConvertInvoiceId(q)}
                             >
                               {t('quotations.toInvoice')}
