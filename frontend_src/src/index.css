@@ -734,6 +734,14 @@ html[lang="ar"], html[lang="ar"] body {
   background: var(--bg);
 }
 
+/* A grid item's automatic minimum size is `auto`, not zero: the `1fr` track
+   above will not shrink below the min-content width of what is inside it. One
+   wide table therefore sizes the entire column and the PAGE scrolls sideways,
+   which it must never do — the table is what should scroll.
+   This was previously fixed only inside `@media (max-width: 900px)`, but the
+   grid is the same at every width and so was the bug. */
+.main-content { min-width: 0; }
+
 /* ── Sidebar ── A thin directory column with no fills. Sections labeled
    in monospace brackets; active items get a 2px left accent rail. */
 .sidebar {
@@ -1402,7 +1410,12 @@ html[lang="ar"], html[lang="ar"] body {
 .table-wrap {
   border: 1px solid var(--rule);
   border-radius: var(--r);
-  overflow: hidden;
+  /* Horizontal: scroll, so a table with more columns than fit stays fully
+     reachable. Vertical: hidden, which is what clips the rounded corners.
+     Plain `overflow: hidden` did both and silently cut off the last columns
+     once .main-content was allowed to shrink. */
+  overflow-x: auto;
+  overflow-y: hidden;
   background: var(--surface);
 }
 
@@ -4084,13 +4097,9 @@ textarea.form-control {
  * Presentation only — no markup changes — so every page benefits at once.
  * ────────────────────────────────────────────────────────────────────────── */
 @media (max-width: 900px) {
-  /* The single-column layout grid gives .main-content a `1fr` track whose
-     default `min-width: auto` lets it grow to its content's min-content width —
-     so one wide table or chart would stretch the whole page and create a
-     horizontal scroll. Pinning min-width:0 keeps the column at viewport width
-     and pushes the overflow down to the elements that handle it (tables scroll
-     inside their card, grids reflow). */
-  .main-content { min-width: 0; }
+  /* .main-content { min-width: 0 } now lives in the base rules — the grid
+     behaves identically at every width, and having it in two places invited
+     exactly the drift where desktop kept the bug. */
 
   /* Safe-area (notch / home indicator) — relies on viewport-fit=cover. */
   .topbar { padding-inline: max(12px, env(safe-area-inset-left)) max(12px, env(safe-area-inset-right)); }
