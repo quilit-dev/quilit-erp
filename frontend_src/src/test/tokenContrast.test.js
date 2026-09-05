@@ -123,20 +123,83 @@ describe.each([
       .toBeGreaterThanOrEqual(4.5);
   });
 
+  it.each(['--affirm', '--caution', '--negate'])(
+    'a label on a %s fill clears 4.5:1', (fill) => {
+      // .btn-success, .btn-warning and .btn-danger. With a hardcoded white
+      // label these measured 3.18, 2.79 and 3.96 in the dark theme — every
+      // semantic action button in the app was below AA.
+      const bg = value(fill);
+      const label = value('--text-inv');
+      const ratio = contrast(label, bg);
+      expect(ratio, `${name}: --text-inv (${label}) on ${fill} (${bg}) = ${ratio.toFixed(2)}:1`)
+        .toBeGreaterThanOrEqual(4.5);
+    });
+
   it('no accent-filled surface still hardcodes white', () => {
     // The rule above only holds while these use the token. A literal #FFFFFF
     // creeping back would pass every other test in this file and quietly
     // reintroduce a 2.42:1 button.
-    for (const selector of ['.btn-primary', '.nav-link.active', '.sidebar-avatar']) {
+    for (const selector of ['.btn-primary', '.nav-link.active', '.sidebar-avatar',
+                            '.btn-success', '.btn-warning', '.btn-danger']) {
       const start = css.indexOf(selector + ' {');
       expect(start, `${selector} not found in index.css`).toBeGreaterThan(-1);
       const rule = css.slice(start, css.indexOf('\n}', start));
-      if (/background:\s*var\(--accent\)/.test(rule)) {
-        expect(rule, `${selector} fills with --accent but hardcodes its text colour`)
+      if (/background:\s*var\(--(accent|affirm|caution|negate)\)/.test(rule)) {
+        expect(rule, `${selector} fills with a token but hardcodes its text colour`)
           .not.toMatch(/color:\s*#(FFF|FFFFFF)\b/i);
       }
     }
   });
+});
+
+describe.each([
+  ['light', LIGHT, 0.10],
+  ['dark', DARK, 0.16],
+])('%s badges are legible on their own tint', (name, tokens, alpha) => {
+  // A badge is semantic-coloured text on a wash of the same colour. The base
+  // token is tuned for a MARK on the panel; on its own tint it loses contrast,
+  // which is why --*-ink exists. Four of the eight pairs failed before it did.
+  const value = (t) => tokens[t] || LIGHT[t];
+
+  const rgb = (hex) => {
+    const h = hex.replace('#', '');
+    return [0, 2, 4].map((i) => parseInt(h.slice(i, i + 2), 16));
+  };
+  // The tint is an alpha wash, so the effective background is the blend.
+  const over = (fg, a, bg) => {
+    const f = rgb(fg);
+    const b = rgb(bg);
+    return '#' + [0, 1, 2]
+      .map((i) => Math.round(f[i] * a + b[i] * (1 - a)).toString(16).padStart(2, '0'))
+      .join('');
+  };
+
+  it.each(['affirm', 'caution', 'negate', 'info'])('%s-ink on its tint clears 4.5:1', (sem) => {
+    const base = value(`--${sem}`);
+    const ink = value(`--${sem}-ink`);
+    expect(ink, `--${sem}-ink is not defined in the ${name} theme`).toBeTruthy();
+    const tint = over(base, alpha, value('--surface'));
+    const ratio = contrast(ink, tint);
+    expect(ratio, `${name}: --${sem}-ink (${ink}) on --${sem}-tint (~${tint}) = ${ratio.toFixed(2)}:1`)
+      .toBeGreaterThanOrEqual(4.5);
+  });
+});
+
+describe('badge rules pair a tint with its ink', () => {
+  // The token values passing is only half of it: the RULES have to use them.
+  // Pairing --affirm-tint with --affirm (rather than --affirm-ink) is the
+  // exact regression the ink tokens exist to prevent, and it would pass every
+  // value-level assertion above.
+  it.each(['blue:info', 'green:affirm', 'yellow:caution', 'red:negate'])(
+    '.badge-%s uses the ink token', (pair) => {
+      const [name, sem] = pair.split(':');
+      const m = css.match(new RegExp(`\\.badge-${name}\\s*\\{[^}]*\\}`));
+      expect(m, `.badge-${name} not found in index.css`).toBeTruthy();
+      const rule = m[0];
+      expect(rule).toContain(`var(--${sem}-tint)`);
+      expect(rule, `.badge-${name} pairs its tint with the base colour, not --${sem}-ink`)
+        .toContain(`var(--${sem}-ink)`);
+    });
 });
 
 describe('printing is protected from the screen theme', () => {

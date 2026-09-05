@@ -733,10 +733,10 @@ export default function Invoices() {
               {amountsLocked && (
                 <div style={{
                   display:'flex', alignItems:'center', gap:10, padding:'10px 14px',
-                  background:'#fef3c7', border:'1px solid #f59e0b', borderRadius:8, marginBottom:14,
+                  background:'var(--caution-tint)', border:'1px solid var(--caution)', borderRadius:8, marginBottom:14,
                 }}>
                   <span style={{ fontSize:16 }}>🔒</span>
-                  <span style={{ fontSize:13, color:'#92400e', fontWeight:500 }}>
+                  <span style={{ fontSize:13, color:'var(--caution-ink)', fontWeight:500 }}>
                     {t('invoices.amountsLocked')}
                   </span>
                 </div>
@@ -916,7 +916,7 @@ export default function Invoices() {
                       <span style={{textAlign:'right'}}>{t('common.total')}</span>
                     </div>
                     {payModal.items.map((item, i) => (
-                      <div key={i} style={{ padding:'7px 12px', borderTop:'1px solid var(--border)', fontSize:13, display:'grid', gridTemplateColumns:'1fr 70px 90px 80px', gap:8, background: i % 2 === 0 ? 'transparent' : 'var(--surface-2,#f9fafb)' }}>
+                      <div key={i} style={{ padding:'7px 12px', borderTop:'1px solid var(--border)', fontSize:13, display:'grid', gridTemplateColumns:'1fr 70px 90px 80px', gap:8, background: i % 2 === 0 ? 'transparent' : 'var(--surface-2,var(--surface-2))' }}>
                         <span>{item.name}</span>
                         <span style={{textAlign:'right',color:'var(--text-2)'}}>{item.quantity}</span>
                         <span style={{textAlign:'right',color:'var(--text-2)'}}>${Number(item.unit_price).toFixed(2)}</span>
@@ -1105,10 +1105,10 @@ export default function Invoices() {
           <div className="modal-body">
             <div style={{
               display:'flex', gap:10, padding:'12px 14px',
-              background:'#fef3c7', border:'1px solid #f59e0b', borderRadius:8, marginBottom:16,
+              background:'var(--caution-tint)', border:'1px solid var(--caution)', borderRadius:8, marginBottom:16,
             }}>
               <span style={{ fontSize:18 }}>⚠️</span>
-              <span style={{ fontSize:13, color:'#78350f' }}>
+              <span style={{ fontSize:13, color:'var(--caution-ink)' }}>
                 {t('invoices.voidWarning')}
               </span>
             </div>

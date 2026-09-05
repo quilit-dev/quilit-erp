@@ -20,11 +20,11 @@ function Money({ value }) {
 const OUTPUT_TYPES = ['finished', 'semi_finished'];
 
 const ORDER_STATUS = {
-  Draft:         { bg: '#F3F4F6', color: '#6B7280' },
-  Confirmed:     { bg: '#EFF6FF', color: '#2563EB' },
-  'In Progress': { bg: '#FFFBEB', color: '#D97706' },
-  Completed:     { bg: '#ECFDF5', color: '#059669' },
-  Cancelled:     { bg: '#FEF2F2', color: '#DC2626' },
+  Draft:         { bg: 'var(--surface-2)', color: 'var(--text-3)' },
+  Confirmed:     { bg: 'var(--info-tint)', color: 'var(--info-ink)' },
+  'In Progress': { bg: 'var(--caution-tint)', color: 'var(--caution)' },
+  Completed:     { bg: 'var(--affirm-tint)', color: 'var(--affirm)' },
+  Cancelled:     { bg: 'var(--negate-tint)', color: 'var(--negate)' },
 };
 
 function StatusPill({ status }) {

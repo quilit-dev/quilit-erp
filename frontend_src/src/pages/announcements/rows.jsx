@@ -94,7 +94,7 @@ function AnnouncementRow({ a, onOpen, t }) {
             marginInlineStart: pendingAck ? 0 : 'auto',
             display: 'inline-flex', alignItems: 'center', gap: 4,
             padding: '2px 8px', borderRadius: 999,
-            background: 'rgba(16,185,129,.10)', color: '#059669',
+            background: 'rgba(16,185,129,.10)', color: 'var(--affirm)',
             fontSize: 10.5, fontWeight: 700, letterSpacing: '.3px', textTransform: 'uppercase',
           }}>✓ {t('announcements.acknowledged')}</span>
         )}
@@ -142,7 +142,7 @@ function SentRow({ a, onOpen, t }) {
         {ackPct !== null && (
           <>
             <span>·</span>
-            <span><strong style={{ color: ackPct === 100 ? '#059669' : '#ea580c' }}>{ackPct}%</strong>{' '}
+            <span><strong style={{ color: ackPct === 100 ? 'var(--affirm)' : '#ea580c' }}>{ackPct}%</strong>{' '}
               {t('announcements.acknowledged')}</span>
           </>
         )}

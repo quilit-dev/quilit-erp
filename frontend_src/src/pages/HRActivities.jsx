@@ -13,11 +13,11 @@ import {
 
 const TYPES = ['Call', 'Meeting', 'Interview', 'Email', 'Note', 'Task'];
 const TYPE_COLOR = {
-  Call:      '#0ea5e9',
-  Meeting:   '#4f8ef7',
-  Interview: '#10b981',
-  Email:     '#f59e0b',
-  Note:      '#6b7280',
+  Call:      'var(--info)',
+  Meeting:   'var(--info)',
+  Interview: 'var(--affirm)',
+  Email:     'var(--caution)',
+  Note:      'var(--text-3)',
   Task:      '#8b5cf6',
 };
 // Formal line-icon names from the shared Icon set (no decorative emoji).
@@ -110,10 +110,10 @@ function SummaryCards({ summary, active, onSelect }) {
   const { t } = useLocale();
   if (!summary) return null;
   const cards = [
-    { key: 'today',    label: t('hrActivities.cardToday'),    value: summary.today,       accent: '#4f8ef7' },
-    { key: 'upcoming', label: t('hrActivities.cardUpcoming'), value: summary.upcoming_14, accent: '#10b981' },
-    { key: 'overdue',  label: t('hrActivities.cardOverdue'),  value: summary.overdue,     accent: '#ef4444' },
-    { key: 'done',     label: t('hrActivities.cardDone7d'),   value: summary.done_7d,     accent: '#6b7280' },
+    { key: 'today',    label: t('hrActivities.cardToday'),    value: summary.today,       accent: 'var(--info)' },
+    { key: 'upcoming', label: t('hrActivities.cardUpcoming'), value: summary.upcoming_14, accent: 'var(--affirm)' },
+    { key: 'overdue',  label: t('hrActivities.cardOverdue'),  value: summary.overdue,     accent: 'var(--negate)' },
+    { key: 'done',     label: t('hrActivities.cardDone7d'),   value: summary.done_7d,     accent: 'var(--text-3)' },
   ];
   return (
     <div style={{ display: 'grid', gridTemplateColumns: 'repeat(4, 1fr)', gap: 12, marginBottom: 16 }}>
@@ -308,7 +308,7 @@ function ActivityForm({ initial, applicants, employees, onSave, onClose }) {
 
 function ActivityRow({ activity, scope, onEdit, onComplete, onArchive }) {
   const { t, lang } = useLocale();
-  const color = TYPE_COLOR[activity.activity_type] || '#6b7280';
+  const color = TYPE_COLOR[activity.activity_type] || 'var(--text-3)';
   const linked = activity.applicant_name
     ? { kind: t('hrActivities.applicantLabel'), name: activity.applicant_name }
     : activity.employee_name
@@ -342,10 +342,10 @@ function ActivityRow({ activity, scope, onEdit, onComplete, onArchive }) {
           </span>
           <Pill color={color}>{t(`hrActivities.type_${activity.activity_type.toLowerCase()}`)}</Pill>
           {isOverdue && (
-            <Pill color="#ef4444">{t('hrActivities.overdue')}</Pill>
+            <Pill color="var(--negate)">{t('hrActivities.overdue')}</Pill>
           )}
           {isDone && (
-            <Pill color="#10b981">{t('hrActivities.done')}</Pill>
+            <Pill color="var(--affirm)">{t('hrActivities.done')}</Pill>
           )}
         </div>
 
@@ -354,7 +354,7 @@ function ActivityRow({ activity, scope, onEdit, onComplete, onArchive }) {
             <Icon name="calendar" size={12} style={{ verticalAlign: '-2px', marginInlineEnd: 4 }} />
             {formatWhen(activity.scheduled_at, lang)}
             {!isDone && (
-              <span style={{ marginInlineStart: 6, color: isOverdue ? '#ef4444' : 'var(--text-3)' }}>
+              <span style={{ marginInlineStart: 6, color: isOverdue ? 'var(--negate)' : 'var(--text-3)' }}>
                 ({relativeFromNow(activity.scheduled_at, t)})
               </span>
             )}
@@ -374,7 +374,7 @@ function ActivityRow({ activity, scope, onEdit, onComplete, onArchive }) {
         )}
         {isDone && activity.completed_notes && (
           <div style={{ fontSize: 12, color: 'var(--text-2)', marginTop: 6, lineHeight: 1.4, fontStyle: 'italic' }}>
-            <Icon name="check-circle" size={12} style={{ verticalAlign: '-2px', marginInlineEnd: 4, color: '#10b981' }} />
+            <Icon name="check-circle" size={12} style={{ verticalAlign: '-2px', marginInlineEnd: 4, color: 'var(--affirm)' }} />
             {activity.completed_notes}
           </div>
         )}

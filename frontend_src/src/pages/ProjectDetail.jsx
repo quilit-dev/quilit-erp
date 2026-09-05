@@ -599,8 +599,8 @@ export default function ProjectDetail() {
                     </div>
                     {qty > 0 && (
                       <div style={{
-                        background: 'var(--blue-light, #eff6ff)', border: '1px solid var(--blue, #3b82f6)',
-                        borderRadius: 8, padding: '10px 14px', fontSize: 13, color: 'var(--blue-dark, #1d4ed8)'
+                        background: 'var(--blue-light, var(--info-tint))', border: '1px solid var(--blue, var(--info))',
+                        borderRadius: 8, padding: '10px 14px', fontSize: 13, color: 'var(--blue-dark, var(--info-ink))'
                       }}>
                         <strong>{t('projects.costTransferred')}</strong> {qty} × {fmt(sel?.unit_cost)} = <strong>{fmt(cost)}</strong>
                         <div style={{ marginTop: 4, color: 'var(--text-3)', fontSize: 11 }}>
@@ -707,7 +707,7 @@ export default function ProjectDetail() {
                             <span style={{
                               display: 'inline-flex', alignItems: 'center', padding: '2px 7px',
                               borderRadius: 20, fontSize: 11, fontWeight: 600,
-                              background: '#F3F4F6', color: '#6B7280',
+                              background: 'var(--surface-2)', color: 'var(--text-3)',
                             }}>{t('expenses.voidedLabel')}</span>
                           )}
                         </div>

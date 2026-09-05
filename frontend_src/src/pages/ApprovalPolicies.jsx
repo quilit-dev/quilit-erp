@@ -13,10 +13,10 @@ import {
 // ── Constants ─────────────────────────────────────────────────────────────────
 
 const MODULE_COLORS = {
-  expense:     { bg: '#fef3c7', color: '#b45309' },
-  purchase:    { bg: '#dcfce7', color: '#16a34a' },
+  expense:     { bg: 'var(--caution-tint)', color: 'var(--caution-ink)' },
+  purchase:    { bg: 'var(--affirm-tint)', color: 'var(--affirm)' },
   project:     { bg: '#fce7f3', color: '#be185d' },
-  quotation:   { bg: '#dbeafe', color: '#1d4ed8' },
+  quotation:   { bg: 'var(--info-tint)', color: 'var(--info-ink)' },
   invoice:     { bg: '#e0f2fe', color: '#0369a1' },
   fixed_asset: { bg: '#ede9fe', color: '#6d28d9' },
 };

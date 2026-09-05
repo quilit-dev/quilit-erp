@@ -109,10 +109,10 @@ function ChartPicker({ t, canEdit, onInstalled }) {
                 {/* The tenant has posted. Say exactly what that means before
                     asking them to type anything. */}
                 <div style={{ display: 'flex', gap: 10, padding: '12px 14px',
-                              background: '#fef3c7', border: '1px solid #f59e0b',
+                              background: 'var(--caution-tint)', border: '1px solid var(--caution)',
                               borderRadius: 8, margin: '12px 0' }}>
                   <span style={{ fontSize: 18 }}>⚠️</span>
-                  <span style={{ fontSize: 13, color: '#78350f' }}>
+                  <span style={{ fontSize: 13, color: 'var(--caution-ink)' }}>
                     {t('chart.alreadyPosted', { count: lb.posted_lines })}
                   </span>
                 </div>
@@ -170,8 +170,8 @@ function ChartPicker({ t, canEdit, onInstalled }) {
                     somebody goes and does a cutover first. */}
                 {purge.kept_count > 0 && (
                   <div style={{ marginTop: 12, padding: '10px 12px',
-                                background: '#fef3c7', border: '1px solid #f59e0b',
-                                borderRadius: 8, fontSize: 12.5, color: '#78350f' }}>
+                                background: 'var(--caution-tint)', border: '1px solid var(--caution)',
+                                borderRadius: 8, fontSize: 12.5, color: 'var(--caution-ink)' }}>
                     <div style={{ fontWeight: 700, marginBottom: 4 }}>
                       {t('chart.purgeKept', { count: purge.kept_count })}
                     </div>

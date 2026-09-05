@@ -25,7 +25,7 @@ function PipelineReport({ params, t }) {
   if (!data)   return null;
 
   const STATUS_COLORS = {
-    Draft: '#9CA3AF', Sent: '#2E86C1', Accepted: '#27AE60',
+    Draft: 'var(--text-3)', Sent: '#2E86C1', Accepted: '#27AE60',
     Rejected: '#C0392B', Invoiced: '#8E44AD',
   };
 

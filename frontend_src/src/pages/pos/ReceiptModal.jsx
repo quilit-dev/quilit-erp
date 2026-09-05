@@ -118,7 +118,7 @@ function ReceiptModal({ sale, onClose }) {
       <div className="modal-body" style={{ background: 'var(--bg)' }}>
         <div className="pos-receipt" style={{
           width: RECEIPT_WIDTH, margin: '0 auto',
-          background: '#fff', color: '#111',
+          background: 'var(--doc-paper)', color: 'var(--doc-ink)',
           fontFamily: MONO, fontSize: 12, lineHeight: 1.45,
           padding: '14px 16px',
           border: '1px solid var(--border)',
@@ -131,15 +131,15 @@ function ReceiptModal({ sale, onClose }) {
               {(co.company_name || 'My Company').toUpperCase()}
             </div>
             {(co.company_address || co.company_city) && (
-              <div style={{ fontSize: 10.5, color: '#555' }}>
+              <div style={{ fontSize: 10.5, color: 'var(--doc-ink-2)' }}>
                 {[co.company_address, co.company_city, co.company_country].filter(Boolean).join(', ')}
               </div>
             )}
             {co.company_phone && (
-              <div style={{ fontSize: 10.5, color: '#555' }}>Tel: {co.company_phone}</div>
+              <div style={{ fontSize: 10.5, color: 'var(--doc-ink-2)' }}>Tel: {co.company_phone}</div>
             )}
             {co.company_tax_number && (
-              <div style={{ fontSize: 10.5, color: '#555' }}>VAT #: {co.company_tax_number}</div>
+              <div style={{ fontSize: 10.5, color: 'var(--doc-ink-2)' }}>VAT #: {co.company_tax_number}</div>
             )}
           </div>
 
@@ -152,7 +152,7 @@ function ReceiptModal({ sale, onClose }) {
           {/* Items */}
           <Divider />
           {items.length === 0 ? (
-            <div style={{ textAlign: 'center', fontSize: 11, color: '#888', padding: '6px 0' }}>
+            <div style={{ textAlign: 'center', fontSize: 11, color: 'var(--doc-ink-3)', padding: '6px 0' }}>
               {t('pos.noItems') || 'No items'}
             </div>
           ) : items.map((it, i) => {
@@ -161,18 +161,18 @@ function ReceiptModal({ sale, onClose }) {
             const lineTotal = qty * price - (Number(it.discount) || 0);
             return (
               <div key={i} style={{ marginBottom: 4 }}>
-                <div style={{ fontWeight: 600, color: '#111' }}>
+                <div style={{ fontWeight: 600, color: 'var(--doc-ink)' }}>
                   {it.name || t('pos.customLineName')}
                 </div>
                 <div style={{
                   display: 'flex', justifyContent: 'space-between',
-                  fontSize: 11, color: '#444',
+                  fontSize: 11, color: 'var(--doc-ink-2)',
                 }}>
                   <span>{qty} × {price.toFixed(2)}</span>
                   <span>{lineTotal.toFixed(2)}</span>
                 </div>
                 {(Number(it.discount) || 0) > 0 && (
-                  <div style={{ fontSize: 10, color: '#15803d', textAlign: 'end' }}>
+                  <div style={{ fontSize: 10, color: 'var(--doc-affirm)', textAlign: 'end' }}>
                     {t('pos.lineDiscount') || 'Disc'}: −{Number(it.discount).toFixed(2)}
                   </div>
                 )}
@@ -210,7 +210,7 @@ function ReceiptModal({ sale, onClose }) {
                 <Row label={t('installments.deposit')} value={fmt(sale.paid_now)} />
               )}
               <Row label={t('pos.balanceOwed')} value={fmt(sale.balance)} bold />
-              <div style={{ fontSize: 10, color: '#555', marginTop: 6, marginBottom: 2 }}>
+              <div style={{ fontSize: 10, color: 'var(--doc-ink-2)', marginTop: 6, marginBottom: 2 }}>
                 {t('installments.title')}
               </div>
               {schedule.map(i => (
@@ -221,11 +221,11 @@ function ReceiptModal({ sale, onClose }) {
 
           {/* Footer */}
           <Divider />
-          <div style={{ textAlign: 'center', fontSize: 10.5, color: '#555', lineHeight: 1.5 }}>
+          <div style={{ textAlign: 'center', fontSize: 10.5, color: 'var(--doc-ink-2)', lineHeight: 1.5 }}>
             {co.footer_text || 'Thank you for your business!'}
           </div>
           {showTax && (
-            <div style={{ textAlign: 'center', fontSize: 9, color: '#888', marginTop: 3 }}>
+            <div style={{ textAlign: 'center', fontSize: 9, color: 'var(--doc-ink-3)', marginTop: 3 }}>
               {t('pos.taxIncluded')}
             </div>
           )}
@@ -252,12 +252,12 @@ function ReceiptModal({ sale, onClose }) {
 // Small inline helpers so the receipt JSX above stays scannable.
 
 function Divider() {
-  return <div style={{ borderTop: '1px dashed #999', margin: '6px 0' }} />;
+  return <div style={{ borderTop: '1px dashed var(--doc-rule)', margin: '6px 0' }} />;
 }
 function DividerDouble() {
   return (
     <div style={{
-      borderTop: '1px solid #000', borderBottom: '1px solid #000',
+      borderTop: '1px solid var(--doc-rule-strong)', borderBottom: '1px solid var(--doc-rule-strong)',
       height: 3, margin: '5px 0',
     }} />
   );
@@ -266,7 +266,7 @@ function Row({ label, value, bold, hint, size = 12 }) {
   return (
     <div style={{
       display: 'flex', justifyContent: 'space-between',
-      fontSize: size, color: hint ? '#15803d' : '#111',
+      fontSize: size, color: hint ? 'var(--doc-affirm)' : 'var(--doc-ink)',
       fontWeight: bold ? 700 : 400,
       padding: '1px 0',
     }}>

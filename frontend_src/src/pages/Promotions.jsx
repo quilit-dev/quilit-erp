@@ -10,11 +10,11 @@ import { useLocale } from '../hooks/useLocale.jsx';
 import SearchSelect from '../components/SearchSelect.jsx';
 
 const STATUS_COLOR = {
-  live:      { bg: '#ECFDF5', color: '#059669' },
-  scheduled: { bg: '#EFF6FF', color: '#2563EB' },
-  expired:   { bg: '#F3F4F6', color: '#6B7280' },
-  used_up:   { bg: '#FEF3C7', color: '#B45309' },
-  paused:    { bg: '#F3F4F6', color: '#6B7280' },
+  live:      { bg: 'var(--affirm-tint)', color: 'var(--affirm)' },
+  scheduled: { bg: 'var(--info-tint)', color: 'var(--info-ink)' },
+  expired:   { bg: 'var(--surface-2)', color: 'var(--text-3)' },
+  used_up:   { bg: 'var(--caution-tint)', color: 'var(--caution-ink)' },
+  paused:    { bg: 'var(--surface-2)', color: 'var(--text-3)' },
 };
 
 const EMPTY = {

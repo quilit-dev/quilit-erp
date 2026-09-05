@@ -62,9 +62,9 @@ function MonthDrillModal({ month, label, data, loading, onClose }) {
             <>
               <div style={{ display: 'grid', gridTemplateColumns: 'repeat(3, 1fr)', gap: 10, marginBottom: 20 }}>
                 {[
-                  { label: t('finance.income'), value: incomeTotal, color: '#059669' },
-                  { label: t('finance.expenses'), value: expenseTotal, color: '#DC2626' },
-                  { label: t('finance.netProfit'), value: profit, color: profit >= 0 ? '#1B4F72' : '#DC2626' },
+                  { label: t('finance.income'), value: incomeTotal, color: 'var(--affirm)' },
+                  { label: t('finance.expenses'), value: expenseTotal, color: 'var(--negate)' },
+                  { label: t('finance.netProfit'), value: profit, color: profit >= 0 ? '#1B4F72' : 'var(--negate)' },
                 ].map(({ label, value, color }) => (
                   <div key={label} style={{
                     background: 'var(--surface-2)', borderRadius: 10, padding: '12px 16px',
@@ -79,7 +79,7 @@ function MonthDrillModal({ month, label, data, loading, onClose }) {
               {/* Income section */}
               <div style={{ marginBottom: 20 }}>
                 <div style={{ fontWeight: 700, fontSize: 14, marginBottom: 10, display: 'flex', alignItems: 'center', gap: 8 }}>
-                  <span style={{ width: 8, height: 8, borderRadius: '50%', background: '#059669', display: 'inline-block' }} />
+                  <span style={{ width: 8, height: 8, borderRadius: '50%', background: 'var(--affirm)', display: 'inline-block' }} />
                   {t('finance.income')} — {money(incomeTotal)}
                 </div>
                 {Object.keys(incomeByProject).length === 0 ? (
@@ -88,9 +88,9 @@ function MonthDrillModal({ month, label, data, loading, onClose }) {
                     .sort((a, b) => b[1].total - a[1].total)
                     .map(([proj, { records, total }]) => (
                       <div key={proj} style={{ marginBottom: 10, border: '1px solid var(--border)', borderRadius: 8, overflow: 'hidden' }}>
-                        <div style={{ background: '#F0FDF4', padding: '8px 14px', display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
-                          <span style={{ fontWeight: 600, fontSize: 13, color: '#065F46' }}>{proj}</span>
-                          <span style={{ fontWeight: 700, color: '#059669' }}>{money(total)}</span>
+                        <div style={{ background: 'var(--affirm-tint)', padding: '8px 14px', display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+                          <span style={{ fontWeight: 600, fontSize: 13, color: 'var(--affirm-ink)' }}>{proj}</span>
+                          <span style={{ fontWeight: 700, color: 'var(--affirm)' }}>{money(total)}</span>
                         </div>
                         <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: 12 }}>
                           <tbody>
@@ -100,7 +100,7 @@ function MonthDrillModal({ month, label, data, loading, onClose }) {
                                 <td style={{ padding: '7px 8px', fontWeight: 500 }}>{r.invoice_number}</td>
                                 <td style={{ padding: '7px 8px', color: 'var(--text-2)' }}>{r.client_name || '—'}</td>
                                 <td style={{ padding: '7px 8px', color: 'var(--text-3)', fontSize: 11 }}>{r.method}</td>
-                                <td style={{ padding: '7px 14px', textAlign: 'right', fontWeight: 600, color: '#059669' }}>{money(r.amount)}</td>
+                                <td style={{ padding: '7px 14px', textAlign: 'right', fontWeight: 600, color: 'var(--affirm)' }}>{money(r.amount)}</td>
                               </tr>
                             ))}
                           </tbody>
@@ -113,7 +113,7 @@ function MonthDrillModal({ month, label, data, loading, onClose }) {
               {/* Expenses section */}
               <div>
                 <div style={{ fontWeight: 700, fontSize: 14, marginBottom: 10, display: 'flex', alignItems: 'center', gap: 8 }}>
-                  <span style={{ width: 8, height: 8, borderRadius: '50%', background: '#DC2626', display: 'inline-block' }} />
+                  <span style={{ width: 8, height: 8, borderRadius: '50%', background: 'var(--negate)', display: 'inline-block' }} />
                   {t('finance.expenses')} — {money(expenseTotal)}
                 </div>
                 {Object.keys(expByProject).length === 0 ? (
@@ -123,9 +123,9 @@ function MonthDrillModal({ month, label, data, loading, onClose }) {
                     .sort((a, b) => b[1].total - a[1].total)
                     .map(([proj, { records, total }]) => (
                       <div key={proj} style={{ marginBottom: 10, border: '1px solid var(--border)', borderRadius: 8, overflow: 'hidden' }}>
-                        <div style={{ background: '#FFF5F5', padding: '8px 14px', display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
-                          <span style={{ fontWeight: 600, fontSize: 13, color: '#991B1B' }}>{proj}</span>
-                          <span style={{ fontWeight: 700, color: '#DC2626' }}>{money(total)}</span>
+                        <div style={{ background: 'var(--negate-tint)', padding: '8px 14px', display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+                          <span style={{ fontWeight: 600, fontSize: 13, color: 'var(--negate-ink)' }}>{proj}</span>
+                          <span style={{ fontWeight: 700, color: 'var(--negate)' }}>{money(total)}</span>
                         </div>
                         <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: 12 }}>
                           <tbody>
@@ -134,9 +134,9 @@ function MonthDrillModal({ month, label, data, loading, onClose }) {
                                 <td style={{ padding: '7px 14px', color: 'var(--text-3)' }}>{r.date?.slice(0, 10)}</td>
                                 <td style={{ padding: '7px 8px', color: 'var(--text-2)' }}>{r.description || '—'}</td>
                                 <td style={{ padding: '7px 8px' }}>
-                                  <span style={{ fontSize: 10.5, background: '#EFF6FF', color: '#1D4ED8', borderRadius: 4, padding: '2px 6px', fontWeight: 600 }}>{r.category}</span>
+                                  <span style={{ fontSize: 10.5, background: 'var(--info-tint)', color: 'var(--info-ink)', borderRadius: 4, padding: '2px 6px', fontWeight: 600 }}>{r.category}</span>
                                 </td>
-                                <td style={{ padding: '7px 14px', textAlign: 'right', fontWeight: 600, color: '#DC2626' }}>{money(r.amount)}</td>
+                                <td style={{ padding: '7px 14px', textAlign: 'right', fontWeight: 600, color: 'var(--negate)' }}>{money(r.amount)}</td>
                               </tr>
                             ))}
                           </tbody>
@@ -214,12 +214,12 @@ function ReconciliationModal({ onClose }) {
   }, []);
 
   const ISSUE_COLORS = {
-    vat_mismatch:      { bg: '#FEF3C7', text: '#92400E', icon: 'alert-triangle', label: 'VAT Mismatch' },
-    overpayment:       { bg: '#FEE2E2', text: '#991B1B', icon: 'banknote', label: 'Overpayment' },
-    orphaned_payment:  { bg: '#FEE2E2', text: '#991B1B', icon: 'link', label: 'Orphaned Payment' },
-    future_expense:    { bg: '#EFF6FF', text: '#1D4ED8', icon: 'calendar', label: 'Future-Dated Expense' },
-    unreversed_void:   { bg: '#FEE2E2', text: '#991B1B', icon: 'rotate-ccw', label: 'Unreversed Void' },
-    gl_unbalanced:     { bg: '#FEE2E2', text: '#991B1B', icon: 'scale', label: 'Ledger Out of Balance' },
+    vat_mismatch:      { bg: 'var(--caution-tint)', text: 'var(--caution-ink)', icon: 'alert-triangle', label: 'VAT Mismatch' },
+    overpayment:       { bg: 'var(--negate-tint)', text: 'var(--negate-ink)', icon: 'banknote', label: 'Overpayment' },
+    orphaned_payment:  { bg: 'var(--negate-tint)', text: 'var(--negate-ink)', icon: 'link', label: 'Orphaned Payment' },
+    future_expense:    { bg: 'var(--info-tint)', text: 'var(--info-ink)', icon: 'calendar', label: 'Future-Dated Expense' },
+    unreversed_void:   { bg: 'var(--negate-tint)', text: 'var(--negate-ink)', icon: 'rotate-ccw', label: 'Unreversed Void' },
+    gl_unbalanced:     { bg: 'var(--negate-tint)', text: 'var(--negate-ink)', icon: 'scale', label: 'Ledger Out of Balance' },
   };
 
   // Migrated to the shared modal shell — same scroll-lock + sticky-header
@@ -254,9 +254,9 @@ function ReconciliationModal({ onClose }) {
               <div style={{ display: 'grid', gridTemplateColumns: 'repeat(4,1fr)', gap: 10, marginBottom: 20 }}>
                 {[
                   { label: t('finance.totalInvoiced'), value: money(data.summary?.total_invoiced || 0), color: '#1B4F72' },
-                  { label: t('finance.collected'), value: money(data.summary?.total_collected || 0), color: '#059669' },
-                  { label: t('finance.outstanding'), value: money(data.summary?.outstanding || 0), color: '#D97706' },
-                  { label: t('finance.totalExpenses'), value: money(data.summary?.total_expenses || 0), color: '#DC2626' },
+                  { label: t('finance.collected'), value: money(data.summary?.total_collected || 0), color: 'var(--affirm)' },
+                  { label: t('finance.outstanding'), value: money(data.summary?.outstanding || 0), color: 'var(--caution)' },
+                  { label: t('finance.totalExpenses'), value: money(data.summary?.total_expenses || 0), color: 'var(--negate)' },
                 ].map(({ label, value, color }) => (
                   <div key={label} style={{ background: 'var(--surface-2)', borderRadius: 10, padding: '12px 14px', border: '1px solid var(--border)', textAlign: 'center' }}>
                     <div style={{ fontSize: 10.5, color: 'var(--text-3)', fontWeight: 600, textTransform: 'uppercase', letterSpacing: '.4px', marginBottom: 4 }}>{label}</div>
@@ -266,10 +266,10 @@ function ReconciliationModal({ onClose }) {
               </div>
 
               {/* Status banner */}
-              <div style={{ padding: '12px 16px', borderRadius: 10, marginBottom: 16, display: 'flex', alignItems: 'center', gap: 10, background: data.clean ? '#F0FDF4' : '#FFF5F5', border: `1px solid ${data.clean ? '#BBF7D0' : '#FCA5A5'}` }}>
-                <span style={{ display: 'inline-flex', color: data.clean ? '#059669' : '#991B1B' }}><Icon name={data.clean ? 'check-circle' : 'alert-triangle'} size={22} /></span>
+              <div style={{ padding: '12px 16px', borderRadius: 10, marginBottom: 16, display: 'flex', alignItems: 'center', gap: 10, background: data.clean ? 'var(--affirm-tint)' : 'var(--negate-tint)', border: `1px solid ${data.clean ? '#BBF7D0' : '#FCA5A5'}` }}>
+                <span style={{ display: 'inline-flex', color: data.clean ? 'var(--affirm)' : 'var(--negate-ink)' }}><Icon name={data.clean ? 'check-circle' : 'alert-triangle'} size={22} /></span>
                 <div>
-                  <div style={{ fontWeight: 700, color: data.clean ? '#065F46' : '#991B1B', fontSize: 14 }}>
+                  <div style={{ fontWeight: 700, color: data.clean ? 'var(--affirm-ink)' : 'var(--negate-ink)', fontSize: 14 }}>
                     {data.clean ? t('finance.booksClean') : t('finance.issuesDetected', { count: data.issue_count })}
                   </div>
                   {!data.clean && <div style={{ fontSize: 12, color: 'var(--text-3)', marginTop: 1 }}>{t('finance.reviewItems')}</div>}
@@ -278,9 +278,9 @@ function ReconciliationModal({ onClose }) {
 
               {/* Issues list */}
               {(data.issues || []).map((issue, i) => {
-                const style = ISSUE_COLORS[issue.type] || { bg: '#F3F4F6', text: '#374151', icon: 'zap', label: issue.type };
+                const style = ISSUE_COLORS[issue.type] || { bg: 'var(--surface-2)', text: 'var(--text-2)', icon: 'zap', label: issue.type };
                 return (
-                  <div key={i} style={{ background: 'var(--surface)', border: '1px solid var(--border)', borderLeft: `4px solid ${style.text === '#991B1B' ? '#DC2626' : style.text === '#92400E' ? '#D97706' : '#3B82F6'}`, borderRadius: 10, padding: '12px 16px', marginBottom: 8 }}>
+                  <div key={i} style={{ background: 'var(--surface)', border: '1px solid var(--border)', borderLeft: `4px solid ${style.text === 'var(--negate-ink)' ? 'var(--negate)' : style.text === 'var(--caution-ink)' ? 'var(--caution)' : 'var(--info)'}`, borderRadius: 10, padding: '12px 16px', marginBottom: 8 }}>
                     <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginBottom: 4 }}>
                       <span style={{ display: 'inline-flex', color: style.text }}><Icon name={style.icon} size={16} /></span>
                       <span style={{ fontSize: 11, fontWeight: 700, background: style.bg, color: style.text, borderRadius: 4, padding: '1px 6px' }}>{reconLabel(issue, t, style.label)}</span>

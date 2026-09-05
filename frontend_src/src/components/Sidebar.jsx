@@ -259,7 +259,7 @@ export default function Sidebar() {
                   display: 'inline-flex', alignItems: 'center', justifyContent: 'center',
                   minWidth: 18, height: 18, padding: '0 6px',
                   borderRadius: 999,
-                  background: 'var(--red, #ef4444)', color: '#fff',
+                  background: 'var(--red, var(--negate))', color: '#fff',
                   fontSize: 10, fontWeight: 700, letterSpacing: '.2px',
                   marginInlineStart: 'auto',
                 }}>

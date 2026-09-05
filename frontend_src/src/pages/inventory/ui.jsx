@@ -5,9 +5,9 @@ import { useLocale } from '../../hooks/useLocale.jsx';
 export const UNITS = ['pcs', 'kg', 'g', 'l', 'ml', 'm', 'm²', 'm³', 'box', 'roll', 'set', 'pair'];
 export const PRODUCT_TYPES = ['raw_material', 'semi_finished', 'finished', 'consumable'];
 export const PRODUCT_TYPE_COLORS = {
-  raw_material:  { bg: '#EFF6FF', color: '#2563EB' },
-  semi_finished: { bg: '#FFFBEB', color: '#D97706' },
-  finished:      { bg: '#ECFDF5', color: '#059669' },
+  raw_material:  { bg: 'var(--info-tint)', color: 'var(--info-ink)' },
+  semi_finished: { bg: 'var(--caution-tint)', color: 'var(--caution)' },
+  finished:      { bg: 'var(--affirm-tint)', color: 'var(--affirm)' },
   consumable:    { bg: '#F5F3FF', color: '#7C3AED' },
 };
 
@@ -22,7 +22,7 @@ export function CategoryBadge({ category }) {
 export function ProductTypeBadge({ type }) {
   const { t, tCategory } = useLocale();
   if (!type) return <span style={{ color: 'var(--text-3)' }}>—</span>;
-  const s = PRODUCT_TYPE_COLORS[type] || { bg: '#F3F4F6', color: '#6B7280' };
+  const s = PRODUCT_TYPE_COLORS[type] || { bg: 'var(--surface-2)', color: 'var(--text-3)' };
   return (
     <span style={{
       display: 'inline-flex', padding: '2px 8px', borderRadius: 20,

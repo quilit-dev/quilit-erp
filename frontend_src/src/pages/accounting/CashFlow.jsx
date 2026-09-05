@@ -9,7 +9,7 @@ import { StatementExport } from './StatementExport';
 function CashFlowSection({ title, rows, total, totalLabel, fmt, tAccount }) {
   return (
     <>
-      <tr style={{ background: 'var(--surface-2, #f9fafb)' }}>
+      <tr style={{ background: 'var(--surface-2, var(--surface-2))' }}>
         <td colSpan={2} style={{ fontWeight: 700 }}>{title}</td>
       </tr>
       {rows.map(r => (

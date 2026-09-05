@@ -142,7 +142,7 @@ function DetailModal({ id, onClose, onChanged }) {
             <div style={{
               width: 36, height: 36, borderRadius: 50, display: 'flex',
               alignItems: 'center', justifyContent: 'center',
-              background: ann.acknowledged_at ? '#059669' : '#ea580c', color: '#fff',
+              background: ann.acknowledged_at ? 'var(--affirm)' : '#ea580c', color: '#fff',
             }}>
               {ann.acknowledged_at
                 ? <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="3" strokeLinecap="round" strokeLinejoin="round"><polyline points="20 6 9 17 4 12"/></svg>
@@ -192,13 +192,13 @@ function DetailModal({ id, onClose, onChanged }) {
                   </span>
                   <span style={{ fontSize: 10.5, fontWeight: 700, letterSpacing: '.3px',
                                   textTransform: 'uppercase',
-                                  color: r.read_at ? '#059669' : 'var(--text-3)' }}>
+                                  color: r.read_at ? 'var(--affirm)' : 'var(--text-3)' }}>
                     {r.read_at ? '✓ ' + t('announcements.read') : t('announcements.unread')}
                   </span>
                   {ann.requires_ack && (
                     <span style={{ fontSize: 10.5, fontWeight: 700, letterSpacing: '.3px',
                                     textTransform: 'uppercase',
-                                    color: r.acknowledged_at ? '#2563eb' : 'var(--text-3)' }}>
+                                    color: r.acknowledged_at ? 'var(--info-ink)' : 'var(--text-3)' }}>
                       {r.acknowledged_at ? '✓ ' + t('announcements.acknowledged') : t('announcements.pendingAck')}
                     </span>
                   )}
@@ -271,7 +271,7 @@ function DetailModal({ id, onClose, onChanged }) {
       <div className="modal-footer">
         {canArchive && (
           <button className="btn btn-outline btn-sm"
-                  style={{ color: 'var(--red, #dc2626)', borderColor: 'var(--red, #dc2626)' }}
+                  style={{ color: 'var(--red, var(--negate))', borderColor: 'var(--red, var(--negate))' }}
                   onClick={() => setConfirmArchive(true)}>
             {t('announcements.archive')}
           </button>

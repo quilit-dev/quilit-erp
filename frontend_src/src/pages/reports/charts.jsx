@@ -76,8 +76,8 @@ function useContainerWidth(fallback = 600) {
 }
 
 const CHART_COLORS = [
-  '#1B4F72', '#27AE60', '#E67E22', '#8E44AD', '#C0392B',
-  '#16A085', '#F39C12', '#2C3E50', '#2E86C1', '#7F8C8D',
+  'var(--chart-1)', 'var(--chart-2)', 'var(--chart-3)', 'var(--chart-5)', 'var(--chart-4)',
+  'var(--chart-2)', 'var(--chart-3)', 'var(--chart-6)', 'var(--chart-1)', 'var(--chart-6)',
 ];
 
 // ── Tooltip ───────────────────────────────────────────────────────────────
@@ -92,7 +92,7 @@ function ChartTooltip({ children, anchorX, anchorY, svgWidth, visible }) {
       style={{ overflow: 'visible', pointerEvents: 'none' }}
     >
       <div style={{
-        background: 'rgba(17,24,39,0.94)', color: '#fff',
+        background: 'var(--chart-tip-bg)', color: 'var(--chart-halo)',
         borderRadius: 8, padding: '7px 11px',
         fontSize: 11.5, lineHeight: 1.65,
         boxShadow: '0 4px 20px rgba(0,0,0,0.3)',
@@ -121,7 +121,7 @@ function StatCard({ label, value, sub, color, icon }) {
 }
 
 // ── Line Chart (income vs expenses) ───────────────────────────────────────
-function LineChart({ data, label1, label2, color1 = '#1B4F72', color2 = '#DC2626', key1 = 'income', key2 = 'expenses' }) {
+function LineChart({ data, label1, label2, color1 = 'var(--chart-1)', color2 = 'var(--chart-4)', key1 = 'income', key2 = 'expenses' }) {
   const [hovered, setHovered] = useState(null);
   const [containerRef, W] = useContainerWidth(640);
 
@@ -168,20 +168,20 @@ function LineChart({ data, label1, label2, color1 = '#1B4F72', color2 = '#DC2626
           const y = PT + yScale(v);
           return (
             <g key={i}>
-              <line x1={PL} y1={y} x2={W - PR} y2={y} stroke="#E5E7EB" strokeWidth={i === 0 ? 1.5 : 1} strokeDasharray={i === 0 ? '0' : '4,4'} />
-              <text x={PL - 6} y={y + 4} textAnchor="end" fontSize="10" fill="#9CA3AF">{fmtAbbr(v)}</text>
+              <line x1={PL} y1={y} x2={W - PR} y2={y} stroke="var(--chart-grid)" strokeWidth={i === 0 ? 1.5 : 1} strokeDasharray={i === 0 ? '0' : '4,4'} />
+              <text x={PL - 6} y={y + 4} textAnchor="end" fontSize="10" fill="var(--chart-axis)">{fmtAbbr(v)}</text>
             </g>
           );
         })}
         {data.map((d, i) => showLabel(i) && (
           <text key={i} x={PL + i * xStep} y={H - 8} textAnchor="middle" fontSize="10"
-            fill={hovered === i ? color1 : '#9CA3AF'} fontWeight={hovered === i ? '700' : '400'}>
+            fill={hovered === i ? color1 : 'var(--chart-axis)'} fontWeight={hovered === i ? '700' : '400'}>
             {fmtMonth(d.month)}
           </text>
         ))}
         {hovered !== null && (
           <line x1={PL + hovered * xStep} y1={PT} x2={PL + hovered * xStep} y2={PT + iH}
-            stroke="#6B7280" strokeWidth="1" strokeDasharray="3,3" opacity="0.5" />
+            stroke="var(--chart-guide)" strokeWidth="1" strokeDasharray="3,3" opacity="0.5" />
         )}
         <g clipPath={`url(#clip_${key1})`}>
           <path d={`${toPath(pts1)} L ${pts1[pts1.length-1][0]} ${PT+iH} L ${PL} ${PT+iH} Z`} fill={`url(#lg1_${key1})`} />
@@ -196,15 +196,15 @@ function LineChart({ data, label1, label2, color1 = '#1B4F72', color2 = '#DC2626
           const zoneW = xStep || 20;
           return (
             <g key={i}>
-              <circle cx={ix} cy={iy} r={isH ? 5.5 : 3.5} fill={color1} stroke="#fff" strokeWidth="2" />
-              {key2 && <circle cx={ex} cy={ey} r={isH ? 4.5 : 3} fill={color2} stroke="#fff" strokeWidth="2" />}
+              <circle cx={ix} cy={iy} r={isH ? 5.5 : 3.5} fill={color1} stroke="var(--chart-halo)" strokeWidth="2" />
+              {key2 && <circle cx={ex} cy={ey} r={isH ? 4.5 : 3} fill={color2} stroke="var(--chart-halo)" strokeWidth="2" />}
               {isH && (
                 <ChartTooltip anchorX={ix} anchorY={Math.min(iy, ey)} svgWidth={W} visible>
                   <div style={{ fontWeight: 700, marginBottom: 2 }}>{fmtMonth(d.month)}</div>
-                  <div style={{ color: '#6EE7B7' }}>{label1}: {fmtAbbr(d[key1] || 0)}</div>
-                  {key2 && <div style={{ color: '#FCA5A5' }}>{label2}: {fmtAbbr(d[key2] || 0)}</div>}
+                  <div style={{ color: 'var(--chart-tip-pos)' }}>{label1}: {fmtAbbr(d[key1] || 0)}</div>
+                  {key2 && <div style={{ color: 'var(--chart-tip-neg)' }}>{label2}: {fmtAbbr(d[key2] || 0)}</div>}
                   {d.profit !== undefined && (
-                    <div style={{ color: (d.profit || 0) >= 0 ? '#6EE7B7' : '#FCA5A5', borderTop: '1px solid rgba(255,255,255,0.1)', marginTop: 3, paddingTop: 3, fontWeight: 700 }}>
+                    <div style={{ color: (d.profit || 0) >= 0 ? 'var(--chart-tip-pos)' : 'var(--chart-tip-neg)', borderTop: '1px solid rgba(255,255,255,0.1)', marginTop: 3, paddingTop: 3, fontWeight: 700 }}>
                       Profit: {fmtAbbr(d.profit || 0)}
                     </div>
                   )}
@@ -256,7 +256,7 @@ function HBarChart({ data, colorFn, labelKey = 'group_name', valueKey = 'total',
           const isWide = barW > barAreaW * 0.55;
           const textX = isWide ? labelW + barW - 6 : labelW + barW + 5;
           const textAnchor = isWide ? 'end' : 'start';
-          const textColor = isWide ? '#fff' : (isH ? 'var(--text)' : 'var(--text-2)');
+          const textColor = isWide ? 'var(--chart-halo)' : (isH ? 'var(--text)' : 'var(--text-2)');
           return (
             <g key={i} onMouseEnter={() => setHovered(i)} onMouseLeave={() => setHovered(null)} style={{ cursor: 'default' }}>
               <text x={labelW - 6} y={y + barH / 2 + 4} textAnchor="end" fontSize="11"
@@ -278,7 +278,7 @@ function HBarChart({ data, colorFn, labelKey = 'group_name', valueKey = 'total',
 }
 
 // ── Vertical Bar Chart ─────────────────────────────────────────────────────
-function VBarChart({ data, color = '#1B4F72', labelKey = 'month', valueKey = 'value' }) {
+function VBarChart({ data, color = 'var(--chart-1)', labelKey = 'month', valueKey = 'value' }) {
   const [hovered, setHovered] = useState(null);
   const [containerRef, W] = useContainerWidth(500);
 
@@ -303,8 +303,8 @@ function VBarChart({ data, color = '#1B4F72', labelKey = 'month', valueKey = 'va
           const y = PT + yScale(v);
           return (
             <g key={i}>
-              <line x1={PL} y1={y} x2={W - PR} y2={y} stroke="#E5E7EB" strokeWidth={i === 0 ? 1.5 : 1} strokeDasharray={i === 0 ? '0' : '4,4'} />
-              <text x={PL - 5} y={y + 4} textAnchor="end" fontSize="10" fill="#9CA3AF">{fmtAbbr(v)}</text>
+              <line x1={PL} y1={y} x2={W - PR} y2={y} stroke="var(--chart-grid)" strokeWidth={i === 0 ? 1.5 : 1} strokeDasharray={i === 0 ? '0' : '4,4'} />
+              <text x={PL - 5} y={y + 4} textAnchor="end" fontSize="10" fill="var(--chart-axis)">{fmtAbbr(v)}</text>
             </g>
           );
         })}
@@ -320,14 +320,14 @@ function VBarChart({ data, color = '#1B4F72', labelKey = 'month', valueKey = 'va
                 fill={color} rx={3} opacity={isH ? 1 : 0.78} />
               {showLabel(i) && (
                 <text x={cx} y={H - 6} textAnchor="middle" fontSize="10"
-                  fill={isH ? 'var(--text)' : '#9CA3AF'} fontWeight={isH ? '700' : '400'}>
+                  fill={isH ? 'var(--text)' : 'var(--chart-axis)'} fontWeight={isH ? '700' : '400'}>
                   {fmtMonth(lbl) || lbl.slice(0, 8)}
                 </text>
               )}
               {isH && (
                 <ChartTooltip anchorX={cx} anchorY={barY} svgWidth={W} visible>
                   <div style={{ fontWeight: 700 }}>{fmtMonth(lbl) || lbl}</div>
-                  <div style={{ color: '#6EE7B7' }}>{fmtAbbr(vals[i])}</div>
+                  <div style={{ color: 'var(--chart-tip-pos)' }}>{fmtAbbr(vals[i])}</div>
                 </ChartTooltip>
               )}
               <rect x={cx - barSlot / 2} y={PT} width={barSlot} height={iH}
@@ -407,11 +407,14 @@ function AgingBucketBar({ summary }) {
   if (grand === 0) return null;
 
   const buckets = [
-    { key: 'current', label: 'Current', color: '#27AE60' },
-    { key: '1_30',    label: '1–30d',   color: '#F39C12' },
-    { key: '31_60',   label: '31–60d',  color: '#E67E22' },
-    { key: '61_90',   label: '61–90d',  color: '#C0392B' },
-    { key: 'over_90', label: '90+d',    color: '#7B241C' },
+    // A severity RAMP, not a categorical set: each step must read as worse
+    // than the one before. The two middle buckets were briefly given the same
+    // token during the retheme, which made 1-30 and 31-60 indistinguishable.
+    { key: 'current', label: 'Current', color: 'var(--chart-2)' },
+    { key: '1_30',    label: '1–30d',   color: 'var(--caution)' },
+    { key: '31_60',   label: '31–60d',  color: 'var(--chart-3)' },
+    { key: '61_90',   label: '61–90d',  color: 'var(--chart-4)' },
+    { key: 'over_90', label: '90+d',    color: 'var(--chart-crit)' },
   ];
 
   return (

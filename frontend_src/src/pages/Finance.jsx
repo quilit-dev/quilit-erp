@@ -277,15 +277,15 @@ export default function Finance() {
                         >
                           <td className="td-primary" style={{ fontWeight: isBest ? 700 : 500 }}>
                             {fmtMonth(m.month)}
-                            {isBest && <span style={{ fontSize: 10, background: '#FEF9C3', color: '#92400E', borderRadius: 4, padding: '1px 5px', marginLeft: 6 }}>{t('finance.bestLabel')}</span>}
+                            {isBest && <span style={{ fontSize: 10, background: 'var(--caution-tint)', color: 'var(--caution-ink)', borderRadius: 4, padding: '1px 5px', marginLeft: 6 }}>{t('finance.bestLabel')}</span>}
                             <span style={{ fontSize: 10, color: 'var(--text-3)', marginLeft: 6, opacity: isH ? 1 : 0, transition: 'opacity .15s' }}>↗ details</span>
                           </td>
-                          <td style={{ textAlign: 'right', color: '#059669', fontWeight: 600 }}>{money(m.income)}</td>
-                          <td style={{ textAlign: 'right', color: '#DC2626', fontWeight: 600 }}>{money(m.expenses)}</td>
-                          <td style={{ textAlign: 'right', fontWeight: 700, color: m.profit >= 0 ? '#059669' : '#DC2626' }}>{money(m.profit)}</td>
+                          <td style={{ textAlign: 'right', color: 'var(--affirm)', fontWeight: 600 }}>{money(m.income)}</td>
+                          <td style={{ textAlign: 'right', color: 'var(--negate)', fontWeight: 600 }}>{money(m.expenses)}</td>
+                          <td style={{ textAlign: 'right', fontWeight: 700, color: m.profit >= 0 ? 'var(--affirm)' : 'var(--negate)' }}>{money(m.profit)}</td>
                           <td style={{ textAlign: 'right', color: 'var(--text-3)' }}>{mgn !== null ? `${mgn}%` : '—'}</td>
                           <td style={{ textAlign: 'right' }}>
-                            <span style={{ fontSize: 11, fontWeight: 600, borderRadius: 20, padding: '2px 8px', background: m.profit >= 0 ? '#ECFDF5' : '#FEF2F2', color: m.profit >= 0 ? '#059669' : '#DC2626' }}>
+                            <span style={{ fontSize: 11, fontWeight: 600, borderRadius: 20, padding: '2px 8px', background: m.profit >= 0 ? 'var(--affirm-tint)' : 'var(--negate-tint)', color: m.profit >= 0 ? 'var(--affirm)' : 'var(--negate)' }}>
                               {m.profit >= 0 ? t('finance.profitLabel') : t('finance.lossLabel')}
                             </span>
                           </td>
@@ -302,9 +302,9 @@ export default function Finance() {
                       <tfoot>
                         <tr style={{ background: 'var(--surface-2)' }}>
                           <td style={{ padding: '10px 16px', fontWeight: 700, fontSize: 12, color: 'var(--text-3)', textTransform: 'uppercase', letterSpacing: '.5px', borderTop: '2px solid var(--border)' }}>{t('common.total')}</td>
-                          <td style={{ padding: '10px 16px', textAlign: 'right', fontWeight: 800, color: '#059669', borderTop: '2px solid var(--border)' }}>{money(totI)}</td>
-                          <td style={{ padding: '10px 16px', textAlign: 'right', fontWeight: 800, color: '#DC2626', borderTop: '2px solid var(--border)' }}>{money(totE)}</td>
-                          <td style={{ padding: '10px 16px', textAlign: 'right', fontWeight: 800, color: totP >= 0 ? '#059669' : '#DC2626', borderTop: '2px solid var(--border)' }}>{money(totP)}</td>
+                          <td style={{ padding: '10px 16px', textAlign: 'right', fontWeight: 800, color: 'var(--affirm)', borderTop: '2px solid var(--border)' }}>{money(totI)}</td>
+                          <td style={{ padding: '10px 16px', textAlign: 'right', fontWeight: 800, color: 'var(--negate)', borderTop: '2px solid var(--border)' }}>{money(totE)}</td>
+                          <td style={{ padding: '10px 16px', textAlign: 'right', fontWeight: 800, color: totP >= 0 ? 'var(--affirm)' : 'var(--negate)', borderTop: '2px solid var(--border)' }}>{money(totP)}</td>
                           <td style={{ padding: '10px 16px', textAlign: 'right', fontWeight: 700, color: 'var(--text-3)', borderTop: '2px solid var(--border)' }}>{totM !== null ? `${totM}%` : '—'}</td>
                           <td style={{ borderTop: '2px solid var(--border)' }} />
                         </tr>
@@ -333,7 +333,7 @@ export default function Finance() {
                       borderBottom: i < summary.by_category.length - 1 ? '1px solid var(--border)' : 'none',
                       transition: 'background .15s',
                     }}
-                      onMouseEnter={e => e.currentTarget.style.background = '#F9FAFB'}
+                      onMouseEnter={e => e.currentTarget.style.background = 'var(--surface-2)'}
                       onMouseLeave={e => e.currentTarget.style.background = 'transparent'}
                     >
                       <span style={{ width: 10, height: 10, borderRadius: '50%', background: CHART_COLORS[i % CHART_COLORS.length], display: 'block' }} />

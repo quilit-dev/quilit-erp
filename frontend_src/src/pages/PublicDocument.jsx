@@ -85,7 +85,7 @@ export default function PublicDocument() {
     return (
       <Shell>
         <h1 style={{ fontSize: 19, margin: '0 0 8px' }}>This link is no longer available</h1>
-        <p style={{ color: '#6b6570', margin: 0, fontSize: 14 }}>
+        <p style={{ color: 'var(--doc-ink-2)', margin: 0, fontSize: 14 }}>
           It may have expired or been replaced. Please ask your contact to send a new one.
         </p>
       </Shell>
@@ -97,7 +97,7 @@ export default function PublicDocument() {
   // for a moment on every single visit, because the template cannot be built
   // until the logo has settled one way or the other.
   if (!doc || logo === undefined) {
-    return <Shell><p style={{ color: '#8b8590', margin: 0 }}>Loading…</p></Shell>;
+    return <Shell><p style={{ color: 'var(--doc-ink-3)', margin: 0 }}>Loading…</p></Shell>;
   }
 
   if (!html) {
@@ -106,7 +106,7 @@ export default function PublicDocument() {
         <h1 style={{ fontSize: 19, margin: '0 0 8px' }}>
           {doc.label} {doc.number}
         </h1>
-        <p style={{ color: '#6b6570', margin: 0, fontSize: 14 }}>
+        <p style={{ color: 'var(--doc-ink-2)', margin: 0, fontSize: 14 }}>
           This document could not be displayed. Please ask your contact to resend it.
         </p>
       </Shell>
@@ -114,19 +114,19 @@ export default function PublicDocument() {
   }
 
   return (
-    <div style={{ minHeight: '100vh', background: '#f3f2f4', padding: '16px 12px' }}>
+    <div style={{ minHeight: '100vh', background: 'var(--doc-ground)', padding: '16px 12px' }}>
       <div style={{ maxWidth: 900, margin: '0 auto' }}>
         <div style={{ display: 'flex', justifyContent: 'space-between',
                       alignItems: 'center', gap: 12, marginBottom: 12,
                       flexWrap: 'wrap' }}>
-          <div style={{ fontSize: 13, color: '#57515c' }}>
+          <div style={{ fontSize: 13, color: 'var(--doc-ink-2)' }}>
             {doc.label} <strong>{doc.number}</strong>
             {doc.company?.name ? ` · ${doc.company.name}` : ''}
           </div>
           {/* Print is the only action a recipient needs. "Save as PDF" lives
               inside the browser's own print dialog on every platform. */}
           <button onClick={printDoc}
-            style={{ background: '#714B67', color: '#fff', border: 0,
+            style={{ background: 'var(--doc-accent)', color: 'var(--doc-paper)', border: 0,
                      borderRadius: 8, padding: '9px 16px', fontSize: 13.5,
                      fontWeight: 600, cursor: 'pointer' }}>
             Print / Save as PDF
@@ -148,7 +148,7 @@ export default function PublicDocument() {
               e.currentTarget.style.height = '1200px';
             }
           }}
-          style={{ width: '100%', border: 0, borderRadius: 10, background: '#fff',
+          style={{ width: '100%', border: 0, borderRadius: 10, background: 'var(--doc-paper)',
                    boxShadow: '0 1px 3px rgba(0,0,0,.12)', minHeight: 600 }}
         />
       </div>
@@ -159,8 +159,8 @@ export default function PublicDocument() {
 function Shell({ children }) {
   return (
     <div style={{ minHeight: '100vh', display: 'flex', alignItems: 'center',
-                  justifyContent: 'center', background: '#f3f2f4', padding: 24 }}>
-      <div style={{ background: '#fff', borderRadius: 12, padding: '34px 30px',
+                  justifyContent: 'center', background: 'var(--doc-ground)', padding: 24 }}>
+      <div style={{ background: 'var(--doc-paper)', borderRadius: 12, padding: '34px 30px',
                     maxWidth: 460, width: '100%', textAlign: 'center',
                     boxShadow: '0 1px 3px rgba(0,0,0,.12)',
                     font: '15px/1.6 system-ui, -apple-system, "Segoe UI", Roboto, sans-serif' }}>

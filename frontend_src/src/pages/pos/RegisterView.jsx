@@ -532,7 +532,7 @@ function RegisterView({ session, amending, onCancelAmend, onClose, onSold }) {
                           {promo && (
                             <span style={{ display: 'inline-block', marginInlineStart: 6, padding: '1px 6px',
                               borderRadius: 10, fontSize: 10, fontWeight: 700,
-                              background: '#ECFDF5', color: '#059669' }}>
+                              background: 'var(--affirm-tint)', color: 'var(--affirm)' }}>
                               {promo.name} −{promo.discount_value}%
                             </span>
                           )}

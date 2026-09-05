@@ -17,10 +17,10 @@ import {
 } from '../api/client';
 
 const STATUS_STYLES = {
-  Active:               { bg: '#ECFDF5', color: '#059669' },
-  'Fully Depreciated':  { bg: '#EFF6FF', color: '#2563EB' },
-  Disposed:             { bg: '#F3F4F6', color: '#6B7280' },
-  'Pending Approval':   { bg: '#FFFBEB', color: '#D97706' },
+  Active:               { bg: 'var(--affirm-tint)', color: 'var(--affirm)' },
+  'Fully Depreciated':  { bg: 'var(--info-tint)', color: 'var(--info-ink)' },
+  Disposed:             { bg: 'var(--surface-2)', color: 'var(--text-3)' },
+  'Pending Approval':   { bg: 'var(--caution-tint)', color: 'var(--caution)' },
 };
 
 function StatusBadge({ status }) {

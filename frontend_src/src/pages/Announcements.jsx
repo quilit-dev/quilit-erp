@@ -127,9 +127,9 @@ export default function Announcements() {
         gap: 12, marginBottom: 18,
       }}>
         <StatPill label={t('announcements.kpiTotal')}     value={kpis.total} />
-        <StatPill label={t('announcements.kpiUnread')}    value={kpis.unread}   color={kpis.unread > 0 ? '#2563eb' : undefined} />
+        <StatPill label={t('announcements.kpiUnread')}    value={kpis.unread}   color={kpis.unread > 0 ? 'var(--info-ink)' : undefined} />
         <StatPill label={t('announcements.kpiPendingAck')} value={kpis.pending}  color={kpis.pending > 0 ? '#ea580c' : undefined} />
-        <StatPill label={t('announcements.kpiCritical')}  value={kpis.critical} color={kpis.critical > 0 ? '#dc2626' : undefined} />
+        <StatPill label={t('announcements.kpiCritical')}  value={kpis.critical} color={kpis.critical > 0 ? 'var(--negate)' : undefined} />
       </div>
 
       {/* Tabs */}

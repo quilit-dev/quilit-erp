@@ -74,7 +74,7 @@ function BoardView({ tasks, projects, onRefresh, onEdit }) {
                   <div style={{ fontSize: 12, fontWeight: 700, color: 'var(--text)', marginBottom: 4, lineHeight: 1.3 }}>{task.name}</div>
                   {task.project_name && (
                     <div style={{ display: 'flex', alignItems: 'center', gap: 4, marginBottom: 6 }}>
-                      <div style={{ width: 6, height: 6, borderRadius: '50%', background: task.project_color || '#4f8ef7', flexShrink: 0 }} />
+                      <div style={{ width: 6, height: 6, borderRadius: '50%', background: task.project_color || 'var(--info)', flexShrink: 0 }} />
                       <span style={{ fontSize: 10, color: 'var(--text-3)' }}>{task.project_name}</span>
                     </div>
                   )}
@@ -87,7 +87,7 @@ function BoardView({ tasks, projects, onRefresh, onEdit }) {
                       </span>
                     )}
                   </div>
-                  {task.progress > 0 && <ProgressBar value={task.progress} color={task.project_color || '#4f8ef7'} />}
+                  {task.progress > 0 && <ProgressBar value={task.progress} color={task.project_color || 'var(--info)'} />}
                 </div>
               ))}
 

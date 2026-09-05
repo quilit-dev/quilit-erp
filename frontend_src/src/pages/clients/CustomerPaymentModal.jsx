@@ -283,10 +283,10 @@ export default function CustomerPaymentModal({ client, invoices, onClose, onDone
 
           {over && (
             <div style={{ display: 'flex', gap: 10, padding: '12px 14px',
-                          background: '#fef3c7', border: '1px solid #f59e0b',
+                          background: 'var(--caution-tint)', border: '1px solid var(--caution)',
                           borderRadius: 8, marginTop: 14 }}>
               <span style={{ fontSize: 18 }}>⚠️</span>
-              <span style={{ fontSize: 13, color: '#78350f' }}>
+              <span style={{ fontSize: 13, color: 'var(--caution-ink)' }}>
                 {t('clients.overpaymentWarning', { amount: fmt(totalOwed) })}
               </span>
             </div>

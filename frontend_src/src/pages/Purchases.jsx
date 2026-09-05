@@ -173,11 +173,11 @@ function PurchaseForm({ initial = {}, inventoryItems = [], inventoryCategories =
         {isEdit && landed && (
           <div style={{
             display: 'flex', gap: 10, padding: '12px 14px',
-            background: '#fef3c7', border: '1px solid #f59e0b',
+            background: 'var(--caution-tint)', border: '1px solid var(--caution)',
             borderRadius: 8, marginBottom: 16,
           }}>
             <span style={{ fontSize: 18 }}>&#9888;&#65039;</span>
-            <span style={{ fontSize: 13, color: '#78350f' }}>
+            <span style={{ fontSize: 13, color: 'var(--caution-ink)' }}>
               {t('purchases.restateWarning')}
             </span>
           </div>
@@ -687,7 +687,7 @@ export default function Purchases() {
                     <td onClick={e => e.stopPropagation()}>
                       <div style={{ display: 'flex', gap: 6 }}>
                         {isArchived ? (
-                          <button className="btn btn-sm btn-secondary" style={{ color: '#166534', whiteSpace: 'nowrap' }}
+                          <button className="btn btn-sm btn-secondary" style={{ color: 'var(--affirm-ink)', whiteSpace: 'nowrap' }}
                             onClick={() => setRestoreTarget(p)}><svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true"><polyline points="1 4 1 10 7 10"/><path d="M3.51 15a9 9 0 1 0 2.13-9.36L1 10"/></svg>{t('common.restore')}</button>
                         ) : isVoided ? (
                           /* Cancelled. The only thing left to do with it is
@@ -897,11 +897,11 @@ export default function Purchases() {
           <div className="modal-body">
             <div style={{
               display: 'flex', gap: 10, padding: '12px 14px',
-              background: '#fef3c7', border: '1px solid #f59e0b',
+              background: 'var(--caution-tint)', border: '1px solid var(--caution)',
               borderRadius: 8, marginBottom: 16,
             }}>
               <span style={{ fontSize: 18 }}>&#9888;&#65039;</span>
-              <span style={{ fontSize: 13, color: '#78350f' }}>
+              <span style={{ fontSize: 13, color: 'var(--caution-ink)' }}>
                 {voidTarget.stock_updated
                   ? t('purchases.voidWarningStock', {
                       quantity: voidTarget.total_quantity ?? voidTarget.quantity,

@@ -10,7 +10,7 @@ import { StatementExport } from './StatementExport';
 function StatementSection({ title, rows, fmt, color, tAccount }) {
   return (
     <>
-      <tr style={{ background: 'var(--surface-2, #f9fafb)' }}>
+      <tr style={{ background: 'var(--surface-2, var(--surface-2))' }}>
         <td colSpan={2} style={{ fontWeight: 700, color: color ? `var(--${color})` : undefined }}>{title}</td>
       </tr>
       {rows.map(r => (

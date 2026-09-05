@@ -335,8 +335,8 @@ function CheckoutModal({ pricing, clients, drawers, amending = null,
         </div>
         {tenderProblem && (
           <div style={{ marginTop: 8, padding: '10px 12px', borderRadius: 8,
-                        background: '#fef3c7', border: '1px solid #f59e0b',
-                        fontSize: 13, color: '#78350f' }}>
+                        background: 'var(--caution-tint)', border: '1px solid var(--caution)',
+                        fontSize: 13, color: 'var(--caution-ink)' }}>
             {tenderProblem}
           </div>
         )}

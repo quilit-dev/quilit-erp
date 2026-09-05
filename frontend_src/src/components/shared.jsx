@@ -230,7 +230,7 @@ export function SupplierCombobox({ value, suppliers = [], onChange, required = f
       {open && filtered.length > 0 && (
         <div style={{
           position: 'absolute', top: '100%', left: 0, right: 0, zIndex: 999,
-          background: 'var(--surface-1, #fff)', border: '1px solid var(--border, #e2e8f0)',
+          background: 'var(--surface-1, #fff)', border: '1px solid var(--border, var(--rule))',
           borderRadius: 6, boxShadow: '0 4px 16px rgba(0,0,0,0.12)',
           marginTop: 2, maxHeight: 200, overflowY: 'auto',
         }}>
@@ -242,9 +242,9 @@ export function SupplierCombobox({ value, suppliers = [], onChange, required = f
             <div key={s.id}
               onMouseDown={() => { setQuery(s.name); setOpen(false); onChange(s.name); }}
               style={{ padding: '7px 10px', cursor: 'pointer', fontSize: 13,
-                borderBottom: '1px solid var(--border, #f1f5f9)', display: 'flex',
+                borderBottom: '1px solid var(--border, var(--rule))', display: 'flex',
                 justifyContent: 'space-between', alignItems: 'center' }}
-              onMouseEnter={e => e.currentTarget.style.background = 'var(--surface-2, #f8fafc)'}
+              onMouseEnter={e => e.currentTarget.style.background = 'var(--surface-2, var(--surface-2))'}
               onMouseLeave={e => e.currentTarget.style.background = 'transparent'}
             >
               <span style={{ fontWeight: 500 }}>{s.name}</span>
@@ -417,20 +417,20 @@ export function BranchField({ value, onChange, label }) {
 
 // ── Expense category badge ─────────────────────────────────────
 export const CATEGORY_COLORS = {
-  Labour:        { bg: '#EFF6FF', color: '#2563EB' },
-  Materials:     { bg: '#ECFDF5', color: '#059669' },
-  Equipment:     { bg: '#FFFBEB', color: '#D97706' },
+  Labour:        { bg: 'var(--info-tint)', color: 'var(--info-ink)' },
+  Materials:     { bg: 'var(--affirm-tint)', color: 'var(--affirm)' },
+  Equipment:     { bg: 'var(--caution-tint)', color: 'var(--caution)' },
   Transport:     { bg: '#F5F3FF', color: '#7C3AED' },
   Subcontractor: { bg: '#FFF7ED', color: '#EA580C' },
-  Permits:       { bg: '#F0FDF4', color: '#16A34A' },
+  Permits:       { bg: 'var(--affirm-tint)', color: 'var(--affirm)' },
   Purchase:      { bg: '#EEF2FF', color: '#4F46E5' },
-  Rent:          { bg: '#FEF2F2', color: '#DC2626' },
+  Rent:          { bg: 'var(--negate-tint)', color: 'var(--negate)' },
   Utilities:     { bg: '#ECFEFF', color: '#0891B2' },
   Salary:        { bg: '#FDF2F8', color: '#DB2777' },
-  Subscription:  { bg: '#F0F9FF', color: '#0284C7' },
+  Subscription:  { bg: 'var(--info-tint)', color: '#0284C7' },
   Insurance:     { bg: '#F0FDFA', color: '#0D9488' },
-  Depreciation:  { bg: '#F3F4F6', color: '#475569' },
-  Other:         { bg: '#F9FAFB', color: '#6B7280' },
+  Depreciation:  { bg: 'var(--surface-2)', color: 'var(--text-2)' },
+  Other:         { bg: 'var(--surface-2)', color: 'var(--text-3)' },
 };
 
 export function CategoryBadge({ category }) {

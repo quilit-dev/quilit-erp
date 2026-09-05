@@ -20,7 +20,7 @@ export const PRIORITY_BADGE = {
   Critical: 'red',
 };
 export const PROJECT_COLORS = [
-  '#4f8ef7', '#10b981', '#f59e0b', '#ef4444', '#8b5cf6',
+  'var(--info)', 'var(--affirm)', 'var(--caution)', 'var(--negate)', '#8b5cf6',
   '#06b6d4', '#f97316', '#ec4899', '#14b8a6', '#6366f1',
 ];
 
@@ -80,6 +80,6 @@ export function isWeekend(d) {
 }
 
 export const EVENT_COLORS = [
-  '#4f8ef7', '#10b981', '#f59e0b', '#ef4444', '#8b5cf6',
+  'var(--info)', 'var(--affirm)', 'var(--caution)', 'var(--negate)', '#8b5cf6',
   '#06b6d4', '#f97316', '#ec4899', '#14b8a6', '#6366f1',
 ];

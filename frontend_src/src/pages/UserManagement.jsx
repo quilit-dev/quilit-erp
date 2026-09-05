@@ -225,7 +225,7 @@ export default function UserManagement() {
                   <td>
                     {u.role_name ? (
                       <span style={{ display: 'inline-flex', alignItems: 'center', gap: 5 }}>
-                        <span style={{ width: 8, height: 8, borderRadius: '50%', background: u.role_color || '#6B7280', flexShrink: 0 }} />
+                        <span style={{ width: 8, height: 8, borderRadius: '50%', background: u.role_color || 'var(--text-3)', flexShrink: 0 }} />
                         <span style={{ fontSize: 12.5 }}>{tRole(u.role_name)}</span>
                       </span>
                     ) : <span style={{ color: 'var(--text-3)', fontSize: 12 }}>—</span>}

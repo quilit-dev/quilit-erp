@@ -180,7 +180,7 @@ function GanttView({ tasks, projects, milestones, onRefresh }) {
                   borderBottom: '1px solid var(--border)',
                   background: i % 2 === 0 ? 'var(--surface)' : 'var(--surface-2)',
                 }}>
-                  <div style={{ width: 8, height: 8, borderRadius: '50%', background: task.project_color || '#4f8ef7', marginRight: 8, flexShrink: 0 }} />
+                  <div style={{ width: 8, height: 8, borderRadius: '50%', background: task.project_color || 'var(--info)', marginRight: 8, flexShrink: 0 }} />
                   <div style={{ overflow: 'hidden', flex: 1 }}>
                     <div style={{ fontSize: 12, fontWeight: 600, whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis', color: 'var(--text)' }}>{task.name}</div>
                     <div style={{ fontSize: 10, color: 'var(--text-3)', whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>{task.project_name}</div>
@@ -248,7 +248,7 @@ function GanttView({ tasks, projects, milestones, onRefresh }) {
                   const e = rawE > rangeEnd   ? rangeEnd   : rawE;
                   const barLeft  = daysBetween(rangeStart, s) * dayW;
                   const barWidth = Math.max(dayW, (daysBetween(s, e) + 1) * dayW);
-                  const color = task.project_color || '#4f8ef7';
+                  const color = task.project_color || 'var(--info)';
                   const pct   = task.progress || 0;
 
                   return (

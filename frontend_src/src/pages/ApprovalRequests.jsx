@@ -14,26 +14,26 @@ import {
 // ── Display config ──────────────────────────────────────────────────────────
 
 const STATUS_CFG = {
-  pending:   { labelKey: 'statusPending',   bg: '#fef3c7', color: '#b45309' },
-  approved:  { labelKey: 'approved',        bg: '#dcfce7', color: '#16a34a' },
-  rejected:  { labelKey: 'rejected',        bg: '#fee2e2', color: '#dc2626' },
+  pending:   { labelKey: 'statusPending',   bg: 'var(--caution-tint)', color: 'var(--caution-ink)' },
+  approved:  { labelKey: 'approved',        bg: 'var(--affirm-tint)', color: 'var(--affirm)' },
+  rejected:  { labelKey: 'rejected',        bg: 'var(--negate-tint)', color: 'var(--negate)' },
   cancelled: { labelKey: 'statusCancelled', bg: 'var(--bg)', color: 'var(--text-3)' },
 };
 
 const MODULE_CFG = {
-  expense:     { color: '#b45309', bg: '#fef3c7' },
-  purchase:    { color: '#16a34a', bg: '#dcfce7' },
+  expense:     { color: 'var(--caution-ink)', bg: 'var(--caution-tint)' },
+  purchase:    { color: 'var(--affirm)', bg: 'var(--affirm-tint)' },
   project:     { color: '#be185d', bg: '#fce7f3' },
-  quotation:   { color: '#1d4ed8', bg: '#dbeafe' },
+  quotation:   { color: 'var(--info-ink)', bg: 'var(--info-tint)' },
   invoice:     { color: '#0369a1', bg: '#e0f2fe' },
   fixed_asset: { color: '#6d28d9', bg: '#ede9fe' },
 };
 
 const STEP_STATUS_CFG = {
-  pending:  { icon: '⏳', color: '#b45309' },
+  pending:  { icon: '⏳', color: 'var(--caution-ink)' },
   waiting:  { icon: '⏸',  color: 'var(--text-3)' },
-  approved: { icon: '✓',  color: '#16a34a' },
-  rejected: { icon: '✗',  color: '#dc2626' },
+  approved: { icon: '✓',  color: 'var(--affirm)' },
+  rejected: { icon: '✗',  color: 'var(--negate)' },
   skipped:  { icon: '⤼',  color: 'var(--text-3)' },
 };
 

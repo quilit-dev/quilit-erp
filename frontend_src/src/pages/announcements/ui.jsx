@@ -8,10 +8,10 @@
 export const PRIORITIES = ['low', 'medium', 'high', 'critical'];
 
 export const PRIORITY_STYLE = {
-  low:      { color: '#64748b', bg: 'rgba(100,116,139,.10)', label: 'Low' },
-  medium:   { color: '#2563eb', bg: 'rgba(37,99,235,.10)',   label: 'Medium' },
+  low:      { color: 'var(--text-2)', bg: 'rgba(100,116,139,.10)', label: 'Low' },
+  medium:   { color: 'var(--info-ink)', bg: 'rgba(37,99,235,.10)',   label: 'Medium' },
   high:     { color: '#ea580c', bg: 'rgba(234,88,12,.10)',   label: 'High' },
-  critical: { color: '#dc2626', bg: 'rgba(220,38,38,.10)',   label: 'Critical' },
+  critical: { color: 'var(--negate)', bg: 'rgba(220,38,38,.10)',   label: 'Critical' },
 };
 
 

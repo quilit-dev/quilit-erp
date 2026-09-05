@@ -314,10 +314,10 @@ function TenantManager({ t }) {
                     </button>
                     {' '}
                     {tn.status === 'active' ? (
-                      <button className="btn btn-sm btn-secondary" style={{ color: '#92400e' }}
+                      <button className="btn btn-sm btn-secondary" style={{ color: 'var(--caution-ink)' }}
                         onClick={() => setStatus(tn, 'suspend')}>⏸ {t('platform.suspend')}</button>
                     ) : (
-                      <button className="btn btn-sm btn-secondary" style={{ color: '#166534' }}
+                      <button className="btn btn-sm btn-secondary" style={{ color: 'var(--affirm-ink)' }}
                         onClick={() => setStatus(tn, 'activate')}>▶ {t('platform.activate')}</button>
                     )}
                     {' '}
@@ -452,7 +452,7 @@ function DomainManager({ slug }) {
                       </button>{' '}
                     </>
                   )}
-                  <button className="btn btn-sm btn-secondary" style={{ color: '#b91c1c' }} onClick={() => remove(d.domain)}>Remove</button>
+                  <button className="btn btn-sm btn-secondary" style={{ color: 'var(--negate-ink)' }} onClick={() => remove(d.domain)}>Remove</button>
                 </td>
               </tr>
             ))}

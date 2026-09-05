@@ -184,7 +184,7 @@ function CalendarView() {
                     {/* Event chips */}
                     <div style={{ display: 'flex', flexDirection: 'column', gap: 3 }}>
                       {dayEvts.slice(0, 3).map(ev => {
-                        const color = ev.color || '#4f8ef7';
+                        const color = ev.color || 'var(--info)';
                         const tm = !ev.all_day && ev.start_time ? ev.start_time + ' ' : '';
                         const attCount = Array.isArray(ev.attendees) ? ev.attendees.length : 0;
                         return (

@@ -177,6 +177,16 @@
   --info:             #35658E;
   --info-tint:        rgba(44, 123, 196, 0.10);
 
+  /* Badge ink: the colour to use for TEXT sitting on the matching tint.
+     The base semantic colour is tuned for a mark on the PANEL, and on its own
+     tint it loses contrast — --caution measured 4.31:1 that way in light, and
+     three of the four failed in dark. These are the tuned pair. Use
+     --affirm for a dot or a bar; use --affirm-ink for words on --affirm-tint. */
+  --affirm-ink:       #11683D;
+  --caution-ink:      #8B4E14;
+  --negate-ink:       #A63834;
+  --info-ink:         #35658E;
+
   /* Compatibility aliases — every page still references --green/--red/etc.
      We point them at the new semantic palette so the cascade stays clean. */
   --green:            var(--affirm);
@@ -325,6 +335,67 @@
   --field-radius:     10px;
 
   --disabled-opacity: 0.5;
+
+  /* ── Charts ───────────────────────────────────────────────────────────────
+     Charts used to carry their own colours as literals — cool Tailwind greys
+     and ad-hoc series hues, written per file. They did not move with the theme,
+     so a chart stayed cool-grey on a warm ground and unreadable in dark mode.
+
+     Series colours clear 3:1 against the panel they sit on, because a line
+     nobody can see is not a chart (WCAG 1.4.11 treats a meaningful graphic as
+     a non-text element). Axis labels are TEXT and clear 4.5:1. Grid and guide
+     lines are deliberately faint: they orient the eye, they do not compete
+     with the data.
+
+     The six series are ordered for maximum separation when only two or three
+     are used, which is the common case. */
+  --chart-grid:       #E4DCD3;
+  --chart-guide:      #B7AA9E;
+  --chart-axis:       #655C55;
+  --chart-halo:       #FCFAF7;   /* ring around a data point — the surface */
+  --chart-1:          #2F6D91;
+  --chart-2:          #147A48;
+  --chart-3:          #A35C18;
+  --chart-4:          #A63834;
+  --chart-5:          #6B4E8C;
+  --chart-6:          #6E625A;
+  /* The worst step of a severity ramp (an aging bucket's 90+ column). Not part
+     of the categorical six: a ramp needs ORDER, and this is the end of it. In
+     each theme it sits further from the ground than --chart-4, so "worse" always
+     reads as "louder" — darker on light, lighter on dark. */
+  --chart-crit:       #7B241C;
+
+  /* Chart tooltip. Deliberately NOT overridden in the dark block: the tooltip
+     is a dark chip in both themes, so its palette is theme-independent. Making
+     these follow the theme would turn the light-theme tooltip into dark text
+     on a dark chip. Warmed from the old cool rgba(17,24,39) to sit with the
+     graphite ground. All four clear 4.5:1 on it. */
+  --chart-tip-bg:     rgba(23, 19, 16, 0.95);
+  --chart-tip-fg:     #F2EEE9;
+  --chart-tip-muted:  #B1A8A1;
+  --chart-tip-pos:    #6FD39B;
+  --chart-tip-neg:    #E89A95;
+
+  /* ── Documents ────────────────────────────────────────────────────────────
+     Paper values, and deliberately NOT overridden in the dark block. A receipt
+     preview, a printed invoice and a customer's shared-link page are all
+     renderings of paper: they are white with dark ink whether or not the
+     operator runs the app in dark mode, and a customer opening a share link
+     has no theme of ours at all.
+
+     --doc-ink is #111 rather than #000 because a thermal head lays pure black
+     heavier than it needs to; the rules that frame a total ARE pure black,
+     which is what makes them read as rules and not as text. */
+  --doc-paper:        #FFFFFF;
+  --doc-ground:       #F3F0EC;
+  --doc-ink:          #111111;
+  --doc-ink-2:        #555555;
+  --doc-ink-3:        #888888;
+  --doc-rule:         #999999;
+  --doc-rule-strong:  #000000;
+  --doc-accent:       #211B18;
+  --doc-affirm:       #15803D;
+
 }
 
 
@@ -382,6 +453,13 @@
   --info:             #6E91B8;
   --info-tint:        rgba(95, 160, 221, 0.16);
 
+  /* Badge ink — see the light block. Lifted rather than deepened, because on a
+     dark ground the tint is darker than the panel, not lighter. */
+  --affirm-ink:       #3AB376;
+  --caution-ink:      #D28B45;
+  --negate-ink:       #F1736C;
+  --info-ink:         #79A0CA;
+
   --green:            var(--affirm);
   --green-light:      var(--affirm-tint);
   --green-glow:       rgba(79, 188, 133, 0.22);
@@ -430,6 +508,20 @@
   --success-soft:     color-mix(in oklab, var(--affirm) 20%, transparent);
   --warning-soft:     color-mix(in oklab, var(--caution) 22%, transparent);
   --danger-soft:      color-mix(in oklab, var(--negate) 20%, transparent);
+
+  /* Charts — see the light block for the reasoning. */
+  --chart-grid:       #332B27;
+  --chart-guide:      #5C4E47;
+  --chart-axis:       #988C85;
+  --chart-halo:       #211B18;
+  --chart-1:          #6E9FC4;
+  --chart-2:          #35A36B;
+  --chart-3:          #D28B45;
+  --chart-4:          #C9605A;
+  --chart-5:          #A98CC9;
+  --chart-6:          #B1A8A1;
+  --chart-crit:       #E0857C;
+
 }
 
 
@@ -1175,7 +1267,7 @@ html[lang="ar"], html[lang="ar"] body {
 
 .btn-danger {
   background: var(--negate);
-  color: #FFFFFF;
+  color: var(--text-inv);
   border-color: var(--negate);
   box-shadow: var(--field-shadow);
 }
@@ -1188,7 +1280,7 @@ html[lang="ar"], html[lang="ar"] body {
 
 .btn-success {
   background: var(--affirm);
-  color: #FFFFFF;
+  color: var(--text-inv);
   border-color: var(--affirm);
   box-shadow: var(--field-shadow);
 }
@@ -1199,7 +1291,7 @@ html[lang="ar"], html[lang="ar"] body {
 
 .btn-warning {
   background: var(--caution);
-  color: #FFFFFF;
+  color: var(--text-inv);
   border-color: var(--caution);
 }
 .btn-warning:hover:not(:disabled) {
@@ -1647,16 +1739,20 @@ textarea.form-control {
 
 .badge-gray   { background: var(--surface-3); color: var(--text-2);
                 border-color: var(--rule-strong); }
-.badge-blue   { background: var(--info-tint); color: var(--info);
+/* Badges pair a tint with its INK, not with the base semantic colour. The base
+   is tuned to be a mark on the panel; on its own tint it loses contrast —
+   measured 4.28 (affirm), 3.55 (negate) and 4.14 (info) in the dark theme.
+   tokenContrast.test.js holds the pairs. */
+.badge-blue   { background: var(--info-tint); color: var(--info-ink);
                 border-color: rgba(44, 123, 196, 0.22); }
 .badge-accent,
 .badge-purple { background: var(--accent-tint); color: var(--accent);
                 border-color: rgba(113, 75, 103, 0.24); }
-.badge-green  { background: var(--affirm-tint); color: var(--affirm);
+.badge-green  { background: var(--affirm-tint); color: var(--affirm-ink);
                 border-color: rgba(31, 163, 98, 0.22); }
-.badge-yellow { background: var(--caution-tint); color: var(--caution);
+.badge-yellow { background: var(--caution-tint); color: var(--caution-ink);
                 border-color: rgba(226, 154, 44, 0.24); }
-.badge-red    { background: var(--negate-tint); color: var(--negate);
+.badge-red    { background: var(--negate-tint); color: var(--negate-ink);
                 border-color: rgba(209, 69, 69, 0.22); }
 .badge-orange { background: var(--orange-light); color: var(--orange);
                 border-color: rgba(224, 123, 58, 0.22); }
@@ -1674,11 +1770,11 @@ textarea.form-control {
   font-size: 13.5px;
   line-height: 1.5;
 }
-.alert-red    { background: var(--negate-tint); color: var(--negate);
+.alert-red    { background: var(--negate-tint); color: var(--negate-ink);
                 border-color: rgba(142, 36, 36, 0.22); }
-.alert-green  { background: var(--affirm-tint); color: var(--affirm);
+.alert-green  { background: var(--affirm-tint); color: var(--affirm-ink);
                 border-color: rgba(31, 94, 58, 0.22); }
-.alert-yellow { background: var(--caution-tint); color: var(--caution);
+.alert-yellow { background: var(--caution-tint); color: var(--caution-ink);
                 border-color: rgba(163, 122, 44, 0.26); }
 .alert-blue   { background: var(--accent-tint); color: var(--accent);
                 border-color: rgba(31, 79, 168, 0.22); }
@@ -2490,7 +2586,9 @@ textarea.form-control {
     linear-gradient(155deg,
       var(--accent) 0%,
       var(--accent-2) 100%);
-  color: #FFFFFF;
+  /* The fill is a gradient of --accent, which is pale in dark mode; the label
+     follows it the same way every other accent-filled control does. */
+  color: var(--text-inv);
   overflow: hidden;
   isolation: isolate;
 }
@@ -2818,7 +2916,7 @@ textarea.form-control {
   width: 32px; height: 32px;
   border-radius: 50%;
   background: var(--accent);
-  color: #FFFFFF;
+  color: var(--text-inv);
   display: flex;
   align-items: center;
   justify-content: center;
@@ -2973,7 +3071,7 @@ textarea.form-control {
 }
 .pos-category-pill.active {
   background: var(--accent);
-  color: #FFFFFF;
+  color: var(--text-inv);
   border-color: var(--accent);
 }
 
@@ -3534,7 +3632,7 @@ textarea.form-control {
   font-size: 15px;
   font-weight: 700;
   letter-spacing: -0.005em;
-  color: #FFFFFF;
+  color: var(--text-inv);
   background: var(--accent);
   border: 1px solid var(--accent);
   border-radius: var(--r-sm);
@@ -3725,7 +3823,7 @@ textarea.form-control {
 }
 .cash-drawer-status.open    { background: var(--affirm-tint);  color: var(--affirm);  border-color: rgba(31, 163, 98, 0.22); }
 .cash-drawer-status.closed  { background: var(--surface-3);    color: var(--text-2);  border-color: var(--rule-strong); }
-.cash-drawer-status.idle    { background: var(--caution-tint); color: var(--caution); border-color: rgba(226, 154, 44, 0.24); }
+.cash-drawer-status.idle    { background: var(--caution-tint); color: var(--caution-ink); border-color: rgba(226, 154, 44, 0.24); }
 
 /* Card body — two stat blocks for expected USD + LBP, optional variance
  * row beneath, optional action button at the foot. */
@@ -4104,6 +4202,11 @@ textarea.form-control {
     --text-2:        #333333;
     --text-3:        #555555;
     --text-inv:      #FFFFFF;
+
+    --chart-grid:    #DDDDDD;
+    --chart-guide:   #AAAAAA;
+    --chart-axis:    #333333;
+    --chart-halo:    #FFFFFF;
   }
 
   body {

@@ -87,7 +87,7 @@ function ListView({ tasks, projects, onEdit, onArchive, onRestore, onRefresh }) 
               <tr key={task.id} className={task.archived_at ? 'row-archived' : ''}>
                 <td className="td-primary" style={{ maxWidth: 220 }}>
                   <div style={{ display: 'flex', alignItems: 'center', gap: 7 }}>
-                    <div style={{ width: 8, height: 8, borderRadius: '50%', background: task.project_color || '#4f8ef7', flexShrink: 0 }} />
+                    <div style={{ width: 8, height: 8, borderRadius: '50%', background: task.project_color || 'var(--info)', flexShrink: 0 }} />
                     <span style={{ overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{task.name}</span>
                     {task.archived_at && <Badge color="gray" style={{ flexShrink: 0 }}>{t('common.archivedBadge')}</Badge>}
                   </div>
@@ -95,7 +95,7 @@ function ListView({ tasks, projects, onEdit, onArchive, onRestore, onRefresh }) 
                 <td>
                   {task.project_name
                     ? <span style={{ display: 'flex', alignItems: 'center', gap: 5 }}>
-                        <div style={{ width: 6, height: 6, borderRadius: '50%', background: task.project_color || '#4f8ef7', flexShrink: 0 }} />
+                        <div style={{ width: 6, height: 6, borderRadius: '50%', background: task.project_color || 'var(--info)', flexShrink: 0 }} />
                         <span style={{ fontSize: 12, color: 'var(--text-2)' }}>{task.project_name}</span>
                       </span>
                     : <span style={{ color: 'var(--text-3)' }}>—</span>}
@@ -121,7 +121,7 @@ function ListView({ tasks, projects, onEdit, onArchive, onRestore, onRefresh }) 
                     <div style={{ display: 'flex', alignItems: 'center', gap: 6, cursor: 'pointer' }}
                       onClick={() => setEditingProgress(task.id)}
                       title={t('planning.clickEditProgress')}>
-                      <ProgressBar value={task.progress} color={task.project_color || '#4f8ef7'} style={{ flex: 1 }} />
+                      <ProgressBar value={task.progress} color={task.project_color || 'var(--info)'} style={{ flex: 1 }} />
                       <span style={{ fontSize: 11, color: 'var(--text-3)', minWidth: 30, textAlign: 'right', fontWeight: 600 }}>{task.progress || 0}%</span>
                     </div>
                   )}

@@ -21,10 +21,10 @@ function SummaryCards({ summary }) {
   const { t } = useLocale();
   if (!summary) return null;
   const cards = [
-    { label: t('planning.activeProjects'), value: summary.active_projects, accent: '#4f8ef7' },
+    { label: t('planning.activeProjects'), value: summary.active_projects, accent: 'var(--info)' },
     { label: t('planning.totalTasks'),     value: summary.total_tasks,     accent: '#8b5cf6' },
-    { label: t('planning.inProgress'),     value: summary.in_progress,     accent: '#f59e0b' },
-    { label: t('planning.overdueTasks'),   value: summary.overdue_tasks,   accent: '#ef4444' },
+    { label: t('planning.inProgress'),     value: summary.in_progress,     accent: 'var(--caution)' },
+    { label: t('planning.overdueTasks'),   value: summary.overdue_tasks,   accent: 'var(--negate)' },
   ];
   return (
     <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(140px, 1fr))', gap: 12, marginBottom: 20 }}>

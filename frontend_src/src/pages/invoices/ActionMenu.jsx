@@ -109,7 +109,7 @@ function ActionMenu({ inv, exporting, onEdit, onPay, onExport, onReceipt,
             <button
               disabled={isExporting || isVoided}
               onClick={() => { setOpen(false); onExport('excel'); }}
-              style={{ ...menuItemStyle, color: '#166534', opacity: (isExporting || isVoided) ? 0.4 : 1 }}
+              style={{ ...menuItemStyle, color: 'var(--affirm-ink)', opacity: (isExporting || isVoided) ? 0.4 : 1 }}
             >
               {exporting === 'excel'
                 ? <><Icon name="loader" size={14} style={SPIN} /><span>Exporting…</span></>
@@ -121,7 +121,7 @@ function ActionMenu({ inv, exporting, onEdit, onPay, onExport, onReceipt,
             <button
               disabled={isExporting || isVoided}
               onClick={() => { setOpen(false); onExport('pdf'); }}
-              style={{ ...menuItemStyle, color: '#991b1b', opacity: (isExporting || isVoided) ? 0.4 : 1 }}
+              style={{ ...menuItemStyle, color: 'var(--negate-ink)', opacity: (isExporting || isVoided) ? 0.4 : 1 }}
             >
               {exporting === 'pdf'
                 ? <><Icon name="loader" size={14} style={SPIN} /><span>Exporting…</span></>
@@ -152,7 +152,7 @@ function ActionMenu({ inv, exporting, onEdit, onPay, onExport, onReceipt,
             {isVoided ? (
               <button
                 onClick={() => { setOpen(false); onUnvoid(); }}
-                style={{ ...menuItemStyle, color: '#166534' }}
+                style={{ ...menuItemStyle, color: 'var(--affirm-ink)' }}
               >
                 <Icon name="rotate-ccw" size={14} />
                 <span>{t('invoices.unvoidInvoiceTitle')}</span>
@@ -160,7 +160,7 @@ function ActionMenu({ inv, exporting, onEdit, onPay, onExport, onReceipt,
             ) : (
               <button
                 onClick={() => { setOpen(false); onVoid(); }}
-                style={{ ...menuItemStyle, color: '#92400e' }}
+                style={{ ...menuItemStyle, color: 'var(--caution-ink)' }}
               >
                 <Icon name="ban" size={14} />
                 <span>{t('invoices.voidInvoiceTitle')}</span>
@@ -174,7 +174,7 @@ function ActionMenu({ inv, exporting, onEdit, onPay, onExport, onReceipt,
             {isArchived ? (
               <button
                 onClick={() => { setOpen(false); onRestore(); }}
-                style={{ ...menuItemStyle, color: '#166534' }}
+                style={{ ...menuItemStyle, color: 'var(--affirm-ink)' }}
               >
                 <Icon name="rotate-ccw" size={14} />
                 <span>{t('common.restore')}</span>

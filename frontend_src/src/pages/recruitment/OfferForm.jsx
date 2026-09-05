@@ -365,7 +365,7 @@ function printOfferHTML(offer, company, lebanon) {
       <tr><td class="k">End date</td><td>${esc(offer.end_date || (isPerm ? 'Indefinite' : '—'))}</td></tr>
       <tr><td class="k">Probation period</td><td>${esc(offer.probation_months)} months${offer.probation_end_date ? ` (ends ${esc(offer.probation_end_date)})` : ''}</td></tr>
     </table>
-    <p style="font-size:10pt;color:#475569;">
+    <p style="font-size:10pt;color:var(--text-2);">
       <em>Per ${esc(lebanon.labor_code_reference)} (Art. 9), the probationary
       period is capped at ${lebanon.max_probation_months} months. Either party
       may terminate the contract during this period without notice or indemnity.</em>
@@ -378,7 +378,7 @@ function printOfferHTML(offer, company, lebanon) {
       <tr><td class="k">Schedule</td><td>${esc(offer.work_schedule || '—')}</td></tr>
       <tr><td class="k">Weekly hours</td><td>${esc(offer.weekly_hours ?? '—')}</td></tr>
     </table>
-    <p style="font-size:10pt;color:#475569;">
+    <p style="font-size:10pt;color:var(--text-2);">
       <em>Article 31 of the Labor Code limits the working week to
       ${lebanon.max_weekly_hours} hours. Hours worked beyond the agreed weekly
       schedule are governed by the overtime provisions of the Labor Code.</em>
@@ -487,34 +487,34 @@ function printOfferHTML(offer, company, lebanon) {
             color: #1a1a1a; font-size: 11pt; line-height: 1.55; }
     .draft-stamp {
       position: fixed; top: 12mm; right: 14mm;
-      background: #fef3c7; color: #92400e;
-      padding: 4px 10px; border: 1px solid #f59e0b; border-radius: 3px;
+      background: var(--caution-tint); color: var(--caution-ink);
+      padding: 4px 10px; border: 1px solid var(--caution); border-radius: 3px;
       font-size: 9pt; font-weight: 700; letter-spacing: 0.5px;
     }
     .head { display: flex; justify-content: space-between; align-items: flex-start;
-            border-bottom: 2px solid #0f172a; padding-bottom: 10px; margin-bottom: 18px; }
+            border-bottom: 2px solid var(--text); padding-bottom: 10px; margin-bottom: 18px; }
     .head h1   { font-size: 20pt; margin: 0; letter-spacing: 0.5px; }
-    .head .sub { font-size: 12pt; color: #475569; margin-top: 2px;
+    .head .sub { font-size: 12pt; color: var(--text-2); margin-top: 2px;
                  letter-spacing: 0.3px; }
-    .meta  { font-size: 9pt; color: #475569; text-align: right; line-height: 1.4; }
-    .meta strong { color: #0f172a; }
+    .meta  { font-size: 9pt; color: var(--text-2); text-align: right; line-height: 1.4; }
+    .meta strong { color: var(--text); }
     h2     { font-size: 12pt; border-bottom: 1px solid #cbd5e1;
              padding-bottom: 3px; margin: 16px 0 6px; }
     table.kv { width: 100%; border-collapse: collapse; }
     table.kv td { padding: 3px 8px; vertical-align: top; font-size: 10.5pt; }
-    table.kv td.k { color: #475569; width: 30%; }
+    table.kv td.k { color: var(--text-2); width: 30%; }
     .clause { white-space: pre-wrap; font-size: 10.5pt; }
     ul     { margin: 4px 0 4px 18px; padding: 0; }
     .sig   { display: flex; justify-content: space-between; gap: 30px;
              margin-top: 50px; page-break-inside: avoid; }
     .sig .box  { width: 45%; }
     .sig .line { border-top: 1px solid #1a1a1a; margin-top: 50px;
-                 padding-top: 4px; font-size: 9pt; color: #475569; }
-    .footer-note { margin-top: 30px; font-size: 8pt; color: #94a3b8;
+                 padding-top: 4px; font-size: 9pt; color: var(--text-2); }
+    .footer-note { margin-top: 30px; font-size: 8pt; color: var(--text-3);
                    text-align: center; border-top: 1px dashed #cbd5e1;
                    padding-top: 6px; }
     .badge { display: inline-block; padding: 1px 8px; border-radius: 999px;
-             font-size: 8pt; background: #e2e8f0; color: #0f172a; }
+             font-size: 8pt; background: var(--rule); color: var(--text); }
   </style>
 </head><body>
 
@@ -524,7 +524,7 @@ function printOfferHTML(offer, company, lebanon) {
     <div>
       <h1>${esc(company.company_name || 'Employment Offer')}</h1>
       <div class="sub">EMPLOYMENT OFFER &middot; عرض عمل</div>
-      <div style="color:#475569;font-size:9pt;margin-top:6px;">
+      <div style="color:var(--text-2);font-size:9pt;margin-top:6px;">
         ${esc(company.company_address || '')}
         ${company.company_phone ? `<br>${esc(company.company_phone)}` : ''}
         ${company.company_email ? ` &middot; ${esc(company.company_email)}` : ''}

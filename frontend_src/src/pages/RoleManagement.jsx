@@ -7,15 +7,15 @@ import { useLocale } from '../hooks/useLocale.jsx';
 
 const COLORS = [
   // Neutrals
-  '#6B7280','#374151','#1F2937',
+  'var(--text-3)','var(--text-2)','var(--text)',
   // Reds / Pinks
-  '#EF4444','#DC2626','#EC4899','#DB2777',
+  'var(--negate)','var(--negate)','#EC4899','#DB2777',
   // Oranges / Yellows
-  '#F59E0B','#D97706','#F97316','#EA580C',
+  'var(--caution)','var(--caution)','#F97316','#EA580C',
   // Greens
-  '#10B981','#059669','#22C55E','#16A34A',
+  'var(--affirm)','var(--affirm)','var(--affirm)','var(--affirm)',
   // Blues
-  '#3B82F6','#2563EB','#0EA5E9','#0284C7',
+  'var(--info)','var(--info-ink)','var(--info)','#0284C7',
   // Purples / Indigos
   '#8B5CF6','#7C3AED','#6366F1','#4F46E5',
   // Teals / Cyans
@@ -65,9 +65,9 @@ function RoleCard({ role, onEdit, onPerms, onDelete }) {
       {/* Color swatch */}
       <div style={{
         width: 40, height: 40, borderRadius: 10,
-        background: role.color || '#6B7280', flexShrink: 0,
+        background: role.color || 'var(--text-3)', flexShrink: 0,
         display: 'flex', alignItems: 'center', justifyContent: 'center',
-        boxShadow: `0 2px 8px ${role.color || '#6B7280'}55`,
+        boxShadow: `0 2px 8px ${role.color || 'var(--text-3)'}55`,
       }}>
         <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="rgba(255,255,255,.85)" strokeWidth="2" strokeLinecap="round">
           <rect x="3" y="11" width="18" height="11" rx="2"/><path d="M7 11V7a5 5 0 0110 0v4"/>
@@ -97,7 +97,7 @@ function RoleCard({ role, onEdit, onPerms, onDelete }) {
           </span>
           {/* Mini permission bar */}
           <div style={{ flex: 1, maxWidth: 100, height: 4, background: 'var(--border)', borderRadius: 2 }}>
-            <div style={{ height: '100%', width: `${maxPerms > 0 ? (permCount / maxPerms) * 100 : 0}%`, background: role.color || '#6B7280', borderRadius: 2, transition: 'width .3s' }} />
+            <div style={{ height: '100%', width: `${maxPerms > 0 ? (permCount / maxPerms) * 100 : 0}%`, background: role.color || 'var(--text-3)', borderRadius: 2, transition: 'width .3s' }} />
           </div>
         </div>
       </div>
@@ -177,7 +177,7 @@ export default function RoleManagement() {
   const [error,   setError]   = useState('');
   const [modal,   setModal]   = useState(null);
   const [editRole, setEditRole] = useState(null);
-  const [form,     setForm]     = useState({ name: '', description: '', color: '#6B7280' });
+  const [form,     setForm]     = useState({ name: '', description: '', color: 'var(--text-3)' });
   const [perms,    setPerms]    = useState({});
   const [saving,   setSaving]   = useState(false);
   const [confirm,  setConfirm]  = useState(null);
@@ -192,13 +192,13 @@ export default function RoleManagement() {
   useEffect(() => { load(); }, []);
 
   function openCreate() {
-    setForm({ name: '', description: '', color: '#6B7280' });
+    setForm({ name: '', description: '', color: 'var(--text-3)' });
     setModal('create');
   }
 
   function openEdit(role) {
     setEditRole(role);
-    setForm({ name: role.name, description: role.description || '', color: role.color || '#6B7280' });
+    setForm({ name: role.name, description: role.description || '', color: role.color || 'var(--text-3)' });
     setModal('edit');
   }
 

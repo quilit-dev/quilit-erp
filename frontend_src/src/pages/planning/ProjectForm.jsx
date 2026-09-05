@@ -8,7 +8,7 @@ import SearchSelect from '../../components/SearchSelect.jsx';
 function ProjectForm({ initial, clients, srcProjects = [], onSave, onClose }) {
   const { t } = useLocale();
   const [form, setForm] = useState({
-    name: '', description: '', color: '#4f8ef7',
+    name: '', description: '', color: 'var(--info)',
     start_date: '', end_date: '', status: 'Active',
     ...(initial
       ? { ...initial, client_id: initial.client_id || '' }

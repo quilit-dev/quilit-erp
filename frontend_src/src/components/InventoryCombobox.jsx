@@ -156,15 +156,15 @@ export default function InventoryCombobox({ value, inventory = [], onChange,
         <div style={{
           position: 'absolute', top: '100%', left: 0, right: 0, zIndex: 999,
           background: 'var(--surface-1, #fff)',
-          border: '1px solid var(--border, #e2e8f0)',
+          border: '1px solid var(--border, var(--rule))',
           borderRadius: 6, boxShadow: '0 4px 16px rgba(0,0,0,0.12)',
           marginTop: 2, maxHeight: 320, overflowY: 'auto',
         }}>
           <div style={{
             padding: '4px 10px 3px',
             fontSize: 10, fontWeight: 700, letterSpacing: '0.5px',
-            textTransform: 'uppercase', color: 'var(--text-3, #94a3b8)',
-            borderBottom: '1px solid var(--border, #e2e8f0)',
+            textTransform: 'uppercase', color: 'var(--text-3, var(--text-3))',
+            borderBottom: '1px solid var(--border, var(--rule))',
           }}>
             Inventory · {ranked.length} item{ranked.length === 1 ? '' : 's'}
           </div>
@@ -180,9 +180,9 @@ export default function InventoryCombobox({ value, inventory = [], onChange,
                 justifyContent: 'space-between',
                 alignItems: 'center',
                 fontSize: 13,
-                borderBottom: '1px solid var(--border, #f1f5f9)',
+                borderBottom: '1px solid var(--border, var(--rule))',
                 transition: 'background 0.1s',
-                background: idx === cursor ? 'var(--surface-2, #f8fafc)' : 'transparent',
+                background: idx === cursor ? 'var(--surface-2, var(--surface-2))' : 'transparent',
               }}
             >
               <span style={{ color: 'var(--text-1, #1e293b)', fontWeight: 500,
@@ -197,7 +197,7 @@ export default function InventoryCombobox({ value, inventory = [], onChange,
                     : `· ${Number(item.quantity)} ${item.unit || ''}`.trim()}
                 </span>
               </span>
-              <span style={{ color: 'var(--text-3, #94a3b8)', fontSize: 11, marginLeft: 8, whiteSpace: 'nowrap' }}>
+              <span style={{ color: 'var(--text-3, var(--text-3))', fontSize: 11, marginLeft: 8, whiteSpace: 'nowrap' }}>
                 {Number(item.sale_price || 0).toFixed(2)}
                 {item.price_currency ? ` ${item.price_currency}` : ''}
                 {item.unit ? ` / ${item.unit}` : ''}

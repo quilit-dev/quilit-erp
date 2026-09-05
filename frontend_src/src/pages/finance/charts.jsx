@@ -38,8 +38,8 @@ function fmtMonth(ym) {
 }
 
 const CHART_COLORS = [
-  '#1B4F72', '#2E86C1', '#27AE60', '#E67E22', '#8E44AD',
-  '#C0392B', '#16A085', '#F39C12', '#2C3E50', '#7F8C8D',
+  'var(--chart-1)', 'var(--chart-1)', 'var(--chart-2)', 'var(--chart-3)', 'var(--chart-5)',
+  'var(--chart-4)', 'var(--chart-2)', 'var(--chart-3)', 'var(--chart-6)', 'var(--chart-6)',
 ];
 
 // ── Shared chart helpers ──────────────────────────────────────────────────
@@ -101,7 +101,7 @@ function ChartTooltip({ children, anchorX, anchorY, svgWidth, visible }) {
       style={{ overflow: 'visible', pointerEvents: 'none' }}
     >
       <div style={{
-        background: 'rgba(17,24,39,0.94)', color: '#fff',
+        background: 'var(--chart-tip-bg)', color: 'var(--chart-halo)',
         borderRadius: 8, padding: '7px 11px',
         fontSize: 11.5, lineHeight: 1.6,
         boxShadow: '0 4px 20px rgba(0,0,0,0.3)',
@@ -161,12 +161,12 @@ function FinanceLineChart({ data }) {
       >
         <defs>
           <linearGradient id="incGrad" x1="0" y1="0" x2="0" y2="1">
-            <stop offset="0%" stopColor="#1B4F72" stopOpacity="0.22" />
-            <stop offset="100%" stopColor="#1B4F72" stopOpacity="0" />
+            <stop offset="0%" stopColor="var(--chart-1)" stopOpacity="0.22" />
+            <stop offset="100%" stopColor="var(--chart-1)" stopOpacity="0" />
           </linearGradient>
           <linearGradient id="expGrad" x1="0" y1="0" x2="0" y2="1">
-            <stop offset="0%" stopColor="#DC2626" stopOpacity="0.14" />
-            <stop offset="100%" stopColor="#DC2626" stopOpacity="0" />
+            <stop offset="0%" stopColor="var(--chart-4)" stopOpacity="0.14" />
+            <stop offset="100%" stopColor="var(--chart-4)" stopOpacity="0" />
           </linearGradient>
           <clipPath id="chartClip">
             <rect x={PL} y={PT} width={iW} height={iH} />
@@ -179,9 +179,9 @@ function FinanceLineChart({ data }) {
           return (
             <g key={i}>
               <line x1={PL} y1={y} x2={W - PR} y2={y}
-                stroke="#E5E7EB" strokeWidth={i === 0 ? 1.5 : 1}
+                stroke="var(--chart-grid)" strokeWidth={i === 0 ? 1.5 : 1}
                 strokeDasharray={i === 0 ? '0' : '4,4'} />
-              <text x={PL - 6} y={y + 4} textAnchor="end" fontSize="10" fill="#9CA3AF">
+              <text x={PL - 6} y={y + 4} textAnchor="end" fontSize="10" fill="var(--chart-axis)">
                 {abbr(v)}
               </text>
             </g>
@@ -193,7 +193,7 @@ function FinanceLineChart({ data }) {
           <text key={i}
             x={PL + i * xStep} y={H - 8}
             textAnchor="middle" fontSize="10"
-            fill={hovered === i ? '#1B4F72' : '#9CA3AF'}
+            fill={hovered === i ? 'var(--chart-1)' : 'var(--chart-axis)'}
             fontWeight={hovered === i ? '700' : '400'}
           >
             {fmtMonth(d.month)}
@@ -205,7 +205,7 @@ function FinanceLineChart({ data }) {
           <line
             x1={PL + hovered * xStep} y1={PT}
             x2={PL + hovered * xStep} y2={PT + iH}
-            stroke="#6B7280" strokeWidth="1" strokeDasharray="3,3" opacity="0.5"
+            stroke="var(--chart-guide)" strokeWidth="1" strokeDasharray="3,3" opacity="0.5"
           />
         )}
 
@@ -213,8 +213,8 @@ function FinanceLineChart({ data }) {
         <g clipPath="url(#chartClip)">
           <path d={`${toPath(incPts)} L ${incPts[incPts.length-1][0]} ${PT+iH} L ${PL} ${PT+iH} Z`} fill="url(#incGrad)" />
           <path d={`${toPath(expPts)} L ${expPts[expPts.length-1][0]} ${PT+iH} L ${PL} ${PT+iH} Z`} fill="url(#expGrad)" />
-          <path d={toPath(incPts)} fill="none" stroke="#1B4F72" strokeWidth="2.5" strokeLinejoin="round" strokeLinecap="round" />
-          <path d={toPath(expPts)} fill="none" stroke="#DC2626" strokeWidth="2" strokeLinejoin="round" strokeLinecap="round" strokeDasharray="5,3" />
+          <path d={toPath(incPts)} fill="none" stroke="var(--chart-1)" strokeWidth="2.5" strokeLinejoin="round" strokeLinecap="round" />
+          <path d={toPath(expPts)} fill="none" stroke="var(--chart-4)" strokeWidth="2" strokeLinejoin="round" strokeLinecap="round" strokeDasharray="5,3" />
         </g>
 
         {/* Dots + hover zones */}
@@ -225,14 +225,14 @@ function FinanceLineChart({ data }) {
           const zoneW = xStep || 20;
           return (
             <g key={i}>
-              <circle cx={ix} cy={iy} r={isH ? 5.5 : 3.5} fill="#1B4F72" stroke="#fff" strokeWidth="2" />
-              <circle cx={ex} cy={ey} r={isH ? 4.5 : 3} fill="#DC2626" stroke="#fff" strokeWidth="2" />
+              <circle cx={ix} cy={iy} r={isH ? 5.5 : 3.5} fill="var(--chart-1)" stroke="var(--chart-halo)" strokeWidth="2" />
+              <circle cx={ex} cy={ey} r={isH ? 4.5 : 3} fill="var(--chart-4)" stroke="var(--chart-halo)" strokeWidth="2" />
               {isH && (
                 <ChartTooltip anchorX={ix} anchorY={Math.min(iy, ey)} svgWidth={W} visible>
                   <div style={{ fontWeight: 700, marginBottom: 2 }}>{fmtMonth(d.month)}</div>
-                  <div style={{ color: '#6EE7B7' }}>▲ {t('finance.income')}: {abbr(d.income)}</div>
-                  <div style={{ color: '#FCA5A5' }}>▼ {t('finance.expenses')}: {abbr(d.expenses)}</div>
-                  <div style={{ color: d.profit >= 0 ? '#6EE7B7' : '#FCA5A5', borderTop: '1px solid rgba(255,255,255,0.1)', marginTop: 3, paddingTop: 3, fontWeight: 700 }}>
+                  <div style={{ color: 'var(--chart-tip-pos)' }}>▲ {t('finance.income')}: {abbr(d.income)}</div>
+                  <div style={{ color: 'var(--chart-tip-neg)' }}>▼ {t('finance.expenses')}: {abbr(d.expenses)}</div>
+                  <div style={{ color: d.profit >= 0 ? 'var(--chart-tip-pos)' : 'var(--chart-tip-neg)', borderTop: '1px solid rgba(255,255,255,0.1)', marginTop: 3, paddingTop: 3, fontWeight: 700 }}>
                     {d.profit >= 0 ? '▲' : '▼'} {t('finance.profit')}: {abbr(d.profit)}
                   </div>
                 </ChartTooltip>
@@ -252,10 +252,10 @@ function FinanceLineChart({ data }) {
 
       <div style={{ display: 'flex', gap: 20, justifyContent: 'center', marginTop: 4, fontSize: 12, color: 'var(--text-3)' }}>
         <span style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
-          <span style={{ width: 20, height: 2.5, background: '#1B4F72', borderRadius: 2, display: 'inline-block' }} /> {t('finance.income')}
+          <span style={{ width: 20, height: 2.5, background: 'var(--chart-1)', borderRadius: 2, display: 'inline-block' }} /> {t('finance.income')}
         </span>
         <span style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
-          <span style={{ width: 20, height: 2, background: '#DC2626', borderRadius: 2, display: 'inline-block' }} /> {t('finance.expenses')}
+          <span style={{ width: 20, height: 2, background: 'var(--chart-4)', borderRadius: 2, display: 'inline-block' }} /> {t('finance.expenses')}
         </span>
       </div>
     </div>
@@ -323,11 +323,11 @@ function ProfitBarChart({ data }) {
           return (
             <g key={i}>
               <line x1={PL} y1={y} x2={W - PR} y2={y}
-                stroke={v === 0 ? '#D1D5DB' : '#E5E7EB'}
+                stroke={v === 0 ? 'var(--chart-grid)' : 'var(--chart-grid)'}
                 strokeWidth={v === 0 ? 1.5 : 1}
                 strokeDasharray={v === 0 ? '0' : '3,3'}
               />
-              <text x={PL - 6} y={y + 4} textAnchor="end" fontSize="10" fill="#9CA3AF">
+              <text x={PL - 6} y={y + 4} textAnchor="end" fontSize="10" fill="var(--chart-axis)">
                 {abbr(v)}
               </text>
             </g>
@@ -346,7 +346,7 @@ function ProfitBarChart({ data }) {
               <rect key={i}
                 x={cx - barW / 2} y={by}
                 width={barW} height={bh}
-                fill={pos ? '#059669' : '#DC2626'}
+                fill={pos ? 'var(--chart-2)' : 'var(--chart-4)'}
                 rx="3"
                 opacity={isH ? 1 : 0.78}
                 style={{ transition: 'opacity .15s' }}
@@ -370,7 +370,7 @@ function ProfitBarChart({ data }) {
             >
               {showLabel(i) && (
                 <text x={cx} y={H - 8} textAnchor="middle" fontSize="10"
-                  fill={isH ? '#1B4F72' : '#9CA3AF'}
+                  fill={isH ? 'var(--chart-1)' : 'var(--chart-axis)'}
                   fontWeight={isH ? '700' : '400'}
                 >
                   {fmtMonth(d.month)}
@@ -379,10 +379,10 @@ function ProfitBarChart({ data }) {
               {isH && (
                 <ChartTooltip anchorX={cx} anchorY={pos ? by : zeroY} svgWidth={W} visible>
                   <div style={{ fontWeight: 700, marginBottom: 2 }}>{fmtMonth(d.month)}</div>
-                  <div style={{ color: pos ? '#6EE7B7' : '#FCA5A5', fontWeight: 700 }}>
+                  <div style={{ color: pos ? 'var(--chart-tip-pos)' : 'var(--chart-tip-neg)', fontWeight: 700 }}>
                     {pos ? '▲' : '▼'} {abbr(d.profit)}
                   </div>
-                  <div style={{ color: '#9CA3AF', fontSize: 10.5 }}>
+                  <div style={{ color: 'var(--chart-axis)', fontSize: 10.5 }}>
                     {d.income > 0 ? `${t('finance.margin')}: ${((d.profit/d.income)*100).toFixed(1)}%` : ''}
                   </div>
                 </ChartTooltip>
@@ -445,7 +445,7 @@ function DonutChart({ data }) {
             const dy = (isH ? 6 : 0) * Math.sin(s.midA);
             return (
               <path key={i} d={s.path} fill={s.color}
-                stroke="#fff" strokeWidth={isH ? 2.5 : 1.5}
+                stroke="var(--chart-halo)" strokeWidth={isH ? 2.5 : 1.5}
                 opacity={hovered !== null && !isH ? 0.45 : 0.92}
                 transform={isH ? `translate(${dx.toFixed(2)}, ${dy.toFixed(2)})` : ''}
                 style={{ transition: 'opacity .2s, transform .2s', cursor: 'pointer' }}
@@ -457,14 +457,14 @@ function DonutChart({ data }) {
           {/* Center label */}
           {active ? (
             <>
-              <text x={cx} y={cy - 9} textAnchor="middle" fontSize={Math.max(8, donutSize * 0.055)} fill="#6B7280">{active.category.length > 10 ? active.category.slice(0,10)+'…' : active.category}</text>
+              <text x={cx} y={cy - 9} textAnchor="middle" fontSize={Math.max(8, donutSize * 0.055)} fill="var(--chart-guide)">{active.category.length > 10 ? active.category.slice(0,10)+'…' : active.category}</text>
               <text x={cx} y={cy + 7} textAnchor="middle" fontSize={Math.max(11, donutSize * 0.08)} fontWeight="800" fill={active.color}>{abbr(active.total)}</text>
-              <text x={cx} y={cy + 21} textAnchor="middle" fontSize={Math.max(8, donutSize * 0.055)} fill="#9CA3AF">{(active.pct * 100).toFixed(1)}%</text>
+              <text x={cx} y={cy + 21} textAnchor="middle" fontSize={Math.max(8, donutSize * 0.055)} fill="var(--chart-axis)">{(active.pct * 100).toFixed(1)}%</text>
             </>
           ) : (
             <>
-              <text x={cx} y={cy - 7} textAnchor="middle" fontSize={Math.max(9, donutSize * 0.065)} fill="#6B7280">{t('common.total')}</text>
-              <text x={cx} y={cy + 10} textAnchor="middle" fontSize={Math.max(12, donutSize * 0.09)} fontWeight="800" fill="#111827">{abbr(total)}</text>
+              <text x={cx} y={cy - 7} textAnchor="middle" fontSize={Math.max(9, donutSize * 0.065)} fill="var(--chart-guide)">{t('common.total')}</text>
+              <text x={cx} y={cy + 10} textAnchor="middle" fontSize={Math.max(12, donutSize * 0.09)} fontWeight="800" fill="var(--text)">{abbr(total)}</text>
             </>
           )}
         </svg>

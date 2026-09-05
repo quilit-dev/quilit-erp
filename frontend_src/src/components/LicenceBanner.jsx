@@ -35,9 +35,9 @@ export default function LicenceBanner() {
   // Three tones: a heads-up, a warning, and "this stops now".
   const tone = inGrace ? 'red' : days <= 7 ? 'orange' : 'yellow';
   const palette = {
-    yellow: { bg: 'var(--yellow-light, #fef9c3)', bd: 'var(--yellow, #ca8a04)', fg: '#854d0e' },
+    yellow: { bg: 'var(--yellow-light, var(--caution-tint))', bd: 'var(--yellow, #ca8a04)', fg: '#854d0e' },
     orange: { bg: '#ffedd5',                      bd: '#ea580c',                fg: '#9a3412' },
-    red:    { bg: 'var(--red-light, #fee2e2)',    bd: 'var(--red, #dc2626)',    fg: '#991b1b' },
+    red:    { bg: 'var(--red-light, var(--negate-tint))',    bd: 'var(--red, var(--negate))',    fg: 'var(--negate-ink)' },
   }[tone];
 
   const kind = info.kind === 'trial' ? t('licence.trial') : t('licence.licence');

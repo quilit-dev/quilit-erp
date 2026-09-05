@@ -319,7 +319,7 @@ function TransactionsPanel() {
                             <span style={{
                               display: 'inline-flex', alignItems: 'center', padding: '2px 7px',
                               borderRadius: 20, fontSize: 11, fontWeight: 600,
-                              background: '#F3F4F6', color: '#6B7280',
+                              background: 'var(--surface-2)', color: 'var(--text-3)',
                             }}>{t('expenses.voidedLabel')}</span>
                           )}
                         </div>
@@ -506,11 +506,11 @@ function TransactionsPanel() {
             {voidGroupSize > 1 && (
               <div style={{
                 display: 'flex', gap: 10, padding: '12px 14px',
-                background: '#fef3c7', border: '1px solid #f59e0b',
+                background: 'var(--caution-tint)', border: '1px solid var(--caution)',
                 borderRadius: 8, marginBottom: 16,
               }}>
                 <span style={{ fontSize: 18 }}>⚠️</span>
-                <span style={{ fontSize: 13, color: '#78350f' }}>
+                <span style={{ fontSize: 13, color: 'var(--caution-ink)' }}>
                   {t('expenses.voidWholePayment', { count: voidGroupSize })}
                 </span>
               </div>

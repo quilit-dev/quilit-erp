@@ -19,11 +19,12 @@ import { dirname, join, relative } from 'node:path';
 
 const SRC = join(dirname(fileURLToPath(import.meta.url)), '..');
 
-// The ceiling, measured when this test was written. Lower it when you convert
-// a file; never raise it. If this fails, you added a literal colour — use a
+// The ceiling. Lower it when you convert a file; never raise it.
+// Was 544 hex / 48 rgba before the graphite retheme; the semantic sweep in
+// Stage 2 took the hex count down by 76%. If this fails, you added a literal colour — use a
 // token from index.css, or add one.
-const MAX_HEX = 544;
-const MAX_RGBA = 48;
+const MAX_HEX = 128;
+const MAX_RGBA = 46;
 
 function walk(dir) {
   const out = [];

@@ -54,12 +54,12 @@ export default function ServerGate({ children }) {
         gap: 16,
       }}>
         <div style={{
-          width: 48, height: 48, border: '3px solid var(--border, #e2e8f0)',
-          borderTopColor: 'var(--accent, #2563eb)',
+          width: 48, height: 48, border: '3px solid var(--border, var(--rule))',
+          borderTopColor: 'var(--accent, var(--info-ink))',
           borderRadius: '50%', animation: 'spin 0.8s linear infinite',
         }} />
         <style>{`@keyframes spin { to { transform: rotate(360deg); } }`}</style>
-        <p style={{ color: 'var(--text-3, #64748b)', fontSize: 14, margin: 0 }}>
+        <p style={{ color: 'var(--text-3, var(--text-2))', fontSize: 14, margin: 0 }}>
           {attempt < 4 ? 'Starting up…' : 'Waiting for server…'}
         </p>
       </div>

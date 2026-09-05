@@ -232,8 +232,8 @@ export default function RecurringExpensesPanel() {
                       <span style={{
                         display: 'inline-flex', padding: '2px 9px', borderRadius: 20,
                         fontSize: 11, fontWeight: 600,
-                        background: r.is_active ? '#ECFDF5' : '#F3F4F6',
-                        color: r.is_active ? '#059669' : '#6B7280',
+                        background: r.is_active ? 'var(--affirm-tint)' : 'var(--surface-2)',
+                        color: r.is_active ? 'var(--affirm)' : 'var(--text-3)',
                       }}>{r.is_active ? t('recurring.statusActive') : t('recurring.statusPaused')}</span>
                     </td>
                     <td style={{ textAlign: 'right' }}>

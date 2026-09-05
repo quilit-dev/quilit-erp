@@ -14,7 +14,7 @@ function ProjectsPanel({ projects, tasks, onNew, onEdit, onArchive, onRestore })
 
         return (
           <div key={proj.id} className="card" style={{ padding: 0, overflow: 'hidden', border: `1px solid var(--border)`, opacity: isArchived ? 0.62 : 1 }}>
-            <div style={{ height: 5, background: proj.color || '#4f8ef7' }} />
+            <div style={{ height: 5, background: proj.color || 'var(--info)' }} />
             <div style={{ padding: '14px 16px' }}>
               <div style={{ display: 'flex', alignItems: 'flex-start', justifyContent: 'space-between', gap: 8, marginBottom: 8 }}>
                 <div>
@@ -35,7 +35,7 @@ function ProjectsPanel({ projects, tasks, onNew, onEdit, onArchive, onRestore })
                 <span style={{ fontSize: 11, color: 'var(--text-3)' }}>{done} / {projTasks.length} {t('planning.tasksDone')}</span>
                 <span style={{ fontSize: 11, color: 'var(--text-3)', fontWeight: 600 }}>{pct}%</span>
               </div>
-              <ProgressBar value={pct} color={proj.color || '#4f8ef7'} />
+              <ProgressBar value={pct} color={proj.color || 'var(--info)'} />
 
               <div style={{ display: 'flex', alignItems: 'center', gap: 6, marginTop: 10 }}>
                 {proj.start_date && <span style={{ fontSize: 10, color: 'var(--text-3)' }}>{proj.start_date}</span>}

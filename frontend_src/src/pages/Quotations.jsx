@@ -157,7 +157,7 @@ function QuoteActionMenu({ doc, exporting, isVoided, onEdit, onExport,
           {divider}
 
           <button
-            style={{ ...menuItemStyle, color: '#166534', opacity: (isExporting || isVoided) ? 0.4 : 1 }}
+            style={{ ...menuItemStyle, color: 'var(--affirm-ink)', opacity: (isExporting || isVoided) ? 0.4 : 1 }}
             disabled={isExporting || isVoided}
             onClick={() => { setOpen(false); onExport('excel'); }}
           >
@@ -169,7 +169,7 @@ function QuoteActionMenu({ doc, exporting, isVoided, onEdit, onExport,
           {/* Browser-rendered from the HTML/CSS template in exportUtils.js —
               opens the print dialog, where the operator chooses Save as PDF. */}
           <button
-            style={{ ...menuItemStyle, color: '#991b1b', opacity: (isExporting || isVoided) ? 0.4 : 1 }}
+            style={{ ...menuItemStyle, color: 'var(--negate-ink)', opacity: (isExporting || isVoided) ? 0.4 : 1 }}
             disabled={isExporting || isVoided}
             onClick={() => { setOpen(false); onExport('pdf'); }}
           >
@@ -184,12 +184,12 @@ function QuoteActionMenu({ doc, exporting, isVoided, onEdit, onExport,
           {divider}
 
           {isVoided ? (
-            <button style={{ ...menuItemStyle, color: '#166534' }} onClick={() => { setOpen(false); onUnvoid(); }}>
+            <button style={{ ...menuItemStyle, color: 'var(--affirm-ink)' }} onClick={() => { setOpen(false); onUnvoid(); }}>
               <Icon name="rotate-ccw" size={14} />
               <span>{t('quotations.unvoidQuote')}</span>
             </button>
           ) : (
-            <button style={{ ...menuItemStyle, color: '#92400e' }} onClick={() => { setOpen(false); onVoid(); }}>
+            <button style={{ ...menuItemStyle, color: 'var(--caution-ink)' }} onClick={() => { setOpen(false); onVoid(); }}>
               <Icon name="ban" size={14} />
               <span>{t('quotations.voidQuote')}</span>
             </button>
@@ -199,7 +199,7 @@ function QuoteActionMenu({ doc, exporting, isVoided, onEdit, onExport,
               Only offered once it is cancelled, which is what the server
               enforces — a live quotation is an offer that still stands. */}
           {doc.archived_at ? (
-            <button style={{ ...menuItemStyle, color: '#166534' }} onClick={() => { setOpen(false); onRestore(); }}>
+            <button style={{ ...menuItemStyle, color: 'var(--affirm-ink)' }} onClick={() => { setOpen(false); onRestore(); }}>
               <Icon name="rotate-ccw" size={14} />
               <span>{t('common.restore')}</span>
             </button>
@@ -537,9 +537,9 @@ export default function Quotations() {
 
       {/* Workflow hint banner */}
       <div style={{
-        background:'var(--blue-light,#eff6ff)', border:'1px solid var(--blue,#3b82f6)',
+        background:'var(--blue-light,var(--info-tint))', border:'1px solid var(--blue,var(--info))',
         borderRadius:8, padding:'10px 16px', marginBottom:16, fontSize:13,
-        color:'var(--blue-dark,#1d4ed8)', display:'flex', alignItems:'center', gap:8,
+        color:'var(--blue-dark,var(--info-ink))', display:'flex', alignItems:'center', gap:8,
       }}>
         <span>ℹ️</span>
         <span>{t('quotations.workflowHint')}</span>
