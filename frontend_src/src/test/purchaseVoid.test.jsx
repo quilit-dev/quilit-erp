@@ -104,20 +104,27 @@ describe('the action', () => {
     // Slice out exactly one branch by matching its parentheses — the last
     // branch has no next one to stop at, and a fixed window ran past its end
     // into the buttons that follow.
-    const branch = (status) => {
-      const open = pageSrc.indexOf(`{p.status === '${status}' && (`);
-      expect(open, `no ${status} branch`).toBeGreaterThan(-1);
-      let i = pageSrc.indexOf('(', open + `{p.status === '${status}' &&`.length);
+    //
+    // The two conditional branches used to be `p.status === 'Ordered'` and
+    // `p.status === 'Received'`. They are the two independent facts now —
+    // "the goods are not here" and "money is still owed" — because a purchase
+    // can be paid for before it is delivered and neither statement implies the
+    // other. What this test guards is unchanged: Void and Edit sit OUTSIDE
+    // both of them.
+    const branch = (head) => {
+      const open = pageSrc.indexOf(`{${head} && (`);
+      expect(open, `no ${head} branch`).toBeGreaterThan(-1);
+      let i = pageSrc.indexOf('(', open + `{${head} &&`.length);
       let depth = 0;
       for (let j = i; j < pageSrc.length; j++) {
         if (pageSrc[j] === '(') depth++;
         else if (pageSrc[j] === ')' && --depth === 0) return pageSrc.slice(open, j + 1);
       }
-      throw new Error(`unbalanced ${status} branch`);
+      throw new Error(`unbalanced ${head} branch`);
     };
-    for (const status of ['Ordered', 'Received']) {
-      expect(branch(status), `void inside ${status}`).not.toMatch(/setVoidTarget/);
-      expect(branch(status), `edit inside ${status}`).not.toMatch(/setModal\('edit'\)/);
+    for (const head of ['!p.received_at', 'p.outstanding > 0.005']) {
+      expect(branch(head), `void inside ${head}`).not.toMatch(/setVoidTarget/);
+      expect(branch(head), `edit inside ${head}`).not.toMatch(/setModal\('edit'\)/);
     }
     expect(pageSrc).toMatch(/setVoidTarget\(p\); setVoidReason\(''\);/);
   });

@@ -32,7 +32,10 @@ describe('the locale dictionaries cover the seeded data', () => {
     const missingRoles    = Object.keys(en.roleNames).filter(k => !ar.roleNames[k]);
     expect(missingAccounts).toEqual([]);
     expect(missingRoles).toEqual([]);
-    // 36 since 1020 Cash — EUR was given a name. That account has been seeded
+    // 37 since 1250 Advances to Suppliers: paying for a purchase before the
+    // goods arrive puts the money on the balance sheet as a claim on the
+    // supplier, and that account had to exist for it to land anywhere. Before
+    // that, 36 since 1020 Cash — EUR was given a name. That account has been seeded
     // since migration 160, but the stale pg_baseline.sql the account-parity
     // test reads did not carry the seed data, so neither test could see it: an
     // Arabic ledger listed it in English and nothing complained. Regenerating
@@ -42,8 +45,8 @@ describe('the locale dictionaries cover the seeded data', () => {
     // that, 33: 147's 1300 Prepaid Expenses on top of 146's 2400 Deferred
     // Revenue. The count is a tripwire: it fails when the chart of accounts
     // changes, which is the moment somebody has to decide whether the new
-    // account needs a name in both languages. It has now caught three.
-    expect(Object.keys(en.accountNames)).toHaveLength(36);
+    // account needs a name in both languages. It has now caught four.
+    expect(Object.keys(en.accountNames)).toHaveLength(37);
     expect(Object.keys(en.roleNames)).toHaveLength(18);
     expect(Object.keys(en.enumValues).filter(k => !ar.enumValues[k])).toEqual([]);
   });

@@ -317,7 +317,16 @@ export default function Suppliers() {
                               <td>{p.line_count ?? 1}</td>
                               <td className="fw-600">{fmt(total)}</td>
                               <td>
-                                <span className={`badge badge-${p.status === 'Paid' ? 'green' : p.status === 'Received' ? 'blue' : 'gray'}`}>
+                                {/* Same colours the Purchases list uses. A
+                                    prepaid order is money out with nothing on
+                                    the shelf, and reading as plain 'Ordered'
+                                    grey here while it is purple there is how
+                                    the same word starts meaning two things. */}
+                                <span className={`badge badge-${
+                                  p.status === 'Paid' ? 'green'
+                                  : p.status === 'Received' ? 'blue'
+                                  : (p.status === 'Prepaid' || p.status === 'Deposit Paid') ? 'purple'
+                                  : 'gray'}`}>
                                   {tStatus(p.status)}
                                 </span>
                               </td>

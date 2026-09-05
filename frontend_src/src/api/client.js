@@ -250,6 +250,13 @@ export const updatePurchaseStatus = (id, status, payout = null) =>
 // goods have already moved on — surface that message rather than a generic one.
 export const voidPurchase         = (id, reason) =>
   api.patch(`/api/purchases/${id}/void`, { reason });
+// Paying is its own event now, and it does not move stock: a pre-ordered
+// delivery is paid for when the money goes and received when the lorry comes.
+// Any number of instalments — a deposit on order, the balance on delivery.
+export const getPurchasePayments  = (id)   => api.get(`/api/purchases/${id}/payments`);
+export const payPurchase          = (id, d) => api.post(`/api/purchases/${id}/payments`, d);
+export const voidPurchasePayment  = (id, paymentId, reason) =>
+  api.patch(`/api/purchases/${id}/payments/${paymentId}/void`, { reason });
 export const archivePurchase      = (id)   => api.patch(`/api/purchases/${id}/archive`);
 export const unarchivePurchase    = (id)   => api.patch(`/api/purchases/${id}/unarchive`);
 

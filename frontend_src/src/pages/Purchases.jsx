@@ -3,6 +3,7 @@ import { useState, useCallback, useEffect, useRef } from 'react';
 import {
   getPurchases, getPurchaseStats, createPurchase,
   updatePurchase, updatePurchaseStatus, voidPurchase, archivePurchase, unarchivePurchase,
+  payPurchase, getPurchasePayments,
   getInventory, getUsedCategories, getSuppliers,
 } from '../api/client';
 import {
@@ -330,7 +331,9 @@ function PurchaseForm({ initial = {}, inventoryItems = [], inventoryCategories =
                 className="form-control"
                 value={form.status}
                 onChange={v => set('status', v)}
-                options={[{ value: 'Ordered', label: tStatus('Ordered') }, { value: 'Received', label: tStatus('Received') }, { value: 'Paid', label: tStatus('Paid') }]} />
+                options={[{ value: 'Ordered', label: tStatus('Ordered') },
+                          { value: 'Received', label: tStatus('Received') },
+                          { value: 'Paid', label: tStatus('Paid') }]} />
             </div>
           )}
 
@@ -373,8 +376,61 @@ function Field({ label, children }) {
 
 function StatusBadge({ status }) {
   const { tStatus } = useLocale();
-  const map = { Ordered: 'yellow', Received: 'green', Paid: 'blue' };
+  // 'Prepaid' and 'Deposit Paid' describe an order that has been paid for and
+  // not yet delivered — money out, nothing on the shelf. Purple keeps them
+  // visibly apart from the green of goods that have actually arrived, which is
+  // the mistake worth making impossible at a glance.
+  const map = {
+    Ordered: 'yellow', Received: 'green', Paid: 'blue',
+    Prepaid: 'purple', 'Deposit Paid': 'purple',
+  };
   return <span className={`badge badge-${map[status] || 'gray'}`}>{tStatus(status)}</span>;
+}
+
+// ── What has been paid, and when ─────────────────────────────────────────────
+// A purchase can be settled in instalments — a deposit on order, the balance on
+// delivery — so "paid" is no longer one date on the header. The individual
+// payments are the record, and this is where somebody reconciling a supplier
+// statement finds them.
+
+function PurchasePayments({ purchaseId }) {
+  const { t, fmtDate, tEnumValue } = useLocale();
+  const [rows, setRows] = useState(null);
+
+  useEffect(() => {
+    let alive = true;
+    getPurchasePayments(purchaseId)
+      .then(r => { if (alive) setRows(r.payments || []); })
+      .catch(() => { if (alive) setRows([]); });
+    return () => { alive = false; };
+  }, [purchaseId]);
+
+  if (rows === null) return null;
+  return (
+    <div style={{ marginTop: 18 }}>
+      <h4 style={{ fontSize: 12, textTransform: 'uppercase', letterSpacing: '0.04em',
+                   color: 'var(--text-3)', marginBottom: 8 }}>
+        {t('purchases.paymentsTitle')}
+      </h4>
+      {rows.length === 0 ? (
+        <p style={{ fontSize: 13, color: 'var(--text-3)' }}>{t('purchases.noPayments')}</p>
+      ) : (
+        <table style={{ width: '100%' }}>
+          <tbody>
+            {rows.map(r => (
+              <tr key={r.id} style={r.voided_at ? { textDecoration: 'line-through',
+                                                    color: 'var(--text-3)' } : undefined}>
+                <td style={{ whiteSpace: 'nowrap' }}>{fmtDate(r.paid_at)}</td>
+                <td>{r.method ? tEnumValue(r.method) : '—'}</td>
+                <td style={{ color: 'var(--text-3)' }}>{r.note || ''}</td>
+                <td style={{ textAlign: 'right', fontWeight: 600 }}>${fmtNum(r.amount)}</td>
+              </tr>
+            ))}
+          </tbody>
+        </table>
+      )}
+    </div>
+  );
 }
 
 // ── Main page ────────────────────────────────────────────────────────────────
@@ -463,9 +519,20 @@ export default function Purchases() {
     finally { setSaving(false); }
   }
 
-  // Marking a purchase PAID is the moment money leaves, so it asks how.
-  // Receiving is a stock event and asks nothing.
+  // Paying is the moment money leaves, so it asks how — and now how much,
+  // because a pre-order is commonly a deposit and then a balance. Receiving is
+  // a stock event and asks nothing.
   const [payingFor, setPayingFor] = useState(null);
+
+  async function handlePay(purchase, { amount, ...payout }) {
+    try {
+      const res = await payPurchase(purchase.id, { amount, ...payout });
+      toast(t('purchases.paymentRecorded', { amount: fmt(amount) }), 'green');
+      setPayingFor(null);
+      load();
+      return res;
+    } catch (err) { toast(err.message, 'red'); }
+  }
 
   async function handleStatus(purchase, newStatus, payout = null) {
     try {
@@ -568,6 +635,11 @@ export default function Purchases() {
       <div className="stats-grid">
         {[
           { label: t('purchases.statsOrdered'),    value: stats.ordered     || 0 },
+          // Paid for and still coming. Money already with suppliers is an
+          // asset, not a cost, and it is the figure somebody chasing a late
+          // pre-order actually wants.
+          { label: t('purchases.statsPrepaid'),    value: stats.prepaid     || 0 },
+          { label: t('purchases.statsAdvances'),   value: fmt(stats.advances) },
           { label: t('purchases.statsReceived'),   value: stats.received    || 0 },
           { label: t('purchases.statsPaid'),       value: stats.paid        || 0 },
           { label: t('purchases.statsTotalSpent'), value: fmt(stats.total_spent) },
@@ -598,7 +670,11 @@ export default function Purchases() {
             value={statusFilter}
             onChange={v => setStatusFilter(v)}
             placeholder={t('purchases.allStatuses')}
-            options={[{ value: 'Ordered', label: tStatus('Ordered') }, { value: 'Received', label: tStatus('Received') }, { value: 'Paid', label: tStatus('Paid') }]} />
+            options={[{ value: 'Ordered', label: tStatus('Ordered') },
+                      { value: 'Deposit Paid', label: tStatus('Deposit Paid') },
+                      { value: 'Prepaid', label: tStatus('Prepaid') },
+                      { value: 'Received', label: tStatus('Received') },
+                      { value: 'Paid', label: tStatus('Paid') }]} />
 
           <SearchSelect
             className="form-control"
@@ -679,7 +755,18 @@ export default function Purchases() {
                     {/* A unit cost is not a property of an order with several
                         lines, so the column says how many there are instead. */}
                     <td>{p.line_count ?? 1}</td>
-                    <td style={{ fontWeight: 600 }}>${fmtNum(p.total_cost)}</td>
+                    {/* What is still owed goes UNDER the total rather than
+                        in a column of its own: the table already carries ten,
+                        and a partly-paid order is the minority case. Only
+                        shown when there is something to say. */}
+                    <td style={{ fontWeight: 600, whiteSpace: 'nowrap' }}>
+                      ${fmtNum(p.total_cost)}
+                      {!isVoided && p.paid_total > 0.005 && p.outstanding > 0.005 && (
+                        <div style={{ fontWeight: 400, fontSize: 11, color: 'var(--text-3)' }}>
+                          {t('purchases.outstandingLabel')} ${fmtNum(p.outstanding)}
+                        </div>
+                      )}
+                    </td>
                     <td>{isVoided
                       ? <StatusBadge status="Void" />
                       : <StatusBadge status={p.status} />}</td>
@@ -701,13 +788,24 @@ export default function Purchases() {
                           </button>
                         ) : (
                           <>
-                            {p.status === 'Ordered' && (
+                            {/* Receiving is about the GOODS, so it is offered
+                                whether or not the order has been paid for —
+                                a pre-order that has been settled in advance is
+                                still waiting to be delivered. */}
+                            {!p.received_at && (
                               <button className="btn btn-sm btn-secondary"
                                 onClick={() => handleStatus(p, 'Received')}>{t('purchases.receive')}</button>
                             )}
-                            {p.status === 'Received' && (
+                            {/* ...and paying is about the MONEY, so it is
+                                offered while anything is outstanding, before
+                                the delivery as readily as after. This is what
+                                makes a pre-order enterable without pretending
+                                the stock has arrived. */}
+                            {p.outstanding > 0.005 && (
                               <button className="btn btn-sm btn-secondary"
-                                onClick={() => setPayingFor(p)}>{t('purchases.markPaid')}</button>
+                                onClick={() => setPayingFor(p)}>
+                                {p.received_at ? t('purchases.markPaid') : t('purchases.payNow')}
+                              </button>
                             )}
                             {/* Offered whatever the status. A cost keyed wrong
                                 used to be uncorrectable once the goods had
@@ -755,13 +853,16 @@ export default function Purchases() {
       )}
       {payingFor && (
         <PayoutModal
-          title={t('purchases.markPaid')}
-          summary={t('purchases.payoutSummary', {
-            po: payingFor.po_number,
-            supplier: payingFor.supplier || '',
-          })}
-          confirmLabel={t('purchases.markPaid')}
-          onConfirm={payout => handleStatus(payingFor, 'Paid', payout)}
+          title={payingFor.received_at ? t('purchases.markPaid') : t('purchases.payNow')}
+          summary={payingFor.received_at
+            ? t('purchases.payoutSummary', {
+                po: payingFor.po_number, supplier: payingFor.supplier || '' })
+            : t('purchases.prepaySummary', {
+                po: payingFor.po_number, supplier: payingFor.supplier || '' })}
+          confirmLabel={t('purchases.recordPayment')}
+          maxAmount={Number(payingFor.outstanding || 0)}
+          amountLabel={t('purchases.amountToPay')}
+          onConfirm={payout => handlePay(payingFor, payout)}
           onClose={() => setPayingFor(null)} />
       )}
       {modal === 'edit' && activePurchase && (
@@ -863,9 +964,19 @@ export default function Purchases() {
                     <td>{t('common.total')}</td>
                     <td style={{ textAlign: 'right' }}>${fmtNum(activePurchase.grand_total)}</td>
                   </tr>
+                  <tr>
+                    <td style={{ color: 'var(--text-2)' }}>{t('purchases.paidLabel')}</td>
+                    <td style={{ textAlign: 'right' }}>${fmtNum(activePurchase.paid_total)}</td>
+                  </tr>
+                  <tr style={{ fontWeight: 600 }}>
+                    <td>{t('purchases.outstandingLabel')}</td>
+                    <td style={{ textAlign: 'right' }}>${fmtNum(activePurchase.outstanding)}</td>
+                  </tr>
                 </tbody>
               </table>
             </div>
+
+            <PurchasePayments purchaseId={activePurchase.id} />
           </div>
           <div className="modal-footer">
             <button className="btn btn-secondary" onClick={() => setModal(null)}>
