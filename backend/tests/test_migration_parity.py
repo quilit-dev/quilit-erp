@@ -53,6 +53,8 @@ _REQUIRED = [
     ("purchase_payments", "paid_at"),
     ("purchase_payments", "applied_as"),
     ("purchase_payments", "folded_into_purchase"),
+    ("service_job_technicians", "job_id"),
+    ("service_job_technicians", "employee_id"),
     # A corrected till sale points at the one it replaced, so the pair can be
     # told apart from a customer who came back and bought twice.
     ("pos_sales", "amended_from"),
@@ -95,6 +97,8 @@ _REQUIRED_TABLES = [
     "purchase_items",
     # Money to a supplier, in as many instalments as it took.
     "purchase_payments",
+    # Who attended a service job — several people, from hr_employees.
+    "service_job_technicians",
     # A payment plan against one invoice.
     "invoice_installments",
     # Stock held for a named customer.

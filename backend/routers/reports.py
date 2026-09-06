@@ -914,6 +914,51 @@ def report_service_jobs(
             "billed": bool(r["invoice_id"]),
         })
 
+    # ── Who attended what ───────────────────────────────────────────────
+    # The month-end question: how many services did each technician complete.
+    # Counted from the crew table (migration 175) so a two-man call credits
+    # both, and dated by `completed_at` so a job finished in March stays in
+    # March however it is rescheduled afterwards.
+    #
+    # THESE ROWS DELIBERATELY DO NOT SUM TO `totals`. A job with two
+    # technicians counts once for each of them and once in the header, so the
+    # column adds up to more than the job count whenever anyone worked in a
+    # pair. `overlap` says whether that is happening so the screen can explain
+    # itself rather than look broken; `totals` is computed from the job rows
+    # below and must never be derived from these.
+    #
+    # `value_attended` is the worth of the jobs a person was on. It is NOT a
+    # share of revenue and must never be totalled: two technicians on one $500
+    # job is still $500.
+    tech_where = ["j.archived_at IS NULL", "j.status = 'Done'",
+                  "j.completed_at IS NOT NULL",
+                  "date(j.completed_at) BETWEEN ? AND ?"]
+    tech_params: list = [start, end]
+    if status:
+        tech_where.append("j.status = ?")
+        tech_params.append(status)
+    if bf:
+        tech_where.append(bf[len(" AND "):])
+        tech_params += bp
+
+    tech_rows = db.execute(
+        "SELECT e.id, e.full_name, e.job_title,"
+        "       COUNT(DISTINCT j.id) AS jobs,"
+        "       COALESCE(SUM(j.total), 0) AS value_attended"
+        " FROM service_job_technicians t"
+        " JOIN service_jobs j  ON j.id = t.job_id"
+        " JOIN hr_employees e  ON e.id = t.employee_id"
+        f" WHERE {' AND '.join(tech_where)}"
+        " GROUP BY e.id, e.full_name, e.job_title"
+        " ORDER BY jobs DESC, e.full_name",
+        tech_params).fetchall()
+    by_technician = [{
+        "employee_id": r["id"], "name": r["full_name"],
+        "job_title": r["job_title"], "jobs": r["jobs"],
+        "value_attended": round(float(r["value_attended"] or 0), 2),
+    } for r in tech_rows]
+
+    completed = [r for r in out if r["status"] == "Done" and r["completed_at"]]
     unbilled = [r for r in out if r["status"] == "Done" and not r["billed"]]
     totals = {
         "jobs":       len(out),
@@ -923,5 +968,13 @@ def report_service_jobs(
         # Work that is done and nobody has invoiced — money spent and not yet asked for.
         "unbilled_count": len(unbilled),
         "unbilled_value": round(sum(r["revenue"] for r in unbilled), 2),
+        # The honest denominator for the technician table: jobs finished in the
+        # period, counted ONCE each however many people were on them.
+        "completed_jobs": len(completed),
     }
-    return {"jobs": out, "totals": totals, "start": start, "end": end}
+    return {"jobs": out, "totals": totals, "by_technician": by_technician,
+            # True when at least one completed job had more than one technician,
+            # so the per-person column legitimately exceeds `completed_jobs`.
+            "technician_rows_overlap":
+                sum(t["jobs"] for t in by_technician) > len(completed),
+            "start": start, "end": end}

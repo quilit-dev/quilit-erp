@@ -112,7 +112,17 @@ class JobBody(BaseModel):
     job_type:       str = "Repair"
     priority:       str = "Normal"
     scheduled_date: Optional[str] = None
+    # The single login a job used to be assigned to. Still accepted and still
+    # stored for callers that send it, but it is not the forward path: the job
+    # form sends `technician_ids` instead, and the report counts from those.
+    # See migration 175 for why the column was kept rather than dropped.
     assigned_to:    Optional[int] = None
+    # The people who attended, as hr_employees ids. A job often takes more than
+    # one, and a technician usually has no login, so this cannot be a users FK.
+    # `None` and `[]` differ on an update exactly as `items` does below: the
+    # first means "this request is not about the crew", the second means
+    # "nobody is assigned".
+    technician_ids: Optional[List[int]] = None
     reported_fault: Optional[str] = None
     work_done:      Optional[str] = None
     warehouse_id:   Optional[int] = None
@@ -254,6 +264,16 @@ def _job_dict(db, job) -> dict:
         "SELECT id, invoice_number, voided_at FROM invoices WHERE service_job_id=?",
         (job["id"],)).fetchone()
     d["invoice"] = dict(inv) if inv else None
+    d["technicians"] = _technicians_for(db, [job["id"]]).get(job["id"], [])
+    # The single login this job was assigned to. Surfaced so a job raised
+    # before crews existed — or by a caller still sending `assigned_to` — still
+    # says who attended.
+    d["assigned_name"] = None
+    if job["assigned_to"]:
+        u = db.execute(
+            "SELECT COALESCE(NULLIF(full_name, ''), username) AS n FROM users "
+            "WHERE id=?", (job["assigned_to"],)).fetchone()
+        d["assigned_name"] = u["n"] if u else None
     return d
 
 
@@ -396,12 +416,92 @@ def unarchive_equipment(
 
 # ── Jobs ─────────────────────────────────────────────────────────────────────
 
+def _validate_technicians(db, ids):
+    """Every id must be a live employee. 400 on the first that is not."""
+    for eid in ids or []:
+        row = db.execute(
+            "SELECT 1 FROM hr_employees WHERE id=? AND archived_at IS NULL",
+            (eid,)).fetchone()
+        if not row:
+            raise HTTPException(400, f"Technician {eid} not found")
+
+
+def _replace_technicians(db, job_id, ids, *, now):
+    """Wholesale replace, the way `_replace_lines` handles the parts.
+
+    Diffing a small set buys nothing and is where a stale row survives an edit.
+    `dict.fromkeys` rather than `set` so the same person sent twice collapses to
+    one WITHOUT reordering the crew — the table's UNIQUE index would refuse the
+    duplicate anyway, but a 500 on a double-click is not an error message.
+    """
+    db.execute("DELETE FROM service_job_technicians WHERE job_id=?", (job_id,))
+    for eid in dict.fromkeys(ids or []):
+        db.execute(
+            "INSERT INTO service_job_technicians (job_id, employee_id, created_at) "
+            "VALUES (?,?,?)", (job_id, eid, now))
+
+
+def _technicians_for(db, job_ids):
+    """{job_id: [{id, name, job_title}]} for a whole page in one query."""
+    out = {}
+    if not job_ids:
+        return out
+    marks = ",".join("?" for _ in job_ids)
+    for r in db.execute(
+            f"SELECT t.job_id, e.id, e.full_name, e.job_title "
+            f"FROM service_job_technicians t "
+            f"JOIN hr_employees e ON e.id = t.employee_id "
+            f"WHERE t.job_id IN ({marks}) ORDER BY e.full_name",
+            list(job_ids)).fetchall():
+        out.setdefault(r["job_id"], []).append(
+            {"id": r["id"], "name": r["full_name"], "job_title": r["job_title"]})
+    return out
+
+
+def _notify_crew(db, job_id, number, fault):
+    """Tell each technician who actually has a login.
+
+    Most will not have one — that is the whole reason the crew is drawn from
+    hr_employees rather than users — so a missing account is a silent skip, not
+    an error. Assigning a job must never fail because the person cannot be
+    notified.
+    """
+    rows = db.execute(
+        "SELECT e.user_id FROM service_job_technicians t "
+        "JOIN hr_employees e ON e.id = t.employee_id "
+        "WHERE t.job_id = ? AND e.user_id IS NOT NULL", (job_id,)).fetchall()
+    for r in rows:
+        notify(db, user_id=r["user_id"], type="service_job_scheduled",
+               title=f"Service job assigned: {number}",
+               body=fault or None,
+               link="/service", entity_type="service_job", entity_id=job_id)
+
+
+@router.get("/technicians")
+def list_technicians(
+    user=Depends(require_perm("service", "view")),
+    db: sqlite3.Connection = Depends(get_db),
+):
+    """The people a job can be assigned to.
+
+    Deliberately NOT /api/hr/employees. That endpoint requires `hr.view`, which
+    a dispatcher has no business holding, and it returns salary. This returns a
+    name and a job title and nothing else.
+    """
+    rows = db.execute(
+        "SELECT id, full_name, job_title FROM hr_employees "
+        "WHERE archived_at IS NULL AND status IN ('Active', 'On Leave') "
+        "ORDER BY full_name").fetchall()
+    return [dict(r) for r in rows]
+
+
 @router.get("/jobs")
 def list_jobs(
     status: Optional[str] = None,
     client_id: Optional[int] = None,
     equipment_id: Optional[int] = None,
     assigned_to: Optional[int] = None,
+    technician_id: Optional[int] = None,
     date_from: Optional[str] = None,
     date_to: Optional[str] = None,
     search: Optional[str] = None,
@@ -418,6 +518,10 @@ def list_jobs(
         if val:
             where.append(f"{col} = ?")
             params.append(val)
+    if technician_id:
+        where.append("EXISTS (SELECT 1 FROM service_job_technicians t "
+                     "WHERE t.job_id = j.id AND t.employee_id = ?)")
+        params.append(technician_id)
     if date_from:
         where.append("COALESCE(j.scheduled_date, j.created_at) >= ?")
         params.append(date_from)
@@ -462,7 +566,15 @@ def list_jobs(
         f"ORDER BY COALESCE(j.scheduled_date, j.created_at) {direction}, "
         f"j.id {direction}",
         params).fetchall()
-    return [dict(r) for r in rows]
+    # One query for the whole page's crews rather than one per row — the same
+    # reason the purchase list batches its lines.
+    crews = _technicians_for(db, [r["id"] for r in rows])
+    out = []
+    for r in rows:
+        d = dict(r)
+        d["technicians"] = crews.get(r["id"], [])
+        out.append(d)
+    return out
 
 
 @router.post("/jobs")
@@ -486,6 +598,7 @@ def create_job(
     if data.assigned_to and not db.execute(
             "SELECT 1 FROM users WHERE id=?", (data.assigned_to,)).fetchone():
         raise HTTPException(400, "Assigned user not found")
+    _validate_technicians(db, data.technician_ids)
     _validate_lines(db, data.items or [])
 
     # One warehouse for the whole job: every part comes out of the van stock or
@@ -506,9 +619,16 @@ def create_job(
     )
     job_id = cur.lastrowid
     number = _finalize_number(db, job_id, _job_prefix(db))
+    _replace_technicians(db, job_id, data.technician_ids, now=now)
     _replace_lines(db, job_id, data.items or [])
     _reprice(db, job_id)
 
+    _notify_crew(db, job_id, number, data.reported_fault)
+    # A caller that still sends `assigned_to` — an older integration, the seed —
+    # keeps the behaviour it has always had. The field is not the forward path
+    # and the job form no longer sends it, but it is still accepted and still
+    # stored, so it must still notify. Removing this quietly broke a caller that
+    # had done nothing wrong.
     if data.assigned_to:
         notify(db, user_id=data.assigned_to, type="service_job_scheduled",
                title=f"Service job assigned: {number}",
@@ -548,6 +668,7 @@ def update_job(
         eq = _get_equipment(db, data.equipment_id, user)
         if eq["client_id"] != data.client_id:
             raise HTTPException(400, "That equipment belongs to a different client.")
+    _validate_technicians(db, data.technician_ids)
     _validate_lines(db, data.items or [])
 
     warehouse_id = warehouse_access.resolve_warehouse_id(user, db, data.warehouse_id)
@@ -560,7 +681,9 @@ def update_job(
          warehouse_id, _now(), job_id),
     )
     # Omitted entirely: the caller is editing the header and has said nothing
-    # about the lines, so they stand.
+    # about the lines, so they stand. The crew follows the same rule.
+    if data.technician_ids is not None:
+        _replace_technicians(db, job_id, data.technician_ids, now=_now())
     if data.items is not None:
         _replace_lines(db, job_id, data.items)
     totals = _reprice(db, job_id)

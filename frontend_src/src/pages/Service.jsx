@@ -91,7 +91,10 @@ export default function Service() {
     Type:             j.job_type,
     Status:           j.status,
     'Scheduled Date': j.scheduled_date ? fmtDate(j.scheduled_date) : '',
-    'Assigned To':    j.assigned_name || '',
+    // The crew, or the single login a job raised before crews existed was
+    // assigned to. Both, so a year's export reads consistently.
+    'Technicians':    (j.technicians || []).map(x => x.name).join(', ')
+                        || j.assigned_name || '',
     Total:            j.total,
     Invoiced:         j.invoice_id ? 'Yes' : 'No',
   }));
@@ -223,7 +226,7 @@ export default function Service() {
                     <th>{t('service.jobType')}</th>
                     <th>{t('common.status')}</th>
                     <th>{t('service.scheduledDate')}</th>
-                    <th>{t('service.assignedTo')}</th>
+                    <th>{t('service.technicians')}</th>
                     <th className="text-right">{t('common.total')}</th>
                     <th>{t('common.actions')}</th>
                   </tr>
@@ -240,7 +243,10 @@ export default function Service() {
                         {t(`service.status${(j.status || '').replace(/\s/g, '')}`)}
                       </span></td>
                       <td>{j.scheduled_date ? fmtDate(j.scheduled_date) : <span style={{ color: 'var(--text-3)' }}>—</span>}</td>
-                      <td>{j.assigned_name || <span style={{ color: 'var(--text-3)' }}>{t('service.unassigned')}</span>}</td>
+                      <td>{(j.technicians || []).length
+                        ? (j.technicians || []).map(x => x.name).join(', ')
+                        : j.assigned_name
+                          || <span style={{ color: 'var(--text-3)' }}>{t('service.unassigned')}</span>}</td>
                       <td className="text-right">{fmt(j.total)}</td>
                       <td>
                         {/* Invoiced state is derived from the invoice, so it

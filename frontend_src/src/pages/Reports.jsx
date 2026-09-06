@@ -15,6 +15,7 @@ import { ExpensesReport } from './reports/ExpensesReport';
 import { PipelineReport } from './reports/PipelineReport';
 import { BranchComparisonReport } from './reports/BranchComparisonReport';
 import { WarehouseValuationReport } from './reports/WarehouseValuationReport';
+import { ServiceReport } from './reports/ServiceReport';
 
 export default function Reports() {
   const { t, tEnumValue } = useLocale();
@@ -60,6 +61,7 @@ export default function Reports() {
     { key: 'pipeline',    label: t('reports.pipeline')       },
     { key: 'vat',         label: t('reports.vat')            },
     { key: 'whValuation', label: t('reports.whValuation') || 'Inventory by Warehouse' },
+    { key: 'service',     label: t('reports.service')        },
     ...(multiBranch ? [{ key: 'branches', label: t('reports.branchComparison') }] : []),
   ];
 
@@ -107,6 +109,7 @@ export default function Reports() {
       {activeReport === 'pipeline'  && <PipelineReport   params={appliedRange} t={t} />}
       {activeReport === 'vat'       && <VatReport        params={appliedRange} t={t} />}
       {activeReport === 'whValuation' && <WarehouseValuationReport t={t} />}
+      {activeReport === 'service'   && <ServiceReport   params={appliedRange} t={t} />}
       {activeReport === 'branches'  && <BranchComparisonReport params={appliedRange} t={t} />}
     </div>
   );

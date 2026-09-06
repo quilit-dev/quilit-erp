@@ -860,6 +860,10 @@ export const updateServiceEquipment = (id, d)   => api.put(`/api/service/equipme
 export const archiveServiceEquipment   = (id)   => api.patch(`/api/service/equipment/${id}/archive`);
 export const unarchiveServiceEquipment = (id)   => api.patch(`/api/service/equipment/${id}/unarchive`);
 
+// The people a job can be assigned to. Deliberately not the HR employee list:
+// that needs `hr.view`, which a dispatcher has no business holding, and it
+// returns salary. This one is a name and a job title.
+export const getServiceTechnicians = () => api.get('/api/service/technicians');
 export const getServiceJobs   = (params = {}, s) => api.get(`/api/service/jobs${_qs(params)}`, s);
 export const getServiceJob    = (id)        => api.get(`/api/service/jobs/${id}`);
 export const createServiceJob = (d)         => api.post('/api/service/jobs', d);

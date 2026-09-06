@@ -1554,6 +1554,18 @@ const en = {
     invoiceRaised:    'Invoice raised',
     billed:           'Invoiced',
     unbilled:         'Not invoiced',
+    technicians:      'Technicians',
+    technician:       'Technician',
+    noTechnicians:    'No employees on the register yet.',
+    jobsCompleted:    'Jobs completed',
+    valueAttended:    'Value attended',
+    byTechnician:     'By technician',
+    noCompletedJobs:  'No jobs were completed in this period.',
+    // Shown ONLY when a job in the period had more than one technician, so it
+    // explains a real discrepancy rather than reading as boilerplate.
+    sharedJobsNote:   'A job attended by two technicians is counted for each '
+      + 'of them, so this column adds up to more than the jobs completed above. '
+      + 'Value attended is what each job was worth, not a share of it.',
     // The two steps, said once on each screen that performs one of them.
     newJobHint:       'Enter the client, the machine and the problem they reported. The job opens and its work order can be printed straight away.',
     openJobHint:      'Print the work order for the technician. When the sheet comes back, enter the work done, the parts used and any charges below, then close the job.',
@@ -3178,6 +3190,8 @@ const en = {
   },
 
   reports: {
+    service: 'Service',
+    revenue: 'Revenue',
     revenueBySource: 'Revenue by source',
     activeClients: 'Active clients',
     clientRevenue: 'Client Revenue',

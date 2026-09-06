@@ -18,7 +18,7 @@
  * every part the technician had entered.
  */
 import { useEffect, useState } from 'react';
-import { createServiceJob, updateServiceJob, getUsers,
+import { createServiceJob, updateServiceJob, getServiceTechnicians,
          getServiceEquipment } from '../../api/client';
 import { toast } from '../../components/shared';
 import { useLocale } from '../../hooks/useLocale.jsx';
@@ -40,15 +40,18 @@ export default function JobForm({ job, clients, onDone, onCancel }) {
     job_type: job?.job_type || 'Repair',
     priority: job?.priority || 'Normal',
     scheduled_date: job?.scheduled_date || '',
-    assigned_to: job?.assigned_to || '',
+    // Who attended. Several people, drawn from the employee register rather
+    // than from logins — a technician usually has no account, and a two-man
+    // call is ordinary.
+    technician_ids: (job?.technicians || []).map(x => x.id),
     reported_fault: job?.reported_fault || '',
   }));
-  const [users, setUsers] = useState([]);
+  const [technicians, setTechnicians] = useState([]);
   const [equipment, setEquipment] = useState([]);
   const [saving, setSaving] = useState(false);
 
   useEffect(() => {
-    getUsers().then(setUsers).catch(() => {});
+    getServiceTechnicians().then(setTechnicians).catch(() => {});
   }, []);
 
   // Equipment is per client: showing another customer's machines invites the
@@ -64,6 +67,23 @@ export default function JobForm({ job, clients, onDone, onCancel }) {
   // SearchSelect hands over the value itself rather than an event, so
   // the curried setter above has a sibling that takes one.
   const setVal = k => v => setForm(f => ({ ...f, [k]: v }));
+  const toggleTech = id => setForm(f => ({
+    ...f,
+    technician_ids: f.technician_ids.includes(id)
+      ? f.technician_ids.filter(x => x !== id)
+      : [...f.technician_ids, id],
+  }));
+  // Same shape as the announcement audience picker, which is the only other
+  // place in the app that picks several people at once.
+  const chip = (active) => ({
+    padding: '6px 12px', borderRadius: 999,
+    fontSize: 12, fontWeight: 600, cursor: 'pointer',
+    border: '1px solid',
+    borderColor: active ? 'var(--accent)' : 'var(--border)',
+    background: active ? 'var(--accent)' : 'var(--surface)',
+    color: active ? 'var(--accent-ink)' : 'var(--text-2)',
+    transition: 'all .12s',
+  });
 
   async function submit(e) {
     e.preventDefault();
@@ -74,7 +94,7 @@ export default function JobForm({ job, clients, onDone, onCancel }) {
         ...form,
         client_id: Number(form.client_id),
         equipment_id: form.equipment_id ? Number(form.equipment_id) : null,
-        assigned_to: form.assigned_to ? Number(form.assigned_to) : null,
+        technician_ids: form.technician_ids,
         scheduled_date: form.scheduled_date || null,
         // Deliberately no `items`. The lines belong to the write-up, and the
         // endpoint leaves them untouched when a request says nothing about
@@ -143,12 +163,22 @@ export default function JobForm({ job, clients, onDone, onCancel }) {
                  onChange={set('scheduled_date')} />
         </div>
         <div className="form-group">
-          <label className="form-label">{t('service.assignedTo')}</label>
-          <SearchSelect className="form-control" value={form.assigned_to}
-            onChange={setVal('assigned_to')} placeholder={t('service.unassigned')}
-            options={(users || []).map(u => ({
-              value: u.id, label: u.full_name || u.username,
-            }))} />
+          <label className="form-label">{t('service.technicians')}</label>
+          <div style={{ display: 'flex', flexWrap: 'wrap', gap: 6, padding: 10,
+                        background: 'var(--surface-2)', borderRadius: 8 }}>
+            {technicians.length === 0 && (
+              <span style={{ fontSize: 12, color: 'var(--text-3)' }}>
+                {t('service.noTechnicians')}
+              </span>
+            )}
+            {technicians.map(p => (
+              <button key={p.id} type="button" onClick={() => toggleTech(p.id)}
+                      style={chip(form.technician_ids.includes(p.id))}
+                      title={p.job_title || undefined}>
+                {p.full_name}
+              </button>
+            ))}
+          </div>
         </div>
       </div>
 
