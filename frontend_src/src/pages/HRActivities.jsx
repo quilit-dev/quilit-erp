@@ -1,7 +1,7 @@
 import { useState, useEffect, useCallback, useMemo } from 'react';
 import { useLocale } from '../hooks/useLocale.jsx';
 import { useData } from '../hooks/useData.js';
-import { Modal, ConfirmModal, EmptyState, toast, NumberInput, Icon } from '../components/shared';
+import { Modal, ConfirmModal, EmptyState, toast, NumberInput, Icon, IconButton } from '../components/shared';
 import SearchSelect from '../components/SearchSelect.jsx';
 import {
   getHRActivities, getHRActivity, getHRActivitiesSummary,
@@ -387,13 +387,8 @@ function ActivityRow({ activity, scope, onEdit, onComplete, onArchive }) {
             {t('hrActivities.markDone')}
           </button>
         )}
-        <button className="btn btn-outline btn-sm" onClick={() => onEdit(activity)}>
-          {t('common.edit')}
-        </button>
-        <button className="btn btn-outline btn-sm" onClick={() => onArchive(activity)}
-                style={{ color: 'var(--text-3)' }}>
-          {t('common.archive')}
-        </button>
+        <IconButton icon="pencil" label={t('common.edit')} className="btn btn-outline btn-sm" onClick={() => onEdit(activity)} />
+        <IconButton icon="archive" label={t('common.archive')} className="btn btn-outline btn-sm" onClick={() => onArchive(activity)} style={{ color: 'var(--text-3)' }} />
       </div>
     </div>
   );

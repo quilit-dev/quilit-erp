@@ -64,7 +64,7 @@ function FinancialReport({ params, t }) {
           </div>
         </div>
         <div className="card">
-          <div className="card-header"><span className="card-title">{t('reports.expensesByCategory')}</span></div>
+          <div className="card-header chart-header"><h2 className="card-title">{t('reports.expensesByCategory')}</h2></div>
           <div className="card-body" style={{ display: 'flex', gap: 20, alignItems: 'flex-start' }}>
             {byCategory.length === 0
               ? <div style={{ color: 'var(--text-3)', fontSize: 13, padding: '20px 0' }}>{t('reports.noData')}</div>

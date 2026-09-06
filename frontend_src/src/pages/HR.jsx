@@ -4,7 +4,7 @@ import { usePermissions } from '../hooks/usePermissions.js';
 import { useLocale } from '../hooks/useLocale.jsx';
 import {
   LoadingSpinner, ErrorAlert, EmptyState, Modal, ConfirmModal,
-  ExportButton, fmt, fmtDate, toast, NumberInput, BranchField} from '../components/shared';
+  ExportButton, fmt, fmtDate, toast, NumberInput, BranchField, IconButton} from '../components/shared';
 import {
   getHRSummary,
   getDepartments, createDepartment, updateDepartment, archiveDepartment, unarchiveDepartment,
@@ -314,12 +314,11 @@ export default function HR() {
                       <td onClick={ev => ev.stopPropagation()}>
                         <div style={{ display: 'flex', gap: 5 }}>
                           {isArchived ? (
-                            canEdit && <button className="btn btn-sm btn-secondary" style={{ color: 'var(--affirm-ink)', whiteSpace: 'nowrap' }}
-                              onClick={() => setConfirm({ kind: 'restore-employee', id: e.id, label: e.full_name })}><svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true"><polyline points="1 4 1 10 7 10"/><path d="M3.51 15a9 9 0 1 0 2.13-9.36L1 10"/></svg>{t('common.restore')}</button>
+                            canEdit && <IconButton icon="rotate-ccw" label={t('common.restore')} className="btn btn-sm btn-secondary" style={{ color: 'var(--affirm-ink)', whiteSpace: 'nowrap' }} onClick={() => setConfirm({ kind: 'restore-employee', id: e.id, label: e.full_name })} />
                           ) : (
                             <>
-                              {canEdit && <button className="btn btn-sm btn-secondary" onClick={() => openEmpEdit(e)}>{t('common.edit')}</button>}
-                              {canDelete && <button className="btn btn-sm btn-danger" onClick={() => setConfirm({ kind: 'employee', id: e.id, label: e.full_name })}>{t('common.archive')}</button>}
+                              {canEdit && <IconButton icon="pencil" label={t('common.edit')} className="btn btn-sm btn-secondary" onClick={() => openEmpEdit(e)} />}
+                              {canDelete && <IconButton icon="archive" label={t('common.archive')} className="btn btn-sm btn-danger" onClick={() => setConfirm({ kind: 'employee', id: e.id, label: e.full_name })} />}
                             </>
                           )}
                         </div>
@@ -362,12 +361,11 @@ export default function HR() {
                       <td>
                         <div style={{ display: 'flex', gap: 5 }}>
                           {isArchived ? (
-                            canEdit && <button className="btn btn-sm btn-secondary" style={{ color: 'var(--affirm-ink)', whiteSpace: 'nowrap' }}
-                              onClick={() => setConfirm({ kind: 'restore-department', id: d.id, label: d.name })}><svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true"><polyline points="1 4 1 10 7 10"/><path d="M3.51 15a9 9 0 1 0 2.13-9.36L1 10"/></svg>{t('common.restore')}</button>
+                            canEdit && <IconButton icon="rotate-ccw" label={t('common.restore')} className="btn btn-sm btn-secondary" style={{ color: 'var(--affirm-ink)', whiteSpace: 'nowrap' }} onClick={() => setConfirm({ kind: 'restore-department', id: d.id, label: d.name })} />
                           ) : (
                             <>
-                              {canEdit && <button className="btn btn-sm btn-secondary" onClick={() => openDeptEdit(d)}>{t('common.edit')}</button>}
-                              {canDelete && <button className="btn btn-sm btn-danger" onClick={() => setConfirm({ kind: 'department', id: d.id, label: d.name })}>{t('common.archive')}</button>}
+                              {canEdit && <IconButton icon="pencil" label={t('common.edit')} className="btn btn-sm btn-secondary" onClick={() => openDeptEdit(d)} />}
+                              {canDelete && <IconButton icon="archive" label={t('common.archive')} className="btn btn-sm btn-danger" onClick={() => setConfirm({ kind: 'department', id: d.id, label: d.name })} />}
                             </>
                           )}
                         </div>
@@ -462,7 +460,7 @@ export default function HR() {
                             <button className="btn btn-sm btn-danger"  onClick={() => reviewLeave(l.id, 'reject')}>{t('hr.reject')}</button>
                           </>}
                           {l.status === 'Pending' && canDelete && (
-                            <button className="btn btn-sm btn-secondary" onClick={() => setConfirm({ kind: 'leave', id: l.id, label: l.employee_name })}>{t('common.delete')}</button>
+                            <IconButton icon="trash" label={t('common.delete')} className="btn btn-sm btn-secondary" onClick={() => setConfirm({ kind: 'leave', id: l.id, label: l.employee_name })} />
                           )}
                           {l.status !== 'Pending' && <span style={{ color: 'var(--text-3)', fontSize: 12 }}>—</span>}
                         </div>

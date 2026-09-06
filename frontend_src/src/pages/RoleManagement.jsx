@@ -2,7 +2,7 @@ import { useState, useEffect } from 'react';
 import {
   getRoles, createRole, updateRole, deleteRole, setRolePermissions,
 } from '../api/client';
-import { Modal, ConfirmModal, LoadingSpinner, ErrorAlert, toast } from '../components/shared';
+import { Modal, ConfirmModal, LoadingSpinner, ErrorAlert, toast, IconButton } from '../components/shared';
 import { useLocale } from '../hooks/useLocale.jsx';
 
 const COLORS = [
@@ -108,19 +108,18 @@ function RoleCard({ role, onEdit, onPerms, onDelete }) {
           <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round"><rect x="3" y="11" width="18" height="11" rx="2"/><path d="M7 11V7a5 5 0 0110 0v4"/></svg>
           {t('roles.permissions')}
         </button>
-        <button className="btn btn-sm btn-outline btn-icon" onClick={() => onEdit(role)} disabled={role.is_system}
-          title={role.is_system ? 'System roles cannot be edited' : 'Edit role'}>
-          <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round"><path d="M11 4H4a2 2 0 00-2 2v14a2 2 0 002 2h14a2 2 0 002-2v-7"/><path d="M18.5 2.5a2.121 2.121 0 013 3L12 15l-4 1 1-4 9.5-9.5z"/></svg>
-        </button>
-        <button
-          className="btn btn-sm btn-icon"
+        <IconButton icon="pencil"
+          label={role.is_system ? t('roles.systemRoleReadOnly') : t('roles.editRoleTitle', { name: role.name })}
+          className="btn btn-sm btn-outline" onClick={() => onEdit(role)} disabled={role.is_system} iconSize={12} />
+        <IconButton
+          icon="trash"
+          label={role.is_system ? t('roles.systemRoleReadOnly') : t('roles.deleteRole')}
+          className="btn btn-sm"
           style={{ color: role.is_system ? 'var(--text-3)' : 'var(--red)', border: '1px solid var(--border)', borderRadius: 6, padding: '4px 7px', background: 'transparent' }}
           disabled={role.is_system}
-          title={role.is_system ? 'System roles cannot be deleted' : 'Delete role'}
           onClick={() => onDelete(role)}
-        >
-          <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round"><polyline points="3 6 5 6 21 6"/><path d="M19 6l-1 14a2 2 0 01-2 2H8a2 2 0 01-2-2L5 6"/></svg>
-        </button>
+          iconSize={12}
+        />
       </div>
     </div>
   );

@@ -1,6 +1,6 @@
 import { useState } from 'react';
 import { useLocale } from '../../hooks/useLocale.jsx';
-import { EmptyState } from '../../components/shared';
+import { EmptyState, IconButton } from '../../components/shared';
 import { DrawerModal } from './modals';
 
 // ── Drawers view ────────────────────────────────────────────────────────────
@@ -35,9 +35,7 @@ function DrawersView({ canCreate, canEdit, drawers, reload }) {
                   <td>{d.auto_capture ? <span className="badge badge-blue">{t('cash.autoCapture')}</span> : '—'}</td>
                   <td>
                     {canEdit && (
-                      <button className="btn btn-secondary btn-sm" onClick={() => setEditing(d)}>
-                        {t('common.edit')}
-                      </button>
+                      <IconButton icon="pencil" label={t('common.edit')} className="btn btn-secondary btn-sm" onClick={() => setEditing(d)} />
                     )}
                   </td>
                 </tr>

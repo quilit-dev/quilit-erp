@@ -1,7 +1,7 @@
 import { useState, useEffect, useCallback } from 'react';
 import { usePersistedState } from '../hooks/usePersistedState';
 import { useLocale } from '../hooks/useLocale.jsx';
-import { LoadingSpinner, ErrorAlert, useMoney, DisplayCurrencyToggle, ExchangeRateBadge, Icon } from '../components/shared';
+import { LoadingSpinner, ErrorAlert, useMoney, DisplayCurrencyToggle, ExchangeRateBadge, Icon, FileDownloadButton } from '../components/shared';
 import {
   getFinanceRangeSummary, getFinanceRangeMonthly, getFinanceRangeDetail,
   getBusinessSignals,
@@ -133,12 +133,11 @@ export default function Finance() {
           <button className="btn btn-outline btn-sm" onClick={() => setShowRecon(true)}>
 <Icon name="search" size={14} />{t('finance.reconcile')}
           </button>
-          <button className="btn btn-secondary btn-sm" onClick={handleExportExcel} disabled={exportLoading}>
-            ↓ {exportLoading ? t('finance.exportingLabel') : t('finance.exportExcel')}
-          </button>
-          <button className="btn btn-secondary btn-sm" onClick={() => window.print()}>
-            ↓ PDF
-          </button>
+          <FileDownloadButton format="excel"
+            label={exportLoading ? t('finance.exportingLabel') : t('common.downloadExcel')}
+            onClick={handleExportExcel} disabled={exportLoading} />
+          <FileDownloadButton format="pdf" label={t('common.downloadPdf')}
+            onClick={() => window.print()} />
         </div>
       </div>
 
@@ -224,8 +223,8 @@ export default function Finance() {
           {/* Charts row 2: Bar + Donut */}
           <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 16, marginBottom: 24 }}>
             <div className="card fin-card" style={{ animationDelay: '0.4s' }}>
-              <div className="card-header">
-                <span className="card-title">{t('finance.monthlyProfit')}</span>
+              <div className="card-header chart-header">
+                <h2 className="card-title">{t('finance.monthlyProfit')}</h2>
                 <span style={{ fontSize: 11, color: 'var(--text-3)' }}>{t('finance.hoverForDetails')}</span>
               </div>
               <div style={{ padding: '16px 20px' }}>

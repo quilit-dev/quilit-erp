@@ -2,7 +2,7 @@ import { useState, useCallback } from 'react';
 import { useData } from '../../hooks/useData';
 import SearchSelect from '../../components/SearchSelect.jsx';
 import {
-  LoadingSpinner, ErrorAlert, EmptyState, Modal, ConfirmModal, ExportButton, toast,
+  LoadingSpinner, ErrorAlert, EmptyState, Modal, ConfirmModal, ExportButton, toast, IconButton,
 } from '../../components/shared';
 import {
   getCRMContacts, createCRMContact, updateCRMContact, deleteCRMContact,
@@ -186,8 +186,8 @@ function ContactsTab({ t }) {
                     <td>{c.lead_name || '—'}</td>
                     <td>
                       <div style={{ display: 'flex', gap: 5 }}>
-                        <button className="btn btn-sm btn-secondary" onClick={() => { setSelected(c); setModal('form'); }}>{t('common.edit')}</button>
-                        <button className="btn btn-sm btn-danger"    onClick={() => { setSelected(c); setModal('delete'); }}>{t('common.delete')}</button>
+                        <IconButton icon="pencil" label={t('common.edit')} className="btn btn-sm btn-secondary" onClick={() => { setSelected(c); setModal('form'); }} />
+                        <IconButton icon="trash" label={t('common.delete')} className="btn btn-sm btn-danger" onClick={() => { setSelected(c); setModal('delete'); }} />
                       </div>
                     </td>
                   </tr>

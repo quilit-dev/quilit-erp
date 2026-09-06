@@ -43,8 +43,8 @@ function ExpensesReport({ params, t }) {
 
       <div style={{ display: 'grid', gridTemplateColumns: 'minmax(0, 1fr) minmax(0, 1fr)', gap: 16, marginBottom: 16 }}>
         <div className="card">
-          <div className="card-header">
-            <span className="card-title">{t('reports.expenseBreakdown')}</span>
+          <div className="card-header chart-header">
+            <h2 className="card-title">{t('reports.expenseBreakdown')}</h2>
             <div style={{ display: 'flex', gap: 8, alignItems: 'center' }}>
               <SearchSelect
                 className="form-control"

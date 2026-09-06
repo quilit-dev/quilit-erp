@@ -4,7 +4,7 @@ import {
   getUsedCategories, getInventory,
 } from '../api/client';
 import {
-  LoadingSpinner, ErrorAlert, EmptyState, Modal, ConfirmModal, toast, NumberInput,
+  LoadingSpinner, ErrorAlert, EmptyState, Modal, ConfirmModal, toast, NumberInput, IconButton,
 } from '../components/shared';
 import { useLocale } from '../hooks/useLocale.jsx';
 import SearchSelect from '../components/SearchSelect.jsx';
@@ -160,8 +160,8 @@ export default function Promotions() {
                             <button className="btn btn-sm btn-secondary" onClick={() => toggle(p)}>
                               {p.active ? t('promotions.pause') : t('promotions.resume')}
                             </button>
-                            <button className="btn btn-sm btn-secondary" onClick={() => openEdit(p)}>{t('common.edit')}</button>
-                            <button className="btn btn-sm btn-danger" onClick={() => { setActiveRow(p); setModal('archive'); }}>{t('common.archive')}</button>
+                            <IconButton icon="pencil" label={t('common.edit')} className="btn btn-sm btn-secondary" onClick={() => openEdit(p)} />
+                            <IconButton icon="archive" label={t('common.archive')} className="btn btn-sm btn-danger" onClick={() => { setActiveRow(p); setModal('archive'); }} />
                           </div>
                         )}
                       </td>

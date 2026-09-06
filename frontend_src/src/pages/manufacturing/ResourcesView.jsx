@@ -1,6 +1,6 @@
 import { useState, useEffect, useCallback } from 'react';
 import { useLocale } from '../../hooks/useLocale.jsx';
-import { LoadingSpinner, Modal, ConfirmModal, toast, NumberInput } from '../../components/shared';
+import { LoadingSpinner, Modal, ConfirmModal, toast, NumberInput, IconButton } from '../../components/shared';
 import { getResources, createResource, updateResource, archiveResource } from '../../api/client';
 import { Money } from './ui';
 
@@ -60,8 +60,9 @@ function ResourcesView({ canCreate, canEdit, canDelete }) {
                   <td style={{ color: 'var(--text-3)' }}>{t('manufacturing.perHour')}</td>
                   <td style={{ textAlign: 'end' }}><Money value={r.hourly_rate} />/h</td>
                   <td style={{ textAlign: 'end' }}>
-                    {canEdit && <button className="btn btn-sm btn-secondary" onClick={() => setModal({ ...r })}>{t('common.edit')}</button>}
-                    {canDelete && <button className="btn btn-sm btn-danger" style={{ marginInlineStart: 6 }} onClick={() => setConfirmDel(r)}>✕</button>}
+                    {canEdit && <IconButton icon="pencil" label={t('common.edit')} className="btn btn-sm btn-secondary" onClick={() => setModal({ ...r })} />}
+                    {canDelete && <IconButton icon="trash" label={t('common.delete')} className="btn btn-sm btn-danger"
+                      style={{ marginInlineStart: 6 }} onClick={() => setConfirmDel(r)} />}
                   </td>
                 </tr>
               ))}

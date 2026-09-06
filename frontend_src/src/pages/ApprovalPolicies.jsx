@@ -1,7 +1,7 @@
 import { useState, useEffect, useCallback } from 'react';
 import { useLocale } from '../hooks/useLocale.jsx';
 import { useData } from '../hooks/useData.js';
-import { Modal, ConfirmModal, LoadingSpinner, ErrorAlert, toast, NumberInput} from '../components/shared';
+import { Modal, ConfirmModal, LoadingSpinner, ErrorAlert, toast, NumberInput, IconButton } from '../components/shared';
 import SearchSelect from '../components/SearchSelect.jsx';
 import {
   getApprovalPolicies, getApprovalPolicyMeta,
@@ -468,13 +468,10 @@ function PolicyRow({ policy, meta, onEdit, onToggle, onDelete }) {
       </td>
       <td>
         <div style={{ display: 'flex', gap: 4, justifyContent: 'flex-end' }}>
-          <button className="btn btn-outline btn-sm" onClick={() => onEdit(policy)} title={t('common.edit')}>
-            <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><path d="M11 4H4a2 2 0 00-2 2v14a2 2 0 002 2h14a2 2 0 002-2v-7"/><path d="M18.5 2.5a2.121 2.121 0 013 3L12 15l-4 1 1-4 9.5-9.5z"/></svg>
-          </button>
-          <button className="btn btn-outline btn-sm" onClick={() => onDelete(policy)} title={t('common.delete')}
-            style={{ color: 'var(--red)' }}>
-            <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><polyline points="3 6 5 6 21 6"/><path d="M19 6l-1 14a2 2 0 01-2 2H8a2 2 0 01-2-2L5 6"/></svg>
-          </button>
+          <IconButton icon="pencil" label={t('common.edit')} className="btn btn-outline btn-sm"
+            onClick={() => onEdit(policy)} />
+          <IconButton icon="trash" label={t('common.delete')} className="btn btn-outline btn-sm"
+            onClick={() => onDelete(policy)} style={{ color: 'var(--red)' }} />
         </div>
       </td>
     </tr>

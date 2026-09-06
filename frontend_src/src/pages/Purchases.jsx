@@ -8,7 +8,7 @@ import {
 } from '../api/client';
 import {
   LoadingSpinner, ErrorAlert, EmptyState, Modal, ConfirmModal,
-  ExportButton, fmt, fmtDate, toast, SortableTh, Pagination, NumberInput, SupplierCombobox,
+  ExportButton, fmt, fmtDate, toast, SortableTh, Pagination, NumberInput, SupplierCombobox, IconButton,
 } from '../components/shared';
 import { useCategories } from '../hooks/useCategories';
 import { useSortPaginate } from '../hooks/useSortPaginate';
@@ -774,18 +774,13 @@ export default function Purchases() {
                     <td onClick={e => e.stopPropagation()}>
                       <div style={{ display: 'flex', gap: 6 }}>
                         {isArchived ? (
-                          <button className="btn btn-sm btn-secondary" style={{ color: 'var(--affirm-ink)', whiteSpace: 'nowrap' }}
-                            onClick={() => setRestoreTarget(p)}><svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true"><polyline points="1 4 1 10 7 10"/><path d="M3.51 15a9 9 0 1 0 2.13-9.36L1 10"/></svg>{t('common.restore')}</button>
+                          <IconButton icon="rotate-ccw" label={t('common.restore')} className="btn btn-sm btn-secondary" style={{ color: 'var(--affirm-ink)', whiteSpace: 'nowrap' }} onClick={() => setRestoreTarget(p)} />
                         ) : isVoided ? (
                           /* Cancelled. The only thing left to do with it is
                              file it away — and archiving is refused until a
                              purchase IS cancelled, which is why the button
                              lives here and not on a live row. */
-                          <button className="btn btn-sm btn-secondary"
-                            title={p.void_reason || undefined}
-                            onClick={() => { setActivePurchase(p); setModal('delete'); }}>
-                            {t('common.archive')}
-                          </button>
+                          <IconButton icon="archive" label={t('common.archive')} className="btn btn-sm btn-secondary" onClick={() => { setActivePurchase(p); setModal('delete'); }} />
                         ) : (
                           <>
                             {/* Receiving is about the GOODS, so it is offered
@@ -812,10 +807,8 @@ export default function Purchases() {
                                 landed: the server restates the purchase
                                 instead, re-valuing what is still on the shelf
                                 and posting the rest as a cost correction. */}
-                            <button className="btn btn-sm btn-secondary"
-                              onClick={() => { setActivePurchase(p); setModal('edit'); }}>
-                              {t('common.edit')}
-                            </button>
+                            <IconButton icon="pencil" className="btn btn-sm btn-secondary"
+                              onClick={() => { setActivePurchase(p); setModal('edit'); }} label={t('common.edit')} />
                             {/* Offered whatever the status. An order voided
                                 before it arrived reverses nothing; one voided
                                 after takes the goods back off the shelf and

@@ -4,7 +4,7 @@ import { usePersistedState } from '../hooks/usePersistedState';
 import { getSuppliers, getSupplier, createSupplier, updateSupplier, archiveSupplier, unarchiveSupplier } from '../api/client';
 import {
   LoadingSpinner, ErrorAlert, EmptyState, Modal, ConfirmModal,
-  ExportButton, fmt, fmtDate, toast, SortableTh, Pagination, NumberInput} from '../components/shared';
+  ExportButton, fmt, fmtDate, toast, SortableTh, Pagination, NumberInput, IconButton} from '../components/shared';
 import { useSortPaginate } from '../hooks/useSortPaginate';
 import { useLocale } from '../hooks/useLocale.jsx';
 import { usePermissions } from '../hooks/usePermissions';
@@ -185,14 +185,13 @@ export default function Suppliers() {
                     <td className="fw-600">{fmt(s.total_spend ?? 0)}</td>
                     <td>
                       <div style={{ display: 'flex', gap: 5 }}>
-                        <button className="btn btn-sm btn-secondary" onClick={() => openDetail(s)}>{t('common.view')}</button>
+                        <IconButton icon="eye" label={t('common.view')} className="btn btn-sm btn-secondary" onClick={() => openDetail(s)} />
                         {isArchived ? (
-                          <button className="btn btn-sm btn-secondary" style={{ color: 'var(--affirm-ink)', whiteSpace: 'nowrap' }}
-                            onClick={() => setRestoreId(s.id)}><svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true"><polyline points="1 4 1 10 7 10"/><path d="M3.51 15a9 9 0 1 0 2.13-9.36L1 10"/></svg>{t('common.restore')}</button>
+                          <IconButton icon="rotate-ccw" label={t('common.restore')} className="btn btn-sm btn-secondary" style={{ color: 'var(--affirm-ink)', whiteSpace: 'nowrap' }} onClick={() => setRestoreId(s.id)} />
                         ) : (
                           <>
-                            <button className="btn btn-sm btn-secondary" onClick={() => openEdit(s)}>{t('common.edit')}</button>
-                            <button className="btn btn-sm btn-danger"    onClick={() => setDeleteId(s.id)}>{t('common.archive')}</button>
+                            <IconButton icon="pencil" label={t('common.edit')} className="btn btn-sm btn-secondary" onClick={() => openEdit(s)} />
+                            <IconButton icon="archive" label={t('common.archive')} className="btn btn-sm btn-danger" onClick={() => setDeleteId(s.id)} />
                           </>
                         )}
                       </div>

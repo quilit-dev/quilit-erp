@@ -19,6 +19,8 @@ const ICON_PATHS = {
   // button — Icon has no fallback glyph — which is exactly how a blank
   // control shipped next to the PDF link.
   'download':       '<path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/><polyline points="7 10 12 15 17 10"/><line x1="12" y1="15" x2="12" y2="3"/>',
+  'download-excel': '<path d="M13 2H5a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h7"/><path d="M13 2v5h5"/><text x="5" y="15" font-size="5.2" font-family="Arial, sans-serif" font-weight="700" fill="currentColor" stroke="none">XLS</text><path d="M18 10v11M14 17l4 4 4-4"/>',
+  'download-pdf':   '<path d="M13 2H5a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h7"/><path d="M13 2v5h5"/><text x="5" y="15" font-size="5.2" font-family="Arial, sans-serif" font-weight="700" fill="currentColor" stroke="none">PDF</text><path d="M18 10v11M14 17l4 4 4-4"/>',
   'message-circle': '<path d="M21 11.5a8.38 8.38 0 0 1-.9 3.8 8.5 8.5 0 0 1-7.6 4.7 8.38 8.38 0 0 1-3.8-.9L3 21l1.9-5.7a8.38 8.38 0 0 1-.9-3.8 8.5 8.5 0 0 1 4.7-7.6 8.38 8.38 0 0 1 3.8-.9h.5a8.48 8.48 0 0 1 8 8v.5Z"/>',
   // Paper plane. Channel-neutral on purpose: the Send action covers email AND
   // WhatsApp, so `mail` would misdescribe half of what the button does.
@@ -63,6 +65,12 @@ const ICON_PATHS = {
   'database':       '<ellipse cx="12" cy="5" rx="9" ry="3"/><path d="M3 5V19A9 3 0 0 0 21 19V5"/><path d="M3 12A9 3 0 0 0 21 12"/>',
   'arrow-left-right': '<path d="M8 3 4 7l4 4"/><path d="M4 7h16"/><path d="m16 21 4-4-4-4"/><path d="M20 17H4"/>',
   'eye':            '<path d="M2.06 12.35a1 1 0 0 1 0-.7 10.75 10.75 0 0 1 19.88 0 1 1 0 0 1 0 .7 10.75 10.75 0 0 1-19.88 0"/><circle cx="12" cy="12" r="3"/>',
+  'chevron-left':   '<path d="m15 18-6-6 6-6"/>',
+  'chevron-right':  '<path d="m9 18 6-6-6-6"/>',
+  'chevrons-left':  '<path d="m11 17-5-5 5-5"/><path d="m18 17-5-5 5-5"/>',
+  'chevrons-right': '<path d="m13 17 5-5-5-5"/><path d="m6 17 5-5-5-5"/>',
+  'x':              '<path d="M18 6 6 18M6 6l12 12"/>',
+  'lock':           '<rect width="18" height="11" x="3" y="11" rx="2"/><path d="M7 11V7a5 5 0 0 1 10 0v4"/>',
   'shield':         '<path d="M20 13c0 5-3.5 7.5-7.66 8.95a1 1 0 0 1-.67-.01C7.5 20.5 4 18 4 13V6a1 1 0 0 1 1-1c2 0 4.5-1.2 6.24-2.72a1.17 1.17 0 0 1 1.52 0C14.51 3.81 17 5 19 5a1 1 0 0 1 1 1z"/>',
   'paperclip':      '<path d="m21.44 11.05-9.19 9.19a6 6 0 0 1-8.49-8.49l8.57-8.57A4 4 0 1 1 18 8.84l-8.59 8.57a2 2 0 0 1-2.83-2.83l8.49-8.48"/>',
   'tag':            '<path d="M12.586 2.586A2 2 0 0 0 11.172 2H4a2 2 0 0 0-2 2v7.172a2 2 0 0 0 .586 1.414l8.704 8.704a2.426 2.426 0 0 0 3.42 0l6.58-6.58a2.426 2.426 0 0 0 0-3.42z"/><circle cx="7.5" cy="7.5" r=".5" fill="currentColor"/>',
@@ -87,6 +95,54 @@ export function Icon({ name, size = 16, strokeWidth = 2, style }) {
       strokeWidth={strokeWidth} strokeLinecap="round" strokeLinejoin="round"
       aria-hidden="true" style={{ flexShrink: 0, ...style }}
       dangerouslySetInnerHTML={{ __html: inner }} />
+  );
+}
+
+/**
+ * Compact, icon-only action for dense rows and cards.
+ *
+ * `label` deliberately powers both the accessible name and the native tooltip,
+ * so reducing visible button text never removes the meaning of the control.
+ * Callers keep their original handler, disabled state, permission gate and
+ * visual variant through normal button props and `className`.
+ */
+export function IconButton({
+  icon,
+  label,
+  className = 'btn btn-sm btn-secondary',
+  iconSize = 15,
+  type = 'button',
+  ...props
+}) {
+  if (!label) throw new Error('IconButton requires a label');
+  const classes = `${className} btn-icon`.trim();
+  const safeIcon = ICON_PATHS[icon] ? icon : 'alert-circle';
+  return (
+    <button {...props} type={type} className={classes} aria-label={label} title={label}>
+      <Icon name={safeIcon} size={iconSize} />
+    </button>
+  );
+}
+
+/** Compact export control whose file type remains readable at a glance. */
+export function FileDownloadButton({
+  format,
+  label,
+  visibleLabel,
+  className = 'btn btn-sm btn-secondary',
+  type = 'button',
+  ...props
+}) {
+  if (!label) throw new Error('FileDownloadButton requires a label');
+  const isPdf = String(format).toLowerCase() === 'pdf';
+  const text = visibleLabel || (isPdf ? 'PDF' : 'XLS');
+  return (
+    <button {...props} type={type}
+      className={`${className} btn-file-download ${isPdf ? 'is-pdf' : 'is-excel'}${visibleLabel ? ' has-label' : ''}`}
+      aria-label={label} title={label}>
+      <Icon name="download" size={14} strokeWidth={2.25} />
+      <span aria-hidden="true">{text}</span>
+    </button>
   );
 }
 
@@ -626,14 +682,9 @@ export function ExportButton({ data, fetchData, filename, sheetName }) {
     }
   }
 
-  return (
-    <button className="btn btn-secondary btn-sm" onClick={run} disabled={busy} title="Export to Excel">
-      <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
-        <path d="M21 15v4a2 2 0 01-2 2H5a2 2 0 01-2-2v-4"/><polyline points="7 10 12 15 17 10"/><line x1="12" y1="15" x2="12" y2="3"/>
-      </svg>
-      {busy ? t('common.exporting') : t('common.export')}
-    </button>
-  );
+  return <FileDownloadButton format="excel"
+    label={busy ? t('common.exporting') : t('common.downloadExcel')}
+    onClick={run} disabled={busy} />;
 }
 
 // ── WhatsApp share ─────────────────────────────────────────────────────────
@@ -809,21 +860,17 @@ export function Pagination({ page, totalPages, pageSize, pageSizes, totalRows, s
             options={(pageSizes).map(n => ({ value: n, label: n }))} />
         </label>
         <div style={{ display: 'flex', gap: 3 }}>
-          <button className="btn btn-sm btn-secondary btn-icon" disabled={page <= 1} onClick={() => setPage(1)} title="First">
-            <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round"><polyline points="11 17 6 12 11 7"/><polyline points="18 17 13 12 18 7"/></svg>
-          </button>
-          <button className="btn btn-sm btn-secondary btn-icon" disabled={page <= 1} onClick={() => setPage(p => p - 1)} title="Previous">
-            <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round"><polyline points="15 18 9 12 15 6"/></svg>
-          </button>
+          <IconButton icon="chevrons-left" label={t('common.firstPage')} iconSize={12}
+            disabled={page <= 1} onClick={() => setPage(1)} />
+          <IconButton icon="chevron-left" label={t('common.previous')} iconSize={12}
+            disabled={page <= 1} onClick={() => setPage(p => p - 1)} />
           <span style={{ padding: '0 8px', lineHeight: '28px', fontSize: 12.5, color: 'var(--text-2)', fontWeight: 600 }}>
             {page} / {totalPages}
           </span>
-          <button className="btn btn-sm btn-secondary btn-icon" disabled={page >= totalPages} onClick={() => setPage(p => p + 1)} title="Next">
-            <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round"><polyline points="9 18 15 12 9 6"/></svg>
-          </button>
-          <button className="btn btn-sm btn-secondary btn-icon" disabled={page >= totalPages} onClick={() => setPage(totalPages)} title="Last">
-            <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round"><polyline points="13 17 18 12 13 7"/><polyline points="6 17 11 12 6 7"/></svg>
-          </button>
+          <IconButton icon="chevron-right" label={t('common.next')} iconSize={12}
+            disabled={page >= totalPages} onClick={() => setPage(p => p + 1)} />
+          <IconButton icon="chevrons-right" label={t('common.lastPage')} iconSize={12}
+            disabled={page >= totalPages} onClick={() => setPage(totalPages)} />
         </div>
       </div>
     </div>

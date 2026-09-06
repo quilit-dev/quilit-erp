@@ -1,6 +1,6 @@
 import { useState } from 'react';
 import { useLocale } from '../../hooks/useLocale.jsx';
-import { toast } from '../../components/shared';
+import { toast, IconButton } from '../../components/shared';
 import { updateTaskProgress } from '../../api/client';
 import { Badge, ProgressBar } from './ui';
 import { PRIORITIES, STATUS_BADGE, PRIORITY_BADGE, STATUS_KEY, PRIORITY_KEY, tEnum, STATUSES } from './constants';
@@ -129,9 +129,7 @@ function ListView({ tasks, projects, onEdit, onArchive, onRestore, onRefresh }) 
                 <td>
                   <div style={{ display: 'flex', gap: 4, justifyContent: 'flex-end' }}>
                     {task.archived_at ? (
-                      <button className="btn btn-outline btn-sm" onClick={() => onRestore(task)} title={t('common.restore')}>
-                        <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true"><polyline points="1 4 1 10 7 10"/><path d="M3.51 15a9 9 0 1 0 2.13-9.36L1 10"/></svg>{t('common.restore')}
-                      </button>
+                      <IconButton icon="rotate-ccw" label={t('common.restore')} className="btn btn-outline btn-sm" onClick={() => onRestore(task)} />
                     ) : (
                       <>
                         <button className="btn btn-outline btn-sm" onClick={() => onEdit(task)} title={t('planning.editTaskTitle')}>

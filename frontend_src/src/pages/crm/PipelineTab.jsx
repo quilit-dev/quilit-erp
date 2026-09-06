@@ -2,7 +2,7 @@ import { useState } from 'react';
 import { useData } from '../../hooks/useData';
 import {
   LoadingSpinner, ErrorAlert, EmptyState, Modal, ConfirmModal,
-  ExportButton, toast, fmtDate, NumberInput,
+  ExportButton, toast, fmtDate, NumberInput, IconButton,
 } from '../../components/shared';
 import {
   getCRMDeals, createCRMDeal, updateCRMDeal, updateDealStage,
@@ -235,8 +235,7 @@ function PipelineTab({ t }) {
                   <td>{d.client_name || d.lead_name || '—'}</td>
                   <td className="fw-600">{fmtCurr(d.value)}</td>
                   <td style={{ textAlign: 'end' }}>
-                    <button className="btn btn-sm btn-secondary" style={{ color: 'var(--affirm-ink)', whiteSpace: 'nowrap' }}
-                      onClick={() => handleUnarchive(d)}><svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true"><polyline points="1 4 1 10 7 10"/><path d="M3.51 15a9 9 0 1 0 2.13-9.36L1 10"/></svg>{t('common.restore')}</button>
+                    <IconButton icon="rotate-ccw" label={t('common.restore')} className="btn btn-sm btn-secondary" style={{ color: 'var(--affirm-ink)', whiteSpace: 'nowrap' }} onClick={() => handleUnarchive(d)} />
                   </td>
                 </tr>
               ))}
@@ -288,9 +287,7 @@ function PipelineTab({ t }) {
                   )}
 
                   <div style={{ display: 'flex', gap: 4, flexWrap: 'wrap' }}>
-                    <button className="btn btn-sm btn-secondary" onClick={() => { setSelected(deal); setModal('edit'); }} style={{ fontSize: 11 }}>
-                      {t('common.edit')}
-                    </button>
+                    <IconButton icon="pencil" label={t('common.edit')} className="btn btn-sm btn-secondary" onClick={() => { setSelected(deal); setModal('edit'); }} style={{ fontSize: 11 }} />
                     {stage !== 'Won' && stage !== 'Lost' && (
                       <>
                         {DEAL_STAGES.indexOf(stage) < 2 && (

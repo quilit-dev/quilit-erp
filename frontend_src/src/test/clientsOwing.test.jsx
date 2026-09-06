@@ -76,6 +76,7 @@ describe('the outstanding report', () => {
   });
 
   test('the button cannot be pressed twice while it works', () => {
+    expect(clientsSrc).toMatch(/visibleLabel=\{pdfBusy \? t\('common\.loading'\) : t\('clients\.owingPdf'\)\}/);
     expect(clientsSrc).toMatch(/disabled=\{pdfBusy\}/);
     expect(clientsSrc).toMatch(/finally \{ setPdfBusy\(false\); \}/);
   });

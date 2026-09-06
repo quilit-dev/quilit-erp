@@ -1,6 +1,6 @@
 import { useState, useEffect } from 'react';
 import * as XLSX from 'xlsx';
-import { LoadingSpinner, ErrorAlert, fmt } from '../../components/shared';
+import { LoadingSpinner, ErrorAlert, fmt, FileDownloadButton } from '../../components/shared';
 import { getInventoryByWarehouseReport } from '../../api/client';
 import { exportReportPDF } from '../../utils/exportUtils.js';
 
@@ -97,9 +97,11 @@ function WarehouseValuationReport({ t }) {
             <div className="card-subtitle">{t('reports.whSubtitle')}</div>
           </div>
           <div style={{ display: 'inline-flex', gap: 6 }}>
-            <button className="btn btn-sm btn-outline" onClick={exportXlsx}>{t('reports.whExport')}</button>
-            <button className="btn btn-sm btn-outline" onClick={exportPdf}
-                    disabled={!warehouses.length}>{t('reports.exportPDF')}</button>
+            <FileDownloadButton format="excel" label={t('common.downloadExcel')}
+              className="btn btn-sm btn-outline" onClick={exportXlsx} />
+            <FileDownloadButton format="pdf" label={t('common.downloadPdf')}
+              className="btn btn-sm btn-outline" onClick={exportPdf}
+              disabled={!warehouses.length} />
           </div>
         </div>
         <div className="table-wrap">

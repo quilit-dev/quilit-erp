@@ -1,7 +1,7 @@
 import { useState, useCallback } from 'react';
 import { useData } from '../../hooks/useData';
 import {
-  LoadingSpinner, ErrorAlert, EmptyState, Modal, ConfirmModal, toast, fmtDate,
+  LoadingSpinner, ErrorAlert, EmptyState, Modal, ConfirmModal, toast, fmtDate, IconButton,
 } from '../../components/shared';
 import {
   getCRMActivities, createCRMActivity, updateCRMActivity,
@@ -204,8 +204,8 @@ function ActivitiesTab({ t }) {
                     <button className="btn btn-sm btn-secondary" onClick={() => handleToggle(a)}>
                       {done ? t('crm.markUndone') : t('crm.markDone')}
                     </button>
-                    <button className="btn btn-sm btn-secondary" onClick={() => { setSelected(a); setModal('form'); }}>{t('common.edit')}</button>
-                    <button className="btn btn-sm btn-danger"    onClick={() => { setSelected(a); setModal('delete'); }}>{t('common.delete')}</button>
+                    <IconButton icon="pencil" label={t('common.edit')} className="btn btn-sm btn-secondary" onClick={() => { setSelected(a); setModal('form'); }} />
+                    <IconButton icon="trash" label={t('common.delete')} className="btn btn-sm btn-danger" onClick={() => { setSelected(a); setModal('delete'); }} />
                   </div>
                 </div>
               );

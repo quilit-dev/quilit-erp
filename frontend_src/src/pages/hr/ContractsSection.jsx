@@ -1,6 +1,6 @@
 import { useState, useCallback, useEffect } from 'react';
 import { useLocale } from '../../hooks/useLocale.jsx';
-import { LoadingSpinner, EmptyState, Modal, fmt, fmtDate, toast, NumberInput } from '../../components/shared';
+import { LoadingSpinner, EmptyState, Modal, fmt, fmtDate, toast, NumberInput, IconButton } from '../../components/shared';
 import { getContracts, createContract, updateContract,
          setContractStatus, getContractPrintData } from '../../api/client';
 import { contractStatusLabel } from './constants';
@@ -72,7 +72,7 @@ function ContractsSection({ empId, canEdit }) {
                       <button className="btn btn-sm btn-secondary" onClick={() => printContract(c.id)}>📄 {t('hr.print')}</button>
                       {canEdit && (
                         <>
-                          <button className="btn btn-sm btn-secondary" onClick={() => { setEditing(c); setFormOpen(true); }}>{t('common.edit')}</button>
+                          <IconButton icon="pencil" label={t('common.edit')} className="btn btn-sm btn-secondary" onClick={() => { setEditing(c); setFormOpen(true); }} />
                           {c.status === 'Draft' && (
                             <button className="btn btn-sm btn-primary" onClick={() => setStatus(c.id, 'Active')}>{t('hr.activate')}</button>
                           )}

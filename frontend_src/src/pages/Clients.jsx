@@ -7,7 +7,7 @@ import { getClients, createClient, updateClient, archiveClient, unarchiveClient 
 import { exportReportPDF } from '../utils/exportUtils';
 import {
   LoadingSpinner, ErrorAlert, EmptyState, Modal, ConfirmModal,
-  ExportButton, fmtDate, fmt, toast, SortableTh, Pagination, NumberInput
+  ExportButton, fmtDate, fmt, toast, SortableTh, Pagination, NumberInput, IconButton, FileDownloadButton
 } from '../components/shared';
 import { CURRENCIES } from './settings/ui';
 import { useLocale } from '../hooks/useLocale.jsx';
@@ -165,9 +165,10 @@ export default function Clients() {
         subtitle={t('clients.totalClients', { count: total })}
         actions={<>
           <ExportButton fetchData={fetchExportRows} filename="Clients" sheetName="Clients" />
-          <button className="btn btn-secondary" onClick={downloadOwingPDF} disabled={pdfBusy}>
-            📄 {pdfBusy ? t('common.loading') : t('clients.owingPdf')}
-          </button>
+          <FileDownloadButton format="pdf"
+            label={pdfBusy ? t('common.loading') : t('clients.owingPdf')}
+            visibleLabel={pdfBusy ? t('common.loading') : t('clients.owingPdf')}
+            className="btn btn-secondary" onClick={downloadOwingPDF} disabled={pdfBusy} />
           <button className="btn btn-secondary" onClick={() => setImporting(true)}>⬆ {t('imports.importBtn')}</button>
           <button className="btn btn-primary" onClick={openCreate}>{t('clients.addClient')}</button>
         </>}
@@ -240,14 +241,13 @@ export default function Clients() {
                     <td>{fmtDate(c.created_at)}</td>
                     <td>
                       <div style={{ display: 'flex', gap: 6 }}>
-                        <button className="btn btn-sm btn-primary"    onClick={() => navigate(`/clients/${c.id}`)}>{t('common.view')}</button>
+                        <IconButton icon="eye" label={t('common.view')} className="btn btn-sm btn-primary" onClick={() => navigate(`/clients/${c.id}`)} />
                         {isArchived ? (
-                          <button className="btn btn-sm btn-secondary" style={{ color: 'var(--affirm-ink)' }}
-                            onClick={() => setRestoreId(c.id)}><svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true"><polyline points="1 4 1 10 7 10"/><path d="M3.51 15a9 9 0 1 0 2.13-9.36L1 10"/></svg>{t('common.restore')}</button>
+                          <IconButton icon="rotate-ccw" label={t('common.restore')} className="btn btn-sm btn-secondary" style={{ color: 'var(--affirm-ink)' }} onClick={() => setRestoreId(c.id)} />
                         ) : (
                           <>
-                            <button className="btn btn-sm btn-secondary"  onClick={() => openEdit(c)}>{t('common.edit')}</button>
-                            <button className="btn btn-sm btn-danger"     onClick={() => setDeleteId(c.id)}>{t('common.archive')}</button>
+                            <IconButton icon="pencil" label={t('common.edit')} className="btn btn-sm btn-secondary" onClick={() => openEdit(c)} />
+                            <IconButton icon="archive" label={t('common.archive')} className="btn btn-sm btn-danger" onClick={() => setDeleteId(c.id)} />
                           </>
                         )}
                       </div>

@@ -7,7 +7,7 @@ import { getExpenses, getProjects, createExpense, updateExpense, voidExpense,
 import {
   LoadingSpinner, ErrorAlert, EmptyState, Modal,
   ExportButton, fmt, fmtDate, toast, SortableTh, Pagination,
-  CATEGORY_HUE, CategoryBadge, SelectOther, NumberInput, BranchField} from '../components/shared';
+  CATEGORY_HUE, CategoryBadge, SelectOther, NumberInput, BranchField, IconButton} from '../components/shared';
 import { useSortPaginate } from '../hooks/useSortPaginate';
 import { useLocale } from '../hooks/useLocale.jsx';
 import BankField, { useBankAccounts } from '../components/BankField.jsx';
@@ -338,15 +338,10 @@ function TransactionsPanel() {
                       </td>
                       <td style={{ textAlign: 'right' }}>
                         {exp.archived_at ? (
-                          <button className="btn btn-sm btn-secondary"
-                            onClick={() => handleRestore(exp)}>
-                            {t('common.restore')}
-                          </button>
+                          <IconButton icon="rotate-ccw" label={t('common.restore')} className="btn btn-sm btn-secondary" onClick={() => handleRestore(exp)} />
                         ) : !exp.voided_at ? (
                           <div style={{ display: 'flex', gap: 6, justifyContent: 'flex-end' }}>
-                            <button className="btn btn-sm btn-secondary" onClick={() => openEdit(exp)}>
-                              {t('common.edit')}
-                            </button>
+                            <IconButton icon="pencil" label={t('common.edit')} className="btn btn-sm btn-secondary" onClick={() => openEdit(exp)} />
                             <button className="btn btn-sm btn-danger" onClick={() => { setVoidTarget(exp); setVoidReason(''); }}>
                               {t('expenses.voidBtn')}
                             </button>
@@ -354,10 +349,7 @@ function TransactionsPanel() {
                         ) : (
                           /* Voided: the money is already reversed, so the only
                              thing left to do with it is file it away. */
-                          <button className="btn btn-sm btn-secondary"
-                            onClick={() => handleArchive(exp)}>
-                            {t('common.archive')}
-                          </button>
+                          <IconButton icon="archive" label={t('common.archive')} className="btn btn-sm btn-secondary" onClick={() => handleArchive(exp)} />
                         )}
                       </td>
                     </tr>

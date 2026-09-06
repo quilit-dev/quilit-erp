@@ -2,7 +2,7 @@ import { useState, useEffect } from 'react';
 import { useParams, useNavigate, Link } from 'react-router-dom';
 import { getProject, getInventory, deductToProject, createExpense, updateExpense, voidExpense, updateProject, getDocumentContent } from '../api/client';
 import {
-  LoadingSpinner, ErrorAlert, Badge, fmt, fmtDate, toast, Modal, CategoryBadge, NumberInput, SelectOther,
+  LoadingSpinner, ErrorAlert, Badge, fmt, fmtDate, toast, Modal, CategoryBadge, NumberInput, SelectOther, IconButton,
 } from '../components/shared';
 import { useLocale } from '../hooks/useLocale.jsx';
 import { useCategories } from '../hooks/useCategories';
@@ -724,7 +724,7 @@ export default function ProjectDetail() {
                       <td style={{ textAlign: 'right' }}>
                         {!exp.voided_at ? (
                           <div style={{ display: 'flex', gap: 6, justifyContent: 'flex-end' }}>
-                            <button className="btn btn-sm btn-secondary" onClick={() => openEditExpense(exp)}>{t('common.edit')}</button>
+                            <IconButton icon="pencil" label={t('common.edit')} className="btn btn-sm btn-secondary" onClick={() => openEditExpense(exp)} />
                             <button className="btn btn-sm btn-danger" onClick={() => { setExpenseVoidTarget(exp); setExpenseVoidReason(''); }}>{t('expenses.voidBtn')}</button>
                           </div>
                         ) : (

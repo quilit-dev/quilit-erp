@@ -68,7 +68,7 @@ function ClientsReport({ params, t, tEnumValue }) {
 
       {top10.length > 0 && (
         <div className="card" style={{ marginBottom: 16 }}>
-          <div className="card-header"><span className="card-title">{t('reports.topByRevenue')}</span></div>
+          <div className="card-header chart-header"><h2 className="card-title">{t('reports.topByRevenue')}</h2></div>
           <div className="card-body">
             <HBarChart data={top10} labelKey="name" valueKey="total_paid" />
           </div>

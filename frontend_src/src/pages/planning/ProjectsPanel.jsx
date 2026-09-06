@@ -1,6 +1,7 @@
 import { useLocale } from '../../hooks/useLocale.jsx';
 import { Badge, ProgressBar } from './ui';
 import { PROJ_STATUS_KEY, tEnum } from './constants';
+import { IconButton } from '../../components/shared';
 
 function ProjectsPanel({ projects, tasks, onNew, onEdit, onArchive, onRestore }) {
   const { t } = useLocale();
@@ -43,10 +44,10 @@ function ProjectsPanel({ projects, tasks, onNew, onEdit, onArchive, onRestore })
                 {proj.end_date && <span style={{ fontSize: 10, color: 'var(--text-3)' }}>{proj.end_date}</span>}
                 <div style={{ marginLeft: 'auto', display: 'flex', gap: 4 }}>
                   {isArchived ? (
-                    <button className="btn btn-outline btn-sm" onClick={() => onRestore(proj)}><svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true"><polyline points="1 4 1 10 7 10"/><path d="M3.51 15a9 9 0 1 0 2.13-9.36L1 10"/></svg>{t('common.restore')}</button>
+                    <IconButton icon="rotate-ccw" label={t('common.restore')} className="btn btn-outline btn-sm" onClick={() => onRestore(proj)} />
                   ) : (
                     <>
-                      <button className="btn btn-outline btn-sm" onClick={() => onEdit(proj)}>{t('common.edit')}</button>
+                      <IconButton icon="pencil" label={t('common.edit')} className="btn btn-outline btn-sm" onClick={() => onEdit(proj)} />
                       <button className="btn btn-outline btn-sm" style={{ color: 'var(--text-3)' }} onClick={() => onArchive(proj)}>
                         <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><polyline points="21 8 21 21 3 21 3 8"/><rect x="1" y="3" width="22" height="5"/></svg>
                       </button>

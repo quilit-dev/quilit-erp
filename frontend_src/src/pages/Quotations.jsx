@@ -162,8 +162,8 @@ function QuoteActionMenu({ doc, exporting, isVoided, onEdit, onExport,
             onClick={() => { setOpen(false); onExport('excel'); }}
           >
             {exporting === 'excel'
-              ? <><Icon name="loader" size={14} style={SPIN} /><span>{t('common.exporting')}</span></>
-              : <><Icon name="file-spreadsheet" size={14} /><span>{t('quotations.exportXls')}</span></>}
+              ? <><Icon name="loader" size={14} style={SPIN} /><span>Excel</span></>
+              : <><Icon name="download-excel" size={18} /><span>Excel</span></>}
           </button>
 
           {/* Browser-rendered from the HTML/CSS template in exportUtils.js —
@@ -174,8 +174,8 @@ function QuoteActionMenu({ doc, exporting, isVoided, onEdit, onExport,
             onClick={() => { setOpen(false); onExport('pdf'); }}
           >
             {exporting === 'pdf'
-              ? <><Icon name="loader" size={14} style={SPIN} /><span>{t('common.exporting')}</span></>
-              : <><Icon name="file-text" size={14} /><span>{t('quotations.exportPdf')}</span></>}
+              ? <><Icon name="loader" size={14} style={SPIN} /><span>PDF</span></>
+              : <><Icon name="download-pdf" size={18} /><span>PDF</span></>}
           </button>
 
           {/* No WhatsApp / email entries here — the row's Send button covers

@@ -1,6 +1,6 @@
 import { useState, useEffect, useCallback } from 'react';
 import { useLocale } from '../../hooks/useLocale.jsx';
-import { LoadingSpinner, ErrorAlert, EmptyState } from '../../components/shared';
+import { LoadingSpinner, ErrorAlert, EmptyState, IconButton } from '../../components/shared';
 import { getBoms } from '../../api/client';
 import { Money, TypeTag } from './ui';
 import { BomModal } from './BomModal';
@@ -57,9 +57,7 @@ function BomsView({ canCreate, canEdit, canDelete, products, refreshKey, bump })
                     <td><Money value={b.batch_cost} /></td>
                     <td><Money value={b.unit_cost} /></td>
                     <td onClick={e => e.stopPropagation()}>
-                      <button className="btn btn-secondary btn-sm" onClick={() => setDetailId(b.id)}>
-                        {t('common.view')}
-                      </button>
+                      <IconButton icon="eye" label={t('common.view')} className="btn btn-secondary btn-sm" onClick={() => setDetailId(b.id)} />
                     </td>
                   </tr>
                 ))}

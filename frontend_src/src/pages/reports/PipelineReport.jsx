@@ -30,9 +30,9 @@ function PipelineReport({ params, t }) {
   };
 
   const pipelineCols = [
-    { label: 'Status', value: r => r.status, align: 'left'  },
-    { label: 'Count',  value: r => r.count,  align: 'right' },
-    { label: 'Value',  value: r => r.value,  align: 'right' },
+    { label: t('reports.status'), value: r => r.status, align: 'left'  },
+    { label: t('reports.count'),  value: r => r.count,  align: 'right' },
+    { label: t('reports.value'),  value: r => r.value,  align: 'right' },
   ];
 
   return (
@@ -47,8 +47,8 @@ function PipelineReport({ params, t }) {
 
       <div style={{ display: 'grid', gridTemplateColumns: 'minmax(0, 1fr) minmax(0, 1fr)', gap: 16, marginBottom: 16 }}>
         <div className="card">
-          <div className="card-header">
-            <span className="card-title">{t('reports.byStatusCount')}</span>
+          <div className="card-header chart-header">
+            <h2 className="card-title">{t('reports.byStatusCount')}</h2>
             <ExportButtons
               rows={data.by_status} columns={pipelineCols}
               baseName="sales_pipeline" pdfTitle={t('reports.pipeline') || 'Sales Pipeline'} t={t} />
@@ -63,7 +63,7 @@ function PipelineReport({ params, t }) {
           </div>
         </div>
         <div className="card">
-          <div className="card-header"><span className="card-title">{t('reports.monthlyVolume')}</span></div>
+          <div className="card-header chart-header"><h2 className="card-title">{t('reports.monthlyVolume')}</h2></div>
           <div className="card-body">
             {data.monthly.length === 0
               ? <div style={{ color: 'var(--text-3)', fontSize: 13 }}>{t('reports.noPipeline')}</div>
@@ -76,7 +76,7 @@ function PipelineReport({ params, t }) {
       {data.by_status.length > 0 && (
         <div style={{ display: 'grid', gridTemplateColumns: 'minmax(0, 1fr) minmax(0, 1fr)', gap: 16, marginBottom: 16 }}>
           <div className="card">
-            <div className="card-header"><span className="card-title">{t('reports.byStatus')} — Value</span></div>
+            <div className="card-header"><span className="card-title">{t('reports.byStatusValue')}</span></div>
             <div className="table-wrap">
               <table>
                 <thead>
@@ -84,7 +84,7 @@ function PipelineReport({ params, t }) {
                     <th>{t('reports.status')}</th>
                     <th style={{ textAlign: 'right' }}>{t('reports.count')}</th>
                     <th style={{ textAlign: 'right' }}>{t('reports.value')}</th>
-                    <th style={{ textAlign: 'right' }}>Share</th>
+                    <th style={{ textAlign: 'right' }}>{t('reports.share')}</th>
                   </tr>
                 </thead>
                 <tbody>
@@ -104,7 +104,7 @@ function PipelineReport({ params, t }) {
           </div>
           {data.top_clients.length > 0 && (
             <div className="card">
-              <div className="card-header"><span className="card-title">{t('reports.topClients')}</span></div>
+              <div className="card-header chart-header"><h2 className="card-title">{t('reports.topClients')}</h2></div>
               <div className="card-body">
                 <HBarChart data={data.top_clients} labelKey="client_name" valueKey="value" />
               </div>

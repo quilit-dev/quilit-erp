@@ -437,9 +437,9 @@ export default function Dashboard() {
         <div style={{ display: 'grid', gridTemplateColumns: '1fr 320px', gap: 16, marginTop: 20, marginBottom: 16 }}
              className="dash-chart-row">
           <div className="card">
-            <div className="card-header">
-              <div>
-                <div className="card-title">{t('dashboard.revenueVsExpenses')}</div>
+            <div className="card-header chart-header">
+              <div className="card-header-titles">
+                <h2 className="card-title">{t('dashboard.revenueVsExpenses')}</h2>
                 <div className="card-subtitle">{t('dashboard.last6Months')}</div>
               </div>
               <div style={{ display: 'flex', gap: 14, fontSize: 11, color: 'var(--text-3)', alignItems: 'center' }}>
@@ -452,7 +452,13 @@ export default function Dashboard() {
               </div>
             </div>
             <div className="card-body">
-              <BarChart data={months.map(m => ({ month: m.month, income: m.income || 0, expenses: m.expenses || 0 }))} height={180} />
+              <BarChart
+                data={months.map(m => ({ month: m.month, income: m.income || 0, expenses: m.expenses || 0 }))}
+                height={180}
+                incomeLabel={t('dashboard.revenue')}
+                expensesLabel={t('dashboard.expenses')}
+                emptyLabel={t('common.noData')}
+              />
             </div>
           </div>
 

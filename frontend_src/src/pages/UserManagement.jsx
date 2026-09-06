@@ -3,7 +3,7 @@ import {
   getUsers, createUser, updateUser, deleteUser,
   toggleUserActive, resetUserPassword, getRoles, getBranchContext,
 } from '../api/client';
-import { Modal, ConfirmModal, LoadingSpinner, ErrorAlert, fmtDate, toast } from '../components/shared';
+import { Modal, ConfirmModal, LoadingSpinner, ErrorAlert, fmtDate, toast, IconButton } from '../components/shared';
 import { useLocale } from '../hooks/useLocale.jsx';
 import SearchSelect from '../components/SearchSelect.jsx';
 
@@ -238,33 +238,28 @@ export default function UserManagement() {
                   <td style={{ fontSize: 12.5, color: 'var(--text-3)' }}>{u.last_login ? fmtDate(u.last_login) : t('common.never')}</td>
                   <td>
                     <div style={{ display: 'flex', gap: 4 }}>
-                      <button className="btn btn-sm btn-secondary btn-icon" title="Edit" onClick={() => openEdit(u)}>
-                        <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round"><path d="M11 4H4a2 2 0 00-2 2v14a2 2 0 002 2h14a2 2 0 002-2v-7"/><path d="M18.5 2.5a2.121 2.121 0 013 3L12 15l-4 1 1-4 9.5-9.5z"/></svg>
-                      </button>
-                      <button className="btn btn-sm btn-secondary btn-icon" title="Reset Password" onClick={() => openReset(u)}>
-                        <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round"><rect x="3" y="11" width="18" height="11" rx="2"/><path d="M7 11V7a5 5 0 0110 0v4"/></svg>
-                      </button>
-                      <button
-                        className={`btn btn-sm btn-icon ${u.is_active ? 'btn-secondary' : 'btn-secondary'}`}
-                        title={u.is_active ? 'Disable' : 'Enable'}
+                      <IconButton icon="pencil" label={t('users.editUser')} iconSize={12}
+                        onClick={() => openEdit(u)} />
+                      <IconButton icon="lock" label={t('users.resetPassword')} iconSize={12}
+                        onClick={() => openReset(u)} />
+                      <IconButton
+                        icon={u.is_active ? 'ban' : 'check-circle'}
+                        label={u.is_active ? t('common.deactivate') : t('common.activate')}
+                        className="btn btn-sm btn-secondary"
                         style={{ color: u.is_active ? 'var(--yellow)' : 'var(--green)' }}
                         onClick={() => handleToggle(u)}
                         disabled={u.id === me.id}
-                      >
-                        {u.is_active
-                          ? <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round"><circle cx="12" cy="12" r="10"/><line x1="4.93" y1="4.93" x2="19.07" y2="19.07"/></svg>
-                          : <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round"><circle cx="12" cy="12" r="10"/><polyline points="9 11 12 14 22 4"/></svg>
-                        }
-                      </button>
-                      <button
-                        className="btn btn-sm btn-icon"
+                        iconSize={12}
+                      />
+                      <IconButton
+                        icon="trash"
+                        label={t('users.deleteUser')}
+                        className="btn btn-sm"
                         style={{ color: 'var(--red)' }}
-                        title="Delete"
                         disabled={u.id === me.id}
                         onClick={() => setConfirm(u)}
-                      >
-                        <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round"><polyline points="3 6 5 6 21 6"/><path d="M19 6l-1 14a2 2 0 01-2 2H8a2 2 0 01-2-2L5 6"/></svg>
-                      </button>
+                        iconSize={12}
+                      />
                     </div>
                   </td>
                 </tr>

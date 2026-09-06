@@ -1,5 +1,5 @@
 import { useState, useEffect, useCallback } from 'react';
-import { LoadingSpinner, ErrorAlert, EmptyState, Modal, ConfirmModal, toast } from '../../components/shared';
+import { LoadingSpinner, ErrorAlert, EmptyState, Modal, ConfirmModal, toast, IconButton } from '../../components/shared';
 import {
   getWarehouses, createWarehouse, updateWarehouse, archiveWarehouse,
   unarchiveWarehouse, setDefaultWarehouse,
@@ -175,9 +175,7 @@ function WarehousesTab({ canEdit, t }) {
                     <td>{r.archived_at ? new Date(r.archived_at).toLocaleDateString() : ''}</td>
                     {canEdit && (
                       <td style={{ textAlign: 'right' }}>
-                        <button className="btn btn-sm btn-outline" onClick={() => doRestore(r)}>
-                          <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true"><polyline points="1 4 1 10 7 10"/><path d="M3.51 15a9 9 0 1 0 2.13-9.36L1 10"/></svg>{t('common.restore')}
-                        </button>
+                        <IconButton icon="rotate-ccw" label={t('common.restore')} className="btn btn-sm btn-outline" onClick={() => doRestore(r)} />
                       </td>
                     )}
                   </tr>

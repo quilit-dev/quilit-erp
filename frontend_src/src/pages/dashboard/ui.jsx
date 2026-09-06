@@ -3,6 +3,7 @@
 import { useState } from 'react';
 import { useMoney, Icon } from '../../components/shared';
 import { useSettings } from '../../hooks/useSettings.jsx';
+import { useLocale } from '../../hooks/useLocale.jsx';
 
 // Resolve a period preset to a {start,end} ISO range. Kept tiny on purpose —
 // three presets cover the common SMB needs without a date-picker.
@@ -51,9 +52,26 @@ export function Sparkline({ data = [], color = 'var(--accent)', height = 32, wid
   );
 }
 
-export function BarChart({ data = [], height = 180 }) {
+function chartMonthLabel(value, lang) {
+  const raw = String(value || '');
+  const match = raw.match(/^(\d{4})-(\d{1,2})/);
+  if (!match) return raw.slice(0, 3);
+  const date = new Date(Date.UTC(Number(match[1]), Number(match[2]) - 1, 1));
+  return new Intl.DateTimeFormat(lang === 'ar' ? 'ar-SA' : 'en-US', {
+    month: 'short', timeZone: 'UTC',
+  }).format(date);
+}
+
+export function BarChart({
+  data = [],
+  height = 180,
+  incomeLabel = 'Revenue',
+  expensesLabel = 'Expenses',
+  emptyLabel = 'No data yet',
+}) {
   const [hovered, setHovered] = useState(null);
   const { exchangeRate, displayCurrency } = useSettings();
+  const { lang } = useLocale();
   const money = useMoney();
   // Stored amounts are USD; scale the axis ticks into the displayed currency so
   // the scale and the (currency-aware) tooltip never disagree. Ticks stay
@@ -68,46 +86,54 @@ export function BarChart({ data = [], height = 180 }) {
                : `${x.toFixed(0)}`;
     return lbp ? abbr : `$${abbr}`;
   };
-  if (!data.length) return (
-    <div style={{ height, display: 'flex', alignItems: 'center', justifyContent: 'center', color: 'var(--text-3)', fontSize: 13 }}>No data yet</div>
-  );
-  const maxVal = Math.max(...data.map(d => Math.max(d.income || 0, d.expenses || 0)), 1);
-  const labels = [maxVal, maxVal * 0.5, 0].map(tick);
+  if (!data.length) return <div className="dash-bar-empty" style={{ height }}>{emptyLabel}</div>;
+
+  const rawMax = Math.max(...data.map(d => Math.max(d.income || 0, d.expenses || 0)), 1);
+  const magnitude = 10 ** Math.floor(Math.log10(rawMax));
+  const normalized = rawMax / magnitude;
+  const niceFactor = normalized <= 1 ? 1 : normalized <= 2 ? 2 : normalized <= 5 ? 5 : 10;
+  const maxVal = niceFactor * magnitude;
+  const levels = [1, 2 / 3, 1 / 3, 0];
+
   return (
-    <div style={{ position: 'relative', height: height + 28, paddingBottom: 28 }}>
-      <div style={{ position: 'absolute', left: 0, top: 0, bottom: 24, display: 'flex', flexDirection: 'column', justifyContent: 'space-between', color: 'var(--text-3)', fontSize: 10, fontWeight: 600, width: 34 }}>
-        {labels.map((l, i) => <span key={i}>{l}</span>)}
+    <div className="dash-bar-chart" style={{ '--dash-chart-height': `${height}px` }}
+      role="group" aria-label={`${incomeLabel} / ${expensesLabel}`}>
+      <div className="dash-bar-axis" aria-hidden="true">
+        {levels.map(level => <span key={level}>{tick(maxVal * level)}</span>)}
       </div>
-      <div style={{ position: 'absolute', left: 38, right: 0, top: 0, bottom: 24, display: 'flex', flexDirection: 'column', justifyContent: 'space-between', pointerEvents: 'none' }}>
-        {[0,1,2].map(i => <div key={i} style={{ height: 1, background: 'var(--border)', opacity: .6 }} />)}
+      <div className="dash-bar-grid" aria-hidden="true">
+        {levels.map(level => <span key={level} />)}
       </div>
-      <div style={{ position: 'absolute', left: 38, right: 0, top: 0, bottom: 24, display: 'flex', alignItems: 'flex-end', gap: 6 }}>
+      <div className="dash-bar-plot">
         {data.map((d, i) => {
-          const incPct = ((d.income || 0) / maxVal) * 100;
-          const expPct = ((d.expenses || 0) / maxVal) * 100;
+          const income = Math.max(0, Number(d.income) || 0);
+          const expenses = Math.max(0, Number(d.expenses) || 0);
+          const incPct = (income / maxVal) * 100;
+          const expPct = (expenses / maxVal) * 100;
           const isHov = hovered === i;
+          const month = d.month ? chartMonthLabel(d.month, lang) : `M${i + 1}`;
           return (
-            <div key={i} style={{ flex: 1, display: 'flex', flexDirection: 'column', alignItems: 'center', height: '100%', position: 'relative' }}
-              onMouseEnter={() => setHovered(i)} onMouseLeave={() => setHovered(null)}>
+            <div key={i} className={`dash-bar-group${isHov ? ' is-active' : ''}`}
+              role="group"
+              tabIndex="0"
+              aria-label={`${month}. ${incomeLabel}: ${money(income)}. ${expensesLabel}: ${money(expenses)}.`}
+              onMouseEnter={() => setHovered(i)} onMouseLeave={() => setHovered(null)}
+              onFocus={() => setHovered(i)} onBlur={() => setHovered(null)}>
               {isHov && (
-                <div style={{ position: 'absolute', bottom: '100%', left: '50%', transform: 'translateX(-50%)', background: 'var(--text)', color: 'var(--surface)', fontSize: 10, fontWeight: 600, padding: '4px 8px', borderRadius: 5, whiteSpace: 'nowrap', zIndex: 10, marginBottom: 4 }}>
-                  {money(d.income)} / {money(d.expenses)}
+                <div className="dash-bar-tooltip" role="tooltip">
+                  <strong>{month}</strong>
+                  <span><i className="is-income" />{incomeLabel}<b>{money(income)}</b></span>
+                  <span><i className="is-expense" />{expensesLabel}<b>{money(expenses)}</b></span>
                 </div>
               )}
-              <div style={{ width: '100%', display: 'flex', gap: 2, alignItems: 'flex-end', height: '100%' }}>
-                <div style={{ flex: 1, height: `${incPct}%`, background: 'var(--green)', borderRadius: '3px 3px 0 0', transition: 'height .5s ease, opacity .2s', opacity: isHov ? 1 : 0.75, minHeight: incPct > 0 ? 3 : 0 }} />
-                <div style={{ flex: 1, height: `${expPct}%`, background: 'var(--red)', borderRadius: '3px 3px 0 0', transition: 'height .5s ease, opacity .2s', opacity: isHov ? 1 : 0.6, minHeight: expPct > 0 ? 3 : 0 }} />
+              <div className="dash-bar-pair" aria-hidden="true">
+                <span className="dash-bar is-income" style={{ height: `${incPct}%`, minHeight: incPct > 0 ? 4 : 0 }} />
+                <span className="dash-bar is-expense" style={{ height: `${expPct}%`, minHeight: expPct > 0 ? 4 : 0 }} />
               </div>
+              <span className="dash-bar-month" aria-hidden="true">{month}</span>
             </div>
           );
         })}
-      </div>
-      <div style={{ position: 'absolute', left: 38, right: 0, bottom: 0, display: 'flex', gap: 6 }}>
-        {data.map((d, i) => (
-          <div key={i} style={{ flex: 1, textAlign: 'center', fontSize: 10, color: 'var(--text-3)', fontWeight: 600 }}>
-            {d.month ? d.month.slice(0, 3) : `M${i+1}`}
-          </div>
-        ))}
       </div>
     </div>
   );

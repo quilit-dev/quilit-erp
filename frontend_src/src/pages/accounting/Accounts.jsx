@@ -1,6 +1,6 @@
 import { useState, useEffect, useMemo, useCallback } from 'react';
 import { getAccounts, createAccount, updateAccount, deleteAccount } from '../../api/client';
-import { LoadingSpinner, Modal, ConfirmModal, toast } from '../../components/shared';
+import { LoadingSpinner, Modal, ConfirmModal, toast, IconButton } from '../../components/shared';
 import ImportWizard from '../../components/ImportWizard';
 import { ACCOUNT_TYPES } from './constants';
 import { SortableTh, Pager } from './ui';
@@ -152,7 +152,7 @@ function Accounts({ t, tAccount, tEnumValue, canCreate, canEdit, can }) {
                 <td>{tEnumValue(a.type)}</td>
                 <td style={{ color: 'var(--text-3)' }}>{a.subtype || '—'}{a.is_active ? '' : ` · ${t('accounting.inactive')}`}</td>
                 <td style={{ textAlign: 'right' }}>
-                  {canEdit && <button className="btn btn-sm btn-secondary" onClick={() => setModal({ ...a })}>{t('common.edit')}</button>}
+                  {canEdit && <IconButton icon="pencil" label={t('common.edit')} className="btn btn-sm btn-secondary" onClick={() => setModal({ ...a })} />}
                 </td>
                 <td style={{ textAlign: 'right' }}>
                   {canEdit && !a.is_system && (

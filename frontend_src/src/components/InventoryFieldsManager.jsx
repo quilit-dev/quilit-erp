@@ -1,6 +1,6 @@
 import { useState, useEffect, useCallback } from 'react';
 import { getAttributeDefs, createAttributeDef, updateAttributeDef, deleteAttributeDef } from '../api/client';
-import { Modal, ConfirmModal, toast } from './shared';
+import { Modal, ConfirmModal, toast, IconButton } from './shared';
 import { useLocale } from '../hooks/useLocale.jsx';
 import SearchSelect from '../components/SearchSelect.jsx';
 
@@ -159,8 +159,8 @@ export default function InventoryFieldsManager({ canEdit }) {
                   {canEdit && (
                     <td>
                       <div style={{ display: 'flex', gap: 6 }}>
-                        <button className="btn btn-sm btn-secondary" onClick={() => openEdit(d)}>{t('common.edit')}</button>
-                        <button className="btn btn-sm btn-danger" onClick={() => { setActive(d); setModal('delete'); }}>{t('common.delete')}</button>
+                        <IconButton icon="pencil" label={t('common.edit')} className="btn btn-sm btn-secondary" onClick={() => openEdit(d)} />
+                        <IconButton icon="trash" label={t('common.delete')} className="btn btn-sm btn-danger" onClick={() => { setActive(d); setModal('delete'); }} />
                       </div>
                     </td>
                   )}

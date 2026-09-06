@@ -57,7 +57,7 @@ function AgingReport({ t }) {
 
       {totalUnpaid > 0 && (
         <div className="card" style={{ marginBottom: 16 }}>
-          <div className="card-header"><span className="card-title">{t('reports.agingChart')}</span></div>
+          <div className="card-header chart-header"><h2 className="card-title">{t('reports.agingChart')}</h2></div>
           <div className="card-body"><AgingBucketBar summary={summary} /></div>
         </div>
       )}

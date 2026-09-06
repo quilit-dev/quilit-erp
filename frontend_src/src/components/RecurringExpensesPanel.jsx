@@ -7,7 +7,7 @@ import { useCategories } from '../hooks/useCategories';
 import SearchSelect from '../components/SearchSelect.jsx';
 import {
   LoadingSpinner, ErrorAlert, EmptyState, Modal, ConfirmModal,
-  fmt, fmtDate, toast, CategoryBadge, SelectOther, NumberInput} from './shared';
+  fmt, fmtDate, toast, CategoryBadge, SelectOther, NumberInput, IconButton} from './shared';
 import {
   getRecurringExpenses, createRecurringExpense, updateRecurringExpense,
   toggleRecurringExpense, runRecurringExpense, runDueRecurringExpenses,
@@ -240,9 +240,7 @@ export default function RecurringExpensesPanel() {
                       <div style={{ display: 'flex', gap: 6, justifyContent: 'flex-end' }}>
                         {r.archived_at ? (
                           can('expenses', 'edit') && (
-                            <button className="btn btn-sm btn-secondary" onClick={() => setRestore(r)}>
-                              <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true"><polyline points="1 4 1 10 7 10"/><path d="M3.51 15a9 9 0 1 0 2.13-9.36L1 10"/></svg>{t('common.restore')}
-                            </button>
+                            <IconButton icon="rotate-ccw" label={t('common.restore')} className="btn btn-sm btn-secondary" onClick={() => setRestore(r)} />
                           )
                         ) : (
                           <>
@@ -257,14 +255,10 @@ export default function RecurringExpensesPanel() {
                               </button>
                             )}
                             {can('expenses', 'edit') && (
-                              <button className="btn btn-sm btn-secondary" onClick={() => openEdit(r)}>
-                                {t('common.edit')}
-                              </button>
+                              <IconButton icon="pencil" label={t('common.edit')} className="btn btn-sm btn-secondary" onClick={() => openEdit(r)} />
                             )}
                             {can('expenses', 'delete') && (
-                              <button className="btn btn-sm btn-secondary" onClick={() => setArchive(r)}>
-                                {t('common.archive')}
-                              </button>
+                              <IconButton icon="archive" label={t('common.archive')} className="btn btn-sm btn-secondary" onClick={() => setArchive(r)} />
                             )}
                           </>
                         )}

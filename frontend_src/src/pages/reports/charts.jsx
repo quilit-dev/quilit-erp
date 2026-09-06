@@ -1,5 +1,5 @@
-import { useState, useEffect, useRef } from 'react';
-import { Badge, fmt, fmtDate } from '../../components/shared';
+import { useState, useEffect, useId, useRef } from 'react';
+import { Badge, fmt, fmtDate, FileDownloadButton } from '../../components/shared';
 import { exportReportPDF } from '../../utils/exportUtils.js';
 import * as XLSX from 'xlsx';
 
@@ -57,6 +57,21 @@ function niceMax(rawMax) {
   const norm = rawMax / mag;
   const nice = norm <= 1 ? 1 : norm <= 2 ? 2 : norm <= 5 ? 5 : 10;
   return nice * mag;
+}
+
+function smoothPath(points) {
+  if (points.length < 2) return points.length ? `M ${points[0][0]} ${points[0][1]}` : '';
+  return points.slice(1).reduce((path, point, i) => {
+    const p0 = points[Math.max(0, i - 1)];
+    const p1 = points[i];
+    const p2 = point;
+    const p3 = points[Math.min(points.length - 1, i + 2)];
+    const c1x = p1[0] + (p2[0] - p0[0]) / 6;
+    const c1y = p1[1] + (p2[1] - p0[1]) / 6;
+    const c2x = p2[0] - (p3[0] - p1[0]) / 6;
+    const c2y = p2[1] - (p3[1] - p1[1]) / 6;
+    return `${path} C ${c1x.toFixed(1)} ${c1y.toFixed(1)}, ${c2x.toFixed(1)} ${c2y.toFixed(1)}, ${p2[0].toFixed(1)} ${p2[1].toFixed(1)}`;
+  }, `M ${points[0][0].toFixed(1)} ${points[0][1].toFixed(1)}`);
 }
 
 function useContainerWidth(fallback = 600) {
@@ -124,6 +139,7 @@ function StatCard({ label, value, sub, color, icon }) {
 function LineChart({ data, label1, label2, color1 = 'var(--chart-1)', color2 = 'var(--chart-4)', key1 = 'income', key2 = 'expenses' }) {
   const [hovered, setHovered] = useState(null);
   const [containerRef, W] = useContainerWidth(640);
+  const chartId = useId().replace(/:/g, '');
 
   if (!data || data.length === 0) {
     return (
@@ -143,8 +159,12 @@ function LineChart({ data, label1, label2, color1 = 'var(--chart-1)', color2 = '
   const xStep = iW / Math.max(data.length - 1, 1);
   const yScale = v => iH - (v / maxV) * iH;
   const pts = key => data.map((d, i) => [PL + i * xStep, PT + yScale(d[key] || 0)]);
-  const toPath = points => points.map((p, i) => `${i === 0 ? 'M' : 'L'} ${p[0].toFixed(1)} ${p[1].toFixed(1)}`).join(' ');
   const pts1 = pts(key1), pts2 = pts(key2);
+  const path1 = smoothPath(pts1), path2 = smoothPath(pts2);
+  const notable = (key, i) => {
+    const values = data.map(d => Number(d[key]) || 0);
+    return i === 0 || i === data.length - 1 || values[i] === Math.max(...values) || values[i] === Math.min(...values);
+  };
   const tickCount = H > 220 ? 5 : 4;
   const yTicks = Array.from({ length: tickCount }, (_, i) => maxV * (i / (tickCount - 1)));
   const showLabel = i => data.length <= 12 ? true : data.length <= 18 ? i % 2 === 0 : i % 3 === 0;
@@ -154,16 +174,23 @@ function LineChart({ data, label1, label2, color1 = 'var(--chart-1)', color2 = '
       <svg viewBox={`0 0 ${W} ${H}`} width="100%" height={H}
         style={{ display: 'block', fontFamily: 'inherit', overflow: 'visible', cursor: 'crosshair', direction: 'ltr' }}>
         <defs>
-          <linearGradient id={`lg1_${key1}`} x1="0" y1="0" x2="0" y2="1">
+          <linearGradient id={`${chartId}-series-1`} x1="0" y1="0" x2="0" y2="1">
             <stop offset="0%" stopColor={color1} stopOpacity="0.22" />
             <stop offset="100%" stopColor={color1} stopOpacity="0" />
           </linearGradient>
-          <linearGradient id={`lg2_${key2}`} x1="0" y1="0" x2="0" y2="1">
+          <linearGradient id={`${chartId}-series-2`} x1="0" y1="0" x2="0" y2="1">
             <stop offset="0%" stopColor={color2} stopOpacity="0.14" />
             <stop offset="100%" stopColor={color2} stopOpacity="0" />
           </linearGradient>
-          <clipPath id={`clip_${key1}`}><rect x={PL} y={PT} width={iW} height={iH} /></clipPath>
+          <pattern id={`${chartId}-dots`} width="18" height="18" patternUnits="userSpaceOnUse">
+            <circle cx="9" cy="9" r="1" fill="var(--chart-grid)" opacity="0.45" />
+          </pattern>
+          <filter id={`${chartId}-glow`} x="-20%" y="-40%" width="140%" height="180%">
+            <feDropShadow dx="0" dy="4" stdDeviation="5" floodColor={color1} floodOpacity="0.18" />
+          </filter>
+          <clipPath id={`${chartId}-clip`}><rect x={PL} y={PT} width={iW} height={iH} /></clipPath>
         </defs>
+        <rect x={PL} y={PT} width={iW} height={iH} fill={`url(#${chartId}-dots)`} pointerEvents="none" />
         {yTicks.map((v, i) => {
           const y = PT + yScale(v);
           return (
@@ -183,11 +210,11 @@ function LineChart({ data, label1, label2, color1 = 'var(--chart-1)', color2 = '
           <line x1={PL + hovered * xStep} y1={PT} x2={PL + hovered * xStep} y2={PT + iH}
             stroke="var(--chart-guide)" strokeWidth="1" strokeDasharray="3,3" opacity="0.5" />
         )}
-        <g clipPath={`url(#clip_${key1})`}>
-          <path d={`${toPath(pts1)} L ${pts1[pts1.length-1][0]} ${PT+iH} L ${PL} ${PT+iH} Z`} fill={`url(#lg1_${key1})`} />
-          {key2 && <path d={`${toPath(pts2)} L ${pts2[pts2.length-1][0]} ${PT+iH} L ${PL} ${PT+iH} Z`} fill={`url(#lg2_${key2})`} />}
-          <path d={toPath(pts1)} fill="none" stroke={color1} strokeWidth="2.5" strokeLinejoin="round" strokeLinecap="round" />
-          {key2 && <path d={toPath(pts2)} fill="none" stroke={color2} strokeWidth="2" strokeLinejoin="round" strokeLinecap="round" strokeDasharray="5,3" />}
+        <g clipPath={`url(#${chartId}-clip)`}>
+          <path d={`${path1} L ${pts1[pts1.length-1][0]} ${PT+iH} L ${PL} ${PT+iH} Z`} fill={`url(#${chartId}-series-1)`} />
+          {key2 && <path d={`${path2} L ${pts2[pts2.length-1][0]} ${PT+iH} L ${PL} ${PT+iH} Z`} fill={`url(#${chartId}-series-2)`} />}
+          <path d={path1} fill="none" stroke={color1} strokeWidth="2.5" strokeLinejoin="round" strokeLinecap="round" filter={`url(#${chartId}-glow)`} />
+          {key2 && <path d={path2} fill="none" stroke={color2} strokeWidth="2" strokeLinejoin="round" strokeLinecap="round" />}
         </g>
         {data.map((d, i) => {
           const ix = pts1[i][0], iy = pts1[i][1];
@@ -196,8 +223,8 @@ function LineChart({ data, label1, label2, color1 = 'var(--chart-1)', color2 = '
           const zoneW = xStep || 20;
           return (
             <g key={i}>
-              <circle cx={ix} cy={iy} r={isH ? 5.5 : 3.5} fill={color1} stroke="var(--chart-halo)" strokeWidth="2" />
-              {key2 && <circle cx={ex} cy={ey} r={isH ? 4.5 : 3} fill={color2} stroke="var(--chart-halo)" strokeWidth="2" />}
+              {(isH || notable(key1, i)) && <circle cx={ix} cy={iy} r={isH ? 5.5 : 3.5} fill={color1} stroke="var(--chart-halo)" strokeWidth="2" />}
+              {key2 && (isH || notable(key2, i)) && <circle cx={ex} cy={ey} r={isH ? 4.5 : 3} fill={color2} stroke="var(--chart-halo)" strokeWidth="2" />}
               {isH && (
                 <ChartTooltip anchorX={ix} anchorY={Math.min(iy, ey)} svgWidth={W} visible>
                   <div style={{ fontWeight: 700, marginBottom: 2 }}>{fmtMonth(d.month)}</div>
@@ -212,7 +239,10 @@ function LineChart({ data, label1, label2, color1 = 'var(--chart-1)', color2 = '
               )}
               <rect x={PL + i * xStep - zoneW / 2} y={PT} width={zoneW} height={iH}
                 fill="transparent" style={{ cursor: 'pointer' }}
-                onMouseEnter={() => setHovered(i)} onMouseLeave={() => setHovered(null)} />
+                tabIndex="0" role="img"
+                aria-label={`${fmtMonth(d.month)}. ${label1}: ${fmtAbbr(d[key1] || 0)}${key2 ? `. ${label2}: ${fmtAbbr(d[key2] || 0)}` : ''}.`}
+                onMouseEnter={() => setHovered(i)} onMouseLeave={() => setHovered(null)}
+                onFocus={() => setHovered(i)} onBlur={() => setHovered(null)} />
             </g>
           );
         })}
@@ -235,6 +265,7 @@ function LineChart({ data, label1, label2, color1 = 'var(--chart-1)', color2 = '
 function HBarChart({ data, colorFn, labelKey = 'group_name', valueKey = 'total', formatValue = fmtAbbr }) {
   const [hovered, setHovered] = useState(null);
   const [containerRef, W] = useContainerWidth(500);
+  const chartId = useId().replace(/:/g, '');
 
   if (!data || data.length === 0) return <div ref={containerRef} />;
 
@@ -246,6 +277,17 @@ function HBarChart({ data, colorFn, labelKey = 'group_name', valueKey = 'total',
   return (
     <div ref={containerRef} style={{ width: '100%', overflow: 'hidden' }}>
       <svg viewBox={`0 0 ${W} ${H}`} width="100%" height={H} style={{ display: 'block', overflow: 'hidden', fontFamily: 'inherit', direction: 'ltr' }}>
+        <defs>
+          {data.map((d, i) => {
+            const color = typeof colorFn === 'function' ? colorFn(i, d) : CHART_COLORS[i % CHART_COLORS.length];
+            return (
+              <linearGradient key={i} id={`${chartId}-bar-${i}`} x1="0" y1="0" x2="0" y2="1">
+                <stop offset="0%" stopColor={color} stopOpacity="0.58" />
+                <stop offset="100%" stopColor={color} stopOpacity="0.06" />
+              </linearGradient>
+            );
+          })}
+        </defs>
         {data.map((d, i) => {
           const y = PT + i * (barH + gap);
           const barW = Math.max(2, (d[valueKey] / maxVal) * barAreaW);
@@ -263,12 +305,16 @@ function HBarChart({ data, colorFn, labelKey = 'group_name', valueKey = 'total',
                 fill={isH ? 'var(--text)' : 'var(--text-2)'} fontWeight={isH ? '600' : '400'}>
                 {label}
               </text>
-              <rect x={labelW} y={y} width={barAreaW} height={barH} fill="var(--bg)" rx={3} />
-              <rect x={labelW} y={y} width={barW} height={barH} fill={color} rx={3} opacity={isH ? 1 : 0.82} />
+              <rect x={labelW} y={y} width={barAreaW} height={barH} fill="var(--surface-2)" rx={5} />
+              <rect x={labelW} y={y} width={barW} height={barH} fill={`url(#${chartId}-bar-${i})`} rx={5} opacity={isH ? 1 : 0.88} />
+              <rect data-bar-cap="true" x={labelW} y={y} width={barW} height="2" rx="1" fill={color} opacity={isH ? 1 : 0.9} />
               <text x={textX} y={y + barH / 2 + 4} textAnchor={textAnchor} fontSize="11"
                 fill={textColor} fontWeight={isH ? '600' : '400'}>
                 {valLabel}
               </text>
+              <rect x="0" y={y} width={W} height={barH} fill="transparent"
+                tabIndex="0" role="img" aria-label={`${label}: ${valLabel}`}
+                onFocus={() => setHovered(i)} onBlur={() => setHovered(null)} />
             </g>
           );
         })}
@@ -281,6 +327,7 @@ function HBarChart({ data, colorFn, labelKey = 'group_name', valueKey = 'total',
 function VBarChart({ data, color = 'var(--chart-1)', labelKey = 'month', valueKey = 'value' }) {
   const [hovered, setHovered] = useState(null);
   const [containerRef, W] = useContainerWidth(500);
+  const chartId = useId().replace(/:/g, '');
 
   if (!data || data.length === 0) return <div ref={containerRef} />;
 
@@ -299,6 +346,12 @@ function VBarChart({ data, color = 'var(--chart-1)', labelKey = 'month', valueKe
   return (
     <div ref={containerRef} style={{ width: '100%' }}>
       <svg viewBox={`0 0 ${W} ${H}`} width="100%" height={H} style={{ display: 'block', fontFamily: 'inherit', overflow: 'visible', direction: 'ltr' }}>
+        <defs>
+          <linearGradient id={`${chartId}-bar`} x1="0" y1="0" x2="0" y2="1">
+            <stop offset="0%" stopColor={color} stopOpacity="0.58" />
+            <stop offset="100%" stopColor={color} stopOpacity="0.06" />
+          </linearGradient>
+        </defs>
         {yTicks.map((v, i) => {
           const y = PT + yScale(v);
           return (
@@ -317,7 +370,9 @@ function VBarChart({ data, color = 'var(--chart-1)', labelKey = 'month', valueKe
           return (
             <g key={i}>
               <rect x={cx - barW / 2} y={barY} width={barW} height={Math.max(barH, 1)}
-                fill={color} rx={3} opacity={isH ? 1 : 0.78} />
+                fill={`url(#${chartId}-bar)`} rx={5} opacity={isH ? 1 : 0.88} />
+              <rect data-bar-cap="true" x={cx - barW / 2} y={barY}
+                width={barW} height="2" rx="1" fill={color} opacity={isH ? 1 : 0.9} />
               {showLabel(i) && (
                 <text x={cx} y={H - 6} textAnchor="middle" fontSize="10"
                   fill={isH ? 'var(--text)' : 'var(--chart-axis)'} fontWeight={isH ? '700' : '400'}>
@@ -331,7 +386,10 @@ function VBarChart({ data, color = 'var(--chart-1)', labelKey = 'month', valueKe
                 </ChartTooltip>
               )}
               <rect x={cx - barSlot / 2} y={PT} width={barSlot} height={iH}
-                fill="transparent" onMouseEnter={() => setHovered(i)} onMouseLeave={() => setHovered(null)} />
+                fill="transparent" tabIndex="0" role="img"
+                aria-label={`${fmtMonth(lbl) || lbl}: ${fmtAbbr(vals[i])}`}
+                onMouseEnter={() => setHovered(i)} onMouseLeave={() => setHovered(null)}
+                onFocus={() => setHovered(i)} onBlur={() => setHovered(null)} />
             </g>
           );
         })}
@@ -478,14 +536,10 @@ function ExportButtons({ rows, columns, baseName, pdfTitle, subtitle, meta, tota
   }
   return (
     <div style={{ display: 'inline-flex', gap: 6 }}>
-      <button className="btn btn-sm btn-secondary" onClick={doExcel} disabled={empty}
-              title={t('reports.exportExcel')}>
-        {t('reports.exportExcel')}
-      </button>
-      <button className="btn btn-sm btn-secondary" onClick={doPdf} disabled={empty}
-              title={t('reports.exportPDF')}>
-        {t('reports.exportPDF')}
-      </button>
+      <FileDownloadButton format="excel" label={t('common.downloadExcel')}
+        onClick={doExcel} disabled={empty} />
+      <FileDownloadButton format="pdf" label={t('common.downloadPdf')}
+        onClick={doPdf} disabled={empty} />
     </div>
   );
 }

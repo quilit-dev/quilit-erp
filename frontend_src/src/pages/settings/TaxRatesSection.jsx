@@ -3,6 +3,7 @@ import { getTaxRates, createTaxRate, updateTaxRate, deleteTaxRate } from '../../
 import { useSettings } from '../../hooks/useSettings.jsx';
 import { Section, Field, Input, Toggle } from './ui';
 import SearchSelect from '../../components/SearchSelect.jsx';
+import { IconButton } from '../../components/shared';
 
 const TAX_TYPES = ['standard', 'zero', 'exempt'];
 const EMPTY_RATE = { name: '', rate: '', tax_type: 'standard', is_default: false, is_active: true };
@@ -84,9 +85,7 @@ function TaxRatesSection({ canEdit, t }) {
                 </td>
                 {canEdit && (
                   <td style={{ textAlign: 'right', whiteSpace: 'nowrap' }}>
-                    <button className="btn btn-sm btn-secondary" onClick={() => startEdit(r)}>
-                      {t('common.edit')}
-                    </button>
+                    <IconButton icon="pencil" label={t('common.edit')} className="btn btn-sm btn-secondary" onClick={() => startEdit(r)} />
                     {!r.is_default && r.is_active && (
                       <button className="btn btn-sm btn-danger" style={{ marginInlineStart: 6 }}
                         onClick={() => remove(r)}>{t('settings.taxRateRemove')}</button>

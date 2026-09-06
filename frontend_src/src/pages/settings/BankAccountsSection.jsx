@@ -16,7 +16,7 @@
 import { useState, useEffect, useCallback } from 'react';
 import { getBankAccounts, createBankAccount, updateBankAccount,
          archiveBankAccount } from '../../api/client';
-import { toast, fmt, NumberInput, ConfirmModal } from '../../components/shared';
+import { toast, fmt, NumberInput, ConfirmModal, IconButton } from '../../components/shared';
 import { useLocale } from '../../hooks/useLocale.jsx';
 import { Section, Field, Input, CURRENCIES } from './ui';
 import SearchSelect from '../../components/SearchSelect.jsx';
@@ -116,14 +116,9 @@ export function BankAccountsSection({ canEdit }) {
                   <td className="text-right">{fmt(r.balance)}</td>
                   {canEdit && (
                     <td style={{ whiteSpace: 'nowrap' }}>
-                      <button className="btn btn-sm btn-secondary"
-                        onClick={() => startEdit(r)}>{t('common.edit')}</button>
+                      <IconButton icon="pencil" label={t('common.edit')} className="btn btn-sm btn-secondary" onClick={() => startEdit(r)} />
                       {!r.archived_at && (
-                        <button className="btn btn-sm btn-ghost"
-                          style={{ marginInlineStart: 6 }}
-                          onClick={() => setConfirming(r)}>
-                          {t('common.archive')}
-                        </button>
+                        <IconButton icon="archive" label={t('common.archive')} className="btn btn-sm btn-ghost" style={{ marginInlineStart: 6 }} onClick={() => setConfirming(r)} />
                       )}
                     </td>
                   )}

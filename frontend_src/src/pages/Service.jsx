@@ -23,7 +23,7 @@ import {
 } from '../api/client';
 import {
   LoadingSpinner, ErrorAlert, EmptyState, Modal, ConfirmModal,
-  ExportButton, fmt, fmtDate, toast,
+  ExportButton, fmt, fmtDate, toast, IconButton,
 } from '../components/shared';
 import { useLocale } from '../hooks/useLocale.jsx';
 import Attachments from '../components/Attachments.jsx';
@@ -317,10 +317,7 @@ export default function Service() {
                           } catch (err) { toast(err.message, 'red'); }
                         }}>{t('service.serviceHistory')}</button>
                         {can('service', 'edit') && (
-                          <button className="btn btn-sm btn-secondary"
-                                  onClick={() => { setActive(e); setModal('equipment'); }}>
-                            {t('common.edit')}
-                          </button>
+                          <IconButton icon="pencil" label={t('common.edit')} className="btn btn-sm btn-secondary" onClick={() => { setActive(e); setModal('equipment'); }} />
                         )}
                       </div>
                     </td>

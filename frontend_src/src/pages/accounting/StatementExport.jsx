@@ -1,4 +1,4 @@
-import { ExportButton, toast } from '../../components/shared';
+import { ExportButton, FileDownloadButton, toast } from '../../components/shared';
 import { exportReportPDF } from '../../utils/exportUtils';
 
 // ── Statement export (Excel + branded PDF), shared by all three statements ────
@@ -93,7 +93,7 @@ function StatementExport({ kind, data, t }) {
   return (
     <div style={{ display: 'flex', gap: 8, alignItems: 'center' }}>
       <ExportButton data={excelRows} filename={filename} sheetName={sheetName} />
-      <button className="btn btn-secondary btn-sm" onClick={doPDF} title="Export to PDF">📄 PDF</button>
+      <FileDownloadButton format="pdf" label={t('common.downloadPdf')} onClick={doPDF} />
     </div>
   );
 }

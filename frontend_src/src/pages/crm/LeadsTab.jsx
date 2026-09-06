@@ -3,7 +3,7 @@ import { useNavigate } from 'react-router-dom';
 import { useData } from '../../hooks/useData';
 import {
   LoadingSpinner, ErrorAlert, EmptyState, Modal, ConfirmModal,
-  ExportButton, toast, fmtDate, SelectOther, NumberInput,
+  ExportButton, toast, fmtDate, SelectOther, NumberInput, IconButton,
 } from '../../components/shared';
 import {
   getCRMLeads, createCRMLead, updateCRMLead, archiveCRMLead,
@@ -259,16 +259,15 @@ function LeadsTab({ t }) {
                     <td>
                       <div style={{ display: 'flex', gap: 5 }}>
                         {isArchived ? (
-                          <button className="btn btn-sm btn-secondary" style={{ color: 'var(--affirm-ink)', whiteSpace: 'nowrap' }}
-                            onClick={() => { setSelected(l); setModal('restore'); }}><svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true"><polyline points="1 4 1 10 7 10"/><path d="M3.51 15a9 9 0 1 0 2.13-9.36L1 10"/></svg>{t('common.restore')}</button>
+                          <IconButton icon="rotate-ccw" label={t('common.restore')} className="btn btn-sm btn-secondary" style={{ color: 'var(--affirm-ink)', whiteSpace: 'nowrap' }} onClick={() => { setSelected(l); setModal('restore'); }} />
                         ) : (
                           <>
-                            <button className="btn btn-sm btn-secondary" onClick={() => { setSelected(l); setModal('form'); }}>{t('common.edit')}</button>
+                            <IconButton icon="pencil" label={t('common.edit')} className="btn btn-sm btn-secondary" onClick={() => { setSelected(l); setModal('form'); }} />
                             {!l.client_id
                               ? <button className="btn btn-sm btn-primary" onClick={() => { setSelected(l); setModal('convert'); }}>{t('crm.convertToClient')}</button>
                               : <button className="btn btn-sm btn-secondary" onClick={() => navigate(`/clients/${l.client_id}`)}>{t('crm.viewClient')}</button>
                             }
-                            <button className="btn btn-sm btn-danger" onClick={() => { setSelected(l); setModal('archive'); }}>{t('common.archive')}</button>
+                            <IconButton icon="archive" label={t('common.archive')} className="btn btn-sm btn-danger" onClick={() => { setSelected(l); setModal('archive'); }} />
                           </>
                         )}
                       </div>

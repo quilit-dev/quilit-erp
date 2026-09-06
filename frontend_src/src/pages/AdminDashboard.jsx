@@ -1,7 +1,7 @@
 import { useState, useEffect } from 'react';
 import * as XLSX from 'xlsx';
 import { getUserSessions, getOnlineUsers, getAuditLog, getAuditFilters, verifyAuditChain, purgeAuditLog, getUsers, getRoles, revokeSession } from '../api/client';
-import { LoadingSpinner, ErrorAlert, toast } from '../components/shared';
+import { LoadingSpinner, ErrorAlert, toast, FileDownloadButton } from '../components/shared';
 import { useLocale } from '../hooks/useLocale.jsx';
 import SearchSelect from '../components/SearchSelect.jsx';
 
@@ -335,9 +335,8 @@ export default function AdminDashboard() {
             <button className="btn btn-secondary btn-sm" onClick={() => { setAf({ module: '', action: '', username: '', from_date: '', to_date: '' }); setOffset(0); }}>
               {t('common.clear')}
             </button>
-            <button className="btn btn-secondary btn-sm" onClick={exportAudit} title={t('admin.exportExcel')}>
-              {t('admin.exportExcel')}
-            </button>
+            <FileDownloadButton format="excel" label={t('common.downloadExcel')}
+              onClick={exportAudit} />
             <button className="btn btn-secondary btn-sm" disabled={verifying} title={t('admin.verifyIntegrityHint')}
               onClick={async () => {
                 setVerifying(true); setChain(null);

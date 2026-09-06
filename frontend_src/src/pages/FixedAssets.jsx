@@ -10,7 +10,7 @@ import Attachments from '../components/Attachments.jsx';
 import SearchSelect from '../components/SearchSelect.jsx';
 import {
   LoadingSpinner, ErrorAlert, EmptyState, Modal, ConfirmModal,
-  ExportButton, fmt, fmtDate, toast, SortableTh, Pagination, NumberInput} from '../components/shared';
+  ExportButton, fmt, fmtDate, toast, SortableTh, Pagination, NumberInput, IconButton} from '../components/shared';
 import {
   getAssets, getAssetsSummary, getAsset, createAsset, updateAsset,
   depreciateAsset, runDepreciation, disposeAsset, archiveAsset, getSuppliers,
@@ -311,9 +311,7 @@ export default function FixedAssets() {
                     <td><StatusBadge status={a.status} /></td>
                     <td style={{ textAlign: 'right', color: 'var(--text-3)' }}
                         onClick={e => e.stopPropagation()}>
-                      <button className="btn btn-sm btn-secondary" onClick={() => openDetail(a.id)}>
-                        {t('common.view')}
-                      </button>
+                      <IconButton icon="eye" label={t('common.view')} className="btn btn-sm btn-secondary" onClick={() => openDetail(a.id)} />
                     </td>
                   </tr>
                 ))}

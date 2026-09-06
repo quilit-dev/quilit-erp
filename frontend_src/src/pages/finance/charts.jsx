@@ -1,4 +1,4 @@
-import { useState, useEffect, useRef } from 'react';
+import { useState, useEffect, useId, useRef } from 'react';
 import { useLocale } from '../../hooks/useLocale.jsx';
 import { useSettings } from '../../hooks/useSettings.jsx';
 import { DisplayCurrencyToggle, Icon } from '../../components/shared';
@@ -68,6 +68,21 @@ function niceMax(rawMax) {
   return nice * mag;
 }
 
+function smoothPath(points) {
+  if (points.length < 2) return points.length ? `M ${points[0][0]} ${points[0][1]}` : '';
+  return points.slice(1).reduce((path, point, i) => {
+    const p0 = points[Math.max(0, i - 1)];
+    const p1 = points[i];
+    const p2 = point;
+    const p3 = points[Math.min(points.length - 1, i + 2)];
+    const c1x = p1[0] + (p2[0] - p0[0]) / 6;
+    const c1y = p1[1] + (p2[1] - p0[1]) / 6;
+    const c2x = p2[0] - (p3[0] - p1[0]) / 6;
+    const c2y = p2[1] - (p3[1] - p1[1]) / 6;
+    return `${path} C ${c1x.toFixed(1)} ${c1y.toFixed(1)}, ${c2x.toFixed(1)} ${c2y.toFixed(1)}, ${p2[0].toFixed(1)} ${p2[1].toFixed(1)}`;
+  }, `M ${points[0][0].toFixed(1)} ${points[0][1].toFixed(1)}`);
+}
+
 // Abbreviated money for chart axes/tooltips, currency-aware via the page-header
 // DisplayCurrencyToggle. Stored amounts are USD; when LBP is selected we scale
 // by the manual rate and drop the symbol (the toggle + tooltip convey the unit)
@@ -121,6 +136,7 @@ function FinanceLineChart({ data }) {
   const abbr = useAbbr();
   const [hovered, setHovered] = useState(null);
   const [containerRef, W] = useContainerWidth(640);
+  const chartId = useId().replace(/:/g, '');
 
   if (!data || data.length === 0) return <div ref={containerRef}><EmptyChartPlaceholder label={t('finance.incomeVsExpenses')} /></div>;
 
@@ -138,8 +154,12 @@ function FinanceLineChart({ data }) {
   const xStep = iW / Math.max(data.length - 1, 1);
   const yScale = v => iH - (v / maxV) * iH;
   const pts = key => data.map((d, i) => [PL + i * xStep, PT + yScale(d[key])]);
-  const toPath = points => points.map((p, i) => `${i === 0 ? 'M' : 'L'} ${p[0].toFixed(1)} ${p[1].toFixed(1)}`).join(' ');
   const incPts = pts('income'), expPts = pts('expenses');
+  const incPath = smoothPath(incPts), expPath = smoothPath(expPts);
+  const notable = (key, i) => {
+    const values = data.map(d => Number(d[key]) || 0);
+    return i === 0 || i === data.length - 1 || values[i] === Math.max(...values) || values[i] === Math.min(...values);
+  };
 
   // Smart tick count based on height
   const tickCount = H > 220 ? 5 : 4;
@@ -160,18 +180,26 @@ function FinanceLineChart({ data }) {
         style={{ display: 'block', fontFamily: 'inherit', overflow: 'visible', cursor: 'crosshair' }}
       >
         <defs>
-          <linearGradient id="incGrad" x1="0" y1="0" x2="0" y2="1">
+          <linearGradient id={`${chartId}-inc-grad`} x1="0" y1="0" x2="0" y2="1">
             <stop offset="0%" stopColor="var(--chart-1)" stopOpacity="0.22" />
             <stop offset="100%" stopColor="var(--chart-1)" stopOpacity="0" />
           </linearGradient>
-          <linearGradient id="expGrad" x1="0" y1="0" x2="0" y2="1">
+          <linearGradient id={`${chartId}-exp-grad`} x1="0" y1="0" x2="0" y2="1">
             <stop offset="0%" stopColor="var(--chart-4)" stopOpacity="0.14" />
             <stop offset="100%" stopColor="var(--chart-4)" stopOpacity="0" />
           </linearGradient>
-          <clipPath id="chartClip">
+          <pattern id={`${chartId}-dots`} width="18" height="18" patternUnits="userSpaceOnUse">
+            <circle cx="9" cy="9" r="1" fill="var(--chart-grid)" opacity="0.45" />
+          </pattern>
+          <filter id={`${chartId}-glow`} x="-20%" y="-40%" width="140%" height="180%">
+            <feDropShadow dx="0" dy="4" stdDeviation="5" floodColor="var(--chart-1)" floodOpacity="0.18" />
+          </filter>
+          <clipPath id={`${chartId}-clip`}>
             <rect x={PL} y={PT} width={iW} height={iH} />
           </clipPath>
         </defs>
+
+        <rect x={PL} y={PT} width={iW} height={iH} fill={`url(#${chartId}-dots)`} pointerEvents="none" />
 
         {/* Grid lines + Y labels */}
         {yTicks.map((v, i) => {
@@ -210,11 +238,11 @@ function FinanceLineChart({ data }) {
         )}
 
         {/* Area fills — clipped */}
-        <g clipPath="url(#chartClip)">
-          <path d={`${toPath(incPts)} L ${incPts[incPts.length-1][0]} ${PT+iH} L ${PL} ${PT+iH} Z`} fill="url(#incGrad)" />
-          <path d={`${toPath(expPts)} L ${expPts[expPts.length-1][0]} ${PT+iH} L ${PL} ${PT+iH} Z`} fill="url(#expGrad)" />
-          <path d={toPath(incPts)} fill="none" stroke="var(--chart-1)" strokeWidth="2.5" strokeLinejoin="round" strokeLinecap="round" />
-          <path d={toPath(expPts)} fill="none" stroke="var(--chart-4)" strokeWidth="2" strokeLinejoin="round" strokeLinecap="round" strokeDasharray="5,3" />
+        <g clipPath={`url(#${chartId}-clip)`}>
+          <path d={`${incPath} L ${incPts[incPts.length-1][0]} ${PT+iH} L ${PL} ${PT+iH} Z`} fill={`url(#${chartId}-inc-grad)`} />
+          <path d={`${expPath} L ${expPts[expPts.length-1][0]} ${PT+iH} L ${PL} ${PT+iH} Z`} fill={`url(#${chartId}-exp-grad)`} />
+          <path d={incPath} fill="none" stroke="var(--chart-1)" strokeWidth="2.5" strokeLinejoin="round" strokeLinecap="round" filter={`url(#${chartId}-glow)`} />
+          <path d={expPath} fill="none" stroke="var(--chart-4)" strokeWidth="2" strokeLinejoin="round" strokeLinecap="round" />
         </g>
 
         {/* Dots + hover zones */}
@@ -225,8 +253,8 @@ function FinanceLineChart({ data }) {
           const zoneW = xStep || 20;
           return (
             <g key={i}>
-              <circle cx={ix} cy={iy} r={isH ? 5.5 : 3.5} fill="var(--chart-1)" stroke="var(--chart-halo)" strokeWidth="2" />
-              <circle cx={ex} cy={ey} r={isH ? 4.5 : 3} fill="var(--chart-4)" stroke="var(--chart-halo)" strokeWidth="2" />
+              {(isH || notable('income', i)) && <circle cx={ix} cy={iy} r={isH ? 5.5 : 3.5} fill="var(--chart-1)" stroke="var(--chart-halo)" strokeWidth="2" />}
+              {(isH || notable('expenses', i)) && <circle cx={ex} cy={ey} r={isH ? 4.5 : 3} fill="var(--chart-4)" stroke="var(--chart-halo)" strokeWidth="2" />}
               {isH && (
                 <ChartTooltip anchorX={ix} anchorY={Math.min(iy, ey)} svgWidth={W} visible>
                   <div style={{ fontWeight: 700, marginBottom: 2 }}>{fmtMonth(d.month)}</div>
@@ -242,8 +270,12 @@ function FinanceLineChart({ data }) {
                 x={PL + i * xStep - zoneW / 2} y={PT}
                 width={zoneW} height={iH}
                 fill="transparent" style={{ cursor: 'pointer' }}
+                tabIndex="0" role="img"
+                aria-label={`${fmtMonth(d.month)}. ${t('finance.income')}: ${abbr(d.income)}. ${t('finance.expenses')}: ${abbr(d.expenses)}. ${t('finance.profit')}: ${abbr(d.profit)}.`}
                 onMouseEnter={() => setHovered(i)}
                 onMouseLeave={() => setHovered(null)}
+                onFocus={() => setHovered(i)}
+                onBlur={() => setHovered(null)}
               />
             </g>
           );
@@ -268,6 +300,7 @@ function ProfitBarChart({ data }) {
   const abbr = useAbbr();
   const [hovered, setHovered] = useState(null);
   const [containerRef, W] = useContainerWidth(420);
+  const chartId = useId().replace(/:/g, '');
 
   if (!data || data.length === 0) return <div ref={containerRef}><EmptyChartPlaceholder label={t('finance.monthlyProfit')} /></div>;
 
@@ -310,7 +343,15 @@ function ProfitBarChart({ data }) {
         style={{ display: 'block', fontFamily: 'inherit', overflow: 'visible' }}
       >
         <defs>
-          <clipPath id="barClip">
+          <linearGradient id={`${chartId}-profit`} x1="0" y1="0" x2="0" y2="1">
+            <stop offset="0%" stopColor="var(--chart-2)" stopOpacity="0.58" />
+            <stop offset="100%" stopColor="var(--chart-2)" stopOpacity="0.06" />
+          </linearGradient>
+          <linearGradient id={`${chartId}-loss`} x1="0" y1="0" x2="0" y2="1">
+            <stop offset="0%" stopColor="var(--chart-4)" stopOpacity="0.06" />
+            <stop offset="100%" stopColor="var(--chart-4)" stopOpacity="0.58" />
+          </linearGradient>
+          <clipPath id={`${chartId}-bar-clip`}>
             <rect x={PL} y={PT} width={iW} height={iH} />
           </clipPath>
         </defs>
@@ -335,22 +376,28 @@ function ProfitBarChart({ data }) {
         })}
 
         {/* Bars */}
-        <g clipPath="url(#barClip)">
+        <g clipPath={`url(#${chartId}-bar-clip)`}>
           {data.map((d, i) => {
             const cx = PL + (i + 0.5) * barSlot;
             const pos = d.profit >= 0;
             const bh = Math.max((Math.abs(d.profit) / maxV) * (pos ? posH : negH), 2);
             const by = pos ? zeroY - bh : zeroY;
             const isH = hovered === i;
+            const barColor = pos ? 'var(--chart-2)' : 'var(--chart-4)';
+            const capY = pos ? by : by + bh - 2;
             return (
-              <rect key={i}
+              <g key={i}>
+                <rect
                 x={cx - barW / 2} y={by}
                 width={barW} height={bh}
-                fill={pos ? 'var(--chart-2)' : 'var(--chart-4)'}
-                rx="3"
+                fill={`url(#${chartId}-${pos ? 'profit' : 'loss'})`}
+                rx="5"
                 opacity={isH ? 1 : 0.78}
                 style={{ transition: 'opacity .15s' }}
-              />
+                />
+                <rect data-bar-cap="true" x={cx - barW / 2} y={capY}
+                  width={barW} height="2" rx="1" fill={barColor} opacity={isH ? 1 : 0.9} />
+              </g>
             );
           })}
         </g>
@@ -389,7 +436,9 @@ function ProfitBarChart({ data }) {
               )}
               {/* Wide hover zone for easy targeting */}
               <rect x={cx - barSlot / 2} y={PT} width={barSlot} height={iH}
-                fill="transparent" />
+                fill="transparent" tabIndex="0" role="img"
+                aria-label={`${fmtMonth(d.month)}. ${t('finance.profit')}: ${abbr(d.profit)}.`}
+                onFocus={() => setHovered(i)} onBlur={() => setHovered(null)} />
             </g>
           );
         })}

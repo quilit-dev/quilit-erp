@@ -112,8 +112,8 @@ function ActionMenu({ inv, exporting, onEdit, onPay, onExport, onReceipt,
               style={{ ...menuItemStyle, color: 'var(--affirm-ink)', opacity: (isExporting || isVoided) ? 0.4 : 1 }}
             >
               {exporting === 'excel'
-                ? <><Icon name="loader" size={14} style={SPIN} /><span>Exporting…</span></>
-                : <><Icon name="file-spreadsheet" size={14} /><span>Export XLS</span></>}
+                ? <><Icon name="loader" size={14} style={SPIN} /><span>Excel</span></>
+                : <><Icon name="download-excel" size={18} /><span>Excel</span></>}
             </button>
 
             {/* Browser-rendered from the HTML/CSS template in exportUtils.js —
@@ -124,8 +124,8 @@ function ActionMenu({ inv, exporting, onEdit, onPay, onExport, onReceipt,
               style={{ ...menuItemStyle, color: 'var(--negate-ink)', opacity: (isExporting || isVoided) ? 0.4 : 1 }}
             >
               {exporting === 'pdf'
-                ? <><Icon name="loader" size={14} style={SPIN} /><span>Exporting…</span></>
-                : <><Icon name="file-text" size={14} /><span>Export PDF</span></>}
+                ? <><Icon name="loader" size={14} style={SPIN} /><span>PDF</span></>
+                : <><Icon name="download-pdf" size={18} /><span>PDF</span></>}
             </button>
 
             {/* The numbered receipt handed over when money is taken. Disabled
