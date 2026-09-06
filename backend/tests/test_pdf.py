@@ -365,3 +365,71 @@ def test_state_band_is_translated_in_arabic():
     # Shaped Arabic, and no English state text leaking through.
     assert "Paid in full" not in txt
     assert any(0xFE70 <= ord(c) <= 0xFEFF for c in txt)
+
+
+# ── the terms a document states ─────────────────────────────────────────────
+# "Terms: Net N days" was printed straight from the CURRENT company setting, so
+# raising the default from 15 to 30 silently rewrote every invoice ever issued.
+# Each one reprinted claiming terms that contradicted the due date directly
+# above it — on a document that goes to a customer and may already have been
+# paid against. The span between the two dates on the page is the invoice's own
+# terms and cannot drift.
+
+def _terms_line(txt):
+    """The rendered Terms value, from whichever line carries the label."""
+    for line in txt.splitlines():
+        if "Terms" in line:
+            return line
+    return ""
+
+
+def test_printed_terms_come_from_the_invoice_not_todays_setting():
+    # This invoice is issued 2026-08-06 and due 2026-08-21: Net 15, whatever
+    # the company default happens to be today.
+    later = dict(FULL_SETTINGS, payment_terms_days="30")
+    txt = _text(pdf_render.render_invoice(INVOICE, later, "en"))
+
+    assert "Net 15 days" in txt, "the terms must be the span this invoice was issued on"
+    assert "Net 30 days" not in txt, \
+        "changing the company default must not rewrite an issued invoice"
+
+
+def test_the_terms_track_the_due_date_a_user_typed():
+    # A one-off 45-day arrangement on a single invoice, with the company still
+    # on 15. The document has to say what was actually agreed.
+    inv = dict(INVOICE, due_date="2026-09-20")   # 2026-08-06 + 45
+    txt = _text(pdf_render.render_invoice(inv, FULL_SETTINGS, "en"))
+    assert "Net 45 days" in txt
+    assert "Net 15 days" not in txt
+
+
+def test_an_invoice_with_no_due_date_falls_back_to_the_setting():
+    """`due` is derived from the setting there, so the setting IS its terms."""
+    inv = dict(INVOICE)
+    inv.pop("due_date")
+    txt = _text(pdf_render.render_invoice(inv, dict(FULL_SETTINGS,
+                                                    payment_terms_days="20"), "en"))
+    assert "Net 20 days" in txt
+    assert "Net 15 days" not in txt, "the setting in force is what it should read"
+
+
+def test_an_invoice_due_the_day_it_is_raised_says_due_on_receipt():
+    # "Net 0 days" is arithmetic, not a payment term.
+    inv = dict(INVOICE, due_date="2026-08-06")
+    txt = _text(pdf_render.render_invoice(inv, FULL_SETTINGS, "en"))
+    assert "Due on receipt" in txt
+    assert "Net 0 days" not in txt
+
+
+def test_a_back_dated_due_date_never_prints_negative_terms():
+    inv = dict(INVOICE, due_date="2026-08-01")   # three days BEFORE issue
+    txt = _text(pdf_render.render_invoice(inv, FULL_SETTINGS, "en"))
+    assert "Due on receipt" in txt
+    assert "-" not in _terms_line(txt), "no invoice says 'Net -5 days'"
+
+
+def test_the_receipt_term_is_translated():
+    inv = dict(RICH_INVOICE, due_date="2026-08-06")
+    txt = _text(pdf_render.render_invoice(inv, FULL_SETTINGS, "ar"))
+    assert "Due on receipt" not in txt, "English leaking onto an Arabic invoice"
+    assert any(0xFE70 <= ord(c) <= 0xFEFF for c in txt)

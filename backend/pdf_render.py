@@ -135,6 +135,16 @@ def _add_days(value, days: int) -> str:
         return ""
 
 
+def _days_between(start, end):
+    """Whole days from `start` to `end`, or None if either cannot be read."""
+    try:
+        a = datetime.strptime(str(start)[:10], "%Y-%m-%d")
+        b = datetime.strptime(str(end)[:10], "%Y-%m-%d")
+        return (b - a).days
+    except Exception:
+        return None
+
+
 # ── labels ───────────────────────────────────────────────────────────────────
 
 _L = {
@@ -152,7 +162,8 @@ _L = {
         "billTo": "BILL TO", "quoteFor": "QUOTATION FOR",
         "details": "DETAILS", "issued": "Issued", "due": "Due",
         "valid": "Valid until", "project": "Project", "terms": "Terms",
-        "netDays": "Net {d} days", "ref": "Quote ref", "status": "Status",
+        "netDays": "Net {d} days", "dueOnReceipt": "Due on receipt",
+        "ref": "Quote ref", "status": "Status",
         "no": "#", "desc": "Description", "qty": "Qty", "price": "Unit price",
         "disc": "Disc.", "tax": "Tax", "amount": "Amount",
         "subtotal": "Subtotal", "discount": "Discount", "taxTotal": "Tax",
@@ -179,7 +190,8 @@ _L = {
         "billTo": "الفاتورة إلى", "quoteFor": "عرض سعر إلى",
         "details": "التفاصيل", "issued": "تاريخ الإصدار", "due": "تاريخ الاستحقاق",
         "valid": "صالح حتى", "project": "المشروع", "terms": "الشروط",
-        "netDays": "صافي {d} يوماً", "ref": "مرجع العرض", "status": "الحالة",
+        "netDays": "صافي {d} يوماً", "dueOnReceipt": "مستحق عند الاستلام",
+        "ref": "مرجع العرض", "status": "الحالة",
         "no": "#", "desc": "الوصف", "qty": "الكمية", "price": "سعر الوحدة",
         "disc": "الخصم", "tax": "الضريبة", "amount": "المبلغ",
         "subtotal": "المجموع", "discount": "الخصم", "taxTotal": "الضريبة",
@@ -669,6 +681,26 @@ def render_invoice(inv: dict, settings: dict, lang: str = "en") -> bytes:
     issued = inv.get("created_at")
     due = inv.get("due_date") or _add_days(issued, co.payment_days)
 
+    # THE TERMS A DOCUMENT STATES ARE THE TERMS IT WAS ISSUED ON.
+    #
+    # This line printed "Net {payment_terms_days} days" straight from the
+    # CURRENT company setting, so raising the default from 15 to 30 silently
+    # rewrote every invoice ever issued: each one reprinted claiming terms that
+    # contradicted the due date directly above it, on a document that goes to a
+    # customer and may already have been paid against.
+    #
+    # The span between the two dates already on the page is the invoice's own
+    # terms, and it cannot drift. The setting is used only when the invoice
+    # carries no due date at all — and in that case `due` was just derived from
+    # the setting, so it is what this invoice was issued on.
+    _net = _days_between(issued, due)
+    terms_text = (
+        L["netDays"].format(d=co.payment_days) if _net is None
+        # Due the day it was raised, or earlier. "Net 0 days" and "Net -3 days"
+        # are both arithmetic nobody puts on an invoice.
+        else L["dueOnReceipt"] if _net <= 0
+        else L["netDays"].format(d=_net))
+
     meta = [f"{L['issued']}: {_date(issued)}", f"{L['due']}: {_date(due)}"]
     if inv.get("quote_number"):
         meta.append(f"{L['ref']}: {inv['quote_number']}")
@@ -681,7 +713,7 @@ def render_invoice(inv: dict, settings: dict, lang: str = "en") -> bytes:
               "phone": inv.get("client_phone")},
              [(L["issued"], _date(issued)), (L["due"], _date(due)),
               (L["project"], inv.get("project_name")),
-              (L["terms"], L["netDays"].format(d=co.payment_days)),
+              (L["terms"], terms_text),
               ("", code)])
 
     _items(doc, inv.get("items"), code, co, _num(inv.get("discount_pct")))
