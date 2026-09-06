@@ -40,6 +40,10 @@ _server_err.log
 # Front-end dependencies
 frontend_src/node_modules/
 node_modules/
+# pnpm's content-addressed package store. Thousands of files, and it sat
+# untracked-but-not-ignored long enough that one `git add -A` would have
+# committed the lot.
+.pnpm-store/
 
 # Manual: built static site (source lives in docs/manual/)
 static-manual/
