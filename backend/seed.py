@@ -724,7 +724,7 @@ for _cl, _name, _mfr, _model, _serial, _loc in _equip_seed:
 
 
 def _job(cl, *, equipment=None, jtype="Repair", fault, parts=(), charges=(),
-         scheduled=None, priority="Normal", work_done=None):
+         scheduled=None, priority="Normal", work_done=None, crew=()):
     """One service job. `parts` are (inventory-key, qty, price) drawn from
     stock — priced explicitly, the way `_line` does it, because the create
     response carries only the id. `charges` are (label, amount) flat fees."""
@@ -744,7 +744,13 @@ def _job(cl, *, equipment=None, jtype="Repair", fault, parts=(), charges=(),
         body["scheduled_date"] = scheduled
     if work_done:
         body["work_done"] = work_done
-    if _tech_id:
+    if crew:
+        # A crewed job records its people in service_job_technicians and leaves
+        # the legacy single `assigned_to` alone, so the seed shows both shapes:
+        # the jobs above are what a tenant's history looks like after migration
+        # 175, and the ones below are what a job looks like now.
+        body["technician_ids"] = list(crew)
+    elif _tech_id:
         body["assigned_to"] = _tech_id
     return POST("/api/service/jobs", body)
 
@@ -1140,6 +1146,60 @@ for a in [
 
 print(f"  +3 departments, {len(emp_ids)} employees, 5 contracts, 3 leave records")
 print(f"  +{_att_rows} attendance rows, 1 paid payroll run + 1 draft, 3 HR activities")
+
+
+# ════════════════════════════════════════════════════════════════════════════
+# 20b. Service crews — who attended which call
+# ════════════════════════════════════════════════════════════════════════════
+# Deliberately AFTER the HR section: a job's crew is drawn from hr_employees,
+# which do not exist until section 20. The service jobs in section 15 therefore
+# carry the old single `assigned_to`, which is exactly what a tenant's history
+# looks like after migration 175 — and these four cases are what the technician
+# report was built to show:
+#
+#   Employee A  field staff, two calls (one of them shared)
+#   Employee G  field staff, the shared call — so the per-person column
+#               legitimately adds up to more than the jobs completed
+#   Employee B  field staff, NO calls — present all month, in the workshop.
+#               The row that used to vanish entirely, and the whole point
+#   Employee H  NOT field staff, one call — work is never hidden because
+#               somebody forgot to tick the box
+header("Service crews")
+
+_FIELD_STAFF = {0: "Employee A", 1: "Employee B", 6: "Employee G"}
+_emp_rows = {e["id"]: e for e in GET("/api/hr/employees")}
+for _idx in _FIELD_STAFF:
+    _e = dict(_emp_rows[emp_ids[_idx]])
+    _e["is_field_staff"] = True
+    PUT(f"/api/hr/employees/{_e['id']}", _e)
+
+_tech_a, _tech_b, _tech_g, _coord_h = (emp_ids[0], emp_ids[1],
+                                       emp_ids[6], emp_ids[7])
+
+# Two technicians on one call. Counted once for the business and once for each
+# of them, which is the arithmetic the report has to explain rather than hide.
+_shared = _job("Alpha", equipment="Compressor Unit", jtype="Repair",
+               fault="Compressor overheating — two-man lift",
+               crew=[_tech_a, _tech_g],
+               charges=[("Callout", 120), ("Labour — 2 technicians", 260)],
+               work_done="Replaced thermal cut-out and re-seated the coupling.")
+POST(f"/api/service/jobs/{_shared['id']}/complete")
+
+# A solo call for the same technician, so his month reads 2.
+_solo = _job("Beta", jtype="Maintenance", fault="Quarterly service",
+             crew=[_tech_a], charges=[("Service visit", 140)],
+             work_done="Filters changed, belts tensioned.")
+POST(f"/api/service/jobs/{_solo['id']}/complete")
+
+# Sent out without being marked field staff. His work still counts.
+_unflagged = _job("Gamma", jtype="Inspection", fault="Safety inspection",
+                  crew=[_coord_h], charges=[("Inspection", 90)],
+                  work_done="Passed. Certificate issued.")
+POST(f"/api/service/jobs/{_unflagged['id']}/complete")
+
+print("  +3 crewed jobs — 1 shared by two technicians, 1 solo, 1 by someone "
+      "not marked field staff")
+print(f"  Employee B is field staff with NO calls: present all month, 0 services")
 
 
 # ════════════════════════════════════════════════════════════════════════════
