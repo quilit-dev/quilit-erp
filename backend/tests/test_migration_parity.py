@@ -55,6 +55,9 @@ _REQUIRED = [
     ("purchase_payments", "folded_into_purchase"),
     ("service_job_technicians", "job_id"),
     ("service_job_technicians", "employee_id"),
+    # Who goes out on service calls, so the technician report can list one who
+    # completed nothing this month.
+    ("hr_employees", "is_field_staff"),
     # A corrected till sale points at the one it replaced, so the pair can be
     # told apart from a customer who came back and bought twice.
     ("pos_sales", "amended_from"),

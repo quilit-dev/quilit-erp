@@ -12,6 +12,15 @@
  * $500 to the company. Summing that column would invent money. The server says
  * when the overlap is happening (`technician_rows_overlap`) and the note below
  * appears only then, so the table explains itself rather than looking broken.
+ *
+ * A technician is staff who works inside the company and goes out on demand, so
+ * the row set is a UNION: anyone marked field staff appears whether or not they
+ * did a call — somebody present all month with no jobs is a fact worth seeing —
+ * and anyone who DID attend one appears whether or not the box was ticked.
+ *
+ * Days present is HR data and Reports is a wider door than HR, so the server
+ * omits the key entirely for a viewer without it. The column is then absent
+ * rather than blank: a zero would read as "he was never here".
  */
 import { useState, useEffect, useRef } from 'react';
 import { LoadingSpinner, ErrorAlert, EmptyState, fmt } from '../../components/shared';
@@ -41,10 +50,17 @@ function ServiceReport({ params, t }) {
 
   const techs  = data.by_technician || [];
   const totals = data.totals || {};
+  // Days present is personnel data and Reports is a wider door than HR, so the
+  // server withholds it by OMITTING the key rather than sending a zero — a zero
+  // would read as "he was never here". The column follows: gone, not blank.
+  const showDays = !!data.attendance_visible;
 
   const techCols = [
     { label: t('service.technician'),   value: r => r.name,           align: 'left'  },
     { label: t('hr.jobTitleField'),          value: r => r.job_title || '', align: 'left' },
+    ...(showDays
+      ? [{ label: t('service.daysPresent'), value: r => r.days_present, align: 'right' }]
+      : []),
     { label: t('service.jobsCompleted'), value: r => r.jobs,          align: 'right' },
     { label: t('service.valueAttended'), value: r => r.value_attended, align: 'right' },
   ];
@@ -84,6 +100,9 @@ function ServiceReport({ params, t }) {
                   <tr>
                     <th>{t('service.technician')}</th>
                     <th>{t('hr.jobTitleField')}</th>
+                    {showDays && (
+                      <th style={{ textAlign: 'right' }}>{t('service.daysPresent')}</th>
+                    )}
                     <th style={{ textAlign: 'right' }}>{t('service.jobsCompleted')}</th>
                     <th style={{ textAlign: 'right' }}>{t('service.valueAttended')}</th>
                   </tr>
@@ -93,6 +112,9 @@ function ServiceReport({ params, t }) {
                     <tr key={r.employee_id}>
                       <td className="td-primary">{r.name}</td>
                       <td style={{ color: 'var(--text-2)' }}>{r.job_title || '—'}</td>
+                      {showDays && (
+                        <td style={{ textAlign: 'right' }}>{r.days_present}</td>
+                      )}
                       <td style={{ textAlign: 'right', fontWeight: 600 }}>{r.jobs}</td>
                       <td style={{ textAlign: 'right' }}>{fmt(r.value_attended)}</td>
                     </tr>

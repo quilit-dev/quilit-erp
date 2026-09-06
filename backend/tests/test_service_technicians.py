@@ -310,3 +310,148 @@ def test_the_crew_and_the_legacy_field_stay_out_of_each_others_way(make_client, 
     n = db.execute("SELECT COUNT(*) n FROM service_job_technicians WHERE job_id=?",
                    (legacy_job,)).fetchone()["n"]
     assert n == 0, "the old field must not invent a crew member"
+
+
+# ── attendance beside the service count ─────────────────────────────────────
+# A technician is staff who works INSIDE the company and goes out on demand, so
+# the month-end view is both halves: days at work AND services attended. The
+# report used to list only people who completed a job, which made a technician
+# who spent the month in the workshop disappear — the one case a manager most
+# wants to see.
+def _field_staff(c, name, **extra):
+    return _employee(c, name, is_field_staff=True, **extra)
+
+
+def _attend(c, employee_id, day, status="Present"):
+    r = c.post("/api/hr/attendance", json={
+        "employee_id": employee_id, "date": day, "status": status})
+    assert r.status_code in (200, 201), r.text
+
+
+def test_a_technician_who_did_no_calls_still_appears(make_client):
+    """The row this was extended to show.
+
+    Present all month, no jobs. Under the old query he vanished, and "he was
+    here and did nothing" looked identical to "he was not here at all".
+    """
+    c = make_client("superadmin")
+    a = _field_staff(c, "Workshop Sami")
+    _attend(c, a, "2026-03-02")
+    _attend(c, a, "2026-03-03")
+
+    row = _row(_report(c, start="2026-03-01", end="2026-03-31"), a)
+    assert row is not None, "a flagged technician must be listed even with no jobs"
+    assert row["jobs"] == 0
+    assert row["days_present"] == 2
+
+
+def test_work_is_never_hidden_by_a_missing_flag(make_client):
+    """The union, not a filter.
+
+    Somebody forgot to tick the box; he still went out and did the work. His
+    jobs must be counted whatever the flag says, or the report under-reports
+    real services.
+    """
+    c = make_client("superadmin")
+    a = _employee(c, "Unflagged")        # is_field_staff defaults to False
+    job = _job(c, _client_id(c), [a])
+    _complete(c, job)
+
+    row = _row(_report(c), a)
+    assert row is not None, "an unflagged employee who attended a job must appear"
+    assert row["jobs"] == 1
+    assert row["field_staff"] is False
+
+
+def test_an_office_employee_with_neither_is_left_off(make_client):
+    """Otherwise a service report becomes a staff list."""
+    c = make_client("superadmin")
+    a = _employee(c, "Bookkeeper", title="Bookkeeper")
+    _attend(c, a, "2026-03-02")
+
+    assert _row(_report(c, start="2026-03-01", end="2026-03-31"), a) is None
+
+
+def test_absent_days_are_not_days_present(make_client):
+    """Late and Half-day both mean he came in; Absent is the only one that does
+    not. A technician marked Late who then did three calls was at work."""
+    c = make_client("superadmin")
+    a = _field_staff(c, "Mixed")
+    _attend(c, a, "2026-04-01", "Present")
+    _attend(c, a, "2026-04-02", "Late")
+    _attend(c, a, "2026-04-03", "Half-day")
+    _attend(c, a, "2026-04-06", "Absent")
+
+    row = _row(_report(c, start="2026-04-01", end="2026-04-30"), a)
+    assert row["days_present"] == 3, "Absent must not count; Late and Half-day must"
+
+
+def test_attendance_is_counted_only_inside_the_period(make_client):
+    c = make_client("superadmin")
+    a = _field_staff(c, "Ranged")
+    _attend(c, a, "2026-05-10")
+    _attend(c, a, "2026-06-10")
+
+    assert _row(_report(c, start="2026-05-01", end="2026-05-31"), a)["days_present"] == 1
+
+
+# ── who may see it ──────────────────────────────────────────────────────────
+def test_attendance_is_withheld_from_a_viewer_without_hr(make_client, as_role):
+    """Days present is personnel data, and Reports is a wider door than HR.
+
+    Operations Manager holds `reports.view` and NOT `hr.view`. Their service
+    figures are unchanged; the attendance is simply not there — the KEY is
+    absent, not zero, because a zero on screen reads as "he was never here",
+    which is a worse lie than no column.
+    """
+    admin = make_client("superadmin")
+    a = _field_staff(admin, "Seen")
+    _attend(admin, a, "2026-07-01")
+    job = _job(admin, _client_id(admin), [a])
+    _complete(admin, job)
+
+    full = _report(admin)
+    assert full["attendance_visible"] is True
+    assert _row(full, a)["days_present"] == 1
+
+    ops = as_role("Operations Manager")
+    limited = _report(ops)
+    assert limited["attendance_visible"] is False
+    row = _row(limited, a)
+    assert row is not None and row["jobs"] == 1, "the job figures are not HR data"
+    assert "days_present" not in row, \
+        "withheld means absent from the payload, never a zero"
+
+
+def test_the_backfill_flags_exactly_the_people_with_service_history(make_client, db):
+    """Seeded from evidence, not from a guess at the job title.
+
+    `job_title` is free text the customer types and is not necessarily in
+    English, so matching on it would mislabel people in both directions. Anyone
+    already recorded on a service job demonstrably goes out on calls.
+
+    It only ever turns the flag ON, so re-running is a no-op — which matters
+    because _ensure_pg_post_baseline runs it on every boot.
+    """
+    import database
+
+    c = make_client("superadmin")
+    been_out = _employee(c, "Been Out")
+    never = _employee(c, "Never Out", title="Technician")
+    _job(c, _client_id(c), [been_out])
+
+    raw = db._conn if hasattr(db, "_conn") else db
+    raw.execute("UPDATE hr_employees SET is_field_staff = 0")
+    raw.execute(database._FIELD_STAFF_BACKFILL)
+    raw.commit()
+
+    flag = lambda eid: db.execute(
+        "SELECT is_field_staff f FROM hr_employees WHERE id=?", (eid,)).fetchone()["f"]
+    assert flag(been_out) == 1, "he has attended a job"
+    assert flag(never) == 0, "a Technician job title is not evidence of anything"
+
+    # A hand-ticked box must survive a second pass.
+    raw.execute("UPDATE hr_employees SET is_field_staff = 1 WHERE id=?", (never,))
+    raw.execute(database._FIELD_STAFF_BACKFILL)
+    raw.commit()
+    assert flag(never) == 1, "the backfill must never turn a flag off"

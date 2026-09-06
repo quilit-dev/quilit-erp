@@ -109,6 +109,10 @@ class EmployeeBody(BaseModel):
     address:         Optional[str] = None
     notes:           Optional[str] = None
     branch_id:       Optional[int] = None   # branch == warehouse; resolved on create
+    # Goes out on service calls. Decides who the technician report LISTS, so an
+    # idle technician still appears with their days at work and no jobs. It has
+    # nothing to do with who may be assigned to a call — anyone can be.
+    is_field_staff:  bool          = False
     # On PUT only — annotate WHY the change happened. Auto-classified into a
     # change_type if not provided (raise / promotion / role_change / transfer /
     # adjustment). The values are stored in hr_employment_changes.
@@ -688,13 +692,14 @@ def create_employee(
         """INSERT INTO hr_employees
                (full_name, job_title, department_id, employment_type, status,
                 hire_date, end_date, email, phone, salary, pay_type, hourly_rate,
-                manager_id, user_id, address, notes, created_at, branch_id)
-           VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)""",
+                manager_id, user_id, address, notes, created_at, branch_id,
+                is_field_staff)
+           VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)""",
         (data.full_name, data.job_title, data.department_id, data.employment_type,
          data.status, data.hire_date or None, data.end_date or None, data.email,
          data.phone, data.salary, data.pay_type, data.hourly_rate,
          data.manager_id, data.user_id, data.address,
-         data.notes, _now(), branch_id),
+         data.notes, _now(), branch_id, 1 if data.is_field_staff else 0),
     )
     emp_id = cur.lastrowid
     code   = f"EMP-{emp_id:04d}"
@@ -755,13 +760,13 @@ def update_employee(
                full_name=?, job_title=?, department_id=?, employment_type=?, status=?,
                hire_date=?, end_date=?, email=?, phone=?, salary=?,
                pay_type=?, hourly_rate=?, manager_id=?,
-               user_id=?, address=?, notes=?
+               user_id=?, address=?, notes=?, is_field_staff=?
            WHERE id=?""",
         (data.full_name, data.job_title, data.department_id, data.employment_type,
          data.status, data.hire_date or None, data.end_date or None, data.email,
          data.phone, data.salary, data.pay_type, data.hourly_rate,
          data.manager_id, data.user_id, data.address,
-         data.notes, emp_id),
+         data.notes, 1 if data.is_field_staff else 0, emp_id),
     )
 
     # One history row per edit when any tracked field changed. Termination is

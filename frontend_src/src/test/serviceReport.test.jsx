@@ -30,11 +30,20 @@ const REPORT = {
   jobs: [],
   totals: { completed_jobs: 2, revenue: 777, unbilled_count: 0, unbilled_value: 0 },
   by_technician: [
-    { employee_id: 1, name: 'Omar Haddad', job_title: 'Technician', jobs: 1, value_attended: 555 },
-    { employee_id: 2, name: 'Tarek Aoun', job_title: 'Technician', jobs: 1, value_attended: 555 },
-    { employee_id: 3, name: 'Layal Nasr', job_title: 'Technician', jobs: 1, value_attended: 222 },
+    { employee_id: 1, name: 'Omar Haddad', job_title: 'Technician', jobs: 1, value_attended: 555, days_present: 18 },
+    { employee_id: 2, name: 'Tarek Aoun', job_title: 'Technician', jobs: 1, value_attended: 555, days_present: 20 },
+    { employee_id: 3, name: 'Layal Nasr', job_title: 'Technician', jobs: 1, value_attended: 222, days_present: 14 },
   ],
   technician_rows_overlap: true,
+  attendance_visible: true,
+};
+
+/** The same period seen by somebody with reports access but not HR: the server
+ *  omits `days_present` entirely rather than sending a zero. */
+const WITHHELD = {
+  ...REPORT,
+  attendance_visible: false,
+  by_technician: REPORT.by_technician.map(({ days_present, ...rest }) => rest),
 };
 
 vi.mock('../api/client', () => ({
@@ -123,5 +132,53 @@ describe('both languages', () => {
     expect(en.reports.service).toBeTruthy();
     expect(ar.reports.service).toBeTruthy();
     expect(ar.reports.service).not.toBe(en.reports.service);
+  });
+});
+
+
+describe('days present is HR data and the column follows the permission', () => {
+  test('it shows for a viewer who holds HR', async () => {
+    const c = await mount(REPORT);
+    expect(c.textContent).toContain('service.daysPresent');
+    expect(c.textContent).toContain('18');
+  });
+
+  test('the column is GONE for a viewer without it, not blank', async () => {
+    // A blank cell invites "he was never here". So does a zero. The header has
+    // to go too, or the table reads as data that failed to load.
+    const c = await mount(WITHHELD);
+    expect(c.textContent).not.toContain('service.daysPresent');
+    const headerCount = c.querySelectorAll('thead th').length;
+    const cellCount = c.querySelector('tbody tr').querySelectorAll('td').length;
+    expect(cellCount, 'every row must match the header it sits under')
+      .toBe(headerCount);
+  });
+
+  test('the service figures are untouched by the permission', async () => {
+    // Job counts are not personnel data; withholding attendance must not
+    // quietly withhold the thing the viewer came for.
+    const c = await mount(WITHHELD);
+    expect(c.querySelectorAll('tbody tr')).toHaveLength(3);
+    expect(c.textContent).toContain('Omar Haddad');
+  });
+
+  test('the column is driven by the server flag, not by probing a row', () => {
+    // `rows[0].days_present !== undefined` would work until the first period
+    // where the top technician happens to have no attendance recorded.
+    expect(src).toMatch(/data\.attendance_visible/);
+  });
+});
+
+describe('an idle technician is a row, not an omission', () => {
+  test('zero jobs still renders', async () => {
+    const idle = {
+      ...REPORT,
+      by_technician: [{ employee_id: 9, name: 'Workshop Sami', job_title: 'Technician',
+                        jobs: 0, value_attended: 0, days_present: 20, field_staff: true }],
+      technician_rows_overlap: false,
+    };
+    const c = await mount(idle);
+    expect(c.textContent).toContain('Workshop Sami');
+    expect(c.textContent).toContain('20');
   });
 });

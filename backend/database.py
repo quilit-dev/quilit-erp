@@ -4271,6 +4271,33 @@ def _run_migrations(conn, c):
                   "ON service_job_technicians(employee_id)")
         done("175_service_job_technicians")
 
+    # ── 176: who goes out on service calls ───────────────────────────────
+    # A technician is staff who works INSIDE the company and goes out on demand,
+    # so the useful month-end view is both halves together: days at work, and
+    # services attended. The report could not show the first half at all, and it
+    # listed only people who completed a job in the period — so a technician who
+    # spent the month in the workshop vanished, which is exactly the case worth
+    # noticing.
+    #
+    # The flag decides who the REPORT lists, never who may be assigned: anyone
+    # can be sent on a call, and narrowing the picker would leave a fresh tenant
+    # unable to assign a soul until somebody had ticked boxes.
+    add_col("176_employee_field_staff", "hr_employees", "is_field_staff",
+            "ALTER TABLE hr_employees ADD COLUMN is_field_staff INTEGER NOT NULL DEFAULT 0")
+
+    # Seeded from evidence rather than from a guess: anybody who has actually
+    # attended a service job is field staff. Matching on `job_title` would have
+    # been the obvious shortcut and is wrong — it is free text the customer
+    # types, and it is not necessarily in English.
+    if need("176a_field_staff_backfill"):
+        try:
+            c.execute(_FIELD_STAFF_BACKFILL)
+        except sqlite3.OperationalError:
+            # No crew table yet on an install part-way through the upgrade;
+            # 175 creates it, and there is then nothing to seed from.
+            pass
+        done("176a_field_staff_backfill")
+
     # Last, after every migration that might have added an account: if this
     # tenant is on a statutory chart, anything not on it is retired. Migrations
     # insert accounts ACTIVE, which on such a tenant means a default-chart code
@@ -4482,6 +4509,16 @@ _PURCHASE_RECEIVED_AT_BACKFILL = """
      WHERE received_at IS NULL
        AND COALESCE(paid_at, ordered_at) IS NOT NULL
        AND (COALESCE(stock_updated, 0) = 1 OR status IN ('Received', 'Paid'))
+"""
+
+# Anyone already recorded on a service job is field staff. Idempotent by
+# construction: it only ever sets the flag on, so a second pass is a no-op —
+# and _ensure_pg_post_baseline runs it on every boot.
+_FIELD_STAFF_BACKFILL = """
+    UPDATE hr_employees SET is_field_staff = 1
+     WHERE is_field_staff = 0
+       AND EXISTS (SELECT 1 FROM service_job_technicians t
+                    WHERE t.employee_id = hr_employees.id)
 """
 
 _PURCHASE_PAID_TOTAL_BACKFILL = """
@@ -5356,6 +5393,17 @@ def _ensure_pg_post_baseline(raw):
                     "ON service_job_technicians(job_id)")
         cur.execute("CREATE INDEX IF NOT EXISTS idx_sjt_employee "
                     "ON service_job_technicians(employee_id)")
+        # 176: who goes out on service calls. The backfill only ever turns the
+        # flag ON, so it is safe to re-run — which this function does on every
+        # boot — but it is marker-guarded as well, like every other backfill.
+        cur.execute("ALTER TABLE hr_employees ADD COLUMN IF NOT EXISTS "
+                    "is_field_staff INTEGER NOT NULL DEFAULT 0")
+        cur.execute("SELECT 1 FROM schema_migrations "
+                    "WHERE name='176a_field_staff_backfill'")
+        if not cur.fetchone():
+            cur.execute(_FIELD_STAFF_BACKFILL)
+            cur.execute("INSERT INTO schema_migrations (name, applied_at) "
+                        "VALUES ('176a_field_staff_backfill', now()::text)")
     raw.commit()
 
 

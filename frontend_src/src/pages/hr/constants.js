@@ -32,6 +32,10 @@ export const EMPTY_EMPLOYEE = {
   change_type: '', change_reason: '',
   pay_type: 'Salaried',
   hourly_rate: 0,
+  // Goes out on service calls. Decides who the technician report LISTS — so
+  // somebody who spent the month in the workshop still appears, with their days
+  // at work and no jobs — never who may be assigned to a call.
+  is_field_staff: false,
 };
 export const EMPTY_DEPT  = { name: '', description: '' };
 export const EMPTY_LEAVE = { employee_id: '', leave_type: 'Annual', start_date: '', end_date: '', reason: '' };

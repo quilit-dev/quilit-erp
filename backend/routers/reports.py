@@ -3,7 +3,7 @@ Reports router — cross-entity analytical reports for business intelligence.
 """
 from fastapi import APIRouter, Depends, Query
 from database import get_db
-from permissions import require_perm
+from permissions import require_perm, can as _can_perm
 from utils import get_tax_context, money
 from datetime import date
 from typing import Optional
@@ -930,33 +930,66 @@ def report_service_jobs(
     # `value_attended` is the worth of the jobs a person was on. It is NOT a
     # share of revenue and must never be totalled: two technicians on one $500
     # job is still $500.
-    tech_where = ["j.archived_at IS NULL", "j.status = 'Done'",
-                  "j.completed_at IS NOT NULL",
-                  "date(j.completed_at) BETWEEN ? AND ?"]
+    # EVERY job-side condition belongs in the JOIN, not the WHERE. Moving one
+    # of them out turns the LEFT JOIN into an inner join and silently drops
+    # every technician who completed nothing in the period — which is the row
+    # this report was extended to show.
+    job_on = ["j.id = t.job_id", "j.archived_at IS NULL", "j.status = 'Done'",
+              "j.completed_at IS NOT NULL",
+              "date(j.completed_at) BETWEEN ? AND ?"]
     tech_params: list = [start, end]
     if status:
-        tech_where.append("j.status = ?")
+        job_on.append("j.status = ?")
         tech_params.append(status)
     if bf:
-        tech_where.append(bf[len(" AND "):])
+        job_on.append(bf[len(" AND "):])
         tech_params += bp
 
+    # A UNION, not a filter. Field staff appear whether or not they did a call,
+    # so a technician who spent the month in the workshop is visible; and
+    # anybody who DID attend one appears whether or not the box was ticked, so
+    # real work is never hidden by a missing flag.
     tech_rows = db.execute(
-        "SELECT e.id, e.full_name, e.job_title,"
+        "SELECT e.id, e.full_name, e.job_title, e.is_field_staff,"
         "       COUNT(DISTINCT j.id) AS jobs,"
         "       COALESCE(SUM(j.total), 0) AS value_attended"
-        " FROM service_job_technicians t"
-        " JOIN service_jobs j  ON j.id = t.job_id"
-        " JOIN hr_employees e  ON e.id = t.employee_id"
-        f" WHERE {' AND '.join(tech_where)}"
-        " GROUP BY e.id, e.full_name, e.job_title"
+        " FROM hr_employees e"
+        " LEFT JOIN service_job_technicians t ON t.employee_id = e.id"
+        f" LEFT JOIN service_jobs j ON {' AND '.join(job_on)}"
+        " WHERE e.archived_at IS NULL"
+        " GROUP BY e.id, e.full_name, e.job_title, e.is_field_staff"
+        " HAVING COALESCE(e.is_field_staff, 0) = 1 OR COUNT(DISTINCT j.id) > 0"
         " ORDER BY jobs DESC, e.full_name",
         tech_params).fetchall()
-    by_technician = [{
-        "employee_id": r["id"], "name": r["full_name"],
-        "job_title": r["job_title"], "jobs": r["jobs"],
-        "value_attended": round(float(r["value_attended"] or 0), 2),
-    } for r in tech_rows]
+
+    # Attendance is HR data. `can` is the non-throwing check the dashboard uses;
+    # when the caller does not hold it the key is OMITTED rather than sent as 0,
+    # because a zero on the screen reads as "he was never here" — a worse lie
+    # than no column at all. `attendance_visible` tells the screen which it is.
+    attendance_visible = _can_perm(user, db, "hr", "view")
+    present = {}
+    if attendance_visible:
+        # Every status except Absent: Late and Half-day both mean the person
+        # came in, and a technician marked Late who then did three calls was
+        # plainly at work.
+        for r in db.execute(
+                "SELECT employee_id, COUNT(*) AS n FROM hr_attendance"
+                " WHERE COALESCE(status, '') <> 'Absent'"
+                "   AND date BETWEEN ? AND ? GROUP BY employee_id",
+                (start, end)).fetchall():
+            present[r["employee_id"]] = r["n"]
+
+    by_technician = []
+    for r in tech_rows:
+        row = {
+            "employee_id": r["id"], "name": r["full_name"],
+            "job_title": r["job_title"], "jobs": r["jobs"],
+            "field_staff": bool(r["is_field_staff"]),
+            "value_attended": round(float(r["value_attended"] or 0), 2),
+        }
+        if attendance_visible:
+            row["days_present"] = present.get(r["id"], 0)
+        by_technician.append(row)
 
     completed = [r for r in out if r["status"] == "Done" and r["completed_at"]]
     unbilled = [r for r in out if r["status"] == "Done" and not r["billed"]]
@@ -973,6 +1006,7 @@ def report_service_jobs(
         "completed_jobs": len(completed),
     }
     return {"jobs": out, "totals": totals, "by_technician": by_technician,
+            "attendance_visible": attendance_visible,
             # True when at least one completed job had more than one technician,
             # so the per-person column legitimately exceeds `completed_jobs`.
             "technician_rows_overlap":

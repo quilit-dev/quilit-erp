@@ -519,6 +519,7 @@ const ar = {
     fldFullName: 'الاسم الكامل',
     fldJobTitle: 'المسمى الوظيفي',
     fldEmploymentType: 'نوع التوظيف',
+    fldFieldStaff:    'يخرج في مهام الخدمة',
     fldManager: 'المدير',
     fldHireDate: 'تاريخ التعيين',
     fldEndDate: 'تاريخ الانتهاء',
@@ -1540,6 +1541,7 @@ const ar = {
     jobsCompleted:    'المهام المنجزة',
     valueAttended:    'قيمة المهام',
     byTechnician:     'حسب الفني',
+    daysPresent:      'أيام الحضور',
     noCompletedJobs:  'لم تُنجز أي مهمة في هذه الفترة.',
     sharedJobsNote:   'المهمة التي حضرها فنيان تُحتسب لكل منهما، لذلك يزيد '
       + 'مجموع هذا العمود عن عدد المهام المنجزة أعلاه. قيمة المهام هي قيمة كل '

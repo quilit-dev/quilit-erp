@@ -520,6 +520,9 @@ const en = {
     fldFullName: 'Full Name',
     fldJobTitle: 'Job Title',
     fldEmploymentType: 'Employment Type',
+    // Labelled for what it DOES, not for a category. It decides who the
+    // technician report lists — not who may be sent on a call, which is anyone.
+    fldFieldStaff:    'Goes out on service calls',
     fldManager: 'Manager',
     fldHireDate: 'Hire Date',
     fldEndDate: 'End Date',
@@ -1560,6 +1563,7 @@ const en = {
     jobsCompleted:    'Jobs completed',
     valueAttended:    'Value attended',
     byTechnician:     'By technician',
+    daysPresent:      'Days present',
     noCompletedJobs:  'No jobs were completed in this period.',
     // Shown ONLY when a job in the period had more than one technician, so it
     // explains a real discrepancy rather than reading as boilerplate.

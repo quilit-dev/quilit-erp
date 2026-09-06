@@ -99,6 +99,7 @@ export default function HR() {
   function openEmpEdit(e) {
     setEmpForm({
       ...EMPTY_EMPLOYEE, ...e,
+      is_field_staff: !!e.is_field_staff,
       department_id: e.department_id ?? '',
       manager_id:    e.manager_id ?? '',
       hire_date:     e.hire_date || '',
@@ -498,6 +499,14 @@ export default function HR() {
                   <label className="form-label">{t('hr.fldJobTitle')}</label>
                   <input className="form-control" value={empForm.job_title}
                     onChange={e => setEmpForm(f => ({ ...f, job_title: e.target.value }))} />
+                </div>
+                <div className="form-group" style={{ display: 'flex', alignItems: 'flex-end' }}>
+                  <label style={{ display: 'flex', alignItems: 'center', gap: 8,
+                                  fontSize: 13, cursor: 'pointer' }}>
+                    <input type="checkbox" checked={!!empForm.is_field_staff}
+                      onChange={e => setEmpForm(f => ({ ...f, is_field_staff: e.target.checked }))} />
+                    {t('hr.fldFieldStaff')}
+                  </label>
                 </div>
                 <div className="form-group">
                   <label className="form-label">{t('hr.colDepartment')}</label>
