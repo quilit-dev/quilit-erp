@@ -334,3 +334,88 @@ def test_tenant_upgrade_is_idempotent(app, pair):
     second = tenancy.upgrade_all_tenant_schemas()
     assert not first.get("failed"), first
     assert not second.get("failed"), second
+
+
+# ── the fingerprint terminal's credential ────────────────────────────────────
+# The device token is the first credential in this system that is not a person,
+# and it can WRITE. Everything else here is about a stolen human session; this
+# is about a machine credential crossing a boundary it must not.
+#
+# The claim being tested: the token row lives INSIDE the tenant's schema, so a
+# token issued by one customer simply does not exist when the request declares
+# another. Isolation is the search_path, not a check written in the handler --
+# which is exactly why it needs a test rather than an argument.
+
+def _register_device(client, name="Front door"):
+    r = client.post("/api/hr/timeclock/devices", json={"name": name})
+    assert r.status_code in (200, 201), r.text
+    return r.json()["token"]
+
+
+def test_a_device_token_cannot_write_into_another_tenant(app, pair):
+    """The one that would put one company's hours in another's payroll."""
+    victim, attacker = pair
+    victim_token = _register_device(_login(app, victim), "Victim front door")
+
+    anon = TestClient(app)
+    r = anon.post("/api/time/punches",
+                  json={"punches": [{"device_user_id": "1",
+                                     "punched_at": "2026-09-07 08:00:00"}]},
+                  headers={"Authorization": "Bearer " + victim_token,
+                           "X-Tenant": attacker})
+    assert r.status_code == 401,         "a device token reached another tenant: %s %s" % (r.status_code, r.text)
+
+
+def test_it_still_works_against_its_own_tenant(app, pair):
+    # The negative above is only meaningful if the positive holds.
+    victim, _ = pair
+    token = _register_device(_login(app, victim), "Own door")
+    anon = TestClient(app)
+    r = anon.post("/api/time/punches",
+                  json={"punches": [{"device_user_id": "1",
+                                     "punched_at": "2026-09-07 08:00:00"}]},
+                  headers={"Authorization": "Bearer " + token,
+                           "X-Tenant": victim})
+    assert r.status_code == 200, r.text
+    assert r.json()["accepted"] == 1
+
+
+def test_a_device_token_with_no_tenant_named_reaches_nothing(app, pair):
+    # With no X-Tenant and no host to go on, the request resolves to `public`,
+    # where time_devices does not exist. It must fail closed rather than land
+    # in whichever schema happened to be pinned last.
+    victim, _ = pair
+    token = _register_device(_login(app, victim), "Nameless")
+    anon = TestClient(app)
+    r = anon.post("/api/time/punches",
+                  json={"punches": [{"device_user_id": "1",
+                                     "punched_at": "2026-09-07 08:00:00"}]},
+                  headers={"Authorization": "Bearer " + token})
+    assert r.status_code in (401, 404), r.text
+
+
+def test_punches_land_only_in_the_tenant_that_owns_the_terminal(app, pair):
+    victim, attacker = pair
+    token = _register_device(_login(app, victim), "Counting door")
+    anon = TestClient(app)
+    anon.post("/api/time/punches",
+              json={"punches": [{"device_user_id": "9",
+                                 "punched_at": "2026-09-07 09:00:00"}]},
+              headers={"Authorization": "Bearer " + token, "X-Tenant": victim})
+
+    # The other customer must see no terminal, no finger, and no punch.
+    other = _login(app, attacker)
+    assert other.get("/api/hr/timeclock/device-users").json() == []
+    assert all(d["punch_count"] == 0
+               for d in other.get("/api/hr/timeclock/devices").json())
+
+
+def test_one_tenant_cannot_revoke_another_tenants_terminal(app, pair):
+    victim, attacker = pair
+    vc = _login(app, victim)
+    _register_device(vc, "Not yours")
+    device_id = vc.get("/api/hr/timeclock/devices").json()[0]["id"]
+
+    other = _login(app, attacker)
+    r = other.delete("/api/hr/timeclock/devices/%d" % device_id)
+    assert r.status_code == 404,         "one customer revoked another's terminal: %s" % r.status_code
