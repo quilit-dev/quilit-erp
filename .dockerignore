@@ -23,3 +23,9 @@ venv
 *.spec
 # docs/manual is NOT ignored: the `manual` build stage compiles it into the
 # image so the app can serve the user manual at /manual/.
+
+# The site time-clock agent. It runs on a PC in the customer's office, not in
+# this image, and it depends on pyzk which has no business in the API. The
+# Dockerfile already copies only backend/, frontend_src/, docs/manual/ and
+# deploy/, so this is belt and braces against a future `COPY . .`.
+agent/

@@ -1,0 +1,6 @@
+# The site agent's dependencies. These belong HERE and must never be added to
+# backend/requirements.txt: pyzk has no business in the API image, and the
+# server is deliberately kept ignorant of the ZKTeco protocol so that the whole
+# ingest path can be tested without a terminal anywhere near it.
+pyzk==0.9
+requests>=2.31,<3
