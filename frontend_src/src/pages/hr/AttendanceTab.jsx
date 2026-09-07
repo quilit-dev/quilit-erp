@@ -1,9 +1,13 @@
 import { useState, useCallback, useEffect } from 'react';
 import { LoadingSpinner, EmptyState, ExportButton, toast, NumberInput } from '../../components/shared';
-import { getAttendance, saveAttendanceBulk, getAttendanceSummary } from '../../api/client';
+import { getAttendance, saveAttendanceBulk, getAttendanceSummary,
+         deriveAttendance } from '../../api/client';
 import SearchSelect from '../../components/SearchSelect.jsx';
 
 const ATT_STATUSES = ['Present', 'Absent', 'Late', 'Half-day', 'Leave'];
+
+/** 'HH:MM:SS' as 'HH:MM'. Seconds are noise on a screen about working days. */
+const hhmm = (v) => (v ? String(v).slice(0, 5) : '');
 const ATT_LABEL_KEY = {
   'Present': 'hr.attPresent', 'Absent': 'hr.attAbsent', 'Late': 'hr.attLate',
   'Half-day': 'hr.attHalfday', 'Leave': 'hr.attLeave',
@@ -16,6 +20,7 @@ function AttendanceTab({ t, canEdit }) {
   const [rows, setRows]       = useState(null);
   const [summary, setSummary] = useState(null);
   const [saving, setSaving]   = useState(false);
+  const [refreshing, setRefreshing] = useState(false);
 
   const load = useCallback(() => {
     setRows(null);
@@ -30,6 +35,20 @@ function AttendanceTab({ t, canEdit }) {
       .catch(e => { toast(e.message, 'red'); setSummary([]); });
   }, [month]);
   useEffect(() => { if (view === 'day') load(); else loadMonth(); }, [view, load, loadMonth]);
+
+  async function refreshFromClock() {
+    setRefreshing(true);
+    try {
+      const r = await deriveAttendance({ start: date, end: date });
+      // `enabled: false` means the tenant is still collecting punches without
+      // letting them become attendance. Saying so is more use than a silent
+      // no-op that looks like a broken button.
+      toast(r.enabled ? t('hr.attRefreshed', { n: r.written || 0 })
+                      : t('timeclock.collectingOnly'));
+      load();
+    } catch (e) { toast(e.message, 'red'); }
+    finally { setRefreshing(false); }
+  }
 
   const setRow = (id, field, val) =>
     setRows(rs => rs.map(r => (r.employee_id === id ? { ...r, [field]: val } : r)));
@@ -65,7 +84,10 @@ function AttendanceTab({ t, canEdit }) {
       })
     : (rows || []).map(r => ({
         Employee: r.full_name, 'Job title': r.job_title || '',
-        Status: r.status || '', Hours: r.hours ?? '', Notes: r.note || '',
+        Status: r.status || '', Hours: r.hours ?? '',
+        In: hhmm(r.first_in), Out: hhmm(r.last_out),
+        'From the clock': r.source === 'device' ? 'yes' : '',
+        Notes: r.note || '',
       }));
   const exportName = view === 'month' ? `Attendance-${month}` : `Attendance-${date}`;
   const hasData = view === 'month' ? !!(summary && summary.length) : !!(rows && rows.length);
@@ -96,6 +118,12 @@ function AttendanceTab({ t, canEdit }) {
               disabled={!rows || !rows.length}>✓ {t('hr.attMarkAllPresent')}</button>
           )}
           {view === 'day' && canEdit && (
+            <button className="btn btn-secondary btn-sm" onClick={refreshFromClock}
+              disabled={refreshing}>
+              {refreshing ? t('common.saving') : t('hr.attRefresh')}
+            </button>
+          )}
+          {view === 'day' && canEdit && (
             <button className="btn btn-primary btn-sm" onClick={save}
               disabled={saving || !rows || !rows.length}>
               {saving ? t('common.saving') : t('common.save')}
@@ -106,11 +134,14 @@ function AttendanceTab({ t, canEdit }) {
       {view === 'day' ? (
         !rows ? <LoadingSpinner /> :
         rows.length === 0 ? <EmptyState message={t('hr.noEmployees')} /> : (
+        <>
         <div className="table-wrap">
           <table>
             <thead><tr>
               <th>{t('hr.colEmployee')}</th>
               <th>{t('hr.attJobTitle')}</th>
+              <th>{t('hr.attIn')}</th>
+              <th>{t('hr.attOut')}</th>
               <th>{t('common.status')}</th>
               <th>{t('hr.attHours')}</th>
               <th>{t('common.notes')}</th>
@@ -118,8 +149,28 @@ function AttendanceTab({ t, canEdit }) {
             <tbody>
               {rows.map(r => (
                 <tr key={r.employee_id}>
-                  <td className="td-primary">{r.full_name}</td>
+                  <td className="td-primary">
+                    {r.full_name}
+                    {/* Where this row came from. A day the clock owns looks
+                        different from a day somebody typed, because editing one
+                        takes it off the clock and that has to be visible. */}
+                    {r.source === 'device' && (
+                      <span className="badge badge-accent"
+                            style={{ marginInlineStart: 6, fontSize: 10 }}>
+                        {t('hr.attFromClock')}
+                      </span>
+                    )}
+                    {!!r.needs_review && (
+                      <span className="badge badge-yellow"
+                            title={r.note || ''}
+                            style={{ marginInlineStart: 6, fontSize: 10 }}>
+                        {t('hr.attNeedsReview')}
+                      </span>
+                    )}
+                  </td>
                   <td style={{ color: 'var(--text-3)', fontSize: 13 }}>{r.job_title || '—'}</td>
+                  <td className="text-mono" style={{ fontSize: 13 }}>{hhmm(r.first_in) || '—'}</td>
+                  <td className="text-mono" style={{ fontSize: 13 }}>{hhmm(r.last_out) || '—'}</td>
                   <td>
                     <SearchSelect
                       className="form-control"
@@ -134,6 +185,12 @@ function AttendanceTab({ t, canEdit }) {
                     <NumberInput className="form-control" style={{ width: 80 }} min="0" step="0.5"
                       value={r.hours ?? ''} disabled={!canEdit}
                       onChange={e => setRow(r.employee_id, 'hours', e.target.value)} />
+                    {r.device_hours != null
+                      && Number(r.device_hours) !== Number(r.hours ?? NaN) && (
+                      <div style={{ fontSize: 11, color: 'var(--text-3)', marginTop: 2 }}>
+                        {t('hr.attClockSays', { h: r.device_hours })}
+                      </div>
+                    )}
                   </td>
                   <td>
                     <input className="form-control" value={r.note || ''} disabled={!canEdit}
@@ -144,6 +201,10 @@ function AttendanceTab({ t, canEdit }) {
             </tbody>
           </table>
         </div>
+        <div style={{ padding: '8px 18px', fontSize: 12, color: 'var(--text-3)' }}>
+          {t('hr.attEditHint')}
+        </div>
+        </>
       )
       ) : (
         !summary ? <LoadingSpinner /> :

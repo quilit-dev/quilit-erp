@@ -508,6 +508,20 @@ export const unarchiveEmployee   = (id)          => api.patch(`/api/hr/employees
 export const getAttendance        = (date)        => api.get(`/api/hr/attendance?date=${encodeURIComponent(date)}`);
 export const saveAttendanceBulk   = (d)           => api.post('/api/hr/attendance/bulk', d);
 export const getAttendanceSummary = (month)       => api.get(`/api/hr/attendance/summary?month=${encodeURIComponent(month)}`);
+export const deriveAttendance     = (d)           => api.post('/api/hr/attendance/derive', d);
+// The fingerprint clock. Devices, the enrolment numbers they report, and what a
+// normal working day looks like. The device token itself never comes back from
+// a read -- it is shown once, when the device is created or rotated.
+export const getTimeDevices       = ()            => api.get('/api/hr/timeclock/devices');
+export const createTimeDevice     = (d)           => api.post('/api/hr/timeclock/devices', d);
+export const rotateTimeDevice     = (id)          => api.post(`/api/hr/timeclock/devices/${id}/rotate`, {});
+export const revokeTimeDevice     = (id)          => api.delete(`/api/hr/timeclock/devices/${id}`);
+export const getDeviceUsers       = ()            => api.get('/api/hr/timeclock/device-users');
+export const setDeviceUser        = (id, d)       => api.put(`/api/hr/timeclock/device-users/${id}`, d);
+export const getWorkSchedules     = ()            => api.get('/api/hr/timeclock/schedules');
+export const createWorkSchedule   = (d)           => api.post('/api/hr/timeclock/schedules', d);
+export const updateWorkSchedule   = (id, d)       => api.put(`/api/hr/timeclock/schedules/${id}`, d);
+export const archiveWorkSchedule  = (id)          => api.delete(`/api/hr/timeclock/schedules/${id}`);
 export const getLeaveRequests    = (params = {}) => api.get(`/api/hr/leave${_qs(params)}`);
 export const createLeaveRequest  = (d)           => api.post('/api/hr/leave', d);
 export const approveLeave        = (id, d = {})  => api.post(`/api/hr/leave/${id}/approve`, d);

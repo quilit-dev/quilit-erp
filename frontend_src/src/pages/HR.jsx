@@ -24,6 +24,7 @@ import ImportWizard from '../components/ImportWizard';
 import { EmployeeDetail } from './hr/EmployeeDetail';
 import { PayrollRunPanel } from './hr/PayrollRunPanel';
 import { AttendanceTab } from './hr/AttendanceTab';
+import TimeClockTab from './hr/TimeClockTab';
 import SearchSelect from '../components/SearchSelect.jsx';
 import {
   EMPLOYMENT_TYPES, EMPLOYEE_STATUS, LEAVE_TYPES,
@@ -197,6 +198,12 @@ export default function HR() {
     { key: 'departments', label: t('hr.tabDepartments'), count: depts.length },
     { key: 'leave',       label: t('hr.tabLeave'),       count: leaves.length },
     { key: 'attendance',  label: t('hr.tabAttendance'),  count: emps.length },
+    // Operational data about the clock, not company configuration -- which is
+    // why it sits in HR beside the attendance it produces rather than in
+    // Settings. No count: the numbers worth chasing (a device gone quiet, a
+    // finger nobody has claimed) are warnings inside the tab and on the
+    // Attendance screen, where somebody would actually notice missing hours.
+    { key: 'timeclock',   label: t('hr.tabTimeClock') },
   ];
 
   return (
@@ -477,6 +484,10 @@ export default function HR() {
 
       {tab === 'attendance' && (
         <AttendanceTab t={t} canEdit={canEdit} />
+      )}
+
+      {tab === 'timeclock' && (
+        <TimeClockTab t={t} canEdit={canEdit} employees={emps} />
       )}
 
       {importing && (
