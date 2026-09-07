@@ -6,7 +6,6 @@ import { getBranchContext } from '../api/client';
 // Charts/helpers + each report extracted into ./reports/ — this file is the
 // orchestrator (report picker + date range + branch context).
 import { DateRangeBar, getRange } from './reports/charts';
-import { FinancialReport } from './reports/FinancialReport';
 import { VatReport } from './reports/VatReport';
 import { ProjectsReport } from './reports/ProjectsReport';
 import { ClientsReport } from './reports/ClientsReport';
@@ -19,7 +18,7 @@ import { ServiceReport } from './reports/ServiceReport';
 
 export default function Reports() {
   const { t, tEnumValue } = useLocale();
-  const [activeReport, setActiveReport] = usePersistedState('reports_active', 'financial');
+  const [activeReport, setActiveReport] = usePersistedState('reports_active', 'projects');
   // Branch comparison tab appears only for global users (superadmin / owner)
   // who can actually see more than one branch.
   const [multiBranch, setMultiBranch] = useState(false);
@@ -52,8 +51,12 @@ export default function Reports() {
     setAppliedRange(getRange('custom', custom));
   }
 
-  const REPORTS = [
-    { key: 'financial',   label: t('reports.financial')      },
+  // Every tab that exists. `branches` is filtered out below for users who
+  // cannot see more than one branch, but it stays in THIS list so a stored
+  // `reports_active` of 'branches' is still recognised while the branch
+  // context is still loading — otherwise the page would flash another
+  // report, and fire its request, before settling on the right one.
+  const ALL_REPORTS = [
     { key: 'projects',    label: t('reports.projects')       },
     { key: 'clients',     label: t('reports.clients')        },
     { key: 'aging',       label: t('reports.aging')          },
@@ -62,8 +65,17 @@ export default function Reports() {
     { key: 'vat',         label: t('reports.vat')            },
     { key: 'whValuation', label: t('reports.whValuation') || 'Inventory by Warehouse' },
     { key: 'service',     label: t('reports.service')        },
-    ...(multiBranch ? [{ key: 'branches', label: t('reports.branchComparison') }] : []),
+    { key: 'branches',    label: t('reports.branchComparison') },
   ];
+  const REPORTS = ALL_REPORTS.filter(r => r.key !== 'branches' || multiBranch);
+
+  // A remembered tab can outlive the tab itself. `reports_active` persists
+  // for the session, so anyone whose last visit ended on a report that has
+  // since been removed would come back to a page with no tab selected and
+  // nothing rendered — a blank screen with no way to tell what went wrong.
+  const current = ALL_REPORTS.some(r => r.key === activeReport)
+    ? activeReport
+    : ALL_REPORTS[0].key;
 
   return (
     <div>
@@ -92,7 +104,7 @@ export default function Reports() {
         {REPORTS.map(r => (
           <button
             key={r.key}
-            className={`tab-btn${activeReport === r.key ? ' active' : ''}`}
+            className={`tab-btn${current === r.key ? ' active' : ''}`}
             onClick={() => setActiveReport(r.key)}
           >
             {r.label}
@@ -101,16 +113,15 @@ export default function Reports() {
       </div>
 
       {/* Report content — full width */}
-      {activeReport === 'financial' && <FinancialReport params={appliedRange} t={t} />}
-      {activeReport === 'projects'  && <ProjectsReport  params={appliedRange} t={t} />}
-      {activeReport === 'clients'   && <ClientsReport   params={appliedRange} t={t} tEnumValue={tEnumValue} />}
-      {activeReport === 'aging'     && <AgingReport      t={t} />}
-      {activeReport === 'expenses'  && <ExpensesReport   params={appliedRange} t={t} />}
-      {activeReport === 'pipeline'  && <PipelineReport   params={appliedRange} t={t} />}
-      {activeReport === 'vat'       && <VatReport        params={appliedRange} t={t} />}
-      {activeReport === 'whValuation' && <WarehouseValuationReport t={t} />}
-      {activeReport === 'service'   && <ServiceReport   params={appliedRange} t={t} />}
-      {activeReport === 'branches'  && <BranchComparisonReport params={appliedRange} t={t} />}
+      {current === 'projects'  && <ProjectsReport  params={appliedRange} t={t} />}
+      {current === 'clients'   && <ClientsReport   params={appliedRange} t={t} tEnumValue={tEnumValue} />}
+      {current === 'aging'     && <AgingReport      t={t} />}
+      {current === 'expenses'  && <ExpensesReport   params={appliedRange} t={t} />}
+      {current === 'pipeline'  && <PipelineReport   params={appliedRange} t={t} />}
+      {current === 'vat'       && <VatReport        params={appliedRange} t={t} />}
+      {current === 'whValuation' && <WarehouseValuationReport t={t} />}
+      {current === 'service'   && <ServiceReport   params={appliedRange} t={t} />}
+      {current === 'branches'  && <BranchComparisonReport params={appliedRange} t={t} />}
     </div>
   );
 }
