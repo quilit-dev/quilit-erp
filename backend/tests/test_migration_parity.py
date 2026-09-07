@@ -88,6 +88,22 @@ _REQUIRED = [
     ("quotation_items", "txn_unit_price"),
     ("service_jobs", "currency"),
     ("service_jobs", "txn_total"),
+    # The fingerprint clock. `source` is the load-bearing one: hr_attendance is
+    # UNIQUE(employee_id, date), so a derived day and a typed day compete for
+    # the same row, and this column is what stops the clock overwriting what a
+    # manager entered. Missing on Postgres, every derived write would either
+    # fail or silently take a manual row with it.
+    ("hr_attendance", "source"),
+    ("hr_attendance", "first_in"),
+    ("hr_attendance", "last_out"),
+    ("hr_attendance", "device_hours"),
+    ("hr_attendance", "punch_count"),
+    ("hr_attendance", "needs_review"),
+    ("hr_employees", "work_schedule_id"),
+    ("time_devices", "token_hash"),
+    ("time_punches", "punched_at"),
+    ("time_punches", "employee_id"),
+    ("time_device_users", "device_user_id"),
 ]
 
 
@@ -114,6 +130,13 @@ _REQUIRED_TABLES = [
     # Currency differences an accountant can work with.
     "fx_revaluation_runs",
     "fx_reconciliations",
+    # The fingerprint clock: the site agent's credential, the raw punches it
+    # sends, which enrolment number is which employee, and what a normal
+    # working day looks like.
+    "time_devices",
+    "time_punches",
+    "time_device_users",
+    "work_schedules",
 ]
 
 

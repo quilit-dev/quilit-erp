@@ -4298,6 +4298,185 @@ def _run_migrations(conn, c):
             pass
         done("176a_field_staff_backfill")
 
+    # ── 177: the fingerprint terminal that reports punches ────────────────
+    # A ZKTeco clock sits on the customer's LAN and the ERP is in the cloud, so
+    # nothing can be pulled from this side — a small agent at the site pushes
+    # to us instead. That agent is a machine, which makes this the first
+    # credential in the system that does not belong to a person.
+    #
+    # `serial_number` is printed on the box and readable by anyone standing in
+    # the room: it identifies a device, it never authenticates one. Only
+    # `token_hash` does that, and the plaintext is shown once at issue and is
+    # not recoverable afterwards — the same shape as document_shares.
+    if need("177_time_devices"):
+        c.execute("""
+            CREATE TABLE IF NOT EXISTS time_devices (
+                id            INTEGER PRIMARY KEY AUTOINCREMENT,
+                name          TEXT    NOT NULL,
+                serial_number TEXT,
+                branch_id     INTEGER REFERENCES warehouses(id),
+                token_hash    TEXT    NOT NULL UNIQUE,
+                token_prefix  TEXT,
+                last_seen_at  TEXT,
+                last_punch_at TEXT,
+                agent_version TEXT,
+                -- The rate-limit window lives on the row rather than in a
+                -- table of its own: one device is one caller, so the counter
+                -- has nowhere else it needs to be.
+                window_started_at TEXT,
+                window_count  INTEGER NOT NULL DEFAULT 0,
+                revoked_at    TEXT,
+                created_by    INTEGER REFERENCES users(id),
+                created_at    TEXT    NOT NULL,
+                updated_at    TEXT
+            )""")
+        done("177_time_devices")
+
+    # ── 178: the raw punch log ───────────────────────────────────────────
+    # Kept apart from hr_attendance and never edited: this is what the reader
+    # actually saw, and every derived figure has to stay re-derivable from it
+    # after somebody corrects a schedule.
+    #
+    # `local_date` is the calendar date of `punched_at`, for indexing only. The
+    # BUSINESS day is decided at derivation time from the employee's schedule —
+    # a night shift's 03:40 belongs to the day before — and freezing it here
+    # would mean a corrected schedule could no longer fix a recorded punch.
+    if need("178_time_punches"):
+        c.execute("""
+            CREATE TABLE IF NOT EXISTS time_punches (
+                id             INTEGER PRIMARY KEY AUTOINCREMENT,
+                device_id      INTEGER NOT NULL REFERENCES time_devices(id),
+                device_user_id TEXT    NOT NULL,
+                -- Nullable on purpose. A finger is enrolled on the terminal
+                -- before anyone in the ERP says who it belongs to, so a punch
+                -- that maps to nobody must still be kept rather than dropped.
+                employee_id    INTEGER REFERENCES hr_employees(id),
+                punched_at     TEXT    NOT NULL,
+                local_date     TEXT    NOT NULL,
+                -- Stored, not trusted: the terminal fills these in only if
+                -- somebody configured its IN/OUT keys. Keeping them means the
+                -- pairing rule can be tightened later without re-collecting a
+                -- month of punches.
+                direction      TEXT,
+                raw_punch      INTEGER,
+                raw_status     INTEGER,
+                source         TEXT    NOT NULL DEFAULT 'device',
+                received_at    TEXT    NOT NULL,
+                created_at     TEXT    NOT NULL,
+                -- One finger, one reader, one second is one event. This is
+                -- what makes a re-sent batch harmless: the agent deliberately
+                -- replays an overlapping window after any crash, so ingest has
+                -- to absorb the repeat silently rather than reject it the way
+                -- invoice_payments rejects a double-clicked payment.
+                UNIQUE (device_id, device_user_id, punched_at)
+            )""")
+        c.execute("CREATE INDEX IF NOT EXISTS idx_time_punches_emp_date "
+                  "ON time_punches(employee_id, local_date)")
+        c.execute("CREATE INDEX IF NOT EXISTS idx_time_punches_device "
+                  "ON time_punches(device_id, punched_at)")
+        done("178_time_punches")
+
+    # ── 179: which enrolment number is which employee ────────────────────
+    # A link table rather than a column on hr_employees, because the enrolment
+    # id belongs to the DEVICE, not to the person. It is a small number keyed
+    # in at the terminal, and two sites each starting at 1 is the normal case —
+    # a tenant-unique column would quietly pay one site's hours to the other
+    # site's employee 5, which is the worst thing this feature could do.
+    #
+    # It also has to be able to say "the device reports user 7 and nobody has
+    # claimed it", which is the entire onboarding screen and which a column on
+    # hr_employees has nowhere to put.
+    if need("179_time_device_users"):
+        c.execute("""
+            CREATE TABLE IF NOT EXISTS time_device_users (
+                id             INTEGER PRIMARY KEY AUTOINCREMENT,
+                device_id      INTEGER NOT NULL REFERENCES time_devices(id),
+                device_user_id TEXT    NOT NULL,
+                employee_id    INTEGER REFERENCES hr_employees(id),
+                device_name    TEXT,
+                created_at     TEXT    NOT NULL,
+                updated_at     TEXT,
+                UNIQUE (device_id, device_user_id)
+            )""")
+        c.execute("CREATE INDEX IF NOT EXISTS idx_tdu_employee "
+                  "ON time_device_users(employee_id)")
+        done("179_time_device_users")
+
+    # ── 180: what a normal working day is ────────────────────────────────
+    # Punch times mean nothing without it: Late needs a start time and a grace
+    # period, Half-day needs a threshold, and Absent needs to know which days
+    # are working days at all.
+    #
+    # A table rather than settings keys. `SettingsUpdate` forbids unknown
+    # fields, so nine settings would cost nine entries in three separate
+    # places, and they still could not express a second (night) schedule for
+    # the employees who need one.
+    #
+    # No default row is seeded. A migration that INSERTs is a migration that
+    # can insert twice, and the Postgres half of this runs on every boot;
+    # derivation falls back to module constants when no default row exists,
+    # which is the same "opt-in, all zero" shape _payroll_settings already has.
+    if need("180_work_schedules"):
+        c.execute("""
+            CREATE TABLE IF NOT EXISTS work_schedules (
+                id                 INTEGER PRIMARY KEY AUTOINCREMENT,
+                name               TEXT    NOT NULL,
+                is_default         INTEGER NOT NULL DEFAULT 0,
+                start_time         TEXT    NOT NULL DEFAULT '08:00',
+                end_time           TEXT    NOT NULL DEFAULT '17:00',
+                break_minutes      INTEGER NOT NULL DEFAULT 0,
+                grace_minutes      INTEGER NOT NULL DEFAULT 15,
+                min_hours_full_day REAL    NOT NULL DEFAULT 6,
+                -- ISO weekday numbers, Monday = 1. Text rather than a bitmask
+                -- so the stored value is readable in a database browser.
+                workdays           TEXT    NOT NULL DEFAULT '1,2,3,4,5',
+                crosses_midnight   INTEGER NOT NULL DEFAULT 0,
+                archived_at        TEXT,
+                created_at         TEXT    NOT NULL,
+                updated_at         TEXT
+            )""")
+        done("180_work_schedules")
+
+    # NULL means "the company default", so nobody has to be assigned a
+    # schedule for the feature to work on day one.
+    add_col("180a_employee_schedule", "hr_employees", "work_schedule_id",
+            "ALTER TABLE hr_employees ADD COLUMN work_schedule_id INTEGER "
+            "REFERENCES work_schedules(id)")
+
+    # ── 181: a row remembers who wrote it ────────────────────────────────
+    # hr_attendance is UNIQUE(employee_id, date), so a derived day and a typed
+    # day compete for the same row. `source` is the whole safety property of
+    # this feature: the clock may only write rows the clock owns.
+    #
+    # It DEFAULTS to 'manual', which is why there is no backfill here and no
+    # marker guard needed. Every row that already exists is protected by the
+    # default, and so is every row written by any code path that never learns
+    # the clock exists.
+    add_col("181a_attendance_source", "hr_attendance", "source",
+            "ALTER TABLE hr_attendance ADD COLUMN source TEXT NOT NULL "
+            "DEFAULT 'manual'")
+
+    # What the clock saw, kept beside whatever the row ends up saying. Nothing
+    # in payroll or in the reports reads these four: they exist so the screen
+    # can show "you typed 8, the clock says 7.5", which is what makes the
+    # automation trustworthy rather than merely automatic.
+    add_col("181b_attendance_first_in", "hr_attendance", "first_in",
+            "ALTER TABLE hr_attendance ADD COLUMN first_in TEXT")
+    add_col("181c_attendance_last_out", "hr_attendance", "last_out",
+            "ALTER TABLE hr_attendance ADD COLUMN last_out TEXT")
+    add_col("181d_attendance_device_hours", "hr_attendance", "device_hours",
+            "ALTER TABLE hr_attendance ADD COLUMN device_hours REAL")
+    add_col("181e_attendance_punch_count", "hr_attendance", "punch_count",
+            "ALTER TABLE hr_attendance ADD COLUMN punch_count INTEGER NOT NULL "
+            "DEFAULT 0")
+    # Set when the day cannot be read confidently — an odd number of punches,
+    # a missing check-out. Derivation never guesses an end time to make the
+    # arithmetic come out: inventing an out-punch invents hours, and for an
+    # hourly employee hours are money.
+    add_col("181f_attendance_needs_review", "hr_attendance", "needs_review",
+            "ALTER TABLE hr_attendance ADD COLUMN needs_review INTEGER NOT NULL "
+            "DEFAULT 0")
+
     # Last, after every migration that might have added an account: if this
     # tenant is on a statutory chart, anything not on it is retired. Migrations
     # insert accounts ACTIVE, which on such a tenant means a default-chart code
@@ -5404,6 +5583,100 @@ def _ensure_pg_post_baseline(raw):
             cur.execute(_FIELD_STAFF_BACKFILL)
             cur.execute("INSERT INTO schema_migrations (name, applied_at) "
                         "VALUES ('176a_field_staff_backfill', now()::text)")
+        # 177-179: the fingerprint clock. A ZKTeco terminal on the
+        # customer's LAN cannot be reached from here, so an agent at the site
+        # pushes punches to us; time_devices holds that agent's credential.
+        # Only the token HASH is stored — the serial number is printed on the
+        # box and identifies a device without authenticating one.
+        cur.execute("""CREATE TABLE IF NOT EXISTS time_devices (
+            id            INTEGER GENERATED BY DEFAULT AS IDENTITY PRIMARY KEY,
+            name          TEXT NOT NULL,
+            serial_number TEXT,
+            branch_id     INTEGER,
+            token_hash    TEXT NOT NULL UNIQUE,
+            token_prefix  TEXT,
+            last_seen_at  TEXT,
+            last_punch_at TEXT,
+            agent_version TEXT,
+            window_started_at TEXT,
+            window_count  INTEGER NOT NULL DEFAULT 0,
+            revoked_at    TEXT,
+            created_by    INTEGER,
+            created_at    TEXT NOT NULL,
+            updated_at    TEXT)""")
+        # The UNIQUE is what makes a re-sent batch harmless: the agent replays
+        # an overlapping window after any crash, so ingest absorbs the repeat
+        # instead of rejecting it. employee_id is nullable because a finger is
+        # enrolled on the terminal before anyone here says whose it is.
+        cur.execute("""CREATE TABLE IF NOT EXISTS time_punches (
+            id             INTEGER GENERATED BY DEFAULT AS IDENTITY PRIMARY KEY,
+            device_id      INTEGER NOT NULL,
+            device_user_id TEXT NOT NULL,
+            employee_id    INTEGER,
+            punched_at     TEXT NOT NULL,
+            local_date     TEXT NOT NULL,
+            direction      TEXT,
+            raw_punch      INTEGER,
+            raw_status     INTEGER,
+            source         TEXT NOT NULL DEFAULT 'device',
+            received_at    TEXT NOT NULL,
+            created_at     TEXT NOT NULL,
+            UNIQUE (device_id, device_user_id, punched_at))""")
+        cur.execute("CREATE INDEX IF NOT EXISTS idx_time_punches_emp_date "
+                    "ON time_punches(employee_id, local_date)")
+        cur.execute("CREATE INDEX IF NOT EXISTS idx_time_punches_device "
+                    "ON time_punches(device_id, punched_at)")
+        # A link table, not a column on hr_employees: the enrolment number
+        # belongs to the device, and two sites both starting at 1 is normal.
+        cur.execute("""CREATE TABLE IF NOT EXISTS time_device_users (
+            id             INTEGER GENERATED BY DEFAULT AS IDENTITY PRIMARY KEY,
+            device_id      INTEGER NOT NULL,
+            device_user_id TEXT NOT NULL,
+            employee_id    INTEGER,
+            device_name    TEXT,
+            created_at     TEXT NOT NULL,
+            updated_at     TEXT,
+            UNIQUE (device_id, device_user_id))""")
+        cur.execute("CREATE INDEX IF NOT EXISTS idx_tdu_employee "
+                    "ON time_device_users(employee_id)")
+        # 180: what a normal working day is — punch times mean nothing without
+        # a start time, a grace period and a set of working days. No default
+        # row is seeded: this function runs on every boot, so it must not
+        # INSERT anything. Derivation falls back to module constants.
+        cur.execute("""CREATE TABLE IF NOT EXISTS work_schedules (
+            id                 INTEGER GENERATED BY DEFAULT AS IDENTITY PRIMARY KEY,
+            name               TEXT NOT NULL,
+            is_default         INTEGER NOT NULL DEFAULT 0,
+            start_time         TEXT NOT NULL DEFAULT '08:00',
+            end_time           TEXT NOT NULL DEFAULT '17:00',
+            break_minutes      INTEGER NOT NULL DEFAULT 0,
+            grace_minutes      INTEGER NOT NULL DEFAULT 15,
+            min_hours_full_day DOUBLE PRECISION NOT NULL DEFAULT 6,
+            workdays           TEXT NOT NULL DEFAULT '1,2,3,4,5',
+            crosses_midnight   INTEGER NOT NULL DEFAULT 0,
+            archived_at        TEXT,
+            created_at         TEXT NOT NULL,
+            updated_at         TEXT)""")
+        cur.execute("ALTER TABLE hr_employees ADD COLUMN IF NOT EXISTS "
+                    "work_schedule_id INTEGER")
+        # 181: a row remembers who wrote it. hr_attendance is
+        # UNIQUE(employee_id, date), so a derived day and a typed day compete
+        # for the same row, and `source` is what stops the clock overwriting a
+        # manager's correction. It DEFAULTS to 'manual', so every row already
+        # on this tenant is protected without a backfill — which is the whole
+        # reason this migration has no marker guard and needs none.
+        cur.execute("ALTER TABLE hr_attendance ADD COLUMN IF NOT EXISTS "
+                    "source TEXT NOT NULL DEFAULT 'manual'")
+        cur.execute("ALTER TABLE hr_attendance ADD COLUMN IF NOT EXISTS "
+                    "first_in TEXT")
+        cur.execute("ALTER TABLE hr_attendance ADD COLUMN IF NOT EXISTS "
+                    "last_out TEXT")
+        cur.execute("ALTER TABLE hr_attendance ADD COLUMN IF NOT EXISTS "
+                    "device_hours DOUBLE PRECISION")
+        cur.execute("ALTER TABLE hr_attendance ADD COLUMN IF NOT EXISTS "
+                    "punch_count INTEGER NOT NULL DEFAULT 0")
+        cur.execute("ALTER TABLE hr_attendance ADD COLUMN IF NOT EXISTS "
+                    "needs_review INTEGER NOT NULL DEFAULT 0")
     raw.commit()
 
 
