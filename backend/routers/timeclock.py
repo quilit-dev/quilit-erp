@@ -56,8 +56,19 @@ class PunchIn(BaseModel):
     raw_status: Optional[int] = None
 
 
+class DeviceUserIn(BaseModel):
+    device_user_id: str = Field(min_length=1, max_length=64)
+    name: Optional[str] = Field(default=None, max_length=120)
+
+
 class PunchBatch(BaseModel):
     punches: List[PunchIn] = Field(min_length=1, max_length=MAX_BATCH)
+    # The names enrolled on the terminal itself. Optional, and describing the
+    # DEVICE rather than the punches -- an agent that cannot read them still
+    # delivers attendance perfectly well. They exist so the mapping screen can
+    # show "6 - Abdalah" instead of a bare 6, which is the difference between a
+    # screen somebody can use and one that needs institutional memory.
+    users: Optional[List[DeviceUserIn]] = Field(default=None, max_length=MAX_BATCH)
 
 
 class DeviceIn(BaseModel):
@@ -151,6 +162,8 @@ def ingest_punches(data: PunchBatch, device: dict = Depends(require_device),
     latest = None
     seen_users = {}
     touched_days = set()
+    names = {u.device_user_id.strip(): (u.name or "").strip()
+             for u in (data.users or []) if u.device_user_id.strip()}
 
     for p in data.punches:
         when = _parse_punch(p.punched_at)
@@ -171,8 +184,9 @@ def ingest_punches(data: PunchBatch, device: dict = Depends(require_device),
             if m is None:
                 db.execute(
                     "INSERT OR IGNORE INTO time_device_users "
-                    "(device_id, device_user_id, employee_id, created_at) "
-                    "VALUES (?, ?, NULL, ?)", (device["id"], uid, now))
+                    "(device_id, device_user_id, employee_id, device_name, "
+                    " created_at) VALUES (?, ?, NULL, ?, ?)",
+                    (device["id"], uid, names.get(uid) or None, now))
                 seen_users[uid] = None
             else:
                 seen_users[uid] = m["employee_id"]
@@ -192,6 +206,14 @@ def ingest_punches(data: PunchBatch, device: dict = Depends(require_device),
                 latest = stamp
         else:
             duplicates += 1
+
+    for uid, label in names.items():
+        if label:
+            db.execute(
+                "UPDATE time_device_users SET device_name=?, updated_at=? "
+                " WHERE device_id=? AND device_user_id=? "
+                "   AND COALESCE(device_name,'') <> ?",
+                (label, now, device["id"], uid, label))
 
     if latest:
         db.execute(

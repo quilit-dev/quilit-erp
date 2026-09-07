@@ -238,7 +238,17 @@ export default function TimeClockTab({ t, canEdit, employees = [] }) {
                 {users.map(u => (
                   <tr key={u.id}>
                     <td style={{ color: 'var(--text-2)' }}>{u.device}</td>
-                    <td className="td-primary text-mono">{u.device_user_id}</td>
+                    <td className="td-primary">
+                      <span className="text-mono">{u.device_user_id}</span>
+                      {/* The name typed into the terminal. Not authoritative --
+                          the ERP's own employee is what pay depends on -- but
+                          it is what turns "who is finger 6?" into an answer. */}
+                      {u.device_name && (
+                        <span style={{ marginInlineStart: 8, color: 'var(--text-2)' }}>
+                          {u.device_name}
+                        </span>
+                      )}
+                    </td>
                     <td style={{ textAlign: 'right' }}>{u.punch_count}</td>
                     <td>
                       {canEdit ? (

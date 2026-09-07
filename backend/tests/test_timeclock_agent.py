@@ -49,7 +49,11 @@ def punches(*stamps, user="7"):
 
 CFG = {"erp_url": "https://example.invalid", "device_token": "t" * 43,
        "tenant_slug": "demo", "timeout": 5, "poll_seconds": 300,
-       "device_ip": "10.0.0.1", "device_port": 4370, "device_password": 0}
+       "device_ip": "10.0.0.1", "device_port": 4370, "device_password": 0,
+       # Deliberately far back. The tests above are about the cursor, and
+       # without pinning this they would start failing on their own as the real
+       # date moved past their fixture dates. The start floor has its own tests.
+       "start_date": "2020-01-01"}
 
 
 # ── the file that is safe to lose ────────────────────────────────────────────
@@ -109,7 +113,7 @@ def test_an_unreadable_timestamp_is_sent_rather_than_dropped(agent):
 
 # ── the cursor only moves on success ─────────────────────────────────────────
 def test_nothing_is_marked_sent_until_the_erp_says_so(agent, monkeypatch):
-    def explode(cfg, chunk):
+    def explode(cfg, chunk, users=None):
         raise RuntimeError("ERP unreachable")
     monkeypatch.setattr(agent, "send_batch", explode)
 
@@ -122,7 +126,7 @@ def test_nothing_is_marked_sent_until_the_erp_says_so(agent, monkeypatch):
 
 def test_a_successful_send_advances_the_cursor(agent, monkeypatch):
     monkeypatch.setattr(agent, "send_batch",
-                        lambda cfg, chunk: {"accepted": len(chunk),
+                        lambda cfg, chunk, users=None: {"accepted": len(chunk),
                                             "duplicates": 0, "rejected": 0})
     out = agent.run_once(CFG, punches=punches("2026-09-07 08:00:00",
                                               "2026-09-07 17:00:00"))
@@ -137,7 +141,7 @@ def test_a_second_cycle_does_not_re_upload_the_whole_log(agent, monkeypatch):
     # but that anything older than that window is left behind.
     sent = []
     monkeypatch.setattr(agent, "send_batch",
-                        lambda cfg, chunk: (sent.extend(chunk),
+                        lambda cfg, chunk, users=None: (sent.extend(chunk),
                                             {"accepted": len(chunk),
                                              "duplicates": 0, "rejected": 0})[1])
     on_device = punches("2026-01-15 08:00:00",      # months old
@@ -159,7 +163,7 @@ def test_a_half_delivered_run_keeps_what_landed(agent, monkeypatch):
     # and the overlap picks up whatever the second was carrying.
     calls = {"n": 0}
 
-    def flaky(cfg, chunk):
+    def flaky(cfg, chunk, users=None):
         calls["n"] += 1
         if calls["n"] > 1:
             raise RuntimeError("connection dropped")
@@ -179,7 +183,7 @@ def test_a_half_delivered_run_keeps_what_landed(agent, monkeypatch):
 def test_batches_are_split_under_the_server_cap(agent, monkeypatch):
     sizes = []
     monkeypatch.setattr(agent, "send_batch",
-                        lambda cfg, chunk: (sizes.append(len(chunk)),
+                        lambda cfg, chunk, users=None: (sizes.append(len(chunk)),
                                             {"accepted": len(chunk),
                                              "duplicates": 0, "rejected": 0})[1])
     many = punches(*["2026-09-07 %02d:%02d:00" % (i // 60, i % 60)
@@ -195,7 +199,7 @@ def test_punches_are_sent_oldest_first(agent, monkeypatch):
     # would advance it past punches that had not been sent.
     sent = []
     monkeypatch.setattr(agent, "send_batch",
-                        lambda cfg, chunk: (sent.extend(chunk),
+                        lambda cfg, chunk, users=None: (sent.extend(chunk),
                                             {"accepted": len(chunk),
                                              "duplicates": 0, "rejected": 0})[1])
     agent.run_once(CFG, punches=punches("2026-09-07 17:00:00",
@@ -206,7 +210,7 @@ def test_punches_are_sent_oldest_first(agent, monkeypatch):
 
 # ── dry run ──────────────────────────────────────────────────────────────────
 def test_dry_run_sends_nothing_and_moves_nothing(agent, monkeypatch):
-    def explode(cfg, chunk):
+    def explode(cfg, chunk, users=None):
         raise AssertionError("--dry-run sent something")
     monkeypatch.setattr(agent, "send_batch", explode)
 
@@ -226,3 +230,78 @@ def test_the_agent_never_clears_the_device():
     assert "clear_attendance" not in src.replace(
         "`zk.clear_attendance()` appears nowhere in", ""), \
         "the agent must never clear the terminal's memory"
+
+
+# ── how far back it reaches ──────────────────────────────────────────────────
+def test_by_default_it_starts_from_today_not_from_2024(agent):
+    # The real TX628 this was written against held records back to May 2024.
+    # Sending those would post attendance into months that have already been
+    # paid, against whoever the fingers are later mapped to. A clock starts
+    # counting when you install it.
+    cfg = dict(CFG, start_date="")
+    today = agent.datetime(2026, 9, 8, 14, 30)
+    floor = agent.first_run_floor(cfg, today)
+    assert floor == agent.datetime(2026, 9, 8, 0, 0),         "the floor must be midnight today, not the moment of first run"
+
+    kept = agent.filter_new(punches(
+        "2024-05-03 12:59:57", "2026-02-27 15:42:08",
+        "2026-09-08 08:00:00"), agent.effective_cutoff(cfg, {}, today))
+    assert [p["punched_at"] for p in kept] == ["2026-09-08 08:00:00"]
+
+
+def test_an_explicit_start_date_is_honoured(agent):
+    cfg = dict(CFG, start_date="2026-02-01")
+    today = agent.datetime(2026, 9, 8, 14, 30)
+    kept = agent.filter_new(punches(
+        "2024-05-03 12:59:57", "2026-02-27 15:42:08",
+        "2026-09-08 08:00:00"), agent.effective_cutoff(cfg, {}, today))
+    assert [p["punched_at"] for p in kept] == [
+        "2026-02-27 15:42:08", "2026-09-08 08:00:00"]
+
+
+def test_deleting_the_state_file_does_not_resurrect_old_history(agent):
+    # The cursor is safe to lose -- but only because the start floor is a
+    # SEPARATE guard. Taking the cursor alone would re-open the whole log.
+    cfg = dict(CFG, start_date="2026-09-01")
+    today = agent.datetime(2026, 9, 8, 14, 30)
+    kept = agent.filter_new(punches("2024-05-03 12:59:57"),
+                            agent.effective_cutoff(cfg, {}, today))
+    assert kept == [], "losing state.json brought 2024 back"
+
+
+def test_the_floor_and_the_cursor_do_not_undercut_each_other(agent):
+    cfg = dict(CFG, start_date="2026-09-01")
+    today = agent.datetime(2026, 9, 30, 12, 0)
+    # A cursor far ahead of the floor wins: no point re-sending three weeks.
+    late = agent.effective_cutoff(cfg, {"last_punch_at": "2026-09-20 17:00:00"}, today)
+    assert late > agent.datetime(2026, 9, 1)
+    # A floor ahead of the cursor wins: old history stays out.
+    cfg2 = dict(CFG, start_date="2026-09-25")
+    early = agent.effective_cutoff(cfg2, {"last_punch_at": "2026-09-02 17:00:00"}, today)
+    assert early == agent.datetime(2026, 9, 25)
+
+
+def test_a_malformed_start_date_stops_the_agent_rather_than_guessing(agent):
+    # Silently falling back to "today" would look like it worked while quietly
+    # ignoring what somebody asked for.
+    import pytest as _p
+    with _p.raises(SystemExit):
+        agent.first_run_floor(dict(CFG, start_date="last tuesday"))
+
+
+# ── the names on the terminal ────────────────────────────────────────────────
+def test_enrolled_names_ride_along_with_the_first_batch_only(agent, monkeypatch):
+    # They describe the device, not the punches. Repeating them on every chunk
+    # would be noise on the wire for no gain.
+    seen = []
+    monkeypatch.setattr(agent, "send_batch",
+                        lambda cfg, chunk, users=None: (
+                            seen.append(users),
+                            {"accepted": len(chunk), "duplicates": 0,
+                             "rejected": 0})[1])
+    monkeypatch.setattr(agent, "BATCH_SIZE", 1)
+    cfg = dict(CFG, start_date="2026-09-01",
+               _users=[{"device_user_id": "6", "name": "Abdalah"}])
+    agent.run_once(cfg, punches("2026-09-07 08:00:00", "2026-09-07 17:00:00"))
+    assert seen[0] == [{"device_user_id": "6", "name": "Abdalah"}]
+    assert seen[1] is None

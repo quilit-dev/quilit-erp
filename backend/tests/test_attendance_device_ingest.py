@@ -297,3 +297,58 @@ def test_a_device_that_floods_is_throttled_but_keeps_what_it_sent(clock, db):
         "everything up to the ceiling should have been accepted normally"
     stored = db.execute("SELECT COUNT(*) c FROM time_punches").fetchone()["c"]
     assert stored == limit, "the punches sent before the ceiling were kept"
+
+
+# ── the names enrolled on the terminal ───────────────────────────────────────
+def test_the_enrolled_name_is_stored_beside_the_number(clock):
+    # Without it the mapping screen shows a bare "6" and somebody has to already
+    # know that finger 6 is Abdalah. The name is a LABEL, never an identity --
+    # pay depends on the ERP's own employee record, which a human still links.
+    admin, agent, _ = clock
+    r = agent.post("/api/time/punches", json={
+        "punches": [{"device_user_id": "6", "punched_at": DAY + " 08:00:00"}],
+        "users": [{"device_user_id": "6", "name": "Abdalah"},
+                  {"device_user_id": "2", "name": "JINANE"}]})
+    assert r.status_code == 200, r.text
+    m = _mapping(admin, "6")
+    assert m["device_name"] == "Abdalah"
+    assert m["employee_id"] is None, "a name is not a claim"
+
+
+def test_a_name_changed_on_the_keypad_catches_up(clock):
+    admin, agent, _ = clock
+    body = {"punches": [{"device_user_id": "6", "punched_at": DAY + " 08:00:00"}],
+            "users": [{"device_user_id": "6", "name": "Abdalah"}]}
+    agent.post("/api/time/punches", json=body)
+    body["users"] = [{"device_user_id": "6", "name": "Abdalah H"}]
+    body["punches"] = [{"device_user_id": "6", "punched_at": DAY + " 17:00:00"}]
+    agent.post("/api/time/punches", json=body)
+    assert _mapping(admin, "6")["device_name"] == "Abdalah H"
+
+
+def test_a_name_never_moves_the_employee_link(clock, db):
+    # A relabelled finger must not silently re-point somebody's hours.
+    admin, agent, _ = clock
+    emp = _employee(admin)
+    agent.post("/api/time/punches", json={
+        "punches": [{"device_user_id": "6", "punched_at": DAY + " 08:00:00"}],
+        "users": [{"device_user_id": "6", "name": "Abdalah"}]})
+    m = _mapping(admin, "6")
+    admin.put("/api/hr/timeclock/device-users/%d" % m["id"],
+              json={"employee_id": emp})
+
+    agent.post("/api/time/punches", json={
+        "punches": [{"device_user_id": "6", "punched_at": DAY + " 17:00:00"}],
+        "users": [{"device_user_id": "6", "name": "Somebody Else"}]})
+    after = _mapping(admin, "6")
+    assert after["employee_id"] == emp, "a rename re-pointed the mapping"
+    assert after["device_name"] == "Somebody Else"
+
+
+def test_punches_still_land_when_the_agent_sends_no_names(clock):
+    # An older agent, or one whose get_users() call failed. Attendance is the
+    # job; the label is a nicety.
+    _, agent, _ = clock
+    r = agent.post("/api/time/punches", json=batch(("6", DAY + " 08:00:00")))
+    assert r.status_code == 200
+    assert r.json()["accepted"] == 1

@@ -100,6 +100,10 @@ def load_config(path=CONFIG_PATH):
         "device_token": d.get("device_token", "").strip(),
         "poll_seconds": d.getint("poll_seconds", 300),
         "timeout": d.getint("timeout", 20),
+        # The oldest punch worth sending, as YYYY-MM-DD. Blank means "from the
+        # day this agent first runs" -- see first_run_floor() for why that is
+        # the default rather than "everything on the device".
+        "start_date": d.get("start_date", "").strip(),
     }
     missing = [k for k in ("erp_url", "device_token") if not cfg[k]]
     if missing:
@@ -125,6 +129,40 @@ def save_state(state):
     os.replace(tmp, STATE_PATH)      # atomic, so a power cut cannot truncate it
 
 
+def first_run_floor(cfg, today=None):
+    """The oldest punch this agent will ever send.
+
+    These terminals keep years of history --- the unit this was written against
+    held records going back to May 2024 --- and almost nobody wants that
+    imported. It is not wrong data, but it lands as attendance against whoever
+    the fingers are later mapped to, in months that have already been paid.
+
+    So the default is TODAY: a clock starts counting when you install it. Set
+    `start_date` in config.ini to pull older records in deliberately.
+    """
+    if cfg.get("start_date"):
+        try:
+            return datetime.strptime(cfg["start_date"][:10], "%Y-%m-%d")
+        except ValueError:
+            raise SystemExit(
+                "start_date in config.ini is not a date: %r (use YYYY-MM-DD)"
+                % cfg["start_date"])
+    base = today or datetime.now()
+    return base.replace(hour=0, minute=0, second=0, microsecond=0)
+
+
+def effective_cutoff(cfg, state, today=None):
+    """The later of the two floors, so neither can be undercut.
+
+    The cursor stops the whole log being re-uploaded every cycle; the start
+    floor stops old history arriving at all. Deleting state.json must not
+    resurrect 2024, which is exactly what taking only the cursor would do.
+    """
+    floor = first_run_floor(cfg, today)
+    cursor = cutoff_from(state)
+    return floor if cursor is None else max(floor, cursor)
+
+
 def cutoff_from(state):
     last = state.get("last_punch_at")
     if not last:
@@ -137,6 +175,26 @@ def cutoff_from(state):
 
 
 # ── the device ───────────────────────────────────────────────────────────────
+def read_users(conn):
+    """Enrolment number -> the name typed into the terminal.
+
+    Worth the extra call: without it the mapping screen in the ERP shows bare
+    numbers, and somebody has to already know that finger 6 is Abdalah. With
+    it, the screen suggests the answer.
+    """
+    out = []
+    try:
+        for u in (conn.get_users() or []):
+            uid = str(getattr(u, "user_id", "")).strip()
+            if uid:
+                out.append({"device_user_id": uid,
+                            "name": (getattr(u, "name", "") or "").strip()})
+    except Exception as exc:
+        # A nicety, not the job. Punches still go.
+        log.debug("could not read the enrolled users (%s)", exc)
+    return out
+
+
 def read_device(cfg):
     """Every attendance record the terminal is holding.
 
@@ -159,6 +217,7 @@ def read_device(cfg):
         # `finally`, so a crash here cannot leave the terminal locked.
         conn.disable_device()
         records = conn.get_attendance() or []
+        cfg["_users"] = read_users(conn)
         out = []
         for r in records:
             ts = getattr(r, "timestamp", None)
@@ -213,11 +272,14 @@ def ping(cfg):
     return r.json()
 
 
-def send_batch(cfg, punches):
+def send_batch(cfg, punches, users=None):
     requests = _requests()
+    body = {"punches": punches}
+    if users:
+        body["users"] = users
     r = requests.post(cfg["erp_url"] + "/api/time/punches",
                       headers=_headers(cfg),
-                      json={"punches": punches}, timeout=cfg["timeout"])
+                      json=body, timeout=cfg["timeout"])
     if r.status_code == 401:
         raise SystemExit(
             "The ERP rejected this device token.\n"
@@ -253,8 +315,13 @@ def run_once(cfg, punches=None, dry_run=False):
         punches = read_device(cfg)
     log.info("device holds %d record(s)", len(punches))
 
-    pending = sorted(filter_new(punches, cutoff_from(state)),
+    cutoff = effective_cutoff(cfg, state)
+    pending = sorted(filter_new(punches, cutoff),
                      key=lambda p: p.get("punched_at", ""))
+    skipped = len(punches) - len(pending)
+    if skipped:
+        log.info("ignoring %d record(s) older than %s",
+                 skipped, cutoff.strftime("%Y-%m-%d"))
     if not pending:
         log.info("nothing new to send")
         return {"sent": 0, "accepted": 0, "duplicates": 0, "rejected": 0}
@@ -271,7 +338,9 @@ def run_once(cfg, punches=None, dry_run=False):
     totals = {"sent": 0, "accepted": 0, "duplicates": 0, "rejected": 0}
     for i in range(0, len(pending), BATCH_SIZE):
         chunk = pending[i:i + BATCH_SIZE]
-        result = send_batch(cfg, chunk)
+        # Names ride along with the first chunk only; they describe the device,
+        # not the punches, and repeating them per batch is noise.
+        result = send_batch(cfg, chunk, cfg.get("_users") if i == 0 else None)
         totals["sent"] += len(chunk)
         for k in ("accepted", "duplicates", "rejected"):
             totals[k] += result.get(k, 0)

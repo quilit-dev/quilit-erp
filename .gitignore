@@ -56,3 +56,11 @@ static-manual/
 Thumbs.db
 # /graphify scratch output — 23MB of generated graphs, not source
 graphify-out/
+
+# The site time-clock agent's local files. config.ini holds a token that can
+# WRITE attendance into a live tenant -- it must never be committed. state.json
+# and agent.log are per-installation runtime files.
+agent/timeclock/config.ini
+agent/timeclock/state.json
+agent/timeclock/agent.log*
+agent/timeclock/__pycache__/
