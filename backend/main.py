@@ -21,6 +21,7 @@ from routers import pdf as pdf_router
 # it is sold from, not inside it: the same promise can be made from an
 # invoice, and collecting one is not a register event.
 from routers import commitments as commitments_router
+from routers import timeclock as timeclock_router
 from routers import purchases, settings, documents, suppliers, audit, users, roles, search
 from routers import reports, crm, planning, notifications
 from routers import approval_policies, approval_requests, hr, hr_contracts, recruitment, hr_activities, tax_rates, pos, cash, manufacturing, banks
@@ -254,6 +255,12 @@ app.include_router(accounting.router,         prefix="/api/accounting",         
 app.include_router(warehouses.router,         prefix="/api/warehouses",         tags=["warehouses"])
 app.include_router(platform.router,           prefix="/api/platform",           tags=["platform"])
 app.include_router(imports.router,            prefix="/api/imports",            tags=["imports"])
+# The fingerprint clock, mounted as two separate surfaces on purpose.
+# /api/time is the ONLY place a device token is accepted, and it is two
+# append-only endpoints; everything a human does with a clock lives under
+# /api/hr/timeclock behind the ordinary session and RBAC.
+app.include_router(timeclock_router.device_router, prefix="/api/time",          tags=["timeclock"])
+app.include_router(timeclock_router.router,   prefix="/api/hr/timeclock",    tags=["timeclock"])
 app.include_router(service_router.router,     prefix="/api/service",            tags=["service"])
 app.include_router(support_router.router, prefix="/api/support",  tags=["support"])
 app.include_router(products.router,           prefix="/api/products",           tags=["products"])
