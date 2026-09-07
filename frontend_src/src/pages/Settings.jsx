@@ -77,6 +77,7 @@ export default function Settings() {
     'inventory_costing_method',
     'payroll_tax_pct', 'payroll_nssf_employee_pct',
     'payroll_nssf_employer_pct', 'payroll_overtime_multiplier',
+    'attendance_source',
     'footer_text', 'invoice_terms', 'show_discount_col', 'show_tax_col',
     'show_barcode_col', 'show_total_words',
     'pos_receipt_width',
@@ -334,6 +335,25 @@ export default function Settings() {
               <Input disabled={!canEdit} type="number" value={form.payroll_overtime_multiplier ?? ''} onChange={set('payroll_overtime_multiplier')} placeholder="1.5" />
             </Field>
           </div>
+          {/* The one switch that decides whether a fingerprint terminal is
+              allowed to write attendance. Punches are STORED either way, so a
+              business can run the clock for a week and look at the figures
+              before anything they read starts being computed from them. */}
+          <div className="form-grid" style={{ marginTop: 12 }}>
+            <Field label={t('settings.attendanceSource')}>
+              <SearchSelect
+                disabled={!canEdit}
+                value={form.attendance_source ?? 'manual'}
+                onChange={set('attendance_source')}
+                options={[
+                  { value: 'manual', label: t('settings.attendanceManual') },
+                  { value: 'device', label: t('settings.attendanceDevice') },
+                ]} />
+            </Field>
+          </div>
+          <p style={{ fontSize: 12, color: 'var(--text-3)', margin: '8px 0 0' }}>
+            {t('settings.attendanceSourceHint')}
+          </p>
         </Section>
 
         {/* 3c. Inventory & Costing */}

@@ -18,6 +18,12 @@ import { ThemeProvider } from '../hooks/useTheme.jsx';
 import { LocaleProvider } from '../hooks/useLocale.jsx';
 import en from '../locales/en';
 import ar from '../locales/ar';
+// Imported at the top, not with `await import()` inside a test. Reports pulls
+// in all ten report components and the spreadsheet library behind them, and
+// paying that cost inside the test body spends the 5s budget on module loading
+// -- fine when this file runs alone, a timeout once the whole suite is running
+// in parallel. vi.mock is hoisted above this, so the stub is still in place.
+import Reports from '../pages/Reports.jsx';
 
 const here = dirname(fileURLToPath(import.meta.url));
 const src = readFileSync(join(here, '..', 'pages', 'Reports.jsx'), 'utf8');
@@ -31,7 +37,6 @@ vi.mock('../api/client', async (importOriginal) => {
 });
 
 async function mount() {
-  const Reports = (await import('../pages/Reports.jsx')).default;
   let container;
   await act(async () => {
     ({ container } = render(
