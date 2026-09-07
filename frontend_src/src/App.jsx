@@ -9,6 +9,7 @@ import NotificationBell from './components/NotificationBell';
 import RateBook from './components/RateBook';
 import { ReportProblemButton } from './components/ReportProblem';
 import LicenceBanner from './components/LicenceBanner';
+import WhatsNewModal from './components/WhatsNewModal';
 import { LoadingSpinner } from './components/shared';
 import { useTheme } from './hooks/useTheme.jsx';
 import { useLocale } from './hooks/useLocale.jsx';
@@ -238,6 +239,8 @@ function Layout({ children }) {
           {children}
         </div>
       </div>
+      {/* A one-day release note. Renders null on every other day. */}
+      <WhatsNewModal />
       <ToastContainer />
       <CommandPalette open={paletteOpen} onClose={closePalette} />
     </div>

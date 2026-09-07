@@ -888,6 +888,30 @@ const en = {
     expiredGrace: 'Your {{kind}} has expired — access stops in {{days}} days.',
     contactHint: 'Contact your provider to renew.',
   },
+  // The one-day release note (components/WhatsNewModal.jsx). Written for the
+  // person using the screen, not the person who built it: what changed, and
+  // where to click. Delete this block when the note is retired.
+  whatsNew: {
+    title: "What's new",
+    intro: 'A few things changed in your system recently. Here is what to look for.',
+    dismiss: 'Got it',
+    posEdit: 'Edit a POS sale after it is rung up',
+    posEditBody: 'POS → Sales History → View → Edit Sale.',
+    purchaseEdit: 'Edit a purchase at any stage',
+    purchaseEditBody: 'Including one that has already been received and paid.',
+    purchaseLines: 'Several items on one purchase',
+    purchaseLinesBody: 'A single purchase order can now cover more than one product.',
+    purchasePrepay: 'Pay a supplier before delivery',
+    purchasePrepayBody: 'Record the payment now and the goods when they arrive.',
+    archiveVoided: 'Archive voided records',
+    archiveVoidedBody: 'Tidy your lists without losing the history behind them.',
+    paymentPlan: 'Change a payment plan',
+    paymentPlanBody: 'Instalments can be edited after the invoice has been issued.',
+    outstandingPdf: 'Outstanding balances in one PDF',
+    outstandingPdfBody: 'Clients → Outstanding PDF: every client who still owes money, in one file.',
+    serviceTechnicians: 'Technicians on service jobs',
+    serviceTechniciansBody: 'Record who attended each job, and see the totals per technician in Reports.',
+  },
   // Tooltips for the line-item row. The grid has no room for a caption per
   // field, and on quotations there are no column headers at all — so the
   // title attribute is where an operator finds out what a box is for.

@@ -883,6 +883,28 @@ const ar = {
     expiredGrace: 'انتهى {{kind}} — سيتوقف الوصول خلال {{days}} يوماً.',
     contactHint: 'يرجى التواصل مع المزوّد للتجديد.',
   },
+  // ملاحظة الإصدار (components/WhatsNewModal.jsx).
+  whatsNew: {
+    title: 'ما الجديد',
+    intro: 'طرأت مؤخراً بعض التحديثات على نظامك، وإليك أبرزها.',
+    dismiss: 'تمام',
+    posEdit: 'تعديل فاتورة نقطة البيع بعد إتمامها',
+    posEditBody: 'نقطة البيع ← سجل المبيعات ← عرض ← تعديل الفاتورة.',
+    purchaseEdit: 'تعديل المشتريات في أي مرحلة',
+    purchaseEditBody: 'حتى بعد استلام البضاعة ودفع قيمتها.',
+    purchaseLines: 'عدة أصناف في أمر شراء واحد',
+    purchaseLinesBody: 'يمكن لأمر الشراء الواحد أن يشمل أكثر من صنف.',
+    purchasePrepay: 'الدفع للمورّد قبل الاستلام',
+    purchasePrepayBody: 'سجّل الدفعة الآن، وسجّل استلام البضاعة عند وصولها.',
+    archiveVoided: 'أرشفة السجلات الملغاة',
+    archiveVoidedBody: 'رتّب قوائمك دون أن تفقد سجلّها.',
+    paymentPlan: 'تعديل خطة السداد',
+    paymentPlanBody: 'يمكن تعديل الأقساط بعد إصدار الفاتورة.',
+    outstandingPdf: 'كشف المستحقات في ملف PDF واحد',
+    outstandingPdfBody: 'العملاء ← كشف المستحقات: كل عميل لا يزال مديناً، في ملف واحد.',
+    serviceTechnicians: 'الفنيون على طلبات الصيانة',
+    serviceTechniciansBody: 'سجّل من نفّذ كل طلب، واطّلع على إجمالي كل فني في التقارير.',
+  },
   // Tooltips for the line-item row. The grid has no room for a caption per
   // field, and on quotations there are no column headers at all — so the
   // title attribute is where an operator finds out what a box is for.
