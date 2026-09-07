@@ -27,6 +27,7 @@ from typing import List, Optional
 from fastapi import APIRouter, Depends, HTTPException
 from pydantic import BaseModel, Field
 
+import attendance_sync
 from database import get_db
 from device_auth import hash_token, require_device
 from permissions import require_perm
@@ -149,6 +150,7 @@ def ingest_punches(data: PunchBatch, device: dict = Depends(require_device),
     accepted = duplicates = rejected = 0
     latest = None
     seen_users = {}
+    touched_days = set()
 
     for p in data.punches:
         when = _parse_punch(p.punched_at)
@@ -185,6 +187,7 @@ def ingest_punches(data: PunchBatch, device: dict = Depends(require_device),
              p.direction, p.raw_punch, p.raw_status, now, now))
         if cur.rowcount:
             accepted += 1
+            touched_days.add(stamp[:10])
             if latest is None or stamp > latest:
                 latest = stamp
         else:
@@ -195,6 +198,13 @@ def ingest_punches(data: PunchBatch, device: dict = Depends(require_device),
             "UPDATE time_devices SET last_punch_at=? WHERE id=? "
             "AND (last_punch_at IS NULL OR last_punch_at < ?)",
             (latest, device["id"], latest))
+    # Re-derive exactly the (employee, day) pairs this batch touched. This is
+    # what makes the feature work without a scheduler: there is none in this
+    # codebase, and recurring.py sets the precedent that time-based work rides
+    # on a request. A no-op until the tenant switches attendance to the clock.
+    derived = attendance_sync.derive_for_punches(
+        db, [e for e in seen_users.values() if e], touched_days)
+
     # The actor is a machine, and the audit row says so rather than borrowing
     # somebody's name. Logged before the commit, because log_action inserts
     # without committing -- the same order every other router here uses.
@@ -202,7 +212,7 @@ def ingest_punches(data: PunchBatch, device: dict = Depends(require_device),
         log_action(db, {"id": None, "username": "device:%s" % device["name"]},
                    "ingest", "time_punch", device["id"], device["name"],
                    {"accepted": accepted, "duplicates": duplicates,
-                    "rejected": rejected})
+                    "rejected": rejected, "derived": derived.get("written", 0)})
     db.commit()
 
     return {"accepted": accepted, "duplicates": duplicates, "rejected": rejected}
@@ -280,6 +290,110 @@ def revoke_device(device_id: int, user=Depends(require_perm("hr", "delete")),
     log_action(db, user, "delete", "time_device", device_id, row["name"])
     db.commit()
     return {"ok": True}
+
+
+
+
+# ── work schedules ───────────────────────────────────────────────────────────
+# What a normal working day is. Without one, punch times mean nothing: Late
+# needs a start time and a grace period, Half-day needs a threshold, and Absent
+# needs to know which days are working days at all.
+class ScheduleIn(BaseModel):
+    name: str = Field(min_length=1, max_length=80)
+    is_default: bool = False
+    start_time: str = Field(default="08:00", max_length=5)
+    end_time: str = Field(default="17:00", max_length=5)
+    break_minutes: int = Field(default=0, ge=0, le=480)
+    grace_minutes: int = Field(default=15, ge=0, le=240)
+    min_hours_full_day: float = Field(default=6.0, ge=0, le=24)
+    workdays: str = Field(default="1,2,3,4,5", max_length=20)
+    crosses_midnight: bool = False
+
+
+@router.get("/schedules")
+def list_schedules(user=Depends(require_perm("hr", "view")),
+                   db: sqlite3.Connection = Depends(get_db)):
+    rows = db.execute("SELECT * FROM work_schedules WHERE archived_at IS NULL "
+                      "ORDER BY is_default DESC, name").fetchall()
+    return [dict(r) for r in rows]
+
+
+def _only_one_default(db, schedule_id: int, is_default: bool):
+    """Exactly one company default, or none at all.
+
+    None is a perfectly good state --- attendance_derive falls back to a built-in
+    08:00-17:00 --- but two would make which schedule applies depend on row
+    order, and somebody's Late would start depending on an id.
+    """
+    if is_default:
+        db.execute("UPDATE work_schedules SET is_default=0 WHERE id <> ?",
+                   (schedule_id,))
+
+
+@router.post("/schedules")
+def create_schedule(data: ScheduleIn, user=Depends(require_perm("hr", "create")),
+                    db: sqlite3.Connection = Depends(get_db)):
+    now = _now()
+    cur = db.execute(
+        "INSERT INTO work_schedules (name, is_default, start_time, end_time, "
+        " break_minutes, grace_minutes, min_hours_full_day, workdays, "
+        " crosses_midnight, created_at) VALUES (?,?,?,?,?,?,?,?,?,?)",
+        (data.name.strip(), 1 if data.is_default else 0, data.start_time,
+         data.end_time, data.break_minutes, data.grace_minutes,
+         data.min_hours_full_day, data.workdays,
+         1 if data.crosses_midnight else 0, now))
+    _only_one_default(db, cur.lastrowid, data.is_default)
+    log_action(db, user, "create", "work_schedule", cur.lastrowid, data.name)
+    db.commit()
+    return dict(db.execute("SELECT * FROM work_schedules WHERE id=?",
+                           (cur.lastrowid,)).fetchone())
+
+
+@router.put("/schedules/{schedule_id}")
+def update_schedule(schedule_id: int, data: ScheduleIn,
+                    user=Depends(require_perm("hr", "edit")),
+                    db: sqlite3.Connection = Depends(get_db)):
+    """Editing a schedule does NOT rewrite the past on its own.
+
+    The days already derived keep the figures they were given until somebody
+    re-runs the derivation, and a period inside an Approved or Paid payroll run
+    will not move even then.
+    """
+    if not db.execute("SELECT 1 FROM work_schedules WHERE id=?",
+                      (schedule_id,)).fetchone():
+        raise HTTPException(404, "Schedule not found.")
+    db.execute(
+        "UPDATE work_schedules SET name=?, is_default=?, start_time=?, end_time=?, "
+        " break_minutes=?, grace_minutes=?, min_hours_full_day=?, workdays=?, "
+        " crosses_midnight=?, updated_at=? WHERE id=?",
+        (data.name.strip(), 1 if data.is_default else 0, data.start_time,
+         data.end_time, data.break_minutes, data.grace_minutes,
+         data.min_hours_full_day, data.workdays,
+         1 if data.crosses_midnight else 0, _now(), schedule_id))
+    _only_one_default(db, schedule_id, data.is_default)
+    log_action(db, user, "update", "work_schedule", schedule_id, data.name)
+    db.commit()
+    return dict(db.execute("SELECT * FROM work_schedules WHERE id=?",
+                           (schedule_id,)).fetchone())
+
+
+@router.delete("/schedules/{schedule_id}")
+def archive_schedule(schedule_id: int, user=Depends(require_perm("hr", "delete")),
+                     db: sqlite3.Connection = Depends(get_db)):
+    row = db.execute("SELECT * FROM work_schedules WHERE id=?",
+                     (schedule_id,)).fetchone()
+    if not row:
+        raise HTTPException(404, "Schedule not found.")
+    db.execute("UPDATE work_schedules SET archived_at=?, is_default=0 WHERE id=?",
+               (_now(), schedule_id))
+    # Anyone pointed at it falls back to the company default, which is a working
+    # day either way -- better than an employee whose schedule is a dangling id.
+    db.execute("UPDATE hr_employees SET work_schedule_id=NULL "
+               " WHERE work_schedule_id=?", (schedule_id,))
+    log_action(db, user, "archive", "work_schedule", schedule_id, row["name"])
+    db.commit()
+    return {"ok": True}
+
 
 
 @router.get("/device-users")

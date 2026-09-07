@@ -80,6 +80,11 @@ DEFAULTS = {
     "payroll_nssf_employee_pct":    "0",
     "payroll_nssf_employer_pct":    "0",
     "payroll_overtime_multiplier":  "1.5",
+    # Where attendance comes from. 'manual' means the daily editor is the
+    # only writer, which is how every install behaves until somebody changes
+    # this. Punches from a fingerprint terminal are STORED either way; this
+    # decides whether they are allowed to become attendance rows.
+    "attendance_source":            "manual",
     # Document
     "footer_text":         "Thank you for your business.",
     "show_discount_col":   "0",
@@ -130,6 +135,7 @@ class SettingsUpdate(BaseModel):
     payroll_nssf_employee_pct:   Optional[str] = None
     payroll_nssf_employer_pct:   Optional[str] = None
     payroll_overtime_multiplier: Optional[str] = None
+    attendance_source:           Optional[str] = None
     footer_text:        Optional[str] = None
     # Free text printed at the foot of every invoice. Multi-line, unlike
     # footer_text, which is a single closing note — terms run to a paragraph or

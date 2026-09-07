@@ -113,6 +113,9 @@ class EmployeeBody(BaseModel):
     # idle technician still appears with their days at work and no jobs. It has
     # nothing to do with who may be assigned to a call — anyone can be.
     is_field_staff:  bool          = False
+    # Whose working day this person keeps. NULL means the company default, so
+    # nobody has to be assigned one for the clock to work on day one.
+    work_schedule_id: Optional[int] = None
     # On PUT only — annotate WHY the change happened. Auto-classified into a
     # change_type if not provided (raise / promotion / role_change / transfer /
     # adjustment). The values are stored in hr_employment_changes.
@@ -693,13 +696,14 @@ def create_employee(
                (full_name, job_title, department_id, employment_type, status,
                 hire_date, end_date, email, phone, salary, pay_type, hourly_rate,
                 manager_id, user_id, address, notes, created_at, branch_id,
-                is_field_staff)
-           VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)""",
+                is_field_staff, work_schedule_id)
+           VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)""",
         (data.full_name, data.job_title, data.department_id, data.employment_type,
          data.status, data.hire_date or None, data.end_date or None, data.email,
          data.phone, data.salary, data.pay_type, data.hourly_rate,
          data.manager_id, data.user_id, data.address,
-         data.notes, _now(), branch_id, 1 if data.is_field_staff else 0),
+         data.notes, _now(), branch_id, 1 if data.is_field_staff else 0,
+         data.work_schedule_id),
     )
     emp_id = cur.lastrowid
     code   = f"EMP-{emp_id:04d}"
@@ -760,13 +764,15 @@ def update_employee(
                full_name=?, job_title=?, department_id=?, employment_type=?, status=?,
                hire_date=?, end_date=?, email=?, phone=?, salary=?,
                pay_type=?, hourly_rate=?, manager_id=?,
-               user_id=?, address=?, notes=?, is_field_staff=?
+               user_id=?, address=?, notes=?, is_field_staff=?,
+               work_schedule_id=?
            WHERE id=?""",
         (data.full_name, data.job_title, data.department_id, data.employment_type,
          data.status, data.hire_date or None, data.end_date or None, data.email,
          data.phone, data.salary, data.pay_type, data.hourly_rate,
          data.manager_id, data.user_id, data.address,
-         data.notes, 1 if data.is_field_staff else 0, emp_id),
+         data.notes, 1 if data.is_field_staff else 0, data.work_schedule_id,
+         emp_id),
     )
 
     # One history row per edit when any tracked field changed. Termination is
@@ -1346,6 +1352,18 @@ def create_payroll_run(
         (data.period_start, data.period_end, data.notes, user["id"], now),
     )
     run_id = cur.lastrowid
+
+    # Bring attendance up to date from the clock BEFORE any line is seeded.
+    # This is the "no effort at month end" part of the feature: the hours an
+    # hourly line is built from are the hours the reader recorded.
+    #
+    # A strict no-op on a tenant that has not switched attendance over --- which
+    # is every tenant today --- because derive_range returns immediately when
+    # attendance_source is 'manual'. It also cannot touch a day inside a run
+    # that is already Approved or Paid.
+    import attendance_sync
+    attendance_sync.derive_range(db, data.period_start, data.period_end)
+
     settings = _payroll_settings(db)
     employees = db.execute(
         "SELECT id, salary, pay_type, hourly_rate FROM hr_employees "
@@ -1772,6 +1790,11 @@ class AttendanceBulk(BaseModel):
     records: list   # [{employee_id, status, hours?, note?}]
 
 
+class AttendanceDeriveIn(BaseModel):
+    start: str
+    end:   str
+
+
 def _upsert_attendance(db, employee_id, day, status, hours, note):
     """Idempotent per (employee, date) — update in place or insert. Works on both
     backends without a dialect-specific UPSERT."""
@@ -1779,16 +1802,20 @@ def _upsert_attendance(db, employee_id, day, status, hours, note):
         raise HTTPException(400, "Invalid status. Must be one of: "
                             + ", ".join(sorted(ATTENDANCE_STATUS)))
     now = _now()
+    # `source` is set on BOTH branches, and it is the whole safety property of
+    # the fingerprint clock: a row a person touched is a row the clock may not
+    # overwrite. Editing a day is how a manager takes it back off the clock,
+    # and that has to actually mean something.
     cur = db.execute(
-        "UPDATE hr_attendance SET status=?, hours=?, note=?, updated_at=? "
-        "WHERE employee_id=? AND date=?",
+        "UPDATE hr_attendance SET status=?, hours=?, note=?, source='manual', "
+        "updated_at=? WHERE employee_id=? AND date=?",
         (status, hours, note, now, employee_id, day[:10]),
     )
     if not cur.rowcount:
         db.execute(
             "INSERT INTO hr_attendance "
-            "(employee_id, date, status, hours, note, created_at, updated_at) "
-            "VALUES (?,?,?,?,?,?,?)",
+            "(employee_id, date, status, hours, note, source, created_at, updated_at) "
+            "VALUES (?,?,?,?,?,'manual',?,?)",
             (employee_id, day[:10], status, hours, note, now, now),
         )
 
@@ -1799,7 +1826,11 @@ def list_attendance(date: str, user=Depends(require_perm("hr", "view")),
     """Active employees + their mark (if any) for `date` — drives the daily editor."""
     rows = db.execute(
         """SELECT e.id AS employee_id, e.full_name, e.job_title, e.employee_code,
-                  a.status, a.hours, a.note
+                  a.status, a.hours, a.note,
+                  COALESCE(a.source, 'manual') AS source,
+                  a.first_in, a.last_out, a.device_hours,
+                  COALESCE(a.punch_count, 0)  AS punch_count,
+                  COALESCE(a.needs_review, 0) AS needs_review
            FROM hr_employees e
            LEFT JOIN hr_attendance a ON a.employee_id = e.id AND a.date = ?
            WHERE e.archived_at IS NULL
@@ -1835,6 +1866,26 @@ def mark_attendance_bulk(body: AttendanceBulk, user=Depends(require_perm("hr", "
                f"Bulk roster — {body.date}", {"saved": n})
     db.commit()
     return {"saved": n}
+
+
+@router.post("/attendance/derive")
+def derive_attendance(body: AttendanceDeriveIn,
+                      user=Depends(require_perm("hr", "edit")),
+                      db=Depends(get_db)):
+    """Re-read the clock for a date range and rebuild the days it owns.
+
+    This codebase has no scheduler and this does not add one --- it is the same
+    shape as `recurring.py`'s run-due: work that could be done by a daemon is
+    done by somebody pressing a button, and the endpoint is safe to press twice.
+
+    A no-op unless the tenant has switched attendance over to the clock.
+    """
+    import attendance_sync
+    result = attendance_sync.derive_range(db, body.start, body.end)
+    log_action(db, user, "attendance", "hr_employee", None,
+               f"Derived {body.start}..{body.end}", result)
+    db.commit()
+    return result
 
 
 @router.get("/attendance/summary")
