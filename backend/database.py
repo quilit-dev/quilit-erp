@@ -5220,8 +5220,26 @@ def _ensure_pg_post_baseline(raw):
                     " WHERE status IN ('Draft','Scheduled','In Progress')")
         cur.execute("UPDATE service_jobs SET status='Done' "
                     " WHERE status='Completed'")
-        cur.execute("UPDATE fixed_assets SET is_opening_balance = 1 "
-                    " WHERE acquisition_entry_id IS NULL")
+        # 167j: assets that predate acquisition posting are opening balances.
+        # MARKER-GUARDED, and the guard is load-bearing rather than tidiness.
+        #
+        # This ran unguarded, on every worker boot, for every tenant schema --
+        # while its SQLite twin has always been behind need("167j_..."). An
+        # asset is inserted with acquisition_entry_id NULL and only gets one
+        # when it is approved; if a capex policy holds it, any deploy in that
+        # window relabelled it an opening balance. approval_engine then posts
+        # the acquisition only `if not acquisition_entry_id and not
+        # is_opening_balance`, so it skipped -- and the asset went on the
+        # register but never into the general ledger. No error, no log line,
+        # and a balance sheet quietly short by its cost.
+        cur.execute("SELECT 1 FROM schema_migrations "
+                    "WHERE name='167j_existing_assets_are_openings'")
+        if not cur.fetchone():
+            cur.execute("UPDATE fixed_assets SET is_opening_balance = 1 "
+                        " WHERE acquisition_entry_id IS NULL")
+            cur.execute("INSERT INTO schema_migrations (name, applied_at) "
+                        "VALUES ('167j_existing_assets_are_openings', "
+                        "        now()::text)")
         cur.execute("ALTER TABLE invoices ADD COLUMN IF NOT EXISTS source_type TEXT")
         cur.execute("ALTER TABLE invoices ADD COLUMN IF NOT EXISTS source_reference TEXT")
         cur.execute("ALTER TABLE recurring_expenses ADD COLUMN IF NOT EXISTS "
