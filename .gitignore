@@ -64,3 +64,5 @@ agent/timeclock/config.ini
 agent/timeclock/state.json
 agent/timeclock/agent.log*
 agent/timeclock/__pycache__/
+agent/timeclock/dist/
+agent/timeclock/build/

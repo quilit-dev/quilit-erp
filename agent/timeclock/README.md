@@ -42,6 +42,11 @@ every line.
 pip install -r requirements.txt
 ```
 
+> **No Python on that PC?** Use `timeclock-agent.exe` instead. It is a single
+> file with everything inside it — put it in the folder next to `config.ini`,
+> skip this step, and read `timeclock-agent.exe` wherever the steps below say
+> `python agent.py`. Ask your supplier for it if you do not have it.
+
 **5. Check it works.**
 
 ```
@@ -128,6 +133,19 @@ python agent.py --check         verify the token, report clock skew
 python agent.py --replay f.json send a recorded dump, no device needed
 python agent.py -v              debug logging
 ```
+
+### Building the standalone exe
+
+```
+python -m pip install -r requirements.txt pyinstaller
+python -m PyInstaller --noconfirm timeclock-agent.spec
+# -> dist/timeclock-agent.exe   (~16 MB, one file, no Python needed)
+```
+
+Onefile on purpose: whoever installs this copies one thing into one folder. The
+agent finds `config.ini`, `state.json` and `agent.log` beside the EXE, not
+inside PyInstaller's temp folder — see `_here()`, which is the difference
+between working in development and working on a customer's PC.
 
 `state.json` holds the highest punch time successfully delivered. **Deleting it
 is safe** — the agent will re-send everything on the device and the ERP will

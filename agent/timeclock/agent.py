@@ -41,11 +41,26 @@ import logging.handlers
 import os
 import sys
 import time
-from datetime import datetime, timedelta
+from datetime import datetime, timedelta, timezone
 
 AGENT_VERSION = "1.0.0"
 
-HERE = os.path.dirname(os.path.abspath(__file__))
+
+def _here():
+    """The folder the agent's own files live in.
+
+    Beside the script normally --- but beside the EXE when frozen, not inside
+    PyInstaller's temp extraction folder. `__file__` points into that temp
+    folder in a onefile build, so using it would make the agent look for
+    config.ini somewhere that is deleted when the process exits: it would work
+    in development and fail on every customer PC.
+    """
+    if getattr(sys, "frozen", False):
+        return os.path.dirname(os.path.abspath(sys.executable))
+    return os.path.dirname(os.path.abspath(__file__))
+
+
+HERE = _here()
 CONFIG_PATH = os.path.join(HERE, "config.ini")
 STATE_PATH = os.path.join(HERE, "state.json")
 LOG_PATH = os.path.join(HERE, "agent.log")
@@ -212,7 +227,20 @@ def read_device(cfg):
             password=cfg["device_password"], force_udp=False, ommit_ping=False)
     conn = None
     try:
-        conn = zk.connect()
+        try:
+            conn = zk.connect()
+        except Exception as exc:
+            raise SystemExit("\n".join([
+                "Could not reach the fingerprint terminal at %s:%d"
+                % (cfg["device_ip"], cfg["device_port"]),
+                "",
+                "  * check the terminal is switched on and on the network",
+                "  * check device_ip in config.ini matches the address shown",
+                "    on the terminal under  Menu > Comm > Ethernet",
+                "  * if the router gave it a new address, set a fixed one",
+                "",
+                "(%s)" % type(exc).__name__,
+            ]))
         # Stops people punching while the log is being read. Released in
         # `finally`, so a crash here cannot leave the terminal locked.
         conn.disable_device()
@@ -264,10 +292,39 @@ def _requests():
     return requests
 
 
+def _unreachable(cfg, exc):
+    """A message somebody in an office can act on.
+
+    The person running this is following a printed page, not reading Python.
+    A ConnectionError traceback tells them nothing they can use, and it is the
+    single likeliest thing to go wrong on a first install -- a typo in the URL,
+    no internet, or a firewall.
+    """
+    return SystemExit("\n".join([
+        "Could not reach the ERP at %s" % cfg["erp_url"],
+        "",
+        "  * check the office internet is working",
+        "  * check erp_url in config.ini is exactly right (no trailing slash)",
+        "  * if it is an https:// address, try opening it in a browser here",
+        "",
+        "Nothing was lost -- punches stay on the terminal until this works.",
+        "(%s)" % type(exc).__name__,
+    ]))
+
+
 def ping(cfg):
     requests = _requests()
-    r = requests.get(cfg["erp_url"] + "/api/time/ping",
-                     headers=_headers(cfg), timeout=cfg["timeout"])
+    try:
+        r = requests.get(cfg["erp_url"] + "/api/time/ping",
+                         headers=_headers(cfg), timeout=cfg["timeout"])
+    except requests.exceptions.RequestException as exc:
+        raise _unreachable(cfg, exc)
+    if r.status_code == 401:
+        raise SystemExit("\n".join([
+            "The ERP rejected this device token.",
+            "It may have been revoked or rotated. Get a new one from",
+            "HR -> Time clock -> Devices, and put it in config.ini.",
+        ]))
     r.raise_for_status()
     return r.json()
 
@@ -277,9 +334,14 @@ def send_batch(cfg, punches, users=None):
     body = {"punches": punches}
     if users:
         body["users"] = users
-    r = requests.post(cfg["erp_url"] + "/api/time/punches",
-                      headers=_headers(cfg),
-                      json=body, timeout=cfg["timeout"])
+    try:
+        r = requests.post(cfg["erp_url"] + "/api/time/punches",
+                          headers=_headers(cfg),
+                          json=body, timeout=cfg["timeout"])
+    except requests.exceptions.RequestException as exc:
+        # In the polling loop this is caught and retried with backoff; on a
+        # one-shot run it is the message the installer needs to see.
+        raise _unreachable(cfg, exc)
     if r.status_code == 401:
         raise SystemExit(
             "The ERP rejected this device token.\n"
@@ -371,7 +433,11 @@ def check(cfg):
     log.info("server time: %s", info.get("server_time"))
     try:
         server = datetime.strptime(info["server_time"][:19], "%Y-%m-%d %H:%M:%S")
-        skew = abs((datetime.utcnow() - server).total_seconds())
+        # Not utcnow(): it is deprecated in 3.12 and prints a warning into the
+        # middle of output an office manager is reading to decide whether the
+        # install worked.
+        now_utc = datetime.now(timezone.utc).replace(tzinfo=None)
+        skew = abs((now_utc - server).total_seconds())
         # The server stamps UTC; this PC is local. Only a gross difference is
         # worth reporting, and it is reported as a hint rather than an error.
         log.info("this PC differs from the server by about %d minute(s) "
