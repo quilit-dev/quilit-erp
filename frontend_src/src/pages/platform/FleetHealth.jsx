@@ -53,6 +53,12 @@ export default function FleetHealth({ onOpenAnalytics }) {
               tone={p.needs_attention > 0 ? 'var(--red)' : 'var(--green)'} />
         <Stat label="Open error reports" value={p.open_errors}
               tone={p.open_errors > 0 ? 'var(--yellow)' : undefined} />
+        {/* A terminal that has gone quiet stops a customer's attendance
+            accruing, silently, until a payroll run is built on the gap. The
+            customer can see it on their own HR screen; this is so we see it
+            without waiting for the phone call. */}
+        <Stat label="Terminals silent" value={p.clock_stale ?? 0}
+              tone={p.clock_stale > 0 ? 'var(--red)' : undefined} />
         <Stat label="Storage backend" value={p.storage_backend?.toUpperCase() || '—'} />
       </div>
 
@@ -69,6 +75,7 @@ export default function FleetHealth({ onOpenAnalytics }) {
                 <th>Health</th>
                 <th>Users</th>
                 <th>Last sign-in</th>
+                <th>Terminals</th>
                 <th>Modules</th>
                 <th style={{ textAlign: 'right' }}>Database</th>
                 <th>Errors</th>
@@ -109,6 +116,24 @@ export default function FleetHealth({ onOpenAnalytics }) {
                       {days == null ? <span style={{ color: 'var(--red)' }}>never</span>
                         : days === 0 ? 'today'
                         : `${days}d ago`}
+                    </td>
+                    <td style={{ whiteSpace: 'nowrap' }}>
+                      {!r.clock_devices
+                        ? <span style={{ color: 'var(--text-3)' }}
+                                title="No fingerprint terminal registered">—</span>
+                        : r.clock_stale > 0
+                          ? <span className="badge badge-red"
+                                  title={`Last heard from ${r.clock_last_seen || 'never'}`}>
+                              {r.clock_stale}/{r.clock_devices} silent
+                            </span>
+                          : <span className="badge badge-green">{r.clock_devices} ok</span>}
+                      {r.clock_unclaimed > 0 && (
+                        <span className="badge badge-yellow"
+                              style={{ marginInlineStart: 4 }}
+                              title="Enrolled fingers nobody has linked to an employee">
+                          {r.clock_unclaimed} unlinked
+                        </span>
+                      )}
                     </td>
                     <td>{r.module_count ?? <span title="No licence recorded — unrestricted">all</span>}</td>
                     <td style={{ textAlign: 'right' }} className="text-mono">{fmtBytes(r.db_bytes)}</td>

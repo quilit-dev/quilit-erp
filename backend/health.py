@@ -29,6 +29,13 @@ from datetime import datetime, timedelta
 # A tenant nobody has signed into for this long is probably abandoned or stuck.
 _STALE_LOGIN_DAYS = 14
 
+# A fingerprint terminal that has not reported for this long has stopped.
+# It matters more than it sounds: the customer's attendance simply stops
+# accruing, nothing errors, and the first anyone notices is a payroll run built
+# on a gap. The customer can see this on their own HR screen -- this is so the
+# VENDOR sees it too, without waiting for the phone call.
+_STALE_CLOCK_HOURS = 24
+
 
 def _connect():
     from tenancy import _connect as tenancy_connect
@@ -93,6 +100,53 @@ def _tenant_user_stats(raw, schema: str) -> dict:
             pass
 
 
+def _tenant_clock_stats(raw, schema: str) -> dict:
+    """Fingerprint terminals: how many, how many have gone quiet, and how many
+    enrolled fingers nobody has linked to an employee yet.
+
+    Returns zeros for a tenant that has no terminals, and nulls for a schema
+    provisioned before the time-clock tables existed -- an older customer is
+    not unhealthy, they simply have nothing to report.
+    """
+    from tenancy import valid_schema_name
+    empty = {"clock_devices": None, "clock_stale": None,
+             "clock_last_seen": None, "clock_unclaimed": None}
+    if not valid_schema_name(schema):
+        return empty
+    try:
+        with raw.cursor() as cur:
+            cur.execute(f'SET search_path TO "{schema}", public')
+            cur.execute(
+                """SELECT COUNT(*) AS devices,
+                          MAX(last_seen_at) AS last_seen,
+                          COUNT(*) FILTER (
+                              WHERE last_seen_at IS NULL
+                                 OR last_seen_at < %s) AS stale
+                     FROM time_devices
+                    WHERE revoked_at IS NULL""",
+                ((datetime.utcnow() - timedelta(hours=_STALE_CLOCK_HOURS))
+                 .strftime("%Y-%m-%d %H:%M:%S"),))
+            d = cur.fetchone() or {}
+            cur.execute("SELECT COUNT(*) AS n FROM time_device_users "
+                        " WHERE employee_id IS NULL")
+            u = cur.fetchone() or {}
+            return {
+                "clock_devices": int(d.get("devices") or 0),
+                "clock_stale": int(d.get("stale") or 0),
+                "clock_last_seen": d.get("last_seen"),
+                "clock_unclaimed": int(u.get("n") or 0),
+            }
+    except Exception:
+        # No time-clock tables on this schema yet, or it is half-provisioned.
+        return empty
+    finally:
+        try:
+            with raw.cursor() as cur:
+                cur.execute("SET search_path TO public")
+        except Exception:
+            pass
+
+
 def _score(row) -> tuple:
     """Health score 0-100 plus the reasons it is not 100.
 
@@ -124,6 +178,20 @@ def _score(row) -> tuple:
         score -= 15
         issues.append(f"no sign-in for {days} days")
 
+    # Only a customer who HAS a terminal can have a silent one. A tenant with
+    # none is not unhealthy, they just do not use the feature.
+    stale_clocks = row.get("clock_stale")
+    if stale_clocks:
+        score -= 20
+        issues.append("%d fingerprint terminal(s) silent for over %dh"
+                      % (stale_clocks, _STALE_CLOCK_HOURS))
+    # Punches piling up against nobody. Cheap to fix, invisible until payroll.
+    unclaimed = row.get("clock_unclaimed")
+    if unclaimed:
+        score -= 5
+        issues.append("%d enrolled finger(s) not linked to an employee"
+                      % unclaimed)
+
     for field, label in (("trial_days_left", "trial"),
                          ("license_days_left", "licence")):
         left = row.get(field)
@@ -154,6 +222,7 @@ def overview() -> dict:
             schema = t.get("schema_name")
             row = dict(t)
             row.update(_tenant_user_stats(raw, schema))
+            row.update(_tenant_clock_stats(raw, schema))
 
             s = stats.get(slug) or {}
             row["open_errors"] = s.get("open") or 0
@@ -188,6 +257,10 @@ def overview() -> dict:
             "tenant_count":   len(rows),
             "needs_attention": sum(1 for r in rows if r["health_score"] < 80),
             "open_errors":    sum(r["open_errors"] for r in rows),
+            # Across every customer, so an operator can see at a glance that
+            # somebody's clock has stopped without opening each row.
+            "clock_devices":  sum(r.get("clock_devices") or 0 for r in rows),
+            "clock_stale":    sum(r.get("clock_stale") or 0 for r in rows),
             "storage_backend": os.environ.get("STORAGE", "db").lower(),
             "tenancy":        os.environ.get("TENANCY", "single"),
             # Not tracked per tenant - see the module docstring.
