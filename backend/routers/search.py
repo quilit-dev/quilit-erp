@@ -18,6 +18,7 @@ broken query stays diagnosable instead of being silently swallowed.
 import logging
 from fastapi import APIRouter, Depends, Query
 from database import get_db
+import permissions
 from permissions import require_auth, can_view as permissions_can_view
 from utils import summarise_lines as _summarise
 import branch_access
@@ -65,6 +66,16 @@ def search_all(
 ):
     term = f"%{q}%"
     results: list[dict] = []
+
+    # One query for the whole permission set, instead of one per section.
+    # This handler asks about 24 modules, and it runs on a 240 ms keystroke
+    # debounce -- so a user typing a word fired three or four rounds of 24
+    # permission SELECTs. Shadows the module-level alias deliberately: every
+    # call site below keeps its shape and simply stops hitting the database.
+    _allowed = permissions.viewable_modules(user, db)
+
+    def _can(_user, _db, module):
+        return module in _allowed
 
     def run(sql: str, params: tuple, build):
         """Execute one entity query and append its built results. Isolated so a

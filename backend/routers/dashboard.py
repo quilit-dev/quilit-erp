@@ -14,7 +14,10 @@ of the business rather than a stack of disconnected widgets.
 from fastapi import APIRouter, Depends
 from typing import Optional
 import costs
+import financial_health
+import vendor_config
 from database import get_db
+import permissions
 from permissions import require_perm, can_view as permissions_can_view
 from utils import _today
 import branch_access
@@ -55,6 +58,13 @@ def dashboard(branch_id: Optional[int] = None,
     bf_emp, bp_emp = _bf("branch_id")   # hr_employees
 
     # ── Module-view gates ────────────────────────────────────────────────
+    # One query for the whole set. This handler asks about 18 modules, and it
+    # is the first request every user makes after signing in.
+    _allowed = permissions.viewable_modules(user, db)
+
+    def _can(_user, _db, module):
+        return module in _allowed
+
     show_projects      = _can(user, db, "projects")
     show_quotes        = _can(user, db, "quotations")
     show_invoices      = _can(user, db, "invoices")
@@ -73,6 +83,15 @@ def dashboard(branch_id: Optional[int] = None,
     show_purchases     = _can(user, db, "purchases")
     show_warehouses    = _can(user, db, "warehouses") or _can(user, db, "inventory")
 
+    # Financial Health is a business KPI. Its composition follows the tenant's
+    # licensed modules, never this particular user's UI permissions; otherwise
+    # two finance users looking at the same branch receive different scores.
+    health_finance   = vendor_config.module_allowed("finance")
+    health_invoices  = vendor_config.module_allowed("invoices")
+    health_financial = health_finance or health_invoices
+    health_inventory = vendor_config.module_allowed("inventory")
+    health_projects  = vendor_config.module_allowed("projects")
+
     uid = user.get("id")
 
     # ── Projects / Quotations / Inventory ────────────────────────────────
@@ -82,11 +101,12 @@ def dashboard(branch_id: Optional[int] = None,
     # tables never set — while the list screens filter `archived_at`. An
     # archived row was then counted here and invisible there, and the two
     # numbers disagreed with nothing failing.
-    active_projects = _scalar(db,
+    active_projects_value = _scalar(db,
         "SELECT COUNT(*) FROM projects"
         " WHERE status IN ('In Progress', 'Approved')"
         "   AND deleted_at IS NULL AND archived_at IS NULL"
-    ) if show_projects else None
+    ) if (show_projects or health_projects) else None
+    active_projects = active_projects_value if show_projects else None
 
     pending_quotes = _scalar(db,
         "SELECT COUNT(*) FROM quotations"
@@ -97,14 +117,15 @@ def dashboard(branch_id: Optional[int] = None,
 
     # The warehouse block further down already had this right; this one
     # counted archived items the Inventory list hides.
-    low_stock = _scalar(db,
+    low_stock_value = _scalar(db,
         "SELECT COUNT(*) FROM inventory"
         " WHERE deleted_at IS NULL AND archived_at IS NULL"
         "   AND quantity <= min_stock AND min_stock > 0"
-    ) if show_inventory else None
+    ) if (show_inventory or health_inventory) else None
+    low_stock = low_stock_value if show_inventory else None
 
     # ── Invoices: unpaid + overdue (both shown when invoices visible) ────
-    unpaid = db.execute(
+    unpaid_value = db.execute(
         """SELECT COUNT(*) AS c,
                   COALESCE(SUM(i.amount -
                     COALESCE((SELECT SUM(ip.amount) FROM invoice_payments ip
@@ -126,9 +147,10 @@ def dashboard(branch_id: Optional[int] = None,
                  (SELECT SUM(ip.amount) FROM invoice_payments ip WHERE ip.invoice_id = i.id), 0
              )""" + bf_i,
         bp_i,
-    ).fetchone() if show_invoices else None
+    ).fetchone() if (show_invoices or health_invoices) else None
+    unpaid = unpaid_value if show_invoices else None
 
-    overdue = db.execute(
+    overdue_value = db.execute(
         """SELECT COUNT(*) AS c,
                   COALESCE(SUM(i.amount -
                     COALESCE((SELECT SUM(ip.amount) FROM invoice_payments ip
@@ -146,10 +168,11 @@ def dashboard(branch_id: Optional[int] = None,
              AND i.amount > COALESCE(
                  (SELECT SUM(ip.amount) FROM invoice_payments ip WHERE ip.invoice_id = i.id), 0)""" + bf_i,
         (_today(), *bp_i),
-    ).fetchone() if show_invoices else None
+    ).fetchone() if (show_invoices or health_invoices) else None
+    overdue = overdue_value if show_invoices else None
 
     # ── Finance: monthly income / expenses + 6-month chart ───────────────
-    monthly_income = _scalar(db,
+    monthly_income_value = _scalar(db,
         """SELECT COALESCE(SUM(ip.amount), 0)
            FROM invoice_payments ip JOIN invoices i ON ip.invoice_id = i.id
            -- routers/finance.py — which owns the page this card links to —
@@ -159,17 +182,19 @@ def dashboard(branch_id: Optional[int] = None,
              AND i.archived_at IS NULL
              AND strftime('%Y-%m', ip.paid_at) = strftime('%Y-%m', 'now')""" + bf_i,
         bp_i,
-    ) if (show_finance or show_invoices) else None
+    ) if (show_finance or show_invoices or health_financial) else None
+    monthly_income = monthly_income_value if (show_finance or show_invoices) else None
 
     # Voiding a purchase voids its expense rows. Without this the cost of a
     # cancelled delivery stayed in the month's expenses on the dashboard while
     # Finance, the P&L and the VAT return had all dropped it.
-    monthly_expenses = _scalar(db,
+    monthly_expenses_value = _scalar(db,
         """SELECT COALESCE(SUM(amount), 0) FROM expenses
            WHERE deleted_at IS NULL AND voided_at IS NULL AND archived_at IS NULL
              AND strftime('%Y-%m', date) = strftime('%Y-%m', 'now')""" + bf_e,
         bp_e,
-    ) if show_finance else None
+    ) if (show_finance or health_finance) else None
+    monthly_expenses = monthly_expenses_value if show_finance else None
 
     monthly_chart = db.execute(
         """SELECT strftime('%Y-%m', ip.paid_at) AS month, COALESCE(SUM(ip.amount),0) AS income
@@ -475,6 +500,24 @@ def dashboard(branch_id: Optional[int] = None,
                ORDER BY date(start_date), COALESCE(start_time,'00:00') LIMIT 5"""
         ).fetchall()]
 
+    # One server-owned score for web and mobile. Raw ingredients may be read to
+    # calculate this coarse KPI, but they remain permission-gated in the payload
+    # below. The score itself is returned only to users who can view Finance or
+    # Invoices, which is exactly where the dashboard renders it.
+    health_income = float(monthly_income_value or 0)
+    health_expenses = float(monthly_expenses_value or 0) if health_finance else 0
+    financial_health_score = financial_health.score(
+        margin=financial_health.margin_percent(health_income, health_expenses),
+        unpaid_invoices=(unpaid_value["c"] if (health_invoices and unpaid_value) else 0),
+        overdue_invoices=(overdue_value["c"] if (health_invoices and overdue_value) else 0),
+        low_stock_alerts=(low_stock_value if health_inventory else 0),
+        active_projects=(active_projects_value if health_projects else 0),
+        include_financial=health_financial,
+        include_inventory=health_inventory,
+        include_projects=health_projects,
+    ) if ((show_finance and health_finance) or
+          (show_invoices and health_invoices)) else None
+
     payload = {
         # ── Existing fields (kept backward-compatible) ───────────────────
         "active_projects":         active_projects,
@@ -486,6 +529,7 @@ def dashboard(branch_id: Optional[int] = None,
         "monthly_income":          monthly_income,
         "monthly_expenses":        monthly_expenses,
         "monthly_profit":          (monthly_income - monthly_expenses) if (monthly_income is not None and monthly_expenses is not None) else None,
+        "financial_health_score":  financial_health_score,
         "low_stock_alerts":        low_stock,
         "recent_projects":         [dict(r) for r in recent_projects],
         "recent_invoices":         result_invoices,

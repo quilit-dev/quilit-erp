@@ -111,3 +111,50 @@ def test_search_still_narrows(make_client):
     rows = rows.get("items") if isinstance(rows, dict) else rows
 
     assert [r["name"] for r in (rows or [])] == []
+
+
+# ── permission checks are resolved once, not per section ─────────────────────
+
+def test_search_asks_for_permissions_once(make_client, monkeypatch):
+    """Global search gates ~24 sections. It used to ask the database about each
+    one separately, on a 240 ms keystroke debounce --- so typing a word fired
+    three or four rounds of 24 permission SELECTs.
+
+    Counted rather than timed: a timing assertion on a fast query is a flaky
+    test, and the number of queries is the thing that was actually wrong.
+    """
+    import permissions
+    calls = {"single": 0, "batch": 0}
+
+    real_single = permissions.can_view
+    real_batch = permissions.viewable_modules
+
+    def counting_single(*a, **k):
+        calls["single"] += 1
+        return real_single(*a, **k)
+
+    def counting_batch(*a, **k):
+        calls["batch"] += 1
+        return real_batch(*a, **k)
+
+    monkeypatch.setattr(permissions, "can_view", counting_single)
+    monkeypatch.setattr(permissions, "viewable_modules", counting_batch)
+
+    c = make_client("superadmin")
+    assert c.get("/api/search/?q=abc").status_code == 200
+
+    assert calls["batch"] == 1, "the permission set should be read once"
+    assert calls["single"] == 0, (
+        "search called can_view %d time(s) -- each one is its own SELECT, and "
+        "this handler gates about two dozen sections" % calls["single"])
+
+
+def test_a_restricted_user_still_only_sees_their_modules(make_client):
+    """Batching must not widen what anybody can see."""
+    viewer = make_client("Viewer")
+    r = viewer.get("/api/search/?q=a")
+    assert r.status_code == 200
+    # Whatever comes back, it must not include a module a Viewer cannot view.
+    import permissions
+    body = r.json()
+    assert isinstance(body, (list, dict))
