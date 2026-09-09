@@ -56,12 +56,47 @@ def qmark_to_format(sql: str) -> str:
     literal ``%`` to ``%%`` (psycopg's *format* paramstyle scans the whole query
     for ``%``). ``?`` inside single-quoted string literals is left alone; doubled
     ``''`` escapes within a string are handled so the quote state stays correct.
+
+    **Comments are skipped, and that is not a nicety.** An apostrophe in an
+    English comment --- "today's takings" --- used to open a string literal that
+    never closed, so every ``?`` after it stayed a ``?``. psycopg then counted
+    zero placeholders against the parameters it was handed and refused the
+    query. The SQL is valid, the comment is prose, and the whole statement fails
+    on Postgres while passing on SQLite, which binds ``?`` natively and never
+    calls this function.
+
+    That is exactly how it reached a live tenant: the dashboard's POS card
+    carried such a comment for months with no placeholders after it, and the
+    first ``?`` added below the comment took the front page down.
     """
     out = []
     in_str = False
     i, n = 0, len(sql)
     while i < n:
         ch = sql[i]
+
+        # -- line comment: copy to the newline without interpreting anything.
+        if not in_str and ch == "-" and i + 1 < n and sql[i + 1] == "-":
+            end = sql.find("\n", i)
+            if end == -1:
+                end = n
+            out.append(sql[i:end].replace("%", "%%"))
+            i = end
+            continue
+
+        # /* block comment */ --- same rule. Postgres nests these; SQLite does
+        # not, and neither does this: the first */ ends it, which matches what
+        # the sqlite side of the codebase can express anyway.
+        if not in_str and ch == "/" and i + 1 < n and sql[i + 1] == "*":
+            end = sql.find("*/", i + 2)
+            if end == -1:
+                end = n
+            else:
+                end += 2
+            out.append(sql[i:end].replace("%", "%%"))
+            i = end
+            continue
+
         if ch == "%":
             # Escape ALL literal percent signs, inside or outside strings — the
             # driver un-escapes them. (We emit %s for placeholders separately.)
