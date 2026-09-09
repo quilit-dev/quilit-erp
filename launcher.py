@@ -95,7 +95,7 @@ log(f'DB path    : {DB_PATH}')
 # template into place so a fresh install already contains the real data instead
 # of an empty schema. On every later run the existing DB is left untouched, so
 # upgrades and re-installs never clobber the customer's live data.
-# `database.init_db()` (auto-run on import below) then applies any pending
+# `database.init_db()` (called explicitly below) then applies any pending
 # schema migrations to the copy idempotently.
 if not os.path.exists(DB_PATH) and os.path.isfile(SEED_DB):
     try:
@@ -189,8 +189,14 @@ try:
     import backup_manager
     backup_manager.init(DB_PATH)
 
-    # Importing main builds the app AND runs database.init_db() against DB_PATH
-    # (set above), applying any pending migrations to the seeded/existing DB.
+    # Build the schema BEFORE importing main. Importing used to do this as a
+    # side effect of database.py; that side effect is gone, because in the cloud
+    # it meant every gunicorn worker migrating concurrently at import time.
+    # Here there is exactly one process, so the explicit call is simply where
+    # the work now happens.
+    import database
+    database.init_db()
+
     from main import app
 
     def open_browser():

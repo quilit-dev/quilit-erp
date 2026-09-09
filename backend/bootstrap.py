@@ -11,6 +11,7 @@ Run once before the web server starts:
 Idempotent — safe to run on every deploy/restart.
 """
 import os
+import time
 import sys
 
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
@@ -43,6 +44,32 @@ def main():
             raw.close()
         print("bootstrap: schema-per-tenant catalog ready "
               "(provision tenants via /api/platform).", flush=True)
+
+        # The schema pass for `public` and every tenant. This is the release
+        # phase -- it runs ONCE, before any container starts, instead of once
+        # per gunicorn worker at import time.
+        #
+        # A failure here fails the deploy, deliberately. It used to be swallowed
+        # so one broken tenant could not stop the service booting; in a release
+        # phase that would mean shipping code which expects a column one tenant
+        # does not have, which is the outage the upgrade exists to prevent.
+        # ALLOW_PARTIAL_MIGRATION=1 restores the old behaviour when an operator
+        # decides a stuck tenant should not hold the others back.
+        import database
+        started = time.perf_counter()
+        database._init_db_postgres()
+        print("bootstrap: schema pass finished in %.1fs"
+              % (time.perf_counter() - started), flush=True)
+
+        failed = getattr(database, "LAST_TENANT_UPGRADE_FAILURES", {}) or {}
+        if failed and os.environ.get("ALLOW_PARTIAL_MIGRATION", "0") != "1":
+            for slug, err in failed.items():
+                print(f"bootstrap: FAILED {slug}: {err}", flush=True)
+            raise SystemExit(
+                "bootstrap: %d tenant(s) did not reach the current schema. "
+                "Deploying now would serve code that expects columns they do "
+                "not have. Fix them, or set ALLOW_PARTIAL_MIGRATION=1 to "
+                "proceed knowingly." % len(failed))
 
         # Optional first-operator seeding. Without this the vendor console is
         # unreachable on a fresh cloud deploy: nothing creates a platform admin,

@@ -103,11 +103,30 @@ tenant slugs ([`tenancy.py`](../backend/tenancy.py) `_subdomain`), so
 
 ## 4. First boot
 
-`RUN_BOOTSTRAP=1` prepares the database on every deploy (idempotent):
+Schema work runs **once per deploy, in the release phase**, via
+`preDeployCommand` in `railway.json` — before any container starts:
 
 - `TENANCY=single` → creates/upgrades the single schema.
-- `TENANCY=schema` → creates the shared `public` catalogs only
-  (`tenants`, `platform_admins`). Customer schemas are provisioned per tenant.
+- `TENANCY=schema` → creates the shared `public` catalogs, then brings `public`
+  and every tenant schema up to date.
+
+It used to happen as an import side effect of `database.py`, which meant every
+gunicorn worker migrated concurrently at startup, racing on `ALTER TABLE` locks
+before the socket bound. Measured at 25 tenants: **2.1 s once in the release
+phase, against 3.0 s per worker (~9 s across three) at import.**
+
+**A tenant that fails to migrate now fails the deploy.** That is deliberate:
+shipping code which expects a column one customer does not have is the outage
+the upgrade exists to prevent. Set `ALLOW_PARTIAL_MIGRATION=1` to proceed
+anyway when an operator has decided a stuck tenant should not hold the rest
+back.
+
+`RUN_BOOTSTRAP=1` still runs the same script from the container entrypoint.
+**Keep it set for the first deploy** so the release phase and the entrypoint
+both run — the script is idempotent, so running twice is harmless, and it means
+a misconfigured `preDeployCommand` cannot leave you un-migrated. Once you have
+seen `bootstrap: schema pass finished` in the release-phase log, set
+`RUN_BOOTSTRAP=0` so it stops running per container.
 
 **Create the first platform operator** — this is the one manual step, since
 nothing seeds it automatically. In the Railway service shell:

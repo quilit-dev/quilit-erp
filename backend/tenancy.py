@@ -1227,7 +1227,24 @@ def upgrade_all_tenant_schemas() -> dict:
                 out["failed"][t["slug"]] = f"unsafe schema name {schema!r}"
                 continue
             try:
+                # The schema must EXIST before we point at it. Postgres
+                # resolves an unqualified name against the first schema in the
+                # search_path that exists -- so if `schema` is missing, every
+                # statement below silently lands in `public`, which holds a
+                # complete business schema of its own, and the tenant is then
+                # reported as upgraded. A tenant row whose schema was never
+                # created (or was dropped) is catalog drift, and it has to be
+                # loud: quietly migrating one customer's tables into the shared
+                # schema is worse than refusing.
                 with raw.cursor() as cur:
+                    cur.execute("SELECT 1 FROM information_schema.schemata "
+                                "WHERE schema_name = %s", (schema,))
+                    if cur.fetchone() is None:
+                        out["failed"][t["slug"]] = (
+                            f"schema {schema!r} does not exist -- the tenant "
+                            f"row is in public.tenants but nothing was ever "
+                            f"provisioned for it")
+                        continue
                     cur.execute(f'SET search_path TO "{schema}", public')
                 _ensure_pg_post_baseline(raw)
                 out["upgraded"].append(t["slug"])

@@ -419,3 +419,43 @@ def test_one_tenant_cannot_revoke_another_tenants_terminal(app, pair):
     other = _login(app, attacker)
     r = other.delete("/api/hr/timeclock/devices/%d" % device_id)
     assert r.status_code == 404,         "one customer revoked another's terminal: %s" % r.status_code
+
+
+# ── catalog drift must be loud ───────────────────────────────────────────────
+
+def test_a_tenant_whose_schema_is_missing_is_reported_not_migrated(app, pair):
+    """Postgres resolves an unqualified name against the first schema in the
+    search_path that EXISTS. So `SET search_path TO "tenant_ghost", public`
+    with no tenant_ghost silently points every statement at `public` --- which
+    holds a complete business schema --- and the upgrade then reports success.
+
+    One customer's migration landing in the shared schema, reported as done, is
+    worse than a refused deploy.
+    """
+    import psycopg
+    import tenancy
+    from database import _pg_dsn
+
+    raw = psycopg.connect(_pg_dsn())
+    try:
+        with raw.cursor() as cur:
+            cur.execute(
+                "INSERT INTO public.tenants (slug, name, schema_name, status, "
+                " created_at) VALUES ('ghosted','Ghosted','tenant_ghosted',"
+                "'active', now()::text) ON CONFLICT (slug) DO NOTHING")
+        raw.commit()
+    finally:
+        raw.close()
+
+    result = tenancy.upgrade_all_tenant_schemas()
+    assert "ghosted" not in result["upgraded"],         "a tenant with no schema was reported as upgraded"
+    assert "ghosted" in result["failed"], result
+    assert "does not exist" in result["failed"]["ghosted"]
+
+
+def test_a_real_tenant_still_upgrades_beside_a_broken_one(app, pair):
+    """One bad row must not stop the others being reported correctly."""
+    import tenancy
+    result = tenancy.upgrade_all_tenant_schemas()
+    for slug in pair:
+        assert slug in result["upgraded"], result

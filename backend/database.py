@@ -5698,6 +5698,12 @@ def _ensure_pg_post_baseline(raw):
     raw.commit()
 
 
+# Tenants that did not reach the current schema on the last
+# _init_db_postgres() call. bootstrap.py reads this to decide
+# whether the deploy may proceed.
+LAST_TENANT_UPGRADE_FAILURES = {}
+
+
 def _init_db_postgres():
     """PostgreSQL init: apply the baseline once, then run the SHARED seeding
     through a CompatConn so the very same SQL the SQLite path uses is translated."""
@@ -5726,18 +5732,24 @@ def _init_db_postgres():
     # created before a column was added never receives it, and the failure shows
     # up as a 500 on the first write to that table. Upgrading them here means a
     # deploy carries the change to existing customers, not just new ones.
+    global LAST_TENANT_UPGRADE_FAILURES
+    LAST_TENANT_UPGRADE_FAILURES = {}
     try:
         import tenancy
         if tenancy.IS_SCHEMA_TENANCY:
             result = tenancy.upgrade_all_tenant_schemas()
             if result.get("upgraded"):
                 print(f"Tenant schemas upgraded: {', '.join(result['upgraded'])}", flush=True)
-            for slug, err in (result.get("failed") or {}).items():
-                # Loud, but never fatal: one broken tenant must not stop the
-                # service booting for everyone else.
+            # Recorded as well as printed. This function no longer runs inside a
+            # web worker, where swallowing a failure was the right call -- it
+            # runs in the release phase, where the caller has to be able to stop
+            # the deploy rather than read the log and hope.
+            LAST_TENANT_UPGRADE_FAILURES = dict(result.get("failed") or {})
+            for slug, err in LAST_TENANT_UPGRADE_FAILURES.items():
                 print(f"WARNING: tenant {slug} upgrade failed: {err}", flush=True)
     except Exception as e:
         print(f"WARNING: tenant schema upgrade skipped: {e}", flush=True)
+        LAST_TENANT_UPGRADE_FAILURES = {"*": str(e)[:200]}
 
     print("Database initialized (postgres).")
 
@@ -6437,4 +6449,16 @@ def _seed_roles_and_admin(c):
             )
 
 
-init_db()
+# NOTE: init_db() is deliberately NOT called here.
+#
+# It used to be, and importing this module ran the entire schema pass as a side
+# effect. Every router imports `get_db` from here and main.py imports every
+# router, so `import main` migrated the database -- once per gunicorn worker,
+# concurrently, racing on ALTER TABLE locks, before the socket bound. At three
+# tenants that was slow; at twenty it is ~11,800 sequential statements against
+# a health-check timeout.
+#
+# Schema work now happens once, in the release phase, before any container
+# starts: `bootstrap.py` calls it. Callers that genuinely need a database built
+# for them -- the test harness, seed.py, launcher.py, the baseline generator --
+# call init_db() explicitly, and always did.

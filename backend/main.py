@@ -2,7 +2,8 @@ from dotenv import load_dotenv
 from pathlib import Path
 load_dotenv(Path(__file__).parent / ".env")
 
-import os, sys
+import os
+from contextlib import asynccontextmanager, sys
 if not os.environ.get("SECRET_KEY"):
     sys.exit(
         "\n  FATAL: SECRET_KEY environment variable is not set.\n"
@@ -12,6 +13,7 @@ if not os.environ.get("SECRET_KEY"):
 
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
+from fastapi.middleware.gzip import GZipMiddleware
 import os
 
 from routers import clients, projects, quotations, inventory, invoices, finance, dashboard, auth
@@ -50,7 +52,39 @@ _DOCS = (os.environ.get("API_DOCS", "").strip().lower() in ("1", "on", "true")
          or os.environ.get("TENANCY", "single").strip().lower()
          not in ("schema", "multi", "tenant"))
 
+@asynccontextmanager
+async def lifespan(_app):
+    """Warm what a first request would otherwise pay for. NOT migrations.
+
+    Schema work belongs in the release phase (bootstrap.py), before any
+    container starts. Doing it here would recreate the problem it was moved out
+    of: every gunicorn worker runs its own lifespan, so N workers would race on
+    the same ALTER TABLE locks -- the same bug in a different costume.
+
+    Opening the pool here instead of on the first request moves the connection
+    handshake off a customer's latency, and surfaces a bad DATABASE_URL at boot
+    rather than as a 500 on whoever arrives first.
+    """
+    try:
+        import database
+        if database.DB_BACKEND not in ("sqlite", "sqlite3"):
+            database._pg_pool()
+    except Exception as exc:                      # noqa: BLE001
+        # Never block startup on warmup. The pool opens lazily on first use and
+        # a real problem will surface there with a better message.
+        print(f"startup: pool warmup skipped ({type(exc).__name__}: {exc})",
+              flush=True)
+    try:
+        import storage
+        storage.validate_config()
+    except Exception as exc:                      # noqa: BLE001
+        print(f"startup: storage check skipped ({type(exc).__name__}: {exc})",
+              flush=True)
+    yield
+
+
 app = FastAPI(title="ERP System", version="2.0.0",
+              lifespan=lifespan,
               docs_url="/docs" if _DOCS else None,
               redoc_url="/redoc" if _DOCS else None,
               openapi_url="/openapi.json" if _DOCS else None)
@@ -205,6 +239,23 @@ class MetricsMiddleware:
             except Exception:
                 pass
 
+
+# Compress JSON on the way out. Railway runs this app directly -- Caddy's
+# `encode gzip` lives in the compose stack only -- so API responses have been
+# going over the wire uncompressed. Report and list payloads are the ones that
+# benefit; they are mostly repetitive JSON and compress heavily.
+#
+# Added BEFORE SecurityHeadersMiddleware, so it sits inside it and the security
+# headers still apply to the compressed response.
+#
+# minimum_size is doing two jobs. Small bodies gain nothing from gzip (the
+# header costs more than it saves), and it also keeps the few responses that
+# carry a secret out of the compressor entirely -- a freshly issued device
+# token or share link is well under this. That matters because BREACH needs a
+# secret and attacker-influenced text compressed together; this app has no CSRF
+# token in any body and authenticates by HttpOnly cookie, so the exposure is
+# already slight, and leaving small bodies alone closes the rest.
+app.add_middleware(GZipMiddleware, minimum_size=1000)
 
 from auth_utils import COOKIE_SECURE
 app.add_middleware(SecurityHeadersMiddleware, hsts=COOKIE_SECURE)
