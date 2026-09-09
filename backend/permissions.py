@@ -2,6 +2,7 @@
 Permission middleware for RBAC.
 Separated from auth_utils.py to avoid circular imports with database.py.
 """
+import os
 import sqlite3
 from datetime import datetime
 from fastapi import Depends, HTTPException
@@ -14,10 +15,12 @@ from database import get_db
 # for half an hour. Being signed out mid-sale at a till, or halfway through a
 # long piece of data entry, cost more than it protected.
 #
-# `last_active` is still written on every request. It is what the admin
-# dashboard shows as online/idle and what the licence counts seats by
-# (_SEAT_IDLE_MINUTES in routers/auth.py) — neither of which signs anybody
-# out, and both of which would go blind without it.
+# `last_active` is still maintained, but no longer written on EVERY request —
+# see SESSION_TOUCH_SECONDS below. It is what the admin dashboard shows as
+# online/idle and what the licence counts seats by (_SEAT_IDLE_MINUTES in
+# routers/auth.py) — neither of which signs anybody out, and both of which
+# would go blind without it. Both also work in minutes, which is what makes
+# the throttle safe.
 
 MODULES = [
     'dashboard', 'clients', 'projects', 'quotations', 'invoices',
@@ -56,6 +59,37 @@ ALL_MODULES   = MODULES + ADMIN_MODULES
 ACTIONS       = ['view', 'create', 'edit', 'delete', 'approve']
 
 
+# How stale `last_active` may get before it is rewritten.
+#
+# It used to be written --- and COMMITTED --- on every single authenticated
+# request. Nothing signs anybody out on it: it feeds the admin dashboard's
+# online indicator (ONLINE_WINDOW_MINUTES = 5) and the licence seat count
+# (_SEAT_IDLE_MINUTES), and both work in minutes. Paying a write and an fsync
+# per request to keep a five-minute window accurate to the second is a poor
+# trade, and it gets worse with scale: the notification bell polls every 30s
+# and the sidebar every 60s, so 200 idle users generate ~200 writes a minute
+# for a number nobody reads at that resolution.
+#
+# Set to 0 to restore the old behaviour without a deploy.
+SESSION_TOUCH_SECONDS = int(os.environ.get("SESSION_TOUCH_SECONDS", "60"))
+
+
+def _touch_is_due(last_active, now: str) -> bool:
+    """Has `last_active` gone stale enough to be worth a write?
+
+    Unparseable or missing counts as due: a session with no heartbeat should
+    get one, and a malformed value should be corrected rather than frozen.
+    """
+    if SESSION_TOUCH_SECONDS <= 0 or not last_active:
+        return True
+    try:
+        seen = datetime.strptime(str(last_active)[:19], "%Y-%m-%d %H:%M:%S")
+        return (datetime.strptime(now, "%Y-%m-%d %H:%M:%S")
+                - seen).total_seconds() >= SESSION_TOUCH_SECONDS
+    except (ValueError, TypeError):
+        return True
+
+
 def _resolve_user(user: dict, db: sqlite3.Connection) -> dict:
     """Re-validate user from DB: checks is_active, session revocation, and refreshes role."""
     row = db.execute(
@@ -85,8 +119,10 @@ def _resolve_user(user: dict, db: sqlite3.Connection) -> dict:
             raise HTTPException(status_code=401, detail="Session expired. Please log in again.")
 
         now = datetime.utcnow().strftime("%Y-%m-%d %H:%M:%S")
-        db.execute("UPDATE user_sessions SET last_active=? WHERE id=?", (now, session["id"]))
-        db.commit()
+        if _touch_is_due(session["last_active"], now):
+            db.execute("UPDATE user_sessions SET last_active=? WHERE id=?",
+                       (now, session["id"]))
+            db.commit()
 
     is_superadmin = bool(row["is_superadmin"])
     return {
@@ -130,6 +166,30 @@ def can_view(user: dict, db: sqlite3.Connection, module: str) -> bool:
         (rid, module),
     ).fetchone()
     return bool(row and row["can_view"])
+
+
+def viewable_modules(user: dict, db: sqlite3.Connection) -> set:
+    """Every module the caller may VIEW, in ONE query.
+
+    `can_view` answers for a single module and costs a query each time. That is
+    right for a handler asking once; it is wrong for the screens that ask about
+    every module in turn. Global search asks 24 times and the dashboard 18 --
+    per request, and search runs on a 240 ms keystroke debounce, so a user
+    typing a word fires three or four rounds of it.
+
+    Same semantics as calling `can_view` in a loop: superadmin sees everything,
+    a user with no role sees nothing.
+    """
+    if user.get("is_superadmin"):
+        return set(ALL_MODULES)
+    rid = user.get("role_id")
+    if not rid:
+        return set()
+    rows = db.execute(
+        "SELECT module FROM role_permissions WHERE role_id=? AND can_view=1",
+        (rid,),
+    ).fetchall()
+    return {r["module"] for r in rows}
 
 
 def check_perm(user: dict, db: sqlite3.Connection, module: str, action: str = "view") -> None:

@@ -459,3 +459,49 @@ def test_a_real_tenant_still_upgrades_beside_a_broken_one(app, pair):
     result = tenancy.upgrade_all_tenant_schemas()
     for slug in pair:
         assert slug in result["upgraded"], result
+
+
+# ── the licence lookup borrows a pooled connection ───────────────────────────
+
+def test_the_licence_lookup_does_not_leak_its_search_path(app, pair):
+    """`tenant_modules` runs on the request path and now uses the POOL.
+
+    It sets `search_path TO public` to read the tenants catalog. If that stuck
+    to the connection, the next request to borrow it would resolve unqualified
+    names against `public` --- which holds a complete business schema --- and
+    read another customer's tables. get_db sets the path on every checkout,
+    which is what makes this safe; this test is what keeps that true.
+    """
+    import tenancy
+    victim, attacker = pair
+
+    vc = _login(app, victim)
+    _seed(vc, "Victim Only Client")
+
+    # Force a licence refresh in between, so a pooled connection has just been
+    # pointed at `public`.
+    tenancy._MODULES_CACHE.clear()
+    tenancy.tenant_modules(tenancy.schema_for_slug(victim))
+    tenancy._MODULES_CACHE.clear()
+    tenancy.tenant_modules(tenancy.schema_for_slug(attacker))
+
+    names = {c["name"] for c in vc.get("/api/clients/").json()}
+    assert "Victim Only Client" in names,         "the victim stopped seeing their own data after a licence refresh"
+
+    ac = _login(app, attacker)
+    other = {c["name"] for c in ac.get("/api/clients/").json()}
+    assert "Victim Only Client" not in other,         "a pooled connection carried `public` into another tenant's request"
+
+
+def test_the_licence_lookup_still_returns_the_right_answer(app, pair):
+    """Pooling must not change what it reads, only how it gets there."""
+    import tenancy
+    victim, _ = pair
+    schema = tenancy.schema_for_slug(victim)
+
+    tenancy._MODULES_CACHE.clear()
+    first = tenancy.tenant_modules(schema)
+    second = tenancy.tenant_modules(schema)          # cached
+    tenancy._MODULES_CACHE.clear()
+    third = tenancy.tenant_modules(schema)           # fresh again
+    assert first == second == third

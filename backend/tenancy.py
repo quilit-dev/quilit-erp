@@ -601,19 +601,30 @@ def tenant_modules(schema: str):
         cached_at, value = hit
         if (time.monotonic() - cached_at) < _MODULES_TTL:
             return value
+    # Borrowed from the pool, not a fresh connect(). This runs on the request
+    # path -- check_perm reaches it through vendor_config.module_allowed -- and
+    # a new Postgres connection costs ~33ms of handshake against ~0.05ms for
+    # the query itself. With one cache entry per schema per worker expiring
+    # every _MODULES_TTL, twenty tenants across three workers is sixty fresh
+    # connections a minute, each landing as a 33ms spike on whichever unlucky
+    # request triggered the refresh.
+    #
+    # The query names public.tenants explicitly, so it does not depend on the
+    # search_path a pooled connection happens to be carrying -- but it is set
+    # anyway, because relying on a qualified name to stay qualified is how the
+    # next person's edit becomes a cross-tenant read.
     try:
-        raw = _connect()
+        row = None
+        from database import _pg_pool
+        with _pg_pool().connection() as raw:
+            with raw.cursor() as cur:
+                cur.execute("SET search_path TO public")
+                cur.execute("SELECT modules FROM public.tenants WHERE schema_name=%s",
+                            (schema,))
+                row = cur.fetchone()
+            raw.rollback()               # read-only; do not let the pool commit
     except Exception:
         return None                      # fail open rather than lock everyone out
-    try:
-        with raw.cursor() as cur:
-            cur.execute("SELECT modules FROM public.tenants WHERE schema_name=%s",
-                        (schema,))
-            row = cur.fetchone()
-    except Exception:
-        return None
-    finally:
-        raw.close()
     raw_modules = (row or {}).get("modules") if row else None
     if not raw_modules:
         result = None                    # unlicensed == unrestricted (dev/demo)
