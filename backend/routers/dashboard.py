@@ -19,7 +19,7 @@ import vendor_config
 from database import get_db
 import permissions
 from permissions import require_perm, can_view as permissions_can_view
-from utils import _today
+from utils import _today, _day_bounds, _month_bounds
 import branch_access
 import sqlite3
 
@@ -180,8 +180,8 @@ def dashboard(branch_id: Optional[int] = None,
            -- unpaid card above. This one did not.
            WHERE i.deleted_at IS NULL AND i.voided_at IS NULL
              AND i.archived_at IS NULL
-             AND strftime('%Y-%m', ip.paid_at) = strftime('%Y-%m', 'now')""" + bf_i,
-        bp_i,
+             AND ip.paid_at >= ? AND ip.paid_at < ?""" + bf_i,
+        (*_month_bounds(), *bp_i),
     ) if (show_finance or show_invoices or health_financial) else None
     monthly_income = monthly_income_value if (show_finance or show_invoices) else None
 
@@ -191,8 +191,8 @@ def dashboard(branch_id: Optional[int] = None,
     monthly_expenses_value = _scalar(db,
         """SELECT COALESCE(SUM(amount), 0) FROM expenses
            WHERE deleted_at IS NULL AND voided_at IS NULL AND archived_at IS NULL
-             AND strftime('%Y-%m', date) = strftime('%Y-%m', 'now')""" + bf_e,
-        bp_e,
+             AND date >= ? AND date < ?""" + bf_e,
+        (*_month_bounds(), *bp_e),
     ) if (show_finance or health_finance) else None
     monthly_expenses = monthly_expenses_value if show_finance else None
 
@@ -216,8 +216,9 @@ def dashboard(branch_id: Optional[int] = None,
            -- 'returned' was already being counted as a sale, and 'amended'
            -- meant a corrected sale AND its replacement both landed in
            -- today's takings — the same money, twice, on the front page.
-           WHERE date(created_at) = date('now')
-             AND COALESCE(status,'completed') = 'completed'"""
+           WHERE created_at >= ? AND created_at < ?
+             AND COALESCE(status,'completed') = 'completed'""",
+        _day_bounds(),
     ).fetchone() if show_pos else None
 
     # ── Cash: open sessions + last reconciliation status ─────────────────

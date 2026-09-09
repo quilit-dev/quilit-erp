@@ -16,6 +16,40 @@ def _today() -> str:
     return datetime.utcnow().strftime("%Y-%m-%d")
 
 
+# ── Half-open date ranges ─────────────────────────────────────────────────────
+# The sargable replacement for `date(col) = date('now')` and
+# `strftime('%Y-%m', col) = strftime('%Y-%m', 'now')`.
+#
+# Wrapping a column in a function hides it from every index: `dialect.py`
+# rewrites those calls to `substr(col, 1, 10)` on Postgres, and a scan is a
+# scan. `col >= ? AND col < ?` uses the index, needs no dialect translation,
+# and means the same thing --- provided the bounds come off the same clock.
+#
+# They do: both helpers use `datetime.utcnow()`, which is what SQLite's
+# `'now'` returns and what the stored `_now()` strings were written with. A
+# local-time bound here would move "today's takings" by a day, which is a
+# wrong number a customer notices and does not report as a bug.
+#
+# Half-open, never BETWEEN: the columns hold either 'YYYY-MM-DD' or
+# 'YYYY-MM-DD HH:MM:SS', and a closed upper bound of 'YYYY-MM-DD' would drop
+# every timestamped row on the last day.
+def _day_bounds(day: str = None) -> tuple:
+    """('2026-09-09', '2026-09-10') --- today in UTC unless `day` is given."""
+    start = datetime.strptime(day, "%Y-%m-%d") if day else datetime.utcnow()
+    start = start.replace(hour=0, minute=0, second=0, microsecond=0)
+    return start.strftime("%Y-%m-%d"), (start + timedelta(days=1)).strftime("%Y-%m-%d")
+
+
+def _month_bounds(day: str = None) -> tuple:
+    """('2026-09-01', '2026-10-01') --- the month containing `day`, UTC today
+    by default. December rolls the year, which is the case a naive
+    `month + 1` gets wrong once a year."""
+    d = datetime.strptime(day, "%Y-%m-%d") if day else datetime.utcnow()
+    start = d.replace(day=1, hour=0, minute=0, second=0, microsecond=0)
+    nxt = start.replace(year=start.year + 1, month=1) if start.month == 12         else start.replace(month=start.month + 1)
+    return start.strftime("%Y-%m-%d"), nxt.strftime("%Y-%m-%d")
+
+
 def _read_setting(db, key: str):
     row = db.execute("SELECT value FROM settings WHERE key=?", (key,)).fetchone()
     return row["value"] if row else None
