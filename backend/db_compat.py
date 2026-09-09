@@ -26,6 +26,10 @@ DBAPI driver, delegating SQL rewriting and row adaptation to a *Dialect*:
 
 This module imports no database engine; it is given a live connection + dialect.
 """
+import logging
+import os
+from time import perf_counter as _perf_counter
+
 
 
 class CompatRow:
@@ -69,6 +73,36 @@ class CompatRow:
         return f"CompatRow({self._d!r})"
 
 
+
+# ── slow-query reporting ─────────────────────────────────────────────────────
+# Off unless SLOW_QUERY_MS is set, and free when off: the branch in execute()
+# reads one module-level int and does not call perf_counter at all. That
+# matters because this wrapper is on the path of every statement the
+# application runs.
+#
+# `pg_stat_statements` is the better tool and needs no code --- but it has to
+# be enabled on the database, which is a dashboard change rather than a deploy.
+# This is the part that can ship with the application, works on both backends,
+# and answers the same question well enough to decide whether an optimisation
+# was worth doing.
+SLOW_QUERY_MS = float(os.environ.get("SLOW_QUERY_MS", "0") or 0)
+
+_slow_logger = logging.getLogger("erp.slowquery")
+
+
+def _report_if_slow(sql: str, elapsed_ms: float) -> None:
+    if elapsed_ms < SLOW_QUERY_MS:
+        return
+    # Collapsed to one line and truncated: a slow query is worth seeing, and a
+    # 4 KB statement in the log is worth nobody's time. Parameters are NOT
+    # logged --- they are customer data, and the shape of the query is what
+    # identifies it.
+    flat = " ".join(str(sql).split())
+    _slow_logger.warning("slow query", extra={
+        "duration_ms": round(elapsed_ms, 1),
+        "sql": flat[:300] + ("…" if len(flat) > 300 else ""),
+    })
+
 class CompatCursor:
     """Wraps a DBAPI cursor; rewrites SQL via the dialect, adapts rows, and
     emulates ``lastrowid`` for backends that report it through ``RETURNING``."""
@@ -81,7 +115,12 @@ class CompatCursor:
     # -- execution --------------------------------------------------------------
     def execute(self, sql, params=()):
         sql2, params2, capture = self._dialect.translate(sql, params)
-        self._cur.execute(sql2, params2)
+        if SLOW_QUERY_MS:
+            started = _perf_counter()
+            self._cur.execute(sql2, params2)
+            _report_if_slow(sql2, (_perf_counter() - started) * 1000.0)
+        else:
+            self._cur.execute(sql2, params2)
         if capture:
             # The dialect appended `RETURNING id`; read it so `.lastrowid` works,
             # then keep it out of the caller's fetch* stream.
