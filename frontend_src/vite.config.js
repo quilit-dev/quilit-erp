@@ -17,7 +17,11 @@ export default defineConfig({
         manualChunks: {
           // React core — shared by every page, cached longest
           'vendor-react': ['react', 'react-dom', 'react-router-dom'],
-          // xlsx is ~500 kB on its own; only loaded when a page exports
+          // ~500 kB on its own. Being a separate chunk is NOT what makes it
+          // lazy -- it shipped on the login screen for months because
+          // components/shared.jsx imported it at module scope and App.jsx
+          // imports shared.jsx. It is now `await import('xlsx')` inside
+          // exportToExcel, and a test asserts it stays off the entry page.
           'vendor-xlsx': ['xlsx'],
         },
       },

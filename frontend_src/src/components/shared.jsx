@@ -1,5 +1,4 @@
 import { useState, useEffect, useRef } from 'react';
-import * as XLSX from 'xlsx';
 import { useLocale } from '../hooks/useLocale.jsx';
 import { useSettings } from '../hooks/useSettings.jsx';
 import { useScrollLock } from '../hooks/useScrollLock';
@@ -651,8 +650,20 @@ export function ExchangeRateBadge() {
 }
 
 // ── Excel export ───────────────────────────────────────────────
-export function exportToExcel(data, filename, sheetName = 'Sheet1') {
+/**
+ * The spreadsheet library is loaded HERE, on demand, not at module scope.
+ *
+ * This file is on the eager path: App.jsx imports LoadingSpinner from it, so a
+ * top-level import put 159 KB gzipped into the first chunk every visitor
+ * downloads --- including the login screen, which cannot export anything.
+ * vite.config.js's manualChunks comment claimed the chunk was lazy; it was not,
+ * because a separate chunk still ships when the entry statically imports it.
+ *
+ * Async as a result. ExportButton is the only caller and already awaits.
+ */
+export async function exportToExcel(data, filename, sheetName = 'Sheet1') {
   if (!data || data.length === 0) { alert('No data to export.'); return; }
+  const XLSX = await import('xlsx');
   const ws = XLSX.utils.json_to_sheet(data);
   const wb = XLSX.utils.book_new();
   XLSX.utils.book_append_sheet(wb, ws, sheetName);
@@ -671,10 +682,12 @@ export function ExportButton({ data, fetchData, filename, sheetName }) {
   const [busy, setBusy] = useState(false);
 
   async function run() {
-    if (!fetchData) { exportToExcel(data, filename, sheetName); return; }
+    // Both branches are busy now: the first await is the spreadsheet chunk
+    // arriving, which on a slow connection is what the user actually waits for.
     setBusy(true);
     try {
-      exportToExcel(await fetchData(), filename, sheetName);
+      await exportToExcel(fetchData ? await fetchData() : data,
+                          filename, sheetName);
     } catch (e) {
       toast(e?.message || 'Export failed', 'red');
     } finally {
