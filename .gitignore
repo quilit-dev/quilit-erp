@@ -65,6 +65,7 @@ agent/timeclock/agent.log*
 agent/timeclock/__pycache__/
 agent/timeclock/dist/
 agent/timeclock/build/
+agent/timeclock/release/
 
 # Compiled Windows installers (45 MB of .exe). The desktop build is gone;
 # this directory is only what it left behind on the build machine.

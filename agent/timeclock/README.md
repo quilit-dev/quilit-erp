@@ -23,54 +23,53 @@ the fetching. That is all this is.
 
 ## Setting it up
 
+There are two ways in. Pick the first one unless you are a developer.
+
+### The office PC (no Python, one double-click)
+
+You were sent **QuilitTimeClock.zip**. Everything is inside it.
+
 **1. Get a token from the ERP.**
-Sign in and go to **HR → Time clock → Devices → Add device**. Give it a name you
-will recognise ("Front door"). The ERP shows you a token **once**. Copy the whole
-block it offers.
+Sign in and go to **HR → Time clock → Devices → Add device**. Give it a name
+you will recognise ("Front door"). The ERP shows the token **once** — leave that
+screen open until step 3, or you will have to press **Rotate token** and start
+again.
 
-**2. Put the files on the office PC.**
-Copy this whole folder somewhere sensible, for example `C:\quilit-timeclock`.
+**2. Unzip it and double-click `Setup.cmd`.**
+Right-click the ZIP → **Extract All** first. Running it from inside the ZIP
+gives Windows a read-only temporary folder and the install fails halfway.
 
-**3. Create the configuration.**
-Copy `config.example.ini` to `config.ini`, open it in Notepad, and fill in the
-device's IP address and the token you just copied. The example file explains
-every line.
+Windows asks for permission once. That is for the scheduled task; nothing else
+needs it.
 
-**4. Install what it needs.** In a command prompt, in that folder:
+**3. Answer the questions.**
+Every one has the usual answer already filled in — press Enter to accept it.
+Only two need you: the terminal's IP address (on the device, **Menu → Comm →
+Ethernet**) and the token from step 1. The token is hidden as you paste it;
+right-click pastes into that window.
+
+**4. Read the last screen.**
+Setup proves the ERP accepts the token, then proves the terminal answers, and
+only then schedules anything. If either check fails it stops and says which one
+— nothing is left half-installed, and no task is registered. Fix the setting it
+names and double-click `Setup.cmd` again.
+
+Everything lands in `C:\Quilit\TimeClock`. To remove it later, double-click
+`Uninstall.cmd`; that stops the collector and leaves the folder, the log and
+the punches already in the ERP alone.
+
+### A machine that has Python (developers)
 
 ```
 pip install -r requirements.txt
-```
-
-> **No Python on that PC?** Use `timeclock-agent.exe` instead. It is a single
-> file with everything inside it — put it in the folder next to `config.ini`,
-> skip this step, and read `timeclock-agent.exe` wherever the steps below say
-> `python agent.py`. Ask your supplier for it if you do not have it.
-
-**5. Check it works.**
-
-```
-python agent.py --check
-```
-
-This confirms the ERP accepts your token. Then:
-
-```
-python agent.py --dry-run
-```
-
-This reads the terminal and prints what it *would* send, without sending
-anything. If you see punches listed, everything is wired up.
-
-**6. Make it run by itself.** In an **Administrator** command prompt:
-
-```
+copy config.example.ini config.ini      # then edit it
+python agent.py --check                 # ERP accepts the token?
+python agent.py --dry-run               # terminal answers? sends nothing
 powershell -ExecutionPolicy Bypass -File install-task.ps1
 ```
 
-That registers a Windows scheduled task which starts the agent when the PC boots
-and keeps it running. To check on it later, open Task Scheduler and look for
-**QuilitTimeClock**.
+`install-task.ps1` is the Python equivalent of `install-agent.ps1` — same
+scheduled task, pointed at `python agent.py` instead of the exe.
 
 ---
 
@@ -134,13 +133,28 @@ python agent.py --replay f.json send a recorded dump, no device needed
 python agent.py -v              debug logging
 ```
 
-### Building the standalone exe
+### Building what you send a customer
 
 ```
-python -m pip install -r requirements.txt pyinstaller
-python -m PyInstaller --noconfirm timeclock-agent.spec
-# -> dist/timeclock-agent.exe   (~16 MB, one file, no Python needed)
+powershell -ExecutionPolicy Bypass -File build-release.ps1
+# -> release/QuilitTimeClock.zip   (~15 MB: exe + Setup.cmd + Uninstall.cmd
+#                                   + install-agent.ps1 + README.md)
 ```
+
+Windows only — a PyInstaller build is not cross-platform. The script runs
+PyInstaller, smoke-tests the binary by making it print its own help (which
+exercises the whole frozen import graph, so a missing `hiddenimport` dies on
+the build machine rather than at a customer's first punch), assembles the
+folder and zips it.
+
+It **refuses to build** if `config.ini`, `agent.log` or `state.json` would
+reach the release folder. The first holds a live device token and would hand
+one customer another's credential — and would also silently skip the setup
+questions on their PC, which is the kind of failure nobody notices until the
+punches are going to the wrong workspace.
+
+Send the ZIP and the device token **separately**. The token is shown once on
+the customer's own screen; the best delivery is to have them read it off it.
 
 Onefile on purpose: whoever installs this copies one thing into one folder. The
 agent finds `config.ini`, `state.json` and `agent.log` beside the EXE, not
