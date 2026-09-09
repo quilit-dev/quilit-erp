@@ -13,7 +13,7 @@ from pydantic import BaseModel
 from typing import Optional, List
 from database import get_db
 from permissions import require_perm
-from routers.audit import log_action
+from audit_log import log_action
 from routers.promotions import apply_promotions_to_lines
 from types import SimpleNamespace
 from utils import _now, get_tax_context, resolve_line_tax, money, notify, ArchiveMode, archive_clause

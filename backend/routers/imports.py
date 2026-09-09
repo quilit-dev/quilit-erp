@@ -480,7 +480,7 @@ def import_commit(entity: str, payload: ImportPayload, user=Depends(require_auth
             db.rollback()
             failed += 1
             details.append({"index": i, "status": "failed", "errors": [str(e)]})
-    from routers.audit import log_action
+    from audit_log import log_action
     log_action(db, user, "import", entity, None, f"Bulk import — {entity}",
                {"created": created, "skipped": skipped, "failed": failed})
     db.commit()

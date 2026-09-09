@@ -3,7 +3,7 @@ from pydantic import BaseModel
 from typing import Optional, List
 from database import get_db
 from permissions import require_auth, require_admin
-from routers.audit import log_action
+from audit_log import log_action
 from utils import _now
 import approval_engine as engine
 import sqlite3, json

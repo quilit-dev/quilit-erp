@@ -13,7 +13,7 @@ from typing import Optional, List
 from datetime import datetime
 from database import get_db
 from permissions import require_perm
-from routers.audit import log_action
+from audit_log import log_action
 from routers.finance import _check_period_locked
 from utils import _now
 import accounting

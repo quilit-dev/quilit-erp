@@ -21,7 +21,7 @@ from permissions import require_auth, require_admin, require_settings_write
 # restoring a database over a live one is not editing a setting, and it must not
 # follow the switch.
 _settings_write = require_settings_write
-from routers.audit import log_action
+from audit_log import log_action
 from utils import _now, _today
 import vendor_config
 import sqlite3, os, shutil, tempfile, sys

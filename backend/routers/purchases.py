@@ -4,7 +4,7 @@ from typing import List, Optional
 from database import get_db
 from permissions import require_perm
 import commitments
-from routers.audit import log_action
+from audit_log import log_action
 from utils import (_now, notify, get_tax_context, resolve_purchase_tax, money,
                    summarise_lines as _summarise, validate_int_qty,
                    ArchiveMode, archive_clause)

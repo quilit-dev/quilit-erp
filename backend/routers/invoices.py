@@ -16,7 +16,7 @@ from pydantic import BaseModel
 from typing import List, Optional
 from database import get_db
 from permissions import require_perm
-from routers.audit import log_action
+from audit_log import log_action
 from routers.promotions import apply_promotions_to_lines
 from routers.finance import _check_period_locked
 from routers.projects import bump_project_status

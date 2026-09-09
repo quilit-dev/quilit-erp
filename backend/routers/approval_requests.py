@@ -11,7 +11,7 @@ from typing import Optional
 from database import get_db
 from permissions import require_auth
 import approval_engine as engine
-from routers.audit import log_action
+from audit_log import log_action
 import sqlite3, json
 
 router = APIRouter()

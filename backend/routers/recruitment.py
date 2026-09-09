@@ -17,7 +17,7 @@ from typing import Optional
 from datetime import date, datetime
 from database import get_db
 from permissions import require_perm
-from routers.audit import log_action
+from audit_log import log_action
 from routers.hr_activities import (
     _normalise_scheduled_at as _hr_normalise_scheduled_at,
     _schedule_reminder as _hr_schedule_reminder,

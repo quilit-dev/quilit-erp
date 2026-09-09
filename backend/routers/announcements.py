@@ -35,7 +35,7 @@ from pydantic import BaseModel, Field
 
 from database import get_db
 from permissions import require_auth, require_perm
-from routers.audit import log_action
+from audit_log import log_action
 from utils import _now, notify
 
 router = APIRouter()

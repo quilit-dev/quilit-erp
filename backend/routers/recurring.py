@@ -21,7 +21,7 @@ import sqlite3
 import accounting
 from database import get_db
 from permissions import require_perm
-from routers.audit import log_action
+from audit_log import log_action
 from utils import _now, _today, get_tax_context, resolve_expense_tax, money, notify, ArchiveMode, archive_clause
 
 router = APIRouter()

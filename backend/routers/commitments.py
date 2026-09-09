@@ -17,7 +17,7 @@ import reservations
 import warehouse_access as wha
 from database import get_db
 from permissions import require_perm
-from routers.audit import log_action
+from audit_log import log_action
 from utils import _now, money, notify
 
 router = APIRouter()

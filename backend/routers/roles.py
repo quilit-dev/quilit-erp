@@ -6,7 +6,7 @@ from pydantic import BaseModel
 from typing import Optional, Dict
 from database import get_db
 from permissions import require_admin, require_perm, ALL_MODULES, ACTIONS
-from routers.audit import log_action
+from audit_log import log_action
 import sqlite3
 
 router = APIRouter()

@@ -31,7 +31,7 @@ import attendance_sync
 from database import get_db
 from device_auth import hash_token, require_device
 from permissions import require_perm
-from routers.audit import log_action
+from audit_log import log_action
 from utils import _now
 
 device_router = APIRouter()

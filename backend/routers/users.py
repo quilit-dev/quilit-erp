@@ -8,7 +8,7 @@ from typing import Optional
 from database import get_db
 from auth_utils import hash_password
 from permissions import require_admin, require_perm
-from routers.audit import log_action
+from audit_log import log_action
 import branch_access
 import sqlite3
 

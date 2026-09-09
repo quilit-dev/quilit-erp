@@ -7,7 +7,7 @@ from pydantic import BaseModel, validator
 from typing import Optional
 from database import get_db
 from permissions import require_perm, require_admin
-from routers.audit import log_action
+from audit_log import log_action
 from utils import (_now, get_tax_context, resolve_expense_tax, money,
                    ArchiveMode, archive_clause)
 from approval_engine import evaluate_and_apply

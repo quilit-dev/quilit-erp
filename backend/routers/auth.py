@@ -6,7 +6,7 @@ from auth_utils import (
     COOKIE_NAME, COOKIE_SECURE, TOKEN_EXPIRE_HOURS,
 )
 from permissions import require_auth
-from routers.audit import log_action
+from audit_log import log_action
 from utils import _now
 import sqlite3
 from datetime import datetime, timedelta

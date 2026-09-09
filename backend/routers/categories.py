@@ -22,7 +22,7 @@ from permissions import require_auth, require_settings_write
 # other field on it: admin-tier, or a role granted `settings: edit`.
 # Asking for admin here and settings:edit next door would leave half the
 # page live and half of it refusing.
-from routers.audit import log_action
+from audit_log import log_action
 from utils import _now
 
 router = APIRouter()

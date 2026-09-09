@@ -4,7 +4,7 @@ from typing import Optional
 import costs
 from database import get_db
 from permissions import require_perm
-from routers.audit import log_action
+from audit_log import log_action
 from approval_engine import evaluate_and_apply
 from utils import _now, ArchiveMode, archive_clause
 import sqlite3

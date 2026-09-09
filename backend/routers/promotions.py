@@ -16,7 +16,7 @@ from pydantic import BaseModel
 
 from database import get_db
 from permissions import require_perm, require_any_perm
-from routers.audit import log_action
+from audit_log import log_action
 from utils import _now, ArchiveMode, archive_clause
 
 router = APIRouter()

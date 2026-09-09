@@ -24,7 +24,7 @@ from typing import Optional
 from datetime import date, datetime
 from database import get_db
 from permissions import require_perm
-from routers.audit import log_action
+from audit_log import log_action
 from utils import _now, notify, ArchiveMode, archive_clause
 import accounting
 import branch_access

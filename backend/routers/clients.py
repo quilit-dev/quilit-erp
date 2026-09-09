@@ -4,7 +4,7 @@ from typing import Optional
 from datetime import datetime
 from database import get_db
 from permissions import require_perm, can_view
-from routers.audit import log_action
+from audit_log import log_action
 from utils import _now, money, ArchiveMode, archive_clause
 import sqlite3
 

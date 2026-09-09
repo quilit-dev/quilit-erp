@@ -23,7 +23,7 @@ from typing import Optional
 from datetime import datetime
 from database import get_db
 from permissions import require_perm
-from routers.audit import log_action
+from audit_log import log_action
 from routers.finance import _check_period_locked
 from utils import _now, _today, notify, get_tax_context, resolve_inclusive_tax, money, validate_int_qty
 import costing

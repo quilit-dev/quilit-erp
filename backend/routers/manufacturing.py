@@ -37,7 +37,7 @@ from typing import Optional
 from datetime import datetime
 from database import get_db
 from permissions import require_perm
-from routers.audit import log_action
+from audit_log import log_action
 from utils import _now, notify, validate_int_qty
 import costing
 import lots
