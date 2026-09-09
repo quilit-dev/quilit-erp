@@ -27,7 +27,6 @@ static/
 # Build / packaging artifacts
 build/
 dist/
-installer/Output/
 
 # Logs & temp files
 startup_log.txt

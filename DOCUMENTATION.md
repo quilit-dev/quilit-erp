@@ -105,7 +105,7 @@ This ERP (Enterprise Resource Planning) system is a full-stack business manageme
 | **Database** | SQLite (single-file, zero-config) |
 | **Frontend** | React 18, Vite, React Router v6 |
 | **Auth** | JWT (HS256) via HttpOnly cookies, PBKDF2-SHA256 passwords |
-| **Packaging** | PyInstaller (Windows .exe), Inno Setup (installer) |
+| **Deployment** | Railway (Docker), PostgreSQL schema-per-tenant |
 
 ---
 
@@ -180,10 +180,6 @@ erp-system/
 │   └── weekly/
 ├── erp.db                      # SQLite database (auto-created on first run)
 ├── launcher.py                 # Entry point — run from the project root
-├── build.ps1                   # Windows build script (frontend + PyInstaller)
-├── ERP.spec                    # PyInstaller build spec
-├── installer/                  # Inno Setup installer files
-│   └── ERP-System.iss          # Windows installer script
 ├── README.md                   # Quick-start guide
 └── DOCUMENTATION.md            # This file
 ```
@@ -261,23 +257,22 @@ cd ..
 python launcher.py
 ```
 
-### Windows Executable & Installer
+### Deployment
 
-The `build.ps1` script at the project root runs the complete Windows packaging pipeline in three stages. Run it from PowerShell in the repo root:
+The system is deployed as a hosted multi-tenant application on Railway: one
+Docker image built from the repo root, PostgreSQL with a schema per customer,
+and a deploy on every push to `main`. See `docs/SAAS_ARCHITECTURE.md`.
 
-```powershell
-.\build.ps1
-```
+**There is no desktop build.** The PyInstaller specs, the Inno Setup installer
+and the macOS/Linux packaging workflows were removed once every customer was
+hosted: they committed the project to maintaining a second database backend, a
+second packaging pipeline and a second upgrade story, for nobody. `launcher.py`
+is still the local development entry point and still runs against SQLite —
+that part was never the desktop build.
 
-| Stage | Tool | Output |
-|-------|------|--------|
-| 1. Build frontend | Vite (`npm run build`) | `static/` |
-| 2. Bundle executable | PyInstaller (`ERP.spec`, onedir) | `dist/ERP System/ERP System.exe` |
-| 3. Compile installer | Inno Setup 6 (`installer/ERP-System.iss`) | `installer/Output/*.exe` |
-
-**One-time prerequisites:** Node.js, `pip install pyinstaller`, and [Inno Setup 6](https://jrsoftware.org/isdl.php).
-
-To build only the standalone executable (skipping the installer), run `python -m PyInstaller ERP.spec` directly.
+The one PyInstaller spec that remains is `agent/timeclock/timeclock-agent.spec`,
+which packages the fingerprint-terminal agent that runs on a PC at the
+customer's site. It is a separate program, with its own release cycle.
 
 ---
 

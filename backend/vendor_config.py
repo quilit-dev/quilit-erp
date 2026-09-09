@@ -12,7 +12,7 @@ How the vendor uses this file
 -----------------------------
 1. Edit `ENABLED_MODULES` below to the comma-separated list of module keys
    the customer purchased (e.g. "sales,clients,quotations,invoices,inventory").
-2. Run `build.ps1` to produce a customer-specific Windows installer.
+2. Redeploy — the letterhead is resolved from the tenant slug at runtime.
 3. Ship the installer.
 
 Module changes after delivery require a fresh build — there is no "click

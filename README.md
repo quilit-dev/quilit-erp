@@ -53,7 +53,7 @@ recruitment and CRM into a single self-hosted application.
 | Frontend | React 18, Vite, React Router v6 |
 | Auth | JWT (HS256) via HttpOnly cookies, PBKDF2-SHA256 passwords |
 | Documents | fpdf2 + arabic-reshaper + python-bidi, Amiri embedded (pure Python — no system libraries) |
-| Packaging | PyInstaller (Windows .exe), Inno Setup 6 |
+| Deployment | Railway (Docker), PostgreSQL schema-per-tenant |
 | Documentation | MkDocs Material (53 pages with Operator / Administrator / Auditor tabs) |
 
 ---
@@ -464,10 +464,7 @@ erp-system/
 ├── docs/manual/               # MkDocs Material user manual (53 pages,
 │                              # three-audience tabs per module)
 ├── backups/                   # Daily/weekly DB backups (gitignored)
-├── installer/                 # Inno Setup files
 ├── launcher.py                # Entry point — run this from the project root
-├── build.ps1                  # Windows build pipeline (frontend + exe + installer)
-├── ERP.spec                   # PyInstaller spec
 └── DOCUMENTATION.md           # Full technical documentation
 ```
 
@@ -535,22 +532,16 @@ GET  /api/communications/public/{token}              # the CLIENT's view — the
 
 ---
 
-## Building for Windows
+## Deployment
 
-Requires Node.js, PyInstaller and Inno Setup 6 (Windows only). The `build.ps1`
-script runs the full pipeline — frontend build, executable bundling and
-installer compilation:
+The system runs as a hosted, multi-tenant application on Railway: one Docker
+image, PostgreSQL with a schema per customer, and a deploy on every push to
+`main`. `docs/SAAS_ARCHITECTURE.md` covers the tenancy model.
 
-```powershell
-.\build.ps1
-```
-
-The compiled installer is written to `installer/Output/`. To build only the
-standalone executable, run `python -m PyInstaller ERP.spec`.
-
-The installer bundles the current `erp.db` as the default database so a fresh
-install ships seeded with whatever state was on the build machine. Customer
-data lives under `%APPDATA%\ERP System\` on first launch.
+There is no desktop build. It was retired once every customer was hosted —
+shipping a Windows installer meant maintaining a second database backend, a
+second packaging pipeline and a second upgrade story for nobody. `launcher.py`
+remains the local development entry point and still runs against SQLite.
 
 ---
 

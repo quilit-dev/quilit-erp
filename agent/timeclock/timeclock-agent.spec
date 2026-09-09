@@ -2,9 +2,9 @@
 #
 # The site agent as a single .exe, so an office PC does not need Python.
 #
-# Deliberately NOT part of the ERP's own build. ERP.spec packages the whole
-# application for a desktop install; this packages one small program that runs
-# in a customer's office and talks to a fingerprint terminal. They share no
+# Deliberately NOT part of the ERP's own build. The ERP is a hosted web
+# application with no installer of its own; this packages one small program
+# that runs in a customer's office and talks to a fingerprint terminal. They share no
 # code, ship on different schedules, and the agent must never drag pyzk into
 # the ERP image.
 #

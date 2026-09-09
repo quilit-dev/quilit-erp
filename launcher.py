@@ -68,7 +68,7 @@ LOG_FILE = os.path.join(DATA_DIR, 'startup_log.txt')
 os.makedirs(DATA_DIR, exist_ok=True)
 
 # Ship the current/populated database with the installer as a read-only
-# template (`default.db`, bundled next to the backend via ERP.spec).
+# template (`default.db`, if one is present next to the backend).
 SEED_DB = os.path.join(BUNDLE_DIR, 'default.db')
 
 os.environ['DB_PATH'] = DB_PATH
