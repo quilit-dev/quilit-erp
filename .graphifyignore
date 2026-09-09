@@ -1,0 +1,16 @@
+# Files graphify should not index.
+#
+# Minified vendor bundles. mermaid.min.js alone minted 3,116 nodes — a quarter
+# of the whole graph — with labels like `$2e()`, `_6e()`, `a2()`. It swamped
+# the god-node list and nine of the ten largest communities with someone
+# else's compressed identifiers, which say nothing about this codebase.
+#
+# Deliberately narrow: `docs/manual` itself STAYS indexed. It is the MkDocs
+# source for the user manual — 51 hand-written pages describing how the ERP
+# actually works — and excluding the directory to be rid of one bundle would
+# throw all of that away.
+*.min.js
+*.min.css
+
+# Source maps: machine-generated, and they carry a copy of the bundle.
+*.map
