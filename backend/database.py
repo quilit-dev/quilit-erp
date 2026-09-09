@@ -4477,6 +4477,33 @@ def _run_migrations(conn, c):
             "ALTER TABLE hr_attendance ADD COLUMN needs_review INTEGER NOT NULL "
             "DEFAULT 0")
 
+    # ── 182: the columns the dashboard filters by, on every load ─────
+    # Six unbounded tables, every one of them filtered by a date range and
+    # none of them indexed on the column the range is over. Nothing is slow
+    # at three tenants; these exist so that stays true as the tables grow,
+    # and they are what makes the sargable rewrite of dashboard.py worth
+    # doing --- a half-open range over an unindexed column is still a scan.
+    #
+    # The columns are TEXT holding ISO-8601, which sorts lexicographically,
+    # so a plain btree serves `>= ? AND < ?` correctly on both backends.
+    #
+    # Additive and instantly revertible: an index changes no answer, only
+    # the plan, and DROP INDEX takes no lock worth worrying about.
+    if need("182_dashboard_range_indexes"):
+        c.execute("CREATE INDEX IF NOT EXISTS idx_pos_sales_created "
+                  "ON pos_sales(created_at)")
+        c.execute("CREATE INDEX IF NOT EXISTS idx_invoices_created "
+                  "ON invoices(created_at)")
+        c.execute("CREATE INDEX IF NOT EXISTS idx_invoices_due_date "
+                  "ON invoices(due_date)")
+        c.execute("CREATE INDEX IF NOT EXISTS idx_expenses_date "
+                  "ON expenses(date)")
+        c.execute("CREATE INDEX IF NOT EXISTS idx_invoice_payments_paid_at "
+                  "ON invoice_payments(paid_at)")
+        c.execute("CREATE INDEX IF NOT EXISTS idx_stock_movements_created "
+                  "ON stock_movements(created_at)")
+        done("182_dashboard_range_indexes")
+
     # Last, after every migration that might have added an account: if this
     # tenant is on a statutory chart, anything not on it is retired. Migrations
     # insert accounts ACTIVE, which on such a tenant means a default-chart code
@@ -5417,6 +5444,12 @@ def _ensure_pg_post_baseline(raw):
                     "WHERE source_type IS NULL AND project_id IS NOT NULL")
         cur.execute("UPDATE invoices SET source_type='sales' WHERE source_type IS NULL")
         cur.execute("CREATE INDEX IF NOT EXISTS idx_invoices_source ON invoices(source_type)")
+        cur.execute("CREATE INDEX IF NOT EXISTS idx_pos_sales_created ON pos_sales(created_at)")
+        cur.execute("CREATE INDEX IF NOT EXISTS idx_invoices_created ON invoices(created_at)")
+        cur.execute("CREATE INDEX IF NOT EXISTS idx_invoices_due_date ON invoices(due_date)")
+        cur.execute("CREATE INDEX IF NOT EXISTS idx_expenses_date ON expenses(date)")
+        cur.execute("CREATE INDEX IF NOT EXISTS idx_invoice_payments_paid_at ON invoice_payments(paid_at)")
+        cur.execute("CREATE INDEX IF NOT EXISTS idx_stock_movements_created ON stock_movements(created_at)")
         for _sql in (
             "ALTER TABLE clients ADD COLUMN IF NOT EXISTS financial_id TEXT",
             "ALTER TABLE clients ADD COLUMN IF NOT EXISTS preferred_currency TEXT",
