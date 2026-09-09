@@ -32,6 +32,7 @@ All functions take an existing connection and DO NOT commit — the calling
 endpoint owns the transaction.
 """
 import sqlite3
+from typing import Optional, Tuple
 
 VALID_METHODS = {"weighted_avg", "fifo", "lifo"}
 _EPS = 1e-9
@@ -47,7 +48,8 @@ def get_method(db: sqlite3.Connection) -> str:
 
 
 def add_layer(db: sqlite3.Connection, method: str, inventory_id: int, qty: float,
-              unit_cost: float, source_type: str, source_ref, now: str) -> None:
+              unit_cost: float, source_type: str,
+              source_ref: Optional[str], now: str) -> None:
     """Append a cost layer for a stock-IN. No-op under weighted_avg (which does
     not use layers) and for non-positive quantities."""
     if method not in ("fifo", "lifo"):
@@ -63,7 +65,8 @@ def add_layer(db: sqlite3.Connection, method: str, inventory_id: int, qty: float
     )
 
 
-def _remaining(db: sqlite3.Connection, inventory_id: int):
+def _remaining(db: sqlite3.Connection,
+               inventory_id: int) -> Tuple[float, float]:
     row = db.execute(
         "SELECT COALESCE(SUM(qty_remaining),0) AS q, "
         "       COALESCE(SUM(qty_remaining * unit_cost),0) AS v "
@@ -141,7 +144,8 @@ def consume(db: sqlite3.Connection, method: str, inventory_id: int, qty: float,
 
 
 def blend_stock_in(db: sqlite3.Connection, inventory_id: int, *,
-                   qty_before: float, qty_in: float, unit_cost_in: float):
+                   qty_before: float, qty_in: float,
+                   unit_cost_in: float) -> Optional[float]:
     """Re-blend `inventory.unit_cost` for stock arriving at a different cost.
 
     Goods coming back onto the shelf — a voided sale, a reopened service job —
@@ -182,7 +186,8 @@ def blend_stock_in(db: sqlite3.Connection, inventory_id: int, *,
 
 
 def reverse_stock_in(db: sqlite3.Connection, inventory_id: int, *,
-                     qty_before: float, qty_out: float, unit_cost_out: float):
+                     qty_before: float, qty_out: float,
+                     unit_cost_out: float) -> Optional[float]:
     """Un-blend `inventory.unit_cost` for stock being taken back out.
 
     The exact inverse of `blend_stock_in`: a voided receipt removes the value it
@@ -220,7 +225,7 @@ def reverse_stock_in(db: sqlite3.Connection, inventory_id: int, *,
 
 
 def layer_remaining(db: sqlite3.Connection, inventory_id: int,
-                    source_type: str, source_ref) -> float:
+                    source_type: str, source_ref: Optional[str]) -> float:
     """How much of ONE receipt's own cost layer is still on the shelf.
 
     Under FIFO/LIFO a receipt is a layer of its own, so "are these particular
@@ -235,7 +240,7 @@ def layer_remaining(db: sqlite3.Connection, inventory_id: int,
 
 
 def draw_layer(db: sqlite3.Connection, inventory_id: int, qty: float,
-               source_type: str, source_ref) -> float:
+               source_type: str, source_ref: Optional[str]) -> float:
     """Remove `qty` from a NAMED receipt's own layer. Returns what it could not.
 
     Not `consume`, which draws in the method's own order. Reversing a receipt
@@ -260,7 +265,7 @@ def draw_layer(db: sqlite3.Connection, inventory_id: int, qty: float,
 
 
 def revalue_layer(db: sqlite3.Connection, inventory_id: int, source_type: str,
-                  source_ref, new_unit_cost: float) -> None:
+                  source_ref: Optional[str], new_unit_cost: float) -> None:
     """Restate what ONE receipt's cost layer says its goods cost.
 
     Correcting a unit cost that was keyed wrong does not move any goods — the

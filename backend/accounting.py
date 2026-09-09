@@ -29,6 +29,8 @@ Design notes
   owns the transaction.
 """
 import sqlite3
+from typing import Any, Dict, List, Optional, Tuple, cast
+
 from utils import _now, _today, money
 
 
@@ -127,7 +129,7 @@ LOSS_DISPOSAL = "6930"  # ...or for less
 _CASH_ROLE_BY_CURRENCY = {"LBP": "cash_lbp", "EUR": "cash_eur"}
 
 
-def cash_account_for(db, currency: str) -> str:
+def cash_account_for(db: sqlite3.Connection, currency: Optional[str]) -> str:
     """Return the Chart-of-Accounts code that should hold cash tendered in
     `currency`. Centralised so every module routes LBP to 1010 and USD to 1000
     consistently — otherwise mixing them silently in '1000 Cash & Bank' breaks
@@ -192,7 +194,7 @@ _ROLE_DEFAULTS = {
 }
 
 
-def code(db, role: str) -> str:
+def code(db: sqlite3.Connection, role: str) -> str:
     """The account code playing `role` in this tenant's chart.
 
     Deliberately uncached. Under schema-per-tenant a module-level cache would
@@ -203,7 +205,7 @@ def code(db, role: str) -> str:
         row = db.execute(
             "SELECT code FROM account_roles WHERE role = ?", (role,)).fetchone()
         if row and row["code"]:
-            return row["code"]
+            return cast(str, row["code"])
     except Exception:
         # No such table yet on an install mid-upgrade. The default is right.
         pass
@@ -217,10 +219,11 @@ def account_id_for(db: sqlite3.Connection, code: str) -> int:
     row = db.execute("SELECT id FROM chart_of_accounts WHERE code=?", (code,)).fetchone()
     if not row:
         raise ValueError(f"Chart-of-accounts code {code!r} not found")
-    return row["id"]
+    return cast(int, row["id"])
 
 
-def expense_account_code(category: str, db: sqlite3.Connection = None) -> str:
+def expense_account_code(category: Optional[str],
+                         db: Optional[sqlite3.Connection] = None) -> str:
     """Resolve an expense category to its ledger account.
 
     Precedence: the owner's per-category mapping (categories.account_code, set in
@@ -237,7 +240,7 @@ def expense_account_code(category: str, db: sqlite3.Connection = None) -> str:
                 (category,),
             ).fetchone()
             if row and row["account_code"]:
-                return row["account_code"]
+                return cast(str, row["account_code"])
         except Exception:
             pass
 
@@ -249,10 +252,10 @@ def expense_account_code(category: str, db: sqlite3.Connection = None) -> str:
         try:
             import chart_lebanon
             if code(db, "revenue") == chart_lebanon.ROLES["revenue"]:
-                chosen = chart_lebanon.CATEGORY_ACCOUNTS.get(category)
+                chosen = chart_lebanon.CATEGORY_ACCOUNTS.get(category or "")
         except Exception:
             chosen = None
-    chosen = chosen or CATEGORY_ACCOUNTS.get(category, OTHER_EXPENSE)
+    chosen = chosen or CATEGORY_ACCOUNTS.get(category or "", OTHER_EXPENSE)
 
     # Whatever was chosen, it has to be an account this chart actually has.
     # Otherwise an expense lands on a retired account from a chart the business
@@ -271,7 +274,8 @@ def expense_account_code(category: str, db: sqlite3.Connection = None) -> str:
 
 
 # ── Posting ──────────────────────────────────────────────────────────────────
-def source_entry(db: sqlite3.Connection, source_type: str, source_id: int):
+def source_entry(db: sqlite3.Connection, source_type: str,
+                 source_id: Optional[int]) -> Optional[Any]:
     """Return the live (non-reversed) journal entry for a source event, if any."""
     return db.execute(
         "SELECT * FROM journal_entries "
@@ -280,14 +284,17 @@ def source_entry(db: sqlite3.Connection, source_type: str, source_id: int):
     ).fetchone()
 
 
-def _default_branch_id(db: sqlite3.Connection):
+def _default_branch_id(db: sqlite3.Connection) -> Optional[int]:
     row = db.execute("SELECT id FROM warehouses WHERE is_default=1 LIMIT 1").fetchone()
     return row["id"] if row else None
 
 
-def post_entry(db: sqlite3.Connection, *, entry_date: str, memo: str, lines: list,
-               source_type=None, source_id=None, created_by=None, status="posted",
-               branch_id=None):
+def post_entry(db: sqlite3.Connection, *, entry_date: str, memo: str,
+               lines: List[Dict[str, Any]],
+               source_type: Optional[str] = None,
+               source_id: Optional[int] = None,
+               created_by: Optional[str] = None, status: str = "posted",
+               branch_id: Optional[int] = None) -> Optional[int]:
     """Create one balanced journal entry. `lines` is a list of dicts, each with
     an account (`code` or `account_id`), and a `debit` or `credit` amount, plus
     an optional `memo`.
@@ -304,7 +311,7 @@ def post_entry(db: sqlite3.Connection, *, entry_date: str, memo: str, lines: lis
     if source_id is not None and source_type not in (None, "manual"):
         existing = source_entry(db, source_type, source_id)
         if existing:
-            return existing["id"]
+            return cast(int, existing["id"])
 
     norm = []
     total_debit = total_credit = 0.0
@@ -357,7 +364,8 @@ def post_entry(db: sqlite3.Connection, *, entry_date: str, memo: str, lines: lis
     return je_id
 
 
-def revenue_split(db, invoice_id, amount):
+def revenue_split(db: sqlite3.Connection, invoice_id: Optional[int],
+                  amount: float) -> List[Dict[str, Any]]:
     """The CREDIT side of a payment: revenue at net, plus the VAT collected.
 
     Revenue in this system is recognised on PAYMENT, not on invoicing, and a
@@ -419,12 +427,16 @@ def revenue_split(db, invoice_id, amount):
         # balances and the money is still recognised.
         rows = []
 
-    buckets = [(r["acct"] or code(db, "revenue"), float(r["net_gross"] or 0)) for r in rows]
+    buckets: List[Tuple[str, float]] = [
+        (r["acct"] or code(db, "revenue"), float(r["net_gross"] or 0))
+        for r in rows]
     buckets = [(a, g) for a, g in buckets if g > 0]
     total_net = sum(g for _, g in buckets)
 
     if len(buckets) <= 1 or total_net <= 0:
-        lines = [{"code": buckets[0][0] if buckets else code(db, "revenue"), "credit": net}]
+        lines: List[Dict[str, Any]] = [
+            {"code": buckets[0][0] if buckets else code(db, "revenue"),
+             "credit": net}]
     else:
         lines = [{"code": a, "credit": money(net * g / total_net)} for a, g in buckets]
         residue = money(net - sum(l["credit"] for l in lines))
@@ -439,8 +451,10 @@ def revenue_split(db, invoice_id, amount):
     return lines
 
 
-def post_receivable(db, invoice_id, *, invoice_number, amount, entry_date,
-                    created_by=None, branch_id=None):
+def post_receivable(db: sqlite3.Connection, invoice_id: int, *,
+                    invoice_number: str, amount: float, entry_date: str,
+                    created_by: Optional[str] = None,
+                    branch_id: Optional[int] = None) -> Optional[int]:
     """Book the claim created by raising an invoice.
 
         DR 1100 Accounts Receivable
@@ -470,7 +484,7 @@ def post_receivable(db, invoice_id, *, invoice_number, amount, entry_date,
     )
 
 
-def has_receivable(db, invoice_id) -> bool:
+def has_receivable(db: sqlite3.Connection, invoice_id: Optional[int]) -> bool:
     """True when this invoice carries a LIVE receivable entry.
 
     This is what decides which shape a payment posts, and it is deliberately
@@ -483,8 +497,10 @@ def has_receivable(db, invoice_id) -> bool:
     return source_entry(db, "invoice", invoice_id) is not None
 
 
-def payment_lines(db, invoice_id, *, cash_code, amount, method_memo=None,
-                  obligation=None):
+def payment_lines(db: sqlite3.Connection, invoice_id: Optional[int], *,
+                  cash_code: str, amount: float,
+                  method_memo: Optional[str] = None,
+                  obligation: Optional[float] = None) -> List[Dict[str, Any]]:
     """The journal lines for one payment against an invoice.
 
     On an invoice carrying a receivable, a payment does two things at once:
@@ -510,14 +526,14 @@ def payment_lines(db, invoice_id, *, cash_code, amount, method_memo=None,
     """
     amount = money(amount)
     obligation = money(amount if obligation is None else obligation)
-    cash = {"code": cash_code, "debit": amount, "memo": method_memo}
+    cash: Dict[str, Any] = {"code": cash_code, "debit": amount, "memo": method_memo}
 
     if not has_receivable(db, invoice_id):
         return [cash, *revenue_split(db, invoice_id, amount)]
 
     # Revenue is earned to the value the claim was carried at, because that is
     # what was put into deferred when the invoice was raised.
-    lines = [
+    lines: List[Dict[str, Any]] = [
         cash,
         {"code": code(db, "receivable"), "credit": obligation,
          "memo": "Receivable settled"},
@@ -536,8 +552,10 @@ def payment_lines(db, invoice_id, *, cash_code, amount, method_memo=None,
     return lines
 
 
-def reverse_entry(db: sqlite3.Connection, je_id: int, *, entry_date=None,
-                  memo=None, created_by=None):
+def reverse_entry(db: sqlite3.Connection, je_id: int, *,
+                  entry_date: Optional[str] = None,
+                  memo: Optional[str] = None,
+                  created_by: Optional[str] = None) -> Optional[int]:
     """Post a mirror entry that cancels `je_id` (debits↔credits) and links the
     two together. No-op (returns None) if already reversed or not posted."""
     je = db.execute("SELECT * FROM journal_entries WHERE id=?", (je_id,)).fetchone()
@@ -567,7 +585,8 @@ def reverse_entry(db: sqlite3.Connection, je_id: int, *, entry_date=None,
     return rev_id
 
 
-def reverse_source(db: sqlite3.Connection, source_type: str, source_id: int, **kw):
+def reverse_source(db: sqlite3.Connection, source_type: str, source_id: int,
+                   **kw: Any) -> Optional[int]:
     """Reverse the live entry for a business event (e.g. a voided expense or a
     deleted payment). Returns the reversal id, or None when nothing was posted."""
     je = source_entry(db, source_type, source_id)
@@ -575,7 +594,7 @@ def reverse_source(db: sqlite3.Connection, source_type: str, source_id: int, **k
 
 
 # ── Reports ────────────────────────────────────────────────────────────────
-def _col(row, key):
+def _col(row: Any, key: str) -> Any:
     """Read a column that may be absent from this row — an older SELECT, or a
     tenant whose migration has not run. Absent reads as None."""
     try:
@@ -591,14 +610,15 @@ def _signed_balance(acct_type: str, debit: float, credit: float) -> float:
     return round(credit - debit, 2)
 
 
-def trial_balance(db: sqlite3.Connection, as_of: str = None, branch_id=None):
+def trial_balance(db: sqlite3.Connection, as_of: Optional[str] = None,
+                  branch_id: Optional[int] = None) -> Dict[str, Any]:
     """Debit/credit totals per account up to `as_of` (inclusive). Only posted
     entries count. Returns rows + grand totals (which always tie out).
 
     `branch_id` scopes the TB to one branch — it still balances because every
     journal entry is balanced AND tagged to a single branch."""
     cond = ["je.status != 'draft'"]
-    params = []
+    params: List[Any] = []
     if as_of:
         cond.append("je.entry_date <= ?"); params.append(as_of[:10])
     if branch_id is not None:
@@ -647,8 +667,10 @@ def trial_balance(db: sqlite3.Connection, as_of: str = None, branch_id=None):
             "balanced": abs(td - tc) < 0.01, "as_of": as_of}
 
 
-def _type_totals(db: sqlite3.Connection, start: str = None, end: str = None,
-                 exclude_closing: bool = False, branch_id=None):
+def _type_totals(db: sqlite3.Connection, start: Optional[str] = None,
+                 end: Optional[str] = None,
+                 exclude_closing: bool = False,
+                 branch_id: Optional[int] = None) -> List[Dict[str, Any]]:
     """Per-account signed balances grouped for the financial statements.
 
     `exclude_closing` drops year-end closing entries — used by the Income
@@ -657,7 +679,7 @@ def _type_totals(db: sqlite3.Connection, start: str = None, end: str = None,
     # Include posted AND reversed entries (a reversed entry + its reversal net to
     # zero, so both must count); only drafts are dropped.
     cond = ["je.status != 'draft'"]
-    params = []
+    params: List[Any] = []
     if exclude_closing:
         # Drop the year-end closing entry AND any entry that reverses one, so a
         # closed (or reopened) year's P&L still shows its real operating result.
@@ -697,7 +719,8 @@ def _type_totals(db: sqlite3.Connection, start: str = None, end: str = None,
     return result
 
 
-def income_statement(db: sqlite3.Connection, start: str, end: str, branch_id=None):
+def income_statement(db: sqlite3.Connection, start: str, end: str,
+                     branch_id: Optional[int] = None) -> Dict[str, Any]:
     """Revenue − expenses over a period (P&L). Excludes year-end closing
     entries so the operating result is shown even after the year is closed."""
     rows = _type_totals(db, start, end, exclude_closing=True, branch_id=branch_id)
@@ -714,7 +737,8 @@ def income_statement(db: sqlite3.Connection, start: str, end: str, branch_id=Non
     }
 
 
-def balance_sheet(db: sqlite3.Connection, as_of: str, branch_id=None):
+def balance_sheet(db: sqlite3.Connection, as_of: str,
+                  branch_id: Optional[int] = None) -> Dict[str, Any]:
     """Assets = Liabilities + Equity (incl. net income to date). Balances by
     construction because every journal entry balances — and stays balanced when
     scoped to one branch, since each entry is tagged to a single branch."""
@@ -751,7 +775,7 @@ def balance_sheet(db: sqlite3.Connection, as_of: str, branch_id=None):
 # == closing − opening, because every journal entry balances, so the non-cash
 # side of any cash-touching entry exactly equals −Δcash for that entry.
 
-def _cash_account_ids(db: sqlite3.Connection) -> list:
+def _cash_account_ids(db: sqlite3.Connection) -> List[int]:
     """Which accounts ARE cash, for the cash-flow statement.
 
     Asked of the roles rather than of a code range. The range this used —
@@ -811,8 +835,8 @@ def _cf_activity(acct_type: str, subtype: str) -> str:
     return "operating"   # Income / Expense
 
 
-def _cash_balance(db: sqlite3.Connection, cash_ids: list, as_of: str, op: str,
-                  branch_id=None) -> float:
+def _cash_balance(db: sqlite3.Connection, cash_ids: List[int], as_of: str,
+                  op: str, branch_id: Optional[int] = None) -> float:
     if not cash_ids:
         return 0.0
     ph = ",".join("?" for _ in cash_ids)
@@ -827,7 +851,8 @@ def _cash_balance(db: sqlite3.Connection, cash_ids: list, as_of: str, op: str,
     return round(float(r["d"]) - float(r["c"]), 2)
 
 
-def cash_flow_statement(db: sqlite3.Connection, start: str, end: str, branch_id=None):
+def cash_flow_statement(db: sqlite3.Connection, start: str, end: str,
+                        branch_id: Optional[int] = None) -> Dict[str, Any]:
     """Statement of cash flows over [start, end] (inclusive), derived directly
     from the GL. Cash movements are bucketed by the type of the account on the
     OTHER side of each cash-touching entry. Ties out by construction."""
@@ -837,7 +862,8 @@ def cash_flow_statement(db: sqlite3.Connection, start: str, end: str, branch_id=
 
     bc = " AND je.branch_id = ?" if branch_id is not None else ""
     bp = [branch_id] if branch_id is not None else []
-    buckets = {"operating": [], "investing": [], "financing": []}
+    buckets: Dict[str, List[Dict[str, Any]]] = {"operating": [], "investing": [],
+                                          "financing": []}
     if cash_ids:
         ph = ",".join("?" for _ in cash_ids)
         rows = db.execute(
@@ -868,7 +894,7 @@ def cash_flow_statement(db: sqlite3.Connection, start: str, end: str, branch_id=
                 {"code": r["code"], "name": r["name"],
                  "name_ar": _col(r, "name_ar"), "amount": amount})
 
-    def _section(name):
+    def _section(name: str) -> Tuple[List[Dict[str, Any]], float]:
         items = buckets[name]
         return items, round(sum(i["amount"] for i in items), 2)
 
@@ -891,8 +917,9 @@ def cash_flow_statement(db: sqlite3.Connection, start: str, end: str, branch_id=
     }
 
 
-def general_ledger(db: sqlite3.Connection, account_id: int, start: str = None,
-                   end: str = None, branch_id=None):
+def general_ledger(db: sqlite3.Connection, account_id: int,
+                   start: Optional[str] = None, end: Optional[str] = None,
+                   branch_id: Optional[int] = None) -> Optional[Dict[str, Any]]:
     """Transactions for one account with a running balance, plus the opening
     balance carried in from before `start`. `branch_id` scopes to one branch."""
     acct = db.execute("SELECT * FROM chart_of_accounts WHERE id=?", (account_id,)).fetchone()
@@ -912,7 +939,8 @@ def general_ledger(db: sqlite3.Connection, account_id: int, start: str = None,
         opening = round((float(o["d"]) - float(o["c"])) * sign, 2)
 
     where = "l.account_id=? AND je.status != 'draft'" + bc
-    params = [account_id] + ([branch_id] if branch_id is not None else [])
+    params: List[Any] = [account_id] + (
+        [branch_id] if branch_id is not None else [])
     if start:
         where += " AND je.entry_date >= ?"; params.append(start[:10])
     if end:
@@ -950,7 +978,7 @@ def general_ledger(db: sqlite3.Connection, account_id: int, start: str = None,
 # ── Financial-year closing ───────────────────────────────────────────────────
 
 
-def is_year_closed(db: sqlite3.Connection, year) -> bool:
+def is_year_closed(db: sqlite3.Connection, year: Any) -> bool:
     try:
         return bool(db.execute(
             "SELECT 1 FROM fiscal_years WHERE year=? AND status='closed'",
@@ -959,7 +987,8 @@ def is_year_closed(db: sqlite3.Connection, year) -> bool:
         return False
 
 
-def closed_year_for_date(db: sqlite3.Connection, date_str):
+def closed_year_for_date(db: sqlite3.Connection,
+                         date_str: Optional[str]) -> Optional[int]:
     """Return the year if `date_str` falls in a closed financial year, else None."""
     try:
         year = int(str(date_str)[:4])
@@ -968,7 +997,8 @@ def closed_year_for_date(db: sqlite3.Connection, date_str):
     return year if is_year_closed(db, year) else None
 
 
-def close_fiscal_year(db: sqlite3.Connection, year, created_by=None):
+def close_fiscal_year(db: sqlite3.Connection, year: Any,
+                      created_by: Optional[str] = None) -> Dict[str, Any]:
     """Close a financial year: post a year-end closing entry that moves the
     year's net result into Retained Earnings, then mark the year closed (which
     locks all dated-in-year modifications). Returns the P&L summary."""
@@ -1012,7 +1042,8 @@ def close_fiscal_year(db: sqlite3.Connection, year, created_by=None):
             "net_income": net_income, "closing_entry_id": closing_id}
 
 
-def reopen_fiscal_year(db: sqlite3.Connection, year, created_by=None):
+def reopen_fiscal_year(db: sqlite3.Connection, year: Any,
+                       created_by: Optional[str] = None) -> Dict[str, Any]:
     """Reopen a closed year — reverses its closing entry and unlocks the year."""
     year = int(year)
     row = db.execute("SELECT * FROM fiscal_years WHERE year=? AND status='closed'",
@@ -1028,7 +1059,9 @@ def reopen_fiscal_year(db: sqlite3.Connection, year, created_by=None):
     return {"year": year, "status": "open"}
 
 
-def bank_account_code(db, bank_account_id=None, currency=None) -> str:
+def bank_account_code(db: sqlite3.Connection,
+                      bank_account_id: Optional[int] = None,
+                      currency: Optional[str] = None) -> str:
     """The ledger account a bank movement belongs in.
 
     A named bank account carries its own code, so its balance can be reconciled
@@ -1044,7 +1077,7 @@ def bank_account_code(db, bank_account_id=None, currency=None) -> str:
         except Exception:
             row = None
         if row and row["account_code"]:
-            return row["account_code"]
+            return cast(str, row["account_code"])
     return code(db, "bank")
 
 
@@ -1068,14 +1101,14 @@ PAYMENT_METHODS = ("Cash", "Bank Transfer", "Bank", "Cheque", "Card", "Other")
 SETTLED_EXACTLY = ("Bank Transfer", "Bank", "Cheque", "Card")
 
 
-def is_payment_method(value) -> bool:
+def is_payment_method(value: Any) -> bool:
     """Is this a way money can arrive? Blank means the default, Cash."""
     if value is None or not str(value).strip():
         return True
     return str(value).strip().lower() in {m.lower() for m in PAYMENT_METHODS}
 
 
-def settles_exactly(value) -> bool:
+def settles_exactly(value: Any) -> bool:
     """Does this method deliver the exact amount without anything counted out?
 
     Note which way round this is. It answers yes only for the methods that
@@ -1085,7 +1118,10 @@ def settles_exactly(value) -> bool:
     return str(value or "").strip().lower() in {m.lower() for m in SETTLED_EXACTLY}
 
 
-def money_account_for(db, *, method=None, currency=None, bank_account_id=None) -> str:
+def money_account_for(db: sqlite3.Connection, *,
+                      method: Optional[str] = None,
+                      currency: Optional[str] = None,
+                      bank_account_id: Optional[int] = None) -> str:
     """Where money tendered by `method` in `currency` lands.
 
     One question asked in one place. Cash follows the currency — each has its

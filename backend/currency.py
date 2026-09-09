@@ -19,6 +19,7 @@ with no date, still gets the latest — which is exactly what the system did
 before, so nothing changes for a business that never touches the dates.
 """
 import sqlite3
+from typing import Optional, Tuple
 
 from fastapi import HTTPException
 
@@ -26,14 +27,15 @@ from utils import money
 
 # USD is functional. The others are what a Lebanese business actually handles.
 FUNCTIONAL = "USD"
-SUPPORTED = ("USD", "LBP", "EUR")
+SUPPORTED: Tuple[str, ...] = ("USD", "LBP", "EUR")
 
 
-def is_supported(currency) -> bool:
+def is_supported(currency: Optional[str]) -> bool:
     return (currency or "").upper() in SUPPORTED
 
 
-def rate_on(db: sqlite3.Connection, currency: str, on_date=None):
+def rate_on(db: sqlite3.Connection, currency: Optional[str],
+            on_date: Optional[str] = None) -> Optional[float]:
     """The rate for `currency` in force on `on_date`, or None if there is none.
 
     Picks the most recent rate whose effective date is on or before the
@@ -69,7 +71,7 @@ def rate_on(db: sqlite3.Connection, currency: str, on_date=None):
     return float(row["rate"])
 
 
-def latest_rate(db: sqlite3.Connection):
+def latest_rate(db: sqlite3.Connection) -> Optional[float]:
     """Most recently recorded LBP-per-USD rate, or None if none is configured.
 
     Kept because several modules ask for "the rate" without a transaction in
@@ -79,8 +81,9 @@ def latest_rate(db: sqlite3.Connection):
     return rate_on(db, "LBP")
 
 
-def resolve_rate(db: sqlite3.Connection, supplied=None, currency="LBP",
-                 on_date=None) -> float:
+def resolve_rate(db: sqlite3.Connection, supplied: Optional[float] = None,
+                 currency: Optional[str] = "LBP",
+                 on_date: Optional[str] = None) -> float:
     """A usable rate: the caller's override when positive, else the stored one.
 
     The override wins because the operator was there. A cashier handed LBP at a
@@ -100,7 +103,9 @@ def resolve_rate(db: sqlite3.Connection, supplied=None, currency="LBP",
     return rate
 
 
-def to_usd(amount, currency, db: sqlite3.Connection, rate=None, on_date=None) -> float:
+def to_usd(amount: float, currency: Optional[str],
+           db: sqlite3.Connection, rate: Optional[float] = None,
+           on_date: Optional[str] = None) -> float:
     """Convert `amount` in `currency` to USD, rounded to cents.
 
     USD passes through. Anything else divides by the rate in force on
@@ -118,7 +123,9 @@ def to_usd(amount, currency, db: sqlite3.Connection, rate=None, on_date=None) ->
     return money(float(amount) / resolve_rate(db, rate, cur, on_date))
 
 
-def from_usd(amount_usd, currency, db: sqlite3.Connection, rate=None, on_date=None) -> float:
+def from_usd(amount_usd: float, currency: Optional[str],
+             db: sqlite3.Connection, rate: Optional[float] = None,
+             on_date: Optional[str] = None) -> float:
     """The other direction: what `amount_usd` is worth in `currency`.
 
     Needed to show a customer their own currency on a document, and to price a

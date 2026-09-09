@@ -30,7 +30,9 @@ The cost is that a payment cannot be earmarked ("this one is for March").
 Oldest-first is the normal rule for instalment plans, and adding earmarking
 later is additive — the reverse would not be.
 """
+import sqlite3
 from datetime import date, timedelta
+from typing import Any, Dict, List, Optional, Sequence, Tuple, Union
 
 from utils import money
 
@@ -61,7 +63,10 @@ def add_months(d: date, n: int) -> date:
     return date(y, m, min(d.day, last))
 
 
-def build_schedule(total, count, start, frequency="monthly", first_amount=None):
+def build_schedule(total: float, count: int, start: Union[str, date],
+                   frequency: str = "monthly",
+                   first_amount: Optional[float] = None
+                   ) -> List[Tuple[int, str, float]]:
     """The rows for a plan: [(seq, due_date, amount), ...].
 
     Every instalment is equal except the LAST, which absorbs the rounding
@@ -124,7 +129,8 @@ def build_schedule(total, count, start, frequency="monthly", first_amount=None):
     return [(seq, due.isoformat(), amt) for seq, due, amt in rows]
 
 
-def allocate(rows, total_paid, today=None):
+def allocate(rows: Sequence[Any], total_paid: Optional[float],
+             today: Optional[str] = None) -> List[Dict[str, Any]]:
     """Annotate each instalment with what cumulative payments have settled.
 
     `rows` are the stored instalments (seq, due_date, amount, ...) in order.
@@ -164,7 +170,9 @@ def allocate(rows, total_paid, today=None):
     return out
 
 
-def plan_for(db, invoice_id, total_paid, today=None):
+def plan_for(db: sqlite3.Connection, invoice_id: int,
+             total_paid: Optional[float],
+             today: Optional[str] = None) -> List[Dict[str, Any]]:
     """The allocated plan for one invoice, or [] when it has none."""
     rows = db.execute(
         "SELECT id, seq, due_date, amount, note FROM invoice_installments "
@@ -174,7 +182,7 @@ def plan_for(db, invoice_id, total_paid, today=None):
     return allocate(rows, total_paid, today=today)
 
 
-def next_due(plan):
+def next_due(plan: Sequence[Dict[str, Any]]) -> Optional[Dict[str, Any]]:
     """The instalment a chaser cares about: the oldest one still owing."""
     for row in plan:
         if row["status"] != PAID:
@@ -202,7 +210,7 @@ def next_due(plan):
 # else. That is precisely why it can be allowed on a plan with payments against
 # it when a rebuild cannot.
 
-def frozen_count(rows, total_paid) -> int:
+def frozen_count(rows: Sequence[Any], total_paid: Optional[float]) -> int:
     """How many leading instalments payments have already reached.
 
     Allocation is oldest-first, so money always settles a PREFIX of the
@@ -221,7 +229,9 @@ def frozen_count(rows, total_paid) -> int:
     return n
 
 
-def validate_edit(existing, proposed, total_paid, invoice_total):
+def validate_edit(existing: Sequence[Any], proposed: Sequence[Dict[str, Any]],
+                  total_paid: Optional[float], invoice_total: float
+                  ) -> List[Tuple[int, str, float, Optional[str]]]:
     """Check a proposed schedule against the one running, and normalise it.
 
     `existing` are the stored rows in seq order; `proposed` is a list of
@@ -295,7 +305,7 @@ def validate_edit(existing, proposed, total_paid, invoice_total):
 # plan: cumulative paid against the plan versus cumulative scheduled. Nothing
 # marks an instalment paid, so nothing can disagree with the payments.
 
-def active_plan(db, client_id):
+def active_plan(db: sqlite3.Connection, client_id: int) -> Optional[Any]:
     """The customer's live plan, or None."""
     return db.execute(
         "SELECT * FROM client_payment_plans "
@@ -303,7 +313,7 @@ def active_plan(db, client_id):
         (client_id,)).fetchone()
 
 
-def paid_against(db, plan_id) -> float:
+def paid_against(db: sqlite3.Connection, plan_id: int) -> float:
     """What has been paid against this plan, in the company's currency."""
     row = db.execute(
         "SELECT COALESCE(SUM(amount), 0) AS n FROM customer_payments "
@@ -311,9 +321,13 @@ def paid_against(db, plan_id) -> float:
     return money(row["n"] or 0)
 
 
-def create_plan(db, *, client_id, total, count, frequency="monthly",
-                start=None, first_amount=None, note=None, created_by=None,
-                now=None):
+def create_plan(db: sqlite3.Connection, *, client_id: int, total: float,
+                count: int, frequency: str = "monthly",
+                start: Optional[str] = None,
+                first_amount: Optional[float] = None,
+                note: Optional[str] = None,
+                created_by: Optional[str] = None,
+                now: Optional[str] = None) -> Optional[int]:
     """Agree a schedule against what the customer owes.
 
     `total` is the balance being scheduled — everything outstanding on the
@@ -347,7 +361,8 @@ def create_plan(db, *, client_id, total, count, frequency="monthly",
     return plan_id
 
 
-def plan_state(db, client_id, today=None):
+def plan_state(db: sqlite3.Connection, client_id: int,
+               today: Optional[str] = None) -> Optional[Dict[str, Any]]:
     """The customer's plan, with each instalment's state worked out.
 
     Returns None when there is no live plan.
@@ -383,7 +398,10 @@ def plan_state(db, client_id, today=None):
     }
 
 
-def close_plan(db, plan_id, *, status="cancelled", closed_by=None, now=None):
+def close_plan(db: sqlite3.Connection, plan_id: int, *,
+               status: str = "cancelled",
+               closed_by: Optional[str] = None,
+               now: Optional[str] = None) -> None:
     """End a plan. The payments made against it stay exactly where they are."""
     from utils import _now
     db.execute(

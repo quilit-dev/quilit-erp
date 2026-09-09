@@ -1,8 +1,8 @@
 name: Tests
 
-# Runs the backend test-suite against BOTH database backends so SQLite (desktop /
-# self-hosted default) and PostgreSQL (cloud) stay at dialect parity. A change that
-# passes on one engine but breaks the other fails CI here.
+# Runs the backend test-suite against BOTH database backends so SQLite (the local
+# development and test backend) and PostgreSQL (production) stay at dialect parity.
+# A change that passes on one engine but breaks the other fails CI here.
 #
 # The Postgres job uses the same TEMPLATE-database cloning the local suite uses
 # (conftest.py), so the superuser `postgres` role is required (CREATE DATABASE).
@@ -110,6 +110,33 @@ jobs:
           python -m pytest tests/test_multitenancy.py tests/test_platform.py \
                            tests/test_tenant_security.py tests/test_module_licensing.py \
                            -q -p no:cacheprovider
+
+  # Types on the money modules. Not the whole tree --- backend/mypy.ini says
+  # why four files and not 166k lines. Kept as its own job so a type failure is
+  # legible without reading a test log.
+  types:
+    name: types (mypy --strict, money modules)
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+
+      - name: Install dependencies
+        run: |
+          python -m pip install --upgrade pip
+          pip install -r backend/requirements.txt -r backend/requirements-cloud.txt -c backend/constraints.txt
+          pip install 'mypy~=2.3'
+
+      - name: Type-check
+        working-directory: backend
+        run: python -m mypy
 
   # The frontend gate. esbuild does no scope analysis, so a missing import
   # builds fine and white-screens at runtime; lint is the only thing that
