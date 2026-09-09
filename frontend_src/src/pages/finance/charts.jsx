@@ -574,12 +574,10 @@ function KpiCard({ label, value, change, color, icon, sub }) {
   const isUp = change > 0;
 
   return (
-    <div className="stat-card" style={{ cursor: 'default' }}>
+    <div className="stat-card kpi-ledger" style={{ '--kpi-ink': color || 'var(--text-3)' }}>
       {/* Top row — mark + trend */}
-      <div style={{
-        display: 'flex', justifyContent: 'space-between',
-        alignItems: 'center', marginBottom: 6, minHeight: 18,
-      }}>
+      <div className="kpi-ledger-header">
+        <div className="stat-label">{label}</div>
         {icon ? (
           <span style={{
             lineHeight: 1,
@@ -588,7 +586,11 @@ function KpiCard({ label, value, change, color, icon, sub }) {
           }}><Icon name={icon} size={15} /></span>
         ) : <span />}
 
-        {!neutral && (
+      </div>
+      <div className="stat-value">{value}</div>
+      {sub && <div className="kpi-ledger-caption">{sub}</div>}
+      {!neutral && (
+        <div className="kpi-ledger-footer">
           <span style={{
             fontFamily: 'var(--font-mono)',
             fontSize: 11,
@@ -609,30 +611,9 @@ function KpiCard({ label, value, change, color, icon, sub }) {
               {t('finance.vsPrev')}
             </span>
           </span>
-        )}
-      </div>
-
-      {/* Label */}
-      <div className="stat-label">{label}</div>
-
-      {/* Hero value — uses .stat-value so it inherits Inter 700 + tabular
-          tracking from the Workspace token. The colour prop tints only
-          the value glyph; everything else is system-driven. */}
-      <div className="stat-value" style={{ color: color || 'var(--text)', marginTop: 2 }}>
-        {value}
-      </div>
-
-      {/* Caption */}
-      {sub && (
-        <div style={{
-          fontFamily: 'var(--font-sans)',
-          fontSize: 12.5,
-          fontWeight: 400,
-          color: 'var(--text-2)',
-          letterSpacing: -0.005,
-          marginTop: 4,
-        }}>{sub}</div>
+        </div>
       )}
+
     </div>
   );
 }

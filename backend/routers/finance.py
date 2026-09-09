@@ -8,11 +8,13 @@ from typing import Optional
 from database import get_db
 from permissions import require_perm, require_admin
 from audit_log import log_action
-from utils import (_now, get_tax_context, resolve_expense_tax, money,
+from utils import (_now, _today, get_tax_context, resolve_expense_tax, money,
                    ArchiveMode, archive_clause)
 from approval_engine import evaluate_and_apply
 import accounting
 import branch_access
+import financial_health
+import vendor_config
 import sqlite3
 from datetime import datetime
 
@@ -129,12 +131,13 @@ def _categories_in_range(db, start: str, end: str, bf: str = "", bp=()):
 @router.get("/summary")
 def finance_summary(
     month: Optional[str] = None,
+    branch_id: Optional[int] = None,
     user=Depends(require_perm("finance", "view")),
     db: sqlite3.Connection = Depends(get_db),
 ):
     # Branch scoping (income joins invoices to reach the branch dimension).
-    bf_i, bp_i = branch_access.branch_filter(user, db, column="i.branch_id")
-    bf_e, bp_e = branch_access.branch_filter(user, db, column="branch_id")
+    bf_i, bp_i = branch_access.branch_filter(user, db, column="i.branch_id", selected=branch_id)
+    bf_e, bp_e = branch_access.branch_filter(user, db, column="branch_id", selected=branch_id)
     period = month if month else None
     mexpr = "?" if period else "strftime('%Y-%m', 'now')"
     mparam = (period,) if period else ()
@@ -171,17 +174,69 @@ def range_summary(
     end: str,
     prev_start: Optional[str] = None,
     prev_end: Optional[str] = None,
+    branch_id: Optional[int] = None,
     user=Depends(require_perm("finance", "view")),
     db: sqlite3.Connection = Depends(get_db),
 ):
-    bf_i, bp_i = branch_access.branch_filter(user, db, column="i.branch_id")
-    bf_e, bp_e = branch_access.branch_filter(user, db, column="branch_id")
+    bf_i, bp_i = branch_access.branch_filter(user, db, column="i.branch_id", selected=branch_id)
+    bf_e, bp_e = branch_access.branch_filter(user, db, column="branch_id", selected=branch_id)
     income   = float(_income_in_range(db, start, end, bf_i, bp_i))
     expenses = float(_expenses_in_range(db, start, end, bf_e, bp_e))
     profit   = income - expenses
     margin   = (profit / income * 100) if income > 0 else 0
 
     by_cat = [dict(r) for r in _categories_in_range(db, start, end, bf_e, bp_e)]
+
+    # The same operational signals used by the current-month dashboard, with
+    # this selected period's margin. Module licences define the score; RBAC
+    # only controls who may call this finance endpoint.
+    include_invoices = vendor_config.module_allowed("invoices")
+    include_inventory = vendor_config.module_allowed("inventory")
+    include_projects = vendor_config.module_allowed("projects")
+    unpaid_count = 0
+    overdue_count = 0
+    if include_invoices:
+        unpaid_count = db.execute(
+            """SELECT COUNT(*) FROM invoices i
+               WHERE i.deleted_at IS NULL AND i.voided_at IS NULL
+                 AND i.archived_at IS NULL
+                 AND COALESCE(i.approval_status, '') <> 'Pending Approval'
+                 AND i.amount > COALESCE(
+                   (SELECT SUM(ip.amount) FROM invoice_payments ip
+                    WHERE ip.invoice_id = i.id), 0)""" + bf_i,
+            bp_i,
+        ).fetchone()[0]
+        overdue_count = db.execute(
+            """SELECT COUNT(*) FROM invoices i
+               WHERE i.deleted_at IS NULL AND i.voided_at IS NULL
+                 AND i.archived_at IS NULL
+                 AND COALESCE(i.approval_status, '') <> 'Pending Approval'
+                 AND i.due_date IS NOT NULL AND i.due_date < ?
+                 AND i.amount > COALESCE(
+                   (SELECT SUM(ip.amount) FROM invoice_payments ip
+                    WHERE ip.invoice_id = i.id), 0)""" + bf_i,
+            (_today(), *bp_i),
+        ).fetchone()[0]
+    low_stock = db.execute(
+        "SELECT COUNT(*) FROM inventory"
+        " WHERE deleted_at IS NULL AND archived_at IS NULL"
+        " AND quantity <= min_stock AND min_stock > 0"
+    ).fetchone()[0] if include_inventory else 0
+    active_projects = db.execute(
+        "SELECT COUNT(*) FROM projects"
+        " WHERE status IN ('In Progress', 'Approved')"
+        " AND deleted_at IS NULL AND archived_at IS NULL"
+    ).fetchone()[0] if include_projects else 0
+    health_score = financial_health.score(
+        margin=financial_health.margin_percent(income, expenses),
+        unpaid_invoices=unpaid_count,
+        overdue_invoices=overdue_count,
+        low_stock_alerts=low_stock,
+        active_projects=active_projects,
+        include_financial=True,
+        include_inventory=include_inventory,
+        include_projects=include_projects,
+    )
 
     prev = {}
     if prev_start and prev_end:
@@ -211,6 +266,7 @@ def range_summary(
         "expenses":    expenses,
         "profit":      profit,
         "margin":      round(margin, 1),
+        "financial_health_score": health_score,
         "by_category": by_cat,
         "prev":        prev,
     }
@@ -221,11 +277,12 @@ def range_summary(
 def range_monthly(
     start: str,
     end: str,
+    branch_id: Optional[int] = None,
     user=Depends(require_perm("finance", "view")),
     db: sqlite3.Connection = Depends(get_db),
 ):
-    bf_i, bp_i = branch_access.branch_filter(user, db, column="i.branch_id")
-    bf_e, bp_e = branch_access.branch_filter(user, db, column="branch_id")
+    bf_i, bp_i = branch_access.branch_filter(user, db, column="i.branch_id", selected=branch_id)
+    bf_e, bp_e = branch_access.branch_filter(user, db, column="branch_id", selected=branch_id)
     rows = db.execute(
         """SELECT month, SUM(income) AS income, SUM(expenses) AS expenses
            FROM (
@@ -240,7 +297,7 @@ def range_monthly(
              SELECT strftime('%Y-%m', date) AS month,
                     0 AS income, SUM(amount) AS expenses
              FROM expenses
-             WHERE archived_at IS NULL
+             WHERE archived_at IS NULL AND voided_at IS NULL
                AND DATE(date) >= ? AND DATE(date) <= ?""" + bf_e + """
              GROUP BY month
            ) combined
@@ -261,13 +318,20 @@ def range_monthly(
             "from_snapshot": False,
         })
 
-    # Overlay immutable snapshot values for any locked months in the result
-    snap_rows = db.execute("SELECT * FROM period_snapshots").fetchall()
-    snapshots = {f"{r['year']}-{r['month']:02d}": dict(r) for r in snap_rows}
-    locked_rows = db.execute(
-        "SELECT year, month FROM accounting_periods WHERE locked_at IS NOT NULL"
-    ).fetchall()
-    locked_keys = {f"{r['year']}-{r['month']:02d}" for r in locked_rows}
+    # Period snapshots are company-wide. Applying one to a branch-scoped
+    # chart replaces that branch's correct values with the whole company's
+    # totals. A locked branch range is already immutable because writes are
+    # blocked at the source, so only the unfiltered company view needs the
+    # stored snapshot overlay.
+    snapshots = {}
+    locked_keys = set()
+    if not bf_i and not bf_e:
+        snap_rows = db.execute("SELECT * FROM period_snapshots").fetchall()
+        snapshots = {f"{r['year']}-{r['month']:02d}": dict(r) for r in snap_rows}
+        locked_rows = db.execute(
+            "SELECT year, month FROM accounting_periods WHERE locked_at IS NOT NULL"
+        ).fetchall()
+        locked_keys = {f"{r['year']}-{r['month']:02d}" for r in locked_rows}
 
     for row in result:
         m = row["month"]
@@ -287,11 +351,12 @@ def range_monthly(
 def range_detail(
     start: str,
     end: str,
+    branch_id: Optional[int] = None,
     user=Depends(require_perm("finance", "view")),
     db: sqlite3.Connection = Depends(get_db),
 ):
-    bf_i, bp_i = branch_access.branch_filter(user, db, column="i.branch_id")
-    bf_e, bp_e = branch_access.branch_filter(user, db, column="e.branch_id")
+    bf_i, bp_i = branch_access.branch_filter(user, db, column="i.branch_id", selected=branch_id)
+    bf_e, bp_e = branch_access.branch_filter(user, db, column="e.branch_id", selected=branch_id)
     payments = db.execute(
         """SELECT ip.paid_at AS date, ip.amount, ip.method,
                   i.invoice_number, ip.note,
@@ -326,11 +391,12 @@ def range_detail(
 # ── Original monthly report (kept for backward compat) ────────────────────
 @router.get("/monthly")
 def monthly_report(
+    branch_id: Optional[int] = None,
     user=Depends(require_perm("finance", "view")),
     db: sqlite3.Connection = Depends(get_db),
 ):
-    bf_i, bp_i = branch_access.branch_filter(user, db, column="i.branch_id")
-    bf_e, bp_e = branch_access.branch_filter(user, db, column="branch_id")
+    bf_i, bp_i = branch_access.branch_filter(user, db, column="i.branch_id", selected=branch_id)
+    bf_e, bp_e = branch_access.branch_filter(user, db, column="branch_id", selected=branch_id)
     rows = db.execute(
         """SELECT month, SUM(income) AS income, SUM(expenses) AS expenses
            FROM (

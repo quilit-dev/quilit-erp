@@ -544,18 +544,12 @@ export default function Expenses() {
   ];
   return (
     <div>
-      <div style={{ display: 'flex', gap: 4, marginBottom: 18, borderBottom: '1px solid var(--border)' }}>
+      <div className="tabs">
         {tabs.map(tb => (
           <button
             key={tb.key}
             onClick={() => setTab(tb.key)}
-            style={{
-              padding: '8px 16px', fontSize: 13, fontWeight: 600, cursor: 'pointer',
-              background: 'none', border: 'none',
-              borderBottom: `2px solid ${tab === tb.key ? 'var(--accent)' : 'transparent'}`,
-              color: tab === tb.key ? 'var(--accent)' : 'var(--text-3)',
-              marginBottom: -1,
-            }}
+            className={`tab-btn${tab === tb.key ? ' active' : ''}`}
           >
             {tb.label}
           </button>

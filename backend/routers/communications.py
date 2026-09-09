@@ -18,6 +18,7 @@ from pydantic import BaseModel
 from typing import Optional
 
 import communications as comms
+import branch_access
 import line_items
 import installments
 from database import get_db
@@ -56,7 +57,7 @@ def _cfg(entity_type: str) -> dict:
     return cfg
 
 
-def _load_document(db, entity_type: str, entity_id: int) -> dict:
+def _load_document(db, entity_type: str, entity_id: int, user: dict = None) -> dict:
     """Read one document plus its client and lines.
 
     Table and column names come from the _DOC registry, never from the request,
@@ -73,6 +74,8 @@ def _load_document(db, entity_type: str, entity_id: int) -> dict:
     if not row:
         raise HTTPException(404, f"{cfg['label']} not found.")
     doc = dict(row)
+    if user is not None:
+        branch_access.assert_can_view_branch(user, db, doc.get("branch_id"))
     try:
         items = db.execute(
             f"SELECT name, quantity, unit_price, discount, discount_pct, tax_rate, "
@@ -228,10 +231,25 @@ def send(data: SendRequest, request: Request,
     if data.channel not in ("email", "whatsapp"):
         raise HTTPException(400, "Channel must be 'email' or 'whatsapp'.")
 
-    doc = _load_document(db, data.entity_type, data.entity_id)
+    doc = _load_document(db, data.entity_type, data.entity_id, user=user)
     company = _company(db)
     total = _money(doc.get("amount"), company["currency"])
     user_id = int(user["sub"])
+
+    # Validate the destination before minting a capability link. A typo or a
+    # client with no contact details must not leave behind an unlogged, live
+    # share token that nobody can account for or revoke from the UI.
+    phone = None
+    to = None
+    if data.channel == "whatsapp":
+        phone = "".join(ch for ch in (data.to or doc.get("client_phone") or "")
+                        if ch.isdigit())
+        if not phone:
+            raise HTTPException(400, "No phone number for this client.")
+    else:
+        to = (data.to or doc.get("client_email") or "").strip()
+        if not to:
+            raise HTTPException(400, "No email address for this client.")
 
     share_id, token = _issue_share(db, data.entity_type, data.entity_id, user_id)
     url = _share_url(request, token, doc.get("doc_number"))
@@ -242,10 +260,6 @@ def send(data: SendRequest, request: Request,
                   total=total, url=url, note=(data.note or "").strip() or None)
 
     if data.channel == "whatsapp":
-        phone = "".join(ch for ch in (data.to or doc.get("client_phone") or "")
-                        if ch.isdigit())
-        if not phone:
-            raise HTTPException(400, "No phone number for this client.")
         text = comms.whatsapp_text(**common)
         _log(db, channel="whatsapp", entity_type=data.entity_type,
              entity_id=data.entity_id, recipient=phone,
@@ -255,9 +269,6 @@ def send(data: SendRequest, request: Request,
         return {"channel": "whatsapp", "url": url,
                 "whatsapp_url": f"https://wa.me/{phone}?text={quote(text)}"}
 
-    to = (data.to or doc.get("client_email") or "").strip()
-    if not to:
-        raise HTTPException(400, "No email address for this client.")
     subject = f"{cfg['label']} {common['doc_number']} from {common['company']}"
     try:
         comms.send_email(to=to, subject=subject,
@@ -284,7 +295,7 @@ def log(entity_type: str, entity_id: int,
         user=Depends(require_perm("communications", "view")),
         db: sqlite3.Connection = Depends(get_db)):
     """Everything ever sent for one document — the answer to 'did they get it?'."""
-    _cfg(entity_type)
+    _load_document(db, entity_type, entity_id, user=user)
     rows = db.execute(
         """SELECT l.*, u.username AS sent_by_name,
                   s.view_count, s.last_seen_at, s.revoked_at, s.expires_at
@@ -299,6 +310,7 @@ def log(entity_type: str, entity_id: int,
 
 @router.get("/history")
 def history(channel: str = None, status: str = None, q: str = None,
+            branch_id: int = None,
             limit: int = 100, offset: int = 0,
             user=Depends(require_perm("communications", "view")),
             db: sqlite3.Connection = Depends(get_db)):
@@ -312,6 +324,14 @@ def history(channel: str = None, status: str = None, q: str = None,
     lookup, so the list stays one query regardless of length.
     """
     where, params = [], []
+    bf, bp = branch_access.branch_filter(
+        user, db,
+        column="COALESCE(i.branch_id, qt.branch_id)",
+        selected=branch_id,
+    )
+    if bf:
+        where.append(bf[len(" AND "):])
+        params += bp
     if channel in ("email", "whatsapp"):
         where.append("l.channel = ?"); params.append(channel)
     if status in ("sent", "opened", "failed"):
@@ -322,22 +342,24 @@ def history(channel: str = None, status: str = None, q: str = None,
     clause = (" WHERE " + " AND ".join(where)) if where else ""
 
     limit = max(1, min(int(limit or 100), 500))
+    joins = """LEFT JOIN users u ON l.sent_by = u.id
+            LEFT JOIN document_shares s ON l.share_id = s.id
+            LEFT JOIN invoices   i  ON l.entity_type = 'invoice'   AND l.entity_id = i.id
+            LEFT JOIN quotations qt ON l.entity_type = 'quotation' AND l.entity_id = qt.id"""
+
     rows = db.execute(
         f"""SELECT l.*, u.username AS sent_by_name,
                    s.view_count, s.last_seen_at, s.revoked_at, s.expires_at,
                    i.invoice_number, qt.quote_number
             FROM communications_log l
-            LEFT JOIN users u ON l.sent_by = u.id
-            LEFT JOIN document_shares s ON l.share_id = s.id
-            LEFT JOIN invoices   i  ON l.entity_type = 'invoice'   AND l.entity_id = i.id
-            LEFT JOIN quotations qt ON l.entity_type = 'quotation' AND l.entity_id = qt.id
+            {joins}
             {clause}
             ORDER BY l.sent_at DESC, l.id DESC
             LIMIT ? OFFSET ?""",
         (*params, limit, max(0, int(offset or 0)))).fetchall()
 
     total = db.execute(
-        f"SELECT COUNT(*) AS n FROM communications_log l{clause}",
+        f"SELECT COUNT(*) AS n FROM communications_log l {joins}{clause}",
         tuple(params)).fetchone()["n"]
 
     out = []
@@ -350,15 +372,21 @@ def history(channel: str = None, status: str = None, q: str = None,
     # Headline counters, computed server-side so the page is correct even when
     # the list itself is paginated.
     counts = {}
+    scope_clause = (" WHERE " + where[0]) if bf else ""
+    scope_params = tuple(bp)
     for row in db.execute(
-            "SELECT status, COUNT(*) AS n FROM communications_log GROUP BY status"
+            f"SELECT l.status, COUNT(*) AS n FROM communications_log l "
+            f"{joins}{scope_clause} GROUP BY l.status",
+            scope_params,
     ).fetchall():
         counts[row["status"]] = row["n"]
     # "Sent but never opened" is the number that actually prompts a follow-up.
+    unopened_scope = (scope_clause + " AND ") if scope_clause else " WHERE "
     unopened = db.execute(
-        "SELECT COUNT(*) AS n FROM communications_log l "
-        "LEFT JOIN document_shares s ON l.share_id = s.id "
-        "WHERE l.status IN ('sent','opened') AND COALESCE(s.view_count, 0) = 0"
+        f"SELECT COUNT(*) AS n FROM communications_log l {joins}"
+        f"{unopened_scope}l.status IN ('sent','opened') "
+        "AND COALESCE(s.view_count, 0) = 0",
+        scope_params,
     ).fetchone()["n"]
 
     return {"items": out, "total": total, "limit": limit,
@@ -373,10 +401,11 @@ def revoke(share_id: int,
            db: sqlite3.Connection = Depends(get_db)):
     """Kill a link that was sent to the wrong person. Irreversible by design —
     issue a new one rather than un-revoking."""
-    row = db.execute("SELECT id FROM document_shares WHERE id=?",
+    row = db.execute("SELECT id, entity_type, entity_id FROM document_shares WHERE id=?",
                      (share_id,)).fetchone()
     if not row:
         raise HTTPException(404, "Link not found.")
+    _load_document(db, row["entity_type"], row["entity_id"], user=user)
     db.execute("UPDATE document_shares SET revoked_at=? WHERE id=? "
                "AND revoked_at IS NULL", (_now(), share_id))
     db.commit()

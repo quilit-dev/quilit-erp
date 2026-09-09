@@ -341,7 +341,7 @@ def list_invoices(
     where_clause = ("WHERE " + " AND ".join(conditions)) if conditions else ""
     select_sql = f"""SELECT i.*,
                   p.name AS project_name,
-                  c.name AS client_name, c.phone AS client_phone,
+                  c.name AS client_name, c.phone AS client_phone, c.email AS client_email,
                   q.quote_number,
                   COALESCE((SELECT SUM(ip.amount)
                             FROM invoice_payments ip

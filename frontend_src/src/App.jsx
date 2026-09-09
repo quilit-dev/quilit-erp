@@ -181,7 +181,7 @@ function Layout({ children }) {
 
   return (
     <div className={`layout${sidebarOpen ? ' sidebar-open' : ''}`}>
-      <Sidebar />
+      <Sidebar onSearch={() => { setSidebarOpen(false); setPaletteOpen(true); }} />
       {sidebarOpen && (
         <div className="sidebar-backdrop" onClick={() => setSidebarOpen(false)} aria-hidden="true" />
       )}
@@ -204,26 +204,6 @@ function Layout({ children }) {
             <span style={{ fontSize: 13, fontWeight: 700, color: 'var(--text)', letterSpacing: '-.1px' }}>{label}</span>
           </div>
           <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
-            <button
-              onClick={() => setPaletteOpen(true)}
-              className="btn btn-outline search-btn"
-              style={{ display: 'flex', alignItems: 'center', gap: 6, fontSize: 12, padding: '4px 10px' }}
-              title={t('common.searchCtrlK') + ' (Ctrl+K)'}
-            >
-              <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
-                <circle cx="11" cy="11" r="8"/><line x1="21" y1="21" x2="16.65" y2="16.65"/>
-              </svg>
-              {t('common.searchCtrlK')}
-              <kbd style={{ fontSize: 10, opacity: 0.6, fontFamily: 'monospace', border: '1px solid var(--border)', borderRadius: 3, padding: '0 3px' }}>Ctrl K</kbd>
-            </button>
-            <div className="live-badge" style={{
-              display: 'flex', alignItems: 'center', gap: 6,
-              background: 'var(--green-light)', color: 'var(--green)',
-              padding: '3px 9px', borderRadius: 20, fontSize: 11, fontWeight: 600
-            }}>
-              <div style={{ width: 6, height: 6, borderRadius: '50%', background: 'var(--green)', animation: 'pulse 2s infinite' }} />
-              {t('common.live')}
-            </div>
             {/* Beside the bell for the same reason the bell is here: it is
                 read constantly and changed often, and a rate that lives
                 three clicks into Settings is a rate that goes stale. */}

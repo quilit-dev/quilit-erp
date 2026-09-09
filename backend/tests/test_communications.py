@@ -202,9 +202,19 @@ def test_whatsapp_is_logged_as_opened_not_sent(client, invoice):
 def test_whatsapp_without_a_number_is_refused(client):
     c = client.post("/api/clients/", json={"name": "No Phone Co"}).json()
     inv = client.post("/api/invoices/", json={"client_id": c["id"], "amount": 10}).json()
+    before = client.get("/api/communications/history").json()["total"]
     r = client.post("/api/communications/send", json={
         "entity_type": "invoice", "entity_id": inv["id"], "channel": "whatsapp"})
     assert r.status_code == 400
+    assert client.get("/api/communications/history").json()["total"] == before
+
+
+def test_invoice_list_includes_contact_details_for_the_send_dialog(client, invoice):
+    """The list-level Send action must prefill the same recipient as detail."""
+    page = client.get("/api/invoices/?limit=20").json()
+    row = next(item for item in page["items"] if item["id"] == invoice["id"])
+    assert row["client_email"] == "ap@acme.test"
+    assert row["client_phone"] == "+961 71 234567"
 
 
 def test_unconfigured_email_fails_loudly_and_is_logged(client, invoice, monkeypatch):
@@ -309,6 +319,103 @@ def test_a_role_without_the_module_cannot_send(as_role, invoice):
     r = c.post("/api/communications/send", json={
         "entity_type": "invoice", "entity_id": invoice["id"], "channel": "whatsapp"})
     assert r.status_code == 403, r.text
+
+
+@pytest.fixture
+def branch_communications(app, db, make_client):
+    """Two authorized managers, each restricted to one home branch."""
+    from auth_utils import hash_password
+    from fastapi.testclient import TestClient
+
+    password = "BranchComms123!"
+    owner = make_client("superadmin")
+    branch_a = db.execute(
+        "SELECT id FROM warehouses WHERE is_default=1").fetchone()["id"]
+    created = owner.post("/api/warehouses/", json={
+        "code": "COMM-B", "name": "Communications Branch", "type": "Branch"})
+    assert created.status_code in (200, 201), created.text
+    branch_b = created.json()["id"]
+
+    role_id = db.execute(
+        "SELECT id FROM roles WHERE name='Manager'").fetchone()["id"]
+    db.execute(
+        "INSERT INTO role_permissions "
+        "(role_id,module,can_view,can_create,can_edit,can_delete,can_approve) "
+        "VALUES (?, 'communications', 1, 1, 1, 0, 0) "
+        "ON CONFLICT(role_id,module) DO UPDATE SET "
+        "can_view=1, can_create=1, can_edit=1",
+        (role_id,),
+    )
+    for username, branch_id in (("comm_alice", branch_a), ("comm_bob", branch_b)):
+        db.execute(
+            "INSERT INTO users (username,password_hash,full_name,role,role_id,"
+            "is_active,is_superadmin,must_change_password,branch_id,created_at) "
+            "VALUES (?,?,?,'user',?,1,0,0,?,datetime('now'))",
+            (username, hash_password(password), username, role_id, branch_id),
+        )
+    db.commit()
+
+    def login(username):
+        session = TestClient(app)
+        response = session.post("/api/auth/login", json={
+            "username": username, "password": password})
+        assert response.status_code == 200, response.text
+        return session
+
+    alice, bob = login("comm_alice"), login("comm_bob")
+    client_id = owner.post("/api/clients/", json={
+        "name": "Branch Client", "phone": "+96171111111"}).json()["id"]
+    alice_invoice = alice.post("/api/invoices/", json={
+        "client_id": client_id,
+        "items": [{"name": "ALICE-COMMS", "quantity": 1, "unit_price": 100}],
+    }).json()
+    bob_invoice = bob.post("/api/invoices/", json={
+        "client_id": client_id,
+        "items": [{"name": "BOB-COMMS", "quantity": 1, "unit_price": 200}],
+    }).json()
+    yield {
+        "owner": owner, "alice": alice, "bob": bob,
+        "alice_invoice": alice_invoice, "bob_invoice": bob_invoice,
+    }
+    alice.close()
+    bob.close()
+
+
+def test_send_and_document_log_are_branch_scoped(branch_communications):
+    world = branch_communications
+    invoice_id = world["alice_invoice"]["id"]
+    sent = _send_whatsapp(world["alice"], world["alice_invoice"])
+    assert sent.status_code == 200, sent.text
+
+    blocked_send = _send_whatsapp(world["bob"], world["alice_invoice"])
+    assert blocked_send.status_code == 404, blocked_send.text
+    blocked_log = world["bob"].get(
+        f"/api/communications/log?entity_type=invoice&entity_id={invoice_id}")
+    assert blocked_log.status_code == 404, blocked_log.text
+
+
+def test_history_and_revoke_are_branch_scoped(branch_communications):
+    world = branch_communications
+    sent = _send_whatsapp(world["alice"], world["alice_invoice"])
+    assert sent.status_code == 200, sent.text
+    alice_log = world["alice"].get(
+        "/api/communications/log?entity_type=invoice&entity_id=%d"
+        % world["alice_invoice"]["id"]
+    ).json()
+    share_id = alice_log[0]["share_id"]
+
+    bob_history = world["bob"].get("/api/communications/history").json()
+    assert bob_history["items"] == []
+    assert bob_history["total"] == 0
+    assert bob_history["counts"] == {}
+    assert bob_history["unopened"] == 0
+    assert world["bob"].post(
+        f"/api/communications/shares/{share_id}/revoke").status_code == 404
+
+    # A failed cross-branch revoke must leave the customer's live link intact.
+    token = _token_of(sent)
+    assert world["owner"].get(
+        f"/api/communications/public/{token}").status_code == 200
 
 
 # ── link readability ────────────────────────────────────────────────────────

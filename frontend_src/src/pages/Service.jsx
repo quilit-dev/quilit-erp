@@ -141,13 +141,13 @@ export default function Service() {
       <div className="page-header">
         <h1>{t('service.title')}</h1>
         <div style={{ display: 'flex', gap: 8, alignItems: 'center' }}>
-          {/* Same two-view toggle Inventory uses for Items/Lots. The `.tab`
-              class this first used does not exist — the stylesheet defines
-              `.tab-btn` — so the buttons rendered completely unstyled. */}
-          <button className={`btn btn-sm ${view === 'jobs' ? 'btn-primary' : 'btn-secondary'}`}
+          {/* Shared module navigation, matching Inventory's Items/Lots tabs. */}
+          <div className="tabs tabs-inline">
+          <button className={`tab-btn${view === 'jobs' ? ' active' : ''}`}
                   onClick={() => setView('jobs')}>{t('service.jobs')}</button>
-          <button className={`btn btn-sm ${view === 'equipment' ? 'btn-primary' : 'btn-secondary'}`}
+          <button className={`tab-btn${view === 'equipment' ? ' active' : ''}`}
                   onClick={() => setView('equipment')}>{t('service.equipment')}</button>
+          </div>
           {view === 'jobs'
             ? <ExportButton data={jobExport} filename="ServiceJobs" sheetName="Jobs" />
             : <ExportButton data={equipmentExport} filename="ServiceEquipment"

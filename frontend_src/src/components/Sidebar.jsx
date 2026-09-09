@@ -102,7 +102,7 @@ const adminLinkDefs = [
   { to: '/admin',                  navKey: 'adminPanel',     icon: Icons.admin },
 ];
 
-export default function Sidebar() {
+export default function Sidebar({ onSearch }) {
   const navigate = useNavigate();
   const { has: hasModule } = useModules();
   const { user, isSuperadmin, isAdmin, can } = usePermissions();
@@ -202,6 +202,18 @@ export default function Sidebar() {
           deliberately absent from the app chrome. */}
       <div className="sidebar-logo">
         <BrandLogo height={28} />
+      </div>
+
+      <div className="sidebar-search">
+        <button type="button" className="sidebar-search-button" onClick={onSearch}
+                aria-label={t('common.searchCtrlK')} title={`${t('common.searchCtrlK')} (Ctrl+K)`}>
+          <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor"
+               strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
+            <circle cx="11" cy="11" r="8" /><path d="m21 21-4.35-4.35" />
+          </svg>
+          <span>{t('common.searchCtrlK')}</span>
+          <kbd aria-hidden="true">Ctrl K</kbd>
+        </button>
       </div>
 
       {/* Main nav — split into workflow directories. The dashboard sits

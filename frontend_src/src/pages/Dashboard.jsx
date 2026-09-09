@@ -89,20 +89,28 @@ export default function Dashboard() {
   const expSpark  = months.map(m => m.expenses || 0);
   const profSpark = months.map(m => (m.income || 0) - (m.expenses || 0));
 
-  // Health score — simple weighted heuristic across whichever signals the
-  // current user can actually see. Capped at [0,100].
-  let healthScore = 50;
+  // The backend owns this KPI so permissions cannot make two people looking
+  // at the same branch and period see different business health. Keep the old
+  // calculation only for rolling upgrades where the frontend reaches an older
+  // server for a few minutes.
+  let fallbackHealthScore = 50;
   if (can.finance || can.invoices) {
-    if (margin > 20) healthScore += 20;
-    else if (margin > 0) healthScore += 10;
-    else if (margin < 0) healthScore -= 15;
-    if ((data.unpaid_invoices_count || 0) === 0) healthScore += 10;
-    else if ((data.unpaid_invoices_count || 0) > 5) healthScore -= 10;
-    if (overdueCount > 0) healthScore -= Math.min(20, overdueCount * 5);
+    if (margin > 20) fallbackHealthScore += 20;
+    else if (margin > 0) fallbackHealthScore += 10;
+    else if (margin < 0) fallbackHealthScore -= 15;
+    if ((data.unpaid_invoices_count || 0) === 0) fallbackHealthScore += 10;
+    else if ((data.unpaid_invoices_count || 0) > 5) fallbackHealthScore -= 10;
+    if (overdueCount > 0) fallbackHealthScore -= Math.min(20, overdueCount * 5);
   }
-  if (can.inventory && (data.low_stock_alerts || 0) === 0) healthScore += 10;
-  if (can.projects  && (data.active_projects  || 0) > 0)   healthScore += 10;
-  healthScore = Math.min(100, Math.max(0, healthScore));
+  if (can.inventory && (data.low_stock_alerts || 0) === 0) fallbackHealthScore += 10;
+  if (can.projects  && (data.active_projects  || 0) > 0)   fallbackHealthScore += 10;
+  fallbackHealthScore = Math.min(100, Math.max(0, fallbackHealthScore));
+  const serverHealthScore = usingRange
+    ? rangeSummary?.financial_health_score
+    : data.financial_health_score;
+  const healthScore = serverHealthScore != null && Number.isFinite(Number(serverHealthScore))
+    ? Number(serverHealthScore)
+    : fallbackHealthScore;
 
   // ── Header context ────────────────────────────────────────────────────
   const today = new Date();

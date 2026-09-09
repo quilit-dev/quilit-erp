@@ -341,10 +341,10 @@ export default function Inventory() {
           </p>
         </div>
         <div style={{ display: 'flex', gap: 8, alignItems: 'center' }}>
-          <div style={{ display: 'flex', gap: 4 }}>
-            <button className={`btn btn-sm ${view === 'items' ? 'btn-primary' : 'btn-secondary'}`}
+          <div className="tabs tabs-inline">
+            <button className={`tab-btn${view === 'items' ? ' active' : ''}`}
               onClick={() => setView('items')}>{t('inventory.tabItems')}</button>
-            <button className={`btn btn-sm ${view === 'lots' ? 'btn-primary' : 'btn-secondary'}`}
+            <button className={`tab-btn${view === 'lots' ? ' active' : ''}`}
               onClick={() => setView('lots')}>{t('inventory.tabLots')}</button>
           </div>
           {view === 'items' && <ExportButton data={exportData} filename="Inventory" sheetName="Inventory" />}

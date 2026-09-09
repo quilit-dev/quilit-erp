@@ -363,8 +363,8 @@ function AddDeviceModal({ t, onClose, onSave }) {
   return (
     <Modal title={t('timeclock.addDevice')} onClose={onClose}>
       <div className="modal-body">
-        <label className="form-label">{t('common.name')}</label>
-        <input className="form-input" value={name} autoFocus
+        <label className="form-label" htmlFor="timeclock-device-name">{t('common.name')}</label>
+        <input id="timeclock-device-name" className="form-control" value={name} autoFocus
                placeholder={t('timeclock.namePlaceholder')}
                onChange={e => setName(e.target.value)} />
         <p style={{ marginTop: 10, fontSize: 12, color: 'var(--text-3)' }}>
@@ -463,36 +463,37 @@ function ScheduleModal({ t, schedule, onClose, onSaved, onArchive }) {
 
   return (
     <Modal title={t('timeclock.scheduleTitle')} onClose={onClose}>
-      <div className="modal-body">
-        <label className="form-label">{t('common.name')}</label>
-        <input className="form-input" value={f.name} autoFocus
+      <div className="modal-body timeclock-schedule-form">
+        <div>
+        <label className="form-label" htmlFor="timeclock-schedule-name">{t('common.name')}</label>
+        <input id="timeclock-schedule-name" className="form-control" value={f.name} autoFocus
                onChange={e => set('name', e.target.value)} />
+        </div>
 
-        <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 10,
-                      marginTop: 10 }}>
+        <div className="timeclock-field-grid">
           <div>
-            <label className="form-label">{t('timeclock.startTime')}</label>
-            <input className="form-input" type="time" value={f.start_time}
+            <label className="form-label" htmlFor="timeclock-start">{t('timeclock.startTime')}</label>
+            <input id="timeclock-start" className="form-control" type="time" value={f.start_time}
                    onChange={e => set('start_time', e.target.value)} />
           </div>
           <div>
-            <label className="form-label">{t('timeclock.endTime')}</label>
-            <input className="form-input" type="time" value={f.end_time}
+            <label className="form-label" htmlFor="timeclock-end">{t('timeclock.endTime')}</label>
+            <input id="timeclock-end" className="form-control" type="time" value={f.end_time}
                    onChange={e => set('end_time', e.target.value)} />
           </div>
           <div>
-            <label className="form-label">{t('timeclock.graceLabel')}</label>
-            <NumberInput value={f.grace_minutes} min="0"
+            <label className="form-label" htmlFor="timeclock-grace">{t('timeclock.graceLabel')}</label>
+            <NumberInput id="timeclock-grace" className="form-control" value={f.grace_minutes} min="0"
                          onChange={e => set('grace_minutes', e.target.value)} />
           </div>
           <div>
-            <label className="form-label">{t('timeclock.halfDayLabel')}</label>
-            <NumberInput value={f.min_hours_full_day} min="0" step="0.5"
+            <label className="form-label" htmlFor="timeclock-full-day">{t('timeclock.halfDayLabel')}</label>
+            <NumberInput id="timeclock-full-day" className="form-control" value={f.min_hours_full_day} min="0" step="0.5"
                          onChange={e => set('min_hours_full_day', e.target.value)} />
           </div>
           <div>
-            <label className="form-label">{t('timeclock.breakLabel')}</label>
-            <NumberInput value={f.break_minutes} min="0"
+            <label className="form-label" htmlFor="timeclock-break">{t('timeclock.breakLabel')}</label>
+            <NumberInput id="timeclock-break" className="form-control" value={f.break_minutes} min="0"
                          onChange={e => set('break_minutes', e.target.value)} />
           </div>
         </div>
@@ -503,9 +504,10 @@ function ScheduleModal({ t, schedule, onClose, onSaved, onArchive }) {
         <label className="form-label" style={{ marginTop: 12 }}>
           {t('timeclock.workdays')}
         </label>
-        <div style={{ display: 'flex', gap: 6, flexWrap: 'wrap' }}>
+        <div className="timeclock-day-options">
           {DAY_KEYS.map((k, i) => (
             <button key={k} type="button"
+                    aria-pressed={days.has(i + 1)}
                     className={`btn btn-sm ${days.has(i + 1) ? 'btn-primary' : 'btn-outline'}`}
                     onClick={() => toggleDay(i + 1)}>
               {t(`timeclock.${k}`)}
@@ -513,21 +515,19 @@ function ScheduleModal({ t, schedule, onClose, onSaved, onArchive }) {
           ))}
         </div>
 
-        <label style={{ display: 'flex', alignItems: 'center', gap: 8,
-                        marginTop: 12, fontSize: 13 }}>
+        <label className="timeclock-check-option">
           <input type="checkbox" checked={f.crosses_midnight}
                  onChange={e => set('crosses_midnight', e.target.checked)} />
           {t('timeclock.overnightLabel')}
         </label>
 
-        <label style={{ display: 'flex', alignItems: 'center', gap: 8,
-                        marginTop: 8, fontSize: 13 }}>
+        <label className="timeclock-check-option">
           <input type="checkbox" checked={f.is_default}
                  onChange={e => set('is_default', e.target.checked)} />
           {t('timeclock.defaultLabel')}
         </label>
       </div>
-      <div className="modal-footer" style={{ justifyContent: 'space-between' }}>
+      <div className="modal-footer timeclock-schedule-footer">
         <span>
           {schedule && (
             <button className="btn btn-outline"
@@ -536,12 +536,12 @@ function ScheduleModal({ t, schedule, onClose, onSaved, onArchive }) {
             </button>
           )}
         </span>
-        <span>
+        <span className="timeclock-footer-actions">
           <button className="btn btn-secondary" onClick={onClose}>
             {t('common.cancel')}
           </button>
           <button className="btn btn-primary" disabled={!f.name.trim()}
-                  style={{ marginInlineStart: 6 }} onClick={save}>
+                  onClick={save}>
             {t('common.save')}
           </button>
         </span>

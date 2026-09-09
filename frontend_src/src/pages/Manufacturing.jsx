@@ -60,12 +60,12 @@ export default function Manufacturing() {
       <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center',
                     flexWrap: 'wrap', gap: 8, marginBottom: 4 }}>
         <h2 style={{ margin: 0 }}>{t('manufacturing.title')}</h2>
-        <div style={{ display: 'flex', gap: 8, alignItems: 'center' }}>
+        <div style={{ display: 'flex', gap: 8, alignItems: 'center', flexWrap: 'wrap', minWidth: 0, maxWidth: '100%' }}>
           <DisplayCurrencyToggle />
-          <div style={{ display: 'flex', gap: 4 }}>
+          <div className="tabs tabs-inline">
             {tabs.map(tb => (
               <button key={tb.key}
-                className={`btn btn-sm ${view === tb.key ? 'btn-primary' : 'btn-secondary'}`}
+                className={`tab-btn${view === tb.key ? ' active' : ''}`}
                 onClick={() => setView(tb.key)}>
                 {tb.label}
               </button>

@@ -228,11 +228,11 @@ export default function Notifications() {
 
       {/* Tab bar */}
       <div style={{ marginBottom: 16 }}>
-        <div className="notif-page-tab-bar">
+        <div className="tabs tabs-inline">
           {TABS.map(tb => (
             <button
               key={tb.key}
-              className={`notif-page-tab${tab === tb.key ? ' active' : ''}`}
+              className={`tab-btn${tab === tb.key ? ' active' : ''}`}
               onClick={() => setTab(tb.key)}
             >
               {t(tb.labelKey)}

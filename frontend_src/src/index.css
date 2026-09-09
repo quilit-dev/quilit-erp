@@ -251,15 +251,13 @@
   --space-7:          40px;
   --space-8:          56px;
 
-  /* Radii — friendlier than the editorial sharp corners. Cards 8px, the
-     fundamental UI feel; buttons 6px; status badges 4px (still
-     restrained — not full pills); modals 12px. */
+  /* Soft panel corners; compact controls and badges remain restrained. */
   --r-xs:             3px;
   --r-sm:             4px;
-  --r:                5px;
-  --r-md:             5px;
-  --r-lg:             7px;
-  --r-xl:             7px;
+  --r:                10px;
+  --r-md:             8px;
+  --r-lg:             12px;
+  --r-xl:             14px;
   --r-pill:           999px;     /* avatars + the rare full-pill badge */
   --radius-xs:        var(--r-xs);
   --radius-sm:        var(--r-sm);
@@ -763,7 +761,6 @@ html[lang="ar"], html[lang="ar"] body {
   display: flex;
   align-items: center;
   padding: 16px 18px;
-  border-bottom: 1px solid var(--rule);
   background: var(--surface);
   min-height: 60px;
   flex-shrink: 0;
@@ -771,6 +768,37 @@ html[lang="ar"], html[lang="ar"] body {
 
 
 
+
+.sidebar-search { padding: 12px 12px 0; flex-shrink: 0; }
+.sidebar-search-button {
+  display: flex;
+  align-items: center;
+  gap: 9px;
+  width: 100%;
+  min-height: 40px;
+  padding: 8px 10px;
+  border: 1px solid var(--rule);
+  border-radius: var(--r-md);
+  background: var(--surface-2);
+  color: var(--text-2);
+  font: inherit;
+  font-size: 13px;
+  text-align: start;
+  cursor: pointer;
+}
+.sidebar-search-button:hover { color: var(--text); border-color: var(--rule-strong); }
+.sidebar-search-button:focus-visible { outline: 2px solid var(--focus); outline-offset: 2px; }
+.sidebar-search-button svg { flex-shrink: 0; }
+.sidebar-search-button kbd {
+  margin-inline-start: auto;
+  flex-shrink: 0;
+  padding: 1px 4px;
+  border: 1px solid var(--rule);
+  border-radius: 4px;
+  color: var(--text-3);
+  font-size: 10px;
+  direction: ltr;
+}
 
 .sidebar-nav {
   flex: 1;
@@ -995,7 +1023,7 @@ html[lang="ar"], html[lang="ar"] body {
   background: var(--surface);
   border: 1px solid var(--rule);
   border-radius: var(--r);
-  box-shadow: var(--surface-shadow);
+  box-shadow: none;
   overflow: hidden;
   transition:
     border-color var(--motion-fast) var(--ease),
@@ -1155,8 +1183,9 @@ html[lang="ar"], html[lang="ar"] body {
   background: var(--surface);
   border: 1px solid var(--rule);
   border-radius: var(--r);
-  box-shadow: var(--shadow-xs);
-  padding: 18px 20px 16px;
+  box-shadow: none;
+  padding: 16px 18px;
+  min-width: 0;
   display: flex; flex-direction: column;
   gap: 6px;
   transition:
@@ -1165,25 +1194,24 @@ html[lang="ar"], html[lang="ar"] body {
     transform var(--motion-fast) var(--ease);
 }
 .stat-card:hover {
-  border-color: var(--rule-strong);
-  box-shadow: var(--shadow);
+  box-shadow: none;
 }
 
 .stat-label {
   font-family: var(--font-sans);
-  font-size: var(--fs-2xs);
-  font-weight: 600;
-  letter-spacing: 0.10em;
-  text-transform: uppercase;
-  color: var(--text-3);
+  font-size: 12px;
+  font-weight: 500;
+  letter-spacing: 0;
+  text-transform: none;
+  color: var(--text-2);
 }
 
 .stat-value {
-  font-family: var(--font-display);
-  font-weight: 700;
-  font-size: 28px;
-  line-height: 1.1;
-  letter-spacing: -0.028em;
+  font-family: var(--font-sans);
+  font-weight: 600;
+  font-size: 26px;
+  line-height: 1.2;
+  letter-spacing: -0.045em;
   color: var(--text);
   font-variant-numeric: lining-nums tabular-nums slashed-zero;
   /* Business owners read exact figures (e.g. 1,977,813,960 LBP), not K/M/B —
@@ -1209,6 +1237,31 @@ html[lang="ar"], html[lang="ar"] body {
   color: var(--text-2);
   letter-spacing: -0.005em;
 }
+
+/* Ledger-inspired KPI: quiet heading, ruled value area, a short semantic
+   registration mark. The mark is decorative, never a progress indicator. */
+.kpi-ledger { gap: 0; text-align: start; }
+.kpi-ledger-header {
+  display: flex; align-items: flex-start; justify-content: space-between;
+  gap: 10px; padding-bottom: 10px;
+  border-bottom: 1px solid var(--rule);
+}
+.kpi-ledger-header .stat-label { line-height: 1.5; }
+.kpi-ledger-mark { color: var(--kpi-ink, var(--text-3)); flex-shrink: 0; }
+.kpi-ledger .stat-value { margin-top: 12px; margin-bottom: 6px; }
+.kpi-ledger-caption { font-size: 12px; line-height: 1.5; color: var(--text-2); }
+.kpi-ledger-footer {
+  display: flex; align-items: center; justify-content: space-between; gap: 10px;
+  margin-top: 8px;
+}
+.kpi-ledger-trend { font-family: var(--font-mono); font-size: 11px; font-variant-numeric: tabular-nums; }
+.kpi-ledger-spark { margin-top: 8px; }
+.kpi-ledger.is-interactive { cursor: pointer; }
+.kpi-ledger.is-interactive:hover { border-color: var(--rule-strong); background: var(--surface-2); }
+.kpi-ledger.is-interactive:focus-visible { outline: 2px solid var(--focus); outline-offset: 3px; }
+.kpi-ledger.is-compact { padding: 14px 16px; }
+.kpi-ledger.is-compact .kpi-ledger-header { padding-bottom: 8px; }
+.kpi-ledger.is-compact .stat-value { font-size: 22px; margin-top: 10px; }
 
 .trend-up, .text-green { color: var(--affirm); }
 .trend-down, .text-red { color: var(--negate); }
@@ -1293,7 +1346,7 @@ html[lang="ar"], html[lang="ar"] body {
 }
 
 .btn-secondary {
-  background: var(--surface);
+  background: var(--surface-2);
   color: var(--text);
   border-color: var(--rule);
   box-shadow: var(--field-shadow);
@@ -1698,7 +1751,7 @@ table thead th {
 }
 
 table tbody td {
-  padding: 9px 10px;
+  padding: 11px 10px;
   border-bottom: 1px solid var(--rule);
   vertical-align: middle;
   color: var(--text);
@@ -1774,13 +1827,13 @@ table tfoot td {
   padding: 8px 10px;
   font-family: var(--font-sans);
   font-size: 13.5px;
-  font-weight: 500;
+  font-weight: 400;
   letter-spacing: -0.005em;
   color: var(--text);
-  background: var(--surface);
+  background: var(--surface-2);
   border: 1px solid var(--rule);
   border-radius: var(--field-radius);
-  box-shadow: var(--field-shadow);
+  box-shadow: inset 0 0 0 1px color-mix(in srgb, var(--text) 3%, transparent);
   transition:
     border-color var(--motion-fast) var(--ease),
     box-shadow var(--motion-fast) var(--ease),
@@ -1953,7 +2006,7 @@ textarea.form-control {
 .tabs {
   display: flex;
   align-items: stretch;
-  gap: 0;
+  gap: 20px;
   border-bottom: 1px solid var(--rule);
   margin-bottom: 20px;
   overflow-x: auto;
@@ -1963,7 +2016,13 @@ textarea.form-control {
 
 .tab-btn {
   position: relative;
-  padding: 10px 14px;
+  padding: 11px 2px 13px;
+  min-height: 44px;
+  flex-shrink: 0;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 7px;
   font-family: var(--font-sans);
   font-size: 13px;
   font-weight: 500;
@@ -1978,18 +2037,26 @@ textarea.form-control {
 .tab-btn::after {
   content: '';
   position: absolute;
-  left: 0; right: 0; bottom: -1px;
+  inset-inline: 0;
+  bottom: 0;
   height: 2px;
   background: transparent;
   transition: background var(--motion-fast) var(--ease);
 }
 .tab-btn:hover { color: var(--text); }
 .tab-btn.active {
-  color: var(--accent);
+  color: var(--text);
   font-weight: 600;
   letter-spacing: -0.012em;
 }
-.tab-btn.active::after { background: var(--accent); }
+.tab-btn.active::after { background: var(--text); border-radius: 2px; }
+.tab-btn:focus-visible, .pill-tab:focus-visible {
+  outline: 2px solid var(--focus);
+  outline-offset: -3px;
+  border-radius: 4px;
+}
+.tab-btn:disabled, .pill-tab:disabled { opacity: .5; cursor: not-allowed; }
+.tabs.tabs-inline { margin-bottom: 0; max-width: 100%; }
 
 
 .pill-tabs { /* Alternative pill-style tab strip, used in a few spots. */
@@ -1998,7 +2065,9 @@ textarea.form-control {
   border: 1px solid var(--rule);
   border-radius: var(--r);
   padding: 2px;
-  gap: 0;
+  gap: 2px;
+  max-width: 100%;
+  overflow-x: auto;
 }
 .pill-tab {
   padding: 6px 12px;
@@ -2017,7 +2086,7 @@ textarea.form-control {
 .pill-tab:hover { color: var(--text); }
 .pill-tab.active {
   background: var(--surface);
-  color: var(--accent);
+  color: var(--text);
   box-shadow: 0 0 0 1px var(--rule);
 }
 
@@ -2166,6 +2235,23 @@ textarea.form-control {
   min-height: 0;
   scrollbar-width: thin;
   scrollbar-color: var(--rule-emphasis) transparent;
+}
+/* Time Clock forms: keep native time/number inputs within their grid tracks. */
+.timeclock-field-grid {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 16px;
+}
+.timeclock-field-grid > div { min-width: 0; display: flex; flex-direction: column; }
+.timeclock-field-grid .form-control { min-width: 0; margin-top: auto; }
+.timeclock-day-options { display: flex; flex-wrap: wrap; gap: 6px; }
+.timeclock-day-options .btn { flex: 1 0 48px; min-height: 40px; }
+.timeclock-check-option { display: flex; align-items: flex-start; gap: 10px; font-size: 13px; }
+.timeclock-check-option input { flex-shrink: 0; margin-top: 4px; accent-color: var(--accent); }
+.timeclock-schedule-footer { justify-content: space-between; flex-wrap: wrap; }
+.timeclock-footer-actions { display: flex; flex-wrap: wrap; gap: 8px; margin-inline-start: auto; }
+@media (max-width: 480px) {
+  .timeclock-field-grid { grid-template-columns: minmax(0, 1fr); }
 }
 .modal-body::-webkit-scrollbar { width: 8px; }
 .modal-body::-webkit-scrollbar-thumb {
@@ -4324,7 +4410,6 @@ textarea.form-control {
   /* Compact the topbar so it fits a phone: drop the search button + live pill.
      Both carry an inline `display:flex`, so the hide needs !important to win. */
   .topbar { padding: 0 12px; gap: 8px; }
-  .search-btn, .live-badge { display: none !important; }
 
   .page-content { padding: 16px 14px 40px; }
   .stats-grid { grid-template-columns: repeat(auto-fit, minmax(150px, 1fr)); gap: 10px; }

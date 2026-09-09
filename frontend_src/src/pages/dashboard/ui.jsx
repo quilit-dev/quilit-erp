@@ -163,102 +163,36 @@ export function HealthRing({ score = 0, t }) {
 
 // ── Building blocks ─────────────────────────────────────────────────────
 
-// KPI tile — Workspace direction.
-//
-// Layout (top to bottom):
-//   • Tiny mark icon (mono, restrained) at the top-left + trend or "open"
-//     arrow at the top-right
-//   • All-caps letter-spaced label, slate
-//   • Hero value in Inter 700 with tabular numerals
-//   • Optional caption underneath in plain Inter slate
-//   • Optional sparkline beneath
-//
-// The signature touches:
-//   1. Soft white surface with a subtle drop shadow — the card floats
-//      just enough to read as its own object on the cool light background.
-//   2. Hero value uses Inter 700 at 28px with tight tracking — formal,
-//      engineered, friendly. Same direction Odoo uses for KPIs.
-//   3. Trend indicator is monospace with proper arrow glyphs (▲ / ▼),
-//      tabular percentages, no rounded background pill.
-//   4. Clickable affordance is a soft arrow on hover + a gentle shadow
-//      lift, not the editorial-rail flourish the previous direction used.
-export function KpiCard({ label, value, sub, icon, accentColor, accentBg, sparkData, trend, onClick, compact = false }) {
-  const [hover, setHover] = useState(false);
+// A ledger-style summary. Color identifies the metric; values stay exact.
+export function KpiCard({ label, value, sub, icon, accentColor, sparkData, trend, onClick, compact = false }) {
   const clickable = !!onClick;
-  // The icon prop is kept (callers still pass emoji glyphs) but rendered
-  // tiny + monochrome as an editorial "section mark" rather than a chunky
-  // bubble. Tiles without an icon read as pure type — even better.
   return (
-    <div
-      className="stat-card"
-      onClick={onClick}
-      onMouseEnter={() => setHover(true)}
-      onMouseLeave={() => setHover(false)}
-      style={{
-        cursor: clickable ? 'pointer' : 'default',
-        padding: compact ? '14px 16px 12px' : undefined,
-      }}
-    >
-      {/* Top row — small mono mark (left) + trend / "open" caret (right) */}
-      <div style={{
-        display: 'flex', justifyContent: 'space-between',
-        alignItems: 'center', marginBottom: 6,
-        minHeight: 18,
-      }}>
-        {icon ? (
-          <span style={{
-            lineHeight: 1,
-            color: accentColor || 'var(--text-3)',
-            opacity: 0.85,
-          }}><Icon name={icon} size={15} /></span>
-        ) : <span />}
-        {trend != null ? (
-          <span style={{
-            fontFamily: 'var(--font-mono)',
-            fontSize: 11,
-            fontWeight: 600,
-            letterSpacing: 0,
-            color: trend >= 0 ? 'var(--affirm)' : 'var(--negate)',
-            fontVariantNumeric: 'tabular-nums',
-          }}>
+    <div className={`stat-card kpi-ledger${compact ? ' is-compact' : ''}${clickable ? ' is-interactive' : ''}`}
+         style={{ '--kpi-ink': accentColor || 'var(--text-3)' }}
+         onClick={onClick}
+         role={clickable ? 'button' : undefined}
+         tabIndex={clickable ? 0 : undefined}
+         onKeyDown={clickable ? e => {
+           if (e.target === e.currentTarget && (e.key === 'Enter' || e.key === ' ')) {
+             e.preventDefault();
+             onClick();
+           }
+         } : undefined}>
+      <div className="kpi-ledger-header">
+        <div className="stat-label">{label}</div>
+        {icon && <span className="kpi-ledger-mark"><Icon name={icon} size={16} /></span>}
+      </div>
+      <div className="stat-value">{value}</div>
+      {sub && <div className="kpi-ledger-caption">{sub}</div>}
+      {trend != null && (
+        <div className="kpi-ledger-footer">
+          <span className="kpi-ledger-trend" style={{ color: trend >= 0 ? 'var(--affirm)' : 'var(--negate)' }}>
             {trend >= 0 ? '▲' : '▼'} {Math.abs(trend)}%
           </span>
-        ) : clickable && (
-          <span style={{
-            fontSize: 14, fontWeight: 500,
-            color: accentColor || 'var(--accent)',
-            opacity: hover ? 1 : 0,
-            transition: 'opacity .15s, transform .15s',
-            transform: hover ? 'translateX(2px)' : 'none',
-          }}>→</span>
-        )}
-      </div>
-
-      {/* Label — all-caps mono-style eyebrow */}
-      <div className="stat-label" style={compact ? { fontSize: 10 } : undefined}>{label}</div>
-
-      {/* Hero value — Inter 700, tight tracking, tabular figures */}
-      <div className="stat-value" style={{
-        color: accentColor || 'var(--text)',
-        fontSize: compact ? 22 : undefined,
-        marginTop: 2,
-      }}>{value}</div>
-
-      {/* Caption — Inter regular slate. No serif, no italic decoration. */}
-      {sub && (
-        <div style={{
-          fontFamily: 'var(--font-sans)',
-          fontSize: 12.5,
-          fontWeight: 400,
-          color: 'var(--text-2)',
-          letterSpacing: -0.005,
-          marginTop: 4,
-        }}>{sub}</div>
+        </div>
       )}
-
-      {/* Sparkline — same restrained line style as the rest of the system */}
       {sparkData && sparkData.length > 1 && (
-        <div style={{ marginTop: 10 }}>
+        <div className="kpi-ledger-spark">
           <Sparkline data={sparkData} color={accentColor || 'var(--accent)'} />
         </div>
       )}

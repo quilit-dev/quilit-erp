@@ -19,10 +19,10 @@ const ACTION_COLORS = {
 
 function KpiCard({ label, value, sub, color = 'accent' }) {
   return (
-    <div className="card" style={{ padding: '16px 20px', flex: 1, minWidth: 120 }}>
-      <div style={{ fontSize: 11, fontWeight: 600, color: 'var(--text-3)', textTransform: 'uppercase', letterSpacing: '.6px' }}>{label}</div>
-      <div style={{ fontSize: 28, fontWeight: 800, color: `var(--${color})`, margin: '4px 0 2px' }}>{value}</div>
-      {sub && <div style={{ fontSize: 12, color: 'var(--text-3)' }}>{sub}</div>}
+    <div className="stat-card kpi-ledger" style={{ flex: 1, minWidth: 120, '--kpi-ink': `var(--${color})` }}>
+      <div className="kpi-ledger-header"><div className="stat-label">{label}</div></div>
+      <div className="stat-value">{value}</div>
+      {sub && <div className="kpi-ledger-caption">{sub}</div>}
     </div>
   );
 }
@@ -222,18 +222,12 @@ export default function AdminDashboard() {
       {error && <ErrorAlert message={error} />}
 
       {/* Tabs */}
-      <div style={{ display: 'flex', gap: 4, marginBottom: 16, borderBottom: '1px solid var(--border)', paddingBottom: 0 }}>
+      <div className="tabs">
         {tabs.map(tb => (
           <button
             key={tb.key}
             onClick={() => setTab(tb.key)}
-            style={{
-              background: 'none', border: 'none', cursor: 'pointer',
-              padding: '8px 14px', fontSize: 13.5, fontWeight: tab === tb.key ? 700 : 500,
-              color: tab === tb.key ? 'var(--accent)' : 'var(--text-2)',
-              borderBottom: tab === tb.key ? '2px solid var(--accent)' : '2px solid transparent',
-              marginBottom: -1, transition: 'color .15s',
-            }}
+            className={`tab-btn${tab === tb.key ? ' active' : ''}`}
           >{tb.label}</button>
         ))}
       </div>
