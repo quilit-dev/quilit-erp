@@ -48,6 +48,20 @@ function Ask($label, $default) {
     return $value.Trim()
 }
 
+# A question with NO default, because the wrong answer here is worse than no
+# answer. 192.168.1.201 is ZKTeco's factory address: an unconfigured Ethernet
+# menu shows it, so offering it as the default meant one Enter keypress could
+# produce a config that looks right, matches what the device screen says, and
+# points at nothing --- which is exactly what happens on a terminal that is
+# actually on Wi-Fi.
+function AskRequired($label) {
+    while ($true) {
+        $value = Read-Host $label
+        if (-not [string]::IsNullOrWhiteSpace($value)) { return $value.Trim() }
+        Write-Host "    This one has no sensible default. Please type it." -ForegroundColor Yellow
+    }
+}
+
 Write-Host ""
 Write-Host "  Quilit time clock -- setup" -ForegroundColor White
 Write-Host "  =========================="
@@ -106,13 +120,19 @@ if (Test-Path $shipped) {
 
 if ($writeConfig) {
     Head "The fingerprint terminal"
-    Say "  On the device:  Menu > Comm > Ethernet  (cabled), or"
-    Say "                  Menu > Comm > Wi-Fi     (wireless, e.g. BioPro SA40)."
-    Say "  Whatever IP address that screen shows is the one you need here."
+    Say "  Read the address off the interface the terminal is ACTUALLY using:"
+    Say "     cabled    Menu > Comm > Ethernet"
+    Say "     wireless  Menu > Comm > Wi-Fi   (e.g. BioPro SA40)"
+    Say ""
+    Say "  A terminal with both has an address for EACH. On a Wi-Fi terminal"
+    Say "  the Ethernet menu often still shows 192.168.1.201 -- the factory"
+    Say "  value, belonging to a socket with no cable in it. Using it means"
+    Say "  the agent never finds the device, and nothing says why."
+    Say ""
     Say "  It must be a FIXED address, or reserved on your router -- if the"
     Say "  router hands it a different one next month the agent stops finding it."
     Say ""
-    $deviceIp   = Ask "  Device IP address" "192.168.1.201"
+    $deviceIp   = AskRequired "  Device IP address (no default -- type it)"
     $devicePort = Ask "  Device port" "4370"
     $devicePass = Ask "  Comm key (Menu > Comm > Security; 0 unless changed)" "0"
 
