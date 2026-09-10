@@ -237,6 +237,7 @@ def read_device(cfg):
                 "  * check the terminal is switched on and on the network",
                 "  * check device_ip in config.ini matches the address shown",
                 "    on the terminal under  Menu > Comm > Ethernet",
+                "    (or  Menu > Comm > Wi-Fi  on a wireless terminal)",
                 "  * if the router gave it a new address, set a fixed one",
                 "",
                 "(%s)" % type(exc).__name__,

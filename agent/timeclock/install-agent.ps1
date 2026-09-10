@@ -106,7 +106,9 @@ if (Test-Path $shipped) {
 
 if ($writeConfig) {
     Head "The fingerprint terminal"
-    Say "  On the device:  Menu > Comm > Ethernet  shows its IP address."
+    Say "  On the device:  Menu > Comm > Ethernet  (cabled), or"
+    Say "                  Menu > Comm > Wi-Fi     (wireless, e.g. BioPro SA40)."
+    Say "  Whatever IP address that screen shows is the one you need here."
     Say "  It must be a FIXED address, or reserved on your router -- if the"
     Say "  router hands it a different one next month the agent stops finding it."
     Say ""
@@ -195,7 +197,7 @@ if ($LASTEXITCODE -ne 0) {
     Fail ("The fingerprint terminal did not answer.`n" +
           "  Nothing has been scheduled -- the agent is not running.`n`n" +
           "  Usually one of:`n" +
-          "    * the IP address is wrong (check Menu > Comm > Ethernet)`n" +
+          "    * the IP address is wrong (Menu > Comm > Ethernet, or Wi-Fi)`n" +
           "    * the terminal is on a different network from this PC`n" +
           "    * the comm key is not 0 and was not entered`n`n" +
           "  Fix it and double-click Setup.cmd again.")

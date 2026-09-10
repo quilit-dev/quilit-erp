@@ -45,7 +45,8 @@ needs it.
 **3. Answer the questions.**
 Every one has the usual answer already filled in — press Enter to accept it.
 Only two need you: the terminal's IP address (on the device, **Menu → Comm →
-Ethernet**) and the token from step 1. The token is hidden as you paste it;
+Ethernet**, or **Menu → Comm → Wi-Fi** on a wireless terminal like the
+BioPro SA40) and the token from step 1. The token is hidden as you paste it;
 right-click pastes into that window.
 
 **4. Read the last screen.**
@@ -95,7 +96,8 @@ The token was revoked or rotated. Go to **HR → Time clock → Devices**, use
 
 **The agent cannot find the terminal.**
 Check the IP address in `config.ini` matches the one on the device
-(**Menu → Comm → Ethernet**), and that the PC can reach it:
+(**Menu → Comm → Ethernet**, or **Wi-Fi** on a wireless one), and that the
+PC can reach it:
 `ping 192.168.1.201`. If the router gave the terminal a new address, set a
 fixed one or a DHCP reservation — otherwise this will keep happening.
 
