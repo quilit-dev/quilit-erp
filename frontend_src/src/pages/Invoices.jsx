@@ -666,8 +666,11 @@ export default function Invoices() {
               <div className="form-grid">
                 <div className="form-group">
                   <label className="form-label">{t('invoices.clientLabel')}</label>
+                  {/* Search stays on regardless of how many clients there
+                      are, so the control reads the same on a new workspace
+                      as on one with two hundred names. */}
                   <SearchSelect
-                    className="form-control"
+                    className="form-control" searchable
                     value={form.client_id||''}
                     onChange={v => setForm(f => ({ ...f, client_id: v }))}
                     placeholder={t('invoices.selectClientOption')}

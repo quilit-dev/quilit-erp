@@ -3,7 +3,7 @@ import { useLocale } from '../../hooks/useLocale.jsx';
 import { usePermissions } from '../../hooks/usePermissions';
 import { useCategories } from '../../hooks/useCategories';
 import { useSettings } from '../../hooks/useSettings.jsx';
-import { NumberInput, SupplierCombobox, swallowScannerEnter } from '../../components/shared';
+import { NumberInput, swallowScannerEnter, supplierOptions } from '../../components/shared';
 import { UNITS, PRODUCT_TYPES, fmtNum } from './ui';
 import SearchSelect from '../../components/SearchSelect.jsx';
 
@@ -170,10 +170,11 @@ function ItemForm({ initial = {}, knownCategories = [], suppliers = [], onSave, 
 
           <div className="form-group form-full">
             <label className="form-label">{t('inventory.supplierLabel')}</label>
-            <SupplierCombobox
+            <SearchSelect className="form-control" searchable allowBlank
               value={form.supplier}
-              suppliers={suppliers}
-              onChange={v => set('supplier', v)} />
+              placeholder={t('inventory.pickSupplier')}
+              options={supplierOptions(suppliers, form.supplier, t)}
+              onChange={v => set('supplier', v || '')} />
           </div>
 
           <div className="form-group form-full">

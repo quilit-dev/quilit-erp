@@ -337,3 +337,46 @@ def test_a_role_with_purchases_create_can_raise_foreign_ones_untouched(as_role):
     admin having touched anything, the people who could raise purchases
     yesterday can raise foreign ones today."""
     assert _purchase(as_role(ROLE), "foreign")
+
+
+# ── the supplier record decides, unless told otherwise ───────────────────────
+# The form is a pick-list now, so a purchase can carry the supplier's id as
+# well as its name. That id was never written before --- `supplier` was free
+# text and supplier_id sat NULL on every row --- which is why `origin` had to
+# be snapshotted at all. With a record in hand the server can default origin
+# from it, so an API caller that never heard of the split still lands in the
+# right section.
+def _supplier(client, name, foreign):
+    r = client.post("/api/suppliers/", json={"name": name, "is_foreign": foreign})
+    assert r.status_code in (200, 201), r.text
+    return r.json().get("id") or client.get("/api/suppliers/").json()[-1]["id"]
+
+
+def test_a_foreign_supplier_record_makes_a_foreign_purchase_by_default(as_role):
+    owner = as_role("superadmin")
+    sid = _supplier(owner, "Fjord Imports", True)
+    r = owner.post("/api/purchases/", json={
+        "supplier": "Fjord Imports", "supplier_id": sid,
+        "product_name": "Widget", "quantity": 1, "unit_cost": 1})
+    assert r.status_code in (200, 201), r.text
+    body = owner.get(f"/api/purchases/{r.json()['id']}").json()
+    assert body["origin"] == "foreign"
+    assert body["supplier_id"] == sid, "the record is finally linked"
+
+
+def test_an_explicit_origin_beats_the_record(as_role):
+    """The snapshot is the purchase's own fact. A local buy from a normally
+    foreign supplier --- their stock in a bonded warehouse here --- stays local."""
+    owner = as_role("superadmin")
+    sid = _supplier(owner, "Fjord Imports", True)
+    r = owner.post("/api/purchases/", json={
+        "supplier": "Fjord Imports", "supplier_id": sid, "origin": "local",
+        "product_name": "Widget", "quantity": 1, "unit_cost": 1})
+    assert owner.get(f"/api/purchases/{r.json()['id']}").json()["origin"] == "local"
+
+
+def test_a_supplier_id_that_does_not_exist_is_refused(as_role):
+    r = as_role("superadmin").post("/api/purchases/", json={
+        "supplier": "Ghost", "supplier_id": 999999,
+        "product_name": "Widget", "quantity": 1, "unit_cost": 1})
+    assert r.status_code == 400, r.text

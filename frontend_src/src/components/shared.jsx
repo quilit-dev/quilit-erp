@@ -254,91 +254,18 @@ export function Badge({ status }) {
 // stored as text, so an unknown name can still be typed. Shared by the
 // Purchase Order form and the Inventory item form. Pass required for forms
 // where a supplier is mandatory (purchases); it defaults to optional.
-export function SupplierCombobox({ value, suppliers = [], onChange, required = false, placeholder }) {
-  const { t } = useLocale();
-  const [open,  setOpen]  = useState(false);
-  const [query, setQuery] = useState(value || '');
-  const wrapRef = useRef(null);
-
-  useEffect(() => { setQuery(value || ''); }, [value]);
-
-  useEffect(() => {
-    function handler(e) {
-      if (wrapRef.current && !wrapRef.current.contains(e.target)) setOpen(false);
-    }
-    document.addEventListener('mousedown', handler);
-    return () => document.removeEventListener('mousedown', handler);
-  }, []);
-
-  const filtered = query.trim().length === 0
-    ? suppliers.slice(0, 8)
-    : suppliers.filter(s => s.name.toLowerCase().includes(query.toLowerCase())).slice(0, 8);
-
-  return (
-    <div ref={wrapRef} style={{ position: 'relative' }}>
-      <input
-        className="form-control"
-        placeholder={placeholder || t('purchases.searchSupplierPlaceholder')}
-        value={query}
-        required={required}
-        autoComplete="off"
-        onChange={e => { setQuery(e.target.value); setOpen(true); onChange(e.target.value); }}
-        onFocus={() => setOpen(true)}
-        onKeyDown={e => { if (e.key === 'Escape') setOpen(false); }}
-      />
-      {open && filtered.length > 0 && (
-        <div style={{
-          position: 'absolute', top: '100%', left: 0, right: 0, zIndex: 999,
-          background: 'var(--surface-1, #fff)', border: '1px solid var(--border, var(--rule))',
-          borderRadius: 6, boxShadow: '0 4px 16px rgba(0,0,0,0.12)',
-          marginTop: 2, maxHeight: 200, overflowY: 'auto',
-        }}>
-          <div style={{ padding: '4px 10px 3px', fontSize: 10, fontWeight: 700, letterSpacing: '0.5px',
-            textTransform: 'uppercase', color: 'var(--text-3)', borderBottom: '1px solid var(--border)' }}>
-            {t('purchases.suppliersDropHeader')}
-          </div>
-          {filtered.map(s => (
-            <div key={s.id}
-              onMouseDown={() => { setQuery(s.name); setOpen(false); onChange(s.name); }}
-              style={{ padding: '7px 10px', cursor: 'pointer', fontSize: 13,
-                borderBottom: '1px solid var(--border, var(--rule))', display: 'flex',
-                justifyContent: 'space-between', alignItems: 'center' }}
-              onMouseEnter={e => e.currentTarget.style.background = 'var(--surface-2, var(--surface-2))'}
-              onMouseLeave={e => e.currentTarget.style.background = 'transparent'}
-            >
-              <span style={{ fontWeight: 500 }}>{s.name}</span>
-              {s.contact_name && <span style={{ color: 'var(--text-3)', fontSize: 11 }}>{s.contact_name}</span>}
-            </div>
-          ))}
-        </div>
-      )}
-    </div>
-  );
+// The options for a supplier pick-list: every live supplier by name, plus the
+// name a record already carries when it is not on the list (a purchase or item
+// keyed before suppliers were a register, or against one since archived) ---
+// shown so it is not silently lost, marked so it is not mistaken for a choice.
+export function supplierOptions(suppliers = [], current = '', t = (k) => k) {
+  const opts = suppliers.map(s => ({ value: s.name, label: s.name }));
+  if (current && !suppliers.some(s => s.name === current)) {
+    opts.unshift({ value: current, label: `${current} (${t('suppliers.notOnRegister')})` });
+  }
+  return opts;
 }
 
-// ── Number input that shows a greyed "0" placeholder ───────────
-// Drop-in replacement for <input type="number">. A field whose value is the
-// default numeric 0 (or null/empty) renders blank with a greyed "0" placeholder
-// instead of a literal 0 — so typing "1" gives "1", not "10". A value the user
-// actually typed (a string, including "0" or "0.5") shows normally, so decimals
-// keep working. All other props (className, min, step, onChange, …) pass through.
-/**
- * Makes a field safe to scan into.
- *
- * A USB barcode scanner is a keyboard: it types the code and then sends Enter.
- * Enter in a single-line input inside a <form> with a submit button SUBMITS THE
- * FORM — so scanning a barcode halfway through "Add item" saved the item there
- * and then, before cost, price, category or unit were filled. It did not error
- * and nothing looked wrong; the item was simply created half-empty.
- *
- * Swallow the Enter and the scan just fills the box, which is what the operator
- * expects. Attach to any field a scanner may be pointed at:
- *
- *     <input onKeyDown={swallowScannerEnter} … />
- *
- * Not needed for a field that is NOT inside a submitting form (the inventory
- * search box, for instance) — there, Enter already does nothing.
- */
 export function swallowScannerEnter(e) {
   if (e.key === 'Enter') {
     e.preventDefault();

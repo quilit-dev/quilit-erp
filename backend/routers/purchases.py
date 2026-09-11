@@ -45,11 +45,16 @@ ORIGINS = ("local", "foreign")
 
 class PurchaseCreate(BaseModel):
     supplier: str
-    # Where the goods are bought from. Snapshotted on the purchase because
-    # `supplier` is free text --- nothing could derive it from a supplier
-    # record later --- and because it is what the foreign_purchases permission
-    # is checked against. Defaults to what every purchase was before.
-    origin: Optional[str] = "local"
+    # The supplier RECORD, now that the form is a pick-list rather than a
+    # free-text box. Optional so every existing API caller keeps working; when
+    # it is given it must exist, and it decides `origin` unless the caller
+    # says otherwise. `supplier` (the name) stays the column every reader uses.
+    supplier_id: Optional[int] = None
+    # Where the goods are bought from. Snapshotted on the purchase because it
+    # is what the foreign_purchases permission is checked against and must not
+    # move when a supplier record is later edited. None means "follow the
+    # supplier record, else local".
+    origin: Optional[str] = None
     # A purchase is a document with lines. The flat single-item fields below
     # are still accepted and are normalised into one line, because every
     # existing caller — the seed data and 25 test files among them — sends
@@ -78,6 +83,7 @@ class PurchaseCreate(BaseModel):
 
 class PurchaseUpdate(BaseModel):
     supplier: Optional[str] = None
+    supplier_id: Optional[int] = None
     # As on create: either a full set of lines, or the legacy flat fields for
     # the single-line case. `None` means "this request is not about the lines"
     # and leaves them alone.
@@ -407,6 +413,18 @@ def _is_foreign(row) -> bool:
     return (_col(row, "origin") or "local") == "foreign"
 
 
+def _supplier_record(db, supplier_id):
+    """The supplier row for an id the caller supplied, or a 400 if there is
+    no such live supplier. None in, None out."""
+    if supplier_id is None:
+        return None
+    row = db.execute("SELECT * FROM suppliers WHERE id = ? AND archived_at IS NULL",
+                     (supplier_id,)).fetchone()
+    if not row:
+        raise HTTPException(400, "That supplier does not exist (or is archived).")
+    return row
+
+
 def _can_foreign(user, db, action="view") -> bool:
     return permissions.can(user, db, "foreign_purchases", action)
 
@@ -549,7 +567,15 @@ def get_purchase(purchase_id: int, user=Depends(require_perm("purchases", "view"
 
 @router.post("/")
 def create_purchase(data: PurchaseCreate, user=Depends(require_perm("purchases", "create")), db: sqlite3.Connection = Depends(get_db)):
-    origin = (data.origin or "local").strip().lower()
+    supplier_rec = _supplier_record(db, data.supplier_id)
+    # Explicit origin wins; otherwise the supplier record decides; otherwise
+    # local, which is what every purchase was before the split.
+    if data.origin:
+        origin = data.origin.strip().lower()
+    elif supplier_rec is not None and _col(supplier_rec, "is_foreign"):
+        origin = "foreign"
+    else:
+        origin = "local"
     if origin not in ORIGINS:
         raise HTTPException(400, "origin must be 'local' or 'foreign'.")
     if origin == "foreign" and not _can_foreign(user, db, "create"):
@@ -578,11 +604,11 @@ def create_purchase(data: PurchaseCreate, user=Depends(require_perm("purchases",
     # has moved across.
     c = db.execute(
         """INSERT INTO purchases
-           (po_number, supplier, additional_costs, status, notes, warehouse_id,
-            cost_currency, cost_exchange_rate, ordered_at, origin)
-           VALUES (?,?,?,?,?,?,?,?,?,?)""",
-        (po, data.supplier, additional_costs, data.status, data.notes,
-         warehouse_id, cost_currency, cost_rate, now, origin)
+           (po_number, supplier, supplier_id, additional_costs, status, notes,
+            warehouse_id, cost_currency, cost_exchange_rate, ordered_at, origin)
+           VALUES (?,?,?,?,?,?,?,?,?,?,?)""",
+        (po, data.supplier, data.supplier_id, additional_costs, data.status,
+         data.notes, warehouse_id, cost_currency, cost_rate, now, origin)
     )
     purchase_id = c.lastrowid
     _save_lines(db, purchase_id, lines, supplier=data.supplier,
@@ -840,9 +866,12 @@ def update_purchase(purchase_id: int, data: PurchaseUpdate,
     if lines is not None:
         _validate_lines(lines)
 
+    _supplier_record(db, data.supplier_id)      # 400 if it does not exist
     fields, params = [], []
     if data.supplier is not None:
         fields.append("supplier=?");           params.append(data.supplier)
+    if data.supplier_id is not None:
+        fields.append("supplier_id=?");        params.append(data.supplier_id)
     if new_additional is not None:
         fields.append("additional_costs=?");   params.append(new_additional)
     if data.notes is not None:
@@ -905,6 +934,9 @@ def update_purchase(purchase_id: int, data: PurchaseUpdate,
     if data.supplier is not None:
         db.execute("UPDATE purchases SET supplier=? WHERE id=?",
                    (data.supplier, purchase_id))
+    if data.supplier_id is not None:
+        db.execute("UPDATE purchases SET supplier_id=? WHERE id=?",
+                   (data.supplier_id, purchase_id))
     if data.notes is not None:
         db.execute("UPDATE purchases SET notes=? WHERE id=?", (data.notes, purchase_id))
 

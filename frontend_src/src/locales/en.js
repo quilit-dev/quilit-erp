@@ -226,6 +226,9 @@ const en = {
     loading: 'Loading…',
     nothingHere: 'Nothing here yet',
     noDataFound: 'No data found.',
+    // SearchSelect's empty state when a query matches nothing. It used to
+    // fall through to the raw key.
+    noResults: 'No matches.',
     retry: 'Retry',
     reportProblem: 'Report problem',
     problemReported: 'Reported',
@@ -2328,6 +2331,7 @@ const en = {
     noVariantFieldsHint: 'No variant fields yet. Add fields like Size or Color in Settings → Inventory Fields, then they appear here to tick.',
     unitLabel: 'Unit',
     supplierLabel: 'Supplier',
+    pickSupplier: 'Choose a supplier',
     barcodeLabel: 'Barcode / SKU',
     barcodePlaceholder: 'Scan or type a code (optional)',
     barcodeScanHint: 'Type it or scan it — the scanner will not save the item early.',
@@ -2381,6 +2385,7 @@ const en = {
     addPurchase: '+ New Purchase Order',
     searchPlaceholder: 'Search purchases…',
     searchSupplierPlaceholder: 'Search supplier…',
+    pickSupplier: 'Choose a supplier',
     noPurchasesFound: 'No purchases found.',
     noOrdersFiltered: 'No orders match your filters.',
     noOrdersYet: 'No purchase orders yet. Click "+ New Purchase Order" to start.',
@@ -2521,6 +2526,7 @@ const en = {
     contactPerson: 'Contact Person',
     paymentTermsDaysLabel: 'Payment Terms (days)',
     isForeign: 'Foreign supplier',
+    notOnRegister: 'not on the supplier list',
     isForeignHint: 'New purchases from this supplier go in the Foreign section, which needs the Foreign purchases permission to open or raise.',
     purchaseHistory: 'Purchase History',
     noPurchases: 'No purchases recorded yet.',

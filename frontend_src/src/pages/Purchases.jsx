@@ -8,7 +8,8 @@ import {
 } from '../api/client';
 import {
   LoadingSpinner, ErrorAlert, EmptyState, Modal, ConfirmModal,
-  ExportButton, fmt, fmtDate, toast, SortableTh, Pagination, NumberInput, SupplierCombobox, IconButton,
+  ExportButton, fmt, fmtDate, toast, SortableTh, Pagination, NumberInput, IconButton,
+  supplierOptions,
 } from '../components/shared';
 import { useCategories } from '../hooks/useCategories';
 import { useSortPaginate } from '../hooks/useSortPaginate';
@@ -60,6 +61,11 @@ function PurchaseForm({ initial = {}, inventoryItems = [], inventoryCategories =
   // charge. Everything that varies per product lives on a line instead.
   const [form, setForm] = useState({
     supplier:         initial.supplier         || '',
+    // The supplier record, once the name has been picked from the list. An
+    // older purchase carries only a name; it is matched back to a record when
+    // one exists and left alone when none does.
+    supplier_id:      initial.supplier_id
+                      ?? (suppliers.find(x => x.name === initial.supplier)?.id ?? null),
     // Local or foreign. Snapshotted on the purchase when it is raised --- the
     // supplier field is free text, so nothing could derive it later --- and
     // fixed after that, which is why the select below is disabled on edit.
@@ -148,6 +154,7 @@ function PurchaseForm({ initial = {}, inventoryItems = [], inventoryCategories =
     e.preventDefault();
     onSave({
       supplier:         form.supplier,
+      supplier_id:      form.supplier_id ?? null,
       origin:           form.origin,
       items: lines.map(l => ({
         inventory_id: l.inventory_id ? parseInt(l.inventory_id) : null,
@@ -196,20 +203,22 @@ function PurchaseForm({ initial = {}, inventoryItems = [], inventoryCategories =
         <div className="form-grid">
           <div className="form-group form-full">
             <label className="form-label">{t('purchases.supplierLabel')}</label>
-            <SupplierCombobox
+            {/* A list, not a box: a purchase is from a supplier on the
+                register, and the record is what carries the local/foreign
+                flag and what the supplier ledger groups by. Search is always
+                on --- with three suppliers a filter looks redundant, with
+                thirty it is the only way in. */}
+            <SearchSelect className="form-control" searchable required
               value={form.supplier}
-              suppliers={suppliers}
-              required
+              placeholder={t('purchases.pickSupplier')}
+              options={supplierOptions(suppliers, form.supplier, t)}
               onChange={v => {
-                set('supplier', v);
+                const known = suppliers.find(x => x.name === v);
+                setForm(f => ({ ...f, supplier: v, supplier_id: known?.id ?? null }));
                 // A known supplier decides the section. Only while raising:
                 // an existing purchase keeps the origin it was raised with.
-                if (!isEdit) {
-                  const known = suppliers.find(x => x.name === v);
-                  if (known) set('origin', known.is_foreign ? 'foreign' : 'local');
-                }
-              }}
-            />
+                if (!isEdit && known) set('origin', known.is_foreign ? 'foreign' : 'local');
+              }} />
           </div>
 
           <div className="form-group form-full">
