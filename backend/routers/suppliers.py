@@ -22,6 +22,9 @@ class SupplierCreate(BaseModel):
     email:              Optional[str] = None
     payment_terms_days: Optional[int] = 30
     notes:              Optional[str] = None
+    # Abroad or not. The master flag: picking this supplier on a purchase
+    # pre-fills the purchase's own `origin`, which is what is then gated.
+    is_foreign:         bool = False
 
 # ── List ──────────────────────────────────────────────────────────────────────
 @router.get("/")
@@ -127,10 +130,11 @@ def create_supplier(
         raise HTTPException(400, f"A supplier named '{data.name}' already exists")
 
     cur = db.execute(
-        "INSERT INTO suppliers (name, contact_name, phone, email, payment_terms_days, notes, created_at) "
-        "VALUES (?,?,?,?,?,?,?)",
+        "INSERT INTO suppliers (name, contact_name, phone, email, payment_terms_days, notes, "
+        " is_foreign, created_at) "
+        "VALUES (?,?,?,?,?,?,?,?)",
         (data.name, data.contact_name, data.phone, data.email,
-         data.payment_terms_days, data.notes, _now()),
+         data.payment_terms_days, data.notes, 1 if data.is_foreign else 0, _now()),
     )
     log_action(db, user, "create", "supplier", cur.lastrowid, data.name)
     db.commit()
@@ -159,9 +163,10 @@ def update_supplier(
 
     db.execute(
         "UPDATE suppliers SET name=?, contact_name=?, phone=?, email=?, "
-        "payment_terms_days=?, notes=? WHERE id=?",
+        "payment_terms_days=?, notes=?, is_foreign=? WHERE id=?",
         (data.name, data.contact_name, data.phone, data.email,
-         data.payment_terms_days, data.notes, supplier_id),
+         data.payment_terms_days, data.notes, 1 if data.is_foreign else 0,
+         supplier_id),
     )
     log_action(db, user, "update", "supplier", supplier_id, data.name)
     db.commit()

@@ -3,6 +3,7 @@ from pydantic import BaseModel
 from typing import List, Optional
 from database import get_db
 from permissions import require_perm
+import permissions
 import commitments
 from audit_log import log_action
 from utils import (_now, notify, get_tax_context, resolve_purchase_tax, money,
@@ -39,8 +40,16 @@ class PurchaseLineIn(BaseModel):
     tax_rate_id:  Optional[int] = None
 
 
+ORIGINS = ("local", "foreign")
+
+
 class PurchaseCreate(BaseModel):
     supplier: str
+    # Where the goods are bought from. Snapshotted on the purchase because
+    # `supplier` is free text --- nothing could derive it from a supplier
+    # record later --- and because it is what the foreign_purchases permission
+    # is checked against. Defaults to what every purchase was before.
+    origin: Optional[str] = "local"
     # A purchase is a document with lines. The flat single-item fields below
     # are still accepted and are normalised into one line, because every
     # existing caller — the seed data and 25 test files among them — sends
@@ -382,8 +391,36 @@ def _save_lines(db, purchase_id, lines, *, supplier, cost_currency, cost_rate, n
     _recalc_totals(db, purchase_id)
 
 
+# ── Purchases from abroad ─────────────────────────────────────────────────────
+# `foreign_purchases` is a permission key with the same shape as `costs`: not a
+# screen, a question asked while shaping a response. Every purchase stays in
+# the list with its total for anyone holding `purchases`; a foreign one cannot
+# be OPENED, have its LINES read, or be AUTHORED without it.
+#
+# Status changes, receipt, payment and voiding are deliberately NOT behind it.
+# Those are operational acts on a document that already exists, done by
+# warehouse and finance staff, and none of them reveals what a line cost.
+# Gating receipt would stop a warehouse taking delivery of a container.
+def _is_foreign(row) -> bool:
+    return (_col(row, "origin") or "local") == "foreign"
+
+
+def _can_foreign(user, db, action="view") -> bool:
+    return permissions.can(user, db, "foreign_purchases", action)
+
+
+def _require_foreign(user, db, row, action):
+    """403 when `row` is a foreign purchase and the user lacks the action.
+    A local purchase passes through untouched."""
+    if _is_foreign(row) and not _can_foreign(user, db, action):
+        raise HTTPException(
+            403, "This purchase is from a foreign supplier. Your role can see "
+                 "its total but cannot open it.")
+
+
 @router.get("/")
 def list_purchases(status: Optional[str] = None, supplier: Optional[str] = None,
+                   origin: Optional[str] = None,
                    archived: ArchiveMode = "exclude",
                    user=Depends(require_perm("purchases", "view")), db: sqlite3.Connection = Depends(get_db)):
     query = """SELECT p.* FROM purchases p WHERE p.deleted_at IS NULL"""
@@ -394,6 +431,11 @@ def list_purchases(status: Optional[str] = None, supplier: Optional[str] = None,
     if status:
         query += " AND p.status = ?"
         params.append(status)
+    if origin:
+        if origin not in ORIGINS:
+            raise HTTPException(400, "origin must be 'local' or 'foreign'.")
+        query += " AND COALESCE(p.origin, 'local') = ?"
+        params.append(origin)
     if supplier:
         query += " AND p.supplier LIKE ?"
         params.append(f"%{supplier}%")
@@ -402,6 +444,9 @@ def list_purchases(status: Optional[str] = None, supplier: Optional[str] = None,
     query += bf; params += bp
     query += " ORDER BY p.ordered_at DESC"
     rows = db.execute(query, params).fetchall()
+    # Decided once per request, not once per row: the list is the busiest
+    # read in the module and `can` is a query.
+    see_foreign = _can_foreign(user, db, "view")
     # One query for the whole page's lines. A per-row lookup would be a query
     # per purchase, which is how a list page quietly becomes slow.
     by_purchase = {}
@@ -414,6 +459,7 @@ def list_purchases(status: Optional[str] = None, supplier: Optional[str] = None,
     result = []
     for r in rows:
         d = dict(r)
+        d["origin"]      = _col(r, "origin") or "local"
         d["total_cost"]  = _doc_total(r)
         d["grand_total"] = _doc_grand_total(r)
         # Paying and receiving are separate now, so "what is still owed on
@@ -426,7 +472,12 @@ def list_purchases(status: Optional[str] = None, supplier: Optional[str] = None,
         # about to go away; these are derived from the lines and are what the
         # screen and the export read.
         rows_l = by_purchase.get(r["id"], [])
-        d["items"]         = [dict(x) for x in rows_l]
+        # The row stays --- supplier, PO, status and every total --- and the
+        # LINES are what a foreign purchase withholds. Absent, not emptied:
+        # an empty list would read as "no lines" and be wrong; a missing key
+        # reads as "not for you", the same way costs.py withholds a column.
+        if see_foreign or not _is_foreign(r):
+            d["items"] = [dict(x) for x in rows_l]
         d["line_count"]    = len(rows_l)
         d["item_summary"]  = _summarise(rows_l[0]["product_name"] if rows_l else None,
                                         len(rows_l))
@@ -478,7 +529,9 @@ def get_purchase(purchase_id: int, user=Depends(require_perm("purchases", "view"
     if not row:
         raise HTTPException(404, "Purchase not found")
     branch_access.assert_can_view_branch(user, db, row["warehouse_id"])
+    _require_foreign(user, db, row, "view")
     d = dict(row)
+    d["origin"]      = _col(row, "origin") or "local"
     d["total_cost"]  = _doc_total(row)
     d["grand_total"] = _doc_grand_total(row)
     d["paid_total"]  = money(float(_col(row, "paid_total", 0) or 0))
@@ -492,6 +545,12 @@ def get_purchase(purchase_id: int, user=Depends(require_perm("purchases", "view"
 
 @router.post("/")
 def create_purchase(data: PurchaseCreate, user=Depends(require_perm("purchases", "create")), db: sqlite3.Connection = Depends(get_db)):
+    origin = (data.origin or "local").strip().lower()
+    if origin not in ORIGINS:
+        raise HTTPException(400, "origin must be 'local' or 'foreign'.")
+    if origin == "foreign" and not _can_foreign(user, db, "create"):
+        raise HTTPException(
+            403, "Your role cannot raise purchases from foreign suppliers.")
     lines = _normalise_lines(data)
     _validate_lines(lines)
     po = next_po_number(db)
@@ -516,10 +575,10 @@ def create_purchase(data: PurchaseCreate, user=Depends(require_perm("purchases",
     c = db.execute(
         """INSERT INTO purchases
            (po_number, supplier, additional_costs, status, notes, warehouse_id,
-            cost_currency, cost_exchange_rate, ordered_at)
-           VALUES (?,?,?,?,?,?,?,?,?)""",
+            cost_currency, cost_exchange_rate, ordered_at, origin)
+           VALUES (?,?,?,?,?,?,?,?,?,?)""",
         (po, data.supplier, additional_costs, data.status, data.notes,
-         warehouse_id, cost_currency, cost_rate, now)
+         warehouse_id, cost_currency, cost_rate, now, origin)
     )
     purchase_id = c.lastrowid
     _save_lines(db, purchase_id, lines, supplier=data.supplier,
@@ -756,6 +815,7 @@ def update_purchase(purchase_id: int, data: PurchaseUpdate,
     row = db.execute("SELECT * FROM purchases WHERE id = ? AND archived_at IS NULL", (purchase_id,)).fetchone()
     if not row:
         raise HTTPException(404, "Purchase not found")
+    _require_foreign(user, db, row, "edit")
     if _col(row, "voided_at"):
         raise HTTPException(
             400, "This purchase has been voided. Raise a new one rather than "

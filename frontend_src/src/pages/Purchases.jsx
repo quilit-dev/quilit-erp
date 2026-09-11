@@ -29,6 +29,11 @@ import SearchSelect from '../components/SearchSelect.jsx';
 function PurchaseForm({ initial = {}, inventoryItems = [], inventoryCategories = [], suppliers = [], onSave, onCancel, saving }) {
   const { t, tStatus, tCategory } = useLocale();
   const { settings, taxRates, exchangeRate } = useSettings();
+  const { can } = usePermissions();
+  // Raising a purchase from a foreign supplier is its own permission. The
+  // server refuses without it; this is so the person finds out before they
+  // have typed twelve lines, not after.
+  const canRaiseForeign = can('foreign_purchases', 'create');
   const fxRate = Number(exchangeRate?.rate) || 0;
   const hasRate = fxRate > 0;
   const secondary = exchangeRate?.secondary || 'LBP';
@@ -55,6 +60,10 @@ function PurchaseForm({ initial = {}, inventoryItems = [], inventoryCategories =
   // charge. Everything that varies per product lives on a line instead.
   const [form, setForm] = useState({
     supplier:         initial.supplier         || '',
+    // Local or foreign. Snapshotted on the purchase when it is raised --- the
+    // supplier field is free text, so nothing could derive it later --- and
+    // fixed after that, which is why the select below is disabled on edit.
+    origin:           initial.origin           || 'local',
     // Cost may be typed in LBP; it converts to USD on the server at save. Edits
     // always start in USD (the stored PO cost is already USD).
     cost_currency:    'USD',
@@ -139,6 +148,7 @@ function PurchaseForm({ initial = {}, inventoryItems = [], inventoryCategories =
     e.preventDefault();
     onSave({
       supplier:         form.supplier,
+      origin:           form.origin,
       items: lines.map(l => ({
         inventory_id: l.inventory_id ? parseInt(l.inventory_id) : null,
         product_name: l.product_name,
@@ -190,8 +200,38 @@ function PurchaseForm({ initial = {}, inventoryItems = [], inventoryCategories =
               value={form.supplier}
               suppliers={suppliers}
               required
-              onChange={v => set('supplier', v)}
+              onChange={v => {
+                set('supplier', v);
+                // A known supplier decides the section. Only while raising:
+                // an existing purchase keeps the origin it was raised with.
+                if (!isEdit) {
+                  const known = suppliers.find(x => x.name === v);
+                  if (known) set('origin', known.is_foreign ? 'foreign' : 'local');
+                }
+              }}
             />
+          </div>
+
+          <div className="form-group form-full">
+            <label className="form-label">{t('purchases.originLabel')}</label>
+            <SearchSelect className="form-control" value={form.origin}
+              onChange={v => set('origin', v)} allowBlank={false}
+              disabled={isEdit || !canRaiseForeign}
+              options={[{ value: 'local',   label: t('purchases.originLocal') },
+                        { value: 'foreign', label: t('purchases.originForeign') }]} />
+            {isEdit && (
+              <div style={{ fontSize: 12, color: 'var(--text-3)', marginTop: 4 }}>
+                {t('purchases.originFixedHint')}
+              </div>
+            )}
+            {/* Picked a supplier marked foreign, without the permission to
+                raise foreign purchases. Not silently relabelled as local ---
+                the classification is the supplier's, not the typist's. */}
+            {!isEdit && form.origin === 'foreign' && !canRaiseForeign && (
+              <div style={{ fontSize: 12, color: 'var(--caution-ink)', marginTop: 4 }}>
+                {t('purchases.foreignCannotRaise')}
+              </div>
+            )}
           </div>
 
           {warehouses.length > 0 && (
@@ -354,7 +394,8 @@ function PurchaseForm({ initial = {}, inventoryItems = [], inventoryCategories =
       </div>
       <div className="modal-footer">
         <button type="button" className="btn btn-secondary" onClick={onCancel}>{t('common.cancel')}</button>
-        <button type="submit" className="btn btn-primary" disabled={saving}>
+        <button type="submit" className="btn btn-primary"
+          disabled={saving || (!isEdit && form.origin === 'foreign' && !canRaiseForeign)}>
           {saving ? t('common.saving') : isEdit ? t('common.save') : t('purchases.createPurchase')}
         </button>
       </div>
@@ -446,6 +487,9 @@ export default function Purchases() {
   const [loading,             setLoading]             = useState(true);
   const [fetchError,          setFetchError]          = useState(null);
 
+  // Which of the two sections is showing. Persisted like the filters: a
+  // buyer who lives in the Foreign section should find it where they left it.
+  const [section, setSection] = usePersistedState('purchases.section', 'local');
   const [statusFilter, setStatusFilter] = usePersistedState('purchases.statusFilter', '');
   const [categoryFilter, setCategoryFilter] = usePersistedState('purchases.categoryFilter', '');
   const [supplierSearch, setSupplierSearch] = usePersistedState('purchases.supplierSearch', '');
@@ -473,6 +517,7 @@ export default function Purchases() {
     setFetchError(null);
     try {
       const qs = new URLSearchParams({
+        origin: section === 'foreign' ? 'foreign' : 'local',
         ...(statusFilter   ? { status:   statusFilter   } : {}),
         ...(supplierSearch ? { supplier: supplierSearch } : {}),
         ...(showArchived   ? { archived: 'only' }         : {}),
@@ -493,9 +538,14 @@ export default function Purchases() {
     } finally {
       setLoading(false);
     }
-  }, [statusFilter, supplierSearch, showArchived]);
+  }, [section, statusFilter, supplierSearch, showArchived]);
 
   useEffect(() => { load(); }, [load]);
+
+  // A foreign purchase can be OPENED only with the permission. The row still
+  // shows --- supplier, PO, status, total --- because the server sends it; what
+  // the server withholds is the lines, and what this withholds is the click.
+  const canOpen = (p) => p.origin !== 'foreign' || can('foreign_purchases');
 
   async function handleAdd(data) {
     setSaving(true);
@@ -651,6 +701,18 @@ export default function Purchases() {
         ))}
       </div>
 
+      {/* The two sections. Not a filter: a purchase is in exactly one, decided
+          when it was raised, and the foreign one carries its own permission. */}
+      <div className="tabs" style={{ marginBottom: 12 }}>
+        {[['local', t('purchases.sectionLocal')], ['foreign', t('purchases.sectionForeign')]].map(([key, label]) => (
+          <button key={key} type="button"
+            className={`tab-btn${section === key ? ' active' : ''}`}
+            onClick={() => setSection(key)}>
+            {label}
+          </button>
+        ))}
+      </div>
+
       {/* Filters */}
       <div className="card" style={{ marginBottom: 16 }}>
         <div style={{ padding: '12px 16px', display: 'flex', gap: 10, flexWrap: 'wrap', alignItems: 'center' }}>
@@ -730,9 +792,9 @@ export default function Purchases() {
                   const isVoided   = !!p.voided_at;
                   return (
                   <tr key={p.id} className={isArchived || isVoided ? 'row-archived' : undefined}
-                    style={{ cursor: 'pointer' }}
-                    title={t('purchases.viewOrder')}
-                    onClick={() => { setActivePurchase(p); setModal('details'); }}>
+                    style={{ cursor: canOpen(p) ? 'pointer' : 'default' }}
+                    title={canOpen(p) ? t('purchases.viewOrder') : t('purchases.foreignCannotOpen')}
+                    onClick={() => { if (canOpen(p)) { setActivePurchase(p); setModal('details'); } }}>
                     <td className="td-primary text-mono">
                       {p.po_number}
                       {isArchived && <span className="badge badge-gray" style={{ marginInlineStart: 8 }}>{t('common.archivedBadge')}</span>}
@@ -807,8 +869,10 @@ export default function Purchases() {
                                 landed: the server restates the purchase
                                 instead, re-valuing what is still on the shelf
                                 and posting the rest as a cost correction. */}
-                            <IconButton icon="pencil" className="btn btn-sm btn-secondary"
-                              onClick={() => { setActivePurchase(p); setModal('edit'); }} label={t('common.edit')} />
+                            {canOpen(p) && (
+                              <IconButton icon="pencil" className="btn btn-sm btn-secondary"
+                                onClick={() => { setActivePurchase(p); setModal('edit'); }} label={t('common.edit')} />
+                            )}
                             {/* Offered whatever the status. An order voided
                                 before it arrived reverses nothing; one voided
                                 after takes the goods back off the shelf and

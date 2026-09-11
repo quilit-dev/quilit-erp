@@ -4504,6 +4504,35 @@ def _run_migrations(conn, c):
                   "ON stock_movements(created_at)")
         done("182_dashboard_range_indexes")
 
+    # ── 183: purchases from abroad are a different kind of purchase ──────
+    # Two columns and a permission. The supplier carries the master flag; the
+    # purchase snapshots it at creation, because `purchases.supplier` is free
+    # text and `supplier_id` is not written on create, so nothing could be
+    # derived from the supplier record later. Both DEFAULT to today's
+    # behaviour --- every existing row is local --- which is why there is no
+    # backfill here and no marker guard needed for the columns.
+    add_col("183a_supplier_is_foreign", "suppliers", "is_foreign",
+            "ALTER TABLE suppliers ADD COLUMN is_foreign INTEGER NOT NULL "
+            "DEFAULT 0")
+    add_col("183b_purchase_origin", "purchases", "origin",
+            "ALTER TABLE purchases ADD COLUMN origin TEXT NOT NULL "
+            "DEFAULT 'local'")
+
+    # The grant. Today anyone with purchases.create can create ANY purchase,
+    # and a deploy must not take that away. So every role gets
+    # foreign_purchases with exactly the flags it already holds on purchases
+    # --- not a fixed role list. The feature ships as a no-op and becomes a
+    # restriction only when an admin unticks it for a role.
+    if need("183c_foreign_purchases_capability"):
+        c.execute(
+            "INSERT INTO role_permissions "
+            "(role_id, module, can_view, can_create, can_edit, can_delete, can_approve) "
+            "SELECT role_id, 'foreign_purchases', "
+            "       can_view, can_create, can_edit, can_delete, can_approve "
+            "  FROM role_permissions WHERE module = 'purchases' "
+            "ON CONFLICT(role_id, module) DO NOTHING")
+        done("183c_foreign_purchases_capability")
+
     # Last, after every migration that might have added an account: if this
     # tenant is on a statutory chart, anything not on it is retired. Migrations
     # insert accounts ACTIVE, which on such a tenant means a default-chart code
@@ -5728,6 +5757,36 @@ def _ensure_pg_post_baseline(raw):
                     "punch_count INTEGER NOT NULL DEFAULT 0")
         cur.execute("ALTER TABLE hr_attendance ADD COLUMN IF NOT EXISTS "
                     "needs_review INTEGER NOT NULL DEFAULT 0")
+        # 183: local vs foreign purchases. Both columns default to the
+        # existing behaviour, so no backfill.
+        cur.execute("ALTER TABLE suppliers ADD COLUMN IF NOT EXISTS "
+                    "is_foreign INTEGER NOT NULL DEFAULT 0")
+        cur.execute("ALTER TABLE purchases ADD COLUMN IF NOT EXISTS "
+                    "origin TEXT NOT NULL DEFAULT 'local'")
+        # The permission grant is an INSERT, and this function runs on EVERY
+        # boot for EVERY tenant --- so it is marker-guarded, the way the
+        # fixed_assets backfill had to be. Without the guard an admin who
+        # unticked foreign_purchases for a role would get it re-granted on the
+        # next deploy (ON CONFLICT DO NOTHING only protects rows that still
+        # exist; a deleted row is not a conflict).
+        #
+        # It lives HERE and not only in _seed_roles_and_admin because the seed
+        # runs for `public` alone --- upgrade_all_tenant_schemas calls only
+        # this function --- so a grant made in the seed never reaches a tenant
+        # that already exists.
+        cur.execute("SELECT 1 FROM schema_migrations "
+                    "WHERE name='183c_foreign_purchases_capability'")
+        if not cur.fetchone():
+            cur.execute(
+                "INSERT INTO role_permissions "
+                "(role_id, module, can_view, can_create, can_edit, can_delete, can_approve) "
+                "SELECT role_id, 'foreign_purchases', "
+                "       can_view, can_create, can_edit, can_delete, can_approve "
+                "  FROM role_permissions WHERE module = 'purchases' "
+                "ON CONFLICT (role_id, module) DO NOTHING")
+            cur.execute("INSERT INTO schema_migrations (name, applied_at) "
+                        "VALUES ('183c_foreign_purchases_capability', "
+                        "        now()::text)")
     raw.commit()
 
 
@@ -6351,6 +6410,17 @@ def _seed_roles_and_admin(c):
                        'Procurement Officer', 'Inventory',
                        'Production Manager', 'Operations Manager'):
         _set_perm(_cost_role, 'costs', *_V)
+
+    # Purchases from abroad. Seeded as a copy of whatever each role holds on
+    # `purchases`, so a fresh install starts exactly where an upgraded one
+    # does (migration 183c): nobody restricted until an admin decides to.
+    c.execute(
+        "INSERT INTO role_permissions "
+        "(role_id, module, can_view, can_create, can_edit, can_delete, can_approve) "
+        "SELECT role_id, 'foreign_purchases', "
+        "       can_view, can_create, can_edit, can_delete, can_approve "
+        "  FROM role_permissions WHERE module = 'purchases' "
+        "ON CONFLICT(role_id, module) DO NOTHING")
 
     # HR holds sensitive data (salaries, contracts, applicant CVs, internal
     # touchpoints) — granted explicitly rather than via the blanket Viewer

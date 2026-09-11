@@ -2427,6 +2427,15 @@ const en = {
     statsTotalSpent: 'Total Spent',
     itemsLabel: 'Items',
     viewOrder: 'Open this order',
+    // The two sections, and the field that decides which one a purchase is in.
+    sectionLocal: 'Local suppliers',
+    sectionForeign: 'Foreign suppliers',
+    originLabel: 'Bought from',
+    originLocal: 'A local supplier',
+    originForeign: 'A foreign supplier',
+    originFixedHint: 'Set when the purchase was raised; it cannot be changed afterwards.',
+    foreignCannotOpen: 'From a foreign supplier — your role can see the total but not open it.',
+    foreignCannotRaise: 'This supplier is marked as foreign, and your role cannot raise purchases from foreign suppliers.',
     restateWarning: 'These goods have already been received. Saving will '
       + 're-value the stock still on the shelf, post a cost correction '
       + 'dated today for anything already sold, and restate the payment. '
@@ -2511,6 +2520,8 @@ const en = {
     supplierNameLabel: 'Supplier Name *',
     contactPerson: 'Contact Person',
     paymentTermsDaysLabel: 'Payment Terms (days)',
+    isForeign: 'Foreign supplier',
+    isForeignHint: 'New purchases from this supplier go in the Foreign section, which needs the Foreign purchases permission to open or raise.',
     purchaseHistory: 'Purchase History',
     noPurchases: 'No purchases recorded yet.',
     supplierDetail: 'Supplier Detail',
@@ -3218,6 +3229,8 @@ const en = {
     system: 'System',
     moduleCosts: 'Cost prices',
     moduleCostsHint: 'See what stock cost to buy. Withhold it and staff work in selling prices only.',
+    moduleForeignPurchases: 'Foreign purchases',
+    moduleForeignPurchasesHint: 'Open and raise purchases from foreign suppliers. Without it a foreign purchase still shows in the list with its total, but cannot be opened, and its lines and item costs stay hidden.',
     actionView:    'View',
     actionCreate:  'Create',
     actionEdit:    'Edit',

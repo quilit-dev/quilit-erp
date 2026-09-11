@@ -69,7 +69,7 @@ _MODULE_PARENT = {
 # sidebar entry, so it never appears in a vendor's ENABLED_MODULES list. Absent
 # from this set, module_allowed() would paywall it on every licensed install and
 # the OWNER would lose sight of their own cost prices.
-_ALWAYS_ON = {"dashboard", "users", "roles", "costs"}
+_ALWAYS_ON = {"dashboard", "users", "roles", "costs", "foreign_purchases"}
 
 
 def enabled_modules_set():

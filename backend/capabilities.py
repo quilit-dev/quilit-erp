@@ -37,6 +37,9 @@ reads in `routers/` (see `_REQUIRES` notes), not from intuition.
 ALWAYS_ON = frozenset({
     "dashboard", "users", "roles", "settings", "audit", "accounting",
     "costs",
+    # Same shape as costs: who may open a foreign purchase is an RBAC
+    # decision, not a thing the licence should be able to switch off.
+    "foreign_purchases",
 })
 
 # module -> modules it cannot function without.

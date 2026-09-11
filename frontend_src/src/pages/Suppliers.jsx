@@ -13,7 +13,7 @@ import ImportWizard from '../components/ImportWizard';
 
 const EMPTY = {
   name: '', contact_name: '', phone: '', email: '',
-  payment_terms_days: 30, notes: '',
+  payment_terms_days: 30, notes: '', is_foreign: false,
 };
 
 export default function Suppliers() {
@@ -67,6 +67,7 @@ export default function Suppliers() {
         email:              form.email?.trim()        || null,
         payment_terms_days: Number(form.payment_terms_days) || 30,
         notes:              form.notes?.trim()        || null,
+        is_foreign:         !!form.is_foreign,
       };
       if (editId) { await updateSupplier(editId, payload); toast(t('suppliers.supplierUpdated')); }
       else        { await createSupplier(payload);          toast(t('suppliers.supplierCreated')); }
@@ -244,6 +245,20 @@ export default function Suppliers() {
                   <label className="form-label">{t('suppliers.notes')}</label>
                   <input className="form-control" value={form.notes}
                     onChange={e => setForm(f => ({ ...f, notes: e.target.value }))} />
+                </div>
+                {/* Abroad or not. This is what a new purchase from this
+                    supplier defaults to; the purchase then carries its own
+                    copy, because that is what the foreign-purchases permission
+                    is checked against. */}
+                <div className="form-group" style={{ gridColumn: '1 / -1' }}>
+                  <label className="archived-toggle">
+                    <input type="checkbox" checked={!!form.is_foreign}
+                      onChange={e => setForm(f => ({ ...f, is_foreign: e.target.checked }))} />
+                    {t('suppliers.isForeign')}
+                  </label>
+                  <div style={{ fontSize: 12, color: 'var(--text-3)', marginTop: 4 }}>
+                    {t('suppliers.isForeignHint')}
+                  </div>
                 </div>
               </div>
             </div>

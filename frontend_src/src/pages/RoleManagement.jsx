@@ -44,6 +44,10 @@ const CORE_MODULES  = [
   // Cost visibility — a field-level capability, not a screen. Withhold it and
   // the modules above stay reachable; their cost columns simply are not there.
   'costs',
+  // Purchases from foreign suppliers — the same shape. Everyone with Purchases
+  // still sees a foreign purchase in the list with its total; without this
+  // they cannot open it, read its lines, or raise one.
+  'foreign_purchases',
   // People
   'hr', 'hr_contracts', 'hr_activities', 'recruitment',
   // Client + internal comms
@@ -144,6 +148,7 @@ export default function RoleManagement() {
     reports:       t('nav.reports'),
     // No nav entry of its own — it is a capability, not a screen.
     costs:         t('roles.moduleCosts'),
+    foreign_purchases: t('roles.moduleForeignPurchases'),
     service:       t('nav.service'),
     communications: t('nav.communications'),
     crm:           t('nav.crm'),

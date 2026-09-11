@@ -104,6 +104,10 @@ _REQUIRED = [
     ("time_punches", "punched_at"),
     ("time_punches", "employee_id"),
     ("time_device_users", "device_user_id"),
+    # Local vs foreign purchases. The supplier carries the flag, the purchase
+    # snapshots it, and both default to "local" so no backfill exists to drift.
+    ("suppliers", "is_foreign"),
+    ("purchases", "origin"),
 ]
 
 

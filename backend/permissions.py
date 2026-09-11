@@ -53,6 +53,14 @@ MODULES = [
     # editor, the seeded matrix and check_perm rather than growing a parallel
     # mechanism. Only the `view` action is meaningful.
     'costs',
+    # Purchases from FOREIGN suppliers. The same idea as `costs` --- a
+    # permission key, not a screen: every purchase still appears in the list
+    # with its total for anyone holding `purchases`, but a foreign one cannot
+    # be opened, have its lines read, or be authored without this. `view`
+    # gates reading the lines; `create`/`edit`/`delete` gate authoring. Status
+    # changes, receipt, payment and voiding stay on `purchases` on purpose ---
+    # a warehouse receiving a container has no business seeing what it cost.
+    'foreign_purchases',
 ]
 ADMIN_MODULES = ['settings', 'users', 'roles', 'audit']
 ALL_MODULES   = MODULES + ADMIN_MODULES
