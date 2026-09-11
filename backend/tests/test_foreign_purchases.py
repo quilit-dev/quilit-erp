@@ -17,11 +17,11 @@ Three things these tests care about beyond the gating itself:
     purchase has no lines" and be a lie; a missing key reads as "not for you",
     the same way costs.py withholds a column. `line_count` and the totals stay.
 
-  * **Operational acts are deliberately NOT gated.** Receiving a container,
-    paying the supplier, voiding --- warehouse and finance staff do those on
-    documents that already exist, and none of them reveals a line cost. Gating
-    receipt would stop a warehouse taking delivery. That decision is pinned
-    here so it cannot drift into a gate by accident.
+  * **Every action follows the matching flag.** The owner chose to have the
+    two permission rows read the same way in the role editor: `view` opens it,
+    `create` raises one, `edit` changes / receives / pays, `delete` voids or
+    archives. Each is checked on top of the ordinary `purchases` action, so
+    holding `purchases.edit` alone no longer receives a foreign container.
 
   * **A deploy takes nothing away.** Today anyone holding `purchases.create`
     can raise any purchase. The upgrade grants `foreign_purchases` with the
@@ -170,29 +170,69 @@ def test_editing_a_foreign_purchase_needs_the_key(as_role, db):
     assert r.status_code == 403, r.text
 
 
-# ── the deliberate non-gates ─────────────────────────────────────────────────
-def test_receiving_a_foreign_purchase_is_not_gated(as_role, db):
-    """A warehouse takes delivery of a container without knowing what it cost.
-    Status changes stay on `purchases`, where they were."""
+# ── every action follows its flag ────────────────────────────────────────────
+def _grant(db, role, view=0, create=0, edit=0, delete=0):
+    """Give ROLE exactly these foreign_purchases flags (replacing any row)."""
+    _revoke(db, role)
+    db.execute("INSERT INTO role_permissions "
+               "(role_id, module, can_view, can_create, can_edit, can_delete, can_approve) "
+               "VALUES ((SELECT id FROM roles WHERE name = ?), 'foreign_purchases', "
+               "        ?, ?, ?, ?, 0)", (role, view, create, edit, delete))
+    db.commit()
+
+
+def test_receiving_a_foreign_purchase_needs_edit(as_role, db):
     owner = as_role("superadmin")
     foreign = _purchase(owner, "foreign")
-    _revoke(db)
 
-    r = as_role(ROLE).patch(f"/api/purchases/{foreign}/status",
-                            json={"status": "Received"})
+    _grant(db, ROLE, view=1)                       # can look, cannot touch
+    r = as_role(ROLE).patch(f"/api/purchases/{foreign}/status", json={"status": "Received"})
+    assert r.status_code == 403, r.text
+
+    _grant(db, ROLE, view=1, edit=1)
+    r = as_role(ROLE).patch(f"/api/purchases/{foreign}/status", json={"status": "Received"})
     assert r.status_code == 200, r.text
 
 
-def test_paying_a_foreign_purchase_is_not_gated(as_role, db):
-    """Settling the supplier is `purchases.edit`, as it always was; the
-    payments screen shows a total the role can already see."""
+def test_paying_a_foreign_purchase_needs_edit(as_role, db):
     owner = as_role("superadmin")
     foreign = _purchase(owner, "foreign", cost=10.0)
-    _revoke(db)
 
-    r = as_role(ROLE).post(f"/api/purchases/{foreign}/payments",
-                           json={"amount": 10.0})
+    _grant(db, ROLE, view=1)
+    r = as_role(ROLE).post(f"/api/purchases/{foreign}/payments", json={"amount": 10.0})
+    assert r.status_code == 403, r.text
+
+    _grant(db, ROLE, view=1, edit=1)
+    r = as_role(ROLE).post(f"/api/purchases/{foreign}/payments", json={"amount": 10.0})
     assert r.status_code in (200, 201), r.text
+
+
+def test_voiding_a_foreign_purchase_needs_delete(as_role, db):
+    """`edit` is not enough to void: that is the `purchases` rule too.
+
+    Branch Manager rather than Inventory here, because the positive case needs
+    a role that holds purchases.delete in the first place --- the foreign flag
+    is checked on TOP of the ordinary one, never instead of it."""
+    owner = as_role("superadmin")
+    foreign = _purchase(owner, "foreign")
+
+    _grant(db, "Branch Manager", view=1, edit=1)
+    r = as_role("Branch Manager").patch(f"/api/purchases/{foreign}/void", json={"reason": "test"})
+    assert r.status_code == 403, r.text
+
+    _grant(db, "Branch Manager", view=1, edit=1, delete=1)
+    r = as_role("Branch Manager").patch(f"/api/purchases/{foreign}/void", json={"reason": "test"})
+    assert r.status_code == 200, r.text
+
+
+def test_a_local_purchase_ignores_the_foreign_flags_entirely(as_role, db):
+    """Withholding every foreign flag must not touch the ordinary job."""
+    owner = as_role("superadmin")
+    local = _purchase(owner, "local", cost=10.0)
+    _revoke(db)
+    c = as_role(ROLE)
+    assert c.patch(f"/api/purchases/{local}/status", json={"status": "Received"}).status_code == 200
+    assert c.post(f"/api/purchases/{local}/payments", json={"amount": 10.0}).status_code in (200, 201)
 
 
 # ── a deploy takes nothing away ──────────────────────────────────────────────

@@ -166,10 +166,14 @@ describe('correcting a purchase after the goods have landed', () => {
     // longer sits inside the branch that offers Receive — which is now gated
     // on whether the goods have arrived rather than on the status word, since
     // a prepaid order is still waiting for its delivery.
-    const receiveBranch = pageSrc.match(/\{!p\.received_at && \([\s\S]*?\)\}/)[0];
+    // The head now also carries the foreign-purchases flag, so the branch's
+    // opening `(` is the LAST one on that line.
+    const receiveBranch = pageSrc.match(/\{!p\.received_at &&[^\n]*\(\n[\s\S]*?\)\}/)[0];
     expect(receiveBranch).not.toMatch(/common\.edit/);
+    // Opening for edit goes through the server (GET /{id}), so the click is
+    // `openPurchase(p, 'edit')` rather than a state set from the list row.
     expect(pageSrc).toMatch(
-      /setActivePurchase\(p\); setModal\('edit'\);[\s\S]{0,80}t\('common\.edit'\)/);
+      /openPurchase\(p, 'edit'\)[\s\S]{0,80}t\('common\.edit'\)/);
   });
 
   test('the form warns before restating', () => {

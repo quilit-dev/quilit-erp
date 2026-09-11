@@ -237,6 +237,7 @@ export const getLot                 = (id)   => api.get(`/api/inventory/lots/${i
 
 // Purchases
 export const getPurchases         = (qs)   => api.get(`/api/purchases/${qs || ''}`);
+export const getPurchase          = (id)   => api.get(`/api/purchases/${id}`);
 export const getPurchaseStats     = ()     => api.get('/api/purchases/stats');
 export const createPurchase       = (d)    => api.post('/api/purchases/', d);
 export const updatePurchase       = (id, d) => api.put(`/api/purchases/${id}`, d);

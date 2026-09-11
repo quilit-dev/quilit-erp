@@ -397,10 +397,12 @@ def _save_lines(db, purchase_id, lines, *, supplier, cost_currency, cost_rate, n
 # the list with its total for anyone holding `purchases`; a foreign one cannot
 # be OPENED, have its LINES read, or be AUTHORED without it.
 #
-# Status changes, receipt, payment and voiding are deliberately NOT behind it.
-# Those are operational acts on a document that already exists, done by
-# warehouse and finance staff, and none of them reveals what a line cost.
-# Gating receipt would stop a warehouse taking delivery of a container.
+# Every action on a foreign purchase needs the matching foreign_purchases
+# action on top of the purchases one: view to open and read lines, create to
+# raise, edit to change it / receive / pay, delete to void or archive. The
+# owner chose this over leaving receipt and payment on `purchases` alone ---
+# which would have let a warehouse receive a container without the key --- so
+# the two permission rows read the same way in the role editor.
 def _is_foreign(row) -> bool:
     return (_col(row, "origin") or "local") == "foreign"
 
@@ -415,7 +417,9 @@ def _require_foreign(user, db, row, action):
     if _is_foreign(row) and not _can_foreign(user, db, action):
         raise HTTPException(
             403, "This purchase is from a foreign supplier. Your role can see "
-                 "its total but cannot open it.")
+                 "its total but cannot %s it." % {
+                     "view": "open", "create": "raise", "edit": "change",
+                     "delete": "void or archive"}.get(action, action))
 
 
 @router.get("/")
@@ -952,6 +956,7 @@ def update_status(purchase_id: int, data: StatusUpdate,
     row = db.execute("SELECT * FROM purchases WHERE id = ? AND archived_at IS NULL", (purchase_id,)).fetchone()
     if not row:
         raise HTTPException(404, "Purchase not found")
+    _require_foreign(user, db, row, "edit")
 
     if _col(row, "voided_at"):
         raise HTTPException(
@@ -1391,6 +1396,7 @@ def add_purchase_payment(purchase_id: int, data: PaymentIn,
         (purchase_id,)).fetchone()
     if not row:
         raise HTTPException(404, "Purchase not found")
+    _require_foreign(user, db, row, "edit")
     branch_access.assert_can_view_branch(user, db, row["warehouse_id"])
     if _col(row, "voided_at"):
         raise HTTPException(400, "This purchase has been voided.")
@@ -1432,6 +1438,7 @@ def void_purchase_payment(purchase_id: int, payment_id: int, data: VoidRequest,
     row = db.execute("SELECT * FROM purchases WHERE id=?", (purchase_id,)).fetchone()
     if not row:
         raise HTTPException(404, "Purchase not found")
+    _require_foreign(user, db, row, "edit")
     branch_access.assert_can_view_branch(user, db, row["warehouse_id"])
     pay = db.execute(
         "SELECT * FROM purchase_payments WHERE id=? AND purchase_id=?",
@@ -1503,6 +1510,7 @@ def void_purchase(
         (purchase_id,)).fetchone()
     if not row:
         raise HTTPException(404, "Purchase not found")
+    _require_foreign(user, db, row, "delete")
     branch_access.assert_can_view_branch(user, db, row["warehouse_id"])
     if _col(row, "voided_at"):
         raise HTTPException(400, "Purchase is already voided.")
@@ -1727,6 +1735,7 @@ def archive_purchase(purchase_id: int, user=Depends(require_perm("purchases", "d
     row = db.execute("SELECT * FROM purchases WHERE id = ? AND archived_at IS NULL", (purchase_id,)).fetchone()
     if not row:
         raise HTTPException(404, "Purchase not found")
+    _require_foreign(user, db, row, "delete")
     # Void first, then archive. The old rule refused anything Received or Paid,
     # because its stock and its ledger entry were committed — but that also
     # refused a purchase that had been properly voided, which is precisely the
@@ -1750,6 +1759,7 @@ def unarchive_purchase(purchase_id: int, user=Depends(require_perm("purchases", 
     row = db.execute("SELECT * FROM purchases WHERE id = ? AND archived_at IS NOT NULL", (purchase_id,)).fetchone()
     if not row:
         raise HTTPException(404, "Purchase not found in archives")
+    _require_foreign(user, db, row, "edit")
     db.execute("UPDATE purchases SET archived_at=NULL, archive_reason=NULL WHERE id=?", (purchase_id,))
     log_action(db, user, "unarchive", "purchase", purchase_id, row["po_number"])
     db.commit()

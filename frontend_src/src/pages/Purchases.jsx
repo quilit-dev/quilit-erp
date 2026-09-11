@@ -1,7 +1,7 @@
 import { usePersistedState } from '../hooks/usePersistedState';
 import { useState, useCallback, useEffect, useRef } from 'react';
 import {
-  getPurchases, getPurchaseStats, createPurchase,
+  getPurchases, getPurchase, getPurchaseStats, createPurchase,
   updatePurchase, updatePurchaseStatus, voidPurchase, archivePurchase, unarchivePurchase,
   payPurchase, getPurchasePayments,
   getInventory, getUsedCategories, getSuppliers,
@@ -508,7 +508,7 @@ export default function Purchases() {
   useEffect(() => {
     if (focusId != null && purchases?.length) {
       const p = purchases.find(x => x.id === focusId);
-      if (p) { setActivePurchase(p); setModal('edit'); clearFocus(); }
+      if (p) { openPurchase(p, 'edit'); clearFocus(); }
     }
   }, [focusId, purchases]);
 
@@ -542,10 +542,27 @@ export default function Purchases() {
 
   useEffect(() => { load(); }, [load]);
 
-  // A foreign purchase can be OPENED only with the permission. The row still
-  // shows --- supplier, PO, status, total --- because the server sends it; what
-  // the server withholds is the lines, and what this withholds is the click.
-  const canOpen = (p) => p.origin !== 'foreign' || can('foreign_purchases');
+  // On a foreign purchase every action needs the matching foreign_purchases
+  // flag on top of the ordinary one: view opens it, edit changes / receives /
+  // pays, delete voids or archives. A local purchase ignores the flags.
+  const canForeign = (p, action = 'view') =>
+    p.origin !== 'foreign' || can('foreign_purchases', action);
+  const canOpen = (p) => canForeign(p, 'view');
+
+  // Opening goes through the server, not the row. `can()` reads permissions
+  // cached at login, so a role changed since then --- or a deep link, or a
+  // search hit --- could otherwise show the header of a purchase the server
+  // would refuse. GET /{id} is the one answer that is always current, and it
+  // is also what carries the lines and payments the modal draws.
+  async function openPurchase(p, mode) {
+    try {
+      const full = await getPurchase(p.id);
+      setActivePurchase({ ...p, ...full });
+      setModal(mode);
+    } catch (err) {
+      toast(err.message, 'red');
+    }
+  }
 
   async function handleAdd(data) {
     setSaving(true);
@@ -794,7 +811,7 @@ export default function Purchases() {
                   <tr key={p.id} className={isArchived || isVoided ? 'row-archived' : undefined}
                     style={{ cursor: canOpen(p) ? 'pointer' : 'default' }}
                     title={canOpen(p) ? t('purchases.viewOrder') : t('purchases.foreignCannotOpen')}
-                    onClick={() => { if (canOpen(p)) { setActivePurchase(p); setModal('details'); } }}>
+                    onClick={() => { if (canOpen(p)) openPurchase(p, 'details'); }}>
                     <td className="td-primary text-mono">
                       {p.po_number}
                       {isArchived && <span className="badge badge-gray" style={{ marginInlineStart: 8 }}>{t('common.archivedBadge')}</span>}
@@ -836,20 +853,20 @@ export default function Purchases() {
                     <td onClick={e => e.stopPropagation()}>
                       <div style={{ display: 'flex', gap: 6 }}>
                         {isArchived ? (
-                          <IconButton icon="rotate-ccw" label={t('common.restore')} className="btn btn-sm btn-secondary" style={{ color: 'var(--affirm-ink)', whiteSpace: 'nowrap' }} onClick={() => setRestoreTarget(p)} />
+                          canForeign(p, 'edit') && <IconButton icon="rotate-ccw" label={t('common.restore')} className="btn btn-sm btn-secondary" style={{ color: 'var(--affirm-ink)', whiteSpace: 'nowrap' }} onClick={() => setRestoreTarget(p)} />
                         ) : isVoided ? (
                           /* Cancelled. The only thing left to do with it is
                              file it away — and archiving is refused until a
                              purchase IS cancelled, which is why the button
                              lives here and not on a live row. */
-                          <IconButton icon="archive" label={t('common.archive')} className="btn btn-sm btn-secondary" onClick={() => { setActivePurchase(p); setModal('delete'); }} />
+                          canForeign(p, 'delete') && <IconButton icon="archive" label={t('common.archive')} className="btn btn-sm btn-secondary" onClick={() => { setActivePurchase(p); setModal('delete'); }} />
                         ) : (
                           <>
                             {/* Receiving is about the GOODS, so it is offered
                                 whether or not the order has been paid for —
                                 a pre-order that has been settled in advance is
                                 still waiting to be delivered. */}
-                            {!p.received_at && (
+                            {!p.received_at && canForeign(p, 'edit') && (
                               <button className="btn btn-sm btn-secondary"
                                 onClick={() => handleStatus(p, 'Received')}>{t('purchases.receive')}</button>
                             )}
@@ -858,7 +875,7 @@ export default function Purchases() {
                                 the delivery as readily as after. This is what
                                 makes a pre-order enterable without pretending
                                 the stock has arrived. */}
-                            {p.outstanding > 0.005 && (
+                            {p.outstanding > 0.005 && canForeign(p, 'edit') && (
                               <button className="btn btn-sm btn-secondary"
                                 onClick={() => setPayingFor(p)}>
                                 {p.received_at ? t('purchases.markPaid') : t('purchases.payNow')}
@@ -869,18 +886,20 @@ export default function Purchases() {
                                 landed: the server restates the purchase
                                 instead, re-valuing what is still on the shelf
                                 and posting the rest as a cost correction. */}
-                            {canOpen(p) && (
+                            {canForeign(p, 'edit') && (
                               <IconButton icon="pencil" className="btn btn-sm btn-secondary"
-                                onClick={() => { setActivePurchase(p); setModal('edit'); }} label={t('common.edit')} />
+                                onClick={() => openPurchase(p, 'edit')} label={t('common.edit')} />
                             )}
                             {/* Offered whatever the status. An order voided
                                 before it arrived reverses nothing; one voided
                                 after takes the goods back off the shelf and
                                 mirrors the ledger entry. */}
-                            <button className="btn btn-sm btn-danger"
-                              onClick={() => { setVoidTarget(p); setVoidReason(''); }}>
-                              {t('purchases.void')}
-                            </button>
+                            {canForeign(p, 'delete') && (
+                              <button className="btn btn-sm btn-danger"
+                                onClick={() => { setVoidTarget(p); setVoidReason(''); }}>
+                                {t('purchases.void')}
+                              </button>
+                            )}
                           </>
                         )}
                       </div>

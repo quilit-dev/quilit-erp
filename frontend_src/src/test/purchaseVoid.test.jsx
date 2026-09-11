@@ -122,9 +122,12 @@ describe('the action', () => {
       }
       throw new Error(`unbalanced ${head} branch`);
     };
-    for (const head of ['!p.received_at', 'p.outstanding > 0.005']) {
+    // Each head carries the foreign-purchases flag after the fact it tests;
+    // the full condition is what opens the branch.
+    for (const head of ["!p.received_at && canForeign(p, 'edit')",
+                        "p.outstanding > 0.005 && canForeign(p, 'edit')"]) {
       expect(branch(head), `void inside ${head}`).not.toMatch(/setVoidTarget/);
-      expect(branch(head), `edit inside ${head}`).not.toMatch(/setModal\('edit'\)/);
+      expect(branch(head), `edit inside ${head}`).not.toMatch(/openPurchase\(p, 'edit'\)/);
     }
     expect(pageSrc).toMatch(/setVoidTarget\(p\); setVoidReason\(''\);/);
   });

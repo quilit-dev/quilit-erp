@@ -91,12 +91,14 @@ describe('the two buttons follow the two facts, not one ladder', () => {
     // `p.status === 'Ordered'` was the bug: a prepaid order has status
     // 'Prepaid', so the Receive button vanished the moment it was paid for —
     // leaving no way at all to book the delivery.
-    expect(purchasesSrc).toMatch(/\{!p\.received_at && \(/);
+    // The branch head is the fact; a foreign purchase adds its own flag after
+    // it (`&& canForeign(p, 'edit')`), which is why the match stops at the `&&`.
+    expect(purchasesSrc).toMatch(/\{!p\.received_at && /);
     expect(purchasesSrc).not.toMatch(/p\.status === 'Ordered' && \(\s*\n\s*<button[^>]*\n[^\n]*handleStatus\(p, 'Received'\)/);
   });
 
   test('paying is offered while anything is outstanding', () => {
-    expect(purchasesSrc).toMatch(/\{p\.outstanding > 0\.005 && \(/);
+    expect(purchasesSrc).toMatch(/\{p\.outstanding > 0\.005 && /);
     expect(purchasesSrc).not.toMatch(/p\.status === 'Received' && \(\s*\n\s*<button[^>]*\n[^\n]*setPayingFor/);
   });
 
