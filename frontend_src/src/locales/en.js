@@ -1209,6 +1209,7 @@ const en = {
 
   dashboard: {
     title: 'Dashboard',
+    overviewSubtitle: 'Business performance, daily operations, and items requiring action.',
     monthlyRevenue: 'Monthly Revenue',
     collectedThisMonth: 'Collected this month',
     periodThisMonth: 'This month',
@@ -1257,10 +1258,7 @@ const en = {
     project: 'Project',
     client: 'Client',
     invoice: 'Invoice',
-    // Smart greeting + sections
-    goodMorning: 'Good morning',
-    goodAfternoon: 'Good afternoon',
-    goodEvening: 'Good evening',
+    // Dashboard sections
     needsAttention: 'Needs attention',
     everythingClear: "You're all caught up — no items need attention right now.",
     operationsToday: 'Operations Today',

@@ -5,6 +5,7 @@ import { getDashboard, getMonthlyReport, getFinanceRangeSummary } from '../api/c
 import { LoadingSpinner, ErrorAlert, useMoney, DisplayCurrencyToggle, Icon } from '../components/shared';
 import { useLocale } from '../hooks/useLocale.jsx';
 import { useModules } from '../hooks/useModules';
+import PageMasthead from '../components/PageMasthead.jsx';
 
 // Display primitives (charts, KPI cards, chips) live in ./dashboard/ui.jsx —
 // this file is the page itself.
@@ -82,8 +83,7 @@ export default function Dashboard() {
   const overdueAmt = data.overdue_invoices_amount || 0;
   const overdueCount = data.overdue_invoices_count || 0;
 
-  // Trend sparklines (6-month chart, padded with zeros so a partial history
-  // still renders a curve rather than collapsing to a flat line).
+  // Trend sparklines use the available monthly history, up to six months.
   const months    = Array.isArray(monthly) ? monthly.slice(-6) : [];
   const incSpark  = months.map(m => m.income   || 0);
   const expSpark  = months.map(m => m.expenses || 0);
@@ -111,16 +111,6 @@ export default function Dashboard() {
   const healthScore = serverHealthScore != null && Number.isFinite(Number(serverHealthScore))
     ? Number(serverHealthScore)
     : fallbackHealthScore;
-
-  // ── Header context ────────────────────────────────────────────────────
-  const today = new Date();
-  const hour = today.getHours();
-  const greeting = hour < 12 ? t('dashboard.goodMorning')
-                 : hour < 18 ? t('dashboard.goodAfternoon')
-                 : t('dashboard.goodEvening');
-  const fullDate = today.toLocaleDateString(isRTL ? 'ar-SA-u-nu-latn' : 'default',
-                                            { weekday: 'long', month: 'long', day: 'numeric', year: 'numeric' });
-  const firstName = (data.current_user_name || '').split(' ')[0];
 
   // ── "Needs attention" action chips ────────────────────────────────────
   // Built once so we can render a friendly "all clear" empty state when zero.
@@ -170,67 +160,33 @@ export default function Dashboard() {
 
   return (
     <div style={{ animation: 'fadeIn 0.25s ease' }}>
-      {/* ── Greeting header ────────────────────────────────────────── */}
-      <div className="page-header" style={{ alignItems: 'center' }}>
-        <div>
-          <h1 className="page-title">{firstName ? `${greeting}, ${firstName}` : greeting}</h1>
-          <p className="page-subtitle">{fullDate} · {t('common.realtimeOverview')}</p>
-        </div>
-        <div style={{ display: 'flex', alignItems: 'center', gap: 8, flexWrap: 'wrap' }}>
-          <DisplayCurrencyToggle />
-          {data.unread_notifications > 0 && (
-            <button
-              onClick={() => navigate('/notifications')}
-              style={{
-                display: 'inline-flex', alignItems: 'center', gap: 6,
-                padding: '6px 11px', borderRadius: 20,
-                background: 'var(--surface-2)', color: 'var(--text-2)',
-                border: '1px solid var(--border)', fontSize: 12, fontWeight: 600,
-                cursor: 'pointer',
-              }}
-              title="Notifications"
-            >
-              <span style={{ display: 'inline-flex' }}><Icon name="bell" size={13} /></span>
-              <span style={{ background: 'var(--red)', color: '#fff', borderRadius: 999, padding: '0 6px', fontSize: 10.5, fontWeight: 700 }}>{data.unread_notifications}</span>
-            </button>
-          )}
-          <div style={{ display: 'flex', alignItems: 'center', gap: 6, background: 'var(--green-light)', color: 'var(--green)', padding: '5px 11px', borderRadius: 20, fontSize: 11.5, fontWeight: 600 }}>
-            <div style={{ width: 6, height: 6, borderRadius: '50%', background: 'var(--green)', animation: 'pulse 2s infinite' }} />
-            {t('common.liveData')}
-          </div>
-        </div>
-      </div>
+      <PageMasthead
+        title={t('dashboard.title')}
+        subtitle={t('dashboard.overviewSubtitle')}
+      />
 
       {/* ── Needs attention action bar ──────────────────────────────── */}
       {chips.length > 0 ? (
-        <div style={{
-          padding: '14px 16px', marginBottom: 16,
-          background: 'linear-gradient(135deg, var(--surface) 0%, var(--surface-2) 100%)',
-          border: '1px solid var(--border)', borderRadius: 12,
-        }}>
-          <div style={{ display: 'inline-flex', alignItems: 'center', gap: 5, fontSize: 10.5, fontWeight: 700, color: 'var(--text-3)', textTransform: 'uppercase', letterSpacing: '.8px', marginBottom: 10 }}>
+        <section className="attention-panel" aria-labelledby="dashboard-attention-title">
+          <div className="attention-heading" id="dashboard-attention-title">
             <Icon name="zap" size={12} /> {t('dashboard.needsAttention')}
           </div>
-          <div style={{ display: 'flex', flexWrap: 'wrap', gap: 8 }}>
+          <div className="attention-list">
             {chips.map((c, i) => <ActionChip key={i} {...c} />)}
           </div>
-        </div>
+        </section>
       ) : (showPrimaryFinance || showOpsToday) && (
-        <div style={{
-          padding: '12px 16px', marginBottom: 16,
-          background: 'var(--green-light)', border: '1px solid rgba(16,185,129,.22)',
-          color: 'var(--green)', borderRadius: 12, fontSize: 12.5, fontWeight: 600,
-          display: 'flex', alignItems: 'center', gap: 8,
-        }}>
+        <div className="attention-clear" role="status">
           <Icon name="check-circle" size={15} />
           <span>{t('dashboard.everythingClear')}</span>
         </div>
       )}
 
       {/* ── Primary KPIs (finance) + Health Ring ───────────────────── */}
-      {showPrimaryFinance && can.finance && (
-        <div style={{ display: 'flex', justifyContent: 'flex-end', gap: 4, marginBottom: 8 }}>
-          {[
+      {!noPermissions && (
+        <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'flex-end', flexWrap: 'wrap', gap: 8, marginBottom: 8 }}>
+          <DisplayCurrencyToggle />
+          {can.finance && [
             ['month',     t('dashboard.periodThisMonth')],
             ['lastMonth', t('dashboard.periodLastMonth')],
             ['ytd',       t('dashboard.periodYtd')],

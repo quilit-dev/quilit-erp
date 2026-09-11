@@ -28,26 +28,23 @@ export function periodRange(p) {
 // inside KPI cards; the BarChart is for the multi-month finance view; the
 // HealthRing is the single hero gauge.
 
-export function Sparkline({ data = [], color = 'var(--accent)', height = 32, width = 80 }) {
+export function Sparkline({ data = [], color = 'var(--accent)', height = 32, width = 240 }) {
   if (!data || data.length < 2) return null;
   const min = Math.min(...data), max = Math.max(...data);
   const range = max - min || 1;
+  const inset = 3;
   const pts = data.map((v, i) => {
-    const x = (i / (data.length - 1)) * width;
-    const y = height - ((v - min) / range) * (height - 4) - 2;
+    const x = inset + (i / (data.length - 1)) * (width - inset * 2);
+    const y = min === max ? height / 2
+      : height - inset - ((v - min) / range) * (height - inset * 2);
     return `${x},${y}`;
   });
-  const id = color.replace(/[^a-z0-9]/gi, '');
   return (
-    <svg width={width} height={height} viewBox={`0 0 ${width} ${height}`} style={{ display: 'block', overflow: 'visible' }}>
-      <defs>
-        <linearGradient id={`sp-${id}`} x1="0" y1="0" x2="0" y2="1">
-          <stop offset="0%" stopColor={color} stopOpacity="0.22" />
-          <stop offset="100%" stopColor={color} stopOpacity="0" />
-        </linearGradient>
-      </defs>
-      <path d={`M0,${height} L${pts.join(' L')} L${width},${height} Z`} fill={`url(#sp-${id})`} />
-      <path d={`M${pts.join(' L')}`} fill="none" stroke={color} strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round" />
+    <svg width={width} height={height} viewBox={`0 0 ${width} ${height}`}
+         preserveAspectRatio="none" aria-hidden="true" focusable="false"
+         style={{ display: 'block', width: '100%' }}>
+      <path d={`M${pts.join(' L')}`} fill="none" stroke={color} strokeWidth="1.8"
+            strokeLinecap="round" strokeLinejoin="round" vectorEffect="non-scaling-stroke" />
     </svg>
   );
 }
@@ -200,57 +197,21 @@ export function KpiCard({ label, value, sub, icon, accentColor, sparkData, trend
   );
 }
 
-// Chip for the "needs attention" action bar — a compact pill with an icon, a
-// label and a click handler. Severity ('red'|'yellow'|'blue'|'purple') drives
-// the colour scheme; everything else is plain visual styling.
-// Editorial action chip — a sharp-cornered tag, not a rounded bubble.
-// Hairline border + soft semantic tint + monospace count badge. Reads as
-// the "stamp on a page" each chip stands for an action queued for
-// the operator's attention.
+// Compact queue item. Severity is carried by one small marker, keeping the
+// whole attention area calm when several kinds of work are waiting.
 export function ActionChip({ icon, label, count, severity = 'yellow', onClick }) {
-  const [hover, setHover] = useState(false);
-  // Editorial semantic tints — same palette the rest of the system uses.
-  const palette = {
-    red:    { fg: 'var(--negate)',  bg: 'var(--negate-tint)',  border: 'rgba(142,36,36,0.22)'  },
-    yellow: { fg: 'var(--caution)', bg: 'var(--caution-tint)', border: 'rgba(163,122,44,0.24)' },
-    blue:   { fg: 'var(--accent)',  bg: 'var(--accent-tint)',  border: 'rgba(31,79,168,0.22)'  },
-    purple: { fg: 'var(--purple)',  bg: 'var(--purple-light)', border: 'rgba(94,58,142,0.22)'  },
-  }[severity] || { fg: 'var(--text-2)', bg: 'var(--surface-2)', border: 'var(--rule)' };
+  const marker = {
+    red: 'var(--negate)', yellow: 'var(--caution)',
+    blue: 'var(--accent)', purple: 'var(--purple)',
+  }[severity] || 'var(--text-3)';
   return (
-    <button
-      onClick={onClick}
-      onMouseEnter={() => setHover(true)}
-      onMouseLeave={() => setHover(false)}
-      style={{
-        display: 'inline-flex', alignItems: 'center', gap: 8,
-        padding: '5px 10px',
-        background: hover && onClick ? palette.fg : palette.bg,
-        color:      hover && onClick ? '#FFFFFF' : palette.fg,
-        border: `1px solid ${palette.border}`,
-        borderRadius: 4,                /* sharp document corner */
-        fontFamily: 'var(--font-sans)',
-        fontSize: 12, fontWeight: 600,
-        letterSpacing: -0.005,
-        cursor: onClick ? 'pointer' : 'default',
-        transition: 'background .12s ease, color .12s ease',
-      }}
-    >
-      {icon && (
-        <span style={{ opacity: 0.85, lineHeight: 1, display: 'inline-flex' }}><Icon name={icon} size={13} /></span>
-      )}
+    <button className="attention-item" onClick={onClick}
+            style={{ '--attention-marker': marker }}>
+      <span className="attention-marker" aria-hidden="true" />
+      {icon && <span className="attention-icon"><Icon name={icon} size={13} /></span>}
       <span>{label}</span>
       {count != null && (
-        <span style={{
-          fontFamily: 'var(--font-mono)',
-          fontSize: 10, fontWeight: 600,
-          letterSpacing: 0.04,
-          padding: '1px 5px',
-          minWidth: 18, height: 16,
-          background: hover && onClick ? 'rgba(255,255,255,0.22)' : palette.fg,
-          color: hover && onClick ? '#FFFFFF' : '#FFFFFF',
-          borderRadius: 2,
-          display: 'inline-flex', alignItems: 'center', justifyContent: 'center',
-        }}>{count}</span>
+        <span className="attention-count">{count}</span>
       )}
     </button>
   );

@@ -1192,6 +1192,7 @@ const ar = {
 
   dashboard: {
     title: 'لوحة التحكم',
+    overviewSubtitle: 'أداء الأعمال والعمليات اليومية والبنود التي تتطلب إجراءً.',
     monthlyRevenue: 'إيرادات الشهر',
     collectedThisMonth: 'المحصّل هذا الشهر',
     periodThisMonth: 'هذا الشهر',
@@ -1234,10 +1235,7 @@ const ar = {
     project: 'المشروع',
     client: 'العميل',
     invoice: 'الفاتورة',
-    // التحية الذكية + الأقسام الجديدة
-    goodMorning: 'صباح الخير',
-    goodAfternoon: 'مساء الخير',
-    goodEvening: 'مساء الخير',
+    // أقسام لوحة التحكم
     needsAttention: 'يحتاج إلى اهتمام',
     everythingClear: 'كل شيء على ما يرام — لا يوجد أي بند يحتاج إلى اهتمامك الآن.',
     operationsToday: 'عمليات اليوم',

@@ -1263,6 +1263,84 @@ html[lang="ar"], html[lang="ar"] body {
 .kpi-ledger.is-compact .kpi-ledger-header { padding-bottom: 8px; }
 .kpi-ledger.is-compact .stat-value { font-size: 22px; margin-top: 10px; }
 
+/* Dashboard work queue: one neutral surface, with severity reduced to a small
+   marker. This stays readable when several different alerts appear together. */
+.attention-panel {
+  margin-bottom: 16px;
+  padding: 13px 14px 14px;
+  background: var(--surface);
+  border: 1px solid var(--rule);
+  border-radius: var(--r-lg);
+}
+.attention-heading {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  margin-bottom: 10px;
+  color: var(--text-2);
+  font-size: 12px;
+  font-weight: 600;
+}
+.attention-heading svg { color: var(--text-3); }
+.attention-list { display: flex; flex-wrap: wrap; gap: 7px; }
+.attention-item {
+  display: inline-flex;
+  align-items: center;
+  gap: 7px;
+  min-height: 34px;
+  padding: 6px 9px;
+  background: var(--surface-2);
+  color: var(--text-2);
+  border: 1px solid var(--rule);
+  border-radius: var(--r-md);
+  font: inherit;
+  font-size: 12px;
+  font-weight: 500;
+  text-align: start;
+  cursor: pointer;
+  transition: background var(--motion-fast) var(--ease), border-color var(--motion-fast) var(--ease), color var(--motion-fast) var(--ease);
+}
+.attention-item:hover { background: var(--surface-3); border-color: var(--rule-strong); color: var(--text); }
+.attention-item:focus-visible { outline: 2px solid var(--focus); outline-offset: 2px; }
+.attention-marker {
+  width: 6px;
+  height: 6px;
+  border-radius: 50%;
+  background: var(--attention-marker, var(--text-3));
+  flex-shrink: 0;
+}
+.attention-icon { display: inline-flex; color: var(--text-3); flex-shrink: 0; }
+.attention-count {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  min-width: 19px;
+  height: 18px;
+  margin-inline-start: 2px;
+  padding: 0 5px;
+  border: 1px solid var(--rule-strong);
+  border-radius: 5px;
+  color: var(--text-2);
+  background: var(--surface);
+  font-family: var(--font-mono);
+  font-size: 10px;
+  font-weight: 600;
+}
+.attention-clear {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  margin-bottom: 16px;
+  padding: 10px 13px;
+  background: var(--surface);
+  color: var(--text-2);
+  border: 1px solid var(--rule);
+  border-radius: var(--r-lg);
+  font-size: 12.5px;
+  font-weight: 500;
+}
+.attention-clear svg { color: var(--affirm); }
+
 .trend-up, .text-green { color: var(--affirm); }
 .trend-down, .text-red { color: var(--negate); }
 .text-yellow            { color: var(--caution); }
