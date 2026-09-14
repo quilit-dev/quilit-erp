@@ -178,7 +178,13 @@ if ($writeConfig) {
         "start_date =",
         "timeout = 20"
     )
-    Set-Content -Path $config -Value $lines -Encoding utf8
+    # NOT Set-Content -Encoding utf8: on Windows PowerShell 5.1 that writes a
+    # byte-order mark, and a BOM at the start of an ini file cost a real
+    # install --- configparser saw "﻿; Written by..." instead of a
+    # comment and refused the file. The agent now tolerates a BOM anyway;
+    # this just stops producing one.
+    [IO.File]::WriteAllLines($config, [string[]]$lines,
+                             (New-Object System.Text.UTF8Encoding($false)))
     Say ""
     Say "  Settings saved."
 }
@@ -200,9 +206,12 @@ Say "  config.ini locked to SYSTEM and Administrators."
 Head "Checking the ERP"
 & $exe --check
 if ($LASTEXITCODE -ne 0) {
-    Fail ("The ERP did not accept this device.`n" +
+    # Any non-zero exit lands here, a crash included, so the wording must
+    # not assert a cause the output above may contradict.
+    Fail ("The check against the ERP did not pass -- read the lines above,`n" +
+          "  they say what actually went wrong.`n" +
           "  Nothing has been scheduled -- the agent is not running.`n`n" +
-          "  Usually one of:`n" +
+          "  If it says the ERP refused the device, it is usually one of:`n" +
           "    * the token was pasted with a space, or is from another workspace`n" +
           "    * the workspace name is wrong`n" +
           "    * this PC has no internet`n`n" +

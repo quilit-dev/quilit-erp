@@ -100,7 +100,13 @@ def load_config(path=CONFIG_PATH):
             "No config.ini beside agent.py.\n"
             "Copy config.example.ini to config.ini and fill it in.")
     cp = configparser.ConfigParser()
-    cp.read(path, encoding="utf-8")
+    # utf-8-sig, not utf-8: it swallows the byte-order mark that Windows
+    # Notepad and PowerShell's Set-Content both put at the start of a file.
+    # With plain utf-8 that mark becomes part of line 1, the leading ';' is
+    # no longer the first character, configparser no longer sees a comment,
+    # and the whole file is refused with "no section headers" --- at the
+    # office, on the day of the install, in front of the person doing it.
+    cp.read(path, encoding="utf-8-sig")
     try:
         d = cp["timeclock"]
     except KeyError:

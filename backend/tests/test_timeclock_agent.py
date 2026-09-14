@@ -305,3 +305,46 @@ def test_enrolled_names_ride_along_with_the_first_batch_only(agent, monkeypatch)
     agent.run_once(cfg, punches("2026-09-07 08:00:00", "2026-09-07 17:00:00"))
     assert seen[0] == [{"device_user_id": "6", "name": "Abdalah"}]
     assert seen[1] is None
+
+
+# ── the config file, as Windows actually writes it ───────────────────────────
+# Setup.cmd wrote config.ini with PowerShell's Set-Content -Encoding utf8, which
+# on Windows PowerShell 5.1 means a byte-order mark. Windows Notepad adds the
+# same mark. configparser read with plain utf-8 saw "\ufeff; Written by..."
+# on line 1 --- no longer a comment, no section header yet --- and refused the
+# whole file. It happened at the office, on the day of the install.
+_INI = (
+    "; Written by Setup.cmd on 2026-09-14 16:58.\n"
+    "\n"
+    "[timeclock]\n"
+    "device_ip = 192.168.1.16\n"
+    "device_port = 4370\n"
+    "device_password = 0\n"
+    "erp_url = https://app.quilit.dev\n"
+    "tenant_slug = hajosign\n"
+    "device_token = not-a-real-token\n"
+    "poll_seconds = 300\n"
+    "start_date =\n"
+    "timeout = 20\n"
+)
+
+
+def test_a_config_with_a_byte_order_mark_still_loads(agent, tmp_path):
+    p = tmp_path / "config.ini"
+    p.write_bytes(b"\xef\xbb\xbf" + _INI.encode("utf-8"))
+    cfg = agent.load_config(str(p))
+    assert cfg["device_ip"] == "192.168.1.16"
+    assert cfg["tenant_slug"] == "hajosign"
+
+
+def test_a_config_with_crlf_and_a_bom_still_loads(agent, tmp_path):
+    """Notepad's default on Windows: BOM and CRLF together."""
+    p = tmp_path / "config.ini"
+    p.write_bytes(b"\xef\xbb\xbf" + _INI.replace("\n", "\r\n").encode("utf-8"))
+    assert agent.load_config(str(p))["device_port"] == 4370
+
+
+def test_a_plain_config_still_loads(agent, tmp_path):
+    p = tmp_path / "config.ini"
+    p.write_bytes(_INI.encode("utf-8"))
+    assert agent.load_config(str(p))["device_ip"] == "192.168.1.16"
