@@ -535,6 +535,9 @@ const en = {
     // Labelled for what it DOES, not for a category. It decides who the
     // technician report lists — not who may be sent on a call, which is anyone.
     fldFieldStaff:    'Goes out on service calls',
+    fldWorkingDay:    'Working day',
+    fldWorkingDayDefault: 'Company default',
+    fldWorkingDayIsDefault: 'default',
     fldManager: 'Manager',
     fldHireDate: 'Hire Date',
     fldEndDate: 'End Date',

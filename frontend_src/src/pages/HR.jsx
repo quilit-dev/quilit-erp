@@ -16,6 +16,7 @@ import {
   getContracts, createContract, updateContract, setContractStatus,
   archiveContract, getContractPrintData,
   getAttendance, saveAttendanceBulk, getAttendanceSummary,
+  getWorkSchedules,
 } from '../api/client';
 import ImportWizard from '../components/ImportWizard';
 
@@ -59,6 +60,9 @@ export default function HR() {
   const { data: employees, loading, error, reload: reloadEmps }        = useData(
     useCallback(() => getEmployees(showArchived ? { archived: 'only' } : {}), [showArchived]), [showArchived]);
   const { data: leave,       reload: reloadLeave }                     = useData(useCallback(() => getLeaveRequests(), []));
+  // The working days on offer, for the employee form. Loaded once; the Time
+  // clock tab is where they are edited.
+  const { data: workSchedules }                                        = useData(useCallback(() => getWorkSchedules(), []));
   const { data: payrollRuns, reload: reloadPayroll }                   = useData(useCallback(() => getPayrollRuns(), []));
 
   const reloadAll = useCallback(() => {
@@ -108,6 +112,7 @@ export default function HR() {
       salary:        e.salary ?? 0,
       pay_type:      e.pay_type || 'Salaried',
       hourly_rate:   e.hourly_rate ?? 0,
+      work_schedule_id: e.work_schedule_id ?? '',
     });
     setEmpEditId(e.id);
     setEmpModal(true);
@@ -124,6 +129,7 @@ export default function HR() {
         manager_id:    empForm.manager_id ? Number(empForm.manager_id) : null,
         salary:        Number(empForm.salary) || 0,
         hourly_rate:   Number(empForm.hourly_rate) || 0,
+        work_schedule_id: empForm.work_schedule_id ? Number(empForm.work_schedule_id) : null,
         hire_date:     empForm.hire_date || null,
         end_date:      empForm.end_date || null,
         branch_id:     empForm.branch_id || null,
@@ -518,6 +524,22 @@ export default function HR() {
                       onChange={e => setEmpForm(f => ({ ...f, is_field_staff: e.target.checked }))} />
                     {t('hr.fldFieldStaff')}
                   </label>
+                </div>
+                {/* Which working day this person is measured against. The
+                    company default covers everyone who is not given one, so
+                    a blank here is a real answer, not a missing one. */}
+                <div className="form-group">
+                  <label className="form-label">{t('hr.fldWorkingDay')}</label>
+                  <SearchSelect
+                    className="form-control"
+                    value={empForm.work_schedule_id}
+                    onChange={v => setEmpForm(f => ({ ...f, work_schedule_id: v }))}
+                    placeholder={`— ${t('hr.fldWorkingDayDefault')} —`}
+                    options={(workSchedules || []).map(s => ({
+                      value: s.id,
+                      label: `${s.name} (${s.start_time}–${s.end_time})`
+                             + (s.is_default ? ` · ${t('hr.fldWorkingDayIsDefault')}` : ''),
+                    }))} />
                 </div>
                 <div className="form-group">
                   <label className="form-label">{t('hr.colDepartment')}</label>

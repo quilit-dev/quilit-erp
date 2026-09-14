@@ -36,6 +36,10 @@ export const EMPTY_EMPLOYEE = {
   // somebody who spent the month in the workshop still appears, with their days
   // at work and no jobs — never who may be assigned to a call.
   is_field_staff: false,
+  // Which "Working day" decides Late, Half-day and Absent for this person.
+  // Blank means the company default --- and NULL on the server means the
+  // same, so nobody has to be assigned one for the clock to work on day one.
+  work_schedule_id: '',
 };
 export const EMPTY_DEPT  = { name: '', description: '' };
 export const EMPTY_LEAVE = { employee_id: '', leave_type: 'Annual', start_date: '', end_date: '', reason: '' };
