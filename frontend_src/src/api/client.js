@@ -566,6 +566,10 @@ export const cancelPayrollRun    = (id)          => api.post(`/api/hr/payroll/ru
 
 // ── HR: contracts ──────────────────────────────────────────────────────────
 export const getContracts          = (params = {}) => api.get(`/api/hr/contracts/${_qs(params)}`);
+// Salary advances --- money handed over before payday, recovered by the next run.
+export const getAdvances           = (params = {}) => api.get(`/api/hr/advances${_qs(params)}`);
+export const createAdvance         = (d)           => api.post('/api/hr/advances', d);
+export const voidAdvance           = (id, d)       => api.patch(`/api/hr/advances/${id}/void`, d);
 export const getContract           = (id)          => api.get(`/api/hr/contracts/${id}`);
 export const createContract        = (d)           => api.post('/api/hr/contracts/', d);
 export const updateContract        = (id, d)       => api.put(`/api/hr/contracts/${id}`, d);

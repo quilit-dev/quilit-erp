@@ -2359,6 +2359,7 @@ def _run_migrations(conn, c):
             ("1100", "Accounts Receivable",      "Asset",     "debit",  "Current Asset"),
             ("1200", "Inventory",                "Asset",     "debit",  "Current Asset"),
             ("1250", "Advances to Suppliers",    "Asset",     "debit",  "Current Asset"),
+            ("1260", "Advances to Employees",    "Asset",     "debit",  "Current Asset"),
             ("1300", "Prepaid Expenses",         "Asset",     "debit",  "Current Asset"),
             ("1500", "Fixed Assets",             "Asset",     "debit",  "Non-Current Asset"),
             ("1510", "Accumulated Depreciation", "Asset",     "credit", "Contra Asset"),
@@ -4533,6 +4534,98 @@ def _run_migrations(conn, c):
             "ON CONFLICT(role_id, module) DO NOTHING")
         done("183c_foreign_purchases_capability")
 
+    # ── 184: what an employee's pay is made of ───────────────────────────
+    # Seven facts about the person, each defaulting to "nothing" so that a
+    # tenant that fills none of them in gets payroll lines identical to today.
+    # A run then derives transport, the attendance bonus and the late
+    # deduction from the attendance the clock recorded, instead of somebody
+    # typing them onto every line at month end.
+    #
+    #   commute_km         km from home, one way; transport = km x rate x days
+    #   overtime_rate      amount per overtime hour; NULL = today's fallback
+    #   late_deduction     per late day; NULL = company default
+    #   attendance_bonus   paid only for a month with no Late and no Absent
+    #   insurance_*        fixed monthly amounts (employee share is deducted,
+    #                      employer share is a cost and never touches net)
+    #   nssf_exempt        not registered with the fund: skip the percentages
+    add_col("184a_employee_commute_km", "hr_employees", "commute_km",
+            "ALTER TABLE hr_employees ADD COLUMN commute_km REAL NOT NULL DEFAULT 0")
+    add_col("184b_employee_overtime_rate", "hr_employees", "overtime_rate",
+            "ALTER TABLE hr_employees ADD COLUMN overtime_rate REAL")
+    add_col("184c_employee_late_deduction", "hr_employees", "late_deduction",
+            "ALTER TABLE hr_employees ADD COLUMN late_deduction REAL")
+    add_col("184d_employee_attendance_bonus", "hr_employees", "attendance_bonus",
+            "ALTER TABLE hr_employees ADD COLUMN attendance_bonus REAL NOT NULL DEFAULT 0")
+    add_col("184e_employee_insurance_emp", "hr_employees", "insurance_employee",
+            "ALTER TABLE hr_employees ADD COLUMN insurance_employee REAL NOT NULL DEFAULT 0")
+    add_col("184f_employee_insurance_er", "hr_employees", "insurance_employer",
+            "ALTER TABLE hr_employees ADD COLUMN insurance_employer REAL NOT NULL DEFAULT 0")
+    add_col("184g_employee_nssf_exempt", "hr_employees", "nssf_exempt",
+            "ALTER TABLE hr_employees ADD COLUMN nssf_exempt INTEGER NOT NULL DEFAULT 0")
+
+    # The line carries a SNAPSHOT of every derived figure, so a payslip stays
+    # true after the employee record or the company rate changes.
+    add_col("184h_line_attended_days", "hr_payroll_lines", "attended_days",
+            "ALTER TABLE hr_payroll_lines ADD COLUMN attended_days INTEGER NOT NULL DEFAULT 0")
+    add_col("184i_line_late_days", "hr_payroll_lines", "late_days",
+            "ALTER TABLE hr_payroll_lines ADD COLUMN late_days INTEGER NOT NULL DEFAULT 0")
+    add_col("184j_line_transport", "hr_payroll_lines", "transport_allowance",
+            "ALTER TABLE hr_payroll_lines ADD COLUMN transport_allowance REAL NOT NULL DEFAULT 0")
+    add_col("184k_line_attendance_bonus", "hr_payroll_lines", "attendance_bonus",
+            "ALTER TABLE hr_payroll_lines ADD COLUMN attendance_bonus REAL NOT NULL DEFAULT 0")
+    add_col("184l_line_late_deduction", "hr_payroll_lines", "late_deduction",
+            "ALTER TABLE hr_payroll_lines ADD COLUMN late_deduction REAL NOT NULL DEFAULT 0")
+    add_col("184m_line_insurance_emp", "hr_payroll_lines", "insurance_employee",
+            "ALTER TABLE hr_payroll_lines ADD COLUMN insurance_employee REAL NOT NULL DEFAULT 0")
+    add_col("184n_line_insurance_er", "hr_payroll_lines", "insurance_employer",
+            "ALTER TABLE hr_payroll_lines ADD COLUMN insurance_employer REAL NOT NULL DEFAULT 0")
+    add_col("184o_line_advance_recovery", "hr_payroll_lines", "advance_recovery",
+            "ALTER TABLE hr_payroll_lines ADD COLUMN advance_recovery REAL NOT NULL DEFAULT 0")
+    add_col("184p_line_nssf_exempt", "hr_payroll_lines", "nssf_exempt",
+            "ALTER TABLE hr_payroll_lines ADD COLUMN nssf_exempt INTEGER NOT NULL DEFAULT 0")
+
+    # ── 185: money handed to an employee before payday ────────────────────
+    # An advance is an asset --- money the person owes back --- not an
+    # expense. It is recovered in full by the next payroll run, and only
+    # marked recovered when that run is PAID: a draft can be cancelled and
+    # must leave the advance open.
+    if need("185_salary_advances"):
+        c.execute("""
+            CREATE TABLE IF NOT EXISTS hr_salary_advances (
+                id                  INTEGER PRIMARY KEY AUTOINCREMENT,
+                employee_id         INTEGER NOT NULL REFERENCES hr_employees(id),
+                amount              REAL    NOT NULL,
+                currency            TEXT    NOT NULL DEFAULT 'USD',
+                paid_at             TEXT    NOT NULL,
+                payment_method      TEXT,
+                bank_account_id     INTEGER,
+                note                TEXT,
+                status              TEXT    NOT NULL DEFAULT 'open',
+                recovered_in_run_id INTEGER REFERENCES hr_payroll_runs(id),
+                created_by          INTEGER,
+                created_at          TEXT    NOT NULL,
+                voided_at           TEXT,
+                void_reason         TEXT
+            )""")
+        c.execute("CREATE INDEX IF NOT EXISTS idx_salary_advances_emp "
+                  "ON hr_salary_advances(employee_id, status)")
+        done("185_salary_advances")
+
+    # The account the advance sits in. Same shape as 174b (1250 Advances to
+    # Suppliers). A tenant on the Lebanese chart gets the matching account
+    # from chart_lebanon.ensure_current at the end of this pass.
+    if need("185b_account_1260"):
+        _ts = datetime.utcnow().strftime("%Y-%m-%d %H:%M:%S")
+        c.execute(
+            "INSERT OR IGNORE INTO chart_of_accounts "
+            "(code, name, type, subtype, normal_balance, is_system, is_active, created_at) "
+            "VALUES (?,?,?,?,?,1,1,?)",
+            ("1260", "Advances to Employees", "Asset", "Current Asset", "debit", _ts),
+        )
+        c.execute("INSERT OR IGNORE INTO account_roles (role, code) VALUES (?,?)",
+                  ("employee_advance", "1260"))
+        done("185b_account_1260")
+
     # Last, after every migration that might have added an account: if this
     # tenant is on a statutory chart, anything not on it is retired. Migrations
     # insert accounts ACTIVE, which on such a tenant means a default-chart code
@@ -4541,6 +4634,7 @@ def _run_migrations(conn, c):
     # the problem by forgetting about it.
     try:
         import chart_lebanon
+        chart_lebanon.ensure_current(c)
         chart_lebanon.reconcile_active(c)
     except Exception:
         # Never let tidying stop a database coming up.
@@ -5757,6 +5851,66 @@ def _ensure_pg_post_baseline(raw):
                     "punch_count INTEGER NOT NULL DEFAULT 0")
         cur.execute("ALTER TABLE hr_attendance ADD COLUMN IF NOT EXISTS "
                     "needs_review INTEGER NOT NULL DEFAULT 0")
+        # 184: the employee pay profile and the per-line snapshots. Every
+        # column defaults to nothing, so no backfill and no marker guard.
+        cur.execute("ALTER TABLE hr_employees ADD COLUMN IF NOT EXISTS "
+                    "commute_km DOUBLE PRECISION NOT NULL DEFAULT 0")
+        cur.execute("ALTER TABLE hr_employees ADD COLUMN IF NOT EXISTS "
+                    "overtime_rate DOUBLE PRECISION")
+        cur.execute("ALTER TABLE hr_employees ADD COLUMN IF NOT EXISTS "
+                    "late_deduction DOUBLE PRECISION")
+        cur.execute("ALTER TABLE hr_employees ADD COLUMN IF NOT EXISTS "
+                    "attendance_bonus DOUBLE PRECISION NOT NULL DEFAULT 0")
+        cur.execute("ALTER TABLE hr_employees ADD COLUMN IF NOT EXISTS "
+                    "insurance_employee DOUBLE PRECISION NOT NULL DEFAULT 0")
+        cur.execute("ALTER TABLE hr_employees ADD COLUMN IF NOT EXISTS "
+                    "insurance_employer DOUBLE PRECISION NOT NULL DEFAULT 0")
+        cur.execute("ALTER TABLE hr_employees ADD COLUMN IF NOT EXISTS "
+                    "nssf_exempt INTEGER NOT NULL DEFAULT 0")
+        cur.execute("ALTER TABLE hr_payroll_lines ADD COLUMN IF NOT EXISTS "
+                    "attended_days INTEGER NOT NULL DEFAULT 0")
+        cur.execute("ALTER TABLE hr_payroll_lines ADD COLUMN IF NOT EXISTS "
+                    "late_days INTEGER NOT NULL DEFAULT 0")
+        cur.execute("ALTER TABLE hr_payroll_lines ADD COLUMN IF NOT EXISTS "
+                    "transport_allowance DOUBLE PRECISION NOT NULL DEFAULT 0")
+        cur.execute("ALTER TABLE hr_payroll_lines ADD COLUMN IF NOT EXISTS "
+                    "attendance_bonus DOUBLE PRECISION NOT NULL DEFAULT 0")
+        cur.execute("ALTER TABLE hr_payroll_lines ADD COLUMN IF NOT EXISTS "
+                    "late_deduction DOUBLE PRECISION NOT NULL DEFAULT 0")
+        cur.execute("ALTER TABLE hr_payroll_lines ADD COLUMN IF NOT EXISTS "
+                    "insurance_employee DOUBLE PRECISION NOT NULL DEFAULT 0")
+        cur.execute("ALTER TABLE hr_payroll_lines ADD COLUMN IF NOT EXISTS "
+                    "insurance_employer DOUBLE PRECISION NOT NULL DEFAULT 0")
+        cur.execute("ALTER TABLE hr_payroll_lines ADD COLUMN IF NOT EXISTS "
+                    "advance_recovery DOUBLE PRECISION NOT NULL DEFAULT 0")
+        cur.execute("ALTER TABLE hr_payroll_lines ADD COLUMN IF NOT EXISTS "
+                    "nssf_exempt INTEGER NOT NULL DEFAULT 0")
+        # 185: salary advances, and the account they sit in.
+        cur.execute("""CREATE TABLE IF NOT EXISTS hr_salary_advances (
+            id                  INTEGER GENERATED BY DEFAULT AS IDENTITY PRIMARY KEY,
+            employee_id         INTEGER NOT NULL REFERENCES hr_employees(id),
+            amount              DOUBLE PRECISION NOT NULL,
+            currency            TEXT NOT NULL DEFAULT 'USD',
+            paid_at             TEXT NOT NULL,
+            payment_method      TEXT,
+            bank_account_id     INTEGER,
+            note                TEXT,
+            status              TEXT NOT NULL DEFAULT 'open',
+            recovered_in_run_id INTEGER REFERENCES hr_payroll_runs(id),
+            created_by          INTEGER,
+            created_at          TEXT NOT NULL,
+            voided_at           TEXT,
+            void_reason         TEXT)""")
+        cur.execute("CREATE INDEX IF NOT EXISTS idx_salary_advances_emp "
+                    "ON hr_salary_advances(employee_id, status)")
+        cur.execute(
+            "INSERT INTO chart_of_accounts "
+            "(code, name, type, subtype, normal_balance, is_system, is_active, created_at) "
+            "VALUES ('1260','Advances to Employees','Asset','Current Asset','debit',1,1,"
+            "to_char(now(),'YYYY-MM-DD HH24:MI:SS')) ON CONFLICT (code) DO NOTHING")
+        cur.execute("INSERT INTO account_roles (role, code, updated_at) "
+                    "VALUES ('employee_advance','1260',now()::text) "
+                    "ON CONFLICT (role) DO NOTHING")
         # 183: local vs foreign purchases. Both columns default to the
         # existing behaviour, so no backfill.
         cur.execute("ALTER TABLE suppliers ADD COLUMN IF NOT EXISTS "
@@ -5812,6 +5966,7 @@ def _init_db_postgres():
         # not collect default-chart accounts one migration at a time.
         try:
             import chart_lebanon
+            chart_lebanon.ensure_current(conn)
             chart_lebanon.reconcile_active(conn)
         except Exception:
             pass
@@ -6184,6 +6339,7 @@ _DEFAULT_ACCOUNT_ROLES = [
     ("receivable",        "1100"),
     ("inventory",         "1200"),
     ("supplier_advance",  "1250"),
+    ("employee_advance",  "1260"),
     ("prepaid",           "1300"),
     ("accumulated_dep",   "1510"),
     ("payable",           "2000"),

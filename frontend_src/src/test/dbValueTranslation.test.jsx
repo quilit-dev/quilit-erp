@@ -32,7 +32,10 @@ describe('the locale dictionaries cover the seeded data', () => {
     const missingRoles    = Object.keys(en.roleNames).filter(k => !ar.roleNames[k]);
     expect(missingAccounts).toEqual([]);
     expect(missingRoles).toEqual([]);
-    // 37 since 1250 Advances to Suppliers: paying for a purchase before the
+    // 38 since 1260 Advances to Employees: a salary advance is money the
+    // person owes back, not an expense, and it needs an asset account to sit
+    // in until the next payroll run recovers it. Before that, 37 since 1250
+    // Advances to Suppliers: paying for a purchase before the
     // goods arrive puts the money on the balance sheet as a claim on the
     // supplier, and that account had to exist for it to land anywhere. Before
     // that, 36 since 1020 Cash — EUR was given a name. That account has been seeded
@@ -46,7 +49,7 @@ describe('the locale dictionaries cover the seeded data', () => {
     // Revenue. The count is a tripwire: it fails when the chart of accounts
     // changes, which is the moment somebody has to decide whether the new
     // account needs a name in both languages. It has now caught four.
-    expect(Object.keys(en.accountNames)).toHaveLength(37);
+    expect(Object.keys(en.accountNames)).toHaveLength(38);
     expect(Object.keys(en.roleNames)).toHaveLength(18);
     expect(Object.keys(en.enumValues).filter(k => !ar.enumValues[k])).toEqual([]);
   });

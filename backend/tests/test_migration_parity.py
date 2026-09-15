@@ -108,6 +108,24 @@ _REQUIRED = [
     # snapshots it, and both default to "local" so no backfill exists to drift.
     ("suppliers", "is_foreign"),
     ("purchases", "origin"),
+    # The employee pay profile, and the per-line snapshot of what it produced.
+    ("hr_employees", "commute_km"),
+    ("hr_employees", "overtime_rate"),
+    ("hr_employees", "late_deduction"),
+    ("hr_employees", "attendance_bonus"),
+    ("hr_employees", "insurance_employee"),
+    ("hr_employees", "insurance_employer"),
+    ("hr_employees", "nssf_exempt"),
+    ("hr_payroll_lines", "attended_days"),
+    ("hr_payroll_lines", "late_days"),
+    ("hr_payroll_lines", "transport_allowance"),
+    ("hr_payroll_lines", "attendance_bonus"),
+    ("hr_payroll_lines", "late_deduction"),
+    ("hr_payroll_lines", "insurance_employee"),
+    ("hr_payroll_lines", "insurance_employer"),
+    ("hr_payroll_lines", "advance_recovery"),
+    ("hr_payroll_lines", "nssf_exempt"),
+    ("hr_salary_advances", "recovered_in_run_id"),
 ]
 
 
@@ -141,6 +159,8 @@ _REQUIRED_TABLES = [
     "time_punches",
     "time_device_users",
     "work_schedules",
+    # Money handed to staff before payday, recovered by the next run.
+    "hr_salary_advances",
 ]
 
 

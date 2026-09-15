@@ -190,3 +190,58 @@ def test_the_default_chart_is_untouched_by_all_this(db):
     assert accounting.code(db, "revenue") == accounting.REVENUE
     assert db.execute(
         "SELECT COUNT(*) AS n FROM chart_of_accounts WHERE code='4111'").fetchone()["n"] == 0
+
+
+# ── Keeping a tenant on the chart current ────────────────────────────────────
+# `install` seeds the chart once and `reconcile_active` retires strangers
+# afterwards. Neither ADDS. An account that joins the chart in a later release
+# --- 425 for staff advances --- would never reach a tenant that installed the
+# chart before it existed, and `status()` would then report that tenant as NOT
+# on the chart at all, because every account and role must be present. So a
+# migration pass ends with ensure_current, which inserts what is missing and
+# points every role where the chart says.
+
+def test_ensure_current_adds_an_account_that_joined_the_chart_later(lebanese):
+    db = lebanese
+    # Pretend this tenant installed the chart before 425 existed.
+    db.execute("DELETE FROM chart_of_accounts WHERE code = '425'")
+    db.execute("DELETE FROM account_roles WHERE role = 'employee_advance'")
+    db.commit()
+    assert not LB.status(db)["installed"], "setup: the tenant should read as behind"
+
+    assert LB.ensure_current(db) == 2          # one account, one role
+    db.commit()
+
+    assert LB.status(db)["installed"], "still not on the chart after ensure_current"
+    assert accounting.code(db, "employee_advance") == "425"
+    row = db.execute("SELECT is_active, is_postable FROM chart_of_accounts "
+                     "WHERE code = '425'").fetchone()
+    assert row["is_active"] == 1 and row["is_postable"] == 1
+
+
+def test_ensure_current_re_points_a_role_left_on_the_default_chart(lebanese):
+    """The migration that adds 1260 inserts it with INSERT OR IGNORE on every
+    tenant. On a Lebanese one, reconcile_active then retires 1260 --- but the
+    ROLE would still point at it, and a salary advance would post to a retired
+    account. ensure_current moves the role to 425."""
+    db = lebanese
+    db.execute("UPDATE account_roles SET code = '1260' WHERE role = 'employee_advance'")
+    db.commit()
+    assert accounting.code(db, "employee_advance") == "1260"
+
+    LB.ensure_current(db)
+    db.commit()
+    assert accounting.code(db, "employee_advance") == "425"
+
+
+def test_ensure_current_is_a_no_op_on_the_default_chart(db):
+    """A tenant NOT on the Lebanese chart must be left exactly alone --- it
+    must not gain 4111 beside 1100."""
+    before = db.execute("SELECT COUNT(*) AS n FROM chart_of_accounts").fetchone()["n"]
+    assert LB.ensure_current(db) == 0
+    after = db.execute("SELECT COUNT(*) AS n FROM chart_of_accounts").fetchone()["n"]
+    assert after == before
+
+
+def test_ensure_current_is_idempotent(lebanese):
+    assert LB.ensure_current(lebanese) == 0

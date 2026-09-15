@@ -80,6 +80,13 @@ DEFAULTS = {
     "payroll_nssf_employee_pct":    "0",
     "payroll_nssf_employer_pct":    "0",
     "payroll_overtime_multiplier":  "1.5",
+    # Transport: per km of home distance, per attended day. Stated that way
+    # on purpose --- no hidden x2 for the return trip; the owner sets a rate
+    # that already covers both directions. 0 = no transport allowance.
+    "payroll_transport_rate_per_km": "0",
+    # Deducted per day the clock marked Late, unless the employee record
+    # carries its own figure. 0 = no automatic deduction.
+    "payroll_late_deduction":       "0",
     # Where attendance comes from. 'manual' means the daily editor is the
     # only writer, which is how every install behaves until somebody changes
     # this. Punches from a fingerprint terminal are STORED either way; this
@@ -135,6 +142,8 @@ class SettingsUpdate(BaseModel):
     payroll_nssf_employee_pct:   Optional[str] = None
     payroll_nssf_employer_pct:   Optional[str] = None
     payroll_overtime_multiplier: Optional[str] = None
+    payroll_transport_rate_per_km: Optional[str] = None
+    payroll_late_deduction:      Optional[str] = None
     attendance_source:           Optional[str] = None
     footer_text:        Optional[str] = None
     # Free text printed at the foot of every invoice. Multi-line, unlike

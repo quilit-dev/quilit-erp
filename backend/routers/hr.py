@@ -26,6 +26,15 @@ from database import get_db
 from permissions import require_perm
 from audit_log import log_action
 from utils import _now, notify, ArchiveMode, archive_clause
+
+
+def _col(row, key, default=None):
+    """Read a column that may not be on this row --- a SELECT that predates
+    it, or a dict standing in for one. Absent reads as `default`."""
+    try:
+        return row[key]
+    except (KeyError, IndexError, TypeError):
+        return default
 import accounting
 import branch_access
 import io
@@ -116,6 +125,29 @@ class EmployeeBody(BaseModel):
     # Whose working day this person keeps. NULL means the company default, so
     # nobody has to be assigned one for the clock to work on day one.
     work_schedule_id: Optional[int] = None
+    # ── The pay profile. Every field defaults to "nothing", and every
+    # computation it feeds is zero when it is nothing --- so an employee with
+    # none of this filled in gets the payroll line they got before.
+    commute_km:         float          = 0      # home -> work, one way
+    overtime_rate:      Optional[float] = None  # per hour; NULL = the old fallback
+    late_deduction:     Optional[float] = None  # per late day; NULL = company default
+    attendance_bonus:   float          = 0      # only for a month with no Late/Absent
+    insurance_employee: float          = 0      # deducted monthly
+    insurance_employer: float          = 0      # employer cost; never in net
+    nssf_exempt:        bool           = False  # not registered: skip the fund %
+
+    @validator("commute_km", "attendance_bonus", "insurance_employee",
+               "insurance_employer")
+    def _pay_non_negative(cls, v):
+        if v is not None and v < 0:
+            raise ValueError("Value cannot be negative")
+        return v
+
+    @validator("overtime_rate", "late_deduction")
+    def _pay_non_negative_opt(cls, v):
+        if v is not None and v < 0:
+            raise ValueError("Value cannot be negative")
+        return v
     # On PUT only — annotate WHY the change happened. Auto-classified into a
     # change_type if not provided (raise / promotion / role_change / transfer /
     # adjustment). The values are stored in hr_employment_changes.
@@ -270,6 +302,25 @@ def _log_employment_change(
 
 
 # ── Payroll & file models ───────────────────────────────────────────────────
+class AdvanceIn(BaseModel):
+    employee_id:     int
+    amount:          float
+    paid_at:         Optional[str] = None      # YYYY-MM-DD; today when omitted
+    payment_method:  Optional[str] = None
+    bank_account_id: Optional[int] = None
+    note:            Optional[str] = None
+
+    @validator("amount")
+    def _positive(cls, v):
+        if v is None or v <= 0:
+            raise ValueError("An advance has to be for more than nothing")
+        return v
+
+
+class AdvanceVoid(BaseModel):
+    reason: Optional[str] = None
+
+
 class PayrollRunCreate(BaseModel):
     period_start: str
     period_end:   str
@@ -292,10 +343,24 @@ class PayrollLineUpdate(BaseModel):
     overtime_amount:  Optional[float] = None
     hours_worked:     Optional[float] = None
     hourly_rate:      Optional[float] = None
+    # Derived at seed from attendance and the employee record; a manager may
+    # overwrite any of them, exactly as bonus and deduction have always been
+    # overwritable. advance_recovery is not here on purpose: what is recovered
+    # is what is owed, and the way to change it is to void the advance.
+    attended_days:      Optional[int]   = None
+    late_days:          Optional[int]   = None
+    transport_allowance: Optional[float] = None
+    attendance_bonus:   Optional[float] = None
+    late_deduction:     Optional[float] = None
+    insurance_employee: Optional[float] = None
+    insurance_employer: Optional[float] = None
     notes:            Optional[str]   = None
 
     @validator("base_salary", "bonuses", "deductions",
-               "overtime_hours", "overtime_amount")
+               "overtime_hours", "overtime_amount",
+               "attended_days", "late_days", "transport_allowance",
+               "attendance_bonus", "late_deduction",
+               "insurance_employee", "insurance_employer")
     def _non_negative(cls, v):
         if v is not None and v < 0:
             raise ValueError("Value cannot be negative")
@@ -305,7 +370,8 @@ class PayrollLineUpdate(BaseModel):
 def _payroll_settings(db: sqlite3.Connection) -> dict:
     """Read the payroll % settings. All default to 0 (opt-in)."""
     keys = ("payroll_tax_pct", "payroll_nssf_employee_pct",
-            "payroll_nssf_employer_pct", "payroll_overtime_multiplier")
+            "payroll_nssf_employer_pct", "payroll_overtime_multiplier",
+            "payroll_transport_rate_per_km", "payroll_late_deduction")
     rows = {r["key"]: r["value"] for r in db.execute(
         f"SELECT key, value FROM settings WHERE key IN ({','.join('?'*len(keys))})",
         keys,
@@ -318,6 +384,10 @@ def _payroll_settings(db: sqlite3.Connection) -> dict:
         "nssf_employee_pct":   _f("payroll_nssf_employee_pct"),
         "nssf_employer_pct":   _f("payroll_nssf_employer_pct"),
         "overtime_multiplier": _f("payroll_overtime_multiplier") or 1.5,
+        # Per km of home distance, per attended day. No hidden x2: the owner
+        # sets a rate that already covers both directions.
+        "transport_rate_per_km": _f("payroll_transport_rate_per_km"),
+        "late_deduction":        _f("payroll_late_deduction"),
     }
 
 
@@ -344,24 +414,44 @@ def _hourly_base(hours, rate) -> float:
     return round(float(hours or 0) * float(rate or 0), 2)
 
 
-def _compute_payroll_line(base, bonus, deduct, overtime_amount, settings):
+def _compute_payroll_line(base, bonus, deduct, overtime_amount, settings,
+                          transport=0.0, attendance_bonus=0.0, late_deduction=0.0,
+                          insurance_employee=0.0, advance_recovery=0.0,
+                          nssf_exempt=False):
     """Pure breakdown. Returns the full set of columns persisted on a line.
 
-    gross           = base + bonus + overtime_amount
-    nssf_employee   = gross × nssf_employee_pct / 100   (employee contribution)
-    nssf_employer   = gross × nssf_employer_pct / 100   (employer cost only)
-    taxable         = gross − nssf_employee             (NSSF is pre-tax)
+    contributory    = base + bonus + overtime + attendance_bonus
+    gross           = contributory + transport
+    nssf_employee   = contributory × nssf_employee_pct / 100  (0 if exempt)
+    nssf_employer   = contributory × nssf_employer_pct / 100  (0 if exempt; cost only)
+    taxable         = contributory − nssf_employee            (NSSF is pre-tax)
     tax             = taxable × tax_pct / 100
-    net             = gross − deductions − nssf_employee − tax
+    net             = gross − deductions − late_deduction − insurance_employee
+                      − advance_recovery − nssf_employee − tax
+
+    Transport is OUTSIDE the NSSF and tax base. That is the treatment of a
+    transport allowance under Lebanese rules, and folding it in would deduct
+    contributions on money that is not wages. Everything else the person earns
+    --- including the attendance bonus --- is wages and is inside it.
+
+    The six extra arguments default to nothing, so every caller that predates
+    them computes exactly what it did before.
     """
     base   = float(base or 0); bonus = float(bonus or 0)
     deduct = float(deduct or 0); ot   = float(overtime_amount or 0)
-    gross  = round(base + bonus + ot, 2)
-    nssf_e = round(gross * settings["nssf_employee_pct"] / 100.0, 2)
-    nssf_c = round(gross * settings["nssf_employer_pct"] / 100.0, 2)
-    taxable = max(0.0, gross - nssf_e)
+    transport = float(transport or 0); att_bonus = float(attendance_bonus or 0)
+    late = float(late_deduction or 0); ins_e = float(insurance_employee or 0)
+    adv = float(advance_recovery or 0)
+    contributory = round(base + bonus + ot + att_bonus, 2)
+    gross  = round(contributory + transport, 2)
+    if nssf_exempt:
+        nssf_e = nssf_c = 0.0
+    else:
+        nssf_e = round(contributory * settings["nssf_employee_pct"] / 100.0, 2)
+        nssf_c = round(contributory * settings["nssf_employer_pct"] / 100.0, 2)
+    taxable = max(0.0, contributory - nssf_e)
     tax     = round(taxable * settings["tax_pct"] / 100.0, 2)
-    net     = round(gross - deduct - nssf_e - tax, 2)
+    net     = round(gross - deduct - late - ins_e - adv - nssf_e - tax, 2)
     return {
         "gross_total":     gross,
         "nssf_employee":   nssf_e,
@@ -369,6 +459,51 @@ def _compute_payroll_line(base, bonus, deduct, overtime_amount, settings):
         "tax_amount":      tax,
         "net_amount":      net,
     }
+
+
+def _attendance_counts(db, employee_id: int, period_start: str, period_end: str) -> dict:
+    """How the period went, from the days already on record.
+
+    Half-day counts as attended: the person came in, and transport is about
+    the journey. Leave is neither attended nor absent for these purposes ---
+    it is not a day the person failed to turn up.
+    """
+    row = db.execute(
+        "SELECT COALESCE(SUM(CASE WHEN status IN ('Present','Late','Half-day') THEN 1 ELSE 0 END), 0) AS attended, "
+        "       COALESCE(SUM(CASE WHEN status = 'Late'   THEN 1 ELSE 0 END), 0) AS late, "
+        "       COALESCE(SUM(CASE WHEN status = 'Absent' THEN 1 ELSE 0 END), 0) AS absent "
+        "  FROM hr_attendance WHERE employee_id = ? AND date >= ? AND date <= ?",
+        (employee_id, period_start, period_end)).fetchone()
+    return {"attended": int(row["attended"] or 0), "late": int(row["late"] or 0),
+            "absent": int(row["absent"] or 0)}
+
+
+def _open_advances_total(db, employee_id: int) -> float:
+    """What this person still owes, not counting advances a draft run has
+    already claimed. Two drafts open at once must not both recover the same
+    advance; the first to seed takes it, and cancelling that draft gives it
+    back (see create_payroll_run / cancel_payroll_run)."""
+    row = db.execute(
+        "SELECT COALESCE(SUM(amount), 0) AS n FROM hr_salary_advances "
+        " WHERE employee_id = ? AND status = 'open' AND recovered_in_run_id IS NULL",
+        (employee_id,)).fetchone()
+    return round(float(row["n"] or 0), 2)
+
+
+def _overtime_hourly(emp_row, base: float, rate: float, settings: dict) -> float:
+    """What one overtime hour is worth for this person.
+
+    The employee's own overtime_rate when set. Otherwise the fallback that has
+    always applied: the hourly rate for an hourly employee, monthly base
+    / 173.33 (40h x 4.33 weeks) for a salaried one, times the company
+    multiplier. The field exists because that fallback is a guess, and a
+    guess is the wrong thing to print on a payslip.
+    """
+    own = _col(emp_row, "overtime_rate")
+    if own is not None and float(own) > 0:
+        return float(own)
+    hourly = rate if rate > 0 else (base / 173.33 if base > 0 else 0.0)
+    return hourly * settings["overtime_multiplier"]
 
 
 # ══════════════════════════════════════════════════════════════════════════════
@@ -696,14 +831,19 @@ def create_employee(
                (full_name, job_title, department_id, employment_type, status,
                 hire_date, end_date, email, phone, salary, pay_type, hourly_rate,
                 manager_id, user_id, address, notes, created_at, branch_id,
-                is_field_staff, work_schedule_id)
-           VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)""",
+                is_field_staff, work_schedule_id,
+                commute_km, overtime_rate, late_deduction, attendance_bonus,
+                insurance_employee, insurance_employer, nssf_exempt)
+           VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)""",
         (data.full_name, data.job_title, data.department_id, data.employment_type,
          data.status, data.hire_date or None, data.end_date or None, data.email,
          data.phone, data.salary, data.pay_type, data.hourly_rate,
          data.manager_id, data.user_id, data.address,
          data.notes, _now(), branch_id, 1 if data.is_field_staff else 0,
-         data.work_schedule_id),
+         data.work_schedule_id,
+         data.commute_km, data.overtime_rate, data.late_deduction,
+         data.attendance_bonus, data.insurance_employee, data.insurance_employer,
+         1 if data.nssf_exempt else 0),
     )
     emp_id = cur.lastrowid
     code   = f"EMP-{emp_id:04d}"
@@ -765,13 +905,18 @@ def update_employee(
                hire_date=?, end_date=?, email=?, phone=?, salary=?,
                pay_type=?, hourly_rate=?, manager_id=?,
                user_id=?, address=?, notes=?, is_field_staff=?,
-               work_schedule_id=?
+               work_schedule_id=?,
+               commute_km=?, overtime_rate=?, late_deduction=?, attendance_bonus=?,
+               insurance_employee=?, insurance_employer=?, nssf_exempt=?
            WHERE id=?""",
         (data.full_name, data.job_title, data.department_id, data.employment_type,
          data.status, data.hire_date or None, data.end_date or None, data.email,
          data.phone, data.salary, data.pay_type, data.hourly_rate,
          data.manager_id, data.user_id, data.address,
          data.notes, 1 if data.is_field_staff else 0, data.work_schedule_id,
+         data.commute_km, data.overtime_rate, data.late_deduction,
+         data.attendance_bonus, data.insurance_employee, data.insurance_employer,
+         1 if data.nssf_exempt else 0,
          emp_id),
     )
 
@@ -1250,6 +1395,139 @@ def delete_employee_file(
 
 
 # ══════════════════════════════════════════════════════════════════════════════
+# SALARY ADVANCES — money handed over before payday, recovered by the next run
+# ══════════════════════════════════════════════════════════════════════════════
+# An advance is an ASSET, not an expense: the person owes it back. Recording
+# one posts DR Advances to Employees / CR cash; the next payroll run deducts
+# the open total from net and, when paid, credits the advances account for
+# it (see mark_payroll_run_paid). Nothing here touches salary cost --- the
+# cost is recognised by the run, once, for the whole pay.
+
+def _advance_currency(db, employee_id: int) -> str:
+    """The employee's salary currency, from their active contract, exactly as
+    a payroll line snapshots it --- so the recovery nets against pay in the
+    same currency."""
+    row = db.execute(
+        "SELECT salary_currency FROM hr_contracts "
+        "WHERE employee_id=? AND archived_at IS NULL AND status='Active' "
+        "ORDER BY signed_at DESC, id DESC LIMIT 1", (employee_id,)).fetchone()
+    return ((row["salary_currency"] if row else "USD") or "USD").upper()
+
+
+@router.get("/advances")
+def list_advances(
+    employee_id: Optional[int] = None,
+    status: Optional[str] = None,
+    user=Depends(require_perm("hr", "view")),
+    db: sqlite3.Connection = Depends(get_db),
+):
+    q = ("SELECT a.*, e.full_name AS employee_name, e.employee_code, "
+         "       r.period_start AS recovered_period_start, "
+         "       r.period_end   AS recovered_period_end, r.status AS run_status "
+         "  FROM hr_salary_advances a "
+         "  JOIN hr_employees e ON e.id = a.employee_id "
+         "  LEFT JOIN hr_payroll_runs r ON r.id = a.recovered_in_run_id "
+         " WHERE 1=1")
+    params: list = []
+    if employee_id is not None:
+        q += " AND a.employee_id = ?"; params.append(employee_id)
+    if status:
+        q += " AND a.status = ?"; params.append(status)
+    q += " ORDER BY a.paid_at DESC, a.id DESC"
+    rows = [dict(r) for r in db.execute(q, params).fetchall()]
+    outstanding = round(sum(float(r["amount"] or 0) for r in rows
+                            if r["status"] == "open"), 2)
+    return {"rows": rows, "outstanding": outstanding}
+
+
+@router.post("/advances")
+def create_advance(
+    data: AdvanceIn,
+    user=Depends(require_perm("hr", "create")),
+    db: sqlite3.Connection = Depends(get_db),
+):
+    emp = db.execute(
+        "SELECT id, full_name, status FROM hr_employees "
+        " WHERE id = ? AND archived_at IS NULL", (data.employee_id,)).fetchone()
+    if not emp:
+        raise HTTPException(404, "Employee not found")
+    if emp["status"] == "Terminated":
+        raise HTTPException(400, "This employee has left; there is no payroll to recover an advance from.")
+    when = (data.paid_at or _now())[:10]
+    try:
+        datetime.strptime(when, "%Y-%m-%d")
+    except ValueError:
+        raise HTTPException(400, "paid_at must be YYYY-MM-DD.")
+    from routers.finance import _check_period_locked
+    _check_period_locked(db, when)
+
+    import currency as _ccy
+    ccy = _advance_currency(db, emp["id"])
+    amount = round(float(data.amount), 2)
+    # Posted in the functional currency, converted the way every other cash
+    # movement is. A missing LBP rate refuses here rather than posting face
+    # value as dollars.
+    amount_usd = _ccy.to_usd(amount, ccy, db, on_date=when)
+
+    cur = db.execute(
+        "INSERT INTO hr_salary_advances "
+        "(employee_id, amount, currency, paid_at, payment_method, bank_account_id, "
+        " note, status, created_by, created_at) "
+        "VALUES (?,?,?,?,?,?,?,'open',?,?)",
+        (emp["id"], amount, ccy, when, data.payment_method, data.bank_account_id,
+         data.note, user["id"], _now()))
+    adv_id = cur.lastrowid
+    accounting.post_entry(
+        db, entry_date=when,
+        memo=f"Salary advance — {emp['full_name']}",
+        lines=[
+            {"code": accounting.code(db, "employee_advance"), "debit": amount_usd},
+            {"code": accounting.money_account_for(
+                db, method=data.payment_method, currency=ccy,
+                bank_account_id=data.bank_account_id), "credit": amount_usd},
+        ],
+        source_type="salary_advance", source_id=adv_id, created_by=user["id"])
+    log_action(db, user, "create", "hr_salary_advance", adv_id, emp["full_name"],
+               {"amount": amount, "currency": ccy})
+    db.commit()
+    return {"id": adv_id, "message": "Advance recorded"}
+
+
+@router.patch("/advances/{advance_id}/void")
+def void_advance(
+    advance_id: int,
+    data: AdvanceVoid,
+    user=Depends(require_perm("hr", "delete")),
+    db: sqlite3.Connection = Depends(get_db),
+):
+    """Take an advance back out of the books --- keyed wrong, or never handed
+    over. Refused once it has been recovered: it is then part of a paid run,
+    and unwinding that is a payroll correction, not a click. Refused while a
+    draft run has claimed it, because that draft's line already carries the
+    figure --- cancel the draft first."""
+    adv = db.execute("SELECT * FROM hr_salary_advances WHERE id = ?", (advance_id,)).fetchone()
+    if not adv:
+        raise HTTPException(404, "Advance not found")
+    if adv["status"] == "voided":
+        raise HTTPException(400, "This advance is already voided.")
+    if adv["status"] == "recovered":
+        raise HTTPException(400, "This advance was recovered by a paid payroll run and cannot be voided.")
+    if adv["recovered_in_run_id"]:
+        raise HTTPException(400, "A draft payroll run is recovering this advance. Cancel that run first.")
+    from routers.finance import _check_period_locked
+    _check_period_locked(db, adv["paid_at"])
+    accounting.reverse_source(db, "salary_advance", advance_id,
+                              memo=f"Void salary advance #{advance_id}",
+                              created_by=user["id"])
+    db.execute("UPDATE hr_salary_advances SET status='voided', voided_at=?, void_reason=? "
+               " WHERE id = ?", (_now(), data.reason, advance_id))
+    log_action(db, user, "void", "hr_salary_advance", advance_id,
+               detail={"reason": data.reason})
+    db.commit()
+    return {"ok": True}
+
+
+# ══════════════════════════════════════════════════════════════════════════════
 # PAYROLL — Draft → Approved → Paid (with Finance auto-post)
 # ══════════════════════════════════════════════════════════════════════════════
 
@@ -1330,6 +1608,12 @@ def get_payroll_run(
     ).fetchall()
     result = dict(run)
     result["lines"] = [dict(r) for r in lines]
+    # Totals of the derived components. Summed here rather than stored on the
+    # header: six more columns on hr_payroll_runs would be six more places for
+    # a total to drift from its lines.
+    for key in ("transport_allowance", "attendance_bonus", "late_deduction",
+                "insurance_employee", "insurance_employer", "advance_recovery"):
+        result["total_" + key] = round(sum(float(_col(r, key) or 0) for r in lines), 2)
     return result
 
 
@@ -1366,7 +1650,7 @@ def create_payroll_run(
 
     settings = _payroll_settings(db)
     employees = db.execute(
-        "SELECT id, salary, pay_type, hourly_rate FROM hr_employees "
+        "SELECT * FROM hr_employees "
         "WHERE archived_at IS NULL AND status != 'Terminated'"
     ).fetchall()
     for e in employees:
@@ -1381,7 +1665,27 @@ def create_payroll_run(
             base  = _hourly_base(hours, rate)
         else:
             base = float(e["salary"] or 0)
-        breakd = _compute_payroll_line(base, 0, 0, 0, settings)
+
+        # The parts of pay that follow from the person and the month. Each is
+        # zero when its field is zero, which is what keeps a tenant that has
+        # set nothing on exactly the line it had before.
+        counts   = _attendance_counts(db, e["id"], data.period_start, data.period_end)
+        km       = float(_col(e, "commute_km") or 0)
+        transport = round(km * settings["transport_rate_per_km"] * counts["attended"], 2)
+        att_bonus = (float(_col(e, "attendance_bonus") or 0)
+                     if counts["late"] == 0 and counts["absent"] == 0 else 0.0)
+        per_late  = _col(e, "late_deduction")
+        per_late  = float(per_late) if per_late is not None else settings["late_deduction"]
+        late_ded  = round(per_late * counts["late"], 2)
+        ins_e     = float(_col(e, "insurance_employee") or 0)
+        ins_c     = float(_col(e, "insurance_employer") or 0)
+        exempt    = bool(_col(e, "nssf_exempt"))
+        advance   = _open_advances_total(db, e["id"])
+
+        breakd = _compute_payroll_line(base, 0, 0, 0, settings,
+                                       transport=transport, attendance_bonus=att_bonus,
+                                       late_deduction=late_ded, insurance_employee=ins_e,
+                                       advance_recovery=advance, nssf_exempt=exempt)
         # Snapshot the salary currency from the employee's most recent ACTIVE
         # contract (F-6 audit fix). Falls back to USD if no contract row
         # exists — matches the historical default and won't surprise existing
@@ -1399,13 +1703,29 @@ def create_payroll_run(
                (payroll_run_id, employee_id, base_salary, bonuses, deductions,
                 overtime_hours, overtime_amount, hours_worked, hourly_rate,
                 gross_total, tax_amount, nssf_employee, nssf_employer,
-                net_amount, salary_currency, created_at)
-               VALUES (?,?,?,0,0,0,0,?,?,?,?,?,?,?,?,?)""",
+                net_amount, salary_currency, created_at,
+                attended_days, late_days, transport_allowance, attendance_bonus,
+                late_deduction, insurance_employee, insurance_employer,
+                advance_recovery, nssf_exempt)
+               VALUES (?,?,?,0,0,0,0,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)""",
             (run_id, e["id"], base, hours, rate,
              breakd["gross_total"], breakd["tax_amount"],
              breakd["nssf_employee"], breakd["nssf_employer"],
-             breakd["net_amount"], line_currency, now),
+             breakd["net_amount"], line_currency, now,
+             counts["attended"], counts["late"], transport, att_bonus,
+             late_ded, ins_e, ins_c, advance, 1 if exempt else 0),
         )
+    # Claim the advances the lines above were seeded from. `recovered_in_run_id`
+    # on an OPEN advance means "a draft is recovering this"; it becomes
+    # 'recovered' only when that run is paid, and cancelling the run releases
+    # it. Done after the loop and in the same transaction, so the reservation
+    # matches the amounts to the cent.
+    db.execute(
+        "UPDATE hr_salary_advances SET recovered_in_run_id = ? "
+        " WHERE status = 'open' AND recovered_in_run_id IS NULL "
+        "   AND employee_id IN (SELECT employee_id FROM hr_payroll_lines "
+        "                       WHERE payroll_run_id = ?)",
+        (run_id, run_id))
     _recompute_run_totals(db, run_id)
     log_action(db, user, "create", "hr_payroll_run", run_id,
                f"{data.period_start} → {data.period_end}",
@@ -1423,7 +1743,8 @@ def update_payroll_line(
 ):
     """Tweak a single line's amounts. Disallowed once the run is Paid."""
     row = db.execute(
-        """SELECT pl.*, pr.status AS run_status, e.pay_type
+        """SELECT pl.*, pr.status AS run_status, e.pay_type,
+                  e.overtime_rate AS emp_overtime_rate
            FROM hr_payroll_lines pl
            JOIN hr_payroll_runs  pr ON pr.id = pl.payroll_run_id
            JOIN hr_employees     e  ON e.id  = pl.employee_id
@@ -1469,19 +1790,36 @@ def update_payroll_line(
     # If the caller supplied an explicit overtime_amount, use it. Otherwise
     # derive from hours × hourly_rate × multiplier so the UX can be either
     # "just enter the dollars" or "enter hours and let the engine compute".
+    settings = _payroll_settings(db)
     if data.overtime_amount is not None:
         ot_amt = float(data.overtime_amount)
-    elif ot_hrs > 0 and (rate > 0 or base > 0):
-        settings_for_rate = _payroll_settings(db)
-        # An hourly employee HAS a real rate, so use it. Only a salaried one
-        # needs the approximation: monthly base ÷ 173.33 (40h × 4.33wks).
-        hourly = rate if rate > 0 else base / 173.33
-        ot_amt = round(ot_hrs * hourly * settings_for_rate["overtime_multiplier"], 2)
+    elif ot_hrs > 0:
+        # The employee's own overtime rate when set; the old guess otherwise.
+        hourly = _overtime_hourly({"overtime_rate": row["emp_overtime_rate"]},
+                                  base, rate, settings)
+        ot_amt = round(ot_hrs * hourly, 2) if hourly > 0 else float(row["overtime_amount"] or 0)
     else:
         ot_amt = float(row["overtime_amount"] or 0)
 
-    settings = _payroll_settings(db)
-    breakd = _compute_payroll_line(base, bonus, deduct, ot_amt, settings)
+    # The derived figures: whatever was sent wins, otherwise what the seed put
+    # there. A manager correcting one is not asking for the rest to be redone.
+    def _keep(field):
+        v = getattr(data, field)
+        return float(v) if v is not None else float(_col(row, field) or 0)
+    attended  = int(_keep("attended_days"))
+    late_n    = int(_keep("late_days"))
+    transport = _keep("transport_allowance")
+    att_bonus = _keep("attendance_bonus")
+    late_ded  = _keep("late_deduction")
+    ins_e     = _keep("insurance_employee")
+    ins_c     = _keep("insurance_employer")
+    advance   = float(_col(row, "advance_recovery") or 0)
+    exempt    = bool(_col(row, "nssf_exempt"))
+
+    breakd = _compute_payroll_line(base, bonus, deduct, ot_amt, settings,
+                                   transport=transport, attendance_bonus=att_bonus,
+                                   late_deduction=late_ded, insurance_employee=ins_e,
+                                   advance_recovery=advance, nssf_exempt=exempt)
     if breakd["net_amount"] < 0:
         raise HTTPException(400, "Net amount cannot be negative.")
     notes = data.notes if data.notes is not None else row["notes"]
@@ -1491,12 +1829,16 @@ def update_payroll_line(
            overtime_hours=?, overtime_amount=?,
            hours_worked=?, hourly_rate=?,
            gross_total=?, tax_amount=?, nssf_employee=?, nssf_employer=?,
-           net_amount=?, notes=?
+           net_amount=?, notes=?,
+           attended_days=?, late_days=?, transport_allowance=?, attendance_bonus=?,
+           late_deduction=?, insurance_employee=?, insurance_employer=?
            WHERE id=?""",
         (base, bonus, deduct, ot_hrs, ot_amt, hours, rate,
          breakd["gross_total"], breakd["tax_amount"],
          breakd["nssf_employee"], breakd["nssf_employer"],
-         breakd["net_amount"], notes, line_id),
+         breakd["net_amount"], notes,
+         attended, late_n, transport, att_bonus, late_ded, ins_e, ins_c,
+         line_id),
     )
     _recompute_run_totals(db, row["payroll_run_id"])
     log_action(db, user, "update", "hr_payroll_line", line_id,
@@ -1524,6 +1866,19 @@ def approve_payroll_run(
     ).fetchone()[0]
     if line_count == 0:
         raise HTTPException(400, "Cannot approve an empty payroll run.")
+    # A line can only go negative one way: an advance larger than the month's
+    # pay. The seed records that truthfully rather than hiding it, and this is
+    # where it is stopped --- a run cannot pay somebody a minus. Void part of
+    # the advance, or edit the line, and approve again.
+    neg = db.execute(
+        "SELECT e.full_name, pl.net_amount FROM hr_payroll_lines pl "
+        "  JOIN hr_employees e ON e.id = pl.employee_id "
+        " WHERE pl.payroll_run_id = ? AND pl.net_amount < 0 "
+        " ORDER BY e.full_name LIMIT 1", (run_id,)).fetchone()
+    if neg:
+        raise HTTPException(
+            400, f"{neg['full_name']}'s net pay is negative ({neg['net_amount']:.2f}) --- "
+                 "an advance larger than this month's pay. Void or reduce it first.")
     db.execute(
         "UPDATE hr_payroll_runs SET status='Approved', approved_at=?, approved_by=? WHERE id=?",
         (_now(), user["id"], run_id),
@@ -1598,9 +1953,14 @@ def mark_payroll_run_paid(
     # GL entry post in the functional currency. If an LBP line exists but no
     # exchange rate has been entered yet, refuse to post — we must NOT silently
     # treat LBP face value as USD (that would inflate Salaries 89,000×).
+    # `recovery` is the part of pay that never leaves as cash because it was
+    # handed over earlier as an advance. It is still salary cost, so it is
+    # debited with the rest; the credit goes to the advances account, which
+    # is where that money has been sitting since the day it was paid out.
     by_ccy = db.execute(
         "SELECT COALESCE(NULLIF(salary_currency,''),'USD') AS ccy, "
-        "       COALESCE(SUM(net_amount),0) AS net "
+        "       COALESCE(SUM(net_amount),0) AS net, "
+        "       COALESCE(SUM(advance_recovery),0) AS recovery "
         "FROM hr_payroll_lines WHERE payroll_run_id=? "
         "GROUP BY ccy",
         (run_id,),
@@ -1615,10 +1975,11 @@ def mark_payroll_run_paid(
     for row in by_ccy:
         ccy = (row["ccy"] or "USD").upper()
         amt = float(row["net"] or 0)
-        if amt <= 0:
+        rec = float(row["recovery"] or 0)
+        if amt <= 0 and rec <= 0:
             continue
         if ccy == "USD":
-            amt_usd = round(amt, 2)
+            to_usd = lambda x: round(x, 2)
         elif ccy == "LBP":
             if not spot or spot <= 0:
                 raise HTTPException(
@@ -1627,25 +1988,37 @@ def mark_payroll_run_paid(
                     "lines but no exchange rate is configured. Set the LBP→USD "
                     "rate in Settings → Exchange Rate, then retry.",
                 )
-            amt_usd = round(amt / spot, 2)
+            to_usd = lambda x: round(x / spot, 2)
         else:
             raise HTTPException(
                 400, f"Unsupported salary currency {ccy!r} on this payroll run."
             )
-        total_usd += amt_usd
-        gl_lines.append({
-            "code": accounting.code(db, "salaries"), "debit": amt_usd,
-            "memo": f"{ccy} {amt:,.2f}" + (f" @ {spot:,.0f}" if ccy != "USD" else ""),
-        })
-        cash_lines.append({
-            # Salaries usually leave by transfer, and a payroll that credits
-            # the till says the money was handed over in notes.
-            "code": accounting.money_account_for(
-                db, method=(data.payment_method if data else None),
-                currency=ccy,
-                bank_account_id=(data.bank_account_id if data else None)),
-            "credit": amt_usd,
-        })
+        amt_usd = to_usd(amt)
+        rec_usd = to_usd(rec)
+        # The expense is the whole pay: what leaves as cash now plus what
+        # already left as an advance.
+        total_usd += amt_usd + rec_usd
+        if amt_usd + rec_usd > 0:
+            gl_lines.append({
+                "code": accounting.code(db, "salaries"), "debit": round(amt_usd + rec_usd, 2),
+                "memo": f"{ccy} {amt + rec:,.2f}" + (f" @ {spot:,.0f}" if ccy != "USD" else ""),
+            })
+        if amt_usd > 0:
+            cash_lines.append({
+                # Salaries usually leave by transfer, and a payroll that credits
+                # the till says the money was handed over in notes.
+                "code": accounting.money_account_for(
+                    db, method=(data.payment_method if data else None),
+                    currency=ccy,
+                    bank_account_id=(data.bank_account_id if data else None)),
+                "credit": amt_usd,
+            })
+        if rec_usd > 0:
+            cash_lines.append({
+                "code": accounting.code(db, "employee_advance"),
+                "credit": rec_usd,
+                "memo": "Advances recovered",
+            })
     total_usd = round(total_usd, 2)
     if total_usd <= 0:
         raise HTTPException(400, "Cannot post a zero-net payroll run as an expense.")
@@ -1685,9 +2058,16 @@ def mark_payroll_run_paid(
         lines=gl_lines + cash_lines,
         source_type="payroll", source_id=run_id, created_by=user["id"],
     )
+    # The advances this run was seeded from are now recovered. Only those ---
+    # one recorded after the run was opened was not in any line's figure and
+    # stays open for the next run.
+    db.execute(
+        "UPDATE hr_salary_advances SET status = 'recovered' "
+        " WHERE recovered_in_run_id = ? AND status = 'open'", (run_id,))
     log_action(db, user, "mark_paid", "hr_payroll_run", run_id, desc,
                {"expense_id": expense_id, "amount": total_usd,
-                "currencies": [{"ccy": r["ccy"], "net": float(r["net"])} for r in by_ccy]})
+                "currencies": [{"ccy": r["ccy"], "net": float(r["net"]),
+                                "recovery": float(r["recovery"])} for r in by_ccy]})
 
     # Notify each paid employee personally (if their employee row is linked to a
     # user account) so they see their payslip moved to "Paid". HR managers get
@@ -1754,6 +2134,9 @@ def cancel_payroll_run(
         )
     if run["status"] == "Cancelled":
         raise HTTPException(400, "Already cancelled.")
+    db.execute(
+        "UPDATE hr_salary_advances SET recovered_in_run_id = NULL "
+        " WHERE recovered_in_run_id = ? AND status = 'open'", (run_id,))
     db.execute(
         "UPDATE hr_payroll_runs SET status='Cancelled', archived_at=? WHERE id=?",
         (_now(), run_id),

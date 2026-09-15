@@ -77,6 +77,7 @@ export default function Settings() {
     'inventory_costing_method',
     'payroll_tax_pct', 'payroll_nssf_employee_pct',
     'payroll_nssf_employer_pct', 'payroll_overtime_multiplier',
+    'payroll_transport_rate_per_km', 'payroll_late_deduction',
     'attendance_source',
     'footer_text', 'invoice_terms', 'show_discount_col', 'show_tax_col',
     'show_barcode_col', 'show_total_words',
@@ -333,6 +334,15 @@ export default function Settings() {
             </Field>
             <Field label={t('settings.payrollOvertimeMultiplier')} hint="×">
               <Input disabled={!canEdit} type="number" value={form.payroll_overtime_multiplier ?? ''} onChange={set('payroll_overtime_multiplier')} placeholder="1.5" />
+            </Field>
+            {/* Per km of home distance, per attended day. Stated that way so
+                there is no hidden x2 for the return trip: the owner sets a
+                rate that already covers both directions. */}
+            <Field label={t('settings.transportRatePerKm')} hint={t('settings.transportRatePerKmHint')}>
+              <Input disabled={!canEdit} type="number" value={form.payroll_transport_rate_per_km ?? ''} onChange={set('payroll_transport_rate_per_km')} placeholder="0" />
+            </Field>
+            <Field label={t('settings.lateDeduction')} hint={t('settings.lateDeductionHint')}>
+              <Input disabled={!canEdit} type="number" value={form.payroll_late_deduction ?? ''} onChange={set('payroll_late_deduction')} placeholder="0" />
             </Field>
           </div>
           {/* The one switch that decides whether a fingerprint terminal is

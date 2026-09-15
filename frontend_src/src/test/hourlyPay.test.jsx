@@ -45,7 +45,9 @@ describe('the payroll line', () => {
     // The server recomputes the total; without this the row would keep showing
     // the pre-edit figure.
     expect(panelSrc).toMatch(/setHours\(numStr\(line\.hours_worked\)\)/);
-    expect(panelSrc).toMatch(/line\.hours_worked\]\)/);
+    // In the effect's dependency list --- wherever in it; the derived pay
+    // components (transport, lateness, insurance) sit after it now.
+    expect(panelSrc).toMatch(/line\.hours_worked[,\]]/);
   });
 
   test('the working is shown, not just a number', () => {

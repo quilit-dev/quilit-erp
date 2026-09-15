@@ -77,6 +77,7 @@ PREPAID      = "1300"   # Prepaid Expenses (paid in advance, not yet incurred)
 # into that balance makes both unreadable, and only one of them unwinds when a
 # lorry arrives.
 SUPPLIER_ADV = "1250"   # Advances to Suppliers (paid, goods not yet received)
+EMPLOYEE_ADV = "1260"   # Advances to Employees (paid ahead of payday, recovered from it)
 ACC_DEP      = "1510"   # Accumulated Depreciation (contra-asset)
 FIXED_ASSET  = "1500"   # the cost of what the register tracks
 AP           = "2000"   # Accounts Payable
@@ -180,6 +181,7 @@ _ROLE_DEFAULTS = {
     "receivable": AR,                 "inventory": INVENTORY,
     "prepaid": PREPAID,               "accumulated_dep": ACC_DEP,
     "supplier_advance": SUPPLIER_ADV,
+    "employee_advance": EMPLOYEE_ADV,
     "payable": AP,                    "vat_control": VAT_CONTROL,
     "vat_input": VAT_CONTROL,         "vat_output": VAT_CONTROL,
     "deferred_revenue": DEFERRED_REV, "retained_earnings": RETAINED_EARNINGS,

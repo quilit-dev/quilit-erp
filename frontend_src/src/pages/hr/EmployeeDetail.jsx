@@ -5,6 +5,7 @@ import { getEmployee, uploadEmployeeFile, deleteEmployeeFile, employeeFileURL } 
 import { EMP_STATUS_BADGE, LEAVE_STATUS_BADGE, PAYROLL_BADGE, CHANGE_BADGE,
          changeLabel, empStatusLabel, leaveStatusLabel, payrollStatusLabel } from './constants';
 import { ContractsSection } from './ContractsSection';
+import { AdvancesSection } from './AdvancesSection';
 import { Field, Section, FileSlot } from './primitives';
 
 function EmployeeDetail({ empId, canEdit, onClose, onEdit, onChanged }) {
@@ -173,6 +174,9 @@ function EmployeeDetail({ empId, canEdit, onClose, onEdit, onChanged }) {
 
         {/* ── Contracts ────────────────────────────────────────────────── */}
         <ContractsSection empId={empId} canEdit={canEdit} />
+
+        {/* ── Advances ─────────────────────────────────────────────────── */}
+        <AdvancesSection empId={empId} canEdit={canEdit} />
 
         {/* ── Payroll history ──────────────────────────────────────────── */}
         <Section title={t('hr.payrollHistory')}>

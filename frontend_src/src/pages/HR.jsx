@@ -113,6 +113,13 @@ export default function HR() {
       pay_type:      e.pay_type || 'Salaried',
       hourly_rate:   e.hourly_rate ?? 0,
       work_schedule_id: e.work_schedule_id ?? '',
+      commute_km:         e.commute_km ?? 0,
+      overtime_rate:      e.overtime_rate ?? '',
+      late_deduction:     e.late_deduction ?? '',
+      attendance_bonus:   e.attendance_bonus ?? 0,
+      insurance_employee: e.insurance_employee ?? 0,
+      insurance_employer: e.insurance_employer ?? 0,
+      nssf_exempt:        !!e.nssf_exempt,
     });
     setEmpEditId(e.id);
     setEmpModal(true);
@@ -130,6 +137,17 @@ export default function HR() {
         salary:        Number(empForm.salary) || 0,
         hourly_rate:   Number(empForm.hourly_rate) || 0,
         work_schedule_id: empForm.work_schedule_id ? Number(empForm.work_schedule_id) : null,
+        commute_km:         Number(empForm.commute_km) || 0,
+        // Blank means "use the fallback", and that has to reach the server as
+        // null --- a 0 would mean "zero", which is a different answer.
+        overtime_rate:      empForm.overtime_rate === '' || empForm.overtime_rate == null
+                              ? null : Number(empForm.overtime_rate),
+        late_deduction:     empForm.late_deduction === '' || empForm.late_deduction == null
+                              ? null : Number(empForm.late_deduction),
+        attendance_bonus:   Number(empForm.attendance_bonus) || 0,
+        insurance_employee: Number(empForm.insurance_employee) || 0,
+        insurance_employer: Number(empForm.insurance_employer) || 0,
+        nssf_exempt:        !!empForm.nssf_exempt,
         hire_date:     empForm.hire_date || null,
         end_date:      empForm.end_date || null,
         branch_id:     empForm.branch_id || null,
@@ -611,6 +629,64 @@ export default function HR() {
                   <label className="form-label">{t('hr.fldSalary')}</label>
                   <NumberInput min="0" step="0.01" className="form-control" value={empForm.salary}
                     onChange={e => setEmpForm(f => ({ ...f, salary: e.target.value }))} />
+                </div>
+
+                {/* ── Pay & allowances ───────────────────────────────────
+                    What the payroll run derives from, per person. Every field
+                    left blank or zero contributes nothing, so an employee with
+                    none of this set is paid exactly as before. */}
+                <div style={{ gridColumn: '1 / -1', marginTop: 6, paddingTop: 10,
+                              borderTop: '1px solid var(--border)' }}>
+                  <div style={{ fontSize: 12, fontWeight: 600, letterSpacing: '.04em',
+                                textTransform: 'uppercase', color: 'var(--text-3)' }}>
+                    {t('hr.payProfileTitle')}
+                  </div>
+                  <div style={{ fontSize: 12, color: 'var(--text-3)', marginTop: 2 }}>
+                    {t('hr.payProfileHint')}
+                  </div>
+                </div>
+                <div className="form-group">
+                  <label className="form-label">{t('hr.fldCommuteKm')}</label>
+                  <NumberInput min="0" step="0.1" className="form-control" value={empForm.commute_km}
+                    onChange={e => setEmpForm(f => ({ ...f, commute_km: e.target.value }))} />
+                  <div style={{ fontSize: 11.5, color: 'var(--text-3)', marginTop: 3 }}>{t('hr.fldCommuteKmHint')}</div>
+                </div>
+                <div className="form-group">
+                  <label className="form-label">{t('hr.fldOvertimeRate')}</label>
+                  <NumberInput min="0" step="0.01" className="form-control" value={empForm.overtime_rate}
+                    placeholder={t('hr.fldOvertimeRatePh')}
+                    onChange={e => setEmpForm(f => ({ ...f, overtime_rate: e.target.value }))} />
+                </div>
+                <div className="form-group">
+                  <label className="form-label">{t('hr.fldLateDeduction')}</label>
+                  <NumberInput min="0" step="0.01" className="form-control" value={empForm.late_deduction}
+                    placeholder={t('hr.fldLateDeductionPh')}
+                    onChange={e => setEmpForm(f => ({ ...f, late_deduction: e.target.value }))} />
+                </div>
+                <div className="form-group">
+                  <label className="form-label">{t('hr.fldAttendanceBonus')}</label>
+                  <NumberInput min="0" step="0.01" className="form-control" value={empForm.attendance_bonus}
+                    onChange={e => setEmpForm(f => ({ ...f, attendance_bonus: e.target.value }))} />
+                  <div style={{ fontSize: 11.5, color: 'var(--text-3)', marginTop: 3 }}>{t('hr.fldAttendanceBonusHint')}</div>
+                </div>
+                <div className="form-group">
+                  <label className="form-label">{t('hr.fldInsuranceEmployee')}</label>
+                  <NumberInput min="0" step="0.01" className="form-control" value={empForm.insurance_employee}
+                    onChange={e => setEmpForm(f => ({ ...f, insurance_employee: e.target.value }))} />
+                </div>
+                <div className="form-group">
+                  <label className="form-label">{t('hr.fldInsuranceEmployer')}</label>
+                  <NumberInput min="0" step="0.01" className="form-control" value={empForm.insurance_employer}
+                    onChange={e => setEmpForm(f => ({ ...f, insurance_employer: e.target.value }))} />
+                  <div style={{ fontSize: 11.5, color: 'var(--text-3)', marginTop: 3 }}>{t('hr.fldInsuranceEmployerHint')}</div>
+                </div>
+                <div className="form-group" style={{ display: 'flex', alignItems: 'flex-end' }}>
+                  <label style={{ display: 'flex', alignItems: 'center', gap: 8,
+                                  fontSize: 13, cursor: 'pointer' }}>
+                    <input type="checkbox" checked={!!empForm.nssf_exempt}
+                      onChange={e => setEmpForm(f => ({ ...f, nssf_exempt: e.target.checked }))} />
+                    {t('hr.fldNssfExempt')}
+                  </label>
                 </div>
                 <div className="form-group">
                   <label className="form-label">{t('hr.fldEmail')}</label>

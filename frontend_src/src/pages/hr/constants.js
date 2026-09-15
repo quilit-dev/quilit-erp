@@ -40,6 +40,16 @@ export const EMPTY_EMPLOYEE = {
   // Blank means the company default --- and NULL on the server means the
   // same, so nobody has to be assigned one for the clock to work on day one.
   work_schedule_id: '',
+  // The pay profile. Blank/zero everywhere means "nothing", and the run
+  // computes nothing from it --- so an untouched employee is paid exactly as
+  // before. See routers/hr.py:_compute_payroll_line for what each one does.
+  commute_km: 0,
+  overtime_rate: '',        // blank = the old fallback (hourly x multiplier)
+  late_deduction: '',       // blank = the company default
+  attendance_bonus: 0,
+  insurance_employee: 0,
+  insurance_employer: 0,
+  nssf_exempt: false,
 };
 export const EMPTY_DEPT  = { name: '', description: '' };
 export const EMPTY_LEAVE = { employee_id: '', leave_type: 'Annual', start_date: '', end_date: '', reason: '' };

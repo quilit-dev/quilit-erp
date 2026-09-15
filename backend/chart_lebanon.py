@@ -94,6 +94,11 @@ ACCOUNTS = [
     ("42",   "المستخدمون", "Employees", "Liability", "Current Liability", "credit", HEADER),
     ("421",  "المستخدمون- أجور مستحقة", "Employees — wages payable",
      "Liability", "Current Liability", "credit", POSTABLE),
+    # Money handed to staff ahead of payday. A debit balance under the
+    # Employees class, which is where the plan puts it: the person owes it
+    # back, and the next payroll recovers it.
+    ("425",  "المستخدمون- سلف ودفعات على الحساب", "Employees — advances and payments on account",
+     "Asset", "Current Asset", "debit", POSTABLE),
     ("43",   "مؤسسات الضمان الإجتماعي", "Social security institutions",
      "Liability", "Current Liability", "credit", POSTABLE),
     ("44",   "الدولة والمؤسسات العامة", "State and public institutions",
@@ -246,6 +251,7 @@ ROLES = {
     "accumulated_dep":   "282",
     "payable":           "4011",
     "supplier_advance":  "4091",
+    "employee_advance":  "425",
     "vat_control":       "4425",
     "vat_input":         "4426",
     "vat_output":        "4427",
@@ -330,6 +336,54 @@ def install(db, *, force=False):
             "updated_at=excluded.updated_at",
             (role, code, now))
     return len(all_accounts())
+
+
+def ensure_current(db) -> int:
+    """Bring a tenant that is already on this chart up to date with it.
+
+    `install` seeds the whole chart once. `reconcile_active` retires strangers
+    afterwards. Neither ADDS: an account or a role that joins this chart in a
+    later release --- 425 for staff advances, say --- never reaches a tenant
+    that installed the chart before it existed. Worse, `status()` then reports
+    that tenant as NOT on the chart (every account and role must be present),
+    reconcile_active stops retiring, and the Accounting screen tells the owner
+    they are on a chart they cannot switch to.
+
+    So this inserts any account on the chart the tenant lacks and points every
+    role at its chart code. Only for a tenant on the chart --- detected the way
+    accounting.py does, by where the revenue role points --- and only adding,
+    never retiring. Idempotent; runs at the end of every migration pass.
+    """
+    from utils import _now
+    roles = {r["role"]: r["code"] for r in db.execute(
+        "SELECT role, code FROM account_roles").fetchall()}
+    if roles.get("revenue") != ROLES["revenue"]:
+        return 0
+    now = _now()
+    present = {r["code"] for r in db.execute(
+        "SELECT code FROM chart_of_accounts").fetchall()}
+    changed = 0
+    for code, ar, en, atype, subtype, normal, postable in all_accounts():
+        if code in present:
+            continue
+        db.execute(
+            "INSERT OR IGNORE INTO chart_of_accounts "
+            "(code, name, name_ar, type, subtype, normal_balance, parent_code, "
+            " is_system, is_active, is_postable, created_at) "
+            "VALUES (?,?,?,?,?,?,?,1,1,?,?)",
+            (code, en, ar, atype, subtype, normal, parent_of(code),
+             1 if postable else 0, now))
+        changed += 1
+    for role, code in ROLES.items():
+        if roles.get(role) == code:
+            continue
+        db.execute(
+            "INSERT INTO account_roles (role, code, updated_at) VALUES (?,?,?) "
+            "ON CONFLICT(role) DO UPDATE SET code=excluded.code, "
+            "updated_at=excluded.updated_at",
+            (role, code, now))
+        changed += 1
+    return changed
 
 
 def reconcile_active(db) -> int:
