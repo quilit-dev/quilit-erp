@@ -12,6 +12,7 @@ import { useLocale } from '../../hooks/useLocale.jsx';
 import { usePermissions } from '../../hooks/usePermissions';
 import { LoadingSpinner, toast, NumberInput, fmt } from '../../components/shared';
 import { getProduct, getAttributeDefs, addProductVariant } from '../../api/client';
+import SearchSelect from '../../components/SearchSelect.jsx';
 
 export default function AddVariantModal({ productId, onSaved, onCancel }) {
   const { t } = useLocale();
@@ -20,6 +21,7 @@ export default function AddVariantModal({ productId, onSaved, onCancel }) {
   const [product, setProduct] = useState(null);
   const [defs, setDefs] = useState([]);
   const [values, setValues] = useState({});      // axis name -> chosen value
+  const [extra, setExtra] = useState({});        // axis name -> values typed in this form
   const [label, setLabel] = useState('');         // only when the product has no axes
   const [form, setForm] = useState({ barcode: '', sale_price: '', unit_cost: '', initial_quantity: '' });
   const [saving, setSaving] = useState(false);
@@ -50,16 +52,18 @@ export default function AddVariantModal({ productId, onSaved, onCancel }) {
     }
     return names.map(name => {
       const def = defs.find(d => (d.name || '').toLowerCase() === name.toLowerCase());
-      const opts = new Set([...(def?.options || []), ...(used[name] || [])]);
+      const opts = new Set([...(def?.options || []), ...(used[name] || []), ...(extra[name] || [])]);
       return { name, options: [...opts] };
     });
-  }, [product, defs]);
+  }, [product, defs, extra]);
 
   const siblings = product?.variants || [];
   const tpl = siblings[siblings.length - 1];
   const preview = axes.length
     ? axes.map(a => values[a.name]).filter(Boolean).join(' / ')
     : label.trim();
+  // Every axis needs a value before the name means anything.
+  const complete = axes.length ? axes.every(a => values[a.name]) : !!preview;
   const duplicate = preview && siblings.some(v =>
     (v.variant_label || '').trim().toLowerCase() === preview.toLowerCase());
 
@@ -102,15 +106,13 @@ export default function AddVariantModal({ productId, onSaved, onCancel }) {
           {axes.length > 0 ? axes.map(a => (
             <div className="form-group" key={a.name}>
               <label className="form-label">{a.name}</label>
-              {/* A text box with the known values offered, not a fixed list: a
-                  size the definition never listed is still a size. */}
-              <input className="form-control" list={`variant-axis-${a.name}`}
-                value={values[a.name] || ''} autoComplete="off"
-                onChange={e => setValues(s => ({ ...s, [a.name]: e.target.value.trim() }))}
-                placeholder={t('inventory.pickOrTypeValue')} />
-              <datalist id={`variant-axis-${a.name}`}>
-                {a.options.map(o => <option key={o} value={o} />)}
-              </datalist>
+              {/* The known values to pick from, and a typed one taken as new:
+                  a size the definition never listed is still a size. */}
+              <SearchSelect className="form-control" value={values[a.name] || ''}
+                onChange={v => setValues(s => ({ ...s, [a.name]: v }))}
+                onCreate={v => setExtra(s => ({ ...s, [a.name]: [...(s[a.name] || []), v] }))}
+                options={a.options.map(o => ({ value: o, label: o }))}
+                placeholder={t('inventory.pickOrTypeValue')} allowBlank={false} />
             </div>
           )) : (
             <div className="form-group form-full">
@@ -145,7 +147,7 @@ export default function AddVariantModal({ productId, onSaved, onCancel }) {
           </div>
         </div>
 
-        {preview && (
+        {preview && complete && (
           <div style={{ marginTop: 10, fontSize: 12, color: duplicate ? 'var(--red)' : 'var(--text-3)' }}>
             {duplicate
               ? t('inventory.variantExists', { label: preview })
@@ -155,7 +157,7 @@ export default function AddVariantModal({ productId, onSaved, onCancel }) {
       </div>
       <div className="modal-footer">
         <button type="button" className="btn btn-secondary" onClick={onCancel}>{t('common.cancel')}</button>
-        <button type="submit" className="btn btn-primary" disabled={saving || !preview || duplicate}>
+        <button type="submit" className="btn btn-primary" disabled={saving || !complete || duplicate}>
           {saving ? t('common.saving') : t('inventory.addVariantBtn')}
         </button>
       </div>

@@ -103,6 +103,12 @@ export default function SearchSelect({
   // it on gave a page-size picker a "—" row that meant nothing and, chosen,
   // meant nothing twice.
   allowBlank,
+  // When given, a value the list does not have can be typed and taken: the
+  // panel is always searchable and, once the query matches no label exactly,
+  // a last row offers to add it. The caller receives the text and decides
+  // what it becomes — a new option, usually. A variant axis is the case: a
+  // size the definition never listed is still a size.
+  onCreate,
   className = 'form-control',
   style,
   id,
@@ -121,7 +127,7 @@ export default function SearchSelect({
   const listRef = useRef(null);
   const listId = useId();
 
-  const canSearch = searchable ?? options.length >= SEARCH_FROM;
+  const canSearch = onCreate ? true : (searchable ?? options.length >= SEARCH_FROM);
   const blankRow = allowBlank ?? !!placeholder;
 
   const selected = useMemo(
@@ -139,6 +145,17 @@ export default function SearchSelect({
       return words.every(w => hay.includes(w));
     });
   }, [options, query]);
+
+  // The typed text, offered as a new value when nothing in the list IS it.
+  const creatable = useMemo(() => {
+    if (!onCreate) return null;
+    const q = query.trim();
+    if (!q) return null;
+    const nq = norm(q);
+    return options.some(o => norm(o.label) === nq || norm(o.value) === nq) ? null : q;
+  }, [onCreate, options, query]);
+  // Keyboard rows: the matches, then the create row when there is one.
+  const rowCount = matches.length + (creatable ? 1 : 0);
 
   const reposition = useCallback(() => {
     const el = btnRef.current;
@@ -217,6 +234,14 @@ export default function SearchSelect({
     btnRef.current?.focus();
   }
 
+  function create() {
+    if (!creatable) return;
+    onCreate(creatable);
+    onChange(creatable);
+    setOpen(false);
+    btnRef.current?.focus();
+  }
+
   function onKeyDown(e) {
     if (disabled) return;
     if (!open) {
@@ -228,13 +253,14 @@ export default function SearchSelect({
     }
     if (e.key === 'ArrowDown') {
       e.preventDefault();
-      setCursor(c => Math.min(c + 1, matches.length - 1));
+      setCursor(c => Math.min(c + 1, rowCount - 1));
     } else if (e.key === 'ArrowUp') {
       e.preventDefault();
       setCursor(c => Math.max(c - 1, 0));
     } else if (e.key === 'Enter') {
       e.preventDefault();
       if (matches[cursor]) pick(matches[cursor]);
+      else if (creatable && cursor === matches.length) create();
     } else if (e.key === 'Escape') {
       e.preventDefault();
       setOpen(false);
@@ -244,7 +270,10 @@ export default function SearchSelect({
     }
   }
 
-  const shown = selected ? selected.label : (placeholder || '—');
+  // A created value is not in the list yet, and must still read as chosen.
+  const shown = selected ? selected.label
+    : (onCreate && value) ? String(value)
+    : (placeholder || '—');
 
   return (
     <>
@@ -274,8 +303,8 @@ export default function SearchSelect({
         <span style={{
           flex: 1, overflow: 'hidden', textOverflow: 'ellipsis',
           whiteSpace: 'nowrap',
-          color: selected ? 'var(--text)' : 'var(--text-3)',
-          fontWeight: selected ? 500 : 400,
+          color: (selected || (onCreate && value)) ? 'var(--text)' : 'var(--text-3)',
+          fontWeight: (selected || (onCreate && value)) ? 500 : 400,
         }}>{shown}</span>
         <svg width="11" height="11" viewBox="0 0 24 24" fill="none"
              stroke="currentColor" strokeWidth="2.5" aria-hidden="true"
@@ -340,7 +369,31 @@ export default function SearchSelect({
                 hint={o.hint}
               />
             ))}
-            {matches.length === 0 && (
+            {creatable && (
+              <div
+                role="option"
+                aria-selected={false}
+                onMouseDown={(e) => { e.preventDefault(); create(); }}
+                onMouseEnter={() => setCursor(matches.length)}
+                style={{
+                  display: 'flex', alignItems: 'center', gap: 8,
+                  padding: '7px 8px', borderRadius: 6, cursor: 'pointer', fontSize: 13.5,
+                  marginTop: matches.length ? 2 : 0,
+                  borderTop: matches.length ? '1px solid var(--rule)' : 'none',
+                  background: cursor === matches.length ? 'var(--surface-2)' : 'transparent',
+                  color: 'var(--accent)', fontWeight: 600,
+                }}
+              >
+                <svg width="13" height="13" viewBox="0 0 24 24" fill="none"
+                     stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" aria-hidden="true">
+                  <line x1="12" y1="5" x2="12" y2="19" /><line x1="5" y1="12" x2="19" y2="12" />
+                </svg>
+                <span style={{ overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
+                  {t('common.addValue', { value: creatable })}
+                </span>
+              </div>
+            )}
+            {matches.length === 0 && !creatable && (
               <div style={{ padding: '10px 10px', fontSize: 13,
                             color: 'var(--text-3)' }}>
                 {emptyText || t('common.noResults')}

@@ -227,6 +227,7 @@ const ar = {
     nothingHere: 'لا يوجد شيء هنا بعد',
     noDataFound: 'لم يتم العثور على بيانات.',
     noResults: 'لا توجد نتائج مطابقة.',
+    addValue: 'إضافة "{{value}}"',
     retry: 'إعادة المحاولة',
     reportProblem: 'الإبلاغ عن مشكلة',
     problemReported: 'تم الإبلاغ',

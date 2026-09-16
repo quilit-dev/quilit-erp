@@ -15,7 +15,7 @@ import {
 } from '../api/client';
 import {
   LoadingSpinner, ErrorAlert, EmptyState, Modal, ConfirmModal,
-  ExportButton, toast, SortableTh, Pagination, fmt, IconButton,
+  ExportButton, toast, SortableTh, Pagination, fmt, IconButton, Icon,
 } from '../components/shared';
 import ImportWizard from '../components/ImportWizard';
 
@@ -451,22 +451,27 @@ export default function Inventory() {
                             <span className="badge badge-accent" style={{ marginInlineStart: 8, fontSize: 10 }}>
                               {t('inventory.variantCountBadge', { count: agg.count })}
                             </span>
-                            {/* One more size or colour, after the fact. Stops the
-                                click reaching the row, which would fold the group. */}
-                            {can('inventory', 'create') && (
-                              <button type="button" className="btn btn-sm btn-secondary"
-                                style={{ marginInlineStart: 10, padding: '1px 8px', fontSize: 11 }}
-                                onClick={e => { e.stopPropagation(); setVariantFor(pid); }}>
-                                + {t('inventory.addVariantBtn')}
-                              </button>
-                            )}
                           </td>
                           <td style={{ fontWeight: 600 }}>{agg.stock}</td>
                           <td />
                           <td />
                           <td style={{ fontWeight: 600 }}>${fmtNum(agg.value)}</td>
                           <td />
-                          <td />
+                          <td>
+                            {/* One more size or colour, after the fact — in the
+                                actions column with the row actions, not beside the
+                                name. Stops the click reaching the row, which would
+                                fold the group. */}
+                            {can('inventory', 'create') && (
+                              <button type="button" className="btn btn-sm btn-secondary"
+                                style={{ display: 'inline-flex', alignItems: 'center', gap: 6, whiteSpace: 'nowrap' }}
+                                title={t('inventory.addVariantTitle')}
+                                onClick={e => { e.stopPropagation(); setVariantFor(pid); }}>
+                                <Icon name="layers-plus" size={14} />
+                                {t('inventory.addVariantBtn')}
+                              </button>
+                            )}
+                          </td>
                         </tr>
                       );
                     }

@@ -229,6 +229,7 @@ const en = {
     // SearchSelect's empty state when a query matches nothing. It used to
     // fall through to the raw key.
     noResults: 'No matches.',
+    addValue: 'Add "{{value}}"',
     retry: 'Retry',
     reportProblem: 'Report problem',
     problemReported: 'Reported',

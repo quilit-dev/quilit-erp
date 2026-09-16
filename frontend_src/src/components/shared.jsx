@@ -76,6 +76,9 @@ const ICON_PATHS = {
   // Row-action icons. The inventory actions column held five TEXT buttons —
   // 380px of a 1279px table, so the last one fell off the edge of a laptop.
   'archive':        '<rect width="20" height="5" x="2" y="3" rx="1"/><path d="M4 8v11a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8"/><path d="M10 12h4"/>',
+  // A stack of variants with one more being added — the product group row's
+  // "Add variant" action.
+  'layers-plus':    '<path d="M12 2 2 7l10 5 10-5-10-5z"/><path d="M2 12l10 5 4.5-2.25"/><path d="M2 17l10 5 4-2"/><line x1="19" y1="14" x2="19" y2="22"/><line x1="15" y1="18" x2="23" y2="18"/>',
   'trash':          '<path d="M3 6h18"/><path d="M19 6v14a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V6"/><path d="M8 6V4a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2"/><line x1="10" x2="10" y1="11" y2="17"/><line x1="14" x2="14" y1="11" y2="17"/>',
   'pencil':         '<path d="M17 3a2.828 2.828 0 1 1 4 4L7.5 20.5 2 22l1.5-5.5L17 3z"/>',
   'file-spreadsheet': '<path d="M15 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V7Z"/><path d="M14 2v4a2 2 0 0 0 2 2h4"/><path d="M8 13h2"/><path d="M14 13h2"/><path d="M8 17h2"/><path d="M14 17h2"/>',
