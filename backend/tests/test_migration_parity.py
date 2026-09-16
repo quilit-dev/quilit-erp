@@ -126,6 +126,8 @@ _REQUIRED = [
     ("hr_payroll_lines", "advance_recovery"),
     ("hr_payroll_lines", "nssf_exempt"),
     ("hr_salary_advances", "recovered_in_run_id"),
+    # The list price recorded beside the charged price on a till line.
+    ("pos_sale_items", "list_price"),
 ]
 
 

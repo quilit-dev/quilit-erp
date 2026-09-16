@@ -48,6 +48,9 @@ const CORE_MODULES  = [
   // still sees a foreign purchase in the list with its total; without this
   // they cannot open it, read its lines, or raise one.
   'foreign_purchases',
+  // Changing a stock item's price at the till. Without it the register rings
+  // the list price and the server holds the cashier to it.
+  'pos_price_override',
   // People
   'hr', 'hr_contracts', 'hr_activities', 'recruitment',
   // Client + internal comms
@@ -149,6 +152,7 @@ export default function RoleManagement() {
     // No nav entry of its own — it is a capability, not a screen.
     costs:         t('roles.moduleCosts'),
     foreign_purchases: t('roles.moduleForeignPurchases'),
+    pos_price_override: t('roles.modulePosPriceOverride'),
     service:       t('nav.service'),
     communications: t('nav.communications'),
     crm:           t('nav.crm'),

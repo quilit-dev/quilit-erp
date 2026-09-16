@@ -61,6 +61,13 @@ MODULES = [
     # changes, receipt, payment and voiding stay on `purchases` on purpose ---
     # a warehouse receiving a container has no business seeing what it cost.
     'foreign_purchases',
+    # Changing the price of a stock item at the till. Also a key and not a
+    # screen. The register fills in the inventory sale price; without this
+    # the server insists on it (a stock line rung at any other price is
+    # refused), with it the cashier may type another price, subject to the
+    # floor in routers/pos.py. Only `view` is meaningful: holding it is the
+    # permission.
+    'pos_price_override',
 ]
 ADMIN_MODULES = ['settings', 'users', 'roles', 'audit']
 ALL_MODULES   = MODULES + ADMIN_MODULES

@@ -87,6 +87,11 @@ DEFAULTS = {
     # Deducted per day the clock marked Late, unless the employee record
     # carries its own figure. 0 = no automatic deduction.
     "payroll_late_deduction":       "0",
+    # How far below the list price a till override may go, as a percentage
+    # of list: 80 means a $100 item cannot be rung under $80 even by someone
+    # holding pos_price_override. 0 = no floor beyond the item's cost, which
+    # always applies.
+    "pos_price_floor_pct":          "0",
     # Where attendance comes from. 'manual' means the daily editor is the
     # only writer, which is how every install behaves until somebody changes
     # this. Punches from a fingerprint terminal are STORED either way; this
@@ -144,6 +149,7 @@ class SettingsUpdate(BaseModel):
     payroll_overtime_multiplier: Optional[str] = None
     payroll_transport_rate_per_km: Optional[str] = None
     payroll_late_deduction:      Optional[str] = None
+    pos_price_floor_pct:         Optional[str] = None
     attendance_source:           Optional[str] = None
     footer_text:        Optional[str] = None
     # Free text printed at the foot of every invoice. Multi-line, unlike

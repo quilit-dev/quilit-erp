@@ -81,7 +81,7 @@ export default function Settings() {
     'attendance_source',
     'footer_text', 'invoice_terms', 'show_discount_col', 'show_tax_col',
     'show_barcode_col', 'show_total_words',
-    'pos_receipt_width',
+    'pos_receipt_width', 'pos_price_floor_pct',
   ]);
 
   async function save() {
@@ -306,6 +306,13 @@ export default function Settings() {
               <SearchSelect className="form-control" disabled={!canEdit}
                 value={form.pos_receipt_width || '80'} onChange={set('pos_receipt_width')}
                 options={[{ value: '80', label: '80 mm' }, { value: '58', label: '58 mm' }]} />
+            </Field>
+            {/* How far a till price may be lowered by someone allowed to
+                change it, as a percentage of list. Cost is always a floor;
+                this adds one above it. 0 = none. */}
+            <Field label={t('settings.posPriceFloor')} hint={t('settings.posPriceFloorHint')}>
+              <Input disabled={!canEdit} type="number" min="0" max="100"
+                value={form.pos_price_floor_pct ?? ''} onChange={set('pos_price_floor_pct')} placeholder="0" />
             </Field>
             <Field label={t('settings.contractPrefix')}>
               <Input disabled={!canEdit} value={form.contract_prefix || ''} onChange={set('contract_prefix')} placeholder="CTR-" />

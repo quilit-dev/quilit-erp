@@ -3789,6 +3789,27 @@ textarea.form-control {
   border: 1px solid transparent;
   transition: background var(--motion-fast) var(--ease);
 }
+.pos-cart-line--priced { flex-wrap: wrap; }
+/* The price row of a line whose price may be changed at the till: a full
+ * row under the name and controls, since the body beside them is too
+ * narrow for a box once the qty control, discount and total are in place. */
+.pos-cart-line-price {
+  flex-basis: 100%;
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding-top: 2px;
+}
+.pos-cart-line-price .form-control {
+  height: 28px;
+  width: 110px;
+  padding: 0 8px;
+  font-family: var(--font-mono);
+  font-size: 12.5px;
+  text-align: end;
+}
+.pos-cart-line-price-label { font-size: 11px; color: var(--text-3); }
+.pos-cart-line-price-list  { font-size: 11px; color: var(--text-3); white-space: nowrap; }
 .pos-cart-line + .pos-cart-line {
   border-top: 1px solid var(--rule);
   border-top-left-radius: 0;

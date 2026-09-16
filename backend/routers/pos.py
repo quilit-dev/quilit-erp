@@ -22,7 +22,7 @@ from pydantic import BaseModel
 from typing import Optional
 from datetime import datetime
 from database import get_db
-from permissions import require_perm
+from permissions import require_perm, can as _can
 from audit_log import log_action
 from routers.finance import _check_period_locked
 from utils import _now, _today, notify, get_tax_context, resolve_inclusive_tax, money, validate_int_qty
@@ -406,6 +406,126 @@ def list_cash_drawers(
         return []
 
 
+# ── The price a stock line is rung at ──────────────────────────────────────
+# Until this existed the till accepted whatever price the register sent: the
+# inventory sale price was a default the screen filled in, never a rule the
+# server held anyone to. Three guards now stand around it.
+#
+#   1. `pos_price_override` (a permission key, see permissions.MODULES).
+#      Without it a stock line must be rung at its list price. With it the
+#      cashier may name another price ---
+#   2. --- subject to a floor: never below the item's cost, and not below
+#      `pos_price_floor_pct` per cent of list when the owner has set one.
+#   3. The list price is written beside the charged one on every stock line
+#      (`pos_sale_items.list_price`), so an override is a fact anyone reading
+#      the sale can see, not a flag somebody remembered to set.
+#
+# An overridden line gets no promotion. The override IS the price; stacking
+# a percentage on top of it is the double discount nobody intends.
+
+# How far the sent price may drift from list before it stops counting as the
+# list price. An LBP-priced item is converted at the rate in force, and the
+# rate may have moved between the screen loading and the sale --- that is a
+# refresh, not tampering, but it should not fail a sale over a cent.
+_LIST_TOLERANCE = 0.01
+
+
+def _list_price_usd(db, row) -> Optional[float]:
+    """What the inventory record says `row` sells for, in USD, today.
+
+    The same arithmetic as the register's `productUsdUnitPrice`: a USD price
+    passes through; an LBP price is divided by the LBP rate in force and
+    rounded to cents. None when there is no usable rate --- the register
+    refuses to add such an item, so this only happens to a hand-built request.
+    """
+    price = float(row["sale_price"] or 0)
+    if str(row["price_currency"] or "USD").upper() == "LBP":
+        import currency
+        rate = currency.rate_on(db, "LBP")
+        if not rate or rate <= 0:
+            return None
+        return money(price / rate)
+    return money(price)
+
+
+def _price_floor_pct(db) -> float:
+    row = db.execute(
+        "SELECT value FROM settings WHERE key='pos_price_floor_pct'").fetchone()
+    try:
+        return max(0.0, min(100.0, float(row["value"]))) if row else 0.0
+    except (TypeError, ValueError):
+        return 0.0
+
+
+def _guard_prices(db, user, items, stock_rows, amends_sale_id=None):
+    """Hold every stock line to its list price, or to the rules for leaving it.
+
+    Returns `(list_prices, overridden)`, one entry per cart line: the USD list
+    price (None for a custom line) and whether the line is being rung at
+    something else.
+
+    Correcting a sale is the one carve-out. The corrected cart is re-rung
+    through this same path, and a price the original sale already charged is
+    not a new decision --- so when `amends_sale_id` is given, a line at the
+    price the superseded sale had for that item passes for anyone. What the
+    cashier may not do is choose a THIRD price without the permission.
+    """
+    may_override = _can(user, db, "pos_price_override", "view")
+    floor_pct = _price_floor_pct(db)
+
+    prior = {}
+    if amends_sale_id:
+        for r in db.execute(
+                "SELECT inventory_id, unit_price FROM pos_sale_items "
+                "WHERE pos_sale_id=? AND inventory_id IS NOT NULL",
+                (amends_sale_id,)).fetchall():
+            prior.setdefault(int(r["inventory_id"]), set()).add(
+                money(float(r["unit_price"] or 0)))
+
+    list_prices, overridden = [], []
+    for it in items:
+        if it.inventory_id is None:
+            list_prices.append(None)
+            overridden.append(False)
+            continue
+        row = stock_rows[it.inventory_id]
+        listed = _list_price_usd(db, row)
+        sent = money(float(it.unit_price))
+        list_prices.append(listed)
+
+        at_list = (listed is not None
+                   and abs(sent - listed) <= max(0.01, listed * _LIST_TOLERANCE))
+        # A line off list is overridden whether or not it needs a decision
+        # today: the history shows it and no promotion stacks on it either
+        # way. Only a NEW departure from list is held to the permission and
+        # the floor --- a corrected sale keeping its price is not one.
+        overridden.append(not at_list)
+        if at_list or sent in prior.get(int(it.inventory_id), ()):
+            continue
+
+        if not may_override:
+            raise HTTPException(
+                403, f"'{it.name}' is rung at {sent:.2f} but its price is "
+                     f"{(listed if listed is not None else 0):.2f}. Prices may "
+                     "have changed since this screen was opened --- refresh "
+                     "and try again, or ask someone who may change prices.")
+
+        # The floor. Cost is ex-VAT and the price is VAT-inclusive, so the
+        # cost rule is lenient by design: it catches 150 typed as 15, not a
+        # thin margin.
+        cost = float(row["unit_cost"] or 0)
+        if cost > 0 and sent < cost - 0.005:
+            raise HTTPException(
+                400, f"'{it.name}' cannot be sold below its cost ({cost:.2f}).")
+        if floor_pct > 0 and listed:
+            floor = money(listed * floor_pct / 100.0)
+            if sent < floor - 0.005:
+                raise HTTPException(
+                    400, f"'{it.name}' cannot be sold below {floor_pct:g}% of "
+                         f"its list price ({floor:.2f}).")
+    return list_prices, overridden
+
+
 # ── Checkout ───────────────────────────────────────────────────────────────
 @router.post("/checkout")
 def checkout(
@@ -537,7 +657,6 @@ def _ring_sale(db, user, data: PosCheckout, session, *,
             "SELECT value FROM settings WHERE key='pos_backorder_needs_approval'"
         ).fetchone()
         if gate and str(gate["value"]) not in ("0", "", "false"):
-            from permissions import can as _can
             if not _can(user, db, "pos", "approve"):
                 raise HTTPException(
                     403, "Selling stock that is not on hand needs a manager. "
@@ -576,6 +695,10 @@ def _ring_sale(db, user, data: PosCheckout, session, *,
             committed[inv_id] = short
         stock_rows[inv_id] = row
 
+    # 6a. The price each stock line is rung at, held to the rules above.
+    list_prices, overridden = _guard_prices(db, user, data.items, stock_rows,
+                                            amends_sale_id)
+
     # 7. Per-line pricing. POS prices are VAT-INCLUSIVE: apply the line
     #    markdown, distribute any order-level discount proportionally, then
     #    EXTRACT the tax from the resulting gross (retail standard).
@@ -587,13 +710,15 @@ def _ring_sale(db, user, data: PosCheckout, session, *,
     #     same promo in this one sale. The client only displays these; the cap
     #     and the recorded discount are decided here so "first N units" can't be
     #     over-spent. Promo discount is added on top of any manual markdown.
+    #     A line rung at an overridden price gets none: the override is the
+    #     price (see _guard_prices).
     today = _now()[:10]
     promo_disc   = [0.0] * len(data.items)   # promo currency-off per line
     promo_id_for = [None] * len(data.items)  # which promo hit each line
     promo_units  = {}                        # promo_id -> eligible units this sale
     _promo_left  = {}                        # promo_id -> remaining cap (None = unlimited)
     for idx, it in enumerate(data.items):
-        if it.inventory_id is None:
+        if it.inventory_id is None or overridden[idx]:
             continue
         srow  = stock_rows.get(it.inventory_id)
         promo = best_promo_for(db, it.inventory_id, srow["category"] if srow else None, today)
@@ -1064,12 +1189,17 @@ def _ring_sale(db, user, data: PosCheckout, session, *,
         db.execute(
             "INSERT INTO pos_sale_items "
             "(pos_sale_id, invoice_item_id, inventory_id, name, quantity, unit_price, "
-            " line_type, discount, unit_cost, promotion_id) "
-            "VALUES (?,?,?,?,?,?,?,?,?,?)",
+            " line_type, discount, unit_cost, promotion_id, list_price) "
+            "VALUES (?,?,?,?,?,?,?,?,?,?,?)",
             (pos_sale_id, invoice_item_ids[idx], it.inventory_id, it.name,
              it.quantity, it.unit_price, line_type, ln["discount"], line_unit_cost,
-             promo_id_for[idx]),
+             promo_id_for[idx], list_prices[idx]),
         )
+    # What was rung at other than list, for the trail --- there before anyone
+    # opens the sale to look.
+    price_overrides = [
+        {"name": it.name, "list": list_prices[idx], "charged": money(float(it.unit_price))}
+        for idx, it in enumerate(data.items) if overridden[idx]]
 
     # 14z. The promises. Written after the invoice lines exist, because each
     #      one points at the line it came from — that is what lets a receipt,
@@ -1141,7 +1271,8 @@ def _ring_sale(db, user, data: PosCheckout, session, *,
                {"total": grand_total, "method": method, "currency": currency,
                 **({"plan": len(plan_rows), "deposit": due_now}
                    if plan is not None else {}),
-                **({"amends": amends_sale_id} if amends_sale_id else {})})
+                **({"amends": amends_sale_id} if amends_sale_id else {}),
+                **({"overrides": price_overrides} if price_overrides else {})})
     return {
         "id":             pos_sale_id,
         "invoice_id":     invoice_id,
@@ -1180,10 +1311,21 @@ def list_sales(
     # tendered figure stops being the answer the moment the customer pays
     # again. Without this the history calls every sale Paid, including ones
     # still carrying a balance.
+    # `has_override`: a stock line rung at other than its list price. Derived
+    # from the two prices, never stored, so it cannot be out of date --- and
+    # with the same tolerance _guard_prices allows, so a rate tick that the
+    # sale let through is not then reported as a change.
     query  = ("SELECT ps.*, i.invoice_number, c.name AS client_name, "
               "       COALESCE(("
               "         SELECT SUM(p.amount) FROM invoice_payments p "
-              "         WHERE p.invoice_id = i.id), 0) AS amount_paid "
+              "         WHERE p.invoice_id = i.id), 0) AS amount_paid, "
+              "       EXISTS(SELECT 1 FROM pos_sale_items si "
+              "         WHERE si.pos_sale_id = ps.id "
+              "           AND si.list_price IS NOT NULL "
+              "           AND ABS(si.unit_price - si.list_price) > 0.01 "
+              "           AND ABS(si.unit_price - si.list_price) "
+              "               > si.list_price * 0.01) "
+              "         AS has_override "
               "FROM pos_sales ps "
               "JOIN invoices i ON ps.invoice_id = i.id "
               "LEFT JOIN clients c ON i.client_id = c.id WHERE 1=1")

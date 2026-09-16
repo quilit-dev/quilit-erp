@@ -9,6 +9,9 @@ function HistoryView({ canReturn, onAmend }) {
   const [rows, setRows] = useState(null);
   const [error, setError] = useState(null);
   const [openId, setOpenId] = useState(null);
+  // The review surface for changed prices: one switch narrows the list to
+  // the sales that carry one.
+  const [overriddenOnly, setOverriddenOnly] = useState(false);
 
   const load = useCallback(() => {
     setError(null);
@@ -20,9 +23,11 @@ function HistoryView({ canReturn, onAmend }) {
   if (!rows) return <LoadingSpinner />;
   if (rows.length === 0) return <EmptyState message={t('pos.noSales')} />;
 
+  const shown = overriddenOnly ? rows.filter(s => s.has_override) : rows;
+
   // Flat shape — keys become Excel column headers when XLSX.json_to_sheet
   // serialises this. Use the same column order the table uses.
-  const exportData = rows.map(s => ({
+  const exportData = shown.map(s => ({
     Sale:          s.invoice_number,
     Customer:      s.client_name || 'Walk-in',
     Cashier:       s.cashier_name || '',
@@ -34,6 +39,7 @@ function HistoryView({ canReturn, onAmend }) {
     Status:        s.payment_status || (s.status === 'returned' ? 'Returned'
                      : s.status === 'amended' ? 'Superseded' : 'Paid'),
     Balance:       s.balance || 0,
+    Price_Changed: s.has_override ? 'Yes' : '',
     Date:          fmtDate(s.created_at),
   }));
 
@@ -47,7 +53,12 @@ function HistoryView({ canReturn, onAmend }) {
           onAmend={onAmend ? (sale) => { setOpenId(null); onAmend(sale); } : null}
         />
       )}
-      <div className="card-header" style={{ justifyContent: 'flex-end' }}>
+      <div className="card-header" style={{ justifyContent: 'flex-end', gap: 14 }}>
+        <label style={{ display: 'flex', alignItems: 'center', gap: 6, fontSize: 13, cursor: 'pointer' }}>
+          <input type="checkbox" checked={overriddenOnly}
+                 onChange={e => setOverriddenOnly(e.target.checked)} />
+          {t('pos.overriddenOnly')}
+        </label>
         <ExportButton data={exportData} filename="POS_Sales" sheetName="Sales" />
       </div>
       <table className="table">
@@ -64,9 +75,18 @@ function HistoryView({ canReturn, onAmend }) {
           </tr>
         </thead>
         <tbody>
-          {rows.map(s => (
+          {shown.map(s => (
             <tr key={s.id}>
-              <td>{s.invoice_number}</td>
+              <td>
+                {s.invoice_number}
+                {s.has_override ? (
+                  <span title={t('pos.hasOverride')} style={{ display: 'inline-block', marginInlineStart: 6,
+                    padding: '1px 6px', borderRadius: 10, fontSize: 10, fontWeight: 700,
+                    background: 'var(--caution-tint)', color: 'var(--caution-ink)' }}>
+                    {t('pos.priceChanged')}
+                  </span>
+                ) : null}
+              </td>
               <td>{s.client_name || t('pos.walkIn')}</td>
               <td>{s.cashier_name}</td>
               <td>{s.payment_method}</td>

@@ -40,6 +40,8 @@ ALWAYS_ON = frozenset({
     # Same shape as costs: who may open a foreign purchase is an RBAC
     # decision, not a thing the licence should be able to switch off.
     "foreign_purchases",
+    # And again: who may change a price at the till is for the role editor.
+    "pos_price_override",
 })
 
 # module -> modules it cannot function without.

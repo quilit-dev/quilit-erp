@@ -159,6 +159,11 @@ function ReceiptModal({ sale, onClose }) {
             const qty = Number(it.quantity) || 0;
             const price = Number(it.unit_price) || 0;
             const lineTotal = qty * price - (Number(it.discount) || 0);
+            // The price the customer was quoted, when it is not the one
+            // they paid. On the customer's copy on purpose.
+            const changed = it.list_price != null
+              && Math.abs(price - Number(it.list_price))
+                 > Math.max(0.01, Number(it.list_price) * 0.01);
             return (
               <div key={i} style={{ marginBottom: 4 }}>
                 <div style={{ fontWeight: 600, color: 'var(--doc-ink)' }}>
@@ -168,7 +173,10 @@ function ReceiptModal({ sale, onClose }) {
                   display: 'flex', justifyContent: 'space-between',
                   fontSize: 11, color: 'var(--doc-ink-2)',
                 }}>
-                  <span>{qty} × {price.toFixed(2)}</span>
+                  <span>
+                    {qty} × {price.toFixed(2)}
+                    {changed && <> (<s>{Number(it.list_price).toFixed(2)}</s>)</>}
+                  </span>
                   <span>{lineTotal.toFixed(2)}</span>
                 </div>
                 {(Number(it.discount) || 0) > 0 && (

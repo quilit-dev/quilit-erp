@@ -4626,6 +4626,28 @@ def _run_migrations(conn, c):
                   ("employee_advance", "1260"))
         done("185b_account_1260")
 
+    # ── 186: a price changed at the till is recorded beside the list price ──
+    # `list_price` is what the inventory record said the item sold for, in
+    # USD, at the moment of sale. Written on every stock line, so "this line
+    # was overridden" is a comparison and not a flag somebody could forget to
+    # set. NULL on the rows that predate it and on custom lines, which have
+    # no list price to compare against.
+    add_col("186a_pos_sale_items_list_price", "pos_sale_items", "list_price",
+            "ALTER TABLE pos_sale_items ADD COLUMN list_price REAL")
+
+    # The permission. Unlike 183c this is NOT a copy of anything: nobody
+    # could change a stock price at the till before, so nobody gets to on
+    # deploy except the owner. Marker-guarded so an owner who later unticks
+    # it does not have it re-granted on the next boot.
+    if need("186b_pos_price_override_capability"):
+        c.execute(
+            "INSERT INTO role_permissions "
+            "(role_id, module, can_view, can_create, can_edit, can_delete, can_approve) "
+            "SELECT id, 'pos_price_override', 1, 0, 0, 0, 0 FROM roles "
+            " WHERE name = 'Business Owner' "
+            "ON CONFLICT(role_id, module) DO NOTHING")
+        done("186b_pos_price_override_capability")
+
     # Last, after every migration that might have added an account: if this
     # tenant is on a statutory chart, anything not on it is retired. Migrations
     # insert accounts ACTIVE, which on such a tenant means a default-chart code
@@ -5941,6 +5963,22 @@ def _ensure_pg_post_baseline(raw):
             cur.execute("INSERT INTO schema_migrations (name, applied_at) "
                         "VALUES ('183c_foreign_purchases_capability', "
                         "        now()::text)")
+        # 186: the list price beside the charged price on a till line, and
+        # the permission to charge something else. Same guard, same reason.
+        cur.execute("ALTER TABLE pos_sale_items ADD COLUMN IF NOT EXISTS "
+                    "list_price DOUBLE PRECISION")
+        cur.execute("SELECT 1 FROM schema_migrations "
+                    "WHERE name='186b_pos_price_override_capability'")
+        if not cur.fetchone():
+            cur.execute(
+                "INSERT INTO role_permissions "
+                "(role_id, module, can_view, can_create, can_edit, can_delete, can_approve) "
+                "SELECT id, 'pos_price_override', 1, 0, 0, 0, 0 FROM roles "
+                " WHERE name = 'Business Owner' "
+                "ON CONFLICT (role_id, module) DO NOTHING")
+            cur.execute("INSERT INTO schema_migrations (name, applied_at) "
+                        "VALUES ('186b_pos_price_override_capability', "
+                        "        now()::text)")
     raw.commit()
 
 
@@ -6577,6 +6615,11 @@ def _seed_roles_and_admin(c):
         "       can_view, can_create, can_edit, can_delete, can_approve "
         "  FROM role_permissions WHERE module = 'purchases' "
         "ON CONFLICT(role_id, module) DO NOTHING")
+
+    # Changing a stock item's price at the till. The owner alone (migration
+    # 186b says the same for an existing install): every other role rings
+    # the list price until somebody decides otherwise in the role editor.
+    _set_perm('Business Owner', 'pos_price_override', *_V)
 
     # HR holds sensitive data (salaries, contracts, applicant CVs, internal
     # touchpoints) — granted explicitly rather than via the blanket Viewer

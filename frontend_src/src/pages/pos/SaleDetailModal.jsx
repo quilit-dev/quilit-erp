@@ -61,11 +61,24 @@ function SaleDetailModal({ saleId, canReturn, onClose, onReturned, onAmend }) {
                 {sale.items.map(it => {
                   const gross = Math.max(0, (Number(it.quantity) || 0) * (Number(it.unit_price) || 0)
                                             - (Number(it.discount) || 0));
+                  // Rung at other than list: the list price stays in view,
+                  // struck through, so the change is a fact of the sale.
+                  const changed = it.list_price != null
+                    && Math.abs(Number(it.unit_price) - Number(it.list_price))
+                       > Math.max(0.01, Number(it.list_price) * 0.01);
                   return (
                     <tr key={it.id}>
                       <td>{it.name}</td>
                       <td>{num(it.quantity)}</td>
-                      <td>{fmt(it.unit_price)}</td>
+                      <td>
+                        {fmt(it.unit_price)}
+                        {changed && (
+                          <span style={{ fontSize: 11, color: 'var(--text-3)', marginInlineStart: 6 }}
+                                title={t('pos.priceChanged')}>
+                            <s>{fmt(it.list_price)}</s>
+                          </span>
+                        )}
+                      </td>
                       <td>{Number(it.discount) > 0 ? `−${fmt(it.discount)}` : '—'}</td>
                       <td style={{ textAlign: 'end' }}>{fmt(gross)}</td>
                     </tr>

@@ -2,6 +2,7 @@ import { useState, useEffect, useRef } from 'react';
 import { usePersistedState } from '../../hooks/usePersistedState';
 import { useLocale } from '../../hooks/useLocale.jsx';
 import { useSettings } from '../../hooks/useSettings.jsx';
+import { usePermissions } from '../../hooks/usePermissions';
 import { Modal, toast, NumberInput } from '../../components/shared';
 import { getPosProducts, getClients, getPosCashDrawers, getActivePromotions } from '../../api/client';
 import { num, r2, productUsdUnitPrice, _lbpGrp, formatProductPrice, priceCart } from './pricing';
@@ -34,7 +35,17 @@ function tilesFor(rows) {
 function RegisterView({ session, amending, onCancelAmend, onClose, onSold }) {
   const { t, fmt, tCategory } = useLocale();
   const { settings, taxRates, exchangeRate } = useSettings();
+  const { can } = usePermissions();
   const fxRate = Number(exchangeRate?.rate) || 0;
+  // Whether a stock line's price box is offered. The server holds everyone
+  // else to the list price, so without this the price is read-only here ---
+  // showing a box the sale would then refuse helps nobody.
+  const canOverride = can('pos_price_override');
+  // A line rung at other than its list price. Compared, not flagged, the
+  // same way --- and with the same 1% tolerance --- the server decides it.
+  const isOverridden = (l) => l.inventory_id != null && l.list_price != null
+    && Math.abs((Number(l.unit_price) || 0) - Number(l.list_price))
+       > Math.max(0.01, Number(l.list_price) * 0.01);
   const [search, setSearch] = useState('');
   // Two product pools — browse (loaded once on mount, used when search
   // is empty) and results (debounced search). Keeping them separate lets
@@ -86,6 +97,9 @@ function RegisterView({ session, amending, onCancelAmend, onClose, onSold }) {
   const [activePromos, setActivePromos] = useState([]);
   const promoFor = (l) => {
     if (!l || l.inventory_id == null) return null;
+    // An overridden price is the price; no promotion stacks on it (the
+    // server skips the line the same way).
+    if (isOverridden(l)) return null;
     let best = null;
     for (const p of activePromos) {
       const hit = p.scope_type === 'all'
@@ -160,6 +174,9 @@ function RegisterView({ session, amending, onCancelAmend, onClose, onSold }) {
       return [...prev, {
         key: ++keyRef.current, name: p.name, inventory_id: p.id,
         quantity: 1, unit_price: productUsdUnitPrice(p, fxRate), discount: 0,
+        // What the item is listed at, kept beside the price so a change
+        // shows on the line and on the receipt.
+        list_price: productUsdUnitPrice(p, fxRate),
         tax_rate_id: posDefaultRate ? posDefaultRate.id : null,
         line_type: 'product', stock: Number(p.quantity) || 0,
         category: p.category || null,   // for category-scoped promo matching
@@ -209,6 +226,7 @@ function RegisterView({ session, amending, onCancelAmend, onClose, onSold }) {
       inventory_id: it.inventory_id,
       quantity: Number(it.quantity) || 0,
       unit_price: Number(it.unit_price) || 0,
+      list_price: it.list_price != null ? Number(it.list_price) : null,
       discount: Number(it.discount) || 0,
       tax_rate_id: taxEnabled ? (it.tax_rate_id ?? (posDefaultRate ? posDefaultRate.id : null)) : null,
       line_type: it.line_type || (it.inventory_id != null ? 'product' : 'service'),
@@ -256,6 +274,8 @@ function RegisterView({ session, amending, onCancelAmend, onClose, onSold }) {
     inventory_id: l.inventory_id,
     quantity: Number(l.quantity) || 0,
     unit_price: Number(l.unit_price) || 0,
+    // For the receipt. The server works the list price out for itself.
+    list_price: l.list_price != null ? Number(l.list_price) : null,
     discount: Number(l.discount) || 0,
     tax_rate_id: taxEnabled ? (l.tax_rate_id ?? (posDefaultRate ? posDefaultRate.id : null)) : null,
     line_type: l.line_type,
@@ -523,20 +543,24 @@ function RegisterView({ session, amending, onCancelAmend, onClose, onSold }) {
                 const promoDisc = promo ? r2(qty * unit * promo.discount_value / 100) : 0;
                 const gross = Math.max(0, qty * unit - disc - promoDisc);
                 const overstock = l.stock != null && qty > l.stock;
+                const changed = isOverridden(l);
+                const priced = canOverride && l.inventory_id != null;
                 return (
-                  <div key={l.key} className="pos-cart-line">
+                  <div key={l.key} className={'pos-cart-line' + (priced ? ' pos-cart-line--priced' : '')}>
                     <div className="pos-cart-line-body">
                       {l.inventory_id ? (
-                        <div className="pos-cart-line-name">
-                          {l.name}
-                          {promo && (
-                            <span style={{ display: 'inline-block', marginInlineStart: 6, padding: '1px 6px',
-                              borderRadius: 10, fontSize: 10, fontWeight: 700,
-                              background: 'var(--affirm-tint)', color: 'var(--affirm)' }}>
-                              {promo.name} −{promo.discount_value}%
-                            </span>
-                          )}
-                        </div>
+                        <>
+                          <div className="pos-cart-line-name">
+                            {l.name}
+                            {promo && (
+                              <span style={{ display: 'inline-block', marginInlineStart: 6, padding: '1px 6px',
+                                borderRadius: 10, fontSize: 10, fontWeight: 700,
+                                background: 'var(--affirm-tint)', color: 'var(--affirm)' }}>
+                                {promo.name} −{promo.discount_value}%
+                              </span>
+                            )}
+                          </div>
+                        </>
                       ) : (
                         <>
                           <CustomLineNameCombobox
@@ -559,6 +583,11 @@ function RegisterView({ session, amending, onCancelAmend, onClose, onSold }) {
                       )}
                       <div className="pos-cart-line-meta">
                         {num(qty)} × {posMoney(unit)}
+                        {changed && !canOverride && (
+                          <span style={{ color: 'var(--caution-ink)', marginInlineStart: 8 }}>
+                            {t('pos.priceChanged')}
+                          </span>
+                        )}
                         {disc > 0 && (
                           <span style={{ color: 'var(--affirm)', marginInlineStart: 8 }}>
                             − {fmt(disc)}
@@ -606,6 +635,28 @@ function RegisterView({ session, amending, onCancelAmend, onClose, onSold }) {
                         </svg>
                       </button>
                     </div>
+                    {/* A stock line's price, editable only for someone the
+                        server will let change it. Its own full-width row:
+                        the body beside the controls is too narrow for a box,
+                        and the list price has to stay in view once the price
+                        leaves it. */}
+                    {priced && (
+                      <div className="pos-cart-line-price">
+                        <span className="pos-cart-line-price-label">{t('pos.price')}</span>
+                        <NumberInput
+                          className="form-control"
+                          min="0" step="0.01"
+                          title={t('pos.price')}
+                          value={l.unit_price}
+                          onChange={e => setLine(l.key, { unit_price: e.target.value })}
+                          onFocus={e => e.target.select()} />
+                        {changed && (
+                          <span className="pos-cart-line-price-list">
+                            {t('pos.listPrice')} <s>{posMoney(l.list_price)}</s>
+                          </span>
+                        )}
+                      </div>
+                    )}
                   </div>
                 );
               })}
