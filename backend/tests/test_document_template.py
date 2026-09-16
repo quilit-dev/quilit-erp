@@ -291,3 +291,28 @@ def test_the_customers_copy_still_gets_the_letterhead_drawn(as_role):
     assert "preprinted_stationery" not in company, (
         "carrying this to the customer's copy strips the letterhead from a "
         "document they are reading on a screen")
+
+
+def test_every_registered_template_id_exists_in_the_frontend():
+    """The map here names a theme id; the theme itself lives in
+    frontend_src/src/utils/documentThemes.js. A tenant mapped to an id the
+    frontend does not define gets `themeFor() === null` --- the generic
+    template --- silently, which is precisely the failure this file exists to
+    stop: a letterhead configured and never printed."""
+    import pathlib
+    import re
+    src = (pathlib.Path(__file__).resolve().parents[2]
+           / "frontend_src" / "src" / "utils" / "documentThemes.js").read_text(encoding="utf-8")
+    themes = re.search(r"export const THEMES = \{(.*?)\n\};", src, re.S).group(1)
+    defined = set(re.findall(r"^\s{2}(\w+): \{", themes, re.M))
+    for schema, template in vendor_config.DOCUMENT_TEMPLATES.items():
+        assert template in defined, (
+            f"{schema} is mapped to template {template!r}, which documentThemes.js "
+            f"does not define (it has {sorted(defined)})")
+
+
+def test_vertex_prints_on_its_own_letterhead(as_tenant):
+    as_tenant("tenant_vertex")
+    assert vendor_config.document_template() == "vertex"
+    # Drawn by the app, not pre-printed: the sheet carries the frame.
+    assert vendor_config.preprinted_stationery() is False

@@ -134,6 +134,7 @@ def module_allowed(module: str) -> bool:
 DOCUMENT_TEMPLATES = {
     # tenant schema → template id in frontend_src/src/utils/documentThemes.js
     "tenant_hajosign": "hajosign",
+    "tenant_vertex":   "vertex",
 }
 
 DEFAULT_DOCUMENT_TEMPLATE = "default"

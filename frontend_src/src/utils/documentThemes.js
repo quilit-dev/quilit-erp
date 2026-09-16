@@ -327,40 +327,14 @@ const MARK = {
 //   reserves room, and the artwork is placed against a 297mm box anchored to
 //   the thead — top band, bottom band, watermark, masthead and contact strip
 //   alike. The zero-height anchor keeps all of it out of the cell's own height.
-const hajoCSS = `
-.page { padding: 0 !important; position: relative; }
-
-.page { display: block !important; }
-.hj-sheet {
-  width: 100%; border-collapse: collapse; table-layout: fixed;
-  /* A table treats height as a MINIMUM, so this pins the tfoot to the foot of
-     the sheet on a short invoice while still letting a long one grow across
-     pages. Without it the contact strip floats directly under the last line,
-     halfway up an otherwise empty page. */
-  height: 297mm;
-}
-.hj-sheet > thead > tr > td,
-.hj-sheet > tbody > tr > td,
-.hj-sheet > tfoot > tr > td { padding: 0; border: none; vertical-align: top; }
-.hj-sheet > thead > tr > td { height: ${PAGE.top}mm; }
-.hj-sheet--preprinted > thead > tr > td { height: ${TOP_PREPRINTED}mm; }
-.hj-sheet > tfoot > tr > td { height: ${PAGE.bottom}mm; vertical-align: bottom; }
-.hj-inner { padding: 0 ${PAGE.side}mm; }
-
-.hj-anchor { position: relative; height: 0; }
-.hj-sheet-art {
-  position: absolute; top: 0; left: 0; width: 100%; height: 297mm;
-  pointer-events: none;
-  /* Trims the bleed at the paper edge — and that is not just cosmetic. The
-     artwork's paths deliberately run past the trim (to x 215.38, y 303.22),
-     and although the SVG clips what it PAINTS, the paths still counted toward
-     the document's scroll size. Chrome's print then shrank the whole page by
-     210/215.11 to make it fit, so every measurement on the sheet came out 2.4%
-     small and the bands sat wrong against the original. */
-  overflow: hidden;
-}
-.hj-art { position: absolute; inset: 0; width: 100%; height: 100%; }
-.hj-watermark {
+// Every letterhead rides in the same sheet: a table whose thead carries the
+// artwork and whose tfoot reserves the foot. docShell in exportUtils.js emits
+// the `hj-` class names for every theme, so the frame CSS is one function of
+// the page geometry rather than a copy per company — the mechanism is shared,
+// only the numbers and the palette are the design's.
+// The watermark and the masthead: hajosign's own, spliced into the frame
+// between the artwork and the content layer, where they always were.
+const hajoArtCSS = `.hj-watermark {
   position: absolute; left: 50%; transform: translateX(-50%);
   top: ${MARK.wmTop}mm; width: ${MARK.wmWidth}mm;
   opacity: 0.05; filter: grayscale(1);
@@ -384,41 +358,87 @@ const hajoCSS = `
   letter-spacing: 1.74em; text-transform: uppercase; color: ${HAJO.muted};
 }
 
-.hj-inner > * { position: relative; z-index: 1; }
+`;
 
+function frameCSS(page, topPreprinted, artCSS = '') {
+  return `
+.page { padding: 0 !important; position: relative; }
+
+.page { display: block !important; }
+.hj-sheet {
+  width: 100%; border-collapse: collapse; table-layout: fixed;
+  /* A table treats height as a MINIMUM, so this pins the tfoot to the foot of
+     the sheet on a short invoice while still letting a long one grow across
+     pages. Without it the contact strip floats directly under the last line,
+     halfway up an otherwise empty page. */
+  height: 297mm;
+}
+.hj-sheet > thead > tr > td,
+.hj-sheet > tbody > tr > td,
+.hj-sheet > tfoot > tr > td { padding: 0; border: none; vertical-align: top; }
+.hj-sheet > thead > tr > td { height: ${page.top}mm; }
+.hj-sheet--preprinted > thead > tr > td { height: ${topPreprinted}mm; }
+.hj-sheet > tfoot > tr > td { height: ${page.bottom}mm; vertical-align: bottom; }
+.hj-inner { padding: 0 ${page.side}mm; }
+
+.hj-anchor { position: relative; height: 0; }
+.hj-sheet-art {
+  position: absolute; top: 0; left: 0; width: 100%; height: 297mm;
+  pointer-events: none;
+  /* Trims the bleed at the paper edge — and that is not just cosmetic. The
+     artwork's paths deliberately run past the trim (to x 215.38, y 303.22),
+     and although the SVG clips what it PAINTS, the paths still counted toward
+     the document's scroll size. Chrome's print then shrank the whole page by
+     210/215.11 to make it fit, so every measurement on the sheet came out 2.4%
+     small and the bands sat wrong against the original. */
+  overflow: hidden;
+}
+.hj-art { position: absolute; inset: 0; width: 100%; height: 100%; }
+${artCSS}.hj-inner > * { position: relative; z-index: 1; }
+`;
+}
+
+// The document chrome — header block, ruled table, totals, bands — in a
+// palette. `accent` is the one colour the design leads with (hajosign's
+// orange, vertex's blue); everything else is ink and rule.
+function chromeCSS(P) {
+  return `
 .hj-head { display: flex; justify-content: space-between; align-items: flex-start; margin-bottom: 7mm; }
 .hj-doc-title {
   font-size: 15px; font-weight: 800; text-transform: uppercase;
-  letter-spacing: 0.4px; color: ${HAJO.ink};
+  letter-spacing: 0.4px; color: ${P.ink};
 }
-.hj-account-label { font-size: 8px; font-weight: 700; color: ${HAJO.muted}; margin-top: 3px; }
-.hj-account { font-size: 11px; font-weight: 600; color: ${HAJO.ink}; }
+.hj-account-label { font-size: 8px; font-weight: 700; color: ${P.muted}; margin-top: 3px; }
+.hj-account { font-size: 11px; font-weight: 600; color: ${P.ink}; }
 .hj-head-right { min-width: 62mm; }
 .hj-meta-row { display: flex; gap: 8px; font-size: 9px; line-height: 1.7; }
-.hj-meta-key { font-weight: 700; color: ${HAJO.ink}; min-width: 26mm; }
-.hj-meta-val { color: ${HAJO.muted}; }
+.hj-meta-key { font-weight: 700; color: ${P.ink}; min-width: 26mm; }
+.hj-meta-val { color: ${P.muted}; }
 
 thead th {
-  background: ${HAJO.headerBg}; color: ${HAJO.ink};
-  border-top: 1px solid ${HAJO.rule}; border-bottom: 1px solid ${HAJO.rule};
+  background: ${P.headerBg}; color: ${P.ink};
+  border-top: 1px solid ${P.rule}; border-bottom: 1px solid ${P.rule};
   font-size: 7.5px; letter-spacing: 0.3px;
 }
-tbody td { border-bottom: 1px solid ${HAJO.rule}; }
+tbody td { border-bottom: 1px solid ${P.rule}; }
 .item-name { font-weight: 500; }
 
-.totals-box { border-color: ${HAJO.rule}; }
-.totals-row { border-color: ${HAJO.rule}; }
-.totals-row.grand { background: ${HAJO.ink}; }
-.section-heading, .band-label, .info-label { color: ${HAJO.orange}; }
-.info-label { background: ${HAJO.ink}; }
-.info-grid, .band, .sig-section { border-color: ${HAJO.rule}; }
+.totals-box { border-color: ${P.rule}; }
+.totals-row { border-color: ${P.rule}; }
+.totals-row.grand { background: ${P.ink}; }
+.section-heading, .band-label, .info-label { color: ${P.accent}; }
+.info-label { background: ${P.ink}; }
+.info-grid, .band, .sig-section { border-color: ${P.rule}; }
 .status-badge { border-radius: 2px; }
 
 .hj-words {
-  text-align: center; font-size: 9px; color: ${HAJO.ink};
+  text-align: center; font-size: 9px; color: ${P.ink};
   margin: 3mm 0 2mm; padding: 0 8mm; line-height: 1.5;
 }
+`;
+}
 
+const hajoCSS = frameCSS(PAGE, TOP_PREPRINTED, hajoArtCSS) + chromeCSS({ ...HAJO, accent: HAJO.orange }) + `
 .hj-foot {
   position: absolute; left: ${PAGE.side}mm; right: ${PAGE.side}mm;
   bottom: ${PAGE.footFromEdge}mm;
@@ -438,7 +458,8 @@ tbody td { border-bottom: 1px solid ${HAJO.rule}; }
 // change to the scale cannot restyle anybody else's documents. Kept as one
 // block rather than sprinkled through hajoCSS so it is obvious what the scale
 // touches and what it leaves alone.
-const hajoTypeCSS = `
+function typeCSS(ts) {
+  return `
 .hj-inner { font-size: ${ts(9.5)}; }
 .hj-inner .company-name { font-size: ${ts(14)}; }
 .hj-inner .company-meta { font-size: ${ts(8)}; }
@@ -456,6 +477,8 @@ const hajoTypeCSS = `
 .hj-inner .totals-row.grand .k { font-size: ${ts(9)}; }
 .hj-inner .hj-words { font-size: ${ts(9)}; }
 `;
+}
+const hajoTypeCSS = typeCSS(ts);
 
 // The frame is drawn to the very edge of the sheet, which is right for a design
 // sent to a commercial printer and wrong for the one on somebody's desk. No
@@ -472,7 +495,7 @@ const hajoTypeCSS = `
 // Screen keeps the full bleed, because a screen has no unprintable border.
 const BLEED_SAFE = 0.94;      // 210mm -> 197.4mm, leaving 6.3mm each side
 
-const hajoPrintCSS = `
+const printCSS = `
 @media print {
   @page { margin: 0; size: A4; }
   .page { padding: 0 !important; width: 100%; min-height: 0; margin: 0; }
@@ -483,6 +506,89 @@ const hajoPrintCSS = `
   }
 }
 `;
+const hajoPrintCSS = printCSS;
+
+// ═══════════════════════════════════════════════════════════════════════════
+// VERTEX MEDIA — centred logo, blue baseline and three bars at the foot
+// ═══════════════════════════════════════════════════════════════════════════
+//
+// Read off the supplied letterhead (1131x1600px, an A4 at 0.186mm/px): the
+// logo sits alone at the head, centred; the foot carries a blue band running
+// off the right edge with a slanted left end, a thin second band above it
+// starting further right, and three vertical bars — black, deep blue, black —
+// rising from the bottom edge with their tops cut on the same slant. Nothing
+// else: no contact strip, no watermark, so the tenant's own details print
+// from settings in the document body as on the generic template.
+
+const VERTEX = {
+  blue: '#1A8FE0',
+  navy: '#0B4F79',
+  ink: '#1F1F1F',
+  rule: '#DCDCDC',
+  muted: '#6B6B6B',
+  headerBg: '#F3F8FC',
+};
+
+// The VM monogram and wordmark, drawn from the letterhead. Like the hajosign
+// mark this is the FALLBACK: a logo uploaded in Settings replaces it on the
+// masthead, and should — this is a hand-traced approximation of a raster,
+// good at 23mm and no substitute for the real artwork.
+const VERTEX_MARK = 'data:image/svg+xml;utf8,' + encodeURIComponent(
+  '<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 265 125">'
+  + '<path fill="' + VERTEX.blue + '" d="M2 8H30L74 106L98 66H112V84L76 125H66Z"/>'
+  + '<path fill="' + VERTEX.ink + '" d="M118 0H136V125H118V30L86 84L74 70Z"/>'
+  + '<text x="97" y="120" font-family="Inter, Montserrat, Arial, sans-serif" font-size="20" '
+  + 'fill="' + VERTEX.ink + '" letter-spacing="0.5">'
+  + '<tspan font-style="italic" font-weight="300">VERTEX</tspan>'
+  + '<tspan font-weight="800">MEDIA</tspan></text>'
+  + '</svg>');
+
+// The foot, in millimetres on the 210x297 trim. Measured off the letterhead;
+// the right-hand ends run to 210 and the bars to 297 so they bleed off the
+// paper edge exactly as the original does.
+const VERTEX_FOOT_PATHS = [
+  // the thin upper band, from x=122 to the right edge
+  [VERTEX.blue, 'M124.4 276.6 L210 276.6 L210 279.0 L121.6 279.0 Z'],
+  // the main band, slanted left end
+  [VERTEX.blue, 'M30.6 280.4 L210 280.4 L210 287.9 L25.0 287.9 Z'],
+  // three bars over the band, tops cut on the same slant
+  [VERTEX.ink,  'M157.5 267.4 L163.8 272.0 L163.8 297 L157.5 297 Z'],
+  [VERTEX.navy, 'M169.4 267.4 L175.7 272.0 L175.7 297 L169.4 297 Z'],
+  [VERTEX.ink,  'M181.0 267.4 L187.6 272.0 L187.6 297 L181.0 297 Z'],
+];
+
+// Content clears the masthead (logo 14–37mm) at the top and the bars (from
+// 267mm) at the foot. No side artwork, so the sides are an ordinary margin.
+const VERTEX_PAGE = { top: 46, side: 16, bottom: 34 };
+// Pre-printed VertexMedia paper would carry the same logo in the same place;
+// a little extra for feed offset, as hajosign's number taught.
+const VERTEX_TOP_PREPRINTED = 52;
+const VERTEX_LOGO = { top: 14, height: 23 };
+
+function vertexArt() {
+  return `<svg class="hj-art" aria-hidden="true" viewBox="0 0 210 297"
+      preserveAspectRatio="none">${VERTEX_FOOT_PATHS
+        .map(([fill, d]) => `<path fill="${fill}" d="${d}"/>`).join('')}</svg>`;
+}
+
+function vertexSheet(C, logo) {
+  const mark = logo || VERTEX_MARK;
+  return `
+  <div class="hj-anchor"><div class="hj-sheet-art">
+    ${vertexArt()}
+    <div class="hj-masthead"><img class="hj-logo" src="${mark}" alt="" /></div>
+  </div></div>`;
+}
+
+const vertexCSS = frameCSS(VERTEX_PAGE, VERTEX_TOP_PREPRINTED)
+  + chromeCSS({ ...VERTEX, accent: VERTEX.blue }) + `
+.hj-masthead {
+  position: absolute; left: 0; right: 0; top: ${VERTEX_LOGO.top}mm;
+  text-align: center;
+}
+.hj-logo { height: ${VERTEX_LOGO.height}mm; width: auto; max-width: 70mm; object-fit: contain; display: block; margin: 0 auto; }
+.totals-row.grand { background: ${VERTEX.navy}; }
+`;
 
 export const THEMES = {
   hajosign: {
@@ -492,6 +598,17 @@ export const THEMES = {
     header: hajoHeader,
     // Wraps the flowed content so the padding that clears the artwork applies
     // to it and not to the fixed layers.
+    open: '<div class="hj-inner">',
+    close: '</div>',
+    words: text => (text ? `<div class="hj-words">${esc(text)}</div>` : ''),
+  },
+  vertex: {
+    id: 'vertex',
+    css: vertexCSS + typeCSS(ts) + printCSS,
+    sheet: vertexSheet,
+    // The header block is the same shape on both letterheads: title and
+    // account on the left, the document's facts on the right.
+    header: hajoHeader,
     open: '<div class="hj-inner">',
     close: '</div>',
     words: text => (text ? `<div class="hj-words">${esc(text)}</div>` : ''),
