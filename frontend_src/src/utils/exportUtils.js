@@ -1047,10 +1047,30 @@ export async function exportReportPDF({
   rows,
   totals = null,
   meta = null,
+  // The customer the report is about, when it is about one --- a statement of
+  // account. The themed letterhead names the account in its header; a report
+  // about the whole business leaves it out.
+  client = null,
 }) {
   // Resolve company branding from settings — same lookup the document
   // exports use, so report headers match invoices/quotations visually.
   const [settings, logoSrc] = await Promise.all([getSettings(), getLogoDataURL()]);
+
+  // A tenant whose invoices print on a letterhead drawn by the app gets the
+  // same letterhead on its reports. The statement of account is the case: it
+  // goes to the same customer as the invoice, often in the same envelope, and
+  // one arriving on the house stationery and the other on a plain blue-ruled
+  // sheet reads as two different companies. Everything the generic builder
+  // draws --- title, meta strip, table, totals --- flows into the theme's
+  // sheet exactly as an invoice body does, so the letterhead, the margins and
+  // the page-two behaviour are the theme's and not a second copy of them.
+  const theme = themeFor(settings);
+  if (theme) {
+    return printHTML(
+      themedReportHTML(theme, settings, logoSrc,
+                       { title, subtitle, filename, columns, rows, totals, meta, client }),
+      filename || `${title}.pdf`);
+  }
   const companyName = (settings.company_name || 'Company').toString();
   const companySub = [settings.company_city, settings.company_country]
     .filter(Boolean).join(', ');
@@ -1198,6 +1218,75 @@ export async function exportReportPDF({
 </body></html>`;
 
   printHTML(html, filename || `${title}.pdf`);
+}
+
+/**
+ * The generic report laid onto a tenant's letterhead. Shares `docShell` with
+ * the invoice and the quotation, so the sheet, the header and the print
+ * geometry are the theme's; only the body --- a table with its totals --- is
+ * the report's own.
+ *
+ * The table takes the theme's `thead th` / `tbody td` look rather than the
+ * generic builder's brand-blue header: on a letterhead the colours are the
+ * letterhead's.
+ */
+function themedReportHTML(theme, settings, logo, { title, subtitle, filename, columns, rows, totals, meta, client }) {
+  const C = buildCompany(settings);
+  const dateLabel = new Date().toLocaleDateString(undefined, {
+    year: 'numeric', month: 'short', day: 'numeric',
+  });
+  // The header's right-hand column: the date it was run, the period when
+  // there is one, and whatever the report knows about itself.
+  const headRows = [
+    { label: 'Date', value: dateLabel },
+    ...(subtitle ? [{ label: 'Period', value: subtitle }] : []),
+    ...Object.entries(meta || {}).map(([k, v]) => ({ label: k, value: v == null ? '' : String(v) })),
+  ];
+
+  const colHTML = columns.map(c =>
+    `<col style="${c.width ? `width:${c.width};` : ''}" />`).join('');
+  const align = (c) => (c.align === 'right' ? ' class="r"' : c.align === 'center' ? ' class="c"' : '');
+  const theadHTML = `<tr>${columns.map(c => `<th${align(c)}>${escape(c.label)}</th>`).join('')}</tr>`;
+  const tbodyHTML = (rows || []).map(r => `<tr>${columns.map(c =>
+    `<td${align(c)}>${formatCell(c.value(r))}</td>`).join('')}</tr>`).join('');
+  const tfootHTML = totals
+    ? `<tr class="rpt-totals">${columns.map((c, i) => {
+        if (i === 0 && totals.label) return `<td>${escape(totals.label)}</td>`;
+        const v = totals.columns?.[i];
+        return `<td${align(c)}>${v == null ? '' : formatCell(v)}</td>`;
+      }).join('')}</tr>`
+    : '';
+
+  const body = (rows || []).length
+    ? `<table class="rpt-tbl">
+      <colgroup>${colHTML}</colgroup>
+      <thead>${theadHTML}</thead>
+      <tbody>${tbodyHTML}</tbody>
+      ${tfootHTML ? `<tfoot>${tfootHTML}</tfoot>` : ''}
+    </table>`
+    : `<div class="rpt-empty">No data available for this report.</div>`;
+
+  const shell = docShell(theme, {
+    C, logo, title, client, body, statusHtml: '', rows: headRows,
+    // The theme branch of docShell never reads these; they exist for the
+    // generic branch, which this function does not take.
+    defaultHeader: '', defaultInfo: '', defaultFooter: '',
+  });
+
+  return `<!DOCTYPE html><html lang="en"><head><meta charset="UTF-8"><title>${escape(filename || title)}</title><style>
+${SHARED_CSS}${theme.css}
+/* Long statements run to several sheets; the letterhead's thead/tfoot handle
+   the page, the table itself must be allowed to break. */
+.hj-inner table.rpt-tbl { page-break-inside: auto; }
+.hj-inner table.rpt-tbl tr { page-break-inside: avoid; }
+.hj-inner th.c, .hj-inner td.c { text-align: center; }
+.hj-inner td.r { font-variant-numeric: tabular-nums; }
+.hj-inner .rpt-totals td { font-weight: 700; border-top: 2px solid var(--text); border-bottom: none; }
+.rpt-empty { padding: 24px; text-align: center; color: var(--text-muted); font-style: italic;
+             border: 1px dashed var(--border); border-radius: 4px; }
+</style></head><body>
+${shell}
+</body></html>`;
 }
 
 // Small helpers used by the report PDF.

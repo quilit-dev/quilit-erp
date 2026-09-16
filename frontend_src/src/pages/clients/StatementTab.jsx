@@ -74,10 +74,26 @@ export default function StatementTab({ clientId }) {
               ✕ {t('common.clear')}
             </button>
           )}
+          {/* The PDF carries what the tiles above show --- the period and the
+              two balances --- so a statement handed to a customer answers the
+              question it was asked for without the screen beside it. */}
           <ExportButtons
             rows={movements} columns={columns}
             baseName={`statement_${data.client?.name || clientId}`}
             pdfTitle={t('clients.statementFor', { name: data.client?.name || '' })}
+            pdfClient={data.client}
+            subtitle={(from || to)
+              ? `${from ? fmtDate(from) : '…'} – ${to ? fmtDate(to) : '…'}`
+              : ''}
+            meta={{
+              [t('clients.openingBalance')]: fmt(data.opening_balance || 0),
+              [t('clients.closingBalance')]: fmt(data.closing_balance || 0),
+            }}
+            totals={{
+              label: t('common.total'),
+              columns: [null, null, null, data.total_charged || 0, data.total_paid || 0,
+                        data.closing_balance || 0],
+            }}
             t={t} />
         </div>
       </div>

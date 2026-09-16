@@ -515,8 +515,10 @@ function exportXLSX(rows, columns, filename) {
 
 // Drop-in dual-format export buttons used by every sub-report panel.
 // `pdfTitle` becomes the document title in the printable header; `subtitle`
-// is the optional second line (e.g. the active date range).
-function ExportButtons({ rows, columns, baseName, pdfTitle, subtitle, meta, totals, t }) {
+// is the optional second line (e.g. the active date range). `pdfClient` names
+// the customer a per-customer report is about, for letterheads that carry an
+// account line.
+function ExportButtons({ rows, columns, baseName, pdfTitle, subtitle, meta, totals, pdfClient, t }) {
   const empty = !rows || rows.length === 0;
   function doExcel() {
     if (empty) return;
@@ -532,6 +534,7 @@ function ExportButtons({ rows, columns, baseName, pdfTitle, subtitle, meta, tota
       rows,
       meta,
       totals,
+      client: pdfClient || null,
     });
   }
   return (
