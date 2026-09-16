@@ -17,12 +17,13 @@ describe('the vertex theme', () => {
 
   test('draws the foot: two blue bands and three bars, bled off the edge', () => {
     const sheet = THEMES.vertex.sheet(C, null);
-    const paths = [...sheet.matchAll(/<path fill="(#[0-9A-F]{6})" d="([^"]+)"/g)];
+    const art = sheet.match(/<svg class="hj-art"[^]*?<\/svg>/)[0];
+    const paths = [...art.matchAll(/<path fill="(#[0-9A-F]{6})" d="([^"]+)"/g)];
     expect(paths).toHaveLength(5);
     const fills = paths.map(p => p[1]);
-    expect(fills.filter(f => f === '#1A8FE0')).toHaveLength(2);   // the bands
-    expect(fills.filter(f => f === '#1F1F1F')).toHaveLength(2);   // black bars
-    expect(fills.filter(f => f === '#0B4F79')).toHaveLength(1);   // the navy bar
+    expect(fills.filter(f => f === '#0189D5')).toHaveLength(2);   // the bands
+    expect(fills.filter(f => f === '#282828')).toHaveLength(2);   // black bars
+    expect(fills.filter(f => f === '#00456C')).toHaveLength(1);   // the navy bar
     // The bands run to x=210 and the bars to y=297 --- the paper edge.
     for (const [, , d] of paths.slice(0, 2)) expect(d).toMatch(/L210 /);
     for (const [, , d] of paths.slice(2)) expect(d).toMatch(/ 297 /);
@@ -32,8 +33,13 @@ describe('the vertex theme', () => {
     const own = THEMES.vertex.sheet(C, 'data:image/png;base64,AAAA');
     expect(own).toContain('src="data:image/png;base64,AAAA"');
     const fallback = THEMES.vertex.sheet(C, null);
-    expect(fallback).toMatch(/src="data:image\/svg\+xml;utf8,/);
-    expect(decodeURIComponent(fallback)).toContain('VERTEX');
+    // Inline SVG, not a data URI: the wordmark is text and has to reach the
+    // fonts the print document loads, which an <img> never can.
+    expect(fallback).toMatch(/<svg class="hj-logo hj-logo--mark" viewBox="0 0 270 119"/);
+    expect(fallback).toContain('M6 5.5H27L69 77');                 // the chevron
+    expect(fallback).toContain('M49 4.5H70L92 42L114.5 4.5H136V82'); // the M
+    expect(fallback).toMatch(/textLength="84"[^>]*>MEDIA</);
+    expect(fallback).not.toContain('<img');
     // No contact strip and no watermark: the letterhead has neither.
     expect(fallback).not.toContain('hj-foot');
     expect(fallback).not.toContain('hj-watermark');

@@ -520,28 +520,50 @@ const hajoPrintCSS = printCSS;
 // else: no contact strip, no watermark, so the tenant's own details print
 // from settings in the document body as on the generic template.
 
+// Sampled from the letterhead file, as the hajosign palette was: the
+// dominant pixel inside each shape, not a guess from a screenshot.
 const VERTEX = {
-  blue: '#1A8FE0',
-  navy: '#0B4F79',
-  ink: '#1F1F1F',
+  blue: '#0189D5',
+  navy: '#00456C',
+  ink: '#282828',
+  black: '#000000',
   rule: '#DCDCDC',
   muted: '#6B6B6B',
-  headerBg: '#F3F8FC',
+  headerBg: '#F2F8FD',
 };
 
-// The VM monogram and wordmark, drawn from the letterhead. Like the hajosign
-// mark this is the FALLBACK: a logo uploaded in Settings replaces it on the
-// masthead, and should — this is a hand-traced approximation of a raster,
-// good at 23mm and no substitute for the real artwork.
-const VERTEX_MARK = 'data:image/svg+xml;utf8,' + encodeURIComponent(
-  '<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 265 125">'
-  + '<path fill="' + VERTEX.blue + '" d="M2 8H30L74 106L98 66H112V84L76 125H66Z"/>'
-  + '<path fill="' + VERTEX.ink + '" d="M118 0H136V125H118V30L86 84L74 70Z"/>'
-  + '<text x="97" y="120" font-family="Inter, Montserrat, Arial, sans-serif" font-size="20" '
-  + 'fill="' + VERTEX.ink + '" letter-spacing="0.5">'
-  + '<tspan font-style="italic" font-weight="300">VERTEX</tspan>'
-  + '<tspan font-weight="800">MEDIA</tspan></text>'
-  + '</svg>');
+// The VM monogram, traced out of the letterhead. Both shapes are straight-
+// edged polygons, so a boundary trace of the blue and the black pixels
+// (upsampled eight times, Douglas-Peucker to ~1px) recovers the geometry
+// rather than approximating it: the blue chevron is one six-cornered polygon,
+// the M one nine-cornered one, in a 270x119 box that matches the logo's own
+// proportions. Coordinates are in that box.
+//
+// Like the hajosign mark this is the FALLBACK. A logo uploaded in Settings
+// replaces it on the masthead; until then the sheet carries this rather than
+// arriving with a hole where the identity goes.
+const VERTEX_CHEVRON = 'M6 5.5H27L69 77L77 65.5L87 81L69 114Z';
+const VERTEX_M = 'M49 4.5H70L92 42L114.5 4.5H136V82H114.5V43L92 77.5Z';
+
+// The wordmark is TEXT, not a trace: at 15px the letters would trace as
+// blobs. It is set in the document's own face --- the sheet is HTML, so the
+// masthead is inline SVG and inherits the fonts the print document loads ---
+// and pinned to the logo's exact width with textLength, so whatever face
+// renders it, VERTEXMEDIA ends where the letterhead's does. The V is blue and
+// the first word light italic, MEDIA bold, as on the original.
+function vertexMark() {
+  const text = (x, len, weight, style, fill, body) =>
+    `<text x="${x}" y="114" textLength="${len}" lengthAdjust="spacingAndGlyphs" `
+    + `font-family="Inter, 'Segoe UI', Arial, sans-serif" font-size="21.5" `
+    + `font-weight="${weight}" font-style="${style}" fill="${fill}">${body}</text>`;
+  return `<svg class="hj-logo hj-logo--mark" viewBox="0 0 270 119" aria-hidden="true">
+    <path fill="${VERTEX.blue}" d="${VERTEX_CHEVRON}"/>
+    <path fill="${VERTEX.black}" d="${VERTEX_M}"/>
+    ${text(93, 15, 300, 'italic', VERTEX.blue, 'V')}
+    ${text(109, 73, 300, 'italic', VERTEX.black, 'ERTEX')}
+    ${text(184, 84, 800, 'normal', VERTEX.black, 'MEDIA')}
+  </svg>`;
+}
 
 // The foot, in millimetres on the 210x297 trim. Measured off the letterhead;
 // the right-hand ends run to 210 and the bars to 297 so they bleed off the
@@ -572,11 +594,11 @@ function vertexArt() {
 }
 
 function vertexSheet(C, logo) {
-  const mark = logo || VERTEX_MARK;
+  const mark = logo ? `<img class="hj-logo" src="${logo}" alt="" />` : vertexMark();
   return `
   <div class="hj-anchor"><div class="hj-sheet-art">
     ${vertexArt()}
-    <div class="hj-masthead"><img class="hj-logo" src="${mark}" alt="" /></div>
+    <div class="hj-masthead">${mark}</div>
   </div></div>`;
 }
 
@@ -587,6 +609,9 @@ const vertexCSS = frameCSS(VERTEX_PAGE, VERTEX_TOP_PREPRINTED)
   text-align: center;
 }
 .hj-logo { height: ${VERTEX_LOGO.height}mm; width: auto; max-width: 70mm; object-fit: contain; display: block; margin: 0 auto; }
+/* The traced mark: an inline SVG has no intrinsic width, so it is given the
+   box's own ratio (270:119) at the masthead height. */
+.hj-logo--mark { width: ${Math.round(VERTEX_LOGO.height * 270 / 119 * 10) / 10}mm; }
 .totals-row.grand { background: ${VERTEX.navy}; }
 `;
 
