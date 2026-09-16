@@ -370,6 +370,117 @@ def update_product(product_id: int, data: ProductUpdate,
     return {"message": "Product updated"}
 
 
+class VariantCreate(BaseModel):
+    """One more variant for a product that already exists.
+
+    The builder makes every variant at once, on the day the product is
+    created; a size that sells out and gets restocked in a colour nobody
+    ordered before arrives later, and until this existed there was nowhere to
+    put it --- only a standalone item outside the group, or rebuilding the
+    product. The new row inherits the product's template (category, unit,
+    price) from a sibling variant unless told otherwise, so "add XL" is one
+    field and not a form.
+    """
+    attributes:   dict = {}                    # {axis name: value}, e.g. {"Size": "XL"}
+    label:        Optional[str] = None         # explicit; defaults to the values joined
+    barcode:      Optional[str] = None
+    unit_cost:    Optional[float] = None       # None = same as its siblings
+    cost_currency: Optional[str] = None
+    exchange_rate: Optional[float] = None
+    sale_price:   Optional[float] = None       # None = same as its siblings
+    price_currency: Optional[str] = None
+    initial_quantity: Optional[float] = 0
+    min_stock:    Optional[float] = None
+
+
+@router.post("/{product_id}/variants")
+def add_variant(product_id: int, data: VariantCreate,
+                user=Depends(require_perm("inventory", "create")),
+                db: sqlite3.Connection = Depends(get_db)):
+    product = db.execute("SELECT * FROM products WHERE id=? AND archived_at IS NULL",
+                         (product_id,)).fetchone()
+    if not product:
+        raise HTTPException(404, "Product not found")
+
+    attrs = {str(k).strip(): str(v).strip() for k, v in (data.attributes or {}).items()
+             if str(v).strip()}
+    label = (data.label or "").strip() or (" / ".join(attrs.values()) if attrs else None)
+    if not label:
+        raise HTTPException(400, "Give the variant a value (e.g. a size) or a label.")
+
+    # The same combination twice is not a new variant; it is the old one with
+    # its stock split in half. Compared on the label, which is what the till
+    # and the list show, and on the attribute set when there is one.
+    siblings = db.execute(
+        "SELECT * FROM inventory WHERE product_id=? AND archived_at IS NULL ORDER BY id",
+        (product_id,)).fetchall()
+    for sib in siblings:
+        if (sib["variant_label"] or "").strip().lower() == label.lower():
+            raise HTTPException(400, f"'{label}' already exists on this product.")
+        if attrs:
+            sib_attrs = {a["name"]: a["value"] for a in db.execute(
+                "SELECT name, value FROM item_attributes WHERE inventory_id=?",
+                (sib["id"],)).fetchall()}
+            if sib_attrs and sib_attrs == attrs:
+                raise HTTPException(400, f"'{label}' already exists on this product.")
+
+    barcode = (data.barcode or "").strip() or None
+    if barcode and db.execute(
+        "SELECT 1 FROM inventory WHERE barcode = ? AND archived_at IS NULL", (barcode,)
+    ).fetchone():
+        raise HTTPException(400, "Another item already uses this barcode.")
+
+    # Inherit the template from the newest sibling: whoever set up the product
+    # decided its unit, price and category, and a new size of the same shirt
+    # does not change those. A product with no live variants left falls back
+    # to the product row and the defaults.
+    tpl = siblings[-1] if siblings else None
+    unit_cost = (currency.to_usd(data.unit_cost, (data.cost_currency or "USD").upper(),
+                                 db, data.exchange_rate)
+                 if data.unit_cost is not None
+                 else float(tpl["unit_cost"] or 0) if tpl else 0.0)
+    sale_price = (data.sale_price if data.sale_price is not None
+                  else float(tpl["sale_price"] or 0) if tpl else 0.0)
+    price_currency = ((data.price_currency or (tpl["price_currency"] if tpl else None)
+                       or "USD")).upper()
+    if price_currency not in ("USD", "LBP"):
+        raise HTTPException(400, "Unsupported currency.")
+    qty = data.initial_quantity or 0
+    if qty < 0:
+        raise HTTPException(400, "Opening stock cannot be negative.")
+
+    now = _now()
+    item_id = insert_inventory_row(
+        db, user,
+        name=f"{product['name']} — {label}",
+        category=product["category"],
+        product_type=tpl["product_type"] if tpl else None,
+        quantity=qty,
+        min_stock=(data.min_stock if data.min_stock is not None
+                   else float(tpl["min_stock"] or 0) if tpl else 0),
+        unit_cost=unit_cost, sale_price=sale_price, price_currency=price_currency,
+        supplier=tpl["supplier"] if tpl else None,
+        unit=(tpl["unit"] if tpl else None) or "pcs",
+        barcode=barcode, lot_tracked=bool(tpl["lot_tracked"]) if tpl else False,
+        product_id=product_id, variant_label=label, now=now,
+    )
+    for name, val in attrs.items():
+        db.execute(
+            "INSERT OR IGNORE INTO item_attributes (inventory_id, name, value) VALUES (?,?,?)",
+            (item_id, name, val),
+        )
+    # A product built without axes is "simple"; its first attributed variant
+    # makes it a variant product, which is what the list groups on.
+    if attrs and product["product_kind"] != "variant":
+        db.execute("UPDATE products SET product_kind='variant' WHERE id=?", (product_id,))
+
+    log_action(db, user, "create", "product", product_id, product["name"],
+               {"variant": label, "inventory_id": item_id})
+    db.commit()
+    return {"id": item_id, "product_id": product_id, "variant_label": label,
+            "message": "Variant added"}
+
+
 @router.patch("/{product_id}/archive")
 def archive_product(product_id: int, user=Depends(require_perm("inventory", "delete")),
                     db: sqlite3.Connection = Depends(get_db)):

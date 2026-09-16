@@ -25,6 +25,7 @@ import { StockForm } from './inventory/StockForm';
 import { MovementsModal } from './inventory/MovementsModal';
 import { LotsBrowser } from './inventory/Lots';
 import { ProductBuilder } from './inventory/ProductBuilder';
+import AddVariantModal from './inventory/AddVariantModal';
 import SearchSelect from '../components/SearchSelect.jsx';
 
 export default function Inventory() {
@@ -179,6 +180,8 @@ export default function Inventory() {
   // columns would otherwise render as blank cells rather than being absent.
   const { can } = usePermissions();
   const showCost = can('costs');
+  // The product a variant is being added to, or null.
+  const [variantFor, setVariantFor] = useState(null);
 
   const regInvCats = useCategories('inventory');
   const allKnownCats = [...new Set([...regInvCats, ...categories, ...items.map(i => i.category).filter(Boolean)])];
@@ -448,6 +451,15 @@ export default function Inventory() {
                             <span className="badge badge-accent" style={{ marginInlineStart: 8, fontSize: 10 }}>
                               {t('inventory.variantCountBadge', { count: agg.count })}
                             </span>
+                            {/* One more size or colour, after the fact. Stops the
+                                click reaching the row, which would fold the group. */}
+                            {can('inventory', 'create') && (
+                              <button type="button" className="btn btn-sm btn-secondary"
+                                style={{ marginInlineStart: 10, padding: '1px 8px', fontSize: 11 }}
+                                onClick={e => { e.stopPropagation(); setVariantFor(pid); }}>
+                                + {t('inventory.addVariantBtn')}
+                              </button>
+                            )}
                           </td>
                           <td style={{ fontWeight: 600 }}>{agg.stock}</td>
                           <td />
@@ -480,6 +492,13 @@ export default function Inventory() {
       {modal === 'product' && (
         <Modal title={t('inventory.newProductTitle')} onClose={() => setModal(null)} size="lg">
           <ProductBuilder knownCategories={allKnownCats} onSave={handleAddProduct} onCancel={() => setModal(null)} saving={saving} />
+        </Modal>
+      )}
+      {variantFor != null && (
+        <Modal title={t('inventory.addVariantTitle')} onClose={() => setVariantFor(null)}>
+          <AddVariantModal productId={variantFor}
+            onSaved={() => { setVariantFor(null); load(); }}
+            onCancel={() => setVariantFor(null)} />
         </Modal>
       )}
       {modal === 'edit' && activeItem && (

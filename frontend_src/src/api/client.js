@@ -215,6 +215,7 @@ export const getProduct             = (id)   => api.get(`/api/products/${id}`);
 export const createProduct          = (d)    => api.post('/api/products/', d);
 export const updateProduct          = (id, d) => api.put(`/api/products/${id}`, d);
 export const archiveProduct         = (id)   => api.patch(`/api/products/${id}/archive`);
+export const addProductVariant      = (id, d) => api.post(`/api/products/${id}/variants`, d);
 // Owner-defined category registry (per domain: inventory/expense/asset/project)
 export const getCategories          = (domain) => api.get(`/api/categories${domain ? `?domain=${encodeURIComponent(domain)}` : ''}`);
 export const createCategory         = (d)     => api.post('/api/categories', d);
