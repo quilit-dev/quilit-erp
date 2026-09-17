@@ -4,7 +4,7 @@ import {
   getPurchases, getPurchase, getPurchaseStats, createPurchase,
   updatePurchase, updatePurchaseStatus, voidPurchase, archivePurchase, unarchivePurchase,
   payPurchase, getPurchasePayments,
-  getInventory, getUsedCategories, getSuppliers,
+  getInventory, getSuppliers,
 } from '../api/client';
 import {
   LoadingSpinner, ErrorAlert, EmptyState, Modal, ConfirmModal,
@@ -27,7 +27,7 @@ import SearchSelect from '../components/SearchSelect.jsx';
 
 // ── Purchase form ────────────────────────────────────────────────────────────
 
-function PurchaseForm({ initial = {}, inventoryItems = [], inventoryCategories = [], suppliers = [], onSave, onCancel, saving }) {
+function PurchaseForm({ initial = {}, inventoryItems = [], suppliers = [], onSave, onCancel, saving }) {
   const { t, tStatus, tCategory } = useLocale();
   const { settings, taxRates, exchangeRate } = useSettings();
   const { can } = usePermissions();
@@ -50,7 +50,13 @@ function PurchaseForm({ initial = {}, inventoryItems = [], inventoryCategories =
   // Owner-defined inventory categories (registry) lead; merge in any used +
   // the built-in preset as a fallback so the picker is never empty.
   const regCats = useCategories('inventory');
-  const allCats = [...new Set([...regCats, ...inventoryCategories])];
+  // The registry alone, plus whatever this purchase's own lines already
+  // carry. Every category any stock item wore used to be merged in, which
+  // kept a category removed in Settings on offer for as long as one old item
+  // still had it.
+  const allCats = [...new Set([...regCats,
+    ...(initial.items || []).map(l => l.category).filter(Boolean),
+    ...(initial.category ? [initial.category] : [])])];
 
   // Warehouse selector — the receipt will land here when the PO transitions
   // to 'Received'. Defaults to the user's default warehouse so existing
@@ -491,7 +497,6 @@ export default function Purchases() {
   const [purchases,           setPurchases]           = useState([]);
   const [stats,               setStats]               = useState({});
   const [inventoryItems,      setInventoryItems]      = useState([]);
-  const [inventoryCategories, setInventoryCategories] = useState([]);
   const [supplierList,        setSupplierList]        = useState([]);
   const [loading,             setLoading]             = useState(true);
   const [fetchError,          setFetchError]          = useState(null);
@@ -531,14 +536,12 @@ export default function Purchases() {
         ...(supplierSearch ? { supplier: supplierSearch } : {}),
         ...(showArchived   ? { archived: 'only' }         : {}),
       }).toString();
-      const [purch, st, cats] = await Promise.all([
+      const [purch, st] = await Promise.all([
         getPurchases(qs ? `?${qs}` : ''),
         getPurchaseStats(),
-        getUsedCategories(),
       ]);
       setPurchases(Array.isArray(purch) ? purch : []);
       setStats(st || {});
-      setInventoryCategories(Array.isArray(cats) ? cats : []);
 
       getSuppliers().then(sups => setSupplierList(Array.isArray(sups) ? sups : [])).catch(() => {});
       getInventory().then(inv => setInventoryItems(Array.isArray(inv) ? inv : [])).catch(() => {});
@@ -928,7 +931,6 @@ export default function Purchases() {
         <Modal title={t('purchases.newPurchase')} onClose={() => setModal(null)} size="modal-xl">
           <PurchaseForm
             inventoryItems={inventoryItems}
-            inventoryCategories={inventoryCategories}
             suppliers={supplierList}
             onSave={handleAdd}
             onCancel={() => setModal(null)}
@@ -955,7 +957,6 @@ export default function Purchases() {
           <PurchaseForm
             initial={activePurchase}
             inventoryItems={inventoryItems}
-            inventoryCategories={inventoryCategories}
             suppliers={supplierList}
             onSave={handleEdit}
             onCancel={() => setModal(null)}

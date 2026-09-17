@@ -17,7 +17,11 @@ function ItemForm({ initial = {}, knownCategories = [], suppliers = [], onSave, 
   const secondary = exchangeRate?.secondary || 'LBP';
   const isEdit = !!initial.id;
   const regCats = useCategories('inventory');
-  const allCats = [...new Set([...knownCategories, ...regCats])];
+  // The registry, plus the value this record already has: a category removed
+  // in Settings must not vanish from the item wearing it the moment its form
+  // is opened. It is not offered to anything else.
+  const allCats = [...new Set([...knownCategories, ...regCats,
+    ...(initial.category ? [initial.category] : [])])];
 
   const [form, setForm] = useState({
     name:           initial.name       || '',

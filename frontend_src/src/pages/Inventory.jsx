@@ -183,8 +183,21 @@ export default function Inventory() {
   // The product a variant is being added to, or null.
   const [variantFor, setVariantFor] = useState(null);
 
+  // What a category picker OFFERS is the registry in Settings --- nothing
+  // else. It used to be the registry plus every category any item still
+  // carried, so a category removed in Settings kept turning up in every
+  // dropdown for as long as one old item wore it, and "remove" looked like it
+  // had done nothing. The filter is the one exception: an item that still
+  // carries a removed category has to be findable, so the filter lists those
+  // too, marked as removed.
   const regInvCats = useCategories('inventory');
-  const allKnownCats = [...new Set([...regInvCats, ...categories, ...items.map(i => i.category).filter(Boolean)])];
+  const allKnownCats = regInvCats;
+  const inUseOnly = [...new Set([...categories, ...items.map(i => i.category).filter(Boolean)])]
+    .filter(c => !regInvCats.includes(c));
+  const filterCats = [
+    ...regInvCats.map(c => ({ value: c, label: tCategory(c) })),
+    ...inUseOnly.map(c => ({ value: c, label: `${tCategory(c)} (${t('settings.catRemovedTag')})` })),
+  ];
   const totalValue   = items.reduce((s, i) => s + (i.quantity * i.unit_cost), 0);
   const lowCount     = items.filter(i => i.min_stock > 0 && i.quantity <= i.min_stock).length;
   const hasFilters   = search || categoryFilter || lowStockOnly;
@@ -383,7 +396,7 @@ export default function Inventory() {
             value={categoryFilter}
             onChange={v => setCategoryFilter(v)}
             placeholder={t('inventory.allCategories')}
-            options={(allKnownCats).map(c => ({ value: c, label: tCategory(c) }))} />
+            options={filterCats} />
 
           <label style={{ display: 'flex', alignItems: 'center', gap: 6, fontSize: 13, cursor: 'pointer', userSelect: 'none' }}>
             <input type="checkbox" checked={lowStockOnly}
