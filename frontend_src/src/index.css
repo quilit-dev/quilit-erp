@@ -3789,6 +3789,11 @@ textarea.form-control {
   border: 1px solid transparent;
   transition: background var(--motion-fast) var(--ease);
 }
+/* A schedule's days that keep their own hours: one row per working day. */
+.timeclock-day-overrides { display: flex; flex-direction: column; gap: 6px; }
+.timeclock-day-override-row { display: flex; align-items: center; gap: 8px; }
+.timeclock-day-override-row .form-control { width: 110px; height: 32px; padding: 0 8px; }
+
 .pos-cart-line--priced { flex-wrap: wrap; }
 /* The price row of a line whose price may be changed at the till: a full
  * row under the name and controls, since the body beside them is too

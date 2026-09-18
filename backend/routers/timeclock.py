@@ -330,6 +330,46 @@ class ScheduleIn(BaseModel):
     min_hours_full_day: float = Field(default=6.0, ge=0, le=24)
     workdays: str = Field(default="1,2,3,4,5", max_length=20)
     crosses_midnight: bool = False
+    # {weekday: {start_time, end_time, break_minutes, grace_minutes,
+    # min_hours_full_day}} --- any subset per day. Empty = none.
+    day_overrides: Optional[dict] = None
+
+
+def _overrides_json(data) -> Optional[str]:
+    """Validate and serialise the per-day overrides, or None when there are
+    none. Only known fields are kept, and only for weekdays 1..7."""
+    import json
+    from attendance_derive import OVERRIDABLE
+    raw = data.day_overrides or {}
+    out = {}
+    for k, v in raw.items():
+        if not (str(k).isdigit() and 1 <= int(k) <= 7):
+            raise HTTPException(400, f"Unknown weekday {k!r} in the per-day hours.")
+        if not isinstance(v, dict):
+            continue
+        fields = {}
+        for f in OVERRIDABLE:
+            val = v.get(f)
+            if val in (None, ""):
+                continue
+            if f in ("start_time", "end_time"):
+                val = str(val)[:5]
+                parts = val.split(":")
+                if len(parts) != 2 or not all(p.isdigit() for p in parts):
+                    raise HTTPException(400, f"Bad time {val!r} in the per-day hours.")
+            else:
+                try:
+                    val = float(val)
+                except (TypeError, ValueError):
+                    raise HTTPException(400, f"Bad number for {f} in the per-day hours.")
+                if val < 0:
+                    raise HTTPException(400, f"{f} cannot be negative.")
+                if f in ("break_minutes", "grace_minutes"):
+                    val = int(val)
+            fields[f] = val
+        if fields:
+            out[str(int(k))] = fields
+    return json.dumps(out) if out else None
 
 
 @router.get("/schedules")
@@ -359,11 +399,11 @@ def create_schedule(data: ScheduleIn, user=Depends(require_perm("hr", "create"))
     cur = db.execute(
         "INSERT INTO work_schedules (name, is_default, start_time, end_time, "
         " break_minutes, grace_minutes, min_hours_full_day, workdays, "
-        " crosses_midnight, created_at) VALUES (?,?,?,?,?,?,?,?,?,?)",
+        " crosses_midnight, day_overrides, created_at) VALUES (?,?,?,?,?,?,?,?,?,?,?)",
         (data.name.strip(), 1 if data.is_default else 0, data.start_time,
          data.end_time, data.break_minutes, data.grace_minutes,
          data.min_hours_full_day, data.workdays,
-         1 if data.crosses_midnight else 0, now))
+         1 if data.crosses_midnight else 0, _overrides_json(data), now))
     _only_one_default(db, cur.lastrowid, data.is_default)
     log_action(db, user, "create", "work_schedule", cur.lastrowid, data.name)
     db.commit()
@@ -387,11 +427,11 @@ def update_schedule(schedule_id: int, data: ScheduleIn,
     db.execute(
         "UPDATE work_schedules SET name=?, is_default=?, start_time=?, end_time=?, "
         " break_minutes=?, grace_minutes=?, min_hours_full_day=?, workdays=?, "
-        " crosses_midnight=?, updated_at=? WHERE id=?",
+        " crosses_midnight=?, day_overrides=?, updated_at=? WHERE id=?",
         (data.name.strip(), 1 if data.is_default else 0, data.start_time,
          data.end_time, data.break_minutes, data.grace_minutes,
          data.min_hours_full_day, data.workdays,
-         1 if data.crosses_midnight else 0, _now(), schedule_id))
+         1 if data.crosses_midnight else 0, _overrides_json(data), _now(), schedule_id))
     _only_one_default(db, schedule_id, data.is_default)
     log_action(db, user, "update", "work_schedule", schedule_id, data.name)
     db.commit()

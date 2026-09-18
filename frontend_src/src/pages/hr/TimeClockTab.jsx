@@ -311,6 +311,12 @@ export default function TimeClockTab({ t, canEdit, employees = [] }) {
                           {t('timeclock.overnight')}
                         </span>
                       )}
+                      {/* The days that keep their own hours, beside the week's. */}
+                      {Object.entries(parseOverrides(s.day_overrides)).map(([n, o]) => (
+                        <div key={n} style={{ fontSize: 12, color: 'var(--text-3)' }}>
+                          {t(`timeclock.${DAY_KEYS[Number(n) - 1]}`)} {o.start_time || s.start_time}–{o.end_time || s.end_time}
+                        </div>
+                      ))}
                     </td>
                     <td>{s.grace_minutes} {t('timeclock.minutes')}</td>
                     <td style={{ color: 'var(--text-2)' }}>
@@ -429,6 +435,19 @@ function TokenModal({ t, device, onClose }) {
 }
 
 
+// The row stores JSON; the form and the table want an object. Anything
+// unreadable is no override, the same lenience the server shows.
+function parseOverrides(raw) {
+  if (!raw) return {};
+  try {
+    const data = typeof raw === 'string' ? JSON.parse(raw) : raw;
+    return Object.fromEntries(Object.entries(data || {})
+      .filter(([n, o]) => /^[1-7]$/.test(String(n)) && o && typeof o === 'object')
+      .map(([n, o]) => [Number(n), o]));
+  } catch { return {}; }
+}
+
+
 function ScheduleModal({ t, schedule, onClose, onSaved, onArchive }) {
   const [f, setF] = useState(() => ({
     name: schedule?.name || '',
@@ -440,9 +459,25 @@ function ScheduleModal({ t, schedule, onClose, onSaved, onArchive }) {
     min_hours_full_day: schedule?.min_hours_full_day ?? 6,
     workdays: schedule?.workdays || '1,2,3,4,5',
     crosses_midnight: !!schedule?.crosses_midnight,
+    // {weekday: {start_time, end_time}} --- a day whose hours differ from
+    // the week's. Stored as JSON on the row; edited here as an object.
+    day_overrides: parseOverrides(schedule?.day_overrides),
   }));
   const set = (k, v) => setF(p => ({ ...p, [k]: v }));
   const days = new Set(String(f.workdays).split(',').filter(Boolean).map(Number));
+
+  // A working day with its own hours. Ticking it starts from the week's
+  // hours so the two boxes are never blank; unticking drops the override.
+  const overrides = f.day_overrides || {};
+  function toggleOverride(n) {
+    const next = { ...overrides };
+    if (next[n]) delete next[n];
+    else next[n] = { start_time: f.start_time, end_time: f.end_time };
+    set('day_overrides', next);
+  }
+  function setOverride(n, k, v) {
+    set('day_overrides', { ...overrides, [n]: { ...(overrides[n] || {}), [k]: v } });
+  }
 
   function toggleDay(n) {
     const next = new Set(days);
@@ -454,7 +489,11 @@ function ScheduleModal({ t, schedule, onClose, onSaved, onArchive }) {
     try {
       const body = { ...f, break_minutes: Number(f.break_minutes) || 0,
                      grace_minutes: Number(f.grace_minutes) || 0,
-                     min_hours_full_day: Number(f.min_hours_full_day) || 0 };
+                     min_hours_full_day: Number(f.min_hours_full_day) || 0,
+                     // Only working days may carry an override; one left on
+                     // a day that was then unticked would be a surprise.
+                     day_overrides: Object.fromEntries(
+                       Object.entries(overrides).filter(([n]) => days.has(Number(n)))) };
       if (schedule) await updateWorkSchedule(schedule.id, body);
       else await createWorkSchedule(body);
       onSaved();
@@ -514,6 +553,47 @@ function ScheduleModal({ t, schedule, onClose, onSaved, onArchive }) {
             </button>
           ))}
         </div>
+
+        {/* A day that keeps different hours from the rest of the week ---
+            the Saturday that finishes at one. Only offered for working
+            days; the rest of the week's settings (grace, break) carry over
+            and the full-day threshold scales to the shorter day. */}
+        {days.size > 0 && (
+          <>
+            <label className="form-label" style={{ marginTop: 12 }}>
+              {t('timeclock.dayHoursLabel')}
+            </label>
+            <p style={{ margin: '0 0 6px', fontSize: 12, color: 'var(--text-3)' }}>
+              {t('timeclock.dayHoursHint')}
+            </p>
+            <div className="timeclock-day-overrides">
+              {DAY_KEYS.map((k, i) => days.has(i + 1) && (
+                <div key={k} className="timeclock-day-override-row">
+                  <label className="timeclock-check-option" style={{ margin: 0, minWidth: 110 }}>
+                    <input type="checkbox" checked={!!overrides[i + 1]}
+                           onChange={() => toggleOverride(i + 1)} />
+                    {t(`timeclock.${k}`)}
+                  </label>
+                  {overrides[i + 1] ? (
+                    <>
+                      <input className="form-control" type="time" aria-label={t('timeclock.startTime')}
+                             value={overrides[i + 1].start_time || ''}
+                             onChange={e => setOverride(i + 1, 'start_time', e.target.value)} />
+                      <span style={{ color: 'var(--text-3)' }}>–</span>
+                      <input className="form-control" type="time" aria-label={t('timeclock.endTime')}
+                             value={overrides[i + 1].end_time || ''}
+                             onChange={e => setOverride(i + 1, 'end_time', e.target.value)} />
+                    </>
+                  ) : (
+                    <span style={{ fontSize: 12, color: 'var(--text-3)' }}>
+                      {f.start_time}–{f.end_time}
+                    </span>
+                  )}
+                </div>
+              ))}
+            </div>
+          </>
+        )}
 
         <label className="timeclock-check-option">
           <input type="checkbox" checked={f.crosses_midnight}

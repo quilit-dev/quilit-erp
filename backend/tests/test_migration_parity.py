@@ -128,6 +128,10 @@ _REQUIRED = [
     ("hr_salary_advances", "recovered_in_run_id"),
     # The list price recorded beside the charged price on a till line.
     ("pos_sale_items", "list_price"),
+    # Per-weekday hours on a schedule; an employee's Saturday rota.
+    ("work_schedules", "day_overrides"),
+    ("hr_employees", "saturday_rota"),
+    ("hr_employees", "saturday_rota_anchor"),
 ]
 
 

@@ -113,6 +113,8 @@ export default function HR() {
       pay_type:      e.pay_type || 'Salaried',
       hourly_rate:   e.hourly_rate ?? 0,
       work_schedule_id: e.work_schedule_id ?? '',
+      saturday_rota: e.saturday_rota || '',
+      saturday_rota_anchor: e.saturday_rota_anchor || '',
       commute_km:         e.commute_km ?? 0,
       overtime_rate:      e.overtime_rate ?? '',
       late_deduction:     e.late_deduction ?? '',
@@ -137,6 +139,11 @@ export default function HR() {
         salary:        Number(empForm.salary) || 0,
         hourly_rate:   Number(empForm.hourly_rate) || 0,
         work_schedule_id: empForm.work_schedule_id ? Number(empForm.work_schedule_id) : null,
+        // Blank = the schedule decides; the anchor only means anything with
+        // the alternate rota, and the server drops it otherwise.
+        saturday_rota: empForm.saturday_rota || null,
+        saturday_rota_anchor: empForm.saturday_rota === 'alternate'
+          ? (empForm.saturday_rota_anchor || null) : null,
         commute_km:         Number(empForm.commute_km) || 0,
         // Blank means "use the fallback", and that has to reach the server as
         // null --- a 0 would mean "zero", which is a different answer.
@@ -559,6 +566,30 @@ export default function HR() {
                              + (s.is_default ? ` · ${t('hr.fldWorkingDayIsDefault')}` : ''),
                     }))} />
                 </div>
+                {/* Which Saturdays this person works. Blank = whatever the
+                    working day says. Alternate needs one Saturday they work;
+                    the other group gets the following Saturday. */}
+                <div className="form-group">
+                  <label className="form-label">{t('hr.fldSaturdayRota')}</label>
+                  <SearchSelect
+                    className="form-control"
+                    value={empForm.saturday_rota}
+                    onChange={v => setEmpForm(f => ({ ...f, saturday_rota: v }))}
+                    placeholder={`— ${t('hr.rotaFollowsSchedule')} —`}
+                    options={[
+                      { value: 'all',       label: t('hr.rotaAll') },
+                      { value: 'alternate', label: t('hr.rotaAlternate') },
+                      { value: 'none',      label: t('hr.rotaNone') },
+                    ]} />
+                </div>
+                {empForm.saturday_rota === 'alternate' && (
+                  <div className="form-group">
+                    <label className="form-label">{t('hr.fldRotaAnchor')}</label>
+                    <input type="date" className="form-control" value={empForm.saturday_rota_anchor}
+                      onChange={e => setEmpForm(f => ({ ...f, saturday_rota_anchor: e.target.value }))} />
+                    <div style={{ fontSize: 12, color: 'var(--text-3)', marginTop: 4 }}>{t('hr.fldRotaAnchorHint')}</div>
+                  </div>
+                )}
                 <div className="form-group">
                   <label className="form-label">{t('hr.colDepartment')}</label>
                   <SearchSelect

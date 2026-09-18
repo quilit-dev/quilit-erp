@@ -125,6 +125,10 @@ class EmployeeBody(BaseModel):
     # Whose working day this person keeps. NULL means the company default, so
     # nobody has to be assigned one for the clock to work on day one.
     work_schedule_id: Optional[int] = None
+    # Which Saturdays this person works. NULL = whatever the schedule says;
+    # 'all' / 'none' / 'alternate' (with an anchor Saturday they work).
+    saturday_rota:        Optional[str] = None
+    saturday_rota_anchor: Optional[str] = None
     # ── The pay profile. Every field defaults to "nothing", and every
     # computation it feeds is zero when it is nothing --- so an employee with
     # none of this filled in gets the payroll line they got before.
@@ -148,6 +152,28 @@ class EmployeeBody(BaseModel):
         if v is not None and v < 0:
             raise ValueError("Value cannot be negative")
         return v
+
+    @validator("saturday_rota")
+    def _rota_known(cls, v):
+        v = (v or "").strip().lower() or None
+        if v is not None and v not in ("all", "none", "alternate"):
+            raise ValueError("Saturday rota must be all, none or alternate")
+        return v
+
+    @validator("saturday_rota_anchor", always=True)
+    def _rota_anchor(cls, v, values):
+        v = (v or "").strip()[:10] or None
+        if values.get("saturday_rota") == "alternate":
+            if not v:
+                raise ValueError("An alternate-Saturday rota needs the first Saturday worked")
+            from datetime import datetime as _d
+            try:
+                _d.strptime(v, "%Y-%m-%d")
+            except ValueError:
+                raise ValueError("The rota anchor must be a date (YYYY-MM-DD)")
+            return v
+        # Meaningless without the alternate rota; do not store a stale one.
+        return None
     # On PUT only — annotate WHY the change happened. Auto-classified into a
     # change_type if not provided (raise / promotion / role_change / transfer /
     # adjustment). The values are stored in hr_employment_changes.
@@ -833,8 +859,9 @@ def create_employee(
                 manager_id, user_id, address, notes, created_at, branch_id,
                 is_field_staff, work_schedule_id,
                 commute_km, overtime_rate, late_deduction, attendance_bonus,
-                insurance_employee, insurance_employer, nssf_exempt)
-           VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)""",
+                insurance_employee, insurance_employer, nssf_exempt,
+                saturday_rota, saturday_rota_anchor)
+           VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)""",
         (data.full_name, data.job_title, data.department_id, data.employment_type,
          data.status, data.hire_date or None, data.end_date or None, data.email,
          data.phone, data.salary, data.pay_type, data.hourly_rate,
@@ -843,7 +870,8 @@ def create_employee(
          data.work_schedule_id,
          data.commute_km, data.overtime_rate, data.late_deduction,
          data.attendance_bonus, data.insurance_employee, data.insurance_employer,
-         1 if data.nssf_exempt else 0),
+         1 if data.nssf_exempt else 0,
+         data.saturday_rota, data.saturday_rota_anchor),
     )
     emp_id = cur.lastrowid
     code   = f"EMP-{emp_id:04d}"
@@ -907,7 +935,8 @@ def update_employee(
                user_id=?, address=?, notes=?, is_field_staff=?,
                work_schedule_id=?,
                commute_km=?, overtime_rate=?, late_deduction=?, attendance_bonus=?,
-               insurance_employee=?, insurance_employer=?, nssf_exempt=?
+               insurance_employee=?, insurance_employer=?, nssf_exempt=?,
+               saturday_rota=?, saturday_rota_anchor=?
            WHERE id=?""",
         (data.full_name, data.job_title, data.department_id, data.employment_type,
          data.status, data.hire_date or None, data.end_date or None, data.email,
@@ -917,6 +946,7 @@ def update_employee(
          data.commute_km, data.overtime_rate, data.late_deduction,
          data.attendance_bonus, data.insurance_employee, data.insurance_employer,
          1 if data.nssf_exempt else 0,
+         data.saturday_rota, data.saturday_rota_anchor,
          emp_id),
     )
 

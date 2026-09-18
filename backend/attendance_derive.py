@@ -33,6 +33,7 @@ The rules that matter, and why they are what they are:
 The caller decides which of these values are allowed to land on a row --- see
 the source/'manual' rule in routers/hr.py. This module only computes.
 """
+import json
 from datetime import datetime, timedelta
 
 # Two punches this close together are one event: people press again when the
@@ -56,7 +57,22 @@ DEFAULT_SCHEDULE = {
     "min_hours_full_day": 6.0,
     "workdays": "1,2,3,4,5",
     "crosses_midnight": 0,
+    # Per-weekday overrides, JSON: {"6": {"start_time": "09:00", "end_time":
+    # "13:00", "min_hours_full_day": 4}}. A Saturday that finishes at one is
+    # judged on its own hours, not the week's --- see effective_schedule().
+    "day_overrides": None,
+    # An employee's Saturday rota, copied onto the schedule dict by
+    # schedule_for() so the pure functions here can read it without a db:
+    # None = the schedule decides; "all" / "alternate" / "none". `rota_anchor`
+    # is a Saturday the person works, for "alternate".
+    "rota": None,
+    "rota_anchor": None,
 }
+
+# The keys a per-day override may change. Which days are working days, and
+# whether the shift crosses midnight, stay on the schedule as a whole.
+OVERRIDABLE = ("start_time", "end_time", "break_minutes", "grace_minutes",
+               "min_hours_full_day")
 
 
 # ── small parsers ────────────────────────────────────────────────────────────
@@ -93,6 +109,88 @@ def schedule_or_default(schedule):
     return out
 
 
+def day_overrides(schedule):
+    """{weekday: {field: value}} from the schedule's JSON, tolerating a row
+    that carries a string, a dict, or nothing. Unknown fields are dropped."""
+    raw = schedule_or_default(schedule).get("day_overrides")
+    if not raw:
+        return {}
+    try:
+        data = json.loads(raw) if isinstance(raw, str) else dict(raw)
+    except (ValueError, TypeError):
+        return {}
+    out = {}
+    for k, v in (data or {}).items():
+        if str(k).isdigit() and 1 <= int(k) <= 7 and isinstance(v, dict):
+            fields = {f: v[f] for f in OVERRIDABLE if v.get(f) not in (None, "")}
+            if fields:
+                out[int(k)] = fields
+    return out
+
+
+def effective_schedule(schedule, date_str):
+    """The schedule as it applies on ONE date: the week's hours, with that
+    weekday's override laid over them. This is what every judgement of a day
+    --- Late, Half-day, hours --- must read, so that a 9-to-1 Saturday is
+    measured against 9-to-1 and not against the Monday it sits beside."""
+    sched = schedule_or_default(schedule)
+    wd = _dt(str(date_str)[:10] + " 00:00:00").isoweekday()
+    over = day_overrides(sched).get(wd)
+    if over:
+        base = sched
+        sched = dict(sched)
+        sched.update(over)
+        # A shorter day with no threshold of its own gets the week's threshold
+        # scaled to its length: a 9-to-1 Saturday on an 8-hour schedule that
+        # counts 6 hours as a full day is full at 3, not at 6 --- and not at
+        # 4 either, where a check-out two minutes early would make every
+        # Saturday a Half-day.
+        if "min_hours_full_day" not in over:
+            base_len = _span_hours(base["start_time"], base["end_time"], base["crosses_midnight"])
+            day_len = _span_hours(sched["start_time"], sched["end_time"], sched["crosses_midnight"])
+            if base_len > 0 and day_len > 0:
+                sched["min_hours_full_day"] = round(
+                    float(base["min_hours_full_day"] or 0) * day_len / base_len, 2)
+    return sched
+
+
+def _span_hours(start, end, crosses_midnight=0):
+    """Scheduled length of a day in hours, honouring a shift past midnight."""
+    a, b = _minutes(start, 8 * 60), _minutes(end, 17 * 60)
+    if int(crosses_midnight or 0) and b <= a:
+        b += 24 * 60
+    return max(0.0, (b - a) / 60.0)
+
+
+def rota_works(schedule, date_str):
+    """None when the rota has nothing to say about this date; else True/False.
+
+    Only Saturdays (ISO 6) are on a rota. "alternate" works the anchor Saturday
+    and every second one after (and before) it; the other Saturdays are days
+    off. An anchor that is not a Saturday is taken as the Saturday of its week.
+    """
+    sched = schedule_or_default(schedule)
+    mode = sched.get("rota")
+    if not mode:
+        return None
+    day = _dt(str(date_str)[:10] + " 00:00:00")
+    if day.isoweekday() != 6:
+        return None
+    if mode == "all":
+        return True
+    if mode == "none":
+        return False
+    if mode == "alternate":
+        anchor = sched.get("rota_anchor")
+        if not anchor:
+            return None
+        a = _dt(str(anchor)[:10] + " 00:00:00")
+        a = a + timedelta(days=6 - a.isoweekday())      # the Saturday of that week
+        weeks = (day - a).days // 7
+        return weeks % 2 == 0
+    return None
+
+
 def workday_numbers(schedule):
     """{1..7}, Monday = 1, matching ISO weekday numbering."""
     raw = str(schedule_or_default(schedule)["workdays"] or "")
@@ -105,6 +203,12 @@ def workday_numbers(schedule):
 
 
 def is_workday(schedule, date_str):
+    """Is this date a working day for this schedule --- and, when the schedule
+    carries an employee's rota, for this person? The rota wins on the days it
+    speaks for; the schedule's workday list decides the rest."""
+    by_rota = rota_works(schedule, date_str)
+    if by_rota is not None:
+        return by_rota
     return _dt(str(date_str)[:10] + " 00:00:00").isoweekday() in \
         workday_numbers(schedule)
 
@@ -164,7 +268,8 @@ def derive_day(punches, schedule, business_date):
     Keys: status, hours, first_in, last_out, device_hours, punch_count,
     needs_review, note.
     """
-    sched = schedule_or_default(schedule)
+    # The day's own hours: a Saturday override, if there is one, applies here.
+    sched = effective_schedule(schedule, business_date)
     times = debounce(punches or [])
     working = is_workday(sched, business_date)
 

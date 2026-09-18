@@ -4626,6 +4626,22 @@ def _run_migrations(conn, c):
                   ("employee_advance", "1260"))
         done("185b_account_1260")
 
+    # ── 187: a working day that differs by weekday, and a Saturday rota ────
+    # A schedule had one start and one end for every day it covered, so a
+    # company whose Saturday finishes at one either marked every Saturday a
+    # Half-day or left Saturday off the schedule and never checked it.
+    # `day_overrides` is JSON keyed by ISO weekday: {"6": {"start_time":
+    # "09:00", "end_time": "13:00"}}. NULL = the week's hours every day.
+    add_col("187a_schedule_day_overrides", "work_schedules", "day_overrides",
+            "ALTER TABLE work_schedules ADD COLUMN day_overrides TEXT")
+    # Who works which Saturday: NULL = the schedule decides; 'all', 'none', or
+    # 'alternate' with an anchor Saturday the person works. Two groups on
+    # alternate Saturdays are two anchors a week apart.
+    add_col("187b_employee_saturday_rota", "hr_employees", "saturday_rota",
+            "ALTER TABLE hr_employees ADD COLUMN saturday_rota TEXT")
+    add_col("187c_employee_rota_anchor", "hr_employees", "saturday_rota_anchor",
+            "ALTER TABLE hr_employees ADD COLUMN saturday_rota_anchor TEXT")
+
     # ── 186: a price changed at the till is recorded beside the list price ──
     # `list_price` is what the inventory record said the item sold for, in
     # USD, at the moment of sale. Written on every stock line, so "this line
@@ -5963,6 +5979,13 @@ def _ensure_pg_post_baseline(raw):
             cur.execute("INSERT INTO schema_migrations (name, applied_at) "
                         "VALUES ('183c_foreign_purchases_capability', "
                         "        now()::text)")
+        # 187: per-weekday hours on a schedule, and an employee's Saturday rota.
+        cur.execute("ALTER TABLE work_schedules ADD COLUMN IF NOT EXISTS "
+                    "day_overrides TEXT")
+        cur.execute("ALTER TABLE hr_employees ADD COLUMN IF NOT EXISTS "
+                    "saturday_rota TEXT")
+        cur.execute("ALTER TABLE hr_employees ADD COLUMN IF NOT EXISTS "
+                    "saturday_rota_anchor TEXT")
         # 186: the list price beside the charged price on a till line, and
         # the permission to charge something else. Same guard, same reason.
         cur.execute("ALTER TABLE pos_sale_items ADD COLUMN IF NOT EXISTS "

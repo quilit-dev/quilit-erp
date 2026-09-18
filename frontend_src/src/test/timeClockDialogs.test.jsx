@@ -46,5 +46,7 @@ test('Working Days styles every field and preserves schedule values and day sele
     name: 'Office', is_default: false, start_time: '08:00', end_time: '17:00',
     break_minutes: 0, grace_minutes: 15, min_hours_full_day: 6,
     workdays: '2,3,4,5', crosses_midnight: false,
+    // No day keeps its own hours unless one is ticked.
+    day_overrides: {},
   }));
 });

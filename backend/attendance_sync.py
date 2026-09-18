@@ -75,7 +75,17 @@ def schedule_for(db, employee_id: int) -> dict:
             "SELECT * FROM work_schedules "
             " WHERE is_default = 1 AND archived_at IS NULL "
             " ORDER BY id LIMIT 1").fetchone()
-    return ad.schedule_or_default(dict(row) if row else None)
+    sched = ad.schedule_or_default(dict(row) if row else None)
+    # The person's Saturday rota rides on the schedule dict, so the pure
+    # derivation can ask "is this a working day for THIS person" without a
+    # database. Read leniently: a row that predates the column has none.
+    emp = db.execute("SELECT * FROM hr_employees WHERE id = ?", (employee_id,)).fetchone()
+    if emp is not None:
+        keys = emp.keys() if hasattr(emp, "keys") else ()
+        if "saturday_rota" in keys and emp["saturday_rota"]:
+            sched["rota"] = emp["saturday_rota"]
+            sched["rota_anchor"] = emp["saturday_rota_anchor"] if "saturday_rota_anchor" in keys else None
+    return sched
 
 
 def _period_is_closed(db, day: str) -> bool:
