@@ -110,25 +110,39 @@ def plan(db) -> dict:
         "SELECT COUNT(*) AS n FROM inventory WHERE archived_at IS NOT NULL").fetchone()["n"]
     products = db.execute("SELECT COUNT(*) AS n FROM products").fetchone()["n"]
 
+    # No try/except around statements here or below: on Postgres a failed
+    # statement aborts the transaction and every later one is ignored, so a
+    # swallowed error would turn into a half-run plan. Tables are checked by
+    # name instead.
+    tables = {r["name"] for r in db.execute(
+        "SELECT name FROM sqlite_master WHERE type='table'").fetchall()}
     own = {}
     for table, column in OWN_ROWS:
-        try:
-            own[table] = db.execute(f"SELECT COUNT(*) AS n FROM {table}").fetchone()["n"]
-        except Exception:
-            own[table] = 0
+        own[table] = (db.execute(f"SELECT COUNT(*) AS n FROM {table}").fetchone()["n"]
+                      if table in tables else 0)
 
     blockers = {}
     for table, column in referencing_columns(db):
-        if (table, column) in _OWN:
+        if (table, column) in _OWN or table not in tables:
             continue
-        try:
-            n = db.execute(
-                f"SELECT COUNT(*) AS n FROM {table} WHERE {column} IS NOT NULL"
-            ).fetchone()["n"]
-        except Exception:
-            continue
+        n = db.execute(
+            f"SELECT COUNT(*) AS n FROM {table} WHERE {column} IS NOT NULL"
+        ).fetchone()["n"]
         if n:
             blockers[f"{table}.{column}"] = int(n)
+
+    # Two kinds of blocker can be swept along: the till sales and quotations
+    # that carry an item line, when the owner has said they are trial entries.
+    # Everything else --- a purchase, a BOM, a service job, a reservation ---
+    # stays a hard blocker. See document_wipe for what a sweep unwinds.
+    documents = None
+    hard = {k: v for k, v in blockers.items() if k not in SWEEPABLE}
+    if blockers and not hard:
+        import document_wipe
+        documents = document_wipe.collect(db)
+        doc_blockers = {f"documents: {k}": v for k, v in documents["blockers"].items()}
+    else:
+        doc_blockers = {}
 
     return {
         "items": int(items["n"] or 0),
@@ -137,9 +151,23 @@ def plan(db) -> dict:
         "stock_units": float(items["units"] or 0),
         "stock_value": round(float(items["value"] or 0), 2),
         "own_rows": {k: int(v) for k, v in own.items()},
-        "blockers": blockers,
-        "can_run": not blockers,
+        # What has to be swept for the items to go, when it can be.
+        "documents": document_wipe_summary(documents),
+        "blockers": {**hard, **doc_blockers},
+        "can_run": not hard and not doc_blockers,
     }
+
+
+# The references that may be swept along with the inventory, because they are
+# the two documents a trial of the till and the quotation screen leaves.
+SWEEPABLE = {"pos_sale_items.inventory_id", "quotation_items.inventory_id"}
+
+
+def document_wipe_summary(documents):
+    if not documents:
+        return None
+    import document_wipe
+    return document_wipe.summary(documents)
 
 
 def execute(db, user, log_action) -> dict:
@@ -153,23 +181,29 @@ def execute(db, user, log_action) -> dict:
                  f"emptied: {detail}. Nothing was removed.")
 
     removed = {}
+    # The trial documents first, so the items they point at are free to go.
+    if p["documents"]:
+        import document_wipe
+        docs = document_wipe.collect(db)
+        for k, v in document_wipe.execute(db, docs).items():
+            removed[k] = removed.get(k, 0) + v
+    tables = {r["name"] for r in db.execute(
+        "SELECT name FROM sqlite_master WHERE type='table'").fetchall()}
     for table, column in OWN_ROWS:
-        try:
-            cur = db.execute(f"DELETE FROM {table} WHERE {column} IN (SELECT id FROM inventory)")
-            removed[table] = cur.rowcount if cur.rowcount is not None and cur.rowcount >= 0 else p["own_rows"].get(table, 0)
-        except Exception:
-            removed[table] = 0
+        if table not in tables:
+            continue
+        cur = db.execute(f"DELETE FROM {table} WHERE {column} IN (SELECT id FROM inventory)")
+        removed[table] = cur.rowcount if cur.rowcount is not None and cur.rowcount >= 0 else p["own_rows"].get(table, 0)
     removed["inventory"] = db.execute("DELETE FROM inventory").rowcount
-    try:
+    if "product_attributes" in tables:
         db.execute("DELETE FROM product_attributes")
-    except Exception:
-        pass
     removed["products"] = db.execute("DELETE FROM products").rowcount
 
     log_action(db, user, "wipe", "inventory", None, "Inventory emptied",
                {"items": p["items"], "archived_items": p["archived_items"],
                 "products": p["products"], "stock_units": p["stock_units"],
-                "stock_value": p["stock_value"], "removed": removed})
+                "stock_value": p["stock_value"], "documents": p["documents"],
+                "removed": removed})
     return {"message": "Inventory emptied", "removed": removed, "plan": p}
 
 

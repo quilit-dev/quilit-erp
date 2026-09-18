@@ -132,19 +132,110 @@ def test_an_item_on_an_invoice_blocks_the_whole_thing(as_role, db):
     assert db.execute("SELECT 1 FROM inventory WHERE id=?", (free,)).fetchone()
 
 
-def test_a_till_sale_blocks_it(as_role, db):
+def _till_sale(c, item, qty=1):
+    c.post("/api/pos/session/open", json={"opening_float": 0})
+    r = c.post("/api/pos/checkout", json={
+        "items": [{"name": "Widget", "inventory_id": item, "quantity": qty, "unit_price": 5}],
+        "payment_method": "Cash", "amount_tendered": 5 * qty, "idempotency_key": str(uuid.uuid4())})
+    assert r.status_code == 200, r.text
+    return r.json()
+
+
+def _quote(c, client_id, item=None):
+    line = {"name": "Q", "quantity": 1, "unit_price": 5}
+    if item:
+        line["inventory_id"] = item
+    r = c.post("/api/quotations/", json={"client_id": client_id, "items": [line]})
+    assert r.status_code in (200, 201), r.text
+    return r.json()["id"]
+
+
+# ── the two documents a trial leaves are swept along ─────────────────────────
+def test_trial_till_sales_and_quotations_are_swept_with_the_items(as_role, db):
+    """The vertex case: sixteen till lines and eight quotation lines pointed
+    at items. Those two kinds of document go with the inventory --- with
+    everything a till sale creates --- and nothing else does."""
     owner = as_role("superadmin")
     _named(owner)
     item = _item(owner, qty=10)
-    owner.post("/api/pos/session/open", json={"opening_float": 0})
-    r = owner.post("/api/pos/checkout", json={
+    cl = owner.post("/api/clients/", json={"name": "C"}).json()
+    sale = _till_sale(owner, item, qty=2)
+    q_items = _quote(owner, cl["id"], item)
+    q_plain = _quote(owner, cl["id"])                       # no item line: stays
+    # A hand-written invoice with no item line: not a till sale, stays.
+    manual = owner.post("/api/invoices/", json={"client_id": cl["id"], "amount": 7,
+                                                "items": [{"name": "Fee", "quantity": 1, "unit_price": 7}]})
+    assert manual.status_code == 200, manual.text
+    manual_id = manual.json()["id"]
+    entries_before = _count(db, "journal_entries")
+    sale_entries = db.execute(
+        "SELECT COUNT(*) AS n FROM journal_entries WHERE (source_type IN ('invoice','pos_cogs') AND source_id=?) "
+        "   OR (source_type='invoice_payment' AND source_id IN (SELECT id FROM invoice_payments WHERE invoice_id=?))",
+        (sale["invoice_id"], sale["invoice_id"])).fetchone()["n"]
+    assert sale_entries >= 2, "a till sale posts revenue and its payment"
+
+    pr = owner.get("/api/inventory/wipe/plan")
+    assert pr.status_code == 200, pr.text
+    plan = pr.json()
+    assert plan["can_run"] is True, plan
+    assert plan["blockers"] == {}
+    assert plan["documents"]["sales"] == 1 and plan["documents"]["quotations"] == 1
+    assert plan["documents"]["journal_entries"] == sale_entries
+
+    r = owner.post("/api/inventory/wipe", json={"confirm": plan["confirmation_phrase"]})
+    assert r.status_code == 200, r.text
+
+    assert _count(db, "inventory") == 0
+    assert _count(db, "pos_sales") == 0 and _count(db, "pos_sale_items") == 0
+    assert db.execute("SELECT 1 FROM invoices WHERE id=?", (sale["invoice_id"],)).fetchone() is None
+    assert _count(db, "invoice_payments") == 0
+    assert _count(db, "journal_entries") == entries_before - sale_entries
+    assert db.execute("SELECT 1 FROM quotations WHERE id=?", (q_items,)).fetchone() is None
+    # Kept: the plain quotation, the manual invoice and its ledger entry, the client.
+    assert db.execute("SELECT 1 FROM quotations WHERE id=?", (q_plain,)).fetchone()
+    assert db.execute("SELECT 1 FROM invoices WHERE id=?", (manual_id,)).fetchone()
+    assert db.execute("SELECT 1 FROM journal_entries WHERE source_type='invoice' AND source_id=?",
+                      (manual_id,)).fetchone()
+    assert _count(db, "clients") >= 1
+    # No dangling ledger lines.
+    assert db.execute("SELECT COUNT(*) AS n FROM journal_entry_lines l LEFT JOIN journal_entries e "
+                      "ON e.id=l.journal_entry_id WHERE e.id IS NULL").fetchone()["n"] == 0
+
+
+def test_a_corrected_till_sale_goes_as_one_story(as_role, db):
+    owner = as_role("superadmin")
+    _named(owner)
+    item = _item(owner, qty=10)
+    sale = _till_sale(owner, item, qty=2)
+    r = owner.post(f"/api/pos/sales/{sale['id']}/amend", json={
         "items": [{"name": "Widget", "inventory_id": item, "quantity": 1, "unit_price": 5}],
-        "payment_method": "Cash", "amount_tendered": 5, "idempotency_key": str(uuid.uuid4())})
+        "payment_method": "Cash", "amount_tendered": 0, "idempotency_key": str(uuid.uuid4())})
     assert r.status_code == 200, r.text
     plan = owner.get("/api/inventory/wipe/plan").json()
-    assert "pos_sale_items.inventory_id" in plan["blockers"]
-    assert owner.post("/api/inventory/wipe",
-                      json={"confirm": plan["confirmation_phrase"]}).status_code == 409
+    assert plan["documents"]["sales"] == 2
+    assert owner.post("/api/inventory/wipe", json={"confirm": plan["confirmation_phrase"]}).status_code == 200
+    assert _count(db, "pos_sales") == 0 and _count(db, "invoices") == 0
+
+
+def test_a_locked_month_stops_the_sweep(as_role, db):
+    """Deleting a posted entry out of a closed month is the one thing an
+    accountant can never be asked to accept."""
+    owner = as_role("superadmin")
+    _named(owner)
+    item = _item(owner, qty=10)
+    sale = _till_sale(owner, item)
+    # A plain till sale posts its revenue with the payment and its cost as
+    # pos_cogs; the 'invoice' receivable entry exists only on a payment plan.
+    ym = db.execute("SELECT substr(entry_date,1,7) AS ym FROM journal_entries WHERE source_type='pos_cogs' "
+                    "AND source_id=?", (sale["invoice_id"],)).fetchone()["ym"]
+    db.execute("INSERT INTO accounting_periods (year, month, locked_at, locked_by) VALUES (?,?,?,?)",
+               (int(ym[:4]), int(ym[5:7]), "2026-01-01 00:00:00", "test"))
+    db.commit()
+    plan = owner.get("/api/inventory/wipe/plan").json()
+    assert plan["can_run"] is False
+    assert any("locked" in k for k in plan["blockers"]), plan["blockers"]
+    assert owner.post("/api/inventory/wipe", json={"confirm": plan["confirmation_phrase"]}).status_code == 409
+    assert _count(db, "inventory") == 1 and _count(db, "pos_sales") == 1
 
 
 def test_a_purchase_line_blocks_it(as_role, db):

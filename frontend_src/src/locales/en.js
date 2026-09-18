@@ -3153,7 +3153,9 @@ const en = {
     // Emptying a tenant's inventory (vendor superadmin only).
     dangerZone: 'Danger zone',
     wipeTitle: 'Empty the inventory',
-    wipeDesc: 'Removes every item, variant and product group, with their stock counts, movements, lots and cost layers. Suppliers, categories, warehouses and documents are untouched. Refused if any invoice, sale, purchase, order, BOM or service job refers to an item. This cannot be undone.',
+    wipeDesc: 'Removes every item, variant and product group, with their stock counts, movements, lots and cost layers. Till sales and quotations that carry an item line go with them — with the invoices, payments and ledger entries a sale created. Suppliers, categories, warehouses, clients, users, settings and every other document are untouched. Refused if a purchase, order, BOM, service job or reservation refers to an item, or if a month involved is locked. This cannot be undone.',
+    wipeDocsTitle: 'Trial documents removed with the items:',
+    wipeDocsLine: '{{sales}} till sales ({{invoices}} invoices, {{payments}} payments, {{entries}} ledger entries) and {{quotations}} quotations.',
     wipeItems: 'Items',
     wipeArchived: 'Archived items',
     wipeProducts: 'Product groups',

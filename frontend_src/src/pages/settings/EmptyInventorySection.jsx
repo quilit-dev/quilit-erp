@@ -58,6 +58,21 @@ export default function EmptyInventorySection() {
         <Stat label={t('settings.wipeValue')} value={fmt(plan.stock_value)} />
       </div>
 
+      {/* The trial documents that go with the items: the till sales that carry
+          an item line, with everything one creates, and the quotations that do. */}
+      {plan.documents && (plan.documents.sales > 0 || plan.documents.quotations > 0) && (
+        <div style={{ background: 'var(--yellow-light)', border: '1px solid var(--caution-ink)', borderRadius: 6,
+                      padding: '8px 10px', fontSize: 12.5, marginBottom: 10 }}>
+          <strong>{t('settings.wipeDocsTitle')}</strong>
+          <div style={{ marginTop: 4 }}>
+            {t('settings.wipeDocsLine', {
+              sales: plan.documents.sales, invoices: plan.documents.invoices,
+              payments: plan.documents.payments, entries: plan.documents.journal_entries,
+              quotations: plan.documents.quotations })}
+          </div>
+        </div>
+      )}
+
       {blockers.length > 0 && (
         <div style={{ background: 'var(--yellow-light)', border: '1px solid var(--caution-ink)', borderRadius: 6,
                       padding: '8px 10px', fontSize: 12.5, marginBottom: 10 }}>
