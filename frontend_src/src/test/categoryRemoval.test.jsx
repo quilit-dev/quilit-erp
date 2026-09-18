@@ -9,11 +9,10 @@ import itemFormSrc from '../pages/inventory/ItemForm.jsx?raw';
 import purchasesSrc from '../pages/Purchases.jsx?raw';
 
 describe('what a category picker offers', () => {
-  test('inventory: the registry alone; the filter also finds removed ones, marked', () => {
+  test('inventory: the registry alone, filter included', () => {
     expect(inventorySrc).toMatch(/const allKnownCats = regInvCats;/);
-    expect(inventorySrc).not.toMatch(/allKnownCats = \[\.\.\.new Set\(\[\.\.\.regInvCats, \.\.\.categories/);
-    expect(inventorySrc).toMatch(/\.filter\(c => !regInvCats\.includes\(c\)\)/);
-    expect(inventorySrc).toMatch(/t\('settings\.catRemovedTag'\)/);
+    expect(inventorySrc).toMatch(/const filterCats = regInvCats\.map/);
+    expect(inventorySrc).not.toMatch(/catRemovedTag/);
     expect(inventorySrc).toMatch(/options=\{filterCats\}/);
   });
 

@@ -139,11 +139,33 @@ def update_category(cat_id: int, data: CategoryBody, user=Depends(require_settin
 @router.patch("/{cat_id}/archive")
 def archive_category(cat_id: int, user=Depends(require_settings_write),
                      db: sqlite3.Connection = Depends(get_db)):
-    """Remove a category from the pickers. Existing records keep their value."""
+    """Remove a category from the pickers.
+
+    For the INVENTORY domain the stock that carried it is left with no
+    category, so a removed name is gone from the list and its filter as well
+    as from the pickers --- the owner's ask, after a removed category kept
+    showing in the filter for as long as one item still wore it. The other
+    domains keep their records' value: an expense's category feeds its ledger
+    account and a blank there would be a posting nobody asked for."""
     row = db.execute("SELECT domain, name FROM categories WHERE id=?", (cat_id,)).fetchone()
     if not row:
         raise HTTPException(404, "Category not found")
-    db.execute("UPDATE categories SET archived_at=? WHERE id=?", (_now(), cat_id))
-    log_action(db, user, "archive", "category", cat_id, f"{row['domain']}:{row['name']}")
+    now = _now()
+    db.execute("UPDATE categories SET archived_at=? WHERE id=?", (now, cat_id))
+    cleared = 0
+    if row["domain"] == "inventory":
+        cleared = clear_inventory_category(db, row["name"])
+    log_action(db, user, "archive", "category", cat_id, f"{row['domain']}:{row['name']}",
+               {"items_cleared": cleared} if cleared else None)
     db.commit()
-    return {"message": "Category removed"}
+    return {"message": "Category removed", "items_cleared": cleared}
+
+
+def clear_inventory_category(db, name: str) -> int:
+    """Take one category name off every stock item and product group that
+    carries it. Returns how many items were touched."""
+    n = db.execute("SELECT COUNT(*) AS n FROM inventory WHERE category = ?",
+                   (name,)).fetchone()["n"]
+    db.execute("UPDATE inventory SET category = NULL WHERE category = ?", (name,))
+    db.execute("UPDATE products SET category = NULL WHERE category = ?", (name,))
+    return int(n or 0)

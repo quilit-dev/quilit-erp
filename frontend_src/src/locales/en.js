@@ -3134,7 +3134,7 @@ const en = {
     deleteFieldTitle: 'Delete field',
     deleteFieldConfirm: 'Delete the “{{name}}” field? Existing products keep their values; the field just stops being offered.',
     categories: 'Categories',
-    categoriesDesc: 'Define the categories that appear in dropdowns across the app, per area. Existing records keep their category even if you remove it here.',
+    categoriesDesc: 'Define the categories that appear in dropdowns across the app, per area. Removing an inventory category leaves its items with no category; records in the other areas keep theirs.',
     catDomainInventory: 'Inventory',
     catDomainExpense: 'Expense',
     catDomainAsset: 'Asset',
@@ -3149,9 +3149,8 @@ const en = {
     catRemoved: 'Category removed',
     // Shown after a category that was removed in Settings but is still on
     // some records, in the one place it must stay findable: the list filter.
-    catRemovedTag: 'removed',
     catRemoveTitle: 'Remove category',
-    catRemoveConfirm: 'Remove “{{name}}” from the pickers? Existing records keep it.',
+    catRemoveConfirm: 'Remove “{{name}}”? Inventory items in it will be left with no category.',
     catGlHint: 'Choose which ledger account each expense category posts to. Unmapped categories use the built-in default, falling back to Other Expense.',
     catGlDefault: 'Default (Other Expense)',
     catGlUpdated: 'Ledger account updated',

@@ -4642,6 +4642,23 @@ def _run_migrations(conn, c):
     add_col("187c_employee_rota_anchor", "hr_employees", "saturday_rota_anchor",
             "ALTER TABLE hr_employees ADD COLUMN saturday_rota_anchor TEXT")
 
+    # ── 187d: stock still wearing a category that was removed in Settings ──
+    # Removing a category now clears it off the items (routers/categories.py);
+    # this does the same, once, for the ones removed before that was true, so
+    # the list and its filter stop showing names the registry no longer has.
+    # Marker-guarded: an UPDATE that runs on every boot would undo a category
+    # an owner later re-created and re-assigned.
+    if need("187d_clear_removed_inventory_categories"):
+        c.execute(
+            "UPDATE inventory SET category = NULL WHERE category IN "
+            "(SELECT name FROM categories WHERE domain = 'inventory' "
+            "   AND archived_at IS NOT NULL)")
+        c.execute(
+            "UPDATE products SET category = NULL WHERE category IN "
+            "(SELECT name FROM categories WHERE domain = 'inventory' "
+            "   AND archived_at IS NOT NULL)")
+        done("187d_clear_removed_inventory_categories")
+
     # ── 186: a price changed at the till is recorded beside the list price ──
     # `list_price` is what the inventory record said the item sold for, in
     # USD, at the moment of sale. Written on every stock line, so "this line
@@ -5986,6 +6003,22 @@ def _ensure_pg_post_baseline(raw):
                     "saturday_rota TEXT")
         cur.execute("ALTER TABLE hr_employees ADD COLUMN IF NOT EXISTS "
                     "saturday_rota_anchor TEXT")
+        # 187d: stock wearing a category removed before removal cleared it.
+        # Marker-guarded for the same reason as 183c: this runs every boot.
+        cur.execute("SELECT 1 FROM schema_migrations "
+                    "WHERE name='187d_clear_removed_inventory_categories'")
+        if not cur.fetchone():
+            cur.execute(
+                "UPDATE inventory SET category = NULL WHERE category IN "
+                "(SELECT name FROM categories WHERE domain = 'inventory' "
+                "   AND archived_at IS NOT NULL)")
+            cur.execute(
+                "UPDATE products SET category = NULL WHERE category IN "
+                "(SELECT name FROM categories WHERE domain = 'inventory' "
+                "   AND archived_at IS NOT NULL)")
+            cur.execute("INSERT INTO schema_migrations (name, applied_at) "
+                        "VALUES ('187d_clear_removed_inventory_categories', "
+                        "        now()::text)")
         # 186: the list price beside the charged price on a till line, and
         # the permission to charge something else. Same guard, same reason.
         cur.execute("ALTER TABLE pos_sale_items ADD COLUMN IF NOT EXISTS "
