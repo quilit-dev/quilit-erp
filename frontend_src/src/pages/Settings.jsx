@@ -12,6 +12,7 @@ import { TaxRatesSection } from './settings/TaxRatesSection';
 import { RateBookPanel } from '../components/RateBook.jsx';
 import { BankAccountsSection } from './settings/BankAccountsSection';
 import UserManualSection from './settings/UserManualSection.jsx';
+import EmptyInventorySection from './settings/EmptyInventorySection.jsx';
 import SearchSelect from '../components/SearchSelect.jsx';
 
 export default function Settings() {
@@ -27,7 +28,7 @@ export default function Settings() {
   // database over the top of a live one is not editing a setting; those
   // endpoints keep require_admin, so showing the buttons to a settings editor
   // would only be showing them a 403.
-  const { isAdmin, can } = usePermissions();
+  const { isAdmin, isSuperadmin, can } = usePermissions();
   const canEdit = isAdmin || can('settings', 'edit');
 
   const [form, setForm]       = useState(null);
@@ -461,6 +462,13 @@ export default function Settings() {
             (SQLite) edition. A cloud (Postgres) deployment is backed up
             server-side, so this whole section (incl. the "works offline" pitch
             and USB/local backup) is hidden when form.local_backup is false. */}
+        {/* Vendor-only. A tenant that set its stock up as test data can be
+            given a clean start here; the server refuses if any document
+            refers to any item, so it cannot touch a live business. */}
+        {isSuperadmin && <Section title={t('settings.dangerZone')} icon="alert-triangle">
+          <EmptyInventorySection />
+        </Section>}
+
         {isAdmin && form.local_backup && <Section title={t('settings.backupIntegrity')} icon="database">
           <div style={{
             display: 'flex', gap: 10, alignItems: 'flex-start',

@@ -2,7 +2,7 @@
 from pydantic import BaseModel
 from typing import Optional
 from database import get_db
-from permissions import require_perm, require_auth
+from permissions import require_perm, require_auth, require_superadmin
 import costs
 from audit_log import log_action
 from utils import _now, notify, validate_int_qty, ArchiveMode, archive_clause
@@ -113,6 +113,35 @@ def list_inventory(search: Optional[str] = None, category: Optional[str] = None,
         for r in out:
             r["attributes"] = attrs.get(r["id"], {})
     return costs.strip(out, user, db)
+
+# ── Emptying the whole inventory ─────────────────────────────────────────────
+# Vendor superadmin only; see inventory_wipe.py for what it will and will not
+# do. Declared ahead of /{item_id} so "wipe" is never read as an item id.
+class WipeConfirm(BaseModel):
+    confirm: str = ""
+
+
+@router.get("/wipe/plan")
+def wipe_plan(user=Depends(require_superadmin), db: sqlite3.Connection = Depends(get_db)):
+    """What emptying this tenant's inventory would remove, what is blocking
+    it, and the phrase the operator has to type. Read-only."""
+    import inventory_wipe
+    p = inventory_wipe.plan(db)
+    p["confirmation_phrase"] = inventory_wipe.confirmation_phrase(db)
+    return p
+
+
+@router.post("/wipe")
+def wipe_inventory(data: WipeConfirm, user=Depends(require_superadmin),
+                   db: sqlite3.Connection = Depends(get_db)):
+    """Remove every item, variant and product group. Refuses unless nothing
+    else refers to the stock, and unless the tenant's name was typed."""
+    import inventory_wipe
+    inventory_wipe.check_confirmation(db, data.confirm)
+    result = inventory_wipe.execute(db, user, log_action)
+    db.commit()
+    return result
+
 
 @router.get("/categories")
 def get_categories(user=Depends(require_auth), db: sqlite3.Connection = Depends(get_db)):

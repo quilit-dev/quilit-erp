@@ -206,6 +206,9 @@ export const unarchiveInventoryItem = (id)   => api.patch(`/api/inventory/${id}/
 // will work — and told what is in the way when it will not.
 export const getInventoryItemUsage  = (id)   => api.get(`/api/inventory/${id}/usage`);
 export const deleteInventoryItem    = (id)   => api.delete(`/api/inventory/${id}`);
+// Emptying the whole inventory (vendor superadmin): the plan, then the deed.
+export const getInventoryWipePlan   = ()     => api.get('/api/inventory/wipe/plan');
+export const wipeInventory          = (d)    => api.post('/api/inventory/wipe', d);
 export const updateStock            = (id, d) => api.patch(`/api/inventory/${id}/stock`, d);
 export const getStockMovements      = (id)   => api.get(`/api/inventory/${id}/movements`);
 export const deductToProject        = (id, d) => api.post(`/api/inventory/${id}/deduct-to-project`, d);

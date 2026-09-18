@@ -3150,6 +3150,21 @@ const en = {
     // Shown after a category that was removed in Settings but is still on
     // some records, in the one place it must stay findable: the list filter.
     catRemoveTitle: 'Remove category',
+    // Emptying a tenant's inventory (vendor superadmin only).
+    dangerZone: 'Danger zone',
+    wipeTitle: 'Empty the inventory',
+    wipeDesc: 'Removes every item, variant and product group, with their stock counts, movements, lots and cost layers. Suppliers, categories, warehouses and documents are untouched. Refused if any invoice, sale, purchase, order, BOM or service job refers to an item. This cannot be undone.',
+    wipeItems: 'Items',
+    wipeArchived: 'Archived items',
+    wipeProducts: 'Product groups',
+    wipeUnits: 'Units in stock',
+    wipeValue: 'Stock value',
+    wipeBlocked: 'Cannot run — these records refer to items:',
+    wipeNothing: 'The inventory is already empty.',
+    wipeTypeName: 'Type {{name}} to confirm',
+    wipeRun: 'Empty the inventory',
+    wipeDone: 'Inventory emptied',
+    wipeRemoved: 'Removed',
     catRemoveConfirm: 'Remove “{{name}}”? Inventory items in it will be left with no category.',
     catGlHint: 'Choose which ledger account each expense category posts to. Unmapped categories use the built-in default, falling back to Other Expense.',
     catGlDefault: 'Default (Other Expense)',
