@@ -68,7 +68,7 @@ def test_an_invoice_and_its_payment_stay_on_the_chart(client, acme, db):
         "idempotency_key": str(uuid.uuid4())})
 
     assert _off_chart(db) == []
-    assert "7011" in _codes(db, "invoice_payment")     # sales
+    assert "7012" in _codes(db, "invoice_payment")     # an untaxed sale
     assert "4111" in _codes(db, "invoice")             # customers
 
 
@@ -82,7 +82,7 @@ def test_a_till_sale_credits_the_charts_own_revenue(client, acme, widget, db):
         "idempotency_key": str(uuid.uuid4())})
 
     assert _off_chart(db) == []
-    assert "7011" in _codes(db, "invoice_payment")
+    assert "7012" in _codes(db, "invoice_payment")     # no VAT charged
 
 
 def test_a_till_sales_cost_of_goods_stays_on_the_chart(client, widget, db):

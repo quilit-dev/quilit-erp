@@ -217,7 +217,8 @@ def test_the_trial_balance_shows_the_statutory_accounts(client):
     codes = {r["code"] for r in
              client.get("/api/accounting/trial-balance").json()["rows"]}
 
-    assert {"4111", "5312", "7011"} <= codes
+    # An untaxed trade is a sale NOT subject to VAT: 7012.
+    assert {"4111", "5312", "7012"} <= codes
 
 
 def test_the_income_statement_shows_them(client):
@@ -227,7 +228,7 @@ def test_the_income_statement_shows_them(client):
     body = client.get("/api/accounting/income-statement",
                       params={"start": "2000-01-01", "end": "2099-12-31"}).json()
 
-    assert {r["code"] for r in body["income"]} == {"7011"}
+    assert {r["code"] for r in body["income"]} == {"7012"}
 
 
 def test_the_cash_flow_finds_the_cash(client):

@@ -180,6 +180,8 @@ _REQUIRED_LITERALS = [
     "cash_eur",    # the role that points at it
     "1250",              # Advances to Suppliers — paid for, not yet delivered
     "supplier_advance",  # the role that points at it
+    "revenue_exempt",    # turnover not subject to VAT (7012 on the Lebanese chart)
+    "service_revenue_exempt",
 ]
 
 

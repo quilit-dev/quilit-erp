@@ -15,9 +15,12 @@ receivable is 4111, not 1100. This is why postings ask for a role rather than a
 number (see accounting.code).
 
 **Revenue is split by VAT liability.** 7011 is a sale subject to VAT and 7012 a
-sale that is not, where the default chart has one 4000. The role below points at
-the VAT-liable account because that is the common case; routing each line by its
-own tax status is a refinement worth making later, and is noted as such.
+sale that is not, where the default chart has one 4000. So there are two roles
+per kind of turnover --- `revenue`/`revenue_exempt` for goods, `service_revenue`/
+`service_revenue_exempt` for labour --- and `accounting.revenue_split` picks by
+each line's own tax: a line that carried no VAT was not subject to it. On the
+default chart both roles of a pair point at the same account, so nothing there
+changes.
 
 Accounts marked `POSTABLE = False` are headings. 41 is where customers live; the
 sale lands in 4111. Posting to a heading double-counts it against its children,
@@ -237,9 +240,10 @@ LOCAL_SUBACCOUNTS = [
 # perpetual behaviour the system already has while landing it where a Lebanese
 # accountant expects to find it.
 #
-# `revenue` and `service_revenue` point at the VAT-LIABLE accounts, which is the
-# common case. Routing an exempt sale to 7012/7132 by its own tax status is a
-# refinement the tax engine has the information for and does not do yet.
+# `revenue` and `service_revenue` are the VAT-LIABLE accounts; the `_exempt`
+# pair is where a line that carried no VAT lands. A business that is not
+# registered for VAT therefore sees all its turnover in 7012/7132, which is
+# what its accountant expects to find there.
 ROLES = {
     "cash":              "5312",   # functional currency
     "bank":              "512",    # 53 الصندوق is notes; 512 بنوك is the bank
@@ -258,7 +262,9 @@ ROLES = {
     "deferred_revenue":  "473",
     "retained_earnings": "121",
     "revenue":           "7011",
+    "revenue_exempt":    "7012",
     "service_revenue":   "7131",
+    "service_revenue_exempt": "7132",
     "fx_gain":           "775",
     "cogs":              "6011",
     "salaries":          "631",

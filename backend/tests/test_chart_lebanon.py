@@ -151,7 +151,9 @@ def test_the_ledger_still_balances_on_this_chart(as_role, db):
 
     assert body["balanced"]
     assert rows["5312"][0] == _pytest.approx(150), "cash did not reach 5312"
-    assert rows["7011"][1] == _pytest.approx(150), "revenue did not reach 7011"
+    # No VAT on the line, so this is a sale NOT subject to VAT: 7012, not 7011.
+    assert rows["7012"][1] == _pytest.approx(150), "exempt revenue did not reach 7012"
+    assert "7011" not in rows, "an untaxed sale landed in Sales subject to VAT"
     assert rows.get("4111", (0, 0))[0] - rows.get("4111", (0, 0))[1] == _pytest.approx(0)
 
 
@@ -245,3 +247,106 @@ def test_ensure_current_is_a_no_op_on_the_default_chart(db):
 
 def test_ensure_current_is_idempotent(lebanese):
     assert LB.ensure_current(lebanese) == 0
+
+
+# ── Turnover is split by VAT liability ───────────────────────────────────────
+# 7011 is a sale subject to VAT, 7012 one that is not. A business that is not
+# registered for VAT charges none, and every sale it makes belongs in 7012 ---
+# it landed in 7011 because the role pointed there whatever the line's tax.
+
+def _rate_ids(client):
+    """The seeded 11% rate and the zero rate. With tax on, a line that names
+    no rate gets the default, so 'exempt' has to be said explicitly."""
+    client.put("/api/settings/", json={"tax_enabled": "1", "default_tax_rate": "11"})
+    rows = client.get("/api/tax-rates/").json()
+    rows = rows if isinstance(rows, list) else rows.get("rows", [])
+    std = next(x for x in rows if float(x.get("rate") or 0) == 11.0)["id"]
+    zero = next(x for x in rows if x.get("tax_type") == "zero")["id"]
+    return std, zero
+
+
+def _paid_sale(client, cid, items):
+    created = client.post("/api/invoices/", json={
+        "client_id": cid, "amount": 0, "items": items}).json()
+    inv = created.get("invoice_id") or created.get("id")
+    full = client.get(f"/api/invoices/{inv}").json()
+    r = client.post(f"/api/invoices/{inv}/payments", json={
+        "amount": full["amount"], "currency": "USD", "method": "Cash",
+        "idempotency_key": str(uuid.uuid4())})
+    assert r.status_code == 200, r.text
+    return inv
+
+
+def _tb(client):
+    return {r["code"]: (r["debit"], r["credit"])
+            for r in client.get("/api/accounting/trial-balance").json()["rows"]}
+
+
+def test_a_taxed_sale_is_subject_to_vat_and_an_untaxed_one_is_not(as_role, db):
+    LB.install(db)
+    db.commit()
+    client = as_role("superadmin")
+    vat, zero = _rate_ids(client)
+    cid = client.post("/api/clients/", json={"name": "زبون"}).json()["id"]
+
+    _paid_sale(client, cid, [
+        {"name": "Taxed",  "quantity": 1, "unit_price": 100, "tax_rate_id": vat},
+        {"name": "Exempt", "quantity": 1, "unit_price": 40, "tax_rate_id": zero},
+    ])
+    rows = _tb(client)
+    assert rows["7011"][1] == _pytest.approx(100), "the taxed line belongs in 7011"
+    assert rows["7012"][1] == _pytest.approx(40), "the untaxed line belongs in 7012"
+    assert rows["4427"][1] == _pytest.approx(11), "VAT due is on the taxed line only"
+
+
+def test_untaxed_labour_is_a_service_not_subject_to_vat(as_role, db):
+    LB.install(db)
+    db.commit()
+    client = as_role("superadmin")
+    cid = client.post("/api/clients/", json={"name": "زبون"}).json()["id"]
+
+    created = client.post("/api/invoices/", json={
+        "client_id": cid, "amount": 0,
+        "items": [{"name": "Labour", "quantity": 1, "unit_price": 60}]}).json()
+    inv = created.get("invoice_id") or created.get("id")
+    # The service module names the labour account when it raises the invoice.
+    db.execute("UPDATE invoice_items SET revenue_account='7131' WHERE invoice_id=?", (inv,))
+    db.commit()
+    r = client.post(f"/api/invoices/{inv}/payments", json={
+        "amount": 60, "currency": "USD", "method": "Cash",
+        "idempotency_key": str(uuid.uuid4())})
+    assert r.status_code == 200, r.text
+    rows = _tb(client)
+    assert rows["7132"][1] == _pytest.approx(60)
+    assert "7131" not in rows
+
+
+def test_an_account_the_accountant_named_is_kept_as_named(as_role, db):
+    """Only the DEFAULT account of each kind is re-routed. A line pointed at
+    some other income account by hand goes exactly where it was pointed."""
+    LB.install(db)
+    db.commit()
+    client = as_role("superadmin")
+    cid = client.post("/api/clients/", json={"name": "زبون"}).json()["id"]
+    created = client.post("/api/invoices/", json={
+        "client_id": cid, "amount": 0,
+        "items": [{"name": "Sundry", "quantity": 1, "unit_price": 25}]}).json()
+    inv = created.get("invoice_id") or created.get("id")
+    db.execute("UPDATE invoice_items SET revenue_account='76' WHERE invoice_id=?", (inv,))
+    db.commit()
+    client.post(f"/api/invoices/{inv}/payments", json={
+        "amount": 25, "currency": "USD", "method": "Cash",
+        "idempotency_key": str(uuid.uuid4())})
+    rows = _tb(client)
+    assert rows["76"][1] == _pytest.approx(25)
+    assert "7012" not in rows and "7011" not in rows
+
+
+def test_the_exempt_roles_reach_a_tenant_that_installed_earlier(lebanese):
+    """ensure_current is what carries a role added later onto a live tenant."""
+    lebanese.execute("DELETE FROM account_roles WHERE role IN "
+                     "('revenue_exempt','service_revenue_exempt')")
+    lebanese.commit()
+    assert LB.ensure_current(lebanese) >= 2
+    assert accounting.code(lebanese, "revenue_exempt") == "7012"
+    assert accounting.code(lebanese, "service_revenue_exempt") == "7132"

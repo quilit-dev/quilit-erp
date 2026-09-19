@@ -4642,6 +4642,16 @@ def _run_migrations(conn, c):
     add_col("187c_employee_rota_anchor", "hr_employees", "saturday_rota_anchor",
             "ALTER TABLE hr_employees ADD COLUMN saturday_rota_anchor TEXT")
 
+    # ── 189: turnover not subject to VAT has its own role ───────────────────
+    # The default chart keeps it with the rest; chart_lebanon.ensure_current
+    # re-points a Lebanese tenant at 7012/7132 at the end of this pass.
+    if need("189_exempt_revenue_roles"):
+        for _role, _code in (("revenue_exempt", "4000"),
+                             ("service_revenue_exempt", "4100")):
+            c.execute("INSERT OR IGNORE INTO account_roles (role, code) VALUES (?,?)",
+                      (_role, _code))
+        done("189_exempt_revenue_roles")
+
     # ── 188: a reclassification points at the entry it corrects ─────────────
     # An accountant fixes a line posted to the wrong account with a NEW entry
     # (DR right / CR wrong), never by editing the posted line. This column
@@ -6010,6 +6020,12 @@ def _ensure_pg_post_baseline(raw):
                     "saturday_rota TEXT")
         cur.execute("ALTER TABLE hr_employees ADD COLUMN IF NOT EXISTS "
                     "saturday_rota_anchor TEXT")
+        # 189: turnover not subject to VAT has its own role (default chart
+        # keeps it with the rest; ensure_current re-points a Lebanese tenant).
+        for _r, _c in (("revenue_exempt", "4000"), ("service_revenue_exempt", "4100")):
+            cur.execute("INSERT INTO account_roles (role, code, updated_at) "
+                        "VALUES (%s,%s,now()::text) ON CONFLICT (role) DO NOTHING",
+                        (_r, _c))
         # 188: a reclassification's link to the entry it corrects.
         cur.execute("ALTER TABLE journal_entries ADD COLUMN IF NOT EXISTS "
                     "reclassifies_id INTEGER")
@@ -6454,6 +6470,10 @@ _DEFAULT_ACCOUNT_ROLES = [
     ("retained_earnings", "3900"),
     ("revenue",           "4000"),
     ("service_revenue",   "4100"),
+    # Turnover not subject to VAT. This chart keeps it with the rest; the
+    # Lebanese chart points these at 7012 and 7132.
+    ("revenue_exempt",    "4000"),
+    ("service_revenue_exempt", "4100"),
     ("fx_gain",           "4910"),
     ("cogs",              "5000"),
     ("salaries",          "6000"),

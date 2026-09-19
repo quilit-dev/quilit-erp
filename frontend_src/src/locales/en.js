@@ -74,7 +74,7 @@ const en = {
     switchTo: 'Switch to the {{name}}',
     switchTitle: 'Change the chart of accounts',
     whatItDoes: 'Seeds the {{count}} statutory accounts, in Arabic and English.',
-    pointRoles: 'Every posting is re-pointed at them — receivables to 4111, sales to 7011, cash to 5311.',
+    pointRoles: 'Every posting is re-pointed at them — receivables to 4111, sales to 7011 or 7012 by whether VAT was charged, cash to 5311.',
     retireOld: 'Retires {{count}} accounts from the chart you are leaving, so you are not offered two at once.',
     keepsHistory: 'Nothing is deleted. Entries already posted keep pointing where they were posted, so the old ledger still reads.',
     alreadyPosted: 'This business has {{count}} posted journal lines. Until those balances are brought across as an opening entry, its figures sit across two charts and no statement reads correctly. Do that with your accountant.',

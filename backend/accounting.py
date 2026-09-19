@@ -186,6 +186,8 @@ _ROLE_DEFAULTS = {
     "vat_input": VAT_CONTROL,         "vat_output": VAT_CONTROL,
     "deferred_revenue": DEFERRED_REV, "retained_earnings": RETAINED_EARNINGS,
     "revenue": REVENUE,               "service_revenue": SERVICE_REVENUE,
+    # The default chart does not separate exempt turnover; the Lebanese one does.
+    "revenue_exempt": REVENUE,        "service_revenue_exempt": SERVICE_REVENUE,
     "fx_gain": FX_GAIN,               "cogs": COGS,
     "salaries": SALARIES,             "depreciation": DEPRECIATION,
     "other_expense": OTHER_EXPENSE,   "cash_short_over": CASH_SHORT_OVER,
@@ -423,6 +425,13 @@ def revenue_split(db: sqlite3.Connection, invoice_id: Optional[int],
     default sales revenue account, so an invoice raised anywhere else in the
     system produces one credit to 4000 and behaves as it always has.
 
+    A line that carried no VAT is turnover NOT subject to VAT. Where the chart
+    keeps that apart (Lebanon: 7011 vs 7012, 7131 vs 7132) such a line is
+    routed to the exempt account of its kind --- but only when it was headed
+    for the default account of that kind. An account an accountant named on
+    the line is respected as named. On the default chart the exempt role
+    points at the same account, so the routing is invisible there.
+
     Rounding residue is added to the largest revenue bucket, so the credits sum
     to `amount` to the cent and the entry balances. Without that, a 1/3 split of
     an odd figure loses a cent and post_entry rejects the whole entry.
@@ -447,13 +456,15 @@ def revenue_split(db: sqlite3.Connection, invoice_id: Optional[int],
 
     net = money(amount - vat)
 
+    goods, labour = code(db, "revenue"), code(db, "service_revenue")
     try:
         rows = db.execute(
             "SELECT COALESCE(revenue_account, ?) AS acct, "
+            "       CASE WHEN COALESCE(tax_amount,0) > 0 THEN 1 ELSE 0 END AS taxed, "
             "       SUM(COALESCE(quantity,0) * COALESCE(unit_price,0) "
             "           - COALESCE(discount,0)) AS net_gross "
-            "FROM invoice_items WHERE invoice_id = ? GROUP BY 1",
-            (code(db, "revenue"), invoice_id),
+            "FROM invoice_items WHERE invoice_id = ? GROUP BY 1, 2",
+            (goods, invoice_id),
         ).fetchall()
     except Exception:
         # No invoice_items table on a very old install, or a read failure. One
@@ -461,10 +472,15 @@ def revenue_split(db: sqlite3.Connection, invoice_id: Optional[int],
         # balances and the money is still recognised.
         rows = []
 
-    buckets: List[Tuple[str, float]] = [
-        (r["acct"] or code(db, "revenue"), float(r["net_gross"] or 0))
-        for r in rows]
-    buckets = [(a, g) for a, g in buckets if g > 0]
+    exempt_of = {goods: code(db, "revenue_exempt"),
+                 labour: code(db, "service_revenue_exempt")}
+    merged: Dict[str, float] = {}
+    for r in rows:
+        acct = r["acct"] or goods
+        if not r["taxed"]:
+            acct = exempt_of.get(acct, acct)
+        merged[acct] = merged.get(acct, 0.0) + float(r["net_gross"] or 0)
+    buckets: List[Tuple[str, float]] = [(a, g) for a, g in merged.items() if g > 0]
     total_net = sum(g for _, g in buckets)
 
     if len(buckets) <= 1 or total_net <= 0:
