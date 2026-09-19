@@ -224,6 +224,36 @@ def account_id_for(db: sqlite3.Connection, code: str) -> int:
     return cast(int, row["id"])
 
 
+def _col(row: Any, key: str, default: Any = None) -> Any:
+    """Read a column that may be absent from this row — an older SELECT, or a
+    tenant whose migration has not run. Absent reads as `default`."""
+    try:
+        return row[key]
+    except (KeyError, IndexError, TypeError):
+        return default
+
+
+def assert_postable(db: sqlite3.Connection, account_id: int, *,
+                    allow_inactive: bool = False) -> None:
+    """Refuse a line to an account that cannot carry one: retired, or a
+    heading that exists to group its children. Every posting path lands
+    here, the auto-posted ones included; the manual route used to be the
+    only one that looked, and it looked at `is_active` alone.
+
+    `allow_inactive` exists for exactly one caller: the chart cutover, whose
+    whole job is to post the balance OFF a retired account onto its
+    replacement. A heading is refused even then."""
+    row = db.execute(
+        "SELECT code, name, is_active, is_postable FROM chart_of_accounts WHERE id=?",
+        (account_id,)).fetchone()
+    if not row:
+        raise ValueError(f"Chart-of-accounts account #{account_id} not found")
+    if not allow_inactive and not int(_col(row, "is_active", 1) or 0):
+        raise ValueError(f"Account {row['code']} — {row['name']} is inactive and cannot be posted to")
+    if not int(_col(row, "is_postable", 1) if _col(row, "is_postable", 1) is not None else 1):
+        raise ValueError(f"Account {row['code']} — {row['name']} is a heading and cannot be posted to")
+
+
 def expense_account_code(category: Optional[str],
                          db: Optional[sqlite3.Connection] = None) -> str:
     """Resolve an expense category to its ledger account.
@@ -296,7 +326,8 @@ def post_entry(db: sqlite3.Connection, *, entry_date: str, memo: str,
                source_type: Optional[str] = None,
                source_id: Optional[int] = None,
                created_by: Optional[str] = None, status: str = "posted",
-               branch_id: Optional[int] = None) -> Optional[int]:
+               branch_id: Optional[int] = None,
+               allow_inactive: bool = False) -> Optional[int]:
     """Create one balanced journal entry. `lines` is a list of dicts, each with
     an account (`code` or `account_id`), and a `debit` or `credit` amount, plus
     an optional `memo`.
@@ -321,6 +352,7 @@ def post_entry(db: sqlite3.Connection, *, entry_date: str, memo: str,
         acct_id = ln.get("account_id")
         if acct_id is None:
             acct_id = account_id_for(db, ln["code"])
+        assert_postable(db, acct_id, allow_inactive=allow_inactive)
         debit  = money(ln.get("debit") or 0)
         credit = money(ln.get("credit") or 0)
         if debit < 0 or credit < 0:
@@ -580,11 +612,75 @@ def reverse_entry(db: sqlite3.Connection, je_id: int, *,
         source_type="reversal",
         source_id=je_id,
         created_by=created_by,
+        # The mirror belongs to the branch the original was booked in. Left
+        # to post_entry it took the company default, so every void moved
+        # money between branch trial balances while the company total sat
+        # at zero and nothing complained.
+        branch_id=_col(je, "branch_id"),
+        # A reversal must always be possible, even after an account on the
+        # original has since been retired: it is the undo.
+        allow_inactive=True,
     )
     db.execute("UPDATE journal_entries SET reverses_id=? WHERE id=?", (je_id, rev_id))
     db.execute("UPDATE journal_entries SET status='reversed', reversed_by=? WHERE id=?",
                (rev_id, je_id))
     return rev_id
+
+
+def reclassify(db: sqlite3.Connection, je_id: int, *, from_account_id: int,
+               to_account_id: int, amount: Optional[float] = None,
+               entry_date: Optional[str] = None, reason: str = "",
+               created_by: Optional[str] = None) -> int:
+    """Move an amount posted to the wrong account onto the right one.
+
+    A posted line is never edited: the books said what they said on that
+    date, and the trial balance somebody printed has to stay true. Instead a
+    balancing entry is posted --- the same amount, debit to the right account
+    and credit to the wrong one (or the mirror, for a credit line) --- dated
+    when the correction is made, linked back to the original through
+    `reclassifies_id`, and carrying the accountant's reason as its memo. The
+    balances end up where they belong and anyone reading either entry can see
+    the other.
+
+    Only the account moves. A wrong amount, party or tax is a document
+    correction (void and recreate), not a ledger one. The amount may be a
+    part of the line --- one line that mixed two costs --- but never more than
+    what the line carries on that account.
+    """
+    je = db.execute("SELECT * FROM journal_entries WHERE id=?", (je_id,)).fetchone()
+    if not je or je["status"] != "posted" or je["reversed_by"]:
+        raise ValueError("Only a live posted entry can be reclassified.")
+    if from_account_id == to_account_id:
+        raise ValueError("Pick a different account to move the amount to.")
+    on_account = db.execute(
+        "SELECT COALESCE(SUM(debit),0) AS d, COALESCE(SUM(credit),0) AS c "
+        "  FROM journal_entry_lines WHERE journal_entry_id=? AND account_id=?",
+        (je_id, from_account_id)).fetchone()
+    debit, credit = money(on_account["d"]), money(on_account["c"])
+    if debit == 0 and credit == 0:
+        raise ValueError("That account is not on this entry.")
+    side_amount = money(debit - credit)          # >0 net debit, <0 net credit
+    if side_amount == 0:
+        raise ValueError("The account's debits and credits on this entry cancel out; nothing to move.")
+    move = money(amount) if amount is not None else abs(side_amount)
+    if move <= 0:
+        raise ValueError("The amount to move must be positive.")
+    if move > abs(side_amount) + 0.005:
+        raise ValueError(f"Only {abs(side_amount):.2f} is on that account in this entry.")
+    assert_postable(db, to_account_id)
+
+    if side_amount > 0:      # the wrong account was debited: take it back, debit the right one
+        lines = [{"account_id": to_account_id, "debit": move, "memo": reason or None},
+                 {"account_id": from_account_id, "credit": move, "memo": reason or None}]
+    else:                    # the wrong account was credited
+        lines = [{"account_id": from_account_id, "debit": move, "memo": reason or None},
+                 {"account_id": to_account_id, "credit": move, "memo": reason or None}]
+    memo = f"Reclassification of {je['entry_number'] or je_id}" + (f": {reason}" if reason else "")
+    new_id = post_entry(
+        db, entry_date=(entry_date or _now())[:10], memo=memo, lines=lines,
+        source_type="manual", created_by=created_by, branch_id=_col(je, "branch_id"))
+    db.execute("UPDATE journal_entries SET reclassifies_id=? WHERE id=?", (je_id, new_id))
+    return cast(int, new_id)
 
 
 def reverse_source(db: sqlite3.Connection, source_type: str, source_id: int,
@@ -596,15 +692,6 @@ def reverse_source(db: sqlite3.Connection, source_type: str, source_id: int,
 
 
 # ── Reports ────────────────────────────────────────────────────────────────
-def _col(row: Any, key: str) -> Any:
-    """Read a column that may be absent from this row — an older SELECT, or a
-    tenant whose migration has not run. Absent reads as None."""
-    try:
-        return row[key]
-    except (KeyError, IndexError, TypeError):
-        return None
-
-
 def _signed_balance(acct_type: str, debit: float, credit: float) -> float:
     """Net balance in the account's natural sign (positive = normal side)."""
     if acct_type in _DEBIT_NORMAL:
@@ -1024,10 +1111,15 @@ def close_fiscal_year(db: sqlite3.Connection, year: Any,
                 lines.append({"code": r["code"], "debit": r["balance"], "memo": "Year-end close"})
             else:
                 lines.append({"code": r["code"], "credit": r["balance"], "memo": "Year-end close"})
+        # Through the role, not the default chart's constant: on the Lebanese
+        # chart retained earnings is 121 and 3900 is retired, so the constant
+        # would have sent the year's result to an inactive account --- or,
+        # with the postable check above, refused the close outright.
+        retained = code(db, "retained_earnings")
         if net_income > 0:
-            lines.append({"code": RETAINED_EARNINGS, "credit": net_income, "memo": f"Net income {year}"})
+            lines.append({"code": retained, "credit": net_income, "memo": f"Net income {year}"})
         elif net_income < 0:
-            lines.append({"code": RETAINED_EARNINGS, "debit": -net_income, "memo": f"Net loss {year}"})
+            lines.append({"code": retained, "debit": -net_income, "memo": f"Net loss {year}"})
         closing_id = post_entry(
             db, entry_date=end, memo=f"Year-end closing — {year}", lines=lines,
             source_type="closing", source_id=year, created_by=created_by)

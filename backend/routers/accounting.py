@@ -469,7 +469,68 @@ def get_journal_entry(
     result["lines"] = [dict(r) for r in lines]
     # Where this posting came from, and where to go to look at it.
     result["source"] = gl_source.describe(db, je["source_type"], je["source_id"])
+    # The correction chain, readable from either end: what this entry
+    # reclassifies, and what has reclassified it.
+    reclassifies_id = _row_col(je, "reclassifies_id")
+    result["reclassifies"] = None
+    if reclassifies_id:
+        orig = db.execute("SELECT id, entry_number, entry_date, memo FROM journal_entries WHERE id=?",
+                          (reclassifies_id,)).fetchone()
+        result["reclassifies"] = dict(orig) if orig else None
+    try:
+        result["reclassified_by"] = [dict(r) for r in db.execute(
+            "SELECT id, entry_number, entry_date, memo, total_debit FROM journal_entries "
+            " WHERE reclassifies_id=? ORDER BY id", (je_id,)).fetchall()]
+    except Exception:
+        result["reclassified_by"] = []
     return result
+
+
+def _row_col(row, key, default=None):
+    try:
+        return row[key]
+    except (KeyError, IndexError, TypeError):
+        return default
+
+
+class ReclassifyIn(BaseModel):
+    from_account_id: int
+    to_account_id:   int
+    amount:          Optional[float] = None     # default: everything on that account
+    entry_date:      Optional[str] = None       # default: today
+    reason:          str = ""
+
+
+@router.post("/journal-entries/{je_id}/reclassify")
+def reclassify_journal_entry(
+    je_id: int,
+    data: ReclassifyIn,
+    user=Depends(require_perm("accounting", "edit")),
+    db: sqlite3.Connection = Depends(get_db),
+):
+    """Move an amount this entry posted to the wrong account onto the right
+    one, with a new balancing entry linked to this one. The posted lines are
+    not touched --- see accounting.reclassify for why."""
+    je = db.execute("SELECT * FROM journal_entries WHERE id=?", (je_id,)).fetchone()
+    if not je:
+        raise HTTPException(404, "Journal entry not found")
+    branch_access.assert_can_view_branch(user, db, je["branch_id"])
+    if not (data.reason or "").strip():
+        raise HTTPException(400, "Give the reason for the reclassification.")
+    when = (data.entry_date or _now())[:10]
+    _check_period_locked(db, when)
+    try:
+        new_id = accounting.reclassify(
+            db, je_id, from_account_id=data.from_account_id, to_account_id=data.to_account_id,
+            amount=data.amount, entry_date=when, reason=data.reason.strip(),
+            created_by=user["id"])
+    except ValueError as e:
+        raise HTTPException(400, str(e))
+    log_action(db, user, "reclassify", "journal_entry", je_id, je["entry_number"] or str(je_id),
+               {"to": new_id, "from_account_id": data.from_account_id,
+                "to_account_id": data.to_account_id, "amount": data.amount, "reason": data.reason})
+    db.commit()
+    return {"id": new_id, "message": "Reclassification posted"}
 
 
 @router.get("/for/{document}/{doc_id}")
@@ -576,6 +637,19 @@ def reverse_journal_entry(
         raise HTTPException(404, "Journal entry not found")
     if je["status"] != "posted" or je["reversed_by"]:
         raise HTTPException(400, "Only a live posted entry can be reversed.")
+    # An entry a LIVE document produced belongs to that document. Reversing
+    # it here would leave the invoice, expense or sale standing with no
+    # ledger behind it --- and the next touch of that document would post it
+    # again. The document's own void is the way to take it off the books; a
+    # wrong account is a reclassification. A batch with no document behind
+    # it (chart cutover, opening balances, closing) reverses like a manual
+    # entry, because reversing is the only undo it has.
+    origin = gl_source.describe(db, je["source_type"], je["source_id"])
+    if origin and origin.get("exists"):
+        raise HTTPException(
+            400, f"This entry was posted by {origin.get('label') or je['source_type'].replace('_', ' ')}. "
+                 "Void or edit that record to take it off the books, or use Reclassify "
+                 "to move an amount to another account.")
     _check_period_locked(db, je["entry_date"])
     rev_id = accounting.reverse_entry(db, je_id, created_by=user["id"])
     log_action(db, user, "reverse", "journal_entry", je_id, je["entry_number"] or str(je_id))

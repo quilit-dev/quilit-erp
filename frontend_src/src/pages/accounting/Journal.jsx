@@ -3,7 +3,7 @@ import { Link } from 'react-router-dom';
 import { useFocusId } from '../../hooks/useFocusId';
 import {
   getAccounts, getJournalEntries, getJournalEntry,
-  createJournalEntry, reverseJournalEntry,
+  createJournalEntry, reverseJournalEntry, reclassifyJournalEntry,
 } from '../../api/client';
 import { LoadingSpinner, Modal, ConfirmModal, toast, NumberInput } from '../../components/shared';
 import { monthStartISO, todayISO } from './constants';
@@ -79,6 +79,9 @@ function Journal({ t, tAccount, tEnumValue, fmt, fmtDate, canCreate, canEdit }) 
   async function openDetail(id) {
     try { setDetail(await getJournalEntry(id)); } catch (e) { toast(e.message, 'red'); }
   }
+  // The reclassification form over the open entry.
+  const [reclassifying, setReclassifying] = useState(false);
+
   async function doReverse(id) {
     setConfirmRev(null);
     try { await reverseJournalEntry(id); toast(t('accounting.reversed')); setDetail(null); load(); }
@@ -192,9 +195,15 @@ function Journal({ t, tAccount, tEnumValue, fmt, fmtDate, canCreate, canEdit }) 
       <Pager page={page} pageSize={pageSize} total={total}
         onPage={setPage} onSize={setPageSize} t={t} />
 
-      {detail && (
+      {detail && !reclassifying && (
         <EntryDetail tAccount={tAccount} tEnumValue={tEnumValue} entry={detail} t={t} fmt={fmt} fmtDate={fmtDate} canEdit={canEdit}
-          onClose={() => setDetail(null)} onReverse={() => setConfirmRev(detail.id)} />
+          onClose={() => setDetail(null)} onReverse={() => setConfirmRev(detail.id)}
+          onReclassify={() => setReclassifying(true)} onOpen={openDetail} />
+      )}
+      {detail && reclassifying && (
+        <ReclassifyModal entry={detail} accounts={accounts} t={t} tAccount={tAccount} fmt={fmt}
+          onClose={() => setReclassifying(false)}
+          onSaved={async (newId) => { setReclassifying(false); load(); await openDetail(newId); }} />
       )}
       {adding && (
         <NewEntryModal tAccount={tAccount} t={t} fmt={fmt} onClose={() => setAdding(false)}
@@ -209,8 +218,13 @@ function Journal({ t, tAccount, tEnumValue, fmt, fmtDate, canCreate, canEdit }) 
   );
 }
 
-function EntryDetail({ entry, t, tAccount, tEnumValue, fmt, fmtDate, canEdit, onClose, onReverse }) {
-  const reversible = entry.status === 'posted' && !entry.reversed_by;
+function EntryDetail({ entry, t, tAccount, tEnumValue, fmt, fmtDate, canEdit, onClose, onReverse, onReclassify, onOpen }) {
+  const live = entry.status === 'posted' && !entry.reversed_by;
+  // An entry a document produced is taken off the books by voiding the
+  // document, not here; the server refuses a bare reverse on it. What the
+  // accountant can do to any live entry is move a wrongly booked amount.
+  const fromDocument = !!entry.source_type && entry.source_type !== 'manual';
+  const reversible = live && !fromDocument;
   return (
     <Modal title={`${entry.entry_number} · ${fmtDate(entry.entry_date)}`} onClose={onClose} size="modal-lg">
       <div className="modal-body">
@@ -236,6 +250,31 @@ function EntryDetail({ entry, t, tAccount, tEnumValue, fmt, fmtDate, canEdit, on
                 )}
               </span>
             )}
+          </div>
+        )}
+        {/* The correction chain, from either end. */}
+        {entry.reclassifies && (
+          <div style={{ fontSize: 13, marginBottom: 8 }}>
+            <span style={{ color: 'var(--text-3)' }}>{t('accounting.reclassifiesLabel')}:</span>{' '}
+            <button type="button" className="btn-link" onClick={() => onOpen(entry.reclassifies.id)}
+              style={{ color: 'var(--accent)', fontWeight: 600, background: 'none', border: 'none', cursor: 'pointer', padding: 0 }}>
+              {entry.reclassifies.entry_number}
+            </button>
+          </div>
+        )}
+        {entry.reclassified_by?.length > 0 && (
+          <div style={{ fontSize: 13, marginBottom: 8 }}>
+            <span style={{ color: 'var(--text-3)' }}>{t('accounting.reclassifiedByLabel')}:</span>{' '}
+            {entry.reclassified_by.map((r, i) => (
+              <span key={r.id}>
+                {i > 0 && ', '}
+                <button type="button" onClick={() => onOpen(r.id)}
+                  style={{ color: 'var(--accent)', fontWeight: 600, background: 'none', border: 'none', cursor: 'pointer', padding: 0 }}>
+                  {r.entry_number}
+                </button>
+                <span style={{ color: 'var(--text-3)' }}> ({fmt(r.total_debit)})</span>
+              </span>
+            ))}
           </div>
         )}
         <div className="table-wrap">
@@ -264,9 +303,107 @@ function EntryDetail({ entry, t, tAccount, tEnumValue, fmt, fmtDate, canEdit, on
         </div>
       </div>
       <div className="modal-footer">
+        {canEdit && live && <button className="btn btn-secondary" onClick={onReclassify}>{t('accounting.reclassify')}</button>}
         {canEdit && reversible && <button className="btn btn-danger" onClick={onReverse}>{t('accounting.reverse')}</button>}
+        {canEdit && live && fromDocument && (
+          <span style={{ fontSize: 12, color: 'var(--text-3)', marginInlineEnd: 'auto' }}>
+            {t('accounting.reverseViaDocument')}
+          </span>
+        )}
         <button className="btn btn-secondary" onClick={onClose}>{t('common.close')}</button>
       </div>
+    </Modal>
+  );
+}
+
+
+// Move an amount this entry posted to the wrong account onto the right one.
+// A new balancing entry is posted and linked; the posted lines stay as they
+// are, so the trial balance anyone printed from them stays true.
+function ReclassifyModal({ entry, accounts, t, tAccount, fmt, onClose, onSaved }) {
+  // The accounts on this entry, netted: the accountant picks which one is wrong.
+  const onEntry = Object.values((entry.lines || []).reduce((acc, l) => {
+    const cur = acc[l.account_id] || { account_id: l.account_id, code: l.account_code, line: l, net: 0 };
+    cur.net += (Number(l.debit) || 0) - (Number(l.credit) || 0);
+    acc[l.account_id] = cur;
+    return acc;
+  }, {})).filter(a => Math.abs(a.net) > 0.004);
+  const [fromId, setFromId] = useState(onEntry.length === 1 ? String(onEntry[0].account_id) : '');
+  const [toId, setToId] = useState('');
+  const [amount, setAmount] = useState('');
+  const [date, setDate] = useState(todayISO());
+  const [reason, setReason] = useState('');
+  const [busy, setBusy] = useState(false);
+  const from = onEntry.find(a => String(a.account_id) === fromId);
+  const max = from ? Math.abs(from.net) : 0;
+  const moving = amount === '' ? max : Number(amount);
+  const ok = fromId && toId && toId !== fromId && moving > 0 && moving <= max + 0.005 && reason.trim();
+
+  async function submit(e) {
+    e.preventDefault();
+    if (!ok) return;
+    setBusy(true);
+    try {
+      const res = await reclassifyJournalEntry(entry.id, {
+        from_account_id: Number(fromId), to_account_id: Number(toId),
+        amount: amount === '' ? null : Number(amount), entry_date: date, reason: reason.trim(),
+      });
+      toast(t('accounting.reclassified'));
+      onSaved(res.id);
+    } catch (err) { toast(err.message, 'red'); }
+    finally { setBusy(false); }
+  }
+
+  return (
+    <Modal title={`${t('accounting.reclassify')} · ${entry.entry_number}`} onClose={onClose}>
+      <form onSubmit={submit}>
+        <div className="modal-body">
+          <p style={{ fontSize: 12.5, color: 'var(--text-3)', marginTop: 0 }}>{t('accounting.reclassifyHint')}</p>
+          <div className="form-grid">
+            <div className="form-group form-full">
+              <label className="form-label">{t('accounting.reclassFrom')}</label>
+              <SearchSelect className="form-control" value={fromId} onChange={setFromId} allowBlank={false}
+                placeholder={t('accounting.pickAccount')}
+                options={onEntry.map(a => ({ value: String(a.account_id),
+                  label: `${a.code} ${tAccount(a.line)}`,
+                  hint: `${a.net > 0 ? t('accounting.debit') : t('accounting.credit')} ${fmt(Math.abs(a.net))}` }))} />
+            </div>
+            <div className="form-group form-full">
+              <label className="form-label">{t('accounting.reclassTo')}</label>
+              <SearchSelect className="form-control" value={toId} onChange={setToId} allowBlank={false}
+                placeholder={t('accounting.pickAccount')} searchable
+                options={(accounts || []).filter(a => a.is_postable !== 0 && a.is_postable !== false
+                                                   && String(a.id) !== fromId)
+                  .map(a => ({ value: String(a.id), label: `${a.code} ${tAccount(a)}` }))} />
+            </div>
+            <div className="form-group">
+              <label className="form-label">{t('common.amount')}</label>
+              <NumberInput className="form-control" min="0.01" step="0.01" max={max} value={amount}
+                onChange={e => setAmount(e.target.value)} placeholder={from ? `${fmt(max)} (${t('accounting.wholeLine')})` : ''} />
+            </div>
+            <div className="form-group">
+              <label className="form-label">{t('common.date')}</label>
+              <input type="date" className="form-control" value={date} onChange={e => setDate(e.target.value)} />
+            </div>
+            <div className="form-group form-full">
+              <label className="form-label">{t('accounting.reclassReason')}</label>
+              <input className="form-control" value={reason} onChange={e => setReason(e.target.value)}
+                placeholder={t('accounting.reclassReasonPlaceholder')} autoFocus />
+            </div>
+          </div>
+          {from && toId && moving > 0 && (
+            <div style={{ marginTop: 10, fontSize: 12.5, color: 'var(--text-2)' }}>
+              {t('accounting.reclassPreview', { amount: fmt(moving) })}
+            </div>
+          )}
+        </div>
+        <div className="modal-footer">
+          <button type="button" className="btn btn-secondary" onClick={onClose}>{t('common.cancel')}</button>
+          <button type="submit" className="btn btn-primary" disabled={busy || !ok}>
+            {busy ? t('common.saving') : t('accounting.postReclass')}
+          </button>
+        </div>
+      </form>
     </Modal>
   );
 }

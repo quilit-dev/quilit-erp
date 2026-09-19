@@ -645,13 +645,21 @@ def apply_resolution(db: sqlite3.Connection, module: str, action: str,
     # An approved expense rolls its amount into the linked project's actual cost.
     if module == "expense" and resolution == "approved":
         row = db.execute(
-            "SELECT project_id, amount FROM expenses WHERE id=?", (entity_id,)
+            "SELECT * FROM expenses WHERE id=?", (entity_id,)
         ).fetchone()
         if row and row["project_id"]:
             db.execute(
                 "UPDATE projects SET actual_cost = actual_cost + ? WHERE id=?",
                 (row["amount"], row["project_id"]),
             )
+        # The ledger entry that creation held back. Recording it here, at the
+        # moment the business agrees the money was spent, is the whole point
+        # of holding it back --- and until this existed nothing posted it at
+        # all, so every approved expense was missing from the books. The
+        # helper is idempotent, so a request resolved twice posts once.
+        if row and not row["voided_at"]:
+            from routers.finance import post_expense_journal
+            post_expense_journal(db, row)
 
     # A fixed-asset request that clears approval is bought at that moment: the
     # cost goes on the balance sheet and something pays for it. Held back until

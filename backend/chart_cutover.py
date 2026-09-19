@@ -218,9 +218,11 @@ def post(db: sqlite3.Connection, *, as_of: str, mappings: dict,
     if note:
         memo += f" — {note}"
 
+    # The one posting that may touch a retired account: it is what empties it.
     je_id = accounting.post_entry(
         db, entry_date=as_of[:10], memo=memo, lines=lines,
-        source_type=SOURCE_TYPE, source_id=None, created_by=created_by)
+        source_type=SOURCE_TYPE, source_id=None, created_by=created_by,
+        allow_inactive=True)
 
     return {"journal_entry_id": je_id, "accounts": len(rows),
             "moved": money(sum(abs(r["balance"]) for r in rows))}

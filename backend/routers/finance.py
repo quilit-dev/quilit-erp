@@ -111,7 +111,7 @@ def _income_in_range(db, start: str, end: str, bf: str = "", bp=()) -> float:
 def _expenses_in_range(db, start: str, end: str, bf: str = "", bp=()) -> float:
     return db.execute(
         """SELECT COALESCE(SUM(amount), 0) FROM expenses
-           WHERE archived_at IS NULL AND voided_at IS NULL
+           WHERE archived_at IS NULL AND voided_at IS NULL AND COALESCE(status,'') NOT IN ('Pending Approval','Rejected')
              AND DATE(date) >= ? AND DATE(date) <= ?""" + bf,
         (start, end, *bp),
     ).fetchone()[0]
@@ -120,7 +120,7 @@ def _expenses_in_range(db, start: str, end: str, bf: str = "", bp=()) -> float:
 def _categories_in_range(db, start: str, end: str, bf: str = "", bp=()):
     return db.execute(
         """SELECT category, COALESCE(SUM(amount), 0) AS total FROM expenses
-           WHERE archived_at IS NULL AND voided_at IS NULL
+           WHERE archived_at IS NULL AND voided_at IS NULL AND COALESCE(status,'') NOT IN ('Pending Approval','Rejected')
              AND DATE(date) >= ? AND DATE(date) <= ?""" + bf +
         " GROUP BY category ORDER BY total DESC",
         (start, end, *bp),
@@ -149,12 +149,12 @@ def finance_summary(
     ).fetchone()[0]
     expenses = db.execute(
         "SELECT COALESCE(SUM(amount), 0) AS total FROM expenses "
-        f"WHERE archived_at IS NULL AND voided_at IS NULL AND strftime('%Y-%m', date) = {mexpr}" + bf_e,
+        f"WHERE archived_at IS NULL AND voided_at IS NULL AND COALESCE(status,'') NOT IN ('Pending Approval','Rejected') AND strftime('%Y-%m', date) = {mexpr}" + bf_e,
         (*mparam, *bp_e),
     ).fetchone()[0]
     by_cat = db.execute(
         "SELECT category, COALESCE(SUM(amount), 0) AS total FROM expenses "
-        f"WHERE archived_at IS NULL AND voided_at IS NULL AND strftime('%Y-%m', date) = {mexpr}" + bf_e +
+        f"WHERE archived_at IS NULL AND voided_at IS NULL AND COALESCE(status,'') NOT IN ('Pending Approval','Rejected') AND strftime('%Y-%m', date) = {mexpr}" + bf_e +
         " GROUP BY category",
         (*mparam, *bp_e),
     ).fetchall()
@@ -626,43 +626,50 @@ def create_expense(
             (data.amount, data.project_id),
         )
 
-    # Auto-post to the general ledger once the expense is actually recorded
-    # (a pending-approval expense isn't recognised until it clears approval).
+    # Auto-post to the general ledger once the expense is actually recorded.
+    # A pending-approval expense is not recognised until it clears approval,
+    # and approval_engine.apply_resolution posts it then, through the same
+    # helper. An expense amount is tax-INCLUSIVE (see resolve_expense_tax), so
+    # the VAT inside it is split out to the VAT control account rather than
+    # overstating cost; the gross comes out of whatever actually paid it.
     if not needs_approval:
-        # An expense amount is tax-INCLUSIVE (see resolve_expense_tax), so the
-        # VAT inside it is recoverable and is not a cost. Debiting the gross to
-        # the expense account overstated costs by the tax and left the reclaim
-        # off the balance sheet; it is split out to the same VAT control account
-        # that output VAT credits, so the account's balance is the net position.
-        _exp_lines = [
-            {"code": accounting.expense_account_code(data.category, db),
-             "debit": money(gross - t_amt)},
-        ]
-        if t_amt > 0:
-            _exp_lines.append({"code": accounting.code(db, "vat_control"), "debit": money(t_amt),
-                               "memo": "Input VAT"})
-        # Paid from wherever it was actually paid from. Crediting cash for
-        # a bank transfer understates the bank and overstates the till by the
-        # same amount, and neither can then be reconciled.
-        _exp_lines.append({
-            "code": accounting.money_account_for(
-                db, method=data.payment_method,
-                bank_account_id=data.bank_account_id),
-            "credit": gross})
-
-        accounting.post_entry(
-            db,
-            entry_date=(data.date or datetime.utcnow().strftime("%Y-%m-%d"))[:10],
-            memo=f"{data.category}" + (f" — {data.description}" if data.description else ""),
-            lines=_exp_lines,
-            source_type="expense", source_id=expense_id, created_by=user["id"],
-            branch_id=branch_id,
-        )
+        post_expense_journal(
+            db, db.execute("SELECT * FROM expenses WHERE id=?", (expense_id,)).fetchone(),
+            created_by=user["id"])
 
     log_action(db, user, "create", "expense", expense_id,
                data.category, {"amount": data.amount})
     db.commit()
     return {"id": expense_id, "message": "Expense recorded"}
+
+
+def post_expense_journal(db, expense_row, created_by=None):
+    """The ledger entry for one recorded expense, from the stored row.
+
+    Expense net to the category's account, the VAT inside the gross to the
+    VAT control account, the gross out of whatever paid it. One function, so
+    the three moments an expense reaches the ledger --- recorded outright,
+    cleared through approval, edited after posting --- cannot drift into
+    three slightly different entries. Idempotent through post_entry's
+    (source_type, source_id) guard. Returns the entry id.
+    """
+    exp = expense_row
+    gross = money(exp["amount"])
+    t_amt = money(exp["tax_amount"] or 0)
+    lines = [{"code": accounting.expense_account_code(exp["category"], db),
+              "debit": money(gross - t_amt)}]
+    if t_amt > 0:
+        lines.append({"code": accounting.code(db, "vat_control"), "debit": t_amt,
+                      "memo": "Input VAT"})
+    lines.append({"code": accounting.money_account_for(
+                      db, method=exp["payment_method"],
+                      bank_account_id=exp["bank_account_id"]),
+                  "credit": gross})
+    memo = f"{exp['category']}" + (f" — {exp['description']}" if exp["description"] else "")
+    return accounting.post_entry(
+        db, entry_date=str(exp["date"])[:10], memo=memo, lines=lines,
+        source_type="expense", source_id=exp["id"], created_by=created_by,
+        branch_id=exp["branch_id"])
 
 
 # ── Update expense ────────────────────────────────────────────────────────
@@ -723,6 +730,22 @@ def update_expense(
          new_amount, data.date or exp["date"], t_rid, t_rate, t_amt,
          (data.payment_method or None), drawer_id, expense_id),
     )
+
+    # The ledger follows the edit. The old entry is reversed and a fresh one
+    # posted from the row as it now stands, in this same transaction, so the
+    # books never hold an amount, account or date the expense no longer has.
+    # Until this existed an edit changed the row alone and the journal kept
+    # saying what it said the day the expense was first recorded. A pending
+    # expense has no entry yet and gets none here; approval posts it.
+    if exp["status"] != "Pending Approval":
+        old_je = accounting.source_entry(db, "expense", expense_id)
+        if old_je:
+            accounting.reverse_entry(
+                db, old_je["id"], entry_date=(data.date or exp["date"]),
+                memo=f"Expense #{expense_id} edited", created_by=user["id"])
+        post_expense_journal(
+            db, db.execute("SELECT * FROM expenses WHERE id=?", (expense_id,)).fetchone(),
+            created_by=user["id"])
     log_action(db, user, "update", "expense", expense_id,
                data.category, {"amount": new_amount})
     db.commit()

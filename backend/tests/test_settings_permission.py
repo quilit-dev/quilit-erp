@@ -158,7 +158,7 @@ def test_the_page_reads_the_same_two_flags(admin):
            / "pages" / "Settings.jsx").read_text(encoding="utf-8")
 
     assert "Boolean(_u.is_superadmin)" not in src
-    assert "const { isAdmin, can } = usePermissions();" in src
+    assert "const { isAdmin, isSuperadmin, can } = usePermissions();" in src
     assert "const canEdit = isAdmin || can('settings', 'edit');" in src
     # The backup block is the one thing still gated on admin.
     assert src.count("{isAdmin && form.local_backup") == 1

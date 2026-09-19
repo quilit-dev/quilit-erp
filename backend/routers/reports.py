@@ -50,7 +50,7 @@ def report_financial(
 
     total_expenses = db.execute(
         """SELECT COALESCE(SUM(amount), 0) FROM expenses
-           WHERE archived_at IS NULL AND voided_at IS NULL
+           WHERE archived_at IS NULL AND voided_at IS NULL AND COALESCE(status,'') NOT IN ('Pending Approval','Rejected')
              AND DATE(date) BETWEEN ? AND ?""" + bf_n,
         (start, end, *bp_n),
     ).fetchone()[0]
@@ -68,7 +68,7 @@ def report_financial(
     exp_rows = db.execute(
         """SELECT strftime('%Y-%m', date) AS m, COALESCE(SUM(amount), 0) AS v
            FROM expenses
-           WHERE archived_at IS NULL AND voided_at IS NULL
+           WHERE archived_at IS NULL AND voided_at IS NULL AND COALESCE(status,'') NOT IN ('Pending Approval','Rejected')
              AND DATE(date) BETWEEN ? AND ?""" + bf_n +
         " GROUP BY m ORDER BY m",
         (start, end, *bp_n),
@@ -90,7 +90,7 @@ def report_financial(
     by_category = db.execute(
         """SELECT category, COALESCE(SUM(amount), 0) AS total, COUNT(*) AS count
            FROM expenses
-           WHERE archived_at IS NULL AND voided_at IS NULL
+           WHERE archived_at IS NULL AND voided_at IS NULL AND COALESCE(status,'') NOT IN ('Pending Approval','Rejected')
              AND DATE(date) BETWEEN ? AND ?""" + bf_n +
         " GROUP BY category ORDER BY total DESC",
         (start, end, *bp_n),
@@ -102,6 +102,7 @@ def report_financial(
                   COALESCE(SUM(tax_total),0) AS vat
            FROM invoices
            WHERE voided_at IS NULL AND archived_at IS NULL
+             AND COALESCE(approval_status,'') <> 'Pending Approval'
              AND DATE(created_at) BETWEEN ? AND ?""" + bf_n,
         (start, end, *bp_n),
     ).fetchone()
@@ -115,7 +116,7 @@ def report_financial(
         """SELECT COALESCE(SUM(amount - tax_amount), 0) AS net,
                   COALESCE(SUM(tax_amount), 0)          AS vat
            FROM expenses
-           WHERE archived_at IS NULL AND voided_at IS NULL
+           WHERE archived_at IS NULL AND voided_at IS NULL AND COALESCE(status,'') NOT IN ('Pending Approval','Rejected')
              AND DATE(date) BETWEEN ? AND ?""" + bf_n,
         (start, end, *bp_n),
     ).fetchone()
@@ -456,7 +457,7 @@ def report_expenses(
 
     count = db.execute(
         """SELECT COUNT(*) FROM expenses
-           WHERE archived_at IS NULL AND voided_at IS NULL
+           WHERE archived_at IS NULL AND voided_at IS NULL AND COALESCE(status,'') NOT IN ('Pending Approval','Rejected')
              AND DATE(date) BETWEEN ? AND ?""" + bf_n,
         (start, end, *bp_n),
     ).fetchone()[0]
@@ -589,13 +590,14 @@ def report_vat(
         """SELECT COALESCE(SUM(amount),0) AS gross, COALESCE(SUM(tax_total),0) AS vat
            FROM invoices
            WHERE voided_at IS NULL AND archived_at IS NULL
+             AND COALESCE(approval_status,'') <> 'Pending Approval'
              AND DATE(created_at) BETWEEN ? AND ?""" + bf_n,
         (start, end, *bp_n),
     ).fetchone()
     inp_row = db.execute(
         """SELECT COALESCE(SUM(amount),0) AS gross, COALESCE(SUM(tax_amount),0) AS vat
            FROM expenses
-           WHERE archived_at IS NULL AND voided_at IS NULL
+           WHERE archived_at IS NULL AND voided_at IS NULL AND COALESCE(status,'') NOT IN ('Pending Approval','Rejected')
              AND DATE(date) BETWEEN ? AND ?""" + bf_n,
         (start, end, *bp_n),
     ).fetchone()
@@ -618,6 +620,7 @@ def report_vat(
            FROM invoice_items ii
            JOIN invoices i ON ii.invoice_id = i.id
            WHERE i.voided_at IS NULL AND i.archived_at IS NULL
+             AND COALESCE(i.approval_status,'') <> 'Pending Approval'
              AND DATE(i.created_at) BETWEEN ? AND ?""" + bf_i +
         " GROUP BY ii.tax_rate ORDER BY ii.tax_rate",
         (start, end, *bp_i),
@@ -627,7 +630,7 @@ def report_vat(
                   COALESCE(SUM(amount - tax_amount), 0) AS base,
                   COALESCE(SUM(tax_amount), 0)          AS vat
            FROM expenses
-           WHERE archived_at IS NULL AND voided_at IS NULL
+           WHERE archived_at IS NULL AND voided_at IS NULL AND COALESCE(status,'') NOT IN ('Pending Approval','Rejected')
              AND DATE(date) BETWEEN ? AND ?""" + bf_n +
         " GROUP BY tax_rate ORDER BY tax_rate",
         (start, end, *bp_n),
@@ -655,6 +658,7 @@ def report_vat(
                   COALESCE(SUM(subtotal),0)  AS b
            FROM invoices
            WHERE voided_at IS NULL AND archived_at IS NULL
+             AND COALESCE(approval_status,'') <> 'Pending Approval'
              AND DATE(created_at) BETWEEN ? AND ?""" + bf_n +
         " GROUP BY m",
         (start, end, *bp_n),
@@ -664,7 +668,7 @@ def report_vat(
                   COALESCE(SUM(tax_amount),0)         AS v,
                   COALESCE(SUM(amount - tax_amount),0) AS b
            FROM expenses
-           WHERE archived_at IS NULL AND voided_at IS NULL
+           WHERE archived_at IS NULL AND voided_at IS NULL AND COALESCE(status,'') NOT IN ('Pending Approval','Rejected')
              AND DATE(date) BETWEEN ? AND ?""" + bf_n +
         " GROUP BY m",
         (start, end, *bp_n),
@@ -810,7 +814,7 @@ def report_branch_comparison(
     expense_map = {r["bid"]: float(r["v"] or 0) for r in db.execute(
         """SELECT branch_id AS bid, COALESCE(SUM(amount), 0) AS v
            FROM expenses
-           WHERE archived_at IS NULL AND voided_at IS NULL
+           WHERE archived_at IS NULL AND voided_at IS NULL AND COALESCE(status,'') NOT IN ('Pending Approval','Rejected')
              AND DATE(date) BETWEEN ? AND ?
            GROUP BY branch_id""",
         (start, end),
@@ -819,6 +823,7 @@ def report_branch_comparison(
         """SELECT branch_id AS bid, COALESCE(SUM(amount), 0) AS v
            FROM invoices
            WHERE voided_at IS NULL AND archived_at IS NULL
+             AND COALESCE(approval_status,'') <> 'Pending Approval'
              AND DATE(created_at) BETWEEN ? AND ?
            GROUP BY branch_id""",
         (start, end),

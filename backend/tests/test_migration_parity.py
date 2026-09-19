@@ -132,6 +132,8 @@ _REQUIRED = [
     ("work_schedules", "day_overrides"),
     ("hr_employees", "saturday_rota"),
     ("hr_employees", "saturday_rota_anchor"),
+    # A reclassification's link to the entry it corrects.
+    ("journal_entries", "reclassifies_id"),
 ]
 
 

@@ -791,6 +791,8 @@ export const getJournalEntries    = (params = {}) => api.get(`/api/accounting/jo
 export const getJournalEntry      = (id)     => api.get(`/api/accounting/journal-entries/${id}`);
 export const createJournalEntry   = (d)      => api.post('/api/accounting/journal-entries', d);
 export const reverseJournalEntry  = (id)     => api.post(`/api/accounting/journal-entries/${id}/reverse`);
+// A wrong account, corrected by a new linked entry --- the posted line is never edited.
+export const reclassifyJournalEntry = (id, d) => api.post(`/api/accounting/journal-entries/${id}/reclassify`, d);
 // Every posting one document produced — the other direction from the journal.
 export const getDocumentPostings  = (doc, id) => api.get(`/api/accounting/for/${doc}/${id}`);
 // Mark foreign cash to the closing rate and book the difference (IAS 21).
