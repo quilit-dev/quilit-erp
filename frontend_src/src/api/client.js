@@ -522,6 +522,7 @@ export const createTimeDevice     = (d)           => api.post('/api/hr/timeclock
 export const rotateTimeDevice     = (id)          => api.post(`/api/hr/timeclock/devices/${id}/rotate`, {});
 export const revokeTimeDevice     = (id)          => api.delete(`/api/hr/timeclock/devices/${id}`);
 export const getDeviceUsers       = ()            => api.get('/api/hr/timeclock/device-users');
+export const getPunches           = (p = {})      => api.get(`/api/hr/timeclock/punches${_qs(p)}`);
 export const setDeviceUser        = (id, d)       => api.put(`/api/hr/timeclock/device-users/${id}`, d);
 export const getWorkSchedules     = ()            => api.get('/api/hr/timeclock/schedules');
 export const createWorkSchedule   = (d)           => api.post('/api/hr/timeclock/schedules', d);

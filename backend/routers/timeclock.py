@@ -480,6 +480,68 @@ def list_device_users(user=Depends(require_perm("hr", "view")),
     return [dict(r) for r in rows]
 
 
+@router.get("/punches")
+def list_punches(date: str, employee_id: Optional[int] = None,
+                 user=Depends(require_perm("hr", "view")),
+                 db: sqlite3.Connection = Depends(get_db)):
+    """What the clock actually saw on one day, punch by punch.
+
+    The attendance screen shows a derived In and Out, and when those look wrong
+    nobody can tell WHY from there: whether the terminal's clock is off, a
+    finger is mapped to the wrong person, a punch was never sent, or the
+    pairing read a lunch-time return as the day's first arrival. This lists
+    every raw punch for the day beside the role derivation gave it ---
+    `in`, `out`, `unpaired` (an odd last punch), or `repeat` (collapsed as a
+    second read within a minute) --- so the two can be compared.
+
+    Punches nobody has claimed are included with no employee, because a
+    mapping that is missing or wrong is one of the things this is for.
+    """
+    day = str(date)[:10]
+    params = [day]
+    sql = ("SELECT p.id, p.device_id, d.name AS device, p.device_user_id, "
+           "       p.employee_id, e.full_name AS employee_name, p.punched_at, "
+           "       p.local_date, p.direction, p.raw_punch, p.raw_status, "
+           "       p.received_at "
+           "  FROM time_punches p "
+           "  JOIN time_devices d ON d.id = p.device_id "
+           "  LEFT JOIN hr_employees e ON e.id = p.employee_id "
+           " WHERE p.local_date = ?")
+    if employee_id is not None:
+        sql += " AND p.employee_id = ?"
+        params.append(employee_id)
+    sql += " ORDER BY p.employee_id IS NULL, e.full_name, p.punched_at, p.id"
+    rows = [dict(r) for r in db.execute(sql, tuple(params)).fetchall()]
+
+    # Replay the pairing per employee, exactly as derivation does, and tag each
+    # punch with the part it played. Done here rather than stored, so a change
+    # to the rule is reflected on the next look.
+    import attendance_derive as ad
+    by_emp = {}
+    for r in rows:
+        if r["employee_id"] is not None:
+            by_emp.setdefault(r["employee_id"], []).append(r)
+    for emp, group in by_emp.items():
+        kept = {t.strftime("%Y-%m-%d %H:%M:%S")
+                for t in ad.debounce([g["punched_at"] for g in group])}
+        order = 0
+        for g in group:
+            if g["punched_at"] not in kept:
+                g["role"] = "repeat"
+                continue
+            g["role"] = "in" if order % 2 == 0 else "out"
+            order += 1
+        if order % 2 == 1:
+            # The odd last punch: derivation leaves it unpaired.
+            for g in reversed(group):
+                if g.get("role") in ("in", "out"):
+                    g["role"] = "unpaired"
+                    break
+    for r in rows:
+        r.setdefault("role", "unmapped")
+    return {"date": day, "rows": rows}
+
+
 @router.put("/device-users/{mapping_id}")
 def set_device_user(mapping_id: int, data: MappingIn,
                     user=Depends(require_perm("hr", "edit")),

@@ -352,3 +352,48 @@ def test_punches_still_land_when_the_agent_sends_no_names(clock):
     r = agent.post("/api/time/punches", json=batch(("6", DAY + " 08:00:00")))
     assert r.status_code == 200
     assert r.json()["accepted"] == 1
+
+
+# ── seeing what the clock saw ────────────────────────────────────────────────
+# A derived In/Out that looks wrong cannot be argued with from the attendance
+# screen. This lists the raw punches and the part each played in the pairing.
+
+def test_the_days_punches_are_listed_with_the_part_each_played(clock, db):
+    admin, agent, did = clock
+    emp = _employee(admin)
+    agent.post("/api/time/punches", json=batch(
+        ("7", DAY + " 08:00:00"), ("7", DAY + " 08:00:30"),   # a second read
+        ("7", DAY + " 13:00:00"),                              # forgot to punch back in
+        ("7", DAY + " 17:00:00"),                              # so this pairs with nothing
+        ("9", DAY + " 09:10:00")))                             # nobody's finger yet
+    m = _mapping(admin, "7")
+    admin.put(f"/api/hr/timeclock/device-users/{m['id']}", json={"employee_id": emp})
+
+    body = admin.get("/api/hr/timeclock/punches", params={"date": DAY}).json()
+    assert body["date"] == DAY
+    mine = [(r["punched_at"][11:], r["role"]) for r in body["rows"] if r["employee_id"] == emp]
+    assert mine == [
+        ("08:00:00", "in"), ("08:00:30", "repeat"),
+        ("13:00:00", "out"), ("17:00:00", "unpaired"),
+    ]
+    stray = [r for r in body["rows"] if r["employee_id"] is None]
+    assert len(stray) == 1 and stray[0]["device_user_id"] == "9"
+    assert stray[0]["role"] == "unmapped" and stray[0]["device"] == "Front door"
+
+
+def test_the_listing_can_be_narrowed_to_one_employee(clock):
+    admin, agent, _ = clock
+    a, b = _employee(admin, "A"), _employee(admin, "B")
+    agent.post("/api/time/punches", json=batch(("1", DAY + " 08:00:00"),
+                                               ("2", DAY + " 08:05:00")))
+    admin.put(f"/api/hr/timeclock/device-users/{_mapping(admin, '1')['id']}", json={"employee_id": a})
+    admin.put(f"/api/hr/timeclock/device-users/{_mapping(admin, '2')['id']}", json={"employee_id": b})
+    rows = admin.get("/api/hr/timeclock/punches",
+                     params={"date": DAY, "employee_id": a}).json()["rows"]
+    assert [r["employee_id"] for r in rows] == [a]
+
+
+def test_a_device_token_cannot_read_the_listing(clock):
+    _, agent, _ = clock
+    r = agent.get("/api/hr/timeclock/punches", params={"date": DAY})
+    assert r.status_code in (401, 403)

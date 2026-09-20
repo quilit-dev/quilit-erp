@@ -1,20 +1,102 @@
 import { useState, useCallback, useEffect } from 'react';
-import { LoadingSpinner, EmptyState, ExportButton, toast, NumberInput } from '../../components/shared';
+import { LoadingSpinner, EmptyState, ExportButton, Modal, toast, NumberInput } from '../../components/shared';
 import { getAttendance, saveAttendanceBulk, getAttendanceSummary,
-         deriveAttendance } from '../../api/client';
+         deriveAttendance, getPunches } from '../../api/client';
 import SearchSelect from '../../components/SearchSelect.jsx';
 
 const ATT_STATUSES = ['Present', 'Absent', 'Late', 'Half-day', 'Leave'];
 
 /** 'HH:MM:SS' as 'HH:MM'. Seconds are noise on a screen about working days. */
 const hhmm = (v) => (v ? String(v).slice(0, 5) : '');
+// An In/Out that opens the punches behind it. Styled inline like every other
+// link-button in the app; there is no shared rule for the class.
+const LINK = { background: 'none', border: 'none', padding: 0, cursor: 'pointer',
+               color: 'var(--accent)', fontSize: 13, textDecoration: 'underline dotted' };
 const ATT_LABEL_KEY = {
   'Present': 'hr.attPresent', 'Absent': 'hr.attAbsent', 'Late': 'hr.attLate',
   'Half-day': 'hr.attHalfday', 'Leave': 'hr.attLeave',
 };
 
+/**
+ * Every punch the clock reported for one day, beside the part derivation gave
+ * it. The attendance row shows an In and an Out; when either looks wrong this
+ * is where to see whether the terminal's time, the finger's mapping or the
+ * pairing is what went wrong --- the three look identical from the row.
+ */
+function PunchLog({ t, date, employeeId, employeeName, onClose }) {
+  const [rows, setRows] = useState(null);
+  useEffect(() => {
+    setRows(null);
+    getPunches(employeeId ? { date, employee_id: employeeId } : { date })
+      .then(d => setRows(d.rows || []))
+      .catch(e => { toast(e.message, 'red'); setRows([]); });
+  }, [date, employeeId]);
+
+  const ROLE = {
+    in:       { key: 'hr.punchIn',       cls: 'badge-green' },
+    out:      { key: 'hr.punchOut',      cls: 'badge-accent' },
+    unpaired: { key: 'hr.punchUnpaired', cls: 'badge-yellow' },
+    repeat:   { key: 'hr.punchRepeat',   cls: '' },
+    unmapped: { key: 'hr.punchUnmapped', cls: 'badge-red' },
+  };
+  // The terminal's own flag, when the site uses its keys. ZKTeco numbering.
+  const FLAG = { 0: 'IN', 1: 'OUT', 2: 'Break out', 3: 'Break in', 4: 'OT in', 5: 'OT out' };
+
+  return (
+    <Modal title={t('hr.punchLogTitle', { who: employeeName || t('hr.punchLogAll'), date })}
+           onClose={onClose} size="modal-lg">
+      {!rows ? <LoadingSpinner /> :
+       rows.length === 0 ? <EmptyState message={t('hr.punchLogEmpty')} /> : (
+        <>
+          <p style={{ fontSize: 12, color: 'var(--text-3)', margin: '0 0 10px' }}>
+            {t('hr.punchLogHint')}
+          </p>
+          <div className="table-wrap">
+            <table>
+              <thead><tr>
+                {!employeeId && <th>{t('hr.colEmployee')}</th>}
+                <th>{t('hr.punchTime')}</th>
+                <th>{t('hr.punchRole')}</th>
+                <th>{t('hr.punchDevice')}</th>
+                <th>{t('hr.punchFlag')}</th>
+                <th>{t('hr.punchReceived')}</th>
+              </tr></thead>
+              <tbody>
+                {rows.map(r => {
+                  const role = ROLE[r.role] || ROLE.repeat;
+                  return (
+                    <tr key={r.id} style={r.role === 'repeat' ? { opacity: 0.55 } : undefined}>
+                      {!employeeId && (
+                        <td className="td-primary">
+                          {r.employee_name || <span style={{ color: 'var(--red)' }}>{t('hr.punchNobody')}</span>}
+                        </td>
+                      )}
+                      <td className="text-mono" style={{ fontSize: 13 }}>{String(r.punched_at).slice(11, 19)}</td>
+                      <td><span className={`badge ${role.cls}`} style={{ fontSize: 10 }}>{t(role.key)}</span></td>
+                      <td style={{ fontSize: 12, color: 'var(--text-3)' }}>
+                        {r.device} · #{r.device_user_id}
+                      </td>
+                      <td style={{ fontSize: 12, color: 'var(--text-3)' }}>
+                        {r.raw_punch == null ? '—' : (FLAG[r.raw_punch] ?? r.raw_punch)}
+                      </td>
+                      <td className="text-mono" style={{ fontSize: 11, color: 'var(--text-3)' }}>
+                        {r.received_at ? String(r.received_at).slice(0, 16) : '—'}
+                      </td>
+                    </tr>
+                  );
+                })}
+              </tbody>
+            </table>
+          </div>
+        </>
+      )}
+    </Modal>
+  );
+}
+
 function AttendanceTab({ t, canEdit }) {
   const [view, setView]       = useState('day');     // 'day' | 'month'
+  const [punchLog, setPunchLog] = useState(null);    // { employeeId, employeeName } | 'all'
   const [date, setDate]       = useState(() => new Date().toISOString().slice(0, 10));
   const [month, setMonth]     = useState(() => new Date().toISOString().slice(0, 7));
   const [rows, setRows]       = useState(null);
@@ -117,6 +199,11 @@ function AttendanceTab({ t, canEdit }) {
             <button className="btn btn-secondary btn-sm" onClick={markAllPresent}
               disabled={!rows || !rows.length}>✓ {t('hr.attMarkAllPresent')}</button>
           )}
+          {view === 'day' && (
+            <button className="btn btn-secondary btn-sm" onClick={() => setPunchLog('all')}>
+              {t('hr.punchLogButton')}
+            </button>
+          )}
           {view === 'day' && canEdit && (
             <button className="btn btn-secondary btn-sm" onClick={refreshFromClock}
               disabled={refreshing}>
@@ -169,8 +256,27 @@ function AttendanceTab({ t, canEdit }) {
                     )}
                   </td>
                   <td style={{ color: 'var(--text-3)', fontSize: 13 }}>{r.job_title || '—'}</td>
-                  <td className="text-mono" style={{ fontSize: 13 }}>{hhmm(r.first_in) || '—'}</td>
-                  <td className="text-mono" style={{ fontSize: 13 }}>{hhmm(r.last_out) || '—'}</td>
+                  {/* The In and Out open the punches they were read from, so a
+                      time that looks wrong can be checked against what the
+                      terminal actually sent rather than argued about. */}
+                  <td className="text-mono" style={{ fontSize: 13 }}>
+                    {r.punch_count > 0 ? (
+                      <button type="button" className="btn-link text-mono" style={LINK}
+                        title={t('hr.punchLogOpen', { n: r.punch_count })}
+                        onClick={() => setPunchLog({ employeeId: r.employee_id, employeeName: r.full_name })}>
+                        {hhmm(r.first_in) || '—'}
+                      </button>
+                    ) : (hhmm(r.first_in) || '—')}
+                  </td>
+                  <td className="text-mono" style={{ fontSize: 13 }}>
+                    {r.punch_count > 0 ? (
+                      <button type="button" className="btn-link text-mono" style={LINK}
+                        title={t('hr.punchLogOpen', { n: r.punch_count })}
+                        onClick={() => setPunchLog({ employeeId: r.employee_id, employeeName: r.full_name })}>
+                        {hhmm(r.last_out) || '—'}
+                      </button>
+                    ) : (hhmm(r.last_out) || '—')}
+                  </td>
                   <td>
                     <SearchSelect
                       className="form-control"
@@ -236,6 +342,12 @@ function AttendanceTab({ t, canEdit }) {
             </table>
           </div>
         )
+      )}
+      {punchLog && (
+        <PunchLog t={t} date={date}
+          employeeId={punchLog === 'all' ? null : punchLog.employeeId}
+          employeeName={punchLog === 'all' ? '' : punchLog.employeeName}
+          onClose={() => setPunchLog(null)} />
       )}
     </div>
   );
