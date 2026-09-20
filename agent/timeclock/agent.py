@@ -43,7 +43,7 @@ import sys
 import time
 from datetime import datetime, timedelta, timezone
 
-AGENT_VERSION = "1.0.0"
+AGENT_VERSION = "1.1.0"
 
 
 def _here():
@@ -150,7 +150,7 @@ def save_state(state):
     os.replace(tmp, STATE_PATH)      # atomic, so a power cut cannot truncate it
 
 
-def first_run_floor(cfg, today=None):
+def first_run_floor(cfg, today=None, state=None):
     """The oldest punch this agent will ever send.
 
     These terminals keep years of history --- the unit this was written against
@@ -158,8 +158,15 @@ def first_run_floor(cfg, today=None):
     imported. It is not wrong data, but it lands as attendance against whoever
     the fingers are later mapped to, in months that have already been paid.
 
-    So the default is TODAY: a clock starts counting when you install it. Set
-    `start_date` in config.ini to pull older records in deliberately.
+    So the default is the day the agent was FIRST RUN: a clock starts counting
+    when you install it. That day is remembered in state.json (`installed_on`)
+    and read back from there. It used to be recomputed as "today" on every
+    cycle, which quietly ignored two kinds of real punch: one written to the
+    terminal after the last read of an evening, which the next morning's
+    cycles then found "older than today"; and every punch from a terminal
+    whose own date was behind the PC's, which is what a clock that was never
+    set after a power cut looks like. Set `start_date` in config.ini to pull
+    older records in deliberately.
     """
     if cfg.get("start_date"):
         try:
@@ -168,8 +175,23 @@ def first_run_floor(cfg, today=None):
             raise SystemExit(
                 "start_date in config.ini is not a date: %r (use YYYY-MM-DD)"
                 % cfg["start_date"])
+    remembered = (state or {}).get("installed_on")
+    if remembered:
+        try:
+            return datetime.strptime(str(remembered)[:10], "%Y-%m-%d")
+        except ValueError:
+            pass
     base = today or datetime.now()
     return base.replace(hour=0, minute=0, second=0, microsecond=0)
+
+
+def remember_install_day(cfg, state, today=None):
+    """Write the floor down the first time, so it stops moving. Returns True
+    when the state changed and needs saving."""
+    if cfg.get("start_date") or state.get("installed_on"):
+        return False
+    state["installed_on"] = first_run_floor(cfg, today).strftime("%Y-%m-%d")
+    return True
 
 
 def effective_cutoff(cfg, state, today=None):
@@ -179,7 +201,7 @@ def effective_cutoff(cfg, state, today=None):
     floor stops old history arriving at all. Deleting state.json must not
     resurrect 2024, which is exactly what taking only the cursor would do.
     """
-    floor = first_run_floor(cfg, today)
+    floor = first_run_floor(cfg, today, state)
     cursor = cutoff_from(state)
     return floor if cursor is None else max(floor, cursor)
 
@@ -229,8 +251,12 @@ def read_device(cfg):
         raise SystemExit(
             "pyzk is not installed. Run:  pip install -r requirements.txt")
 
+    # ommit_ping: pyzk otherwise ICMP-pings the terminal first and gives up if
+    # that fails, and a terminal (or the office switch) that does not answer
+    # ping while happily talking on 4370 then reads as "can't reach device"
+    # every cycle. The TCP connect is the real test.
     zk = ZK(cfg["device_ip"], port=cfg["device_port"], timeout=cfg["timeout"],
-            password=cfg["device_password"], force_udp=False, ommit_ping=False)
+            password=cfg["device_password"], force_udp=False, ommit_ping=True)
     conn = None
     try:
         try:
@@ -248,9 +274,13 @@ def read_device(cfg):
                 "",
                 "(%s)" % type(exc).__name__,
             ]))
-        # Stops people punching while the log is being read. Released in
-        # `finally`, so a crash here cannot leave the terminal locked.
-        conn.disable_device()
+        # The terminal is NOT locked for the read. Locking it (disable_device)
+        # is what pyzk's examples do, but with a one-minute poll the screen was
+        # frozen for a few seconds out of every sixty, and a finger placed in
+        # that window is simply not recorded --- there is no retry for a punch
+        # that never happened. A read that overlaps a write at worst returns
+        # one garbled record, which the next cycle collects again.
+        cfg["_device_time"] = read_clock(conn)
         records = conn.get_attendance() or []
         cfg["_users"] = read_users(conn)
         out = []
@@ -267,10 +297,40 @@ def read_device(cfg):
         return out
     finally:
         if conn is not None:
-            try:
-                conn.enable_device()
-            finally:
-                conn.disconnect()
+            conn.disconnect()
+
+
+def read_clock(conn):
+    """The terminal's own idea of the time, or None. Every punch is stamped
+    with this clock, so if it is wrong, so is every attendance record."""
+    try:
+        return conn.get_time()
+    except Exception as exc:
+        log.debug("could not read the terminal's clock (%s)", exc)
+        return None
+
+
+def report_clock(device_time, now=None):
+    """Say, in the log, how far the terminal's clock is from this PC's.
+
+    Returns the skew in seconds (positive = terminal ahead), or None. Warned
+    above two minutes: a terminal an hour out puts every check-in an hour
+    out, and a terminal a DAY behind used to have all its punches ignored.
+    """
+    if device_time is None:
+        return None
+    now = now or datetime.now()
+    skew = (device_time - now).total_seconds()
+    if abs(skew) >= 120:
+        log.warning("the terminal's clock reads %s; this PC reads %s "
+                    "(%d min %s). Every punch is stamped with the terminal's "
+                    "time --- set it under  Menu > System > Date/Time.",
+                    device_time.strftime("%Y-%m-%d %H:%M:%S"),
+                    now.strftime("%Y-%m-%d %H:%M:%S"),
+                    int(abs(skew) // 60), "ahead" if skew > 0 else "behind")
+    else:
+        log.debug("terminal clock %s (skew %ds)", device_time, int(skew))
+    return skew
 
 
 def load_replay(path):
@@ -380,9 +440,15 @@ def filter_new(punches, cutoff):
 
 def run_once(cfg, punches=None, dry_run=False):
     state = load_state()
+    if remember_install_day(cfg, state):
+        save_state(state)
+        log.info("first run: sending punches from %s onwards", state["installed_on"])
     if punches is None:
         punches = read_device(cfg)
-    log.info("device holds %d record(s)", len(punches))
+        report_clock(cfg.get("_device_time"))
+    newest = max((p.get("punched_at") or "" for p in punches), default="")
+    log.info("device holds %d record(s)%s", len(punches),
+             (", newest %s" % newest) if newest else "")
 
     cutoff = effective_cutoff(cfg, state)
     pending = sorted(filter_new(punches, cutoff),
@@ -390,7 +456,7 @@ def run_once(cfg, punches=None, dry_run=False):
     skipped = len(punches) - len(pending)
     if skipped:
         log.info("ignoring %d record(s) older than %s",
-                 skipped, cutoff.strftime("%Y-%m-%d"))
+                 skipped, cutoff.strftime("%Y-%m-%d %H:%M"))
     if not pending:
         log.info("nothing new to send")
         return {"sent": 0, "accepted": 0, "duplicates": 0, "rejected": 0}

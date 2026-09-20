@@ -348,3 +348,90 @@ def test_a_plain_config_still_loads(agent, tmp_path):
     p = tmp_path / "config.ini"
     p.write_bytes(_INI.encode("utf-8"))
     assert agent.load_config(str(p))["device_ip"] == "192.168.1.16"
+
+
+# ── the floor is the install day, not "today" ────────────────────────────────
+# Recomputing the floor as midnight-today on every cycle looked like the same
+# thing and was not: a punch written after the evening's last read was "older
+# than today" by the next morning, and a terminal whose date lagged the PC's
+# had every punch ignored. Both showed up as "employees punch, nothing arrives".
+
+def test_the_install_day_is_remembered_and_the_floor_stops_moving(agent):
+    cfg = dict(CFG, start_date="")
+    state = {}
+    day_one = agent.datetime(2026, 9, 8, 14, 30)
+    assert agent.remember_install_day(cfg, state, day_one) is True
+    assert state["installed_on"] == "2026-09-08"
+    # Days later the floor is still the 8th, so a late punch on the 8th that
+    # the evening's cycles missed is still collected.
+    later = agent.datetime(2026, 9, 12, 9, 0)
+    assert agent.first_run_floor(cfg, later, state) == agent.datetime(2026, 9, 8)
+    assert agent.remember_install_day(cfg, state, later) is False, "written once"
+
+
+def test_a_punch_after_the_last_evening_read_is_collected_next_morning(agent):
+    cfg = dict(CFG, start_date="")
+    state = {}
+    agent.remember_install_day(cfg, state, agent.datetime(2026, 9, 8, 8, 0))
+    state["last_punch_at"] = "2026-09-08 17:00:00"          # what the evening sent
+    next_morning = agent.datetime(2026, 9, 9, 8, 5)
+    kept = agent.filter_new(punches("2026-09-08 17:00:00", "2026-09-08 23:40:00",
+                                    "2026-09-09 08:01:00"),
+                            agent.effective_cutoff(cfg, state, next_morning))
+    assert "2026-09-08 23:40:00" in [p["punched_at"] for p in kept]
+
+
+def test_a_terminal_whose_date_lags_the_pc_still_gets_its_punches_sent(agent):
+    cfg = dict(CFG, start_date="")
+    state = {"installed_on": "2026-09-01"}
+    pc_today = agent.datetime(2026, 9, 20, 10, 0)
+    # The terminal thinks it is the 19th. Wrong, and reported --- but the
+    # punches are real and must not be dropped on the floor.
+    kept = agent.filter_new(punches("2026-09-19 08:02:00", "2026-09-19 09:15:00"),
+                            agent.effective_cutoff(cfg, state, pc_today))
+    assert len(kept) == 2
+
+
+def test_an_explicit_start_date_still_beats_the_remembered_day(agent):
+    cfg = dict(CFG, start_date="2026-02-01")
+    state = {"installed_on": "2026-09-08"}
+    assert agent.first_run_floor(cfg, None, state) == agent.datetime(2026, 2, 1)
+
+
+def test_run_once_writes_the_install_day_on_the_first_cycle(agent, monkeypatch):
+    cfg = dict(CFG, start_date="")
+    monkeypatch.setattr(agent, "send_batch",
+                        lambda c, chunk, users=None: {"accepted": len(chunk), "duplicates": 0, "rejected": 0})
+    agent.run_once(cfg, punches=[])
+    state = agent.load_state()
+    assert state.get("installed_on"), "state.json must carry the install day after the first cycle"
+
+
+# ── the terminal's clock is checked, and the read does not lock the screen ───
+def test_a_terminal_clock_far_from_the_pc_is_warned_about(agent, caplog):
+    import logging
+    agent.log.addHandler(caplog.handler)
+    with caplog.at_level(logging.WARNING, logger="timeclock"):
+        skew = agent.report_clock(agent.datetime(2026, 9, 20, 11, 0),
+                                  now=agent.datetime(2026, 9, 20, 10, 0))
+    assert skew == 3600
+    assert "60 min ahead" in caplog.text and "Date/Time" in caplog.text
+
+
+def test_a_close_enough_clock_is_not_a_warning(agent, caplog):
+    import logging
+    agent.log.addHandler(caplog.handler)
+    with caplog.at_level(logging.WARNING, logger="timeclock"):
+        agent.report_clock(agent.datetime(2026, 9, 20, 10, 0, 40),
+                           now=agent.datetime(2026, 9, 20, 10, 0))
+    assert caplog.text == ""
+
+
+def test_the_read_never_locks_the_terminal():
+    """A frozen screen loses the punch of whoever is standing there. Locking
+    is what pyzk's examples do; this agent must not."""
+    import pathlib
+    src = pathlib.Path(_AGENT).read_text(encoding="utf-8")
+    body = src[src.index("def read_device("):src.index("def read_clock(")]
+    assert "disable_device()" not in body
+    assert "ommit_ping=True" in body, "a terminal that ignores ping must still be read"
