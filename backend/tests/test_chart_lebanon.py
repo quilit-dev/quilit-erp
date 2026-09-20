@@ -350,3 +350,29 @@ def test_the_exempt_roles_reach_a_tenant_that_installed_earlier(lebanese):
     assert LB.ensure_current(lebanese) >= 2
     assert accounting.code(lebanese, "revenue_exempt") == "7012"
     assert accounting.code(lebanese, "service_revenue_exempt") == "7132"
+
+
+# ── VAT lands on the side it belongs to ──────────────────────────────────────
+# 4426 is deductible VAT on charges, 4427 VAT due on revenue, and 4425 is the
+# settlement account between them. Input VAT was posted to 4425 directly,
+# which is where the NET goes at declaration time --- not where a purchase
+# invoice's tax sits until then.
+
+def test_input_vat_is_deductible_vat_and_output_vat_is_vat_due(as_role, db):
+    LB.install(db)
+    db.commit()
+    client = as_role("superadmin")
+    vat, _zero = _rate_ids(client)
+    cid = client.post("/api/clients/", json={"name": "زبون"}).json()["id"]
+
+    _paid_sale(client, cid, [{"name": "Taxed", "quantity": 1, "unit_price": 1000,
+                              "tax_rate_id": vat}])                      # 110 due
+    r = client.post("/api/finance/expenses", json={
+        "category": "Utilities", "amount": 555, "description": "Power",
+        "date": "2026-08-18", "payment_method": "Cash", "tax_rate_id": vat})  # 55 deductible
+    assert r.status_code == 200, r.text
+
+    rows = _tb(client)
+    assert rows["4427"][1] == _pytest.approx(110), "output VAT belongs in 4427"
+    assert rows["4426"][0] == _pytest.approx(55), "input VAT belongs in 4426"
+    assert "4425" not in rows, "nothing settles 4425 until the return is filed"

@@ -211,7 +211,7 @@ def test_purchase_input_vat_also_reaches_the_control_account(client, vat_rate):
     # default chart's code into the source and would forbid a tenant on
     # another chart from routing its input VAT correctly.
     src = inspect.getsource(purchases_src)
-    assert 'code(db, "vat_control")' in src, "purchase VAT does not reach the control account"
+    assert 'code(db, "vat_input")' in src, "purchase VAT does not go through the input-VAT role"
     assert 'accounting.OTHER_EXPENSE, "debit": tax_part' not in src
 
 
@@ -236,5 +236,5 @@ def test_all_three_posting_sites_use_the_same_account(db):
     assert accounting.code(db, "vat_input") == accounting.VAT_CONTROL
     # Expenses and purchases route their input VAT through the same role, so
     # they follow whichever account plays it on the tenant's own chart.
-    assert 'code(db, "vat_control")' in inspect.getsource(finance_src)
-    assert 'code(db, "vat_control")' in inspect.getsource(purchases_src)
+    assert 'code(db, "vat_input")' in inspect.getsource(finance_src)
+    assert 'code(db, "vat_input")' in inspect.getsource(purchases_src)

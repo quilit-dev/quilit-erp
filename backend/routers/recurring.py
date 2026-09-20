@@ -180,7 +180,7 @@ def _post_occurrence(db, tpl, user, rows, gross, t_amt, entry_date, branch_id):
         expense_id, _date, amount, share = rows[0]
         lines = [{"code": code, "debit": share}]
         if t_amt > 0:
-            lines.append({"code": accounting.code(db, "vat_control"), "debit": t_amt,
+            lines.append({"code": accounting.code(db, "vat_input"), "debit": t_amt,
                           "memo": "Input VAT"})
         lines.append({"code": accounting.code(db, "cash"), "credit": gross})
         accounting.post_entry(
@@ -193,7 +193,7 @@ def _post_occurrence(db, tpl, user, rows, gross, t_amt, entry_date, branch_id):
     pay_lines = [{"code": accounting.code(db, "prepaid"), "debit": net,
                   "memo": f"Paid in advance — {len(rows)} months"}]
     if t_amt > 0:
-        pay_lines.append({"code": accounting.code(db, "vat_control"), "debit": t_amt,
+        pay_lines.append({"code": accounting.code(db, "vat_input"), "debit": t_amt,
                           "memo": "Input VAT"})
     pay_lines.append({"code": accounting.code(db, "cash"), "credit": gross})
     # Keyed on the first expense row, which is unique per occurrence and is the

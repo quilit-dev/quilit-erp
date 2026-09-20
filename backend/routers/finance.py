@@ -659,7 +659,7 @@ def post_expense_journal(db, expense_row, created_by=None):
     lines = [{"code": accounting.expense_account_code(exp["category"], db),
               "debit": money(gross - t_amt)}]
     if t_amt > 0:
-        lines.append({"code": accounting.code(db, "vat_control"), "debit": t_amt,
+        lines.append({"code": accounting.code(db, "vat_input"), "debit": t_amt,
                       "memo": "Input VAT"})
     lines.append({"code": accounting.money_account_for(
                       db, method=exp["payment_method"],

@@ -1306,7 +1306,7 @@ def _record_expense(purchase_id: int, db: sqlite3.Connection):
         # so it offsets what is owed rather than costing the business
         # anything. Debiting Other Expenses overstated costs and understated
         # the reclaim — the same error the sales side made in reverse.
-        lines.append({"code": accounting.code(db, "vat_control"), "debit": tax_part,
+        lines.append({"code": accounting.code(db, "vat_input"), "debit": tax_part,
                       "memo": f"Input VAT — {row['po_number']}"})
     # Out of whatever actually funded it — an advance already paid, cash
     # handed over under the old model, or the supplier's account. Crediting
