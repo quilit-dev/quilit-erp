@@ -376,3 +376,48 @@ def test_input_vat_is_deductible_vat_and_output_vat_is_vat_due(as_role, db):
     assert rows["4427"][1] == _pytest.approx(110), "output VAT belongs in 4427"
     assert rows["4426"][0] == _pytest.approx(55), "input VAT belongs in 4426"
     assert "4425" not in rows, "nothing settles 4425 until the return is filed"
+
+
+# ── A role that joined the chart after the tenant installed it ───────────────
+# install() re-points the roles that exist on the day. A role a later release
+# adds arrives through the migration pointing at a DEFAULT-chart code -- which
+# this tenant retired when it switched. That is how `revenue_exempt` reached
+# hajosign as 4000 (inactive there), and the first untaxed till sale after the
+# deploy was refused by the postability guard as a 500. ensure_current is what
+# puts such a role right, and it has to run on the tenant, not only on public.
+
+def test_a_later_role_left_on_a_retired_default_account_breaks_the_till(as_role, db):
+    LB.install(db)
+    db.execute("UPDATE account_roles SET code='4000' WHERE role='revenue_exempt'")
+    db.commit()
+    client = as_role("superadmin")
+    assert client.post("/api/pos/session/open", json={"opening_float": 100}).status_code == 200
+    item = client.post("/api/inventory/", json={
+        "name": "Gap item", "quantity": 2, "unit_cost": 3, "sale_price": 10}).json()
+    # The guard is right to refuse: 4000 is retired here. In production this
+    # surfaces as the 500 the cashier saw; the test client re-raises it.
+    with _pytest.raises(ValueError, match="4000 .* inactive"):
+        client.post("/api/pos/checkout", json={
+            "items": [{"name": "Gap item", "inventory_id": item["id"], "quantity": 1, "unit_price": 10}],
+            "payment_method": "Cash", "amount_tendered": 10, "idempotency_key": str(uuid.uuid4())})
+
+
+def test_ensure_current_puts_the_later_role_right_and_the_till_works(as_role, db):
+    LB.install(db)
+    db.execute("UPDATE account_roles SET code='4000' WHERE role='revenue_exempt'")
+    db.commit()
+    assert LB.ensure_current(db) >= 1
+    db.commit()
+    assert accounting.code(db, "revenue_exempt") == "7012"
+
+    client = as_role("superadmin")
+    assert client.post("/api/pos/session/open", json={"opening_float": 100}).status_code == 200
+    item = client.post("/api/inventory/", json={
+        "name": "Gap item", "quantity": 2, "unit_cost": 3, "sale_price": 10}).json()
+    sale = client.post("/api/pos/checkout", json={
+        "items": [{"name": "Gap item", "inventory_id": item["id"], "quantity": 1, "unit_price": 10}],
+        "payment_method": "Cash", "amount_tendered": 10, "idempotency_key": str(uuid.uuid4())})
+    assert sale.status_code == 200, sale.text
+    rows = _tb(client)
+    assert rows["7012"][1] == _pytest.approx(10)
+    assert "4000" not in rows

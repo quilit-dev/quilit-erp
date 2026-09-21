@@ -1258,6 +1258,23 @@ def upgrade_all_tenant_schemas() -> dict:
                         continue
                     cur.execute(f'SET search_path TO "{schema}", public')
                 _ensure_pg_post_baseline(raw)
+                # The same tidy-up `public` gets in _init_db_postgres, and the
+                # reason it has to happen HERE: a tenant on the Lebanese chart
+                # installed it once, re-pointing the roles that existed that
+                # day. Every role a later release adds arrives through the
+                # post-baseline above pointing at a DEFAULT-chart code -- which
+                # that tenant retired when it switched. `revenue_exempt` came
+                # in as 4000, inactive on hajosign, and the first untaxed till
+                # sale after the deploy was refused by the postability guard
+                # as a 500. ensure_current re-points such roles at the chart's
+                # own accounts; reconcile_active retires the strangers.
+                import chart_lebanon
+                from db_compat import CompatConn
+                from dialect import get_dialect
+                conn = CompatConn(raw, get_dialect("postgres"))
+                chart_lebanon.ensure_current(conn)
+                chart_lebanon.reconcile_active(conn)
+                raw.commit()
                 out["upgraded"].append(t["slug"])
             except Exception as e:
                 raw.rollback()
