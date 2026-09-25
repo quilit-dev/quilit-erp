@@ -380,6 +380,63 @@ export default function Quotations() {
     }),
   }));
 
+  // A quotation line from a stock item, priced the way the single-item picker
+  // prices it, so a line added in bulk is indistinguishable from one picked.
+  const lineFromInventory = (inv) => {
+    const base = salePriceInBase(inv.sale_price, inv.price_currency, exchangeRate,
+                                 settings?.default_currency || 'USD');
+    return { ...EMPTY_ITEM, name: inv.name,
+             ...(base !== null ? { unit_price: base } : {}),
+             inventory_id: inv.id };
+  };
+  // Appends the given stock items. An item already on the quotation is not
+  // added twice, and the blank starter line is replaced rather than left
+  // sitting above the list. Returns how many lines were added.
+  const appendInventory = (invItems) => {
+    const onQuote = new Set(form.items.map(i => i.inventory_id).filter(Boolean));
+    const fresh = invItems.filter(inv => !onQuote.has(inv.id)).map(lineFromInventory);
+    if (!fresh.length) return 0;
+    setForm(f => ({
+      ...f,
+      items: [...f.items.filter(i => i.inventory_id || String(i.name || '').trim()), ...fresh],
+    }));
+    return fresh.length;
+  };
+
+  // Products that have variants, for "Add product". A product with a single
+  // stock item is still listed: picking it is then the same as picking the item.
+  const liveInventory = (inventory || []).filter(i => !i.archived_at);
+  const productOptions = (() => {
+    const byProduct = new Map();
+    for (const inv of liveInventory) {
+      if (!inv.product_id) continue;
+      const p = byProduct.get(inv.product_id)
+        || { id: inv.product_id, name: inv.product_name || inv.name, n: 0 };
+      p.n += 1;
+      byProduct.set(inv.product_id, p);
+    }
+    return [...byProduct.values()]
+      .sort((a, b) => a.name.localeCompare(b.name))
+      .map(p => ({ value: p.id, label: `${p.name} · ${t('quotations.variantsCount', { n: p.n })}` }));
+  })();
+  const [confirmAddAll, setConfirmAddAll] = useState(false);
+
+  function addProduct(productId) {
+    if (!productId) return;
+    const variants = liveInventory
+      .filter(i => String(i.product_id) === String(productId))
+      .sort((a, b) => String(a.variant_label || a.name).localeCompare(String(b.variant_label || b.name)));
+    const n = appendInventory(variants);
+    toast(n ? t('quotations.variantsAdded', { n }) : t('quotations.nothingNew'));
+  }
+  function addAllItems() {
+    setConfirmAddAll(false);
+    const n = appendInventory([...liveInventory].sort((a, b) =>
+      String(a.product_name || a.name).localeCompare(String(b.product_name || b.name))
+      || String(a.name).localeCompare(String(b.name))));
+    toast(n ? t('quotations.itemsAdded', { n }) : t('quotations.nothingNew'));
+  }
+
   const taxEnabled     = settings?.tax_enabled === '1';
   // NOTE: `show_discount_col` is deliberately NOT read here. The discount box
   // is always shown on a quotation because a promotion can reduce a line
@@ -770,10 +827,36 @@ export default function Quotations() {
                 </div>
 
                 <div style={{ borderTop:'1px solid var(--border)', margin:'16px 0' }} />
-                <div style={{ display:'flex', justifyContent:'space-between', alignItems:'center', marginBottom:12 }}>
+                <div style={{ display:'flex', justifyContent:'space-between', alignItems:'center', gap:10, flexWrap:'wrap', marginBottom:12 }}>
                   <span style={{ fontWeight:600, fontSize:14 }}>{t('common.lineItems')}</span>
-                  <button type="button" className="btn btn-sm btn-secondary" onClick={addItem}>{t('common.addItem')}</button>
+                  <div style={{ display:'flex', gap:8, alignItems:'center', flexWrap:'wrap' }}>
+                    {productOptions.length > 0 && (
+                      <SearchSelect
+                        className="form-control"
+                        style={{ minWidth: 220, fontSize: 13 }}
+                        value=""
+                        placeholder={t('quotations.addProductPh')}
+                        title={t('quotations.addProductTitle')}
+                        onChange={v => addProduct(v)}
+                        options={productOptions} />
+                    )}
+                    <button type="button" className="btn btn-sm btn-secondary"
+                      disabled={!liveInventory.length}
+                      title={t('quotations.addAllTitle')}
+                      onClick={() => setConfirmAddAll(true)}>
+                      {t('quotations.addAll')}
+                    </button>
+                    <button type="button" className="btn btn-sm btn-secondary" onClick={addItem}>{t('common.addItem')}</button>
+                  </div>
                 </div>
+                {confirmAddAll && (
+                  <ConfirmModal
+                    title={t('quotations.addAll')}
+                    message={t('quotations.addAllConfirm', { n: liveInventory.length })}
+                    confirmLabel={t('quotations.addAll')}
+                    onConfirm={addAllItems}
+                    onCancel={() => setConfirmAddAll(false)} />
+                )}
 
                 {/* Grid columns: name | qty | price | [disc?] | [tax?] | × */}
                 {form.items.map((item, i) => (
