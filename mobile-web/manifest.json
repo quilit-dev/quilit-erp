@@ -1,0 +1,23 @@
+{
+  "name": "Quilit ERP",
+  "short_name": "Quilit",
+  "start_url": "/m/",
+  "scope": "/m/",
+  "display": "standalone",
+  "orientation": "portrait",
+  "background_color": "#F7F7FA",
+  "theme_color": "#F7F7FA",
+  "icons": [
+    {
+      "src": "/m/apple-touch-icon.png",
+      "sizes": "180x180",
+      "type": "image/png"
+    },
+    {
+      "src": "/m/icon.png",
+      "sizes": "1024x1024",
+      "type": "image/png",
+      "purpose": "any maskable"
+    }
+  ]
+}

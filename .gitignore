@@ -70,3 +70,12 @@ agent/timeclock/release/
 # Compiled Windows installers (45 MB of .exe). The desktop build is gone;
 # this directory is only what it left behind on the build machine.
 installer/
+
+# mobile-web/ is a committed build artefact — the Dockerfile COPYs it to
+# /app/static/m so the Expo web export is served on the tenant's own origin.
+# The generic `static/` and `node_modules/` rules above match a directory at
+# ANY depth, so without these exceptions the JS bundle (_expo/static/...) and
+# every font (assets/node_modules/...) are silently left out and the deployed
+# page loads nothing.
+!mobile-web/**/static/
+!mobile-web/**/node_modules/

@@ -32,6 +32,7 @@ RUN cd manual-src && mkdocs build --strict -d /build/manual
 FROM caddy:2-alpine AS web
 COPY --from=frontend /build/static /srv/www
 COPY --from=manual /build/manual /srv/www/manual
+COPY mobile-web/ /srv/www/m/
 COPY deploy/Caddyfile /etc/caddy/Caddyfile
 
 # NOTE: `app` MUST remain the LAST stage in this file. Railway builds this
@@ -64,6 +65,12 @@ COPY --from=frontend /build/static /app/static
 # /manual/ and 404s that path when this layer is absent, so a build without it
 # simply hides the link rather than offering a dead one.
 COPY --from=manual /build/manual /app/static/manual
+# The mobile app, exported for web, served at /m on the tenant's own host.
+# Same origin is the point: the session cookie is HttpOnly + SameSite=strict,
+# so a build hosted anywhere else could never carry it. Committed rather than
+# built here because the Expo sources live in a sibling repo that is not in
+# this build context — `npm run build:mobile` regenerates mobile-web/.
+COPY mobile-web/ /app/static/m/
 # The commit this image was built from, surfaced by /api/health so a deploy can
 # be verified with one request. Railway injects RAILWAY_GIT_COMMIT_SHA itself
 # and needs nothing here; this covers `docker build` and the compose stack:
