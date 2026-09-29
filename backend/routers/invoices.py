@@ -770,8 +770,11 @@ def update_invoice(
     has_payments = _has_payments(db, invoice_id)
 
     if has_payments:
-        # Amounts are LOCKED once payments exist — only metadata may change
-        db.execute(
+        # Amounts are LOCKED once payments exist — only metadata may change.
+        # The row count comes from the cursor: `SELECT changes()` is a SQLite
+        # function, and on PostgreSQL it made every edit of a part-paid
+        # invoice (a new due date, say) a 500.
+        rows_updated = db.execute(
             "UPDATE invoices "
             "SET quotation_id=?, project_id=?, client_id=?, due_date=?, notes=?, "
             "    version=version+1 "
@@ -779,8 +782,8 @@ def update_invoice(
             (data.quotation_id, data.project_id, data.client_id,
              data.due_date, data.notes,
              invoice_id, inv["version"]),
-        )
-        if db.execute("SELECT changes()").fetchone()[0] == 0:
+        ).rowcount
+        if rows_updated == 0:
             raise HTTPException(409, "This invoice was modified by another user. Please refresh and try again.")
         log_action(db, user, "update", "invoice", invoice_id,
                    inv["invoice_number"], {"note": "metadata only — amounts locked"})

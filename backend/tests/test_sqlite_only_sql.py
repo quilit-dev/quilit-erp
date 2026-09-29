@@ -176,3 +176,20 @@ def test_the_dashboard_regression_would_be_caught():
     sql = "SELECT COUNT(*) FROM t WHERE date(x) >= date('now','start of month')"
 
     assert any(c.lower() in sql.lower() for c in UNSUPPORTED)
+
+
+# ── SQLite's own functions ───────────────────────────────────────────────────
+# `SELECT changes()` read the row count of the last statement. PostgreSQL has
+# no such function, so editing the due date of a part-paid invoice was a 500
+# on every hosted tenant. The row count belongs to the cursor (`.rowcount`).
+
+_SQLITE_FUNCTIONS = ("changes()", "total_changes()", "last_insert_rowid()")
+
+
+@pytest.mark.parametrize("fn", _SQLITE_FUNCTIONS)
+def test_no_sqlite_only_function_reaches_a_query(fn):
+    offenders = [f"{f}:{line} — {sql.strip()[:80]}"
+                 for f, line, sql in _sql_literals() if fn in sql.lower()]
+    assert not offenders, (
+        f"{fn} exists only in SQLite. Use the cursor's rowcount / lastrowid "
+        f"instead.\n  " + "\n  ".join(offenders))
