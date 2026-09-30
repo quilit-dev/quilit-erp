@@ -134,7 +134,7 @@ function PayrollRunPanel({ runId, canEdit, canApprove, canDelete, onClose, onCha
   return (
     <Modal
       title={`${t('hr.payrollHeader')} · ${fmtDate(run.period_start)} → ${fmtDate(run.period_end)}`}
-      onClose={onClose} size="modal-lg">
+      onClose={onClose} size="modal-wide">
       <div className="modal-body">
 
         {/* Header — status + totals */}

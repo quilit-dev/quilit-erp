@@ -2269,6 +2269,9 @@ textarea.form-control {
 }
 .modal.modal-lg { width: min(820px, 100%); }
 .modal.modal-xl { width: min(1100px, 100%); }
+/* For a wide table that must read without sideways scrolling --- a payroll
+   run carries a dozen figures per employee. Never wider than the screen. */
+.modal.modal-wide { width: min(1440px, 96vw); }
 
 /* Sticky header — never scrolls off the top so the operator always
    knows what dialog they're in. */
@@ -4598,7 +4601,8 @@ textarea.form-control {
   .modal-overlay { align-items: flex-end; padding: 0; }
   .modal,
   .modal.modal-lg,
-  .modal.modal-xl {
+  .modal.modal-xl,
+  .modal.modal-wide {
     width: 100%;
     max-width: 100%;
     max-height: 92vh;
