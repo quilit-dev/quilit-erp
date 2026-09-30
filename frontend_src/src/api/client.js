@@ -88,8 +88,13 @@ export const api = {
 };
 
 // Build a query-string suffix ("?a=1&b=2" or "") from a params object.
-const _qs = (params = {}) => {
-  const q = new URLSearchParams(params).toString();
+// An absent value is LEFT OUT. URLSearchParams would otherwise send the words
+// "undefined" / "null", and an integer filter then fails validation --- which
+// is how exporting invoices with no client filter set became a 422.
+export const _qs = (params = {}) => {
+  const clean = Object.fromEntries(
+    Object.entries(params || {}).filter(([, v]) => v !== undefined && v !== null));
+  const q = new URLSearchParams(clean).toString();
   return q ? '?' + q : '';
 };
 
