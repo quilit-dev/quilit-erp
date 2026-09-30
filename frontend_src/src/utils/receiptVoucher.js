@@ -41,7 +41,7 @@ const esc = s => String(s ?? '').replace(/[&<>"]/g,
  * happened to end — the eye has no column to run down. Centring gives the
  * filled data one axis, and it is where a hand-filled pad puts it too.
  */
-const row = (en, ar, value = '') => `
+export const row = (en, ar, value = '') => `
   <div class="rv-row">
     <span class="rv-label">${en}</span>
     <span class="rv-fill">${value}</span>
@@ -49,10 +49,10 @@ const row = (en, ar, value = '') => `
   </div>`;
 
 /** English over Arabic — for headings and cells, where a line has no width to spare. */
-const stack = (en, ar) =>
+export const stack = (en, ar) =>
   `<span class="rv-en">${en}</span><span class="rv-ar-sub">${ar}</span>`;
 
-const RV_CSS = `
+export const RV_CSS = `
 .rv { padding: 0; }
 .rv-title { text-align: center; margin-bottom: 7mm; }
 .rv-title .rv-ar { display: block; font-size: 15px; font-weight: 700; }

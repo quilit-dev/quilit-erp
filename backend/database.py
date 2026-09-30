@@ -4642,6 +4642,20 @@ def _run_migrations(conn, c):
     add_col("187c_employee_rota_anchor", "hr_employees", "saturday_rota_anchor",
             "ALTER TABLE hr_employees ADD COLUMN saturday_rota_anchor TEXT")
 
+    # ── 190: an employee can be paid on their own, before the run ─────────
+    # Each payroll line records when, how and by whom it was paid, so paying
+    # one employee and later the rest of the run can never pay anyone twice.
+    add_col("190a_payroll_line_paid_at", "hr_payroll_lines", "paid_at",
+            "ALTER TABLE hr_payroll_lines ADD COLUMN paid_at TEXT")
+    add_col("190b_payroll_line_paid_by", "hr_payroll_lines", "paid_by",
+            "ALTER TABLE hr_payroll_lines ADD COLUMN paid_by INTEGER")
+    add_col("190c_payroll_line_payment_method", "hr_payroll_lines", "payment_method",
+            "ALTER TABLE hr_payroll_lines ADD COLUMN payment_method TEXT")
+    add_col("190d_payroll_line_bank_account_id", "hr_payroll_lines", "bank_account_id",
+            "ALTER TABLE hr_payroll_lines ADD COLUMN bank_account_id INTEGER")
+    add_col("190e_payroll_line_paid_expense_id", "hr_payroll_lines", "paid_expense_id",
+            "ALTER TABLE hr_payroll_lines ADD COLUMN paid_expense_id INTEGER")
+
     # ── 189: turnover not subject to VAT has its own role ───────────────────
     # The default chart keeps it with the rest; chart_lebanon.ensure_current
     # re-points a Lebanese tenant at 7012/7132 at the end of this pass.
@@ -6020,6 +6034,12 @@ def _ensure_pg_post_baseline(raw):
                     "saturday_rota TEXT")
         cur.execute("ALTER TABLE hr_employees ADD COLUMN IF NOT EXISTS "
                     "saturday_rota_anchor TEXT")
+        # 190: an employee can be paid on their own, before the run.
+        cur.execute("ALTER TABLE hr_payroll_lines ADD COLUMN IF NOT EXISTS paid_at TEXT")
+        cur.execute("ALTER TABLE hr_payroll_lines ADD COLUMN IF NOT EXISTS paid_by INTEGER")
+        cur.execute("ALTER TABLE hr_payroll_lines ADD COLUMN IF NOT EXISTS payment_method TEXT")
+        cur.execute("ALTER TABLE hr_payroll_lines ADD COLUMN IF NOT EXISTS bank_account_id INTEGER")
+        cur.execute("ALTER TABLE hr_payroll_lines ADD COLUMN IF NOT EXISTS paid_expense_id INTEGER")
         # 189: turnover not subject to VAT has its own role (default chart
         # keeps it with the rest; ensure_current re-points a Lebanese tenant).
         for _r, _c in (("revenue_exempt", "4000"), ("service_revenue_exempt", "4100")):

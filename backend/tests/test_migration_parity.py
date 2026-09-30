@@ -134,6 +134,12 @@ _REQUIRED = [
     ("hr_employees", "saturday_rota_anchor"),
     # A reclassification's link to the entry it corrects.
     ("journal_entries", "reclassifies_id"),
+    # Paying one employee on their own: when, how, by whom, and the expense.
+    ("hr_payroll_lines", "paid_at"),
+    ("hr_payroll_lines", "paid_by"),
+    ("hr_payroll_lines", "payment_method"),
+    ("hr_payroll_lines", "bank_account_id"),
+    ("hr_payroll_lines", "paid_expense_id"),
 ]
 
 

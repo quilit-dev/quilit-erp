@@ -488,6 +488,14 @@ const en = {
 
   hr: {
     payoutSummary: 'Paying {{total}} of net salaries.',
+    payOne: 'Pay',
+    payOneTitle: 'Pay {{name}}',
+    payOneSummary: 'Paying {{name}} {{total}} net. The rest of the run stays open.',
+    payOneHint: 'Pay this employee now; the others can be paid later with the run',
+    paidOne: '{{name}} paid — receipt {{n}}.',
+    paidBadge: 'Paid',
+    receipt: 'Receipt',
+    receiptTitle: 'Print salary receipt {{n}}',
     title: 'Human Resources',
     subtitle: 'Manage employees, departments and time-off',
     tabEmployees: 'Employees',

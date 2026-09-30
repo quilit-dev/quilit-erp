@@ -568,6 +568,9 @@ export const approvePayrollRun   = (id)          => api.post(`/api/hr/payroll/ru
 export const markPayrollRunPaid  = (id, payout = null) =>
   api.post(`/api/hr/payroll/runs/${id}/mark-paid`, payout || {});
 export const cancelPayrollRun    = (id)          => api.post(`/api/hr/payroll/runs/${id}/cancel`);
+// Pay ONE employee on an approved run; the rest can follow with the run.
+export const payPayrollLine      = (lineId, payout = null) =>
+  api.post(`/api/hr/payroll/lines/${lineId}/pay`, payout || {});
 
 // ── HR: contracts ──────────────────────────────────────────────────────────
 export const getContracts          = (params = {}) => api.get(`/api/hr/contracts/${_qs(params)}`);

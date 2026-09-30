@@ -3,7 +3,9 @@ import { useLocale } from '../../hooks/useLocale.jsx';
 import PayoutModal from '../../components/PayoutModal.jsx';
 import { LoadingSpinner, ErrorAlert, Modal, fmt, fmtDate, toast, NumberInput } from '../../components/shared';
 import { getPayrollRun, createPayrollRun, updatePayrollLine,
-         approvePayrollRun, markPayrollRunPaid, cancelPayrollRun } from '../../api/client';
+         approvePayrollRun, markPayrollRunPaid, cancelPayrollRun,
+         payPayrollLine } from '../../api/client';
+import { printSalaryReceipt } from '../../utils/salaryReceipt';
 import { PAYROLL_BADGE, payrollStatusLabel } from './constants';
 import { Field } from './primitives';
 
@@ -53,6 +55,25 @@ function PayrollRunPanel({ runId, canEdit, canApprove, canDelete, onClose, onCha
   // Salaries usually leave by transfer. Asking once, here, is what stops
   // the whole payroll being credited to the till.
   const [paying, setPaying] = useState(false);
+  // The one employee being paid on their own, when the payout dialog is for
+  // a single line rather than the whole run.
+  const [payingLine, setPayingLine] = useState(null);
+
+  async function payOne(line, payout) {
+    setBusy(true);
+    try {
+      const r = await payPayrollLine(line.id, payout);
+      toast(t('hr.paidOne', { name: line.employee_name, n: r.receipt_number }));
+      setPayingLine(null);
+      const fresh = await getPayrollRun(run.id);
+      setRun(fresh);
+      onChanged();
+      // The receipt is what they are handed, so offer it straight away.
+      const paid = (fresh.lines || []).find(l => l.id === line.id);
+      if (paid) printSalaryReceipt(paid, fresh);
+    } catch (err) { toast(err.message, 'error'); }
+    finally { setBusy(false); }
+  }
 
   async function doAction(action, payout = null) {
     setBusy(true);
@@ -173,12 +194,16 @@ function PayrollRunPanel({ runId, canEdit, canApprove, canDelete, onClose, onCha
                 <th style={{ textAlign: 'right', width: 80, color: 'var(--text-3)'  }}>{t('hr.colTaxShort')}</th>
                 <th style={{ textAlign: 'right', width: 80, color: 'var(--text-3)'  }}>{t('hr.colNssfShort')}</th>
                 <th style={{ textAlign: 'right', width: 110 }}>{t('hr.colNetShort')}</th>
+                <th style={{ width: 96 }}></th>
               </tr>
             </thead>
             <tbody>
               {(run.lines || []).map(l => (
                 <PayrollLineRow key={l.id} line={l} editable={editable}
-                  onPatch={(patch) => patchLine(l, patch)} />
+                  onPatch={(patch) => patchLine(l, patch)}
+                  canPay={run.status === 'Approved' && canApprove}
+                  onPay={() => setPayingLine(l)}
+                  onReceipt={() => printSalaryReceipt(l, run)} />
               ))}
             </tbody>
           </table>
@@ -198,10 +223,21 @@ function PayrollRunPanel({ runId, canEdit, canApprove, canDelete, onClose, onCha
         )}
       </div>
 
+      {payingLine && (
+        <PayoutModal
+          title={t('hr.payOneTitle', { name: payingLine.employee_name })}
+          summary={t('hr.payOneSummary', { total: fmt(payingLine.net_amount || 0),
+                                           name: payingLine.employee_name })}
+          confirmLabel={t('hr.payOne')}
+          busy={busy}
+          onConfirm={payout => payOne(payingLine, payout)}
+          onClose={() => setPayingLine(null)} />
+      )}
       {paying && (
         <PayoutModal
           title={t('hr.markPaidAndPost')}
-          summary={t('hr.payoutSummary', { total: fmt(run.total_net) })}
+          summary={t('hr.payoutSummary', { total: fmt((run.lines || [])
+            .filter(l => !l.paid_on).reduce((s, l) => s + Number(l.net_amount || 0), 0)) })}
           confirmLabel={t('hr.markPaidAndPost')}
           busy={busy}
           onConfirm={payout => doAction('pay', payout)}
@@ -211,7 +247,7 @@ function PayrollRunPanel({ runId, canEdit, canApprove, canDelete, onClose, onCha
   );
 }
 
-function PayrollLineRow({ line, editable, onPatch }) {
+function PayrollLineRow({ line, editable, onPatch, canPay, onPay, onReceipt }) {
   const { t } = useLocale();
   // Zero → empty string so the field reads as a "0" placeholder, not a literal 0
   // the cashier has to clear before typing.
@@ -408,6 +444,26 @@ function PayrollLineRow({ line, editable, onPatch }) {
       <td style={{ textAlign: 'right', color: 'var(--text-3)' }}>{fmt(line.tax_amount || 0)}</td>
       <td style={{ textAlign: 'right', color: 'var(--text-3)' }}>{fmt(line.nssf_employee || 0)}</td>
       <td style={{ textAlign: 'right', fontWeight: 600 }}>{fmt(line.net_amount || 0)}</td>
+      {/* Pay this one employee now, or --- once paid --- print the receipt
+          they sign. A line paid with the whole run has a receipt too. */}
+      <td style={{ textAlign: 'center', whiteSpace: 'nowrap' }}>
+        {line.receipt_number ? (
+          <>
+            <span className="badge badge-green" style={{ fontSize: 10, display: 'block', marginBottom: 4 }}>
+              {t('hr.paidBadge')}
+            </span>
+            <button type="button" className="btn btn-secondary btn-sm" onClick={onReceipt}
+              title={t('hr.receiptTitle', { n: line.receipt_number })}>
+              {t('hr.receipt')}
+            </button>
+          </>
+        ) : canPay && Number(line.net_amount) > 0 ? (
+          <button type="button" className="btn btn-primary btn-sm" onClick={onPay}
+            title={t('hr.payOneHint')}>
+            {t('hr.payOne')}
+          </button>
+        ) : null}
+      </td>
     </tr>
   );
 }

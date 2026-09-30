@@ -63,6 +63,9 @@ SOURCES: dict[str, _Doc] = {
     "service_cogs":     _Doc("service_jobs", "job_number", "/service"),
     "payroll":          _Doc("hr_payroll_runs", "period_start", None,
                              fallback="Payroll run"),
+    # One employee paid on their own. The document is the run the line is on.
+    "payroll_line":     _Doc("hr_payroll_lines", None, None,
+                             via="payroll_run_id", fallback="Salary payment"),
     # Buying an asset and selling it are entries against the register itself,
     # not against an expense row the way a depreciation charge is.
     "asset_acquisition": _Doc("fixed_assets", "asset_code", "/fixed-assets",
@@ -165,7 +168,14 @@ def postings_for(db: sqlite3.Connection, document: str,
             pass
         return pairs
     if document == "payroll_run":
-        return [("payroll", doc_id)]
+        pairs = [("payroll", doc_id)]
+        try:
+            pairs += [("payroll_line", r["id"]) for r in db.execute(
+                "SELECT id FROM hr_payroll_lines WHERE payroll_run_id=? "
+                "AND paid_at IS NOT NULL", (doc_id,))]
+        except sqlite3.Error:
+            pass
+        return pairs
     if document == "service_job":
         pairs = [("service_cogs", doc_id)]
         try:

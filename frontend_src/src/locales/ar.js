@@ -484,6 +484,14 @@ const ar = {
 
   hr: {
     payoutSummary: 'دفع {{total}} من صافي الرواتب.',
+    payOne: 'دفع',
+    payOneTitle: 'دفع راتب {{name}}',
+    payOneSummary: 'دفع صافي {{total}} إلى {{name}}. يبقى باقي الكشف مفتوحاً.',
+    payOneHint: 'ادفع لهذا الموظف الآن؛ ويمكن دفع الباقين لاحقاً مع الكشف',
+    paidOne: 'تم الدفع إلى {{name}} — إيصال {{n}}.',
+    paidBadge: 'مدفوع',
+    receipt: 'إيصال',
+    receiptTitle: 'طباعة إيصال الراتب {{n}}',
     title: 'الموارد البشرية',
     subtitle: 'إدارة الموظفين والأقسام والإجازات',
     tabEmployees: 'الموظفون',

@@ -1637,7 +1637,14 @@ def get_payroll_run(
         (run_id,),
     ).fetchall()
     result = dict(run)
-    result["lines"] = [dict(r) for r in lines]
+    result["lines"] = []
+    for r in lines:
+        d = dict(r)
+        paid_on = d.get("paid_at") or (run["paid_at"] if run["status"] == "Paid" else None)
+        d["paid_on"] = paid_on
+        d["paid_method"] = d.get("payment_method") or (_col(run, "payment_method") if paid_on else None)
+        d["receipt_number"] = salary_receipt_number(d["id"]) if paid_on else None
+        result["lines"].append(d)
     # Totals of the derived components. Summed here rather than stored on the
     # header: six more columns on hr_payroll_runs would be six more places for
     # a total to drift from its lines.
@@ -1785,6 +1792,10 @@ def update_payroll_line(
         raise HTTPException(404, "Payroll line not found")
     if row["run_status"] in ("Paid", "Cancelled"):
         raise HTTPException(400, f"Cannot edit a {row['run_status']} run.")
+    if _col(row, "paid_at"):
+        # The receipt the employee holds says what was paid. Changing the line
+        # afterwards would make it disagree with the ledger and with the paper.
+        raise HTTPException(400, "This employee has already been paid; the line can no longer change.")
 
     bonus  = float(data.bonuses     if data.bonuses     is not None else row["bonuses"])
     deduct = float(data.deductions  if data.deductions  is not None else row["deductions"])
@@ -1971,29 +1982,114 @@ def mark_payroll_run_paid(
     _check_period_locked(db, run["period_end"])
 
     now = _now()
-    line_count = db.execute(
-        "SELECT COUNT(*) FROM hr_payroll_lines WHERE payroll_run_id=?", (run_id,)
-    ).fetchone()[0]
+    unpaid = db.execute(
+        "SELECT COUNT(*) FROM hr_payroll_lines "
+        " WHERE payroll_run_id=? AND paid_at IS NULL", (run_id,)).fetchone()[0]
+    if unpaid == 0:
+        # Every employee on the run was already paid one at a time; each of
+        # those payments posted its own entry. Closing the run posts nothing.
+        db.execute("UPDATE hr_payroll_runs SET status='Paid', paid_at=?, paid_by=? "
+                   " WHERE id=?", (now, user["id"], run_id))
+        log_action(db, user, "mark_paid", "hr_payroll_run", run_id,
+                   f"Payroll {run['period_start']} → {run['period_end']}",
+                   {"note": "every employee already paid individually"})
+        db.commit()
+        return {"message": "Every employee on this run was already paid",
+                "expense_id": None, "amount": 0}
+
     desc = (f"Payroll {run['period_start']} → {run['period_end']} "
-            f"({line_count} employee{'s' if line_count != 1 else ''})")
+            f"({unpaid} employee{'s' if unpaid != 1 else ''})")
+    out = _pay_payroll_lines(db, run, user=user, payout=data, desc=desc,
+                             source_type="payroll", source_id=run_id)
+    expense_id, total_usd, paid_lines = out["expense_id"], out["total_usd"], out["lines"]
+    db.execute(
+        "UPDATE hr_payroll_runs SET status='Paid', paid_at=?, paid_by=?, "
+        "posted_expense_id=?, payment_method=?, bank_account_id=? WHERE id=?",
+        (now, user["id"], expense_id,
+         (data.payment_method if data else None),
+         (data.bank_account_id if data else None), run_id),
+    )
+    log_action(db, user, "mark_paid", "hr_payroll_run", run_id, desc,
+               {"expense_id": expense_id, "amount": total_usd,
+                "currencies": out["currencies"]})
+
+    for line in paid_lines:
+        _notify_paid(db, run, line)
+    # Global HR-gated alert (manager view).
+    notify(
+        db, type="payroll_paid",
+        title=f"Payroll paid — {run['period_start']} → {run['period_end']}",
+        body=f"${total_usd:,.2f} disbursed across {len(paid_lines)} "
+             f"employee{'s' if len(paid_lines) != 1 else ''}.",
+        msg="payroll_paid_manager",
+        params={"start": run["period_start"], "end": run["period_end"],
+                "total": float(total_usd), "count": len(paid_lines)},
+        link="/hr", entity_type="hr_payroll_run", entity_id=run_id,
+    )
+
+    db.commit()
+    return {
+        "message":    "Payroll run paid and posted to Finance",
+        "expense_id": expense_id,
+        "amount":     total_usd,
+    }
+
+
+def _notify_paid(db, run, line):
+    """Tell one paid employee, when their employee row is linked to a login."""
+    if not line["user_id"]:
+        return
+    notify(
+        db, user_id=line["user_id"], type="payroll_paid",
+        title="You have been paid",
+        body=f"{run['period_start']} → {run['period_end']} · "
+             f"{float(line['net_amount']):,.2f} {line['salary_currency'] or 'USD'}",
+        msg="payroll_paid_employee",
+        params={"start": run["period_start"], "end": run["period_end"],
+                "amount": float(line["net_amount"]), "currency": line["salary_currency"] or "USD"},
+        link="/hr",
+        entity_type="hr_payroll_run", entity_id=run["id"],
+    )
+
+
+def _pay_payroll_lines(db, run, *, user, payout, desc, source_type, source_id,
+                       line_id=None):
+    """Pay the run's UNPAID lines --- all of them, or the one `line_id` names.
+
+    One implementation for both ways of paying, so paying the whole run and
+    paying one employee post identically: a Finance expense row for the cash
+    view, and a GL entry that debits salaries and credits the money account
+    and, for any advance being recovered, the advances account. Each line it
+    pays is stamped with when, how and by whom, and a stamped line is never
+    picked up again --- that is what stops anyone being paid twice when a few
+    are paid by hand and the rest with the run.
+    """
+    run_id = run["id"]
+    where = "payroll_run_id=? AND paid_at IS NULL"
+    params = [run_id]
+    if line_id is not None:
+        where += " AND id=?"
+        params.append(line_id)
+    params = tuple(params)
+    now = _now()
 
     # ── Currency-aware payroll posting (F-6 audit fix) ─────────────────────
-    # Group the run's net amounts by the line's `salary_currency`. Non-USD
-    # totals are translated to USD at the latest spot rate so the expense and
-    # GL entry post in the functional currency. If an LBP line exists but no
-    # exchange rate has been entered yet, refuse to post — we must NOT silently
-    # treat LBP face value as USD (that would inflate Salaries 89,000×).
-    # `recovery` is the part of pay that never leaves as cash because it was
-    # handed over earlier as an advance. It is still salary cost, so it is
-    # debited with the rest; the credit goes to the advances account, which
-    # is where that money has been sitting since the day it was paid out.
+    # Group the net amounts by the line's `salary_currency`. Non-USD totals
+    # are translated to USD at the latest spot rate so the expense and GL
+    # entry post in the functional currency. If an LBP line exists but no
+    # exchange rate has been entered yet, refuse to post — we must NOT
+    # silently treat LBP face value as USD (that would inflate Salaries
+    # 89,000×). `recovery` is the part of pay that never leaves as cash
+    # because it was handed over earlier as an advance. It is still salary
+    # cost, so it is debited with the rest; the credit goes to the advances
+    # account, which is where that money has been sitting since the day it
+    # was paid out.
     by_ccy = db.execute(
         "SELECT COALESCE(NULLIF(salary_currency,''),'USD') AS ccy, "
         "       COALESCE(SUM(net_amount),0) AS net, "
         "       COALESCE(SUM(advance_recovery),0) AS recovery "
-        "FROM hr_payroll_lines WHERE payroll_run_id=? "
-        "GROUP BY ccy",
-        (run_id,),
+        "FROM hr_payroll_lines WHERE " + where + " GROUP BY ccy",
+        params,
     ).fetchall()
     rate_row = db.execute(
         "SELECT rate FROM exchange_rates ORDER BY id DESC LIMIT 1"
@@ -2038,9 +2134,9 @@ def mark_payroll_run_paid(
                 # Salaries usually leave by transfer, and a payroll that credits
                 # the till says the money was handed over in notes.
                 "code": accounting.money_account_for(
-                    db, method=(data.payment_method if data else None),
+                    db, method=(payout.payment_method if payout else None),
                     currency=ccy,
-                    bank_account_id=(data.bank_account_id if data else None)),
+                    bank_account_id=(payout.bank_account_id if payout else None)),
                 "credit": amt_usd,
             })
         if rec_usd > 0:
@@ -2051,7 +2147,7 @@ def mark_payroll_run_paid(
             })
     total_usd = round(total_usd, 2)
     if total_usd <= 0:
-        raise HTTPException(400, "Cannot post a zero-net payroll run as an expense.")
+        raise HTTPException(400, "Nothing to pay: the net amount is zero.")
 
     # The posting date is the period end, but never a future date: a payroll
     # disbursed today must not land in a month-end that hasn't arrived yet,
@@ -2067,17 +2163,10 @@ def mark_payroll_run_paid(
         " payment_method, bank_account_id) "
         "VALUES ('Payroll', ?, ?, ?, ?, ?, ?)",
         (desc, total_usd, post_date, now,
-         (data.payment_method if data else None),
-         (data.bank_account_id if data else None)),
+         (payout.payment_method if payout else None),
+         (payout.bank_account_id if payout else None)),
     )
     expense_id = exp_cur.lastrowid
-    db.execute(
-        "UPDATE hr_payroll_runs SET status='Paid', paid_at=?, paid_by=?, "
-        "posted_expense_id=?, payment_method=?, bank_account_id=? WHERE id=?",
-        (now, user["id"], expense_id,
-         (data.payment_method if data else None),
-         (data.bank_account_id if data else None), run_id),
-    )
     # Auto-post to the general ledger. Debits and credits stay split by
     # currency so the cash account (1000 vs 1010) reflects where the money
     # physically left from.
@@ -2086,61 +2175,94 @@ def mark_payroll_run_paid(
         entry_date=post_date,
         memo=desc,
         lines=gl_lines + cash_lines,
-        source_type="payroll", source_id=run_id, created_by=user["id"],
+        source_type=source_type, source_id=source_id, created_by=user["id"],
     )
-    # The advances this run was seeded from are now recovered. Only those ---
-    # one recorded after the run was opened was not in any line's figure and
-    # stays open for the next run.
+
+    lines = db.execute(
+        "SELECT pl.id, pl.employee_id, pl.net_amount, pl.salary_currency, "
+        "       e.user_id, e.full_name "
+        "  FROM hr_payroll_lines pl JOIN hr_employees e ON e.id = pl.employee_id "
+        " WHERE pl." + where.replace(" AND id=?", " AND pl.id=?"),
+        params).fetchall()
     db.execute(
-        "UPDATE hr_salary_advances SET status = 'recovered' "
-        " WHERE recovered_in_run_id = ? AND status = 'open'", (run_id,))
-    log_action(db, user, "mark_paid", "hr_payroll_run", run_id, desc,
-               {"expense_id": expense_id, "amount": total_usd,
-                "currencies": [{"ccy": r["ccy"], "net": float(r["net"]),
-                                "recovery": float(r["recovery"])} for r in by_ccy]})
+        "UPDATE hr_payroll_lines SET paid_at=?, paid_by=?, payment_method=?, "
+        "       bank_account_id=?, paid_expense_id=? WHERE " + where,
+        (now, user["id"], (payout.payment_method if payout else None),
+         (payout.bank_account_id if payout else None), expense_id) + params)
+    # The advances these lines were seeded with are now recovered. Only those
+    # --- one recorded after the run was opened was not in any line's figure
+    # and stays open for the next run.
+    emp_ids = [l["employee_id"] for l in lines]
+    if emp_ids:
+        db.execute(
+            "UPDATE hr_salary_advances SET status = 'recovered' "
+            " WHERE recovered_in_run_id = ? AND status = 'open' "
+            "   AND employee_id IN (%s)" % ",".join("?" * len(emp_ids)),
+            (run_id,) + tuple(emp_ids))
+    return {"expense_id": expense_id, "total_usd": total_usd, "lines": lines,
+            "currencies": [{"ccy": r["ccy"], "net": float(r["net"]),
+                            "recovery": float(r["recovery"])} for r in by_ccy]}
 
-    # Notify each paid employee personally (if their employee row is linked to a
-    # user account) so they see their payslip moved to "Paid". HR managers get
-    # the global cue too, via the unlinked-recipient row below.
-    paid_lines = db.execute(
-        """SELECT pl.net_amount, pl.salary_currency, e.user_id, e.full_name
-           FROM hr_payroll_lines pl
-           JOIN hr_employees e ON e.id = pl.employee_id
-           WHERE pl.payroll_run_id=?""",
-        (run_id,),
-    ).fetchall()
-    for line in paid_lines:
-        if not line["user_id"]:
-            continue
-        notify(
-            db, user_id=line["user_id"], type="payroll_paid",
-            title="You have been paid",
-            body=f"{run['period_start']} → {run['period_end']} · "
-                 f"{float(line['net_amount']):,.2f} {line['salary_currency'] or 'USD'}",
-            msg="payroll_paid_employee",
-            params={"start": run["period_start"], "end": run["period_end"],
-                    "amount": float(line["net_amount"]), "currency": line["salary_currency"] or "USD"},
-            link="/hr",
-            entity_type="hr_payroll_run", entity_id=run_id,
-        )
-    # Global HR-gated alert (manager view).
-    notify(
-        db, type="payroll_paid",
-        title=f"Payroll paid — {run['period_start']} → {run['period_end']}",
-        body=f"${total_usd:,.2f} disbursed across {len(paid_lines)} "
-             f"employee{'s' if len(paid_lines) != 1 else ''}.",
-        msg="payroll_paid_manager",
-        params={"start": run["period_start"], "end": run["period_end"],
-                "total": float(total_usd), "count": len(paid_lines)},
-        link="/hr", entity_type="hr_payroll_run", entity_id=run_id,
-    )
 
+def salary_receipt_number(line_id: int) -> str:
+    """The number printed on an employee's salary receipt. Derived from the
+    line, so every reprint of the same payment carries the same number."""
+    return f"SAL-{int(line_id):06d}"
+
+
+@router.post("/payroll/lines/{line_id}/pay")
+def pay_payroll_line(
+    line_id: int,
+    data: Optional[PayrollPayout] = None,
+    user=Depends(require_perm("hr", "approve")),
+    db: sqlite3.Connection = Depends(get_db),
+):
+    """Pay ONE employee on an approved run, before (or instead of) the rest.
+
+    Posts the same way paying the run does, for this line alone. When it is
+    the last unpaid line, the run itself becomes Paid.
+    """
+    line = db.execute(
+        "SELECT pl.*, e.full_name FROM hr_payroll_lines pl "
+        "  JOIN hr_employees e ON e.id = pl.employee_id WHERE pl.id=?",
+        (line_id,)).fetchone()
+    if not line:
+        raise HTTPException(404, "Payroll line not found")
+    run = db.execute(
+        "SELECT * FROM hr_payroll_runs WHERE id=? AND archived_at IS NULL",
+        (line["payroll_run_id"],)).fetchone()
+    if not run:
+        raise HTTPException(404, "Payroll run not found")
+    if _col(line, "paid_at"):
+        return {"message": "Already paid", "expense_id": _col(line, "paid_expense_id"),
+                "receipt_number": salary_receipt_number(line_id)}
+    if run["status"] != "Approved":
+        raise HTTPException(
+            400, f"Approve the run before paying anyone on it (currently {run['status']}).")
+    from routers.finance import _check_period_locked
+    _check_period_locked(db, run["period_end"])
+
+    desc = (f"Salary — {line['full_name']} — "
+            f"{run['period_start']} → {run['period_end']}")
+    out = _pay_payroll_lines(db, run, user=user, payout=data, desc=desc,
+                             source_type="payroll_line", source_id=line_id,
+                             line_id=line_id)
+    remaining = db.execute(
+        "SELECT COUNT(*) FROM hr_payroll_lines "
+        " WHERE payroll_run_id=? AND paid_at IS NULL", (run["id"],)).fetchone()[0]
+    if remaining == 0:
+        db.execute("UPDATE hr_payroll_runs SET status='Paid', paid_at=?, paid_by=? "
+                   " WHERE id=?", (_now(), user["id"], run["id"]))
+    log_action(db, user, "pay", "hr_payroll_line", line_id, desc,
+               {"expense_id": out["expense_id"], "amount": out["total_usd"],
+                "run_closed": remaining == 0})
+    for l in out["lines"]:
+        _notify_paid(db, run, l)
     db.commit()
-    return {
-        "message":    "Payroll run paid and posted to Finance",
-        "expense_id": expense_id,
-        "amount":     total_usd,
-    }
+    return {"message": "Salary paid and posted to Finance",
+            "expense_id": out["expense_id"], "amount": out["total_usd"],
+            "receipt_number": salary_receipt_number(line_id),
+            "run_paid": remaining == 0}
 
 
 @router.post("/payroll/runs/{run_id}/cancel")
@@ -2164,6 +2286,11 @@ def cancel_payroll_run(
         )
     if run["status"] == "Cancelled":
         raise HTTPException(400, "Already cancelled.")
+    if db.execute("SELECT 1 FROM hr_payroll_lines WHERE payroll_run_id=? "
+                  "AND paid_at IS NOT NULL LIMIT 1", (run_id,)).fetchone():
+        raise HTTPException(
+            400, "Some employees on this run have already been paid. Their "
+                 "payments are real money out; reverse them in Finance first.")
     db.execute(
         "UPDATE hr_salary_advances SET recovered_in_run_id = NULL "
         " WHERE recovered_in_run_id = ? AND status = 'open'", (run_id,))
