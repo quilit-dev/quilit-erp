@@ -510,7 +510,8 @@ export default function Invoices() {
     'Paid (USD)':    i.total_paid     || 0,
     'Remaining':     i.remaining      ?? (i.amount - (i.total_paid || 0)),
     'Due Date':      i.due_date       ? new Date(i.due_date).toLocaleDateString() : '—',
-      'Created':       i.created_at     ? new Date(i.created_at).toLocaleDateString() : '—',
+    'Created':       i.created_at     ? new Date(i.created_at).toLocaleDateString() : '—',
+    'Notes':         i.notes          || '',
     }));
   };
 
