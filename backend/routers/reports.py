@@ -1017,3 +1017,176 @@ def report_service_jobs(
             "technician_rows_overlap":
                 sum(t["jobs"] for t in by_technician) > len(completed),
             "start": start, "end": end}
+
+
+# ── Profit summary: one row per month or week ───────────────────────────────
+# The report an owner reads first. Each row is one period: how many sales and
+# how much, split by where they happened (the till, an invoice, a service
+# job); what the goods sold cost; what was spent and paid in salaries; the net;
+# and how much of that period's sales is still owed, so the "cash" profit sits
+# beside the book one.
+#
+# Two sources, deliberately:
+#   * Sales and counts come from the DOCUMENTS, by the day they were issued
+#     and net of VAT --- the way a business counts its sales.
+#   * Cost, expenses and salaries come from the LEDGER, the same place the
+#     income statement reads. The expenses list cannot be used for this: it
+#     also holds a row for every stock purchase (stock is an asset until it is
+#     sold, and is counted here as cost when it is), for every payroll run and
+#     for depreciation, so summing it would count the same money twice.
+# Cost of goods is only what the sales themselves posted (till, service job,
+# fulfilled commitment, and a purchase price correction on goods already
+# sold) plus the reversals of those. On the Lebanese chart the COGS account is
+# also merchandise purchases (6011), where a hand-typed "Materials" expense
+# lands; that is an expense, not cost of goods sold, and stays in Expenses.
+_COGS_SOURCES = ("pos_cogs", "service_cogs", "commitment_cogs",
+                 "purchase_cost_adjustment")
+
+
+def _period_key(day: str, group: str):
+    from datetime import date as _d, timedelta as _td
+    d = _d.fromisoformat(str(day)[:10])
+    if group == "week":
+        start = d - _td(days=d.weekday())             # Monday
+        return start.isoformat(), start, start + _td(days=6)
+    start = d.replace(day=1)
+    nxt = (start.replace(year=start.year + 1, month=1) if start.month == 12
+           else start.replace(month=start.month + 1))
+    return start.isoformat()[:7], start, nxt - _td(days=1)
+
+
+_SUMMED = ("pos_count", "pos_sales", "invoice_count", "invoice_sales",
+           "service_count", "service_sales", "cost", "expenses", "salaries",
+           "uncollected", "purchases_count", "purchases")
+
+
+@router.get("/profit-summary")
+def report_profit_summary(
+    start: Optional[str] = Query(None),
+    end:   Optional[str] = Query(None),
+    group: str = Query("month"),
+    branch_id: Optional[int] = Query(None),
+    user=Depends(require_perm("reports", "view")),
+    db: sqlite3.Connection = Depends(get_db),
+):
+    import accounting
+    from datetime import date as _d, timedelta as _td
+    group = "week" if group == "week" else "month"
+    start = (start or _year_start())[:10]
+    end   = (end or _today())[:10]
+
+    # Every period in range, empty ones included, so a quiet month shows as a
+    # row of zeros rather than vanishing from the table.
+    periods = {}
+    cursor = _d.fromisoformat(start)
+    stop = _d.fromisoformat(end)
+    while cursor <= stop:
+        key, ps, pe = _period_key(cursor.isoformat(), group)
+        if key not in periods:
+            periods[key] = {"period": key, "start": ps.isoformat(), "end": pe.isoformat()}
+            for k in _SUMMED:
+                periods[key][k] = 0 if k.endswith("_count") else 0.0
+        cursor = pe + _td(days=1)
+
+    # ── Sales, from the documents ──────────────────────────────────────────
+    bf, bp = branch_access.branch_filter(user, db, column="i.branch_id", selected=branch_id)
+    invoices = db.execute(
+        "SELECT i.created_at, i.subtotal, i.amount, i.source_type, i.service_job_id, "
+        "       COALESCE((SELECT SUM(ip.amount) FROM invoice_payments ip "
+        "                  WHERE ip.invoice_id = i.id), 0) AS paid "
+        "  FROM invoices i "
+        " WHERE i.voided_at IS NULL AND i.archived_at IS NULL "
+        "   AND COALESCE(i.approval_status, '') <> 'Pending Approval' "
+        "   AND DATE(i.created_at) BETWEEN ? AND ?" + bf,
+        (start, end, *bp)).fetchall()
+    for r in invoices:
+        p = periods.get(_period_key(r["created_at"], group)[0])
+        if p is None:
+            continue
+        gross = float(r["amount"] or 0)
+        net = float(r["subtotal"]) if r["subtotal"] is not None else gross
+        if r["service_job_id"]:
+            kind = "service"
+        elif (r["source_type"] or "") == "pos":
+            kind = "pos"
+        else:
+            kind = "invoice"
+        p[kind + "_count"] += 1
+        p[kind + "_sales"] += net
+        # What is still owed on this period's sales, net of its VAT share, so
+        # it comes off a net-of-VAT profit like for like.
+        unpaid = max(0.0, gross - float(r["paid"] or 0))
+        if unpaid > 0.005 and gross > 0:
+            p["uncollected"] += unpaid * net / gross
+
+    # ── Cost, expenses, salaries: from the ledger ─────────────────────────
+    cogs_code = accounting.code(db, "cogs")
+    sal_code = accounting.code(db, "salaries")
+    jf, jp = branch_access.branch_filter(user, db, column="je.branch_id", selected=branch_id)
+    lines = db.execute(
+        "SELECT je.entry_date, a.code, l.debit, l.credit, "
+        "       COALESCE(orig.source_type, je.source_type) AS src "
+        "  FROM journal_entry_lines l "
+        "  JOIN journal_entries je   ON je.id = l.journal_entry_id "
+        "  JOIN chart_of_accounts a  ON a.id = l.account_id "
+        "  LEFT JOIN journal_entries orig ON orig.id = je.reverses_id "
+        " WHERE je.status != 'draft' AND a.type = 'Expense' "
+        # The year-end close moves every expense into retained earnings; it
+        # is not spending, and counting it would zero out the last period.
+        "   AND COALESCE(je.source_type, '') <> 'closing' "
+        "   AND COALESCE(orig.source_type, '') <> 'closing' "
+        "   AND je.entry_date BETWEEN ? AND ?" + jf,
+        (start, end, *jp)).fetchall()
+    for r in lines:
+        p = periods.get(_period_key(r["entry_date"], group)[0])
+        if p is None:
+            continue
+        amt = float(r["debit"] or 0) - float(r["credit"] or 0)
+        if r["code"] == cogs_code and (r["src"] or "") in _COGS_SOURCES:
+            p["cost"] += amt
+        elif r["code"] == sal_code:
+            p["salaries"] += amt
+        else:
+            p["expenses"] += amt
+
+    # ── Purchases received, for reference ─────────────────────────────────
+    # Not part of profit: stock bought is an asset until it is sold. Purchases
+    # carry no branch, so a branch-scoped view leaves this column out rather
+    # than show the whole company's buying against one branch.
+    branch_scoped = bool(bf)
+    if not branch_scoped:
+        for r in db.execute(
+                "SELECT received_at, subtotal, additional_costs "
+                "  FROM purchases WHERE voided_at IS NULL AND received_at IS NOT NULL "
+                "   AND DATE(received_at) BETWEEN ? AND ?", (start, end)).fetchall():
+            p = periods.get(_period_key(r["received_at"], group)[0])
+            if p is None:
+                continue
+            # Goods net of VAT plus the landed costs (shipping, customs) that
+            # became part of the stock's value.
+            value = float(r["subtotal"] or 0) + float(r["additional_costs"] or 0)
+            p["purchases_count"] += 1
+            p["purchases"] += value
+
+    def _finish(p):
+        p["sales_count"] = p["pos_count"] + p["invoice_count"] + p["service_count"]
+        p["sales"] = p["pos_sales"] + p["invoice_sales"] + p["service_sales"]
+        p["gross_profit"] = p["sales"] - p["cost"]
+        p["gross_margin_pct"] = (round(p["gross_profit"] / p["sales"] * 100, 2)
+                                 if p["sales"] else None)
+        p["net_profit"] = p["gross_profit"] - p["expenses"] - p["salaries"]
+        p["cash_profit"] = p["net_profit"] - p["uncollected"]
+        for k, v in list(p.items()):
+            if isinstance(v, float) and k != "gross_margin_pct":
+                p[k] = money(v)
+        if branch_scoped:
+            p["purchases"] = p["purchases_count"] = None
+        return p
+
+    totals = {"period": "Total", "start": start, "end": end}
+    for k in _SUMMED:
+        totals[k] = sum(p[k] for p in periods.values())
+    rows = [_finish(p) for p in periods.values()]
+    totals = _finish(totals)
+    return {"start": start, "end": end, "group": group,
+            "branch_scoped": branch_scoped, "rows": rows, "totals": totals}

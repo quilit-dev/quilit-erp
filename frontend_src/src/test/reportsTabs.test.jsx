@@ -101,7 +101,7 @@ describe('a remembered tab that no longer exists', () => {
     const c = await mount();
     const active = [...c.querySelectorAll('.tab-btn.active')];
     expect(active, 'exactly one tab must be selected').toHaveLength(1);
-    expect(active[0].textContent.trim()).toBe(en.reports.projects);
+    expect(active[0].textContent.trim()).toBe(en.reports.profitSummary);
   });
 
   test('and so does any other unknown id', async () => {
@@ -134,6 +134,6 @@ describe('the default landing tab', () => {
     const c = await mount();
     const active = [...c.querySelectorAll('.tab-btn.active')];
     expect(active).toHaveLength(1);
-    expect(active[0].textContent.trim()).toBe(en.reports.projects);
+    expect(active[0].textContent.trim()).toBe(en.reports.profitSummary);
   });
 });

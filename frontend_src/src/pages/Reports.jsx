@@ -15,10 +15,11 @@ import { PipelineReport } from './reports/PipelineReport';
 import { BranchComparisonReport } from './reports/BranchComparisonReport';
 import { WarehouseValuationReport } from './reports/WarehouseValuationReport';
 import { ServiceReport } from './reports/ServiceReport';
+import { ProfitSummaryReport } from './reports/ProfitSummaryReport';
 
 export default function Reports() {
   const { t, tEnumValue } = useLocale();
-  const [activeReport, setActiveReport] = usePersistedState('reports_active', 'projects');
+  const [activeReport, setActiveReport] = usePersistedState('reports_active', 'profit');
   // Branch comparison tab appears only for global users (superadmin / owner)
   // who can actually see more than one branch.
   const [multiBranch, setMultiBranch] = useState(false);
@@ -57,6 +58,8 @@ export default function Reports() {
   // context is still loading — otherwise the page would flash another
   // report, and fire its request, before settling on the right one.
   const ALL_REPORTS = [
+    // First: the one-glance report an owner opens before any other.
+    { key: 'profit',      label: t('reports.profitSummary')  },
     { key: 'projects',    label: t('reports.projects')       },
     { key: 'clients',     label: t('reports.clients')        },
     { key: 'aging',       label: t('reports.aging')          },
@@ -113,6 +116,7 @@ export default function Reports() {
       </div>
 
       {/* Report content — full width */}
+      {current === 'profit'    && <ProfitSummaryReport params={appliedRange} t={t} />}
       {current === 'projects'  && <ProjectsReport  params={appliedRange} t={t} />}
       {current === 'clients'   && <ClientsReport   params={appliedRange} t={t} tEnumValue={tEnumValue} />}
       {current === 'aging'     && <AgingReport      t={t} />}

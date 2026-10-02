@@ -518,7 +518,10 @@ function exportXLSX(rows, columns, filename) {
 // is the optional second line (e.g. the active date range). `pdfClient` names
 // the customer a per-customer report is about, for letterheads that carry an
 // account line.
-function ExportButtons({ rows, columns, baseName, pdfTitle, subtitle, meta, totals, pdfClient, t }) {
+// `pdfColumns` / `pdfRows` let a wide report give the spreadsheet every figure
+// and the A4 page only the ones that fit; omitted, both use the same set.
+function ExportButtons({ rows, columns, baseName, pdfTitle, subtitle, meta, totals, pdfClient,
+                         pdfColumns, pdfRows, t }) {
   const empty = !rows || rows.length === 0;
   function doExcel() {
     if (empty) return;
@@ -530,8 +533,8 @@ function ExportButtons({ rows, columns, baseName, pdfTitle, subtitle, meta, tota
       title:    pdfTitle,
       subtitle: subtitle || '',
       filename: `${baseName}.pdf`,
-      columns,
-      rows,
+      columns:  pdfColumns || columns,
+      rows:     pdfRows || rows,
       meta,
       totals,
       client: pdfClient || null,
