@@ -1303,6 +1303,12 @@ def _ring_sale(db, user, data: PosCheckout, session, *,
 def list_sales(
     session_id: Optional[int] = None,
     status:     Optional[str] = None,
+    date_from:  Optional[str] = None,
+    date_to:    Optional[str] = None,
+    # The history screen shows the latest 200. An export asks for 0 --- every
+    # sale in the period --- because a month's figures silently cut at 200
+    # rows would be the worst kind of wrong: plausible.
+    limit:      int = 200,
     user=Depends(require_perm("pos", "view")),
     db: sqlite3.Connection = Depends(get_db),
 ):
@@ -1336,10 +1342,19 @@ def list_sales(
     if status:
         query += " AND ps.status=?"
         params.append(status)
+    if date_from:
+        query += " AND DATE(ps.created_at) >= ?"
+        params.append(date_from[:10])
+    if date_to:
+        query += " AND DATE(ps.created_at) <= ?"
+        params.append(date_to[:10])
     # Branch scoping: a POS sale's branch is its invoice's branch.
     bf, bp = branch_access.branch_filter(user, db, column="i.branch_id")
     query += bf; params += bp
-    query += " ORDER BY ps.id DESC LIMIT 200"
+    query += " ORDER BY ps.id DESC"
+    if limit and limit > 0:
+        query += " LIMIT ?"
+        params.append(min(int(limit), 100000))
 
     rows = []
     for r in db.execute(query, params).fetchall():

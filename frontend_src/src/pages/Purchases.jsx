@@ -9,7 +9,7 @@ import {
 import {
   LoadingSpinner, ErrorAlert, EmptyState, Modal, ConfirmModal,
   ExportButton, fmt, fmtDate, toast, SortableTh, Pagination, NumberInput, IconButton,
-  supplierOptions,
+  supplierOptions, inExportRange,
 } from '../components/shared';
 import { useCategories } from '../hooks/useCategories';
 import { useSortPaginate } from '../hooks/useSortPaginate';
@@ -674,7 +674,10 @@ export default function Purchases() {
   // total are written against the first line only, so summing the column still
   // gives the amount spent rather than counting the delivery charge once per
   // product.
-  const exportData = filtered.flatMap(p => {
+  // The export dialog's period, on the order date (the day it was raised).
+  const exportRows = (range) => filtered
+    .filter(p => inExportRange(p.ordered_at || p.received_at, range))
+    .flatMap(p => {
     const rows = (p.items || []).length ? p.items : [null];
     return rows.map((l, i) => ({
       'PO Number':       p.po_number,
@@ -705,7 +708,7 @@ export default function Purchases() {
           <p className="page-subtitle">{t('purchases.ordersSubtitle', { count: filtered.length })}</p>
         </div>
         <div style={{ display: 'flex', gap: 8 }}>
-          <ExportButton data={exportData} filename="Purchases" sheetName="Purchases" />
+          <ExportButton dated fetchData={exportRows} filename="Purchases" sheetName="Purchases" />
           <button className="btn btn-primary" onClick={() => setModal('add')}>{t('purchases.addPurchase')}</button>
         </div>
       </div>

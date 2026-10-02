@@ -27,7 +27,15 @@ function HistoryView({ canReturn, onAmend }) {
 
   // Flat shape — keys become Excel column headers when XLSX.json_to_sheet
   // serialises this. Use the same column order the table uses.
-  const exportData = shown.map(s => ({
+  // The export does not reuse `shown`: the screen holds the latest 200 sales,
+  // and a period's export must hold all of them. It asks the server for the
+  // period with no cap, then applies the same "price changed" filter.
+  const exportRows = async (range) => {
+    const all = await getPosSales({ date_from: range?.from || undefined,
+                                    date_to: range?.to || undefined, limit: 0 });
+    return (overriddenOnly ? all.filter(s => s.has_override) : all).map(toExportRow);
+  };
+  const toExportRow = (s) => ({
     Sale:          s.invoice_number,
     Customer:      s.client_name || 'Walk-in',
     Cashier:       s.cashier_name || '',
@@ -41,7 +49,7 @@ function HistoryView({ canReturn, onAmend }) {
     Balance:       s.balance || 0,
     Price_Changed: s.has_override ? 'Yes' : '',
     Date:          fmtDate(s.created_at),
-  }));
+  });
 
   return (
     <div className="card">
@@ -59,7 +67,7 @@ function HistoryView({ canReturn, onAmend }) {
                  onChange={e => setOverriddenOnly(e.target.checked)} />
           {t('pos.overriddenOnly')}
         </label>
-        <ExportButton data={exportData} filename="POS_Sales" sheetName="Sales" />
+        <ExportButton dated fetchData={exportRows} filename="POS_Sales" sheetName="Sales" />
       </div>
       <table className="table">
         <thead>

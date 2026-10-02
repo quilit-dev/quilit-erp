@@ -7,7 +7,8 @@ import { getExpenses, getProjects, createExpense, updateExpense, voidExpense,
 import {
   LoadingSpinner, ErrorAlert, EmptyState, Modal,
   ExportButton, fmt, fmtDate, toast, SortableTh, Pagination,
-  CATEGORY_HUE, CategoryBadge, SelectOther, NumberInput, BranchField, IconButton} from '../components/shared';
+  CATEGORY_HUE, CategoryBadge, SelectOther, NumberInput, BranchField, IconButton,
+  inExportRange} from '../components/shared';
 import { useSortPaginate } from '../hooks/useSortPaginate';
 import { useLocale } from '../hooks/useLocale.jsx';
 import BankField, { useBankAccounts } from '../components/BankField.jsx';
@@ -187,7 +188,9 @@ function TransactionsPanel() {
 
   const hasFilters = catFilter || projFilter || monthFilter || search;
 
-  const exportData = filtered.map(e => ({
+  // The period chosen in the export dialog, on the expense's own date, over
+  // the list as filtered on screen.
+  const exportRows = (range) => filtered.filter(e => inExportRange(e.date, range)).map(e => ({
     Date: fmtDate(e.date), Category: e.category,
     Description: e.description || '',
     Project: e.project_name || '', Amount: e.amount,
@@ -214,7 +217,7 @@ function TransactionsPanel() {
           </p>
         </div>
         <div style={{ display: 'flex', gap: 8 }}>
-          <ExportButton data={exportData} filename="Expenses" sheetName="Expenses" />
+          <ExportButton dated fetchData={exportRows} filename="Expenses" sheetName="Expenses" />
           <button className="btn btn-primary" onClick={openAdd}>{t('expenses.addExpense')}</button>
         </div>
       </div>

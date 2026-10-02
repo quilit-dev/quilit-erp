@@ -59,8 +59,8 @@ describe('the first load stays light', () => {
     // exportToExcel became async. A caller that forgot to await would export
     // nothing and report success.
     const text = src('components', 'shared.jsx');
-    const run = text.slice(text.indexOf('async function run()'));
-    expect(run.slice(0, 500)).toMatch(/await exportToExcel\(/);
+    const run = text.slice(text.indexOf('async function run('));
+    expect(run.slice(0, 1200)).toMatch(/await exportToExcel\(/);
   });
 });
 

@@ -558,12 +558,16 @@ export default function Quotations() {
 
   // Fetches every matching quotation (no `limit`), so an export is never
   // silently truncated to the page on screen.
-  const fetchExportRows = async () => {
+  // `range` is the export dialog's period (null = all dates), applied by the
+  // server to the issue date alongside the filters on screen.
+  const fetchExportRows = async (range) => {
     const all = await getQuotations({
       status:     statusFilter  || undefined,
       client_id:  clientFilter  || undefined,
       project_id: projectFilter || undefined,
       ...(search.trim() ? { search: search.trim() } : {}),
+      date_from:  range?.from || undefined,
+      date_to:    range?.to   || undefined,
     });
     return (Array.isArray(all) ? all : all.items || []).map(q => ({
     'Quote #':               q.quote_number,
@@ -587,7 +591,7 @@ export default function Quotations() {
         <div style={{display:'flex',gap:8,alignItems:'center'}}>
           <ExchangeRateBadge />
           <DisplayCurrencyToggle />
-          <ExportButton fetchData={fetchExportRows} filename="Quotations" sheetName="Quotations" />
+          <ExportButton dated fetchData={fetchExportRows} filename="Quotations" sheetName="Quotations" />
           <button className="btn btn-primary" onClick={openCreate}>{t('quotations.addQuotation')}</button>
         </div>
       </div>

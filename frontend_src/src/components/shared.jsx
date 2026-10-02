@@ -607,17 +607,75 @@ export async function exportToExcel(data, filename, sheetName = 'Sheet1') {
  * shrinking to whatever happened to be on screen — an export that quietly drops
  * rows is worse than one that fails.
  */
-export function ExportButton({ data, fetchData, filename, sheetName }) {
+// ── Export periods ─────────────────────────────────────────────────────────
+// The choices an export offers when the list it exports is dated. Dates are
+// built from LOCAL calendar parts: toISOString() is UTC, and in Beirut it turns
+// the first of the month into the last day of the previous one before 3am.
+export const EXPORT_PERIODS = ['all', 'this_month', 'last_month', 'this_year', 'last_year', 'custom'];
+
+const _ymd = d => `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`;
+
+/** {from, to} (inclusive, YYYY-MM-DD) for a period, or null for "all dates". */
+export function exportPeriodRange(period, custom = {}, today = new Date()) {
+  const y = today.getFullYear(), m = today.getMonth();
+  switch (period) {
+    case 'this_month': return { from: _ymd(new Date(y, m, 1)),     to: _ymd(new Date(y, m + 1, 0)) };
+    case 'last_month': return { from: _ymd(new Date(y, m - 1, 1)), to: _ymd(new Date(y, m, 0)) };
+    case 'this_year':  return { from: `${y}-01-01`,     to: `${y}-12-31` };
+    case 'last_year':  return { from: `${y - 1}-01-01`, to: `${y - 1}-12-31` };
+    case 'custom':
+      if (!custom.from && !custom.to) return null;
+      return { from: custom.from || null, to: custom.to || null };
+    default: return null;
+  }
+}
+
+/** Does a record's date (any ISO-ish string) fall inside the range? */
+export function inExportRange(value, range) {
+  if (!range) return true;
+  if (!value) return false;
+  const d = String(value).slice(0, 10);
+  return (!range.from || d >= range.from) && (!range.to || d <= range.to);
+}
+
+const _PERIOD_KEY = 'export_period';
+function _rememberedPeriod() {
+  try { return JSON.parse(localStorage.getItem(_PERIOD_KEY)) || null; } catch { return null; }
+}
+
+/**
+ * Excel export of a list.
+ *
+ * `dated` turns on a period choice: clicking opens a small dialog --- all
+ * dates, this month, last month, this year, last year, or a from-to --- and
+ * `fetchData(range)` is called with `{from, to}` (or null for all dates). The
+ * page applies the range, on the server where the list is paged, so the file
+ * holds exactly that period and nothing is cut off at a page size. The choice
+ * is remembered on this computer for next time.
+ */
+export function ExportButton({ data, fetchData, filename, sheetName, dated = false }) {
   const { t } = useLocale();
   const [busy, setBusy] = useState(false);
+  const [asking, setAsking] = useState(false);
+  const saved = dated ? _rememberedPeriod() : null;
+  const [period, setPeriod] = useState(saved?.period || 'this_month');
+  const [custom, setCustom] = useState(saved?.custom || { from: '', to: '' });
 
-  async function run() {
+  async function run(range = null) {
     // Both branches are busy now: the first await is the spreadsheet chunk
     // arriving, which on a slow connection is what the user actually waits for.
     setBusy(true);
     try {
-      await exportToExcel(fetchData ? await fetchData() : data,
-                          filename, sheetName);
+      const rows = fetchData ? await fetchData(range) : data;
+      if (dated && (!rows || rows.length === 0)) {
+        toast(t('common.exportNothingInPeriod'), 'yellow');
+        return;
+      }
+      const name = range
+        ? `${filename}_${range.from || 'start'}_to_${range.to || 'today'}`
+        : filename;
+      await exportToExcel(rows, name, sheetName);
+      setAsking(false);
     } catch (e) {
       toast(e?.message || 'Export failed', 'red');
     } finally {
@@ -625,9 +683,66 @@ export function ExportButton({ data, fetchData, filename, sheetName }) {
     }
   }
 
-  return <FileDownloadButton format="excel"
-    label={busy ? t('common.exporting') : t('common.downloadExcel')}
-    onClick={run} disabled={busy} />;
+  function confirm() {
+    const range = exportPeriodRange(period, custom);
+    if (period === 'custom' && range && range.from && range.to && range.from > range.to) {
+      toast(t('common.exportFromAfterTo'), 'red');
+      return;
+    }
+    try { localStorage.setItem(_PERIOD_KEY, JSON.stringify({ period, custom })); } catch { /* private mode */ }
+    run(range);
+  }
+
+  const shown = exportPeriodRange(period, custom);
+  return (
+    <>
+      <FileDownloadButton format="excel"
+        label={busy ? t('common.exporting') : t('common.downloadExcel')}
+        onClick={() => (dated ? setAsking(true) : run())} disabled={busy} />
+      {asking && (
+        <Modal title={t('common.exportPeriodTitle')} onClose={() => !busy && setAsking(false)}>
+          <div className="modal-body">
+            <div role="radiogroup" aria-label={t('common.exportPeriod')}
+                 style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 8 }}>
+              {EXPORT_PERIODS.map(p => (
+                <button key={p} type="button" role="radio" aria-checked={period === p}
+                  className={`btn btn-sm ${period === p ? 'btn-primary' : 'btn-secondary'}`}
+                  onClick={() => setPeriod(p)}>
+                  {t(`common.exportPeriod_${p}`)}
+                </button>
+              ))}
+            </div>
+            {period === 'custom' && (
+              <div className="form-grid" style={{ marginTop: 14 }}>
+                <div className="form-group">
+                  <label className="form-label">{t('common.exportFrom')}</label>
+                  <input type="date" className="form-control" value={custom.from}
+                    onChange={e => setCustom(c => ({ ...c, from: e.target.value }))} />
+                </div>
+                <div className="form-group">
+                  <label className="form-label">{t('common.exportTo')}</label>
+                  <input type="date" className="form-control" value={custom.to}
+                    onChange={e => setCustom(c => ({ ...c, to: e.target.value }))} />
+                </div>
+              </div>
+            )}
+            <p style={{ marginTop: 14, fontSize: 13, color: 'var(--text-3)' }}>
+              {shown
+                ? t('common.exportRangeSummary', { from: shown.from || '…', to: shown.to || '…' })
+                : t('common.exportAllDates')}
+            </p>
+          </div>
+          <div className="modal-footer">
+            <button type="button" className="btn btn-secondary" disabled={busy}
+              onClick={() => setAsking(false)}>{t('common.cancel')}</button>
+            <button type="button" className="btn btn-primary" disabled={busy} onClick={confirm}>
+              {busy ? t('common.exporting') : t('common.downloadExcel')}
+            </button>
+          </div>
+        </Modal>
+      )}
+    </>
+  );
 }
 
 // ── WhatsApp share ─────────────────────────────────────────────────────────

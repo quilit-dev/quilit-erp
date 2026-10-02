@@ -300,6 +300,10 @@ def list_invoices(
     search: Optional[str] = None,
     client_id: Optional[int] = None,
     project_id: Optional[int] = None,
+    # The issue date, inclusive at both ends (YYYY-MM-DD). What the export's
+    # "last month" / "from-to" choice sends.
+    date_from: Optional[str] = None,
+    date_to: Optional[str] = None,
     sort: Optional[str] = None,
     dir: str = "asc",
     user=Depends(require_perm("invoices", "view")),
@@ -338,6 +342,12 @@ def list_invoices(
     if project_id is not None:
         conditions.append("i.project_id = ?")
         params.append(project_id)
+    if date_from:
+        conditions.append("DATE(i.created_at) >= ?")
+        params.append(date_from[:10])
+    if date_to:
+        conditions.append("DATE(i.created_at) <= ?")
+        params.append(date_to[:10])
     where_clause = ("WHERE " + " AND ".join(conditions)) if conditions else ""
     select_sql = f"""SELECT i.*,
                   p.name AS project_name,

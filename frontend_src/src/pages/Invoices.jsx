@@ -491,12 +491,16 @@ export default function Invoices() {
 
   // Fetches every matching invoice (no `limit`), so an export is never
   // silently truncated to the page on screen.
-  const fetchExportRows = async () => {
+  // `range` is the period chosen in the export dialog (null = all dates); the
+  // server applies it to the issue date, together with the filters on screen.
+  const fetchExportRows = async (range) => {
     const all = await getInvoices({
       status:     statusFilter  || undefined,
       client_id:  clientFilter  || undefined,
       project_id: projectFilter || undefined,
       ...(search.trim() ? { search: search.trim() } : {}),
+      date_from:  range?.from || undefined,
+      date_to:    range?.to   || undefined,
     });
     return (Array.isArray(all) ? all : all.items || []).map(i => ({
     'Invoice #':     i.invoice_number,
@@ -523,7 +527,7 @@ export default function Invoices() {
         actions={<>
           <ExchangeRateBadge />
           <DisplayCurrencyToggle />
-          <ExportButton fetchData={fetchExportRows} filename="Invoices" sheetName="Invoices" />
+          <ExportButton dated fetchData={fetchExportRows} filename="Invoices" sheetName="Invoices" />
           <button className="btn btn-primary" onClick={openCreate}>{t('invoices.addInvoice')}</button>
         </>}
       />

@@ -121,7 +121,8 @@ describe('the export', () => {
   test('emits one row per line', () => {
     // An accountant reconciling a supplier statement works line by line; a row
     // per order hides exactly the detail they opened the export for.
-    expect(pageSrc).toMatch(/const exportData = filtered\.flatMap\(p => \{/);
+    // Filtered to the export dialog's period first, then one row per line.
+    expect(pageSrc).toMatch(/const exportRows = \(range\) => filtered[\s\S]{0,120}?\.flatMap\(p => \{/);
     expect(pageSrc).toMatch(/const rows = \(p\.items \|\| \[\]\)\.length \? p\.items : \[null\]/);
   });
 

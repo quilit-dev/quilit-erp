@@ -156,6 +156,10 @@ def list_quotations(
     search: Optional[str] = None,
     client_id: Optional[int] = None,
     project_id: Optional[int] = None,
+    # The issue date, inclusive at both ends (YYYY-MM-DD), for the export's
+    # period choice.
+    date_from: Optional[str] = None,
+    date_to: Optional[str] = None,
     sort: Optional[str] = None,
     dir: str = "asc",
     user=Depends(require_perm("quotations", "view")),
@@ -192,6 +196,12 @@ def list_quotations(
     # so the two cannot drift apart and disagree about the total.
     where, params = [], []
     where.append(archive_clause(archived, "q.archived_at"))
+    if date_from:
+        where.append("DATE(q.created_at) >= ?")
+        params.append(date_from[:10])
+    if date_to:
+        where.append("DATE(q.created_at) <= ?")
+        params.append(date_to[:10])
     if status:
         where.append("q.status = ?")
         params.append(status)
