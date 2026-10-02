@@ -2,6 +2,7 @@ import { useState, useEffect } from 'react';
 import { usePersistedState } from '../hooks/usePersistedState';
 import { useLocale } from '../hooks/useLocale.jsx';
 import { getBranchContext } from '../api/client';
+import { usePermissions } from '../hooks/usePermissions';
 
 // Charts/helpers + each report extracted into ./reports/ — this file is the
 // orchestrator (report picker + date range + branch context).
@@ -19,6 +20,10 @@ import { ProfitSummaryReport } from './reports/ProfitSummaryReport';
 
 export default function Reports() {
   const { t, tEnumValue } = useLocale();
+  // The Profit Summary has its own permission: Reports access alone does not
+  // show a company's margin and net profit.
+  const { can } = usePermissions();
+  const canProfit = can('profit_report');
   const [activeReport, setActiveReport] = usePersistedState('reports_active', 'profit');
   // Branch comparison tab appears only for global users (superadmin / owner)
   // who can actually see more than one branch.
@@ -58,8 +63,10 @@ export default function Reports() {
   // context is still loading — otherwise the page would flash another
   // report, and fire its request, before settling on the right one.
   const ALL_REPORTS = [
-    // First: the one-glance report an owner opens before any other.
-    { key: 'profit',      label: t('reports.profitSummary')  },
+    // First: the one-glance report an owner opens before any other --- for
+    // those allowed to see it. Left out of THIS list otherwise, so neither
+    // the default tab nor a remembered one can land on it.
+    ...(canProfit ? [{ key: 'profit', label: t('reports.profitSummary') }] : []),
     { key: 'projects',    label: t('reports.projects')       },
     { key: 'clients',     label: t('reports.clients')        },
     { key: 'aging',       label: t('reports.aging')          },
@@ -116,7 +123,7 @@ export default function Reports() {
       </div>
 
       {/* Report content — full width */}
-      {current === 'profit'    && <ProfitSummaryReport params={appliedRange} t={t} />}
+      {current === 'profit' && canProfit && <ProfitSummaryReport params={appliedRange} t={t} />}
       {current === 'projects'  && <ProjectsReport  params={appliedRange} t={t} />}
       {current === 'clients'   && <ClientsReport   params={appliedRange} t={t} tEnumValue={tEnumValue} />}
       {current === 'aging'     && <AgingReport      t={t} />}

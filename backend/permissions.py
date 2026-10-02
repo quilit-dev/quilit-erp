@@ -68,6 +68,11 @@ MODULES = [
     # floor in routers/pos.py. Only `view` is meaningful: holding it is the
     # permission.
     'pos_price_override',
+    # The Profit Summary report: sales, cost, margin, salaries and net profit
+    # per month. A tab inside Reports rather than a screen of its own, gated
+    # separately because the figures are the business's most sensitive ones.
+    # Only `view` is meaningful.
+    'profit_report',
 ]
 ADMIN_MODULES = ['settings', 'users', 'roles', 'audit']
 ALL_MODULES   = MODULES + ADMIN_MODULES

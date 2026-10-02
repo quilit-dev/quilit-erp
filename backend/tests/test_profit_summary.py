@@ -168,3 +168,40 @@ def test_totals_add_up_the_rows(client, db):
     body = _report(client)
     for k in ("sales", "cost", "expenses", "net_profit", "uncollected", "cash_profit"):
         assert body["totals"][k] == pytest.approx(sum(r[k] for r in body["rows"])), k
+
+
+# ── who may read it ──────────────────────────────────────────────────────────
+# Its own permission. Reports access alone (a Sales Manager has it) does not
+# show the company's margin and net profit; whoever can open Accounting
+# already sees the income statement, so they hold it by default.
+
+def test_reports_access_alone_does_not_open_the_profit_summary(as_role):
+    r = as_role("Sales Manager").get("/api/reports/profit-summary")
+    assert r.status_code == 403
+    # ...while the rest of Reports still works for them.
+    assert as_role("Sales Manager").get("/api/reports/expenses").status_code == 200
+
+
+def test_the_owner_and_accounting_roles_hold_it_by_default(as_role, db):
+    for role in ("Accountant", "Finance Manager"):
+        assert as_role(role).get("/api/reports/profit-summary").status_code == 200, role
+    owner = db.execute(
+        "SELECT rp.can_view FROM role_permissions rp JOIN roles r ON r.id = rp.role_id "
+        " WHERE r.name = 'Business Owner' AND rp.module = 'profit_report'").fetchone()
+    assert owner is not None and owner["can_view"] == 1
+
+
+def test_the_permission_can_be_granted_to_a_role(as_role, db):
+    db.execute(
+        "INSERT INTO role_permissions (role_id, module, can_view, can_create, can_edit, "
+        " can_delete, can_approve) SELECT id, 'profit_report', 1, 0, 0, 0, 0 FROM roles "
+        " WHERE name = 'Sales Manager'")
+    db.commit()
+    assert as_role("Sales Manager").get("/api/reports/profit-summary").status_code == 200
+
+
+def test_it_is_a_permission_the_role_editor_offers():
+    import permissions, capabilities, vendor_config
+    assert "profit_report" in permissions.MODULES
+    assert "profit_report" in capabilities.ALWAYS_ON
+    assert "profit_report" in vendor_config._ALWAYS_ON

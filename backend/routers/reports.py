@@ -1066,7 +1066,9 @@ def report_profit_summary(
     end:   Optional[str] = Query(None),
     group: str = Query("month"),
     branch_id: Optional[int] = Query(None),
-    user=Depends(require_perm("reports", "view")),
+    # Its own permission, not `reports`: everyone who can open Reports is not
+    # thereby entitled to the company's margin and net profit.
+    user=Depends(require_perm("profit_report", "view")),
     db: sqlite3.Connection = Depends(get_db),
 ):
     import accounting

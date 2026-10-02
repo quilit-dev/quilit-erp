@@ -65,7 +65,9 @@ describe('the profit summary', () => {
   });
 
   test('is the first tab on the Reports page', () => {
-    expect(reportsSrc).toMatch(/const ALL_REPORTS = \[\s*\/\/[^\n]*\n\s*\{ key: 'profit'/);
-    expect(reportsSrc).toMatch(/current === 'profit'\s+&& <ProfitSummaryReport/);
+    // Only for those holding the permission, and never rendered without it.
+    expect(reportsSrc).toMatch(/const canProfit = can\('profit_report'\)/);
+    expect(reportsSrc).toMatch(/\.\.\.\(canProfit \? \[\{ key: 'profit'/);
+    expect(reportsSrc).toMatch(/current === 'profit' && canProfit && <ProfitSummaryReport/);
   });
 });

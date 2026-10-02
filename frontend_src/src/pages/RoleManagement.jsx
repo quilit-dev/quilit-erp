@@ -51,6 +51,8 @@ const CORE_MODULES  = [
   // Changing a stock item's price at the till. Without it the register rings
   // the list price and the server holds the cashier to it.
   'pos_price_override',
+  // The Profit Summary tab under Reports: margin, salaries, net profit.
+  'profit_report',
   // People
   'hr', 'hr_contracts', 'hr_activities', 'recruitment',
   // Client + internal comms
@@ -153,6 +155,7 @@ export default function RoleManagement() {
     costs:         t('roles.moduleCosts'),
     foreign_purchases: t('roles.moduleForeignPurchases'),
     pos_price_override: t('roles.modulePosPriceOverride'),
+    profit_report: t('roles.moduleProfitReport'),
     service:       t('nav.service'),
     communications: t('nav.communications'),
     crm:           t('nav.crm'),

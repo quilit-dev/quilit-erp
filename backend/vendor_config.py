@@ -70,7 +70,7 @@ _MODULE_PARENT = {
 # from this set, module_allowed() would paywall it on every licensed install and
 # the OWNER would lose sight of their own cost prices.
 _ALWAYS_ON = {"dashboard", "users", "roles", "costs", "foreign_purchases",
-              "pos_price_override"}
+              "pos_price_override", "profit_report"}
 
 
 def enabled_modules_set():

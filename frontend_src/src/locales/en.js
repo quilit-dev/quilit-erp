@@ -3387,6 +3387,8 @@ const en = {
     moduleForeignPurchases: 'Foreign purchases',
     moduleForeignPurchasesHint: 'Open and raise purchases from foreign suppliers. Without it a foreign purchase still shows in the list with its total, but cannot be opened, and its lines and item costs stay hidden.',
     modulePosPriceOverride: 'Change prices at the till',
+    moduleProfitReport: 'Profit summary report',
+    moduleProfitReportHint: 'See the Profit Summary under Reports: sales, cost, margin, expenses, salaries and net profit per month or week.',
     modulePosPriceOverrideHint: 'Ring a stock item at a price other than its list price. Never below cost, and not below the minimum set in Settings. The list price is kept on the sale beside the price charged.',
     actionView:    'View',
     actionCreate:  'Create',

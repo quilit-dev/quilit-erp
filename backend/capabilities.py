@@ -42,6 +42,8 @@ ALWAYS_ON = frozenset({
     "foreign_purchases",
     # And again: who may change a price at the till is for the role editor.
     "pos_price_override",
+    # Who may read the profit summary is the role editor's call too.
+    "profit_report",
 })
 
 # module -> modules it cannot function without.

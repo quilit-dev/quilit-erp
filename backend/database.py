@@ -4642,6 +4642,21 @@ def _run_migrations(conn, c):
     add_col("187c_employee_rota_anchor", "hr_employees", "saturday_rota_anchor",
             "ALTER TABLE hr_employees ADD COLUMN saturday_rota_anchor TEXT")
 
+    # ── 191: who may read the Profit Summary ────────────────────────────────
+    # The owner, and every role that can already open Accounting: those roles
+    # see the income statement, so the summary tells them nothing new. Nobody
+    # else until someone ticks it in the role editor. Marker-guarded so an
+    # owner who later unticks it is not re-granted on the next boot.
+    if need("191_profit_report_capability"):
+        c.execute(
+            "INSERT INTO role_permissions "
+            "(role_id, module, can_view, can_create, can_edit, can_delete, can_approve) "
+            "SELECT DISTINCT r.id, 'profit_report', 1, 0, 0, 0, 0 FROM roles r "
+            " LEFT JOIN role_permissions rp ON rp.role_id = r.id AND rp.module = 'accounting' "
+            " WHERE r.name = 'Business Owner' OR rp.can_view = 1 "
+            "ON CONFLICT(role_id, module) DO NOTHING")
+        done("191_profit_report_capability")
+
     # ── 190: an employee can be paid on their own, before the run ─────────
     # Each payroll line records when, how and by whom it was paid, so paying
     # one employee and later the rest of the run can never pay anyone twice.
@@ -6034,6 +6049,19 @@ def _ensure_pg_post_baseline(raw):
                     "saturday_rota TEXT")
         cur.execute("ALTER TABLE hr_employees ADD COLUMN IF NOT EXISTS "
                     "saturday_rota_anchor TEXT")
+        # 191: who may read the Profit Summary (see the SQLite chain).
+        cur.execute("SELECT 1 FROM schema_migrations "
+                    "WHERE name='191_profit_report_capability'")
+        if not cur.fetchone():
+            cur.execute(
+                "INSERT INTO role_permissions "
+                "(role_id, module, can_view, can_create, can_edit, can_delete, can_approve) "
+                "SELECT DISTINCT r.id, 'profit_report', 1, 0, 0, 0, 0 FROM roles r "
+                " LEFT JOIN role_permissions rp ON rp.role_id = r.id AND rp.module = 'accounting' "
+                " WHERE r.name = 'Business Owner' OR rp.can_view = 1 "
+                "ON CONFLICT (role_id, module) DO NOTHING")
+            cur.execute("INSERT INTO schema_migrations (name, applied_at) "
+                        "VALUES ('191_profit_report_capability', now()::text)")
         # 190: an employee can be paid on their own, before the run.
         cur.execute("ALTER TABLE hr_payroll_lines ADD COLUMN IF NOT EXISTS paid_at TEXT")
         cur.execute("ALTER TABLE hr_payroll_lines ADD COLUMN IF NOT EXISTS paid_by INTEGER")
@@ -6726,6 +6754,16 @@ def _seed_roles_and_admin(c):
     # 186b says the same for an existing install): every other role rings
     # the list price until somebody decides otherwise in the role editor.
     _set_perm('Business Owner', 'pos_price_override', *_V)
+
+    # The Profit Summary: the owner, and whoever can open Accounting (the
+    # same rule migration 191 applies to an existing install).
+    _set_perm('Business Owner', 'profit_report', *_V)
+    c.execute(
+        "INSERT INTO role_permissions "
+        "(role_id, module, can_view, can_create, can_edit, can_delete, can_approve) "
+        "SELECT role_id, 'profit_report', 1, 0, 0, 0, 0 "
+        "  FROM role_permissions WHERE module = 'accounting' AND can_view = 1 "
+        "ON CONFLICT(role_id, module) DO NOTHING")
 
     # HR holds sensitive data (salaries, contracts, applicant CVs, internal
     # touchpoints) — granted explicitly rather than via the blanket Viewer
