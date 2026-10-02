@@ -205,3 +205,26 @@ def test_it_is_a_permission_the_role_editor_offers():
     assert "profit_report" in permissions.MODULES
     assert "profit_report" in capabilities.ALWAYS_ON
     assert "profit_report" in vendor_config._ALWAYS_ON
+
+
+# ── the from-to report: the whole range as one statement ─────────────────────
+
+def test_a_from_to_report_is_one_statement_matching_the_monthly_totals(client):
+    _pos_sale(client, price=100, cost=40)
+    _invoice(client, 300, paid=100)
+    start, end = _today()[:8] + "01", _today()
+    one = _report(client, start=start, end=end, group="total")
+    assert len(one["rows"]) == 1
+    row = one["rows"][0]
+    assert (row["start"], row["end"]) == (start, end)
+    monthly = _report(client, start=start, end=end)["totals"]
+    for k in ("sales", "sales_count", "pos_count", "invoice_count", "cost",
+              "gross_profit", "expenses", "salaries", "net_profit",
+              "uncollected", "cash_profit"):
+        assert row[k] == pytest.approx(monthly[k]), k
+
+
+def test_a_range_that_ends_before_it_starts_is_refused(client):
+    r = client.get("/api/reports/profit-summary",
+                   params={"start": "2026-09-30", "end": "2026-09-01", "group": "total"})
+    assert r.status_code == 400

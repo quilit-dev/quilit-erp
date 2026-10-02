@@ -97,7 +97,10 @@ export default function Reports() {
         </div>
       </div>
 
-      {/* Date range bar */}
+      {/* Date range bar. The Profit Summary picks its own from-to and is
+          generated on demand, so this bar would only be a second, ignored
+          date control above it. */}
+      {current !== 'profit' && (
       <div className="card" style={{ marginBottom: 16 }}>
         <div className="card-body" style={{ padding: '12px 20px' }}>
           <DateRangeBar
@@ -107,6 +110,7 @@ export default function Reports() {
           />
         </div>
       </div>
+      )}
 
       {/* Tabs — wrap so all report tabs fit the page instead of scrolling
           horizontally off-screen (there are up to 10, with long labels). */}
@@ -123,7 +127,7 @@ export default function Reports() {
       </div>
 
       {/* Report content — full width */}
-      {current === 'profit' && canProfit && <ProfitSummaryReport params={appliedRange} t={t} />}
+      {current === 'profit' && canProfit && <ProfitSummaryReport t={t} />}
       {current === 'projects'  && <ProjectsReport  params={appliedRange} t={t} />}
       {current === 'clients'   && <ClientsReport   params={appliedRange} t={t} tEnumValue={tEnumValue} />}
       {current === 'aging'     && <AgingReport      t={t} />}

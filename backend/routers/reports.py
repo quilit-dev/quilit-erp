@@ -1,7 +1,7 @@
 """
 Reports router — cross-entity analytical reports for business intelligence.
 """
-from fastapi import APIRouter, Depends, Query
+from fastapi import APIRouter, Depends, HTTPException, Query
 from database import get_db
 from permissions import require_perm, can as _can_perm
 from utils import get_tax_context, money
@@ -1045,6 +1045,9 @@ _COGS_SOURCES = ("pos_cogs", "service_cogs", "commitment_cogs",
 
 def _period_key(day: str, group: str):
     from datetime import date as _d, timedelta as _td
+    if group == "total":
+        # The whole range as one period: every record lands in the same row.
+        return "total", None, None
     d = _d.fromisoformat(str(day)[:10])
     if group == "week":
         start = d - _td(days=d.weekday())             # Monday
@@ -1073,15 +1076,26 @@ def report_profit_summary(
 ):
     import accounting
     from datetime import date as _d, timedelta as _td
-    group = "week" if group == "week" else "month"
+    # `total` is the from-to report: the whole range as one statement.
+    group = group if group in ("week", "total") else "month"
     start = (start or _year_start())[:10]
     end   = (end or _today())[:10]
+    try:
+        if _d.fromisoformat(start) > _d.fromisoformat(end):
+            raise HTTPException(400, "The start date is after the end date.")
+    except ValueError:
+        raise HTTPException(400, "Dates must be YYYY-MM-DD.")
 
     # Every period in range, empty ones included, so a quiet month shows as a
     # row of zeros rather than vanishing from the table.
     periods = {}
     cursor = _d.fromisoformat(start)
     stop = _d.fromisoformat(end)
+    if group == "total":
+        periods["total"] = {"period": "total", "start": start, "end": end}
+        for k in _SUMMED:
+            periods["total"][k] = 0 if k.endswith("_count") else 0.0
+        cursor = stop + _td(days=1)                  # nothing more to lay out
     while cursor <= stop:
         key, ps, pe = _period_key(cursor.isoformat(), group)
         if key not in periods:
