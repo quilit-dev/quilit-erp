@@ -521,7 +521,7 @@ function exportXLSX(rows, columns, filename) {
 // `pdfColumns` / `pdfRows` let a wide report give the spreadsheet every figure
 // and the A4 page only the ones that fit; omitted, both use the same set.
 function ExportButtons({ rows, columns, baseName, pdfTitle, subtitle, meta, totals, pdfClient,
-                         pdfColumns, pdfRows, t }) {
+                         pdfColumns, pdfRows, pdfDense = false, t }) {
   const empty = !rows || rows.length === 0;
   function doExcel() {
     if (empty) return;
@@ -537,6 +537,7 @@ function ExportButtons({ rows, columns, baseName, pdfTitle, subtitle, meta, tota
       rows:     pdfRows || rows,
       meta,
       totals,
+      dense:    pdfDense,
       client: pdfClient || null,
     });
   }

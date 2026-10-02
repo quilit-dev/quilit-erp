@@ -1047,6 +1047,9 @@ export async function exportReportPDF({
   rows,
   totals = null,
   meta = null,
+  // A wide table --- a dozen money columns --- printed in small type so every
+  // column fits the page instead of running off its edge.
+  dense = false,
   // The customer the report is about, when it is about one --- a statement of
   // account. The themed letterhead names the account in its header; a report
   // about the whole business leaves it out.
@@ -1068,7 +1071,7 @@ export async function exportReportPDF({
   if (theme) {
     return printHTML(
       themedReportHTML(theme, settings, logoSrc,
-                       { title, subtitle, filename, columns, rows, totals, meta, client }),
+                       { title, subtitle, filename, columns, rows, totals, meta, client, dense }),
       filename || `${title}.pdf`);
   }
   const companyName = (settings.company_name || 'Company').toString();
@@ -1204,6 +1207,11 @@ export async function exportReportPDF({
     @page { margin: ${rp ? `${rp.topMM}mm` : '14mm'} 12mm 14mm; size: A4 portrait; }
     body { padding: 0; }
   }
+  /* Dense: a wide table (a dozen money columns) set small enough to fit the
+     width of an A4 page rather than overflow it. */
+  ${dense ? `table.rpt-tbl { font-size: 7px; }
+  .rpt-th { padding: 3px 3px; font-size: 6.4px; letter-spacing: 0; }
+  .rpt-td { padding: 2.5px 3px; white-space: nowrap; }` : ''}
 </style>
 </head><body>
   ${headerHTML}
@@ -1230,7 +1238,7 @@ export async function exportReportPDF({
  * generic builder's brand-blue header: on a letterhead the colours are the
  * letterhead's.
  */
-function themedReportHTML(theme, settings, logo, { title, subtitle, filename, columns, rows, totals, meta, client }) {
+function themedReportHTML(theme, settings, logo, { title, subtitle, filename, columns, rows, totals, meta, client, dense }) {
   const C = buildCompany(settings);
   const dateLabel = new Date().toLocaleDateString(undefined, {
     year: 'numeric', month: 'short', day: 'numeric',
@@ -1284,6 +1292,10 @@ ${SHARED_CSS}${theme.css}
 .hj-inner .rpt-totals td { font-weight: 700; border-top: 2px solid var(--text); border-bottom: none; }
 .rpt-empty { padding: 24px; text-align: center; color: var(--text-muted); font-style: italic;
              border: 1px dashed var(--border); border-radius: 4px; }
+${dense ? `/* Dense: a dozen money columns set small enough to fit the page width. */
+.hj-inner table.rpt-tbl th, .hj-inner table.rpt-tbl td {
+  font-size: 7px !important; padding: 2.5px 3px !important; white-space: nowrap; letter-spacing: 0;
+}` : ''}
 </style></head><body>
 ${shell}
 </body></html>`;
