@@ -494,7 +494,7 @@ function paymentInstructions() {
 // document SAYS, only how it looks. That is the property worth having: a
 // letterhead is presentation, and no company's design should be able to alter
 // the figures on its own invoices.
-function docShell(theme, { C, logo, title, client, rows, statusHtml, defaultHeader, defaultInfo, body, defaultFooter }) {
+function docShell(theme, { C, logo, title, client, rows, statusHtml, defaultHeader, defaultInfo, body, defaultFooter, hideAccount = false }) {
   if (!theme) {
     // Byte-identical to the pre-theme output. Adding one company's letterhead
     // must not restyle everybody else's documents.
@@ -528,7 +528,7 @@ function docShell(theme, { C, logo, title, client, rows, statusHtml, defaultHead
     <thead><tr><td>${sheet}</td></tr></thead>
     <tbody><tr><td>
       ${theme.open}
-        ${theme.header({ C, title, client, rows, statusHtml })}
+        ${theme.header({ C, title, client, rows, statusHtml, hideAccount })}
         ${body}
       ${theme.close}
     </td></tr></tbody>
@@ -1210,7 +1210,8 @@ export async function exportReportPDF({
   /* Dense: a wide table (a dozen money columns) set small enough to fit the
      width of an A4 page rather than overflow it. */
   ${dense ? `table.rpt-tbl { font-size: 7px; }
-  .rpt-th { padding: 3px 3px; font-size: 6.4px; letter-spacing: 0; }
+  .rpt-th { padding: 3px 3px; font-size: 6.4px; letter-spacing: 0;
+            white-space: normal; vertical-align: bottom; line-height: 1.15; }
   .rpt-td { padding: 2.5px 3px; white-space: nowrap; }` : ''}
 </style>
 </head><body>
@@ -1276,6 +1277,10 @@ function themedReportHTML(theme, settings, logo, { title, subtitle, filename, co
 
   const shell = docShell(theme, {
     C, logo, title, client, body, statusHtml: '', rows: headRows,
+    // A statement of account is about one customer and names them; a report
+    // about the whole business has no account, and "Account: —" under its
+    // title reads as something missing.
+    hideAccount: !client,
     // The theme branch of docShell never reads these; they exist for the
     // generic branch, which this function does not take.
     defaultHeader: '', defaultInfo: '', defaultFooter: '',
@@ -1295,6 +1300,10 @@ ${SHARED_CSS}${theme.css}
 ${dense ? `/* Dense: a dozen money columns set small enough to fit the page width. */
 .hj-inner table.rpt-tbl th, .hj-inner table.rpt-tbl td {
   font-size: 7px !important; padding: 2.5px 3px !important; white-space: nowrap; letter-spacing: 0;
+}
+/* Titles wrap onto two lines instead of running into the next column. */
+.hj-inner table.rpt-tbl th {
+  white-space: normal; vertical-align: bottom; line-height: 1.15;
 }` : ''}
 </style></head><body>
 ${shell}

@@ -118,3 +118,13 @@ describe('around it', () => {
     expect(exportSrc).toMatch(/\.hj-inner table\.rpt-tbl th, \.hj-inner table\.rpt-tbl td \{\s*font-size: 7px !important;/);
   });
 });
+
+describe('the report PDF on a letterhead', () => {
+  test('a report about the whole business prints no empty Account line', () => {
+    expect(exportSrc).toMatch(/hideAccount: !client,/);
+    expect(exportSrc).toMatch(/theme\.header\(\{ C, title, client, rows, statusHtml, hideAccount \}\)/);
+  });
+  test('dense column titles wrap instead of running into each other', () => {
+    expect(exportSrc).toMatch(/\.hj-inner table\.rpt-tbl th \{\s*white-space: normal;/);
+  });
+});

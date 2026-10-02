@@ -161,7 +161,7 @@ function hajoSheet(C, logo) {
  * whatever else the document type carries — so invoices and quotations share
  * one header without this file needing to know which is which.
  */
-function hajoHeader({ C, title, client, rows, statusHtml }) {
+function hajoHeader({ C, title, client, rows, statusHtml, hideAccount = false }) {
   const metaRows = rows
     .filter(r => r && r.value)
     .map(r => `<div class="hj-meta-row">
@@ -173,8 +173,8 @@ function hajoHeader({ C, title, client, rows, statusHtml }) {
   <div class="hj-head">
     <div class="hj-head-left">
       <div class="hj-doc-title">${esc(title)}</div>
-      <div class="hj-account-label">Account:</div>
-      <div class="hj-account">${esc(client?.name) || '—'}</div>
+      ${hideAccount ? '' : `<div class="hj-account-label">Account:</div>
+      <div class="hj-account">${esc(client?.name) || '—'}</div>`}
       ${statusHtml || ''}
     </div>
     <div class="hj-head-right">${metaRows}</div>
