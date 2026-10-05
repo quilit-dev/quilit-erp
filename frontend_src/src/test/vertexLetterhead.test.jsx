@@ -74,7 +74,7 @@ describe('hajosign is untouched by the refactor', () => {
     }
     expect(THEMES.hajosign.css).toContain('.hj-watermark {');
     expect(THEMES.hajosign.css).toContain('.hj-foot {');
-    expect(THEMES.hajosign.css).toMatch(/\.hj-sheet > thead > tr > td \{ height: 54mm; \}/);
+    expect(THEMES.hajosign.css).toMatch(/\.hj-sheet > thead > tr > td \{ height: 56mm; \}/);   // 54 until the mark grew to 25mm
     expect(THEMES.hajosign.css).toMatch(/\.hj-sheet--preprinted > thead > tr > td \{ height: 62mm; \}/);
   });
 });

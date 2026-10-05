@@ -245,7 +245,7 @@ function hajoContacts() {
 // too. The top margin clears the masthead (which ends at 42.2mm); the sides
 // clear the left band and the top-right bracket's vertical leg (x >= 205.4mm);
 // the bottom clears the contact strip and the bands beneath it.
-const PAGE = { top: 54, side: 16, bottom: 32, footFromEdge: 15, footRightInset: 16 };
+const PAGE = { top: 56, side: 16, bottom: 32, footFromEdge: 15, footRightInset: 16 };   // top was 54; the larger mark needs the room
 
 // ── The two numbers to turn when the print lands wrong on the real paper ─────
 //
@@ -284,9 +284,9 @@ const ts = (px) => `${Math.round(px * HJ_TYPE * 100) / 100}px`;
 // tagline) so the block still reads as one lockup rather than three stacked
 // things, and the whole masthead is lifted 1.7mm to buy the height back.
 const MARK = {
-  logoTop: 10.0, logoSize: 21.0,          // was 11.7 / 14.5
-  wordTop: 35.4, wordHeight: 4.0, wordWidth: 56.4,
-  tagTop: 45.4, tagHeight: 1.6,
+  logoTop: 10.0, logoSize: 25.0,          // was 11.7 / 14.5, then 21.0
+  wordTop: 39.4, wordHeight: 4.0, wordWidth: 56.4,   // +4, following the mark
+  tagTop: 49.4, tagHeight: 1.6,                      // ends 51.0; content at 56
   wmTop: 88.3, wmWidth: 110.9,      // centred on x, and 5.8mm above page centre
 };
 
@@ -585,7 +585,7 @@ const VERTEX_PAGE = { top: 46, side: 16, bottom: 34 };
 // Pre-printed VertexMedia paper would carry the same logo in the same place;
 // a little extra for feed offset, as hajosign's number taught.
 const VERTEX_TOP_PREPRINTED = 52;
-const VERTEX_LOGO = { top: 14, height: 23 };
+const VERTEX_LOGO = { top: 14, height: 28 };      // ends 42mm; content at 46
 
 function vertexArt() {
   return `<svg class="hj-art" aria-hidden="true" viewBox="0 0 210 297"
@@ -608,7 +608,7 @@ const vertexCSS = frameCSS(VERTEX_PAGE, VERTEX_TOP_PREPRINTED)
   position: absolute; left: 0; right: 0; top: ${VERTEX_LOGO.top}mm;
   text-align: center;
 }
-.hj-logo { height: ${VERTEX_LOGO.height}mm; width: auto; max-width: 70mm; object-fit: contain; display: block; margin: 0 auto; }
+.hj-logo { height: ${VERTEX_LOGO.height}mm; width: auto; max-width: 90mm; object-fit: contain; display: block; margin: 0 auto; }
 /* The traced mark: an inline SVG has no intrinsic width, so it is given the
    box's own ratio (270:119) at the masthead height. */
 .hj-logo--mark { width: ${Math.round(VERTEX_LOGO.height * 270 / 119 * 10) / 10}mm; }

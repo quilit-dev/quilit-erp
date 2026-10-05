@@ -215,7 +215,7 @@ body {
   display: flex; justify-content: space-between; align-items: flex-start;
   padding-bottom: 8px; border-bottom: 2.5px solid var(--brand); margin-bottom: 10px;
 }
-.company-logo { height: 30px; width: auto; margin-bottom: 3px; object-fit: contain; }
+.company-logo { height: 48px; width: auto; max-width: 220px; margin-bottom: 3px; object-fit: contain; }
 .company-name { font-size: 14px; font-weight: 700; color: var(--brand); letter-spacing: -0.2px; }
 .company-meta { font-size: 8px; color: var(--text-muted); margin-top: 2px; line-height: 1.35; }
 .doc-title { font-size: 24px; font-weight: 800; color: var(--brand); text-transform: uppercase; letter-spacing: 1px; }
@@ -641,17 +641,7 @@ export function buildQuotationHTML(quotation, settings, logoDataURL = null, opts
   ${quotation.notes ? `<div class="band"><span class="band-label">Notes:</span> ${quotation.notes}</div>` : ''}
   <div class="band"><span class="band-label">Terms and Conditions:</span> All prices in ${CC.code}. Payment due Net ${C.paymentDays} days. Quotation binding upon written acceptance. Goods remain property of ${C.name} until paid in full. Scope changes may affect pricing.</div>
   ${paymentInstructions(C)}
-  ${C.footer ? `<div class="band"><span class="band-label">Note:</span> ${C.footer}</div>` : ''}
-
-  <div class="sig-section">
-    <div class="sig-header">Acceptance & Authorization</div>
-    <div class="sig-body">By signing, the undersigned accepts all terms, pricing, and conditions herein. This document authorizes proceeding with the described scope.
-      <div class="sig-grid">
-        <div><div class="sig-title">Client Signature & Name</div><div class="sig-line">Signature: _______________ Date: ____/____/______</div></div>
-        <div><div class="sig-title">Authorized by ${C.name}</div><div class="sig-line">Signature: _______________ Date: ____/____/______</div></div>
-      </div>
-    </div>
-  </div>`;
+  ${C.footer ? `<div class="band"><span class="band-label">Note:</span> ${C.footer}</div>` : ''}`;
 
   const shell = docShell(theme, {
     C, logo: logoDataURL, title: 'Quotation', client, body,

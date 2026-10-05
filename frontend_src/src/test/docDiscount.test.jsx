@@ -90,3 +90,13 @@ describe('the forms', () => {
     expect(quotationsSrc).toMatch(/discount_type:\s+full\.discount_type\s+\|\| ''/);
   });
 });
+
+describe('the quotation no longer asks for a signature', () => {
+  test('no Acceptance & Authorization block', () => {
+    const q = { quote_number: 'Q-2', total: 100, tax_total: 0, status: 'Sent',
+                items: [{ name: 'Work', quantity: 1, unit_price: 100, tax_rate: 0, tax_amount: 0 }] };
+    const html = buildQuotationHTML(q, SETTINGS).html;
+    expect(html).not.toMatch(/Acceptance &(amp;)? Authorization/);
+    expect(html).not.toMatch(/class="sig-section"/);
+  });
+});
