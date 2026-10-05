@@ -614,8 +614,14 @@ def report_vat(
     # that was 10% and later edited to 11% still surfaces as "10%". Lines
     # with no rate / 0% are bucketed as "exempt or zero-rated".
     out_by_rate = db.execute(
+        # The taxable base is each line's NET: after its own discount and its
+        # share of any discount on the whole invoice. The gross over-stated
+        # the base by every discount given, and the VAT shown against it no
+        # longer matched the rate.
         """SELECT ii.tax_rate AS rate,
-                  COALESCE(SUM(ii.quantity * ii.unit_price), 0) AS base,
+                  COALESCE(SUM(ii.quantity * ii.unit_price
+                               - COALESCE(ii.discount, 0)
+                               - COALESCE(ii.doc_discount, 0)), 0) AS base,
                   COALESCE(SUM(ii.tax_amount), 0)               AS vat
            FROM invoice_items ii
            JOIN invoices i ON ii.invoice_id = i.id

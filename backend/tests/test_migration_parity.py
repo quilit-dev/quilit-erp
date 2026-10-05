@@ -140,6 +140,17 @@ _REQUIRED = [
     ("hr_payroll_lines", "payment_method"),
     ("hr_payroll_lines", "bank_account_id"),
     ("hr_payroll_lines", "paid_expense_id"),
+    # A discount on the whole document, and each line's share of it.
+    ("invoices", "discount_type"),
+    ("invoices", "discount_value"),
+    ("invoices", "discount_total"),
+    ("invoices", "txn_discount_total"),
+    ("quotations", "discount_type"),
+    ("quotations", "discount_value"),
+    ("quotations", "discount_total"),
+    ("quotations", "txn_discount_total"),
+    ("invoice_items", "doc_discount"),
+    ("quotation_items", "doc_discount"),
 ]
 
 

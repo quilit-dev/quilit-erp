@@ -373,7 +373,7 @@ export function buildCompany(s) {
 // discountPct: item-level override first, then document-level fallback (0 = no discount)
 // Tax: each line carries its own `tax_rate` snapshot; legacy lines with none
 // fall back to the company default rate.
-function lineCalc(item, taxRate, taxOn, docDiscountPct) {
+function lineCalc(item, taxRate, taxOn, docDiscountPct, storedTax = false) {
   const qty       = Number(item.quantity)   || 0;
   const unitPrice = Number(item.unit_price) || 0;
   const gross     = qty * unitPrice;
@@ -382,16 +382,24 @@ function lineCalc(item, taxRate, taxOn, docDiscountPct) {
   const net       = gross - discAmt;
   const hasLineRate = item.tax_rate !== undefined && item.tax_rate !== null;
   const rate      = hasLineRate ? Number(item.tax_rate) : (taxOn ? taxRate : 0);
-  const taxAmt    = rate > 0 ? net * (rate / 100) : 0;
-  const lineTotal = net + taxAmt;
+  // A document discounted as a whole taxes each line on its share-reduced
+  // net, which this function cannot see; the line's stored tax is the figure.
+  const taxAmt    = storedTax && item.tax_amount != null
+    ? Number(item.tax_amount) || 0
+    : (rate > 0 ? net * (rate / 100) : 0);
+  // On such a document each line shows its amount BEFORE VAT, so the lines
+  // add up to the Subtotal printed under them and the VAT appears once, after
+  // the discount. Net plus a share-reduced tax would be a figure that matches
+  // nothing else on the page.
+  const lineTotal = storedTax ? net : net + taxAmt;
   return { qty, unitPrice, gross, disc, discAmt, net, taxAmt, lineTotal, rate };
 }
 
-function aggregateLines(items, C, docDiscountPct = 0) {
+function aggregateLines(items, C, docDiscountPct = 0, storedTax = false) {
   const taxOn = C.taxOn && C.taxRate > 0;
   let subtotal = 0, totalDiscount = 0, totalTax = 0, grandTotal = 0;
   for (const item of (items || [])) {
-    const r = lineCalc(item, C.taxRate, taxOn, docDiscountPct);
+    const r = lineCalc(item, C.taxRate, taxOn, docDiscountPct, storedTax);
     subtotal      += r.gross;
     totalDiscount += r.discAmt;
     totalTax      += r.taxAmt;
@@ -400,8 +408,37 @@ function aggregateLines(items, C, docDiscountPct = 0) {
   return { subtotal, totalDiscount, totalTax, grandTotal };
 }
 
+/**
+ * Totals for an invoice or quotation. With no discount on the whole document
+ * this is aggregateLines, unchanged. With one, the lines keep their stored
+ * (discounted) tax, and Tax and Total are the document's own stored figures
+ * --- in the transaction currency when `txn` says the document is shown in
+ * it --- so the printed total is exactly what the customer owes.
+ */
+function documentTotals(doc, items, C, txn) {
+  const docDiscountPct = Number(doc?.discount_pct || 0);
+  const docDisc = Number(txn ? doc?.txn_discount_total : doc?.discount_total) || 0;
+  if (!(docDisc > 0)) {
+    return { ...aggregateLines(items, C, docDiscountPct), docDisc: 0, storedTax: false, docDiscLabel: '' };
+  }
+  const agg = aggregateLines(items, C, docDiscountPct, true);
+  const tax = Number(txn ? doc.txn_tax_total : doc.tax_total);
+  const total = Number(txn ? (doc.txn_amount ?? doc.txn_total) : (doc.amount ?? doc.total));
+  // A quotation stores its net as `total` and has no `amount`.
+  const grand = doc.amount == null && doc.txn_amount == null
+    ? (Number(txn ? doc.txn_total : doc.total) || 0) + (Number.isFinite(tax) ? tax : agg.totalTax)
+    : total;
+  const pct = doc.discount_type === 'percent' ? ` (${Number(doc.discount_value)}%)` : '';
+  return {
+    ...agg,
+    totalTax: Number.isFinite(tax) ? tax : agg.totalTax,
+    grandTotal: Number.isFinite(grand) ? grand : agg.grandTotal - docDisc,
+    docDisc, storedTax: true, docDiscLabel: `Discount${pct}`,
+  };
+}
+
 // ─── PDF: items table ──────────────────────────────────────────────────────────
-function itemTableHTML(items, C, docDiscountPct = 0) {
+function itemTableHTML(items, C, docDiscountPct = 0, storedTax = false) {
   const taxOn  = C.taxOn && C.taxRate > 0;
   const hasDis = C.showDiscountCol;
   const hasTax = C.showTaxCol && taxOn;
@@ -431,7 +468,7 @@ function itemTableHTML(items, C, docDiscountPct = 0) {
 
   const rows = items.map((item, i) => {
     const { qty, unitPrice, disc, discAmt, taxAmt, lineTotal, rate } =
-      lineCalc(item, C.taxRate, taxOn, docDiscountPct);
+      lineCalc(item, C.taxRate, taxOn, docDiscountPct, storedTax);
     return `<tr>
       <td class="seq">${i + 1}</td>
       ${hasBar ? `<td class="barcode">${item.barcode || '—'}</td>` : ''}
@@ -450,12 +487,13 @@ function itemTableHTML(items, C, docDiscountPct = 0) {
 // ─── PDF: totals box ───────────────────────────────────────────────────────────
 // Tax is always declared in totals when taxOn (legal requirement), regardless of showTaxCol.
 // Discount row only appears when showDiscountCol is enabled and there's actually a discount.
-function totalsBoxHTML(subtotal, totalDiscount, totalTax, grandTotal, C, extraRows = '') {
+function totalsBoxHTML(subtotal, totalDiscount, totalTax, grandTotal, C, extraRows = '', docDisc = null) {
   const taxOn = C.taxOn && C.taxRate > 0;
   return `
   <div class="totals-wrap"><div class="totals-box">
     <div class="totals-row"><span class="k">Subtotal</span><span class="v">${USD(subtotal)}</span></div>
     ${C.showDiscountCol && totalDiscount > 0 ? `<div class="totals-row"><span class="k">Discount</span><span class="v" style="color:#d97706">(${USD(totalDiscount)})</span></div>` : ''}
+    ${docDisc && docDisc.amount > 0 ? `<div class="totals-row"><span class="k">${docDisc.label}</span><span class="v" style="color:#d97706">(${USD(docDisc.amount)})</span></div>` : ''}
     ${totalTax > 0 ? `<div class="totals-row"><span class="k">Tax</span><span class="v">${USD(totalTax)}</span></div>` : ''}
     <div class="totals-row grand"><span class="k">Grand Total</span><span class="v">${USD(grandTotal)}</span></div>
     ${extraRows}
@@ -570,7 +608,8 @@ export function buildQuotationHTML(quotation, settings, logoDataURL = null, opts
 
   const items          = txn ? txn.items : (quotation.items || []);
   const docDiscountPct = Number(quotation.discount_pct || 0);
-  const { subtotal, totalDiscount, totalTax, grandTotal } = aggregateLines(items, C, docDiscountPct);
+  const { subtotal, totalDiscount, totalTax, grandTotal, docDisc, storedTax, docDiscLabel } =
+    documentTotals(quotation, items, C, txn);
 
   const status = quotation.status || 'Draft';
   const statusStyle = ({
@@ -592,9 +631,9 @@ export function buildQuotationHTML(quotation, settings, logoDataURL = null, opts
 
   const theme = themeFor(settings);
 
-  const body = `<table>${itemTableHTML(items, C, docDiscountPct)}</table>
+  const body = `<table>${itemTableHTML(items, C, docDiscountPct, storedTax)}</table>
 
-  ${totalsBoxHTML(subtotal, totalDiscount, totalTax, grandTotal, C)}
+  ${totalsBoxHTML(subtotal, totalDiscount, totalTax, grandTotal, C, '', { amount: docDisc, label: docDiscLabel })}
   ${totalWordsHTML(theme, grandTotal, CC, C)}
   ${rateNote}
 
@@ -696,7 +735,8 @@ export function buildInvoiceHTML(invoice, settings, logoDataURL = null, opts = {
   const items          = txn ? txn.items : (invoice.items || []);
   const payments       = invoice.payments || [];
   const docDiscountPct = Number(invoice.discount_pct || 0);
-  const { subtotal, totalDiscount, totalTax, grandTotal } = aggregateLines(items, C, docDiscountPct);
+  const { subtotal, totalDiscount, totalTax, grandTotal, docDisc, storedTax, docDiscLabel } =
+    documentTotals(invoice, items, C, txn);
 
   // What the customer has paid, in the money they paid it in.
   const paid    = payments.reduce(
@@ -764,9 +804,9 @@ export function buildInvoiceHTML(invoice, settings, logoDataURL = null, opts = {
 
   const theme = themeFor(settings);
 
-  const body = `<table>${itemTableHTML(items, C, docDiscountPct)}</table>
+  const body = `<table>${itemTableHTML(items, C, docDiscountPct, storedTax)}</table>
 
-  ${totalsBoxHTML(subtotal, totalDiscount, totalTax, grandTotal, C, extraTotalsRows)}
+  ${totalsBoxHTML(subtotal, totalDiscount, totalTax, grandTotal, C, extraTotalsRows, { amount: docDisc, label: docDiscLabel })}
   ${totalWordsHTML(theme, grandTotal, CC, C)}
   ${rateNote}
 
@@ -868,7 +908,8 @@ export async function exportInvoicePDF(invoice, opts = {}) {
 // ═══════════════════════════════════════════════════════════════════════════════
 // EXCEL — shared helpers
 // ═══════════════════════════════════════════════════════════════════════════════
-function excelItemsSheet(items, C, docDiscountPct, CC) {
+function excelItemsSheet(items, C, docDiscountPct, CC, doc = null) {
+  const totals = documentTotals(doc || {}, items, C, null);
   const taxOn  = C.taxOn && C.taxRate > 0;
   const hasDis = C.showDiscountCol;
   const hasTax = C.showTaxCol && taxOn;
@@ -888,7 +929,7 @@ function excelItemsSheet(items, C, docDiscountPct, CC) {
 
   const rows = (items || []).map((item, idx) => {
     const { qty, unitPrice, disc, discAmt, taxAmt, lineTotal } =
-      lineCalc(item, C.taxRate, taxOn, docDiscountPct);
+      lineCalc(item, C.taxRate, taxOn, docDiscountPct, totals.storedTax);
     return [
       idx + 1,
       // As text: a barcode with a leading zero is not a number, and Excel would
@@ -911,8 +952,7 @@ function excelItemsSheet(items, C, docDiscountPct, CC) {
     value,
   ];
 
-  const { subtotal, totalDiscount, totalTax, grandTotal } =
-    aggregateLines(items, C, docDiscountPct);
+  const { subtotal, totalDiscount, totalTax, grandTotal, docDisc, docDiscLabel } = totals;
 
   const blank = new Array(headers.length).fill('');
   return [
@@ -921,6 +961,7 @@ function excelItemsSheet(items, C, docDiscountPct, CC) {
     blank,
     summaryRow('SUBTOTAL', CC.conv(subtotal)),
     ...(hasDis && totalDiscount > 0 ? [summaryRow('DISCOUNT', CC.conv(-totalDiscount))] : []),
+    ...(docDisc > 0 ? [summaryRow(docDiscLabel.toUpperCase(), CC.conv(-docDisc))] : []),
     ...(totalTax > 0 ? [summaryRow('TAX', CC.conv(totalTax))] : []),
     summaryRow('GRAND TOTAL', CC.conv(grandTotal)),
   ];
@@ -935,7 +976,8 @@ export async function exportQuotationExcel(quotation, opts = {}) {
   const CC = currencyContext(C, opts);
   const items          = quotation.items || [];
   const docDiscountPct = Number(quotation.discount_pct || 0);
-  const { subtotal, totalDiscount, totalTax, grandTotal } = aggregateLines(items, C, docDiscountPct);
+  const { subtotal, totalDiscount, totalTax, grandTotal, docDisc, docDiscLabel } =
+    documentTotals(quotation, items, C, null);
   const cur   = CC.code;
   const taxOn = C.taxOn && C.taxRate > 0;
 
@@ -954,13 +996,14 @@ export async function exportQuotationExcel(quotation, opts = {}) {
     [],
     ['Subtotal',    CC.conv(subtotal)],
     ...(C.showDiscountCol && totalDiscount > 0 ? [['Discount', CC.conv(-totalDiscount)]] : []),
+    ...(docDisc > 0 ? [[docDiscLabel, CC.conv(-docDisc)]] : []),
     ...(totalTax > 0 ? [['Tax', CC.conv(totalTax)]] : []),
     ['GRAND TOTAL', CC.conv(grandTotal)],
   ];
 
   const wb  = XLSX.utils.book_new();
   const ws1 = XLSX.utils.aoa_to_sheet(summary);
-  const ws2 = XLSX.utils.aoa_to_sheet(excelItemsSheet(items, C, docDiscountPct, CC));
+  const ws2 = XLSX.utils.aoa_to_sheet(excelItemsSheet(items, C, docDiscountPct, CC, quotation));
   ws1['!cols'] = [{ wch: 18 }, { wch: 34 }];
   ws2['!cols'] = [{ wch: 4 }, { wch: 38 }, { wch: 8 }, { wch: 14 }, { wch: 12 }, { wch: 14 }, { wch: 14 }];
   XLSX.utils.book_append_sheet(wb, ws1, 'Summary');
@@ -978,7 +1021,8 @@ export async function exportInvoiceExcel(invoice, opts = {}) {
   const items          = invoice.items    || [];
   const payments       = invoice.payments || [];
   const docDiscountPct = Number(invoice.discount_pct || 0);
-  const { subtotal, totalDiscount, totalTax, grandTotal } = aggregateLines(items, C, docDiscountPct);
+  const { subtotal, totalDiscount, totalTax, grandTotal, docDisc, docDiscLabel } =
+    documentTotals(invoice, items, C, null);
   const paid    = payments.reduce((sum, p) => sum + (Number(p.amount) || 0), 0);
   const balance = Math.max(0, grandTotal - paid);
   const cur     = CC.code;
@@ -1000,6 +1044,7 @@ export async function exportInvoiceExcel(invoice, opts = {}) {
     [],
     ['Subtotal',    CC.conv(subtotal)],
     ...(C.showDiscountCol && totalDiscount > 0 ? [['Discount', CC.conv(-totalDiscount)]] : []),
+    ...(docDisc > 0 ? [[docDiscLabel, CC.conv(-docDisc)]] : []),
     ...(totalTax > 0 ? [['Tax', CC.conv(totalTax)]] : []),
     ['Total',       CC.conv(grandTotal)],
     ['Paid',        CC.conv(paid)],
@@ -1016,7 +1061,7 @@ export async function exportInvoiceExcel(invoice, opts = {}) {
 
   const wb = XLSX.utils.book_new();
   XLSX.utils.book_append_sheet(wb, XLSX.utils.aoa_to_sheet(summary), 'Summary');
-  XLSX.utils.book_append_sheet(wb, XLSX.utils.aoa_to_sheet(excelItemsSheet(items, C, docDiscountPct, CC)), 'Items');
+  XLSX.utils.book_append_sheet(wb, XLSX.utils.aoa_to_sheet(excelItemsSheet(items, C, docDiscountPct, CC, invoice)), 'Items');
   if (payRows.length) XLSX.utils.book_append_sheet(wb, XLSX.utils.aoa_to_sheet(payRows), 'Payments');
   XLSX.writeFile(wb, `${invoice.invoice_number || 'Invoice'}_export.xlsx`);
 }

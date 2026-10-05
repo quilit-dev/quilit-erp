@@ -461,8 +461,10 @@ def revenue_split(db: sqlite3.Connection, invoice_id: Optional[int],
         rows = db.execute(
             "SELECT COALESCE(revenue_account, ?) AS acct, "
             "       CASE WHEN COALESCE(tax_amount,0) > 0 THEN 1 ELSE 0 END AS taxed, "
+            # `doc_discount` is the line's share of a discount on the whole
+            # invoice --- part of the line's net like its own discount.
             "       SUM(COALESCE(quantity,0) * COALESCE(unit_price,0) "
-            "           - COALESCE(discount,0)) AS net_gross "
+            "           - COALESCE(discount,0) - COALESCE(doc_discount,0)) AS net_gross "
             "FROM invoice_items WHERE invoice_id = ? GROUP BY 1, 2",
             (goods, invoice_id),
         ).fetchall()

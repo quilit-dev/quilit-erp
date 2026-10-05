@@ -228,6 +228,13 @@ const en = {
     thanksBody: 'Thank you — support has the details and can see exactly what happened. You can carry on working.',
   },
 
+  docDiscount: {
+    label: 'Discount on whole document',
+    kind: 'Discount type',
+    none: 'None',
+    onInvoice: 'Discount on invoice {{what}}',
+    onQuote: 'Discount on quotation {{what}}',
+  },
   common: {
     client: 'Client',
     unitPrice: 'Unit price',

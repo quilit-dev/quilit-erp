@@ -16,6 +16,8 @@ import {
   Badge, ExportButton, fmt, fmtDate, toast, SortableTh, Pagination,
   DualMoney, ExchangeRateBadge, DisplayCurrencyToggle, NumberInput, BranchField} from '../components/shared';
 import { exportInvoicePDF, exportInvoiceExcel } from '../utils/exportUtils';
+import DocDiscountField from '../components/DocDiscountField.jsx';
+import { docDiscountTotal, allocateDocDiscount } from '../utils/docDiscount';
 import { printReceiptVoucher } from '../utils/receiptVoucher';
 import InventoryCombobox, { salePriceInBase } from '../components/InventoryCombobox';
 import { useLocale } from '../hooks/useLocale.jsx';
@@ -79,7 +81,7 @@ function usePromoPreview(items, enabled) {
 // `discount_auto` stays true until a person edits the field.
 const EMPTY_ITEM = { name: '', quantity: 1, unit_price: 0, discount_pct: '',
                      discount_auto: true, inventory_id: null, tax_rate_id: null };
-const EMPTY_FORM = { quotation_id: '', project_id: '', client_id: '', due_date: '', notes: '', branch_id: '', currency: '', exchange_rate: '', items: [{ ...EMPTY_ITEM }] };
+const EMPTY_FORM = { quotation_id: '', project_id: '', client_id: '', due_date: '', notes: '', branch_id: '', currency: '', exchange_rate: '', discount_type: '', discount_value: '', items: [{ ...EMPTY_ITEM }] };
 import { ActionMenu } from './invoices/ActionMenu';
 import SearchSelect from '../components/SearchSelect.jsx';
 
@@ -154,10 +156,19 @@ export default function Invoices() {
     const gross = (Number(item.quantity) || 0) * (Number(item.unit_price) || 0);
     return Math.max(0, gross - effDiscount(item, i));
   };
+  // A discount on the whole invoice, spread across the lines by net exactly
+  // as the server does it, so each line is taxed on what is left of it.
+  const docShares = () => {
+    const nets = (form.items || []).map((it, k) => lineNet(it, k));
+    const total = docDiscountTotal(nets.reduce((a, b) => a + b, 0),
+                                   form.discount_type, form.discount_value);
+    return allocateDocDiscount(nets, total);
+  };
   const lineTaxAmt = (item, i) => {
     if (!taxEnabled) return 0;
     const r = rateById(item.tax_rate_id);
-    return r ? lineNet(item, i) * (Number(r.rate) || 0) / 100 : 0;
+    const taxable = Math.max(0, lineNet(item, i) - (docShares()[i] || 0));
+    return r ? taxable * (Number(r.rate) || 0) / 100 : 0;
   };
 
 
@@ -256,6 +267,8 @@ export default function Invoices() {
         due_date:     full.due_date     || '',
         notes:        full.notes        || '',
         branch_id:    full.branch_id    ?? '',
+        discount_type:  full.discount_type  || '',
+        discount_value: full.discount_value ?? '',
         items: full.items?.length
           ? full.items.map(i => ({
               name: i.name,
@@ -323,8 +336,9 @@ export default function Invoices() {
   const invoiceDiscount  = discountEnabled
     ? (form.items || []).reduce((s, it, i) => s + effDiscount(it, i), 0)
     : 0;
+  const invoiceDocDiscount = docDiscountTotal(invoiceSubtotal, form.discount_type, form.discount_value);
   const invoiceTaxAmt    = (form.items || []).reduce((s, it, i) => s + lineTaxAmt(it, i), 0);
-  const invoiceTotal     = invoiceSubtotal + invoiceTaxAmt;
+  const invoiceTotal     = invoiceSubtotal - invoiceDocDiscount + invoiceTaxAmt;
 
   async function handleSave(e) {
     e.preventDefault(); setSaving(true);
@@ -343,6 +357,9 @@ export default function Invoices() {
         // their preference. Sending a currency only when one was chosen keeps
         // that decision in one place.
         currency:      form.currency || null,
+        // A discount on the whole invoice; the server prices it.
+        discount_type:  form.discount_type || null,
+        discount_value: form.discount_type ? (Number(form.discount_value) || 0) : null,
         exchange_rate: form.exchange_rate === '' ? null : Number(form.exchange_rate),
         items:        (form.items || []).map(i => ({
           name: i.name,
@@ -862,13 +879,24 @@ export default function Invoices() {
               </>;
               })()}
 
+              <div style={{ marginTop: 14 }}>
+                <DocDiscountField
+                  type={form.discount_type} value={form.discount_value} locked={amountsLocked}
+                  onChange={(type, value) => setForm(f => ({ ...f, discount_type: type, discount_value: value }))} />
+              </div>
               <div style={{ textAlign:'right', marginTop:14, fontSize:13, color:'var(--text-2)' }}>
-                {!amountsLocked && (invoiceTaxAmt > 0 || invoiceDiscount > 0) && (
+                {!amountsLocked && (invoiceTaxAmt > 0 || invoiceDiscount > 0 || invoiceDocDiscount > 0) && (
                   <>
                     <div>{t('common.subtotal')}: ${invoiceSubtotal.toFixed(2)}</div>
                     {invoiceDiscount > 0 && (
                       <div style={{ color: 'var(--affirm)' }}>
                         {t('common.discount')}: −${invoiceDiscount.toFixed(2)}
+                      </div>
+                    )}
+                    {invoiceDocDiscount > 0 && (
+                      <div style={{ color: 'var(--affirm)' }}>
+                        {t('docDiscount.onInvoice', { what: form.discount_type === 'percent'
+                          ? `${Number(form.discount_value)}%` : '' })}: −${invoiceDocDiscount.toFixed(2)}
                       </div>
                     )}
                     {invoiceTaxAmt > 0 && <div>{t('common.taxCol')}: ${invoiceTaxAmt.toFixed(2)}</div>}

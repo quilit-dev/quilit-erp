@@ -16,6 +16,7 @@ from permissions import require_perm
 from audit_log import log_action
 from routers.promotions import apply_promotions_to_lines
 from types import SimpleNamespace
+import doc_discount
 from utils import _now, get_tax_context, resolve_line_tax, money, notify, ArchiveMode, archive_clause
 from routers.projects import bump_project_status
 from approval_engine import evaluate_and_apply
@@ -69,7 +70,7 @@ class QuoteItem(BaseModel):
     tax_rate_id: Optional[int] = None
 
 
-def _price_quote_items(db, items, client_id=None):
+def _price_quote_items(db, items, client_id=None, doc_disc=None, out=None):
     """Roll up quotation line totals with per-line tax AND per-line discount.
 
     Net per line is `qty * unit_price - discount`, floored at 0 so a typo
@@ -78,6 +79,9 @@ def _price_quote_items(db, items, client_id=None):
     so SUM(line.tax_amount) == header.tax_total.
 
     Returns (subtotal, tax_total, line_tax) — line_tax parallel to `items`.
+
+    `doc_disc` / `out`: a discount on the whole quotation, exactly as
+    invoices._price_items takes it.
     """
     # Exempt customers are quoted the same way they will be invoiced —
     # a quote showing VAT the invoice will not charge loses the sale a
@@ -85,15 +89,17 @@ def _price_quote_items(db, items, client_id=None):
     ctx = get_tax_context(db, client_id)
     subtotal = tax_total = 0.0
     line_tax = []
-    for it in items:
-        qty   = float(it.quantity or 0)
-        price = float(it.unit_price or 0)
-        disc  = float(getattr(it, "discount", 0) or 0)
-        net = money(max(0.0, qty * price - disc))
-        rid, rate, tax_amt = resolve_line_tax(ctx, it.tax_rate_id, net)
-        subtotal  += net
+    nets = [money(max(0.0, float(it.quantity or 0) * float(it.unit_price or 0)
+                         - float(getattr(it, "discount", 0) or 0))) for it in items]
+    d_total = doc_discount.total_for(sum(nets), *doc_disc) if doc_disc else 0.0
+    allocs = doc_discount.allocate(nets, d_total)
+    for it, net, share in zip(items, nets, allocs):
+        rid, rate, tax_amt = resolve_line_tax(ctx, it.tax_rate_id, money(net - share))
+        subtotal  += money(net - share)
         tax_total += tax_amt
         line_tax.append((rid, rate, tax_amt))
+    if out is not None:
+        out["allocs"], out["discount"] = allocs, money(d_total)
     return money(subtotal), money(tax_total), line_tax
 
 def _col(row, key):
@@ -134,6 +140,10 @@ class QuotationCreate(BaseModel):
     # The currency the quote is given in. Omitted, the customer's own is used.
     currency:      Optional[str]   = None
     exchange_rate: Optional[float] = None
+    # A discount on the whole quotation, as on an invoice: 'percent' or
+    # 'amount' (in the quote's currency). Taken off before VAT.
+    discount_type:  Optional[str]   = None
+    discount_value: Optional[float] = None
 
 def _next_quote_number(db):
     from utils import get_setting
@@ -317,15 +327,24 @@ def create_quotation(
 
     # Priced from each side's own prices, as invoices are: converting the
     # totals afterwards leaves the base lines not summing to the base total.
+    # A discount on the whole quote: a percentage is the same on both sides;
+    # a fixed amount is typed in the quote's currency and converted for base.
+    d_type, d_value = doc_discount.normalise(data.discount_type, data.discount_value)
+    txn_disc = base_disc = (d_type, d_value) if d_type else None
+    if d_type == "amount" and not denomination.is_base(txn_currency):
+        base_disc = (d_type, denomination.to_base(d_value, fx_rate))
+    txn_out, base_out = {}, {}
     txn_total, txn_tax_total, txn_line_tax = _price_quote_items(
-        db, data.items, data.client_id)
+        db, data.items, data.client_id, txn_disc, txn_out)
     if denomination.is_base(txn_currency):
         total, tax_total, line_tax = txn_total, txn_tax_total, txn_line_tax
         base_items = list(data.items)
+        base_out = txn_out
     else:
         base_items = [_quote_line_in_base(it, fx_rate) for it in data.items]
         total, tax_total, line_tax = _price_quote_items(
-            db, base_items, data.client_id)
+            db, base_items, data.client_id, base_disc, base_out)
+    base_allocs = base_out.get("allocs") or [0.0] * len(base_items)
     qn    = _next_quote_number(db)
     now   = _now()
 
@@ -348,14 +367,20 @@ def create_quotation(
          txn_currency, fx_rate, txn_total, txn_tax_total),
     )
     qid = cur.lastrowid
+    if d_type:
+        db.execute(
+            "UPDATE quotations SET discount_type=?, discount_value=?, "
+            "       discount_total=?, txn_discount_total=? WHERE id=?",
+            (d_type, d_value, base_out.get("discount", 0.0),
+             txn_out.get("discount", 0.0), qid))
     for idx, item in enumerate(data.items):
         rid, rate, tax_amt = line_tax[idx]
         db.execute(
             "INSERT INTO quotation_items "
             "(quotation_id, name, quantity, unit_price, discount, discount_pct, total, tax_rate_id, "
             " tax_rate, tax_amount, inventory_id, promotion_id, "
-            " txn_unit_price, txn_tax_amount) "
-            "VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?)",
+            " txn_unit_price, txn_tax_amount, doc_discount) "
+            "VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)",
             (qid, item.name, item.quantity, base_items[idx].unit_price,
              float(getattr(base_items[idx], "discount", 0) or 0),
              getattr(item, "discount_pct", None),
@@ -368,7 +393,8 @@ def create_quotation(
              rid, rate, tax_amt,
              getattr(item, "inventory_id", None),
              promo_ids[idx] if idx < len(promo_ids) else None,
-             item.unit_price, txn_line_tax[idx][2]),
+             item.unit_price, txn_line_tax[idx][2],
+             base_allocs[idx] if idx < len(base_allocs) else 0.0),
         )
     # An active policy can gate a new quotation behind approval. The snapshot
     # keeps the requested status so an approval can release it back to it.
@@ -424,7 +450,11 @@ def update_quotation(
         raise HTTPException(400, "Use the Void action to void a quotation.")
 
     promo_ids = apply_promotions_to_lines(db, data.items)
-    total, tax_total, line_tax = _price_quote_items(db, data.items, data.client_id)
+    d_type, d_value = doc_discount.normalise(data.discount_type, data.discount_value)
+    d_out = {}
+    total, tax_total, line_tax = _price_quote_items(
+        db, data.items, data.client_id, (d_type, d_value) if d_type else None, d_out)
+    d_allocs = d_out.get("allocs") or [0.0] * len(data.items)
     invoice_amount = round(total + tax_total, 4)
 
     # Check if this quotation has already been converted to an invoice.
@@ -450,8 +480,10 @@ def update_quotation(
                 )
             # Safe to sync — no payments yet
             db.execute(
-                "UPDATE invoices SET amount=?, subtotal=?, tax_total=? WHERE id=?",
-                (invoice_amount, total, tax_total, inv["id"]),
+                "UPDATE invoices SET amount=?, subtotal=?, tax_total=?, discount_type=?, "
+                "       discount_value=?, discount_total=?, txn_discount_total=? WHERE id=?",
+                (invoice_amount, total, tax_total, d_type, d_value if d_type else None,
+                 d_out.get("discount", 0.0), d_out.get("discount", 0.0), inv["id"]),
             )
             # Replace invoice line items to stay in sync
             db.execute("DELETE FROM invoice_items WHERE invoice_id = ?", (inv["id"],))
@@ -459,9 +491,12 @@ def update_quotation(
                 rid, rate, tax_amt = line_tax[idx]
                 db.execute(
                     "INSERT INTO invoice_items "
-                    "(invoice_id, name, quantity, unit_price, tax_rate_id, tax_rate, tax_amount) "
-                    "VALUES (?,?,?,?,?,?,?)",
-                    (inv["id"], item.name, item.quantity, item.unit_price, rid, rate, tax_amt),
+                    "(invoice_id, name, quantity, unit_price, discount, tax_rate_id, tax_rate, "
+                    " tax_amount, doc_discount) "
+                    "VALUES (?,?,?,?,?,?,?,?,?)",
+                    (inv["id"], item.name, item.quantity, item.unit_price,
+                     float(getattr(item, "discount", 0) or 0), rid, rate, tax_amt,
+                     d_allocs[idx] if idx < len(d_allocs) else 0.0),
                 )
 
     if data.lead_id is not None and not db.execute(
@@ -471,10 +506,12 @@ def update_quotation(
     db.execute(
         "UPDATE quotations "
         "SET project_id=?, client_id=?, lead_id=?, project_name=?, status=?, notes=?, "
-        "    total=?, tax_total=? "
+        "    total=?, tax_total=?, discount_type=?, discount_value=?, discount_total=?, "
+        "    txn_discount_total=? "
         "WHERE id=?",
         (data.project_id, data.client_id, data.lead_id, data.project_name, data.status,
-         data.notes, total, tax_total, quote_id),
+         data.notes, total, tax_total, d_type, d_value if d_type else None,
+         d_out.get("discount", 0.0), d_out.get("discount", 0.0), quote_id),
     )
     db.execute(
         "DELETE FROM quotation_items WHERE quotation_id = ?", (quote_id,)
@@ -488,8 +525,8 @@ def update_quotation(
             # their agreed reduction.
             "INSERT INTO quotation_items "
             "(quotation_id, name, quantity, unit_price, discount, discount_pct, total, tax_rate_id, "
-            " tax_rate, tax_amount, inventory_id, promotion_id) "
-            "VALUES (?,?,?,?,?,?,?,?,?,?,?,?)",
+            " tax_rate, tax_amount, inventory_id, promotion_id, doc_discount) "
+            "VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?)",
             (quote_id, item.name, item.quantity, item.unit_price,
              float(getattr(item, "discount", 0) or 0),
              getattr(item, "discount_pct", None),
@@ -497,7 +534,8 @@ def update_quotation(
                             - float(getattr(item, "discount", 0) or 0)), 4),
              rid, rate, tax_amt,
              getattr(item, "inventory_id", None),
-             promo_ids[idx] if idx < len(promo_ids) else None),
+             promo_ids[idx] if idx < len(promo_ids) else None,
+             d_allocs[idx] if idx < len(d_allocs) else 0.0),
         )
     qref = db.execute("SELECT quote_number FROM quotations WHERE id = ?", (quote_id,)).fetchone()
     log_action(db, user, "update", "quotation", quote_id,
@@ -630,6 +668,10 @@ def convert_to_invoice(
         # either double-discount them or overwrite a hand-negotiated line.
         apply_promos=False,
         currency=quote_currency,
+        # The discount the customer was quoted on the whole quotation. Its
+        # value is in the quote's currency, which is the invoice's too.
+        discount_type=_col(q, "discount_type"),
+        discount_value=_col(q, "discount_value"),
     )
     inv_id, inv_no = res["invoice_id"], res["invoice_number"]
 

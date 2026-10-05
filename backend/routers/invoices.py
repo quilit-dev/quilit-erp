@@ -29,6 +29,7 @@ import denomination
 import branch_access
 import line_items
 import installments
+import doc_discount
 import sqlite3
 import uuid
 from datetime import datetime, timedelta
@@ -117,6 +118,10 @@ class InvoiceCreate(BaseModel):
     # the table's figure.
     currency:      Optional[str]   = None
     exchange_rate: Optional[float] = None
+    # A discount on the whole invoice: 'percent' (10 = 10% off) or 'amount'
+    # (in the invoice's own currency). Taken off before VAT --- doc_discount.py.
+    discount_type:  Optional[str]   = None
+    discount_value: Optional[float] = None
 
 class PaymentCreate(BaseModel):
     amount:           float                   # value tendered, expressed in `currency`
@@ -250,7 +255,8 @@ def _in_base(item, fx_rate):
     return SimpleNamespace(**fields)
 
 
-def _price_items(db, items, fallback_amount, client_id=None):
+def _price_items(db, items, fallback_amount, client_id=None,
+                 doc_disc=None, out=None):
     """Roll up invoice line totals with per-line tax AND per-line discount.
 
     Per-line net is computed as `qty * unit_price - discount`, floored at 0.
@@ -261,23 +267,36 @@ def _price_items(db, items, fallback_amount, client_id=None):
 
     Returns (subtotal, tax_total, grand_total, line_tax) where line_tax is a
     list parallel to `items` of (tax_rate_id, tax_rate, tax_amount).
+
+    `doc_disc` = (type, value) is a discount on the whole document, in the
+    same currency as these prices. It is spread across the lines by net, each
+    line is taxed on what is left, and `subtotal` is the net AFTER it. When
+    `out` is a dict it receives the per-line shares (`allocs`) and the total
+    taken off (`discount`). Without `doc_disc` nothing changes.
     """
     # The customer decides whether VAT applies at all: one registered as
     # exempt is charged none, whatever the line rates say.
     ctx = get_tax_context(db, client_id)
     line_tax = []
+    allocs, d_total = [], 0.0
     if items:
-        subtotal = tax_total = 0.0
+        # Per-line net at cents (after the line's own discount). max(0,...)
+        # keeps an over-large discount from producing a negative line that
+        # would distort the rollup.
+        nets = []
         for it in items:
             qty   = float(getattr(it, "quantity", 0) or 0)
             price = float(getattr(it, "unit_price", 0) or 0)
             disc  = float(getattr(it, "discount", 0) or 0)
-            # Per-line net at cents (after discount), tax is cent-rounded by
-            # the helper. max(0,...) keeps an over-large discount from
-            # producing a negative line that would distort the rollup.
-            net = money(max(0.0, qty * price - disc))
-            rid, rate, tax_amt = resolve_line_tax(ctx, it.tax_rate_id, net)
-            subtotal  += net
+            nets.append(money(max(0.0, qty * price - disc)))
+        if doc_disc:
+            d_total = doc_discount.total_for(sum(nets), *doc_disc)
+        allocs = doc_discount.allocate(nets, d_total)
+        subtotal = tax_total = 0.0
+        for it, net, share in zip(items, nets, allocs):
+            taxable = money(net - share)
+            rid, rate, tax_amt = resolve_line_tax(ctx, it.tax_rate_id, taxable)
+            subtotal  += taxable
             tax_total += tax_amt
             line_tax.append((rid, rate, tax_amt))
         # Header rollups are simple sums of cent-rounded lines, so they
@@ -285,7 +304,12 @@ def _price_items(db, items, fallback_amount, client_id=None):
         subtotal, tax_total = money(subtotal), money(tax_total)
     else:
         subtotal = money(fallback_amount or 0)
+        if doc_disc:
+            d_total = doc_discount.total_for(subtotal, *doc_disc)
+            subtotal = money(subtotal - d_total)
         _, _, tax_total = resolve_line_tax(ctx, None, subtotal)
+    if out is not None:
+        out["allocs"], out["discount"] = allocs, money(d_total)
     return subtotal, tax_total, money(subtotal + tax_total), line_tax
 
 
@@ -512,6 +536,8 @@ def build_invoice(
     currency=None,
     exchange_rate=None,
     prices_in_base=False,
+    discount_type=None,
+    discount_value=None,
 ):
     """Create one invoice and its item rows. The single correct way to raise an
     invoice from anywhere in the system.
@@ -596,26 +622,40 @@ def build_invoice(
     # list, in the company's own currency, and billing a European customer
     # means converting that list at the day's rate — which is what any business
     # with a dollar price list does.
+    # A discount on the whole invoice, applied to each side in that side's
+    # own money: a percentage is the same on both; a fixed amount is typed in
+    # the currency the prices were given in and converted for the other.
+    d_type, d_value = doc_discount.normalise(discount_type, discount_value)
+    base_disc = txn_disc = (d_type, d_value) if d_type else None
+    if d_type == "amount" and not denomination.is_base(txn_currency):
+        if prices_in_base:
+            txn_disc = (d_type, denomination.to_txn(d_value, fx_rate))
+        else:
+            base_disc = (d_type, denomination.to_base(d_value, fx_rate))
+    base_out, txn_out = {}, {}
+
     if prices_in_base or denomination.is_base(txn_currency):
         base_items = items
         subtotal, tax_total, computed_amount, line_tax = _price_items(
-            db, items, amount, client_id)
+            db, items, amount, client_id, base_disc, base_out)
         if denomination.is_base(txn_currency):
             txn_subtotal, txn_tax_total, txn_amount, txn_line_tax = (
                 subtotal, tax_total, computed_amount, line_tax)
+            txn_out = base_out
         else:
             txn_items = [_in_txn(it, fx_rate) for it in items]
             txn_subtotal, txn_tax_total, txn_amount, txn_line_tax = _price_items(
                 db, txn_items, denomination.to_txn(amount, fx_rate) if amount else amount,
-                client_id)
+                client_id, txn_disc, txn_out)
             items = txn_items      # the line rows print the customer's price
     else:
         txn_subtotal, txn_tax_total, txn_amount, txn_line_tax = _price_items(
-            db, items, amount, client_id)
+            db, items, amount, client_id, txn_disc, txn_out)
         base_items = [_in_base(it, fx_rate) for it in items]
         subtotal, tax_total, computed_amount, line_tax = _price_items(
             db, base_items, denomination.to_base(amount, fx_rate) if amount else amount,
-            client_id)
+            client_id, base_disc, base_out)
+    base_allocs = base_out.get("allocs") or [0.0] * len(base_items)
     if txn_amount <= 0:
         raise HTTPException(400, "Invoice amount must be positive")
     if computed_amount <= 0:
@@ -646,6 +686,12 @@ def build_invoice(
          txn_currency, fx_rate, txn_amount, txn_subtotal, txn_tax_total),
     )
     invoice_id = cur.lastrowid
+    if d_type:
+        db.execute(
+            "UPDATE invoices SET discount_type=?, discount_value=?, "
+            "       discount_total=?, txn_discount_total=? WHERE id=?",
+            (d_type, d_value, base_out.get("discount", 0.0),
+             txn_out.get("discount", 0.0), invoice_id))
     # Which of them raised this. Derived from the link the caller already
     # passed rather than a new argument every call site would have to remember.
     if service_job_id:
@@ -671,8 +717,8 @@ def build_invoice(
             "INSERT INTO invoice_items "
             "(invoice_id, name, quantity, unit_price, discount, discount_pct, "
             " tax_rate_id, tax_rate, tax_amount, inventory_id, promotion_id, "
-            " revenue_account, txn_unit_price, txn_tax_amount) "
-            "VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?)",
+            " revenue_account, txn_unit_price, txn_tax_amount, doc_discount) "
+            "VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)",
             (invoice_id, item.name, item.quantity, base_item.unit_price,
              float(getattr(base_item, "discount", 0) or 0),
              getattr(item, "discount_pct", None),
@@ -682,7 +728,9 @@ def build_invoice(
              # NULL means 4000 Sales Revenue. Only a service labour charge sets
              # this, so every other caller keeps today's behaviour exactly.
              getattr(item, "revenue_account", None),
-             item.unit_price, txn_tax_amt),
+             item.unit_price, txn_tax_amt,
+             # This line's share of a discount on the whole invoice (base).
+             base_allocs[idx] if idx < len(base_allocs) else 0.0),
         )
 
     # An active policy can gate the invoice behind approval. A gated invoice is
@@ -736,6 +784,7 @@ def create_invoice(
         quotation_id=data.quotation_id, project_id=data.project_id,
         branch_id=data.branch_id,
         currency=data.currency, exchange_rate=data.exchange_rate,
+        discount_type=data.discount_type, discount_value=data.discount_value,
     )
     log_action(db, user, "create", "invoice", res["invoice_id"],
                res["invoice_number"], {"amount": res["amount"]})
@@ -800,8 +849,12 @@ def update_invoice(
     else:
         items    = data.items or []
         promo_ids = apply_promotions_to_lines(db, items)
+        d_type, d_value = doc_discount.normalise(data.discount_type, data.discount_value)
+        d_out = {}
         subtotal, tax_total, computed_amount, line_tax = _price_items(
-            db, items, data.amount, data.client_id)
+            db, items, data.amount, data.client_id,
+            (d_type, d_value) if d_type else None, d_out)
+        d_allocs = d_out.get("allocs") or [0.0] * len(items)
 
         rows_updated = db.execute(
             "UPDATE invoices "
@@ -814,6 +867,11 @@ def update_invoice(
         ).rowcount
         if rows_updated == 0:
             raise HTTPException(409, "This invoice was modified by another user. Please refresh and try again.")
+        db.execute(
+            "UPDATE invoices SET discount_type=?, discount_value=?, discount_total=?, "
+            "       txn_discount_total=? WHERE id=?",
+            (d_type, d_value if d_type else None, d_out.get("discount", 0.0),
+             d_out.get("discount", 0.0), invoice_id))
 
         # Restate the receivable to the new total. Only reachable when the
         # invoice has NO payments (amounts are locked once money arrives), so
@@ -842,14 +900,15 @@ def update_invoice(
             db.execute(
                 "INSERT INTO invoice_items "
                 "(invoice_id, name, quantity, unit_price, discount, discount_pct, tax_rate_id, "
-                " tax_rate, tax_amount, inventory_id, promotion_id) "
-                "VALUES (?,?,?,?,?,?,?,?,?,?,?)",
+                " tax_rate, tax_amount, inventory_id, promotion_id, doc_discount) "
+                "VALUES (?,?,?,?,?,?,?,?,?,?,?,?)",
                 (invoice_id, item.name, item.quantity, item.unit_price,
                  float(getattr(item, "discount", 0) or 0),
                  getattr(item, "discount_pct", None),
                  rid, rate, tax_amt,
                  getattr(item, "inventory_id", None),
-                 promo_ids[idx] if idx < len(promo_ids) else None),
+                 promo_ids[idx] if idx < len(promo_ids) else None,
+                 d_allocs[idx] if idx < len(d_allocs) else 0.0),
             )
         log_action(db, user, "update", "invoice", invoice_id,
                    inv["invoice_number"], {"amount": computed_amount})

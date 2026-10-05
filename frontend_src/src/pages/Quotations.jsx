@@ -24,6 +24,8 @@ import { useRecordExport } from '../hooks/useRecordExport';
 import { useFocusId } from '../hooks/useFocusId';
 import { useServerList } from '../hooks/useServerList';
 import SearchSelect from '../components/SearchSelect.jsx';
+import DocDiscountField from '../components/DocDiscountField.jsx';
+import { docDiscountTotal, allocateDocDiscount } from '../utils/docDiscount';
 
 const STATUSES   = ['Draft', 'Sent', 'Accepted', 'Rejected'];
 // `discount` (in functional currency) is opt-in via Settings → "Enable
@@ -77,7 +79,7 @@ function usePromoPreview(items, enabled) {
 // `discount_auto` stays true until a person edits the field.
 const EMPTY_ITEM = { name: '', quantity: 1, unit_price: 0, discount_pct: '',
                      discount_auto: true, inventory_id: null, tax_rate_id: null };
-const makeEmpty  = () => ({ client_id: '', lead_id: '', project_id: '', project_name: '', status: 'Draft', notes: '', branch_id: '', items: [{ ...EMPTY_ITEM }] });
+const makeEmpty  = () => ({ client_id: '', lead_id: '', project_id: '', project_name: '', status: 'Draft', notes: '', branch_id: '', discount_type: '', discount_value: '', items: [{ ...EMPTY_ITEM }] });
 
 const menuItemStyle = {
   display: 'flex', alignItems: 'center', gap: 8, width: '100%', padding: '8px 14px',
@@ -319,6 +321,8 @@ export default function Quotations() {
         status:     full.status || 'Draft',
         notes:      full.notes  || '',
         branch_id:  full.branch_id ?? '',
+        discount_type:  full.discount_type  || '',
+        discount_value: full.discount_value ?? '',
         items: full.items?.length
           ? full.items.map(i => ({
               name: i.name,
@@ -455,17 +459,26 @@ export default function Quotations() {
     const gross = (Number(item.quantity) || 0) * (Number(item.unit_price) || 0);
     return Math.max(0, gross - effDiscount(item, i));
   };
+  // A discount on the whole quotation, spread across the lines by net as
+  // the server does it, so each line is taxed on what is left of it.
+  const docShares = () => {
+    const nets = form.items.map((it, k) => lineNet(it, k));
+    const sum = nets.reduce((a, b) => a + b, 0);
+    return allocateDocDiscount(nets, docDiscountTotal(sum, form.discount_type, form.discount_value));
+  };
   const lineTaxAmt = (item, i) => {
     if (!taxEnabled) return 0;
     const r = rateById(item.tax_rate_id);
-    return r ? lineNet(item, i) * (Number(r.rate) || 0) / 100 : 0;
+    const taxable = Math.max(0, lineNet(item, i) - (docShares()[i] || 0));
+    return r ? taxable * (Number(r.rate) || 0) / 100 : 0;
   };
   const subtotal     = form.items.reduce((s, it, i) => s + lineNet(it, i), 0);
   // Counts promotions too: a reduction the customer receives belongs in the
   // total whether or not manual per-line discounts are switched on.
   const discountTotal = form.items.reduce((s, it, i) => s + effDiscount(it, i), 0);
+  const quoteDocDiscount = docDiscountTotal(subtotal, form.discount_type, form.discount_value);
   const quoteTaxAmt  = form.items.reduce((s, it, i) => s + lineTaxAmt(it, i), 0);
-  const total        = subtotal + quoteTaxAmt;
+  const total        = subtotal - quoteDocDiscount + quoteTaxAmt;
 
   async function handleSave(e) {
     e.preventDefault(); setSaving(true);
@@ -477,6 +490,9 @@ export default function Quotations() {
         project_name: (!form.project_id && form.project_name.trim()) ? form.project_name.trim() : null,
         status: form.status, notes: form.notes || null,
         branch_id: form.branch_id || null,
+        // A discount on the whole quotation; the server prices it.
+        discount_type:  form.discount_type || null,
+        discount_value: form.discount_type ? (Number(form.discount_value) || 0) : null,
         items: form.items.map(i => ({
           name: i.name,
           quantity: Number(i.quantity)||0,
@@ -917,8 +933,13 @@ export default function Quotations() {
                   </div>
                 ))}
 
+                <div style={{ marginTop: 14 }}>
+                  <DocDiscountField
+                    type={form.discount_type} value={form.discount_value}
+                    onChange={(type, value) => setForm(f => ({ ...f, discount_type: type, discount_value: value }))} />
+                </div>
                 <div style={{ textAlign:'right', marginTop:14, fontSize:13, color:'var(--text-2)' }}>
-                  {(quoteTaxAmt > 0 || discountTotal > 0) && (
+                  {(quoteTaxAmt > 0 || discountTotal > 0 || quoteDocDiscount > 0) && (
                     <>
                       <div>{t('common.subtotal')}: {fmt(subtotal)}</div>
                       {discountTotal > 0 && (
@@ -926,10 +947,16 @@ export default function Quotations() {
                           {t('common.discount')}: −{fmt(discountTotal)}
                         </div>
                       )}
+                      {quoteDocDiscount > 0 && (
+                        <div style={{ color: 'var(--affirm)' }}>
+                          {t('docDiscount.onQuote', { what: form.discount_type === 'percent'
+                            ? `${Number(form.discount_value)}%` : '' })}: −{fmt(quoteDocDiscount)}
+                        </div>
+                      )}
                       {quoteTaxAmt > 0 && <div>{t('common.taxCol')}: {fmt(quoteTaxAmt)}</div>}
                     </>
                   )}
-                  <div style={{ fontWeight:700, fontSize:16, color:'var(--text-1)', marginTop: (quoteTaxAmt > 0 || discountTotal > 0) ? 4 : 0 }}>
+                  <div style={{ fontWeight:700, fontSize:16, color:'var(--text-1)', marginTop: (quoteTaxAmt > 0 || discountTotal > 0 || quoteDocDiscount > 0) ? 4 : 0 }}>
                     {t('common.total')}: <DualMoney value={total} block={false} />
                   </div>
                 </div>

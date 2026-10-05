@@ -967,7 +967,11 @@ def reconciliation(
     # rates (which the line-snapshot system supports by design).
     rows = db.execute("""
         SELECT i.id, i.invoice_number, i.amount, i.subtotal, i.tax_total,
-               COALESCE(SUM(ii.quantity * ii.unit_price), 0) AS items_subtotal,
+               -- The lines' NET: a line discount and a share of a discount
+               -- on the whole invoice both come off. Comparing against the
+               -- gross flagged every discounted invoice as a mismatch.
+               COALESCE(SUM(ii.quantity * ii.unit_price - COALESCE(ii.discount, 0)
+                            - COALESCE(ii.doc_discount, 0)), 0) AS items_subtotal,
                COALESCE(SUM(ii.tax_amount), 0)               AS items_tax,
                COUNT(ii.id) AS item_count
         FROM invoices i
@@ -975,7 +979,9 @@ def reconciliation(
         WHERE i.archived_at IS NULL AND i.voided_at IS NULL
         GROUP BY i.id
         HAVING COUNT(ii.id) > 0
-           AND ABS(i.amount - (COALESCE(SUM(ii.quantity * ii.unit_price), 0)
+           AND ABS(i.amount - (COALESCE(SUM(ii.quantity * ii.unit_price
+                                            - COALESCE(ii.discount, 0)
+                                            - COALESCE(ii.doc_discount, 0)), 0)
                                + COALESCE(SUM(ii.tax_amount), 0))) > 0.02
     """).fetchall()
     for r in rows:

@@ -173,7 +173,7 @@ def _sales(db, start, end):
            AND created_at >= ? AND created_at <= ?""", (start, end + " 23:59:59"))
 
     discount = _one(db, """
-        SELECT COALESCE(SUM(it.discount),0)
+        SELECT COALESCE(SUM(COALESCE(it.discount,0) + COALESCE(it.doc_discount,0)),0)
           FROM invoice_items it JOIN invoices inv ON inv.id = it.invoice_id
          WHERE inv.voided_at IS NULL AND inv.archived_at IS NULL
            AND inv.created_at >= ? AND inv.created_at <= ?""",

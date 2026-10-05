@@ -4642,6 +4642,31 @@ def _run_migrations(conn, c):
     add_col("187c_employee_rota_anchor", "hr_employees", "saturday_rota_anchor",
             "ALTER TABLE hr_employees ADD COLUMN saturday_rota_anchor TEXT")
 
+    # ── 192: a discount on the whole invoice or quotation ────────────────
+    # Type and value as entered, the total it took off (base and the
+    # document's own currency), and each line's share of it --- see
+    # doc_discount.py for why the share is stored on the line.
+    add_col("192a_invoices_discount_type", "invoices", "discount_type",
+            "ALTER TABLE invoices ADD COLUMN discount_type TEXT")
+    add_col("192b_invoices_discount_value", "invoices", "discount_value",
+            "ALTER TABLE invoices ADD COLUMN discount_value REAL")
+    add_col("192c_invoices_discount_total", "invoices", "discount_total",
+            "ALTER TABLE invoices ADD COLUMN discount_total REAL NOT NULL DEFAULT 0")
+    add_col("192d_invoices_txn_discount_total", "invoices", "txn_discount_total",
+            "ALTER TABLE invoices ADD COLUMN txn_discount_total REAL NOT NULL DEFAULT 0")
+    add_col("192e_quotations_discount_type", "quotations", "discount_type",
+            "ALTER TABLE quotations ADD COLUMN discount_type TEXT")
+    add_col("192f_quotations_discount_value", "quotations", "discount_value",
+            "ALTER TABLE quotations ADD COLUMN discount_value REAL")
+    add_col("192g_quotations_discount_total", "quotations", "discount_total",
+            "ALTER TABLE quotations ADD COLUMN discount_total REAL NOT NULL DEFAULT 0")
+    add_col("192h_quotations_txn_discount_total", "quotations", "txn_discount_total",
+            "ALTER TABLE quotations ADD COLUMN txn_discount_total REAL NOT NULL DEFAULT 0")
+    add_col("192i_invoice_items_doc_discount", "invoice_items", "doc_discount",
+            "ALTER TABLE invoice_items ADD COLUMN doc_discount REAL NOT NULL DEFAULT 0")
+    add_col("192j_quotation_items_doc_discount", "quotation_items", "doc_discount",
+            "ALTER TABLE quotation_items ADD COLUMN doc_discount REAL NOT NULL DEFAULT 0")
+
     # ── 191: who may read the Profit Summary ────────────────────────────────
     # The owner, and every role that can already open Accounting: those roles
     # see the income statement, so the summary tells them nothing new. Nobody
@@ -6049,6 +6074,17 @@ def _ensure_pg_post_baseline(raw):
                     "saturday_rota TEXT")
         cur.execute("ALTER TABLE hr_employees ADD COLUMN IF NOT EXISTS "
                     "saturday_rota_anchor TEXT")
+        # 192: a discount on the whole invoice or quotation.
+        cur.execute("ALTER TABLE invoices ADD COLUMN IF NOT EXISTS discount_type TEXT")
+        cur.execute("ALTER TABLE invoices ADD COLUMN IF NOT EXISTS discount_value DOUBLE PRECISION")
+        cur.execute("ALTER TABLE invoices ADD COLUMN IF NOT EXISTS discount_total DOUBLE PRECISION NOT NULL DEFAULT 0")
+        cur.execute("ALTER TABLE invoices ADD COLUMN IF NOT EXISTS txn_discount_total DOUBLE PRECISION NOT NULL DEFAULT 0")
+        cur.execute("ALTER TABLE quotations ADD COLUMN IF NOT EXISTS discount_type TEXT")
+        cur.execute("ALTER TABLE quotations ADD COLUMN IF NOT EXISTS discount_value DOUBLE PRECISION")
+        cur.execute("ALTER TABLE quotations ADD COLUMN IF NOT EXISTS discount_total DOUBLE PRECISION NOT NULL DEFAULT 0")
+        cur.execute("ALTER TABLE quotations ADD COLUMN IF NOT EXISTS txn_discount_total DOUBLE PRECISION NOT NULL DEFAULT 0")
+        cur.execute("ALTER TABLE invoice_items ADD COLUMN IF NOT EXISTS doc_discount DOUBLE PRECISION NOT NULL DEFAULT 0")
+        cur.execute("ALTER TABLE quotation_items ADD COLUMN IF NOT EXISTS doc_discount DOUBLE PRECISION NOT NULL DEFAULT 0")
         # 191: who may read the Profit Summary (see the SQLite chain).
         cur.execute("SELECT 1 FROM schema_migrations "
                     "WHERE name='191_profit_report_capability'")
