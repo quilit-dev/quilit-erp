@@ -17,6 +17,7 @@ import {
   DualMoney, ExchangeRateBadge, DisplayCurrencyToggle, NumberInput, BranchField} from '../components/shared';
 import { exportInvoicePDF, exportInvoiceExcel } from '../utils/exportUtils';
 import DocDiscountField from '../components/DocDiscountField.jsx';
+import QtyWithUnit from '../components/QtyWithUnit.jsx';
 import { docDiscountTotal, allocateDocDiscount } from '../utils/docDiscount';
 import { printReceiptVoucher } from '../utils/receiptVoucher';
 import InventoryCombobox, { salePriceInBase } from '../components/InventoryCombobox';
@@ -291,6 +292,7 @@ export default function Invoices() {
               // link — losing it here would drop the promotion on every edit.
               inventory_id: i.inventory_id ?? null,
               tax_rate_id: i.tax_rate_id ?? null,
+              unit: i.unit || null,
             }))
           : [{ ...EMPTY_ITEM }],
       });
@@ -327,6 +329,8 @@ export default function Invoices() {
         ...item, name,
         ...(base !== null ? { unit_price: base } : {}),
         inventory_id: meta?.inventory_id ?? null,
+        // What the quantity counts, from the stock item. A typed line has none.
+        unit: meta?.unit ?? null,
       };
     }),
   }));
@@ -377,6 +381,7 @@ export default function Invoices() {
           // promotions on every document, with nothing to show why.
           inventory_id: i.inventory_id ?? null,
           tax_rate_id: i.tax_rate_id ?? null,
+          unit: i.unit || null,
         })),
         version:      editVersion,
       };
@@ -817,7 +822,7 @@ export default function Invoices() {
                         onChange={(name, price, meta) => setItemFromInventory(i, name, price, meta)}
                       />
                     )}
-                    <NumberInput className="form-control" placeholder={t('common.quantity')} min="0" step="any"
+                    <QtyWithUnit unit={item.unit} placeholder={t('common.quantity')} min="0" step="any"
                       title={t('lineItem.qtyTitle')}
                       value={item.quantity} onChange={e => setItem(i, 'quantity', e.target.value)}
                       disabled={amountsLocked} style={amountsLocked ? { opacity:0.6 } : {}} />

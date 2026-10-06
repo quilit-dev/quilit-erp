@@ -30,12 +30,36 @@ def attach_barcodes(db: sqlite3.Connection, items: list) -> list:
     if ids:
         try:
             rows = db.execute(
-                "SELECT id, barcode FROM inventory WHERE id IN "
+                "SELECT id, barcode, unit FROM inventory WHERE id IN "
                 "(" + ",".join("?" * len(ids)) + ")", tuple(ids)).fetchall()
-            by_id = {r["id"]: r["barcode"] for r in rows}
+            by_id = {r["id"]: (r["barcode"], r["unit"]) for r in rows}
         except sqlite3.Error:
             by_id = {}
 
     for i in items:
-        i["barcode"] = by_id.get(i.get("inventory_id")) or None
+        barcode, unit = by_id.get(i.get("inventory_id")) or (None, None)
+        i["barcode"] = barcode or None
+        # The unit the line was sold in is stored on the line. A line written
+        # before units were stored has none, and falls back to its stock
+        # item's --- so an older invoice still prints "5 kg", not a bare 5.
+        if not i.get("unit"):
+            i["unit"] = unit or None
     return items
+
+
+def unit_for(db: sqlite3.Connection, item) -> "str | None":
+    """The unit to store on a new line: what the caller sent, else the
+    stock item's own unit when the line was picked from stock, else none
+    (a hand-typed line --- a delivery charge --- has no unit). Never raises."""
+    given = getattr(item, "unit", None) if not isinstance(item, dict) else item.get("unit")
+    if given and str(given).strip():
+        return str(given).strip()[:20]
+    inv_id = (getattr(item, "inventory_id", None) if not isinstance(item, dict)
+              else item.get("inventory_id"))
+    if not inv_id:
+        return None
+    try:
+        row = db.execute("SELECT unit FROM inventory WHERE id=?", (inv_id,)).fetchone()
+    except sqlite3.Error:
+        return None
+    return (row["unit"] or None) if row else None

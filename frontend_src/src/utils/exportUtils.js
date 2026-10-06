@@ -215,6 +215,8 @@ body {
   display: flex; justify-content: space-between; align-items: flex-start;
   padding-bottom: 8px; border-bottom: 2.5px solid var(--brand); margin-bottom: 10px;
 }
+/* The unit beside a quantity: "5 kg". Lighter, so the figure leads. */
+.qty-unit { font-size: 0.85em; color: #64748b; }
 .company-logo { height: 48px; width: auto; max-width: 220px; margin-bottom: 3px; object-fit: contain; }
 .company-name { font-size: 14px; font-weight: 700; color: var(--brand); letter-spacing: -0.2px; }
 .company-meta { font-size: 8px; color: var(--text-muted); margin-top: 2px; line-height: 1.35; }
@@ -473,7 +475,7 @@ function itemTableHTML(items, C, docDiscountPct = 0, storedTax = false) {
       <td class="seq">${i + 1}</td>
       ${hasBar ? `<td class="barcode">${item.barcode || '—'}</td>` : ''}
       <td><div class="item-name">${item.name || '—'}</div>${item.description ? `<div class="item-desc">${item.description}</div>` : ''}</td>
-      <td class="r">${qty.toLocaleString('en-US', { maximumFractionDigits: 4 })}</td>
+      <td class="r">${qty.toLocaleString('en-US', { maximumFractionDigits: 4 })}${item.unit ? ` <span class="qty-unit">${String(item.unit).replace(/[<>&"]/g, '')}</span>` : ''}</td>
       <td class="r">${USD(unitPrice)}</td>
       ${hasDis ? `<td class="r" style="color:#d97706">${disc > 0 ? `${disc}%<br><span style="font-size:8px">(${USD(discAmt)})</span>` : '—'}</td>` : ''}
       ${hasTax ? `<td class="r" style="color:#1B4F72">${taxAmt > 0 ? `${rate}%<br><span style="font-size:8px">(${USD(taxAmt)})</span>` : '—'}</td>` : ''}
@@ -911,7 +913,7 @@ function excelItemsSheet(items, C, docDiscountPct, CC, doc = null) {
   const hasBar = C.showBarcodeCol;
 
   const headers = [
-    '#', ...(hasBar ? ['Barcode'] : []), 'Description', 'Qty', `Unit Price (${cur})`,
+    '#', ...(hasBar ? ['Barcode'] : []), 'Description', 'Qty', 'Unit', `Unit Price (${cur})`,
     ...(hasDis ? ['Discount %', `Discount Amt (${cur})`] : []),
     ...(hasTax ? [`Tax (${cur})`]                         : []),
     `Line Total (${cur})`,
@@ -925,7 +927,7 @@ function excelItemsSheet(items, C, docDiscountPct, CC, doc = null) {
       // As text: a barcode with a leading zero is not a number, and Excel would
       // eat the zero and leave a code that scans as a different product.
       ...(hasBar ? [item.barcode ? String(item.barcode) : ''] : []),
-      item.name, qty, CC.conv(unitPrice),
+      item.name, qty, item.unit || '', CC.conv(unitPrice),
       ...(hasDis ? [disc, CC.conv(discAmt)] : []),
       ...(hasTax ? [CC.conv(taxAmt)]        : []),
       CC.conv(lineTotal),
@@ -934,7 +936,7 @@ function excelItemsSheet(items, C, docDiscountPct, CC, doc = null) {
 
   // Helper: build a summary row with correct number of blank cells
   const summaryRow = (label, value) => [
-    '', '', '',
+    '', '', '', '',
     ...(hasBar ? [''] : []),
     label,
     ...(hasDis ? ['', ''] : []),

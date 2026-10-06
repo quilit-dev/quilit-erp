@@ -25,6 +25,7 @@ import { useFocusId } from '../hooks/useFocusId';
 import { useServerList } from '../hooks/useServerList';
 import SearchSelect from '../components/SearchSelect.jsx';
 import DocDiscountField from '../components/DocDiscountField.jsx';
+import QtyWithUnit from '../components/QtyWithUnit.jsx';
 import { docDiscountTotal, allocateDocDiscount } from '../utils/docDiscount';
 
 const STATUSES   = ['Draft', 'Sent', 'Accepted', 'Rejected'];
@@ -345,6 +346,7 @@ export default function Quotations() {
               // link — losing it here would drop the promotion on every edit.
               inventory_id: i.inventory_id ?? null,
               tax_rate_id: i.tax_rate_id ?? null,
+              unit: i.unit || null,
             }))
           : [{ ...EMPTY_ITEM }],
       });
@@ -380,6 +382,8 @@ export default function Quotations() {
         ...item, name,
         ...(base !== null ? { unit_price: base } : {}),
         inventory_id: meta?.inventory_id ?? null,
+        // What the quantity counts, from the stock item. A typed line has none.
+        unit: meta?.unit ?? null,
       };
     }),
   }));
@@ -391,7 +395,7 @@ export default function Quotations() {
                                  settings?.default_currency || 'USD');
     return { ...EMPTY_ITEM, name: inv.name,
              ...(base !== null ? { unit_price: base } : {}),
-             inventory_id: inv.id };
+             inventory_id: inv.id, unit: inv.unit || null };
   };
   // Appends the given stock items. An item already on the quotation is not
   // added twice, and the blank starter line is replaced rather than left
@@ -509,6 +513,7 @@ export default function Quotations() {
           // promotions on every document, with nothing to show why.
           inventory_id: i.inventory_id ?? null,
           tax_rate_id: i.tax_rate_id ?? null,
+          unit: i.unit || null,
         })),
       };
       if (editId) { await updateQuotation(editId, payload); toast(t('quotations.quotationUpdated')); }
@@ -904,7 +909,7 @@ export default function Quotations() {
                       placeholder={t('lineItem.itemPh')}
                       onChange={(name, price, meta) => setItemFromInventory(i, name, price, meta)}
                     />
-                    <NumberInput className="form-control" placeholder={t('common.quantity')} min="0" step="any"
+                    <QtyWithUnit unit={item.unit} placeholder={t('common.quantity')} min="0" step="any"
                       title={t('lineItem.qtyTitle')}
                       value={item.quantity} onChange={e => setItem(i, 'quantity', e.target.value)} />
                     <NumberInput className="form-control" placeholder={t('lineItem.unitPricePh')} min="0" step="0.01"

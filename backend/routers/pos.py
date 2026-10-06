@@ -26,6 +26,7 @@ from permissions import require_perm, can as _can
 from audit_log import log_action
 from routers.finance import _check_period_locked
 from utils import _now, _today, notify, get_tax_context, resolve_inclusive_tax, money, validate_int_qty
+import line_items
 import costing
 import costs
 import lots
@@ -969,12 +970,13 @@ def _ring_sale(db, user, data: PosCheckout, session, *,
         ic = db.execute(
             "INSERT INTO invoice_items "
             "(invoice_id, name, quantity, unit_price, tax_rate_id, tax_rate, tax_amount, discount, "
-            " txn_unit_price, txn_tax_amount) "
-            "VALUES (?,?,?,?,?,?,?,?,?,?)",
+            " txn_unit_price, txn_tax_amount, unit, inventory_id) "
+            "VALUES (?,?,?,?,?,?,?,?,?,?,?,?)",
             (invoice_id, it.name, it.quantity, ln["net_unit"],
              ln["rid"], ln["rate"], ln["tax_amt"], ln["discount"],
              denomination.to_txn(ln["net_unit"], inv_rate),
-             denomination.to_txn(ln["tax_amt"], inv_rate)),
+             denomination.to_txn(ln["tax_amt"], inv_rate),
+             line_items.unit_for(db, it), getattr(it, "inventory_id", None)),
         )
         invoice_item_ids.append(ic.lastrowid)
 

@@ -38,6 +38,8 @@ class QuoteItem(BaseModel):
     name: str
     quantity: float
     unit_price: float
+    # What the quantity counts (kg, pcs, m), as on an invoice line.
+    unit: Optional[str] = None
     # Per-line discount in functional currency. Defaults to 0 so callers that
     # never use discounts (and the existing API contract) keep working
     # unchanged. The pricing roll-up subtracts it from the net before tax,
@@ -379,8 +381,8 @@ def create_quotation(
             "INSERT INTO quotation_items "
             "(quotation_id, name, quantity, unit_price, discount, discount_pct, total, tax_rate_id, "
             " tax_rate, tax_amount, inventory_id, promotion_id, "
-            " txn_unit_price, txn_tax_amount, doc_discount) "
-            "VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)",
+            " txn_unit_price, txn_tax_amount, doc_discount, unit) "
+            "VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)",
             (qid, item.name, item.quantity, base_items[idx].unit_price,
              float(getattr(base_items[idx], "discount", 0) or 0),
              getattr(item, "discount_pct", None),
@@ -394,7 +396,8 @@ def create_quotation(
              getattr(item, "inventory_id", None),
              promo_ids[idx] if idx < len(promo_ids) else None,
              item.unit_price, txn_line_tax[idx][2],
-             base_allocs[idx] if idx < len(base_allocs) else 0.0),
+             base_allocs[idx] if idx < len(base_allocs) else 0.0,
+             line_items.unit_for(db, item)),
         )
     # An active policy can gate a new quotation behind approval. The snapshot
     # keeps the requested status so an approval can release it back to it.
@@ -492,11 +495,12 @@ def update_quotation(
                 db.execute(
                     "INSERT INTO invoice_items "
                     "(invoice_id, name, quantity, unit_price, discount, tax_rate_id, tax_rate, "
-                    " tax_amount, doc_discount) "
-                    "VALUES (?,?,?,?,?,?,?,?,?)",
+                    " tax_amount, doc_discount, unit, inventory_id) "
+                    "VALUES (?,?,?,?,?,?,?,?,?,?,?)",
                     (inv["id"], item.name, item.quantity, item.unit_price,
                      float(getattr(item, "discount", 0) or 0), rid, rate, tax_amt,
-                     d_allocs[idx] if idx < len(d_allocs) else 0.0),
+                     d_allocs[idx] if idx < len(d_allocs) else 0.0,
+                     line_items.unit_for(db, item), getattr(item, "inventory_id", None)),
                 )
 
     if data.lead_id is not None and not db.execute(
@@ -525,8 +529,8 @@ def update_quotation(
             # their agreed reduction.
             "INSERT INTO quotation_items "
             "(quotation_id, name, quantity, unit_price, discount, discount_pct, total, tax_rate_id, "
-            " tax_rate, tax_amount, inventory_id, promotion_id, doc_discount) "
-            "VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?)",
+            " tax_rate, tax_amount, inventory_id, promotion_id, doc_discount, unit) "
+            "VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?)",
             (quote_id, item.name, item.quantity, item.unit_price,
              float(getattr(item, "discount", 0) or 0),
              getattr(item, "discount_pct", None),
@@ -535,7 +539,8 @@ def update_quotation(
              rid, rate, tax_amt,
              getattr(item, "inventory_id", None),
              promo_ids[idx] if idx < len(promo_ids) else None,
-             d_allocs[idx] if idx < len(d_allocs) else 0.0),
+             d_allocs[idx] if idx < len(d_allocs) else 0.0,
+             line_items.unit_for(db, item)),
         )
     qref = db.execute("SELECT quote_number FROM quotations WHERE id = ?", (quote_id,)).fetchone()
     log_action(db, user, "update", "quotation", quote_id,
@@ -631,7 +636,7 @@ def convert_to_invoice(
 
     quote_items = db.execute(
         "SELECT name, quantity, unit_price, discount, discount_pct, "
-        "       tax_rate_id, inventory_id, txn_unit_price "
+        "       tax_rate_id, inventory_id, txn_unit_price, unit "
         "FROM quotation_items WHERE quotation_id = ? ORDER BY id",
         (quote_id,),
     ).fetchall()

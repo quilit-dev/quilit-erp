@@ -4642,6 +4642,14 @@ def _run_migrations(conn, c):
     add_col("187c_employee_rota_anchor", "hr_employees", "saturday_rota_anchor",
             "ALTER TABLE hr_employees ADD COLUMN saturday_rota_anchor TEXT")
 
+    # ── 193: what a line's quantity counts (kg, pcs, m) ─────────────────
+    # Stored on the line --- the unit it was sold in --- and filled from the
+    # stock item when the line is picked from stock (line_items.unit_for).
+    add_col("193a_invoice_items_unit", "invoice_items", "unit",
+            "ALTER TABLE invoice_items ADD COLUMN unit TEXT")
+    add_col("193b_quotation_items_unit", "quotation_items", "unit",
+            "ALTER TABLE quotation_items ADD COLUMN unit TEXT")
+
     # ── 192: a discount on the whole invoice or quotation ────────────────
     # Type and value as entered, the total it took off (base and the
     # document's own currency), and each line's share of it --- see
@@ -6074,6 +6082,9 @@ def _ensure_pg_post_baseline(raw):
                     "saturday_rota TEXT")
         cur.execute("ALTER TABLE hr_employees ADD COLUMN IF NOT EXISTS "
                     "saturday_rota_anchor TEXT")
+        # 193: what a line's quantity counts.
+        cur.execute("ALTER TABLE invoice_items ADD COLUMN IF NOT EXISTS unit TEXT")
+        cur.execute("ALTER TABLE quotation_items ADD COLUMN IF NOT EXISTS unit TEXT")
         # 192: a discount on the whole invoice or quotation.
         cur.execute("ALTER TABLE invoices ADD COLUMN IF NOT EXISTS discount_type TEXT")
         cur.execute("ALTER TABLE invoices ADD COLUMN IF NOT EXISTS discount_value DOUBLE PRECISION")

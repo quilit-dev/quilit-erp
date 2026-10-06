@@ -72,6 +72,9 @@ class InvoiceItemCreate(BaseModel):
     name:        str
     quantity:    float = 1
     unit_price:  float = 0
+    # What the quantity counts: kg, pcs, m. Taken from the stock item when the
+    # line is picked from stock (see line_items.unit_for); free text otherwise.
+    unit:        Optional[str] = None
     # Per-line discount in functional currency. Optional — defaults to 0
     # for callers (and customers) that don't use line discounts. The pricing
     # engine subtracts it from the net before computing tax.
@@ -231,7 +234,7 @@ def _in_txn(item, fx_rate):
     from types import SimpleNamespace
     fields = {k: getattr(item, k, None) for k in
               ("name", "quantity", "unit_price", "discount", "discount_pct",
-               "tax_rate_id", "inventory_id", "revenue_account")}
+               "tax_rate_id", "inventory_id", "revenue_account", "unit")}
     fields["unit_price"] = denomination.to_txn(fields.get("unit_price") or 0, fx_rate)
     if fields.get("discount"):
         fields["discount"] = denomination.to_txn(fields["discount"], fx_rate)
@@ -248,7 +251,7 @@ def _in_base(item, fx_rate):
     from types import SimpleNamespace
     fields = {k: getattr(item, k, None) for k in
               ("name", "quantity", "unit_price", "discount", "discount_pct",
-               "tax_rate_id", "inventory_id", "revenue_account")}
+               "tax_rate_id", "inventory_id", "revenue_account", "unit")}
     fields["unit_price"] = denomination.to_base(fields.get("unit_price") or 0, fx_rate)
     if fields.get("discount"):
         fields["discount"] = denomination.to_base(fields["discount"], fx_rate)
@@ -717,8 +720,8 @@ def build_invoice(
             "INSERT INTO invoice_items "
             "(invoice_id, name, quantity, unit_price, discount, discount_pct, "
             " tax_rate_id, tax_rate, tax_amount, inventory_id, promotion_id, "
-            " revenue_account, txn_unit_price, txn_tax_amount, doc_discount) "
-            "VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)",
+            " revenue_account, txn_unit_price, txn_tax_amount, doc_discount, unit) "
+            "VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)",
             (invoice_id, item.name, item.quantity, base_item.unit_price,
              float(getattr(base_item, "discount", 0) or 0),
              getattr(item, "discount_pct", None),
@@ -730,7 +733,8 @@ def build_invoice(
              getattr(item, "revenue_account", None),
              item.unit_price, txn_tax_amt,
              # This line's share of a discount on the whole invoice (base).
-             base_allocs[idx] if idx < len(base_allocs) else 0.0),
+             base_allocs[idx] if idx < len(base_allocs) else 0.0,
+             line_items.unit_for(db, item)),
         )
 
     # An active policy can gate the invoice behind approval. A gated invoice is
@@ -900,15 +904,16 @@ def update_invoice(
             db.execute(
                 "INSERT INTO invoice_items "
                 "(invoice_id, name, quantity, unit_price, discount, discount_pct, tax_rate_id, "
-                " tax_rate, tax_amount, inventory_id, promotion_id, doc_discount) "
-                "VALUES (?,?,?,?,?,?,?,?,?,?,?,?)",
+                " tax_rate, tax_amount, inventory_id, promotion_id, doc_discount, unit) "
+                "VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?)",
                 (invoice_id, item.name, item.quantity, item.unit_price,
                  float(getattr(item, "discount", 0) or 0),
                  getattr(item, "discount_pct", None),
                  rid, rate, tax_amt,
                  getattr(item, "inventory_id", None),
                  promo_ids[idx] if idx < len(promo_ids) else None,
-                 d_allocs[idx] if idx < len(d_allocs) else 0.0),
+                 d_allocs[idx] if idx < len(d_allocs) else 0.0,
+                 line_items.unit_for(db, item)),
             )
         log_action(db, user, "update", "invoice", invoice_id,
                    inv["invoice_number"], {"amount": computed_amount})

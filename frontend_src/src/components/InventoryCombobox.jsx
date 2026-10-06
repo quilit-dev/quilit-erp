@@ -19,6 +19,7 @@
  *                        lets the server link a line back to stock
  */
 import { useState, useRef, useEffect } from 'react';
+import { searchItems } from '../utils/itemSearch';
 
 // Convert an inventory sale price into the document's base currency.
 //
@@ -67,20 +68,11 @@ export default function InventoryCombobox({ value, inventory = [], onChange,
   // The list is virtualised only by a generous cap: 200 rows render fine, and
   // past that the answer is a narrower search, not a longer list.
   const MAX_ROWS = 200;
-  const q = query.trim().toLowerCase();
-  const matches = q.length === 0
-    ? inventory
-    : inventory.filter(it =>
-        String(it.name || '').toLowerCase().includes(q)
-        || String(it.barcode || '').toLowerCase().includes(q)
-        || String(it.category || '').toLowerCase().includes(q));
-  // A name that STARTS with the query is almost always the one wanted, so it
-  // sorts above an incidental mid-string match.
-  const ranked = q.length === 0 ? matches : [...matches].sort((a, b) => {
-    const as = String(a.name || '').toLowerCase().startsWith(q) ? 0 : 1;
-    const bs = String(b.name || '').toLowerCase().startsWith(q) ? 0 : 1;
-    return as - bs;
-  });
+  const q = query.trim();
+  // Every word typed, in any order and anywhere in the item --- name, product,
+  // variant, barcode, category, attributes --- best match first. See
+  // utils/itemSearch.js.
+  const ranked = searchItems(inventory, q);
   const filtered = ranked.slice(0, MAX_ROWS);
   const truncated = ranked.length > MAX_ROWS;
 

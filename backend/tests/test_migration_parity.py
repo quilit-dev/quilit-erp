@@ -151,6 +151,9 @@ _REQUIRED = [
     ("quotations", "txn_discount_total"),
     ("invoice_items", "doc_discount"),
     ("quotation_items", "doc_discount"),
+    # What a line's quantity counts.
+    ("invoice_items", "unit"),
+    ("quotation_items", "unit"),
 ]
 
 
