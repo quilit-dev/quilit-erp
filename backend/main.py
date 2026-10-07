@@ -564,7 +564,15 @@ if _HAS_SPA:
             # name them — so they get a long max-age WITHOUT `immutable`, which
             # is what lets a replaced face be picked up on the next revalidate
             # rather than never.
-            if "/assets/" in full_path:
+            if value.endswith("index.html"):
+                # A shell, not an asset: it names the hashed bundle, so it must
+                # be revalidated or a deploy does not reach anyone holding the
+                # old one. The SPA's own shell already gets this; /m/ (the
+                # mobile web app) and the manual's pages came through here with
+                # no Cache-Control at all, so browsers cached them heuristically
+                # and kept loading the bundle the previous deploy had replaced.
+                hdrs = _NO_CACHE
+            elif "/assets/" in full_path:
                 hdrs = {"Cache-Control": "public, max-age=31536000, immutable"}
             elif full_path.startswith("fonts/"):
                 hdrs = {"Cache-Control": "public, max-age=2592000"}
