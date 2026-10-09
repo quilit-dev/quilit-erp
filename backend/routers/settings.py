@@ -543,7 +543,12 @@ def _vendor_icon() -> str:
         base = os.path.dirname(sys.executable)
     else:
         base = os.path.normpath(os.path.join(os.path.dirname(__file__), "..", ".."))
-    return os.path.join(base, "static", "icon-192.png")
+    built = os.path.join(base, "static", "icon-192.png")
+    # static/ is a build output. A source checkout that has not built the
+    # frontend (CI, a backend-only dev setup) still has the file Vite copies it
+    # from, so the tab keeps its mark there too.
+    source = os.path.join(base, "frontend_src", "public", "icon-192.png")
+    return built if os.path.exists(built) or not os.path.exists(source) else source
 
 
 @router.get("/favicon")
