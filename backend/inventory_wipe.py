@@ -125,9 +125,14 @@ def plan(db) -> dict:
     for table, column in referencing_columns(db):
         if (table, column) in _OWN or table not in tables:
             continue
-        n = db.execute(
-            f"SELECT COUNT(*) AS n FROM {table} WHERE {column} IS NOT NULL"
-        ).fetchone()["n"]
+        where = f"{column} IS NOT NULL"
+        if (table, column) == ("invoice_items", "inventory_id"):
+            # A till sale's own invoice carries the item on its lines too.
+            # Those lines go with the sale they belong to; only an item on any
+            # other invoice is a real sale that stops the wipe.
+            where += (" AND invoice_id NOT IN (SELECT invoice_id FROM pos_sales "
+                      "WHERE invoice_id IS NOT NULL)")
+        n = db.execute(f"SELECT COUNT(*) AS n FROM {table} WHERE {where}").fetchone()["n"]
         if n:
             blockers[f"{table}.{column}"] = int(n)
 

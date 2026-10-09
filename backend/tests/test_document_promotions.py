@@ -13,25 +13,23 @@ produced it, so ending or editing a promotion later cannot retroactively
 reprice a document that was already issued.
 """
 import pytest
-import sqlite3
-import os
+
+import database
 
 
+# Through the app's own connection, not sqlite3: on the Postgres run a direct
+# sqlite3 read opens a stale SQLite file and finds nothing.
 def _lines(table, fk, doc_id):
-    con = sqlite3.connect(os.environ.get("DB_PATH", "erp.db"))
-    con.row_factory = sqlite3.Row
-    rows = [dict(r) for r in con.execute(
-        f"SELECT * FROM {table} WHERE {fk}=? ORDER BY id", (doc_id,))]
-    con.close()
-    return rows
+    with database.session() as db:
+        return [dict(r) for r in db.execute(
+            f"SELECT * FROM {table} WHERE {fk}=? ORDER BY id", (doc_id,)).fetchall()]
 
 
 def _used_quantity(promo_id):
-    con = sqlite3.connect(os.environ.get("DB_PATH", "erp.db"))
-    v = con.execute("SELECT used_quantity FROM promotions WHERE id=?",
-                    (promo_id,)).fetchone()
-    con.close()
-    return (v[0] if v else None) or 0
+    with database.session() as db:
+        v = db.execute("SELECT used_quantity FROM promotions WHERE id=?",
+                       (promo_id,)).fetchone()
+    return (v["used_quantity"] if v else None) or 0
 
 
 def _setup(c, pct=10, max_qty=5):

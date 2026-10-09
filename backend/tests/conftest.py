@@ -123,7 +123,10 @@ def _rebuild_db():
             _build_pg_template()
             _pg_template_built = True
         # Fast clone: recreate the test DB from the prebuilt template, then add
-        # the canonical test users on top.
+        # the canonical test users on top. The app's pool goes first: dropping
+        # the database kills its connections, and a pool that still holds them
+        # hands the next test a dead one (AdminShutdown).
+        database.close_pg_pool()
         _pg_terminate(_PG_DBNAME)
         _pg_admin_exec(f'DROP DATABASE IF EXISTS "{_PG_DBNAME}"',
                        f'CREATE DATABASE "{_PG_DBNAME}" TEMPLATE "{_PG_TEMPLATE}"')

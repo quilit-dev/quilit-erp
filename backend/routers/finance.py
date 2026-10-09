@@ -1133,7 +1133,7 @@ def reconciliation(
             LEFT JOIN pos_sale_items psi ON psi.pos_sale_id = ps.id
                                         AND psi.inventory_id IS NOT NULL
             WHERE i.voided_at IS NOT NULL AND ps.status <> 'returned'
-            GROUP BY ps.id
+            GROUP BY ps.id, i.invoice_number
             HAVING COALESCE(SUM(psi.quantity), 0) > 0
         """).fetchall()
     except Exception:

@@ -407,8 +407,10 @@ def list_invoices(
         "remaining":      "(i.amount - total_paid)",
     }
     _direction = "DESC" if str(dir).lower() == "desc" else "ASC"
-    order_by = (f"{_SORTABLE[sort]} {_direction}"
-                if sort in _SORTABLE else "i.created_at DESC")
+    # `id` breaks ties: created_at is to the second and many sort keys repeat,
+    # and without a total order Postgres may return a tied row on two pages.
+    order_by = (f"{_SORTABLE[sort]} {_direction}, i.id {_direction}"
+                if sort in _SORTABLE else "i.created_at DESC, i.id DESC")
     select_sql = select_sql.format(order_by=order_by)
     # A derived sort key cannot be expressed in SQL, so it takes the same
     # fetch-derive-slice route as the derived `status` filter.
