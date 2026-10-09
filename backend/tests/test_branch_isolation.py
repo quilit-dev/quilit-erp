@@ -396,7 +396,10 @@ def pos_world(app, db, world):
         uid = db.execute("SELECT id FROM users WHERE username=?", (u,)).fetchone()["id"]
         db.execute("INSERT INTO user_warehouse_access "
                    "(user_id, warehouse_id, granted_at) "
-                   "VALUES (?,?,datetime('now'))", (uid, w))
+                   "VALUES (?,?,datetime('now')) "
+                   # No id column: ON CONFLICT keeps the Postgres dialect
+                   # from appending RETURNING id.
+                   "ON CONFLICT DO NOTHING", (uid, w))
     db.commit()
 
     item = world["owner"].post("/api/inventory/", json={

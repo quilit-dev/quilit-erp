@@ -89,12 +89,18 @@ def constraints(conn, schema: str) -> set:
     FKs are excluded on purpose: the baseline emits them as deferred
     `ALTER TABLE ... ADD FOREIGN KEY` with server-generated names, so the names
     differ between schemas without the shape differing.
+
+    So are the CHECKs information_schema synthesizes for NOT NULL columns. They
+    are named `<schema oid>_<table oid>_<attnum>_not_null`, so no two schemas
+    ever share one, and the nullability they stand for is already compared
+    column by column in `columns()`.
     """
     with conn.cursor() as cur:
         cur.execute("""
             SELECT table_name, constraint_type, constraint_name
               FROM information_schema.table_constraints
              WHERE table_schema = %s AND constraint_type <> 'FOREIGN KEY'
+               AND constraint_name !~ '^[0-9]+_[0-9]+_[0-9]+_not_null$'
         """, (schema,))
         return {(r["table_name"], r["constraint_type"],
                  r["constraint_name"]) for r in cur.fetchall()}

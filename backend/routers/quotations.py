@@ -247,8 +247,9 @@ def list_quotations(
         "created_at":     "q.created_at",
     }
     _direction = "DESC" if str(dir).lower() == "desc" else "ASC"
-    order_sql = (f" ORDER BY {_SORTABLE[sort]} {_direction}"
-                 if sort in _SORTABLE else " ORDER BY q.created_at DESC")
+    # `id` breaks ties, so a page boundary never repeats or skips a row.
+    order_sql = (f" ORDER BY {_SORTABLE[sort]} {_direction}, q.id {_direction}"
+                 if sort in _SORTABLE else " ORDER BY q.created_at DESC, q.id DESC")
 
     def _shape(r):
         d = dict(r)
