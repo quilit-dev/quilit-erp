@@ -8,15 +8,14 @@ that scope those columns to a caller's accessible branches.
 """
 import datetime as _dt
 import branch_access
+from helpers.schema import table_columns
 
 
 _BRANCH_TABLES = ("expenses", "invoices", "quotations", "cash_drawers", "hr_employees")
 
 
 def _cols(db, table):
-    return {r["name"] for r in db.execute(
-        "SELECT name FROM pragma_table_info(?)", (table,)
-    ).fetchall()}
+    return set(table_columns(db, table))
 
 
 def test_branch_columns_exist(db):

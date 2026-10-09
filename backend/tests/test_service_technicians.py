@@ -451,7 +451,7 @@ def test_the_backfill_flags_exactly_the_people_with_service_history(make_client,
     assert flag(never) == 0, "a Technician job title is not evidence of anything"
 
     # A hand-ticked box must survive a second pass.
-    raw.execute("UPDATE hr_employees SET is_field_staff = 1 WHERE id=?", (never,))
+    db.execute("UPDATE hr_employees SET is_field_staff = 1 WHERE id=?", (never,))
     raw.execute(database._FIELD_STAFF_BACKFILL)
     raw.commit()
     assert flag(never) == 1, "the backfill must never turn a flag off"

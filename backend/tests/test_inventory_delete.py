@@ -15,6 +15,8 @@ import uuid
 
 import pytest
 
+from helpers.schema import table_columns
+
 
 def _item(c, name, qty=0, cost=0, price=0):
     r = c.post("/api/inventory/", json={"name": name, "quantity": qty,
@@ -156,8 +158,8 @@ def test_every_table_referencing_an_item_is_accounted_for(db):
         "SELECT name FROM sqlite_master WHERE type='table'").fetchall()]
     referencing = set()
     for t in tables:
-        for col in db.execute(f"PRAGMA table_info({t})").fetchall():
-            if str(col["name"]).endswith("inventory_id"):
+        for col in table_columns(db, t):
+            if str(col).endswith("inventory_id"):
                 referencing.add(t)
 
     missing = referencing - known
@@ -171,9 +173,9 @@ def test_the_columns_named_in_the_list_exist(db):
     from routers.inventory import _USED_BY, _OWN_ROWS
 
     for table, column, _label in _USED_BY:
-        cols = [c["name"] for c in db.execute(f"PRAGMA table_info({table})").fetchall()]
+        cols = table_columns(db, table)
         assert cols, f"{table} does not exist"
         assert column in cols, f"{table}.{column} does not exist"
     for table, column in _OWN_ROWS:
-        cols = [c["name"] for c in db.execute(f"PRAGMA table_info({table})").fetchall()]
+        cols = table_columns(db, table)
         assert column in cols, f"{table}.{column} does not exist"

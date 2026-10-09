@@ -129,7 +129,10 @@ def test_finance_views_and_dashboard_share_the_selected_branch(make_client, db):
     db.execute(
         "INSERT INTO period_snapshots "
         "(year, month, income, expenses, profit, payment_count, expense_count, "
-        " locked_at, locked_by) VALUES (?, ?, 404, 44, 360, 2, 2, datetime('now'), 'test')",
+        " locked_at, locked_by) VALUES (?, ?, 404, 44, 360, 2, 2, datetime('now'), 'test') "
+        # period_snapshots has no id column; ON CONFLICT stops the Postgres
+        # dialect appending RETURNING id to this insert.
+        "ON CONFLICT DO NOTHING",
         (year, month_number),
     )
     db.commit()
