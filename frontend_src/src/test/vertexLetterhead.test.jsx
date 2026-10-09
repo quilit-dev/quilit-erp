@@ -47,12 +47,33 @@ describe('the vertex theme', () => {
 
   test('content clears the logo at the head and the bars at the foot', () => {
     const css = THEMES.vertex.css;
-    expect(css).toMatch(/\.hj-sheet > thead > tr > td \{ height: 46mm; \}/);
-    expect(css).toMatch(/\.hj-sheet > tfoot > tr > td \{ height: 34mm;/);
+    expect(css).toMatch(/\.hj-sheet > thead > tr > td \{ height: 52mm; \}/);
+    expect(css).toMatch(/\.hj-sheet > tfoot > tr > td \{ height: 40mm;/);
     // The same repeating-sheet mechanism as every letterhead.
     expect(css).toContain('height: 297mm;');
     expect(css).not.toContain('position: fixed');
     expect(css).toMatch(/@media print \{\s*@page \{ margin: 0; size: A4; \}/);
+  });
+
+  test('the margins clear the artwork as it PRINTS, not as it is drawn', () => {
+    // Print scales the art about the page centre, which lifts the bars and
+    // lowers the logo. Margins measured against the unscaled drawing let a
+    // full page of rows run into the bars.
+    const css = THEMES.vertex.css;
+    const scale = parseFloat(css.match(/\.hj-sheet-art \{\s*transform: scale\(([\d.]+)\)/)[1]);
+    const printed = mm => 148.5 + (mm - 148.5) * scale;
+    const top = parseFloat(css.match(/\.hj-sheet > thead > tr > td \{ height: ([\d.]+)mm/)[1]);
+    const bottom = parseFloat(css.match(/\.hj-sheet > tfoot > tr > td \{ height: ([\d.]+)mm/)[1]);
+    expect(top - printed(14 + 28)).toBeGreaterThan(2);           // below the logo
+    expect(printed(267.4) - (297 - bottom)).toBeGreaterThan(2);  // above the bars
+  });
+
+  test('a long item table splits between rows instead of jumping a page', () => {
+    // SHARED_CSS keeps every table whole, which pushed a long item list off
+    // page one entirely and left it blank under the header.
+    const css = THEMES.vertex.css;
+    expect(css).toMatch(/\.hj-inner table \{ page-break-inside: auto; break-inside: auto; \}/);
+    expect(css).toMatch(/\.hj-inner tr, \.hj-inner \.totals-box \{ page-break-inside: avoid;/);
   });
 
   test('an invoice rides in the vertex sheet', () => {

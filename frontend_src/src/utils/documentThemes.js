@@ -395,6 +395,8 @@ function frameCSS(page, topPreprinted, artCSS = '') {
 }
 .hj-art { position: absolute; inset: 0; width: 100%; height: 100%; }
 ${artCSS}.hj-inner > * { position: relative; z-index: 1; }
+.hj-inner table { page-break-inside: auto; break-inside: auto; }
+.hj-inner tr, .hj-inner .totals-box { page-break-inside: avoid; break-inside: avoid; }
 `;
 }
 
@@ -574,18 +576,32 @@ const VERTEX_FOOT_PATHS = [
   // the main band, slanted left end
   [VERTEX.blue, 'M30.6 280.4 L210 280.4 L210 287.9 L25.0 287.9 Z'],
   // three bars over the band, tops cut on the same slant
+  // (267.4 is VERTEX_FOOT_TOP below; move both together.)
   [VERTEX.ink,  'M157.5 267.4 L163.8 272.0 L163.8 297 L157.5 297 Z'],
   [VERTEX.navy, 'M169.4 267.4 L175.7 272.0 L175.7 297 L169.4 297 Z'],
   [VERTEX.ink,  'M181.0 267.4 L187.6 272.0 L187.6 297 L181.0 297 Z'],
 ];
 
-// Content clears the masthead (logo 14–37mm) at the top and the bars (from
-// 267mm) at the foot. No side artwork, so the sides are an ordinary margin.
-const VERTEX_PAGE = { top: 46, side: 16, bottom: 34 };
+const VERTEX_LOGO = { top: 14, height: 28 };      // ends 42mm
+const VERTEX_FOOT_TOP = 267.4;                    // the bars' tops, the highest ink at the foot
+const VERTEX_GAP = 3;                             // mm of white between text and artwork
+
+// Where a point on the artwork actually lands on PAPER. Print scales the art
+// by BLEED_SAFE about the page centre, which pulls the foot UP and the masthead
+// DOWN. Margins measured against the unscaled artwork let a full page of rows
+// run 3mm into the bars, so they are measured against this instead.
+const printedAt = mm => 148.5 + (mm - 148.5) * BLEED_SAFE;
+
+// Content clears the masthead at the top and the bars at the foot, as they
+// print. No side artwork, so the sides are an ordinary margin.
+const VERTEX_PAGE = {
+  top: Math.ceil(printedAt(VERTEX_LOGO.top + VERTEX_LOGO.height) + VERTEX_GAP),   // 52
+  side: 16,
+  bottom: Math.ceil(297 - printedAt(VERTEX_FOOT_TOP) + VERTEX_GAP),               // 40
+};
 // Pre-printed VertexMedia paper would carry the same logo in the same place;
 // a little extra for feed offset, as hajosign's number taught.
-const VERTEX_TOP_PREPRINTED = 52;
-const VERTEX_LOGO = { top: 14, height: 28 };      // ends 42mm; content at 46
+const VERTEX_TOP_PREPRINTED = Math.max(52, VERTEX_PAGE.top);
 
 function vertexArt() {
   return `<svg class="hj-art" aria-hidden="true" viewBox="0 0 210 297"
