@@ -97,17 +97,36 @@ const HAJO_MARK = 'data:image/svg+xml;utf8,' + encodeURIComponent(
 // The source page is 216x303mm: A4 plus 3mm bleed. Coordinates therefore run
 // past 0 and past 210/297, which is deliberate — that overflow is what keeps
 // the bands bleeding off the paper edge rather than stopping just short of it.
-const HAJO_FRAME_PATHS = [
-  ['#E6E6E6', 'M3.98 286.53 L136.60 286.53 L146.98 300.54 L146.89 300.62 L3.98 300.62Z'],
-  ['#CCCCCC', 'M3.98 289.12 L148.71 289.12 L159.08 303.13 L159.00 303.22 L3.98 303.22Z'],
-  ['#282828', 'M215.29 293.49 L181.27 293.49 L190.13 303.13 L190.14 303.22 L215.29 303.22Z'],
-  ['#F07100', 'M174.80 293.49 L167.09 293.49 L175.95 303.13 L175.96 303.22 L183.81 303.22Z'],
-  ['#F07100', 'M-5.37 297.68 L-5.37 148.89 L3.51 157.04 L3.51 297.68Z'
-            + 'M169.03 303.22 L-5.37 303.22 L-5.37 293.49 L159.63 293.49 L169.11 303.13Z'],
+//
+// They are split three ways so a long document reads right on SCREEN, where it
+// is one tall page rather than a stack of sheets. Drawn as one 297mm sheet,
+// the bottom bands and the contact strip sat across rows 33-36 of a 36-line
+// quotation. Now:
+//   - HAJO_TOP_PATHS keep their place on the sheet (bracket, chevrons, and
+//     the slanted top of the left band);
+//   - HAJO_FOOT_PATHS are pinned to the bottom of the art box;
+//   - the left band's straight run is a plain box between the two, so it
+//     grows with the page instead of being stretched.
+// In print the art box is still one 297mm sheet, so every page is unchanged.
+const HAJO_TOP_PATHS = [
+  // the left band's slanted head; its straight run is .hj-side-band
+  ['#F07100', 'M-5.37 157.04 L-5.37 148.89 L3.51 157.04Z'],
   ['#F07100', 'M4.82 144.39 L4.82 152.10 L-5.21 143.00 L-5.29 142.99 L-5.29 135.14Z'],
   ['#282828', 'M5.34 131.16 L5.34 138.87 L-5.21 129.17 L-5.29 129.16 L-5.29 121.30Z'],
   ['#F07100', 'M206.49 76.06 L206.49 3.51 L135.34 3.51 L126.53 -6.34 L209.75 -6.34 L209.75 -6.39 L215.29 -6.39 L215.29 82.23Z'],
 ];
+const HAJO_FOOT_PATHS = [
+  ['#E6E6E6', 'M3.98 286.53 L136.60 286.53 L146.98 300.54 L146.89 300.62 L3.98 300.62Z'],
+  ['#CCCCCC', 'M3.98 289.12 L148.71 289.12 L159.08 303.13 L159.00 303.22 L3.98 303.22Z'],
+  ['#282828', 'M215.29 293.49 L181.27 293.49 L190.13 303.13 L190.14 303.22 L215.29 303.22Z'],
+  ['#F07100', 'M174.80 293.49 L167.09 293.49 L175.95 303.13 L175.96 303.22 L183.81 303.22Z'],
+  ['#F07100', 'M169.03 303.22 L-5.37 303.22 L-5.37 293.49 L159.63 293.49 L169.11 303.13Z'],
+];
+// The foot band of the sheet, top of the highest foot path to the trim.
+const HAJO_FOOT = { top: 286.53, height: 297 - 286.53 };
+// The left band's straight run: from under its slanted head to the trim,
+// 3.51mm wide where it meets the paper edge.
+const HAJO_SIDE = { top: 157.0, width: 3.51 };
 
 // One SVG covering the whole sheet, sized by its container rather than by a
 // height computed in millimetres.
@@ -123,9 +142,13 @@ const HAJO_FRAME_PATHS = [
 // and the SVG viewport clips them at the paper edge, which is exactly what
 // trimming a bled sheet does.
 function hajoArt() {
+  const paths = list => list.map(([fill, d]) => `<path fill="${fill}" d="${d}"/>`).join('');
   return `<svg class="hj-art" aria-hidden="true" viewBox="0 0 210 297"
-      preserveAspectRatio="none">${HAJO_FRAME_PATHS
-        .map(([fill, d]) => `<path fill="${fill}" d="${d}"/>`).join('')}</svg>`;
+      preserveAspectRatio="none">${paths(HAJO_TOP_PATHS)}</svg>
+    <div class="hj-side-band" aria-hidden="true"></div>
+    <svg class="hj-foot-band" aria-hidden="true"
+      viewBox="0 ${HAJO_FOOT.top} 210 ${Math.round(HAJO_FOOT.height * 100) / 100}"
+      preserveAspectRatio="none" overflow="visible">${paths(HAJO_FOOT_PATHS)}</svg>`;
 }
 
 /**
@@ -144,7 +167,7 @@ function hajoSheet(C, logo) {
   // none, so the sheet is never delivered with a hole where the identity goes.
   const mark = logo || HAJO_MARK;
   return `
-  <div class="hj-anchor"><div class="hj-sheet-art">
+  <div class="hj-anchor hj-anchor--flow"><div class="hj-sheet-art">
     ${hajoArt()}
     <img class="hj-watermark" src="${mark}" alt="" />
     <div class="hj-masthead">
@@ -393,7 +416,11 @@ function frameCSS(page, topPreprinted, artCSS = '') {
      small and the bands sat wrong against the original. */
   overflow: hidden;
 }
-.hj-art { position: absolute; inset: 0; width: 100%; height: 100%; }
+.hj-art { position: absolute; top: 0; left: 0; width: 100%; height: 297mm; }
+@media screen {
+  .hj-anchor--flow { position: static; }
+  .hj-anchor--flow > .hj-sheet-art { height: auto; bottom: 0; }
+}
 ${artCSS}.hj-inner > * { position: relative; z-index: 1; }
 .hj-inner table { page-break-inside: auto; break-inside: auto; }
 .hj-inner tr, .hj-inner .totals-box { page-break-inside: avoid; break-inside: avoid; }
@@ -447,6 +474,14 @@ const hajoCSS = frameCSS(PAGE, TOP_PREPRINTED, hajoArtCSS) + chromeCSS({ ...HAJO
   display: flex; justify-content: space-between; gap: 8mm;
   border-top: 1px solid ${HAJO.rule}; padding-top: 3mm;
   font-size: 8px; color: ${HAJO.ink};
+}
+.hj-side-band {
+  position: absolute; left: 0; top: ${HAJO_SIDE.top}mm; bottom: 0;
+  width: ${HAJO_SIDE.width}mm; background: ${HAJO.orange};
+}
+.hj-foot-band {
+  position: absolute; left: 0; bottom: 0; width: 100%;
+  height: ${Math.round(HAJO_FOOT.height * 100) / 100}mm;
 }
 .hj-foot-col { display: flex; align-items: flex-start; gap: 5px; }
 .hj-ico { width: 11px; height: 11px; flex: none; margin-top: 1px; }
@@ -603,8 +638,18 @@ const VERTEX_PAGE = {
 // a little extra for feed offset, as hajosign's number taught.
 const VERTEX_TOP_PREPRINTED = Math.max(52, VERTEX_PAGE.top);
 
+// The foot is its own SVG, cut to the band of the sheet it occupies and pinned
+// to the BOTTOM of the art box rather than drawn at y=267 in a full-sheet one.
+// In print the box is one 297mm sheet, so it lands exactly where it always did.
+// On screen there are no sheets: a long document is one tall page, and a foot
+// drawn 267mm from the top sat across rows 31-36 of a 36-line quotation. Pinned
+// to the bottom, it follows the document's real end instead (see the screen
+// rule in vertexCSS).
+const VERTEX_FOOT_H = Math.round((297 - VERTEX_FOOT_TOP) * 10) / 10;   // 29.6mm
+
 function vertexArt() {
-  return `<svg class="hj-art" aria-hidden="true" viewBox="0 0 210 297"
+  return `<svg class="vx-foot" aria-hidden="true"
+      viewBox="0 ${VERTEX_FOOT_TOP} 210 ${VERTEX_FOOT_H}"
       preserveAspectRatio="none">${VERTEX_FOOT_PATHS
         .map(([fill, d]) => `<path fill="${fill}" d="${d}"/>`).join('')}</svg>`;
 }
@@ -612,7 +657,7 @@ function vertexArt() {
 function vertexSheet(C, logo) {
   const mark = logo ? `<img class="hj-logo" src="${logo}" alt="" />` : vertexMark();
   return `
-  <div class="hj-anchor"><div class="hj-sheet-art">
+  <div class="hj-anchor hj-anchor--flow"><div class="hj-sheet-art">
     ${vertexArt()}
     <div class="hj-masthead">${mark}</div>
   </div></div>`;
@@ -629,6 +674,9 @@ const vertexCSS = frameCSS(VERTEX_PAGE, VERTEX_TOP_PREPRINTED)
    box's own ratio (270:119) at the masthead height. */
 .hj-logo--mark { width: ${Math.round(VERTEX_LOGO.height * 270 / 119 * 10) / 10}mm; }
 .totals-row.grand { background: ${VERTEX.navy}; }
+.vx-foot {
+  position: absolute; left: 0; bottom: 0; width: 100%; height: ${VERTEX_FOOT_H}mm;
+}
 `;
 
 export const THEMES = {
