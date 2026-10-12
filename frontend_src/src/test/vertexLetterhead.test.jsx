@@ -17,7 +17,7 @@ describe('the vertex theme', () => {
 
   test('draws the foot: two blue bands and three bars, bled off the edge', () => {
     const sheet = THEMES.vertex.sheet(C, null);
-    const art = sheet.match(/<svg class="hj-art"[^]*?<\/svg>/)[0];
+    const art = sheet.match(/<svg class="vx-foot"[^]*?<\/svg>/)[0];
     const paths = [...art.matchAll(/<path fill="(#[0-9A-F]{6})" d="([^"]+)"/g)];
     expect(paths).toHaveLength(5);
     const fills = paths.map(p => p[1]);
@@ -74,6 +74,22 @@ describe('the vertex theme', () => {
     const css = THEMES.vertex.css;
     expect(css).toMatch(/\.hj-inner table \{ page-break-inside: auto; break-inside: auto; \}/);
     expect(css).toMatch(/\.hj-inner tr, \.hj-inner \.totals-box \{ page-break-inside: avoid;/);
+  });
+
+  test('on screen the foot follows the end of the document, not y=267mm', () => {
+    // A long quotation on screen is one tall page. A foot drawn 267mm from the
+    // top sat across its rows 31-36; pinned to the bottom of an art box that
+    // spans the whole page, it lands under the last line instead.
+    const sheet = THEMES.vertex.sheet(C, null);
+    expect(sheet).toMatch(/<svg class="vx-foot"[^>]*viewBox="0 267\.4 210 29\.6"/);
+    const css = THEMES.vertex.css;
+    expect(css).toMatch(/\.vx-foot \{\s*position: absolute; left: 0; bottom: 0;/);
+    const screen = css.slice(css.indexOf('@media screen'));
+    expect(screen).toMatch(/\.hj-anchor--flow \{ position: static; \}/);
+    expect(screen).toMatch(/\.hj-anchor--flow > \.hj-sheet-art \{ height: auto; bottom: 0; \}/);
+    // Print keeps one 297mm sheet per page, so the foot stays on every page.
+    const print = css.slice(css.indexOf('@media print'));
+    expect(print).not.toContain('hj-anchor--flow');
   });
 
   test('an invoice rides in the vertex sheet', () => {

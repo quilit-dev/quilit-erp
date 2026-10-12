@@ -603,8 +603,18 @@ const VERTEX_PAGE = {
 // a little extra for feed offset, as hajosign's number taught.
 const VERTEX_TOP_PREPRINTED = Math.max(52, VERTEX_PAGE.top);
 
+// The foot is its own SVG, cut to the band of the sheet it occupies and pinned
+// to the BOTTOM of the art box rather than drawn at y=267 in a full-sheet one.
+// In print the box is one 297mm sheet, so it lands exactly where it always did.
+// On screen there are no sheets: a long document is one tall page, and a foot
+// drawn 267mm from the top sat across rows 31-36 of a 36-line quotation. Pinned
+// to the bottom, it follows the document's real end instead (see the screen
+// rule in vertexCSS).
+const VERTEX_FOOT_H = Math.round((297 - VERTEX_FOOT_TOP) * 10) / 10;   // 29.6mm
+
 function vertexArt() {
-  return `<svg class="hj-art" aria-hidden="true" viewBox="0 0 210 297"
+  return `<svg class="vx-foot" aria-hidden="true"
+      viewBox="0 ${VERTEX_FOOT_TOP} 210 ${VERTEX_FOOT_H}"
       preserveAspectRatio="none">${VERTEX_FOOT_PATHS
         .map(([fill, d]) => `<path fill="${fill}" d="${d}"/>`).join('')}</svg>`;
 }
@@ -612,7 +622,7 @@ function vertexArt() {
 function vertexSheet(C, logo) {
   const mark = logo ? `<img class="hj-logo" src="${logo}" alt="" />` : vertexMark();
   return `
-  <div class="hj-anchor"><div class="hj-sheet-art">
+  <div class="hj-anchor hj-anchor--flow"><div class="hj-sheet-art">
     ${vertexArt()}
     <div class="hj-masthead">${mark}</div>
   </div></div>`;
@@ -629,6 +639,13 @@ const vertexCSS = frameCSS(VERTEX_PAGE, VERTEX_TOP_PREPRINTED)
    box's own ratio (270:119) at the masthead height. */
 .hj-logo--mark { width: ${Math.round(VERTEX_LOGO.height * 270 / 119 * 10) / 10}mm; }
 .totals-row.grand { background: ${VERTEX.navy}; }
+.vx-foot {
+  position: absolute; left: 0; bottom: 0; width: 100%; height: ${VERTEX_FOOT_H}mm;
+}
+@media screen {
+  .hj-anchor--flow { position: static; }
+  .hj-anchor--flow > .hj-sheet-art { height: auto; bottom: 0; }
+}
 `;
 
 export const THEMES = {
