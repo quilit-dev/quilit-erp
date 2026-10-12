@@ -479,62 +479,77 @@ def report_pipeline(
     user=Depends(require_perm("reports", "view")),
     db: sqlite3.Connection = Depends(get_db),
 ):
+    """Quotations are offers, not sales, so this never adds them up as if they
+    were. Each live quotation falls in exactly one bucket:
+
+      won   accepted, or an invoice was raised from it (and not voided)
+      lost  rejected by the client
+      open  everything still in play: draft, sent, pending approval
+
+    Voided and cancelled quotations are left out entirely: they are mistakes
+    or withdrawals, not part of the funnel. The value that matters for sales is
+    `won_value`; `open_value` is what could still be won, and is labelled as
+    such rather than summed with it.
+    """
     start = start or _year_start()
     end   = end   or _today()
-    bf_q, bp_q = branch_access.branch_filter(user, db, column="branch_id", selected=branch_id)
     bf_qa, bp_qa = branch_access.branch_filter(user, db, column="q.branch_id", selected=branch_id)
 
+    live = (" FROM quotations q WHERE q.archived_at IS NULL"
+            " AND COALESCE(q.status, '') NOT IN ('Voided', 'Cancelled')"
+            " AND DATE(q.created_at) BETWEEN ? AND ?" + bf_qa)
+    params = (start, end, *bp_qa)
+    won = ("(q.status IN ('Accepted', 'Invoiced') OR EXISTS ("
+           "SELECT 1 FROM invoices i WHERE i.quotation_id = q.id"
+           " AND i.voided_at IS NULL AND i.archived_at IS NULL))")
+    bucket = (f"CASE WHEN {won} THEN 'won' "
+              "WHEN q.status = 'Rejected' THEN 'lost' ELSE 'open' END")
+
     by_status = db.execute(
-        """SELECT status, COUNT(*) AS count, COALESCE(SUM(total), 0) AS value
-           FROM quotations
-           WHERE archived_at IS NULL
-             AND DATE(created_at) BETWEEN ? AND ?""" + bf_q +
-        " GROUP BY status ORDER BY count DESC",
-        (start, end, *bp_q),
-    ).fetchall()
+        "SELECT q.status AS status, COUNT(*) AS count, COALESCE(SUM(q.total), 0) AS value"
+        + live + " GROUP BY q.status ORDER BY count DESC", params).fetchall()
 
-    totals = db.execute(
-        """SELECT COUNT(*), COALESCE(SUM(total), 0) FROM quotations
-           WHERE archived_at IS NULL AND DATE(created_at) BETWEEN ? AND ?""" + bf_q,
-        (start, end, *bp_q),
-    ).fetchone()
+    buckets = {r["bucket"]: r for r in db.execute(
+        f"SELECT {bucket} AS bucket, COUNT(*) AS count, COALESCE(SUM(q.total), 0) AS value"
+        + live + f" GROUP BY {bucket}", params).fetchall()}
 
-    converted = db.execute(
-        """SELECT COUNT(*) FROM quotations
-           WHERE archived_at IS NULL AND DATE(created_at) BETWEEN ? AND ?
-             AND status IN ('Accepted', 'Invoiced')""" + bf_q,
-        (start, end, *bp_q),
-    ).fetchone()[0]
+    def _b(name, key):
+        r = buckets.get(name)
+        return (r[key] or 0) if r else 0
 
-    total_count = totals[0] or 0
-    total_value = totals[1] or 0
+    won_count, won_value = int(_b("won", "count")), float(_b("won", "value"))
+    open_count, open_value = int(_b("open", "count")), float(_b("open", "value"))
+    lost_count, lost_value = int(_b("lost", "count")), float(_b("lost", "value"))
+    total_count = won_count + open_count + lost_count
+    # Decided quotes only: one still in draft has not been won OR lost yet, so
+    # counting it would drag the rate down for every quote sent this week.
+    decided = won_count + lost_count
 
     top_clients = db.execute(
-        """SELECT c.name AS client_name, COUNT(q.id) AS count,
-                  COALESCE(SUM(q.total), 0) AS value
-           FROM quotations q
-           JOIN clients c ON q.client_id = c.id
-           WHERE q.archived_at IS NULL
-             AND DATE(q.created_at) BETWEEN ? AND ?""" + bf_qa +
-        " GROUP BY c.id ORDER BY value DESC LIMIT 10",
-        (start, end, *bp_qa),
-    ).fetchall()
+        f"""SELECT c.name AS client_name, COUNT(q.id) AS count,
+                   COALESCE(SUM(CASE WHEN {won} THEN q.total ELSE 0 END), 0) AS won_value,
+                   COALESCE(SUM(CASE WHEN NOT {won} AND COALESCE(q.status, '') <> 'Rejected'
+                                     THEN q.total ELSE 0 END), 0) AS open_value"""
+        + live.replace(" FROM quotations q WHERE", " FROM quotations q JOIN clients c ON q.client_id = c.id WHERE")
+        + " GROUP BY c.id, c.name ORDER BY won_value DESC, open_value DESC LIMIT 10",
+        params).fetchall()
 
     monthly_quotes = db.execute(
-        """SELECT strftime('%Y-%m', created_at) AS month,
-                  COUNT(*) AS count, COALESCE(SUM(total), 0) AS value
-           FROM quotations
-           WHERE archived_at IS NULL
-             AND DATE(created_at) BETWEEN ? AND ?""" + bf_q +
-        " GROUP BY month ORDER BY month",
-        (start, end, *bp_q),
-    ).fetchall()
+        "SELECT strftime('%Y-%m', q.created_at) AS month, COUNT(*) AS count,"
+        " COALESCE(SUM(q.total), 0) AS value"
+        + live + " GROUP BY month ORDER BY month", params).fetchall()
 
     return {
         "total_count":      total_count,
-        "total_value":      total_value,
-        "converted_count":  converted,
-        "conversion_rate":  round(converted / total_count * 100, 1) if total_count > 0 else 0,
+        "won_count":        won_count,
+        "won_value":        round(won_value, 2),
+        "open_count":       open_count,
+        "open_value":       round(open_value, 2),
+        "lost_count":       lost_count,
+        "lost_value":       round(lost_value, 2),
+        # Kept for callers of the old shape; both now mean "won".
+        "converted_count":  won_count,
+        "conversion_rate":  round(won_count / decided * 100, 1) if decided > 0 else 0,
         "by_status":        [dict(r) for r in by_status],
         "top_clients":      [dict(r) for r in top_clients],
         "monthly":          [dict(r) for r in monthly_quotes],

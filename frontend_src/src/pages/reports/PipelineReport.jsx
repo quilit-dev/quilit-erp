@@ -37,11 +37,18 @@ function PipelineReport({ params, t }) {
 
   return (
     <div>
+      {/* A quotation is an offer, not a sale: only WON value is shown as sold.
+          Open quotes are what could still be won, and are labelled that way
+          rather than added to it. */}
       <div className="stats-grid" style={{ marginBottom: 20 }}>
-        <StatCard label={t('reports.totalQuotes')}     value={data.total_count}         />
-        <StatCard label={t('reports.totalQuoteValue')} value={fmt(data.total_value)}    color="green" />
-        <StatCard label={t('reports.convertedQuotes')} value={data.converted_count}     color="green" />
+        <StatCard label={t('reports.wonQuotes')}   value={fmt(data.won_value)}  color="green"
+          sub={t('reports.quotesCount', { n: data.won_count })} />
+        <StatCard label={t('reports.openPipeline')} value={fmt(data.open_value)}
+          sub={t('reports.openPipelineSub', { n: data.open_count })} />
+        <StatCard label={t('reports.lostQuotes')}  value={fmt(data.lost_value)}
+          sub={t('reports.quotesCount', { n: data.lost_count })} />
         <StatCard label={t('reports.conversionRate')}  value={`${data.conversion_rate}%`}
+          sub={t('reports.winRateSub')}
           color={data.conversion_rate >= 50 ? 'green' : data.conversion_rate >= 25 ? undefined : 'red'} />
       </div>
 
@@ -104,9 +111,10 @@ function PipelineReport({ params, t }) {
           </div>
           {data.top_clients.length > 0 && (
             <div className="card">
-              <div className="card-header chart-header"><h2 className="card-title">{t('reports.topClients')}</h2></div>
+              <div className="card-header chart-header"><h2 className="card-title">{t('reports.topClientsWon')}</h2></div>
               <div className="card-body">
-                <HBarChart data={data.top_clients} labelKey="client_name" valueKey="value" />
+                <HBarChart data={data.top_clients.filter(c => c.won_value > 0)}
+                  labelKey="client_name" valueKey="won_value" />
               </div>
             </div>
           )}
