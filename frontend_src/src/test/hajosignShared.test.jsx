@@ -128,3 +128,28 @@ describe('the frame survives an office printer', () => {
     expect(screen).not.toMatch(/\.hj-sheet-art[^}]*transform: scale/);
   });
 });
+
+describe('a long document on screen', () => {
+  // On screen there are no sheets: a 36-line quotation is one tall page, and a
+  // foot drawn 286mm from its top sat across its last rows. The foot and the
+  // contact strip now hang from the bottom of an art box that spans the page.
+  const sheet = THEMES.hajosign.sheet({ name: 'Hajo' }, null);
+
+  test('the bottom bands are pinned to the end of the document', () => {
+    expect(sheet).toContain('hj-anchor--flow');
+    expect(sheet).toMatch(/<svg class="hj-foot-band"[^>]*viewBox="0 286\.53 210 10\.47"/);
+    expect(css).toMatch(/\.hj-foot-band \{\s*position: absolute; left: 0; bottom: 0;/);
+    const screen = css.slice(css.indexOf('@media screen'));
+    expect(screen).toMatch(/\.hj-anchor--flow > \.hj-sheet-art \{ height: auto; bottom: 0; \}/);
+  });
+
+  test('the left band grows with the page instead of being stretched', () => {
+    // Its slanted head stays put in the top artwork; only the straight run grows.
+    expect(sheet).toContain('M-5.37 157.04 L-5.37 148.89 L3.51 157.04Z');
+    expect(css).toMatch(/\.hj-side-band \{\s*position: absolute; left: 0; top: 157mm; bottom: 0;/);
+  });
+
+  test('the top artwork keeps one sheet\'s height, so it never stretches', () => {
+    expect(css).toMatch(/\.hj-art \{ position: absolute; top: 0; left: 0; width: 100%; height: 297mm; \}/);
+  });
+});
