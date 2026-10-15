@@ -145,8 +145,14 @@ export default function InventoryCombobox({ value, inventory = [], onChange,
       </button>
 
       {open && filtered.length > 0 && (
+        // Wider than the input: on an invoice line the description column is a
+        // fraction of the form, and a five-word item name cut to one word and
+        // "…" cannot be told apart from its neighbours. Capped to the viewport
+        // so it never runs off a phone screen; names wrap when even that is
+        // not enough.
         <div style={{
-          position: 'absolute', top: '100%', left: 0, right: 0, zIndex: 999,
+          position: 'absolute', top: '100%', insetInlineStart: 0, zIndex: 999,
+          width: 'max(100%, min(520px, calc(100vw - 48px)))',
           background: 'var(--surface-1, #fff)',
           border: '1px solid var(--border, var(--rule))',
           borderRadius: 6, boxShadow: '0 4px 16px rgba(0,0,0,0.12)',
@@ -163,6 +169,7 @@ export default function InventoryCombobox({ value, inventory = [], onChange,
           {filtered.map((item, idx) => (
             <div
               key={item.id}
+              title={item.name}
               onMouseDown={() => handlePick(item)}   // mousedown fires before blur
               onMouseEnter={() => setCursor(idx)}
               style={{
@@ -170,7 +177,8 @@ export default function InventoryCombobox({ value, inventory = [], onChange,
                 cursor: 'pointer',
                 display: 'flex',
                 justifyContent: 'space-between',
-                alignItems: 'center',
+                alignItems: 'flex-start',
+                gap: 8,
                 fontSize: 13,
                 borderBottom: '1px solid var(--border, var(--rule))',
                 transition: 'background 0.1s',
@@ -178,8 +186,8 @@ export default function InventoryCombobox({ value, inventory = [], onChange,
               }}
             >
               <span style={{ color: 'var(--text-1, #1e293b)', fontWeight: 500,
-                             overflow: 'hidden', textOverflow: 'ellipsis',
-                             whiteSpace: 'nowrap' }}>
+                             minWidth: 0, whiteSpace: 'normal',
+                             overflowWrap: 'anywhere', lineHeight: 1.35 }}>
                 {item.name}
                 {/* Stock is shown because picking the right variant usually
                     depends on what is actually on hand. */}
@@ -189,7 +197,7 @@ export default function InventoryCombobox({ value, inventory = [], onChange,
                     : `· ${Number(item.quantity)} ${item.unit || ''}`.trim()}
                 </span>
               </span>
-              <span style={{ color: 'var(--text-3, var(--text-3))', fontSize: 11, marginLeft: 8, whiteSpace: 'nowrap' }}>
+              <span style={{ color: 'var(--text-3, var(--text-3))', fontSize: 11, whiteSpace: 'nowrap', flexShrink: 0, paddingTop: 2 }}>
                 {Number(item.sale_price || 0).toFixed(2)}
                 {item.price_currency ? ` ${item.price_currency}` : ''}
                 {item.unit ? ` / ${item.unit}` : ''}
