@@ -18,7 +18,7 @@ import { dirname, join } from 'node:path';
 import { LocaleProvider } from '../hooks/useLocale.jsx';
 import en from '../locales/en';
 import ar from '../locales/ar';
-import WhatsNewModal, { SHOW_ON, RELEASE, ITEMS, localToday, previewRequested } from '../components/WhatsNewModal';
+import WhatsNewModal, { SHOW_ON, RELEASE, ITEMS, ADDED, FIXED, localToday, previewRequested } from '../components/WhatsNewModal';
 
 const here = dirname(fileURLToPath(import.meta.url));
 const src = readFileSync(join(here, '..', 'components', 'WhatsNewModal.jsx'), 'utf8');
@@ -53,7 +53,7 @@ describe('it appears on its one day', () => {
 
   test('and every item is listed, not just the first few', () => {
     mount();
-    expect(ITEMS).toHaveLength(10);
+    expect(ITEMS).toHaveLength(ADDED.length + FIXED.length);
     for (const k of ITEMS) {
       expect(screen.queryByText(en.whatsNew[k]), `${k} is missing from the note`)
         .toBeTruthy();
@@ -149,7 +149,7 @@ describe('wiring and translation', () => {
     expect(appSrc).toMatch(/<WhatsNewModal \/>/);
   });
 
-  test.each(['title', 'intro', 'dismiss',
+  test.each(['title', 'intro', 'dismiss', 'added', 'fixed',
              ...ITEMS.flatMap(k => [k, `${k}Body`])])(
     'whatsNew.%s is written in both languages', (k) => {
       expect(en.whatsNew[k], `en.whatsNew.${k}`).toBeTruthy();
@@ -185,5 +185,26 @@ describe('a link survives the sign-in', () => {
     expect(loginSrc).toMatch(/from\.search/);
     expect(loginSrc).toContain("navigate(backTo, { replace: true })");
     expect(appSrc).toContain('state={{ from: location }}');
+  });
+});
+
+describe('added, then fixed, in either language', () => {
+  test('the two sections are headed and both are filled', () => {
+    mount();
+    expect(screen.getByText(en.whatsNew.added)).toBeTruthy();
+    expect(screen.getByText(en.whatsNew.fixed)).toBeTruthy();
+    expect(ADDED.length).toBeGreaterThan(0);
+    expect(FIXED.length).toBeGreaterThan(0);
+    expect(ADDED.filter(k => FIXED.includes(k))).toEqual([]);
+  });
+
+  test('the switch reads the note in Arabic without changing the app', () => {
+    mount();
+    fireEvent.click(screen.getByText('العربية'));
+    expect(screen.getByText(ar.whatsNew.title)).toBeTruthy();
+    expect(screen.getByText(ar.whatsNew.returns)).toBeTruthy();
+    expect(localStorage.getItem('erp_lang'), 'the app language is untouched').toBe('en');
+    fireEvent.click(screen.getByText('English'));
+    expect(screen.getByText(en.whatsNew.returns)).toBeTruthy();
   });
 });

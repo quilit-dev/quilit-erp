@@ -26,6 +26,8 @@
 import { useState } from 'react';
 import { Modal } from './shared';
 import { useLocale } from '../hooks/useLocale.jsx';
+import en from '../locales/en';
+import ar from '../locales/ar';
 
 // The one day this note is shown, as a local YYYY-MM-DD date.
 export const SHOW_ON = '2026-10-16';
@@ -33,10 +35,21 @@ export const SHOW_ON = '2026-10-16';
 // inheriting the dismissals of this one.
 export const RELEASE = '2026-10';
 
-export const ITEMS = [
+// What is new, then what was put right --- the two questions a user asks.
+export const ADDED = [
   'returns', 'storeCredit', 'docDiscount', 'unitsSearch', 'quoteProduct',
   'profitSummary', 'exportPeriod', 'payrollPay', 'expensesOwed', 'documents',
 ];
+export const FIXED = [
+  'fixDueDate', 'fixBankPayment', 'fixExcelExport', 'fixVatExempt',
+  'fixFingerprint', 'fixItemNames', 'fixPipeline', 'fixLetterhead',
+];
+export const ITEMS = [...ADDED, ...FIXED];
+
+// The note carries its own language switch: an owner reading it in English
+// can hand the screen to a cashier who reads Arabic, without changing the
+// language of the whole system to do it.
+const NOTE_LANGS = { en, ar };
 
 /** `?whatsnew` in the address opens the note on any day, seen or not --- how
  *  the owner previews it before the morning it goes out. It records nothing,
@@ -55,7 +68,10 @@ function seenKey(userId) {
 }
 
 export default function WhatsNewModal() {
-  const { t } = useLocale();
+  const { lang: appLang } = useLocale();
+  const [lang, setLang] = useState(appLang === 'ar' ? 'ar' : 'en');
+  const words = NOTE_LANGS[lang].whatsNew;
+  const rtl = lang === 'ar';
 
   // Everything that decides whether this renders is settled once, on mount:
   // re-reading storage on every render would reopen the modal the instant it
@@ -86,24 +102,45 @@ export default function WhatsNewModal() {
     } catch { /* it closes either way; worst case it returns once more today */ }
   };
 
+  const section = (heading, keys, colour) => (
+    <section style={{ marginBottom: 18 }}>
+      <h3 style={{ margin: '0 0 10px', fontSize: 13, fontWeight: 700,
+                   textTransform: 'uppercase', letterSpacing: rtl ? 0 : 0.6, color: colour }}>
+        {heading}
+      </h3>
+      <ul style={{ margin: 0, paddingInlineStart: 20, display: 'grid', gap: 10 }}>
+        {keys.map(k => (
+          <li key={k} style={{ fontSize: 13, lineHeight: 1.5 }}>
+            <strong style={{ color: 'var(--text)' }}>{words[k]}</strong>
+            <div style={{ color: 'var(--text-2)' }}>{words[`${k}Body`]}</div>
+          </li>
+        ))}
+      </ul>
+    </section>
+  );
+
   return (
-    <Modal title={t('whatsNew.title')} onClose={dismiss} size="modal-lg">
-      <div className="modal-body">
-        <p style={{ margin: '0 0 16px', color: 'var(--text-2)', fontSize: 13 }}>
-          {t('whatsNew.intro')}
-        </p>
-        <ul style={{ margin: 0, paddingInlineStart: 20, display: 'grid', gap: 12 }}>
-          {ITEMS.map(k => (
-            <li key={k} style={{ fontSize: 13, lineHeight: 1.5 }}>
-              <strong style={{ color: 'var(--text)' }}>{t(`whatsNew.${k}`)}</strong>
-              <div style={{ color: 'var(--text-2)' }}>{t(`whatsNew.${k}Body`)}</div>
-            </li>
-          ))}
-        </ul>
+    <Modal title={words.title} onClose={dismiss} size="modal-lg">
+      <div className="modal-body" dir={rtl ? 'rtl' : 'ltr'} lang={lang}>
+        <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center',
+                      gap: 12, marginBottom: 16, flexWrap: 'wrap' }}>
+          <p style={{ margin: 0, color: 'var(--text-2)', fontSize: 13 }}>{words.intro}</p>
+          <div role="group" aria-label="Language" style={{ display: 'flex', gap: 4 }} dir="ltr">
+            {[['en', 'English'], ['ar', 'العربية']].map(([code, label]) => (
+              <button key={code} type="button"
+                className={`btn btn-sm ${lang === code ? 'btn-primary' : 'btn-secondary'}`}
+                aria-pressed={lang === code} onClick={() => setLang(code)}>
+                {label}
+              </button>
+            ))}
+          </div>
+        </div>
+        {section(words.added, ADDED, 'var(--affirm-ink)')}
+        {section(words.fixed, FIXED, 'var(--info-ink)')}
       </div>
       <div className="modal-footer">
         <button className="btn btn-primary" onClick={dismiss} autoFocus>
-          {t('whatsNew.dismiss')}
+          {words.dismiss}
         </button>
       </div>
     </Modal>
