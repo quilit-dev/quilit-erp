@@ -3,8 +3,9 @@
 The engine and its accounting live in `returns.py`; this is the door to it ---
 permissions, branch scoping, period locks, and the lists the screens read.
 """
+import logging
 import sqlite3
-from typing import List, Optional
+from typing import Callable, List, Optional, TypeVar
 
 from fastapi import APIRouter, Depends, HTTPException
 from pydantic import BaseModel
@@ -18,6 +19,44 @@ from routers.finance import _check_period_locked
 from utils import _now, money
 
 router = APIRouter()
+log = logging.getLogger("erp.returns")
+T = TypeVar("T")
+
+
+def _guarded(db, what: str, refused: int, work: Callable[[], T]) -> T:
+    """Run one write --- the return, its audit row, the commit --- as a unit
+    the operator always gets an answer from.
+
+    A return touches the ledger, stock, cost layers, settlement rows and credit
+    in one transaction. Whatever goes wrong inside it, the transaction is
+    rolled back first, so nothing is left half-posted, and the operator is told
+    in words what happened:
+
+      * a refusal the engine explains (more than was sold, credit already spent)
+        comes back as the engine wrote it;
+      * the ledger refusing an entry (an account that cannot take it) comes back
+        with its reason, which an accountant can act on;
+      * anything else is logged with its full traceback and answered with a
+        plain message --- never a bare "Internal Server Error".
+    """
+    try:
+        return work()
+    except engine.ReturnError as e:
+        db.rollback()
+        raise HTTPException(refused, str(e))
+    except HTTPException:
+        db.rollback()
+        raise
+    except ValueError as e:
+        db.rollback()
+        log.warning("%s refused by the ledger: %s", what, e)
+        raise HTTPException(400, f"The {what} could not be posted: {e}. Nothing was saved.")
+    except Exception:
+        db.rollback()
+        log.exception("%s failed unexpectedly", what)
+        raise HTTPException(
+            500, f"The {what} could not be saved because of an unexpected problem. "
+                 "Nothing was changed. Please try again, and report it if it happens again.")
 
 
 class SalesLine(BaseModel):
@@ -132,10 +171,7 @@ def sales_returnable(invoice_id: int, user=Depends(require_perm("returns", "view
     if not inv:
         raise HTTPException(404, "Invoice not found")
     branch_access.assert_can_view_branch(user, db, inv["branch_id"])
-    try:
-        return engine.sales_returnable(db, invoice_id)
-    except engine.ReturnError as e:
-        raise HTTPException(400, str(e))
+    return _guarded(db, "return form", 400, lambda: engine.sales_returnable(db, invoice_id))
 
 
 @router.post("/sales")
@@ -153,22 +189,20 @@ def create_sales_return(data: SalesReturnIn, user=Depends(require_perm("returns"
     if data.cash_drawer_id is not None and not db.execute(
             "SELECT 1 FROM cash_drawers WHERE id = ?", (data.cash_drawer_id,)).fetchone():
         raise HTTPException(400, "Cash drawer not found")
-    try:
+    def work():
         rid = engine.create_sales_return(
             db, user, invoice_id=data.invoice_id,
             lines=[l.model_dump() for l in data.lines], reason=(data.reason or "").strip(),
             return_date=when, settlement=data.settlement, refund_method=data.refund_method,
             bank_account_id=data.bank_account_id, cash_drawer_id=data.cash_drawer_id)
-    except engine.ReturnError as e:
-        db.rollback()
-        raise HTTPException(400, str(e))
-    ret = db.execute("SELECT * FROM sales_returns WHERE id = ?", (rid,)).fetchone()
-    log_action(db, user, "create", "sales_return", rid, ret["return_number"],
-               {"invoice": inv["invoice_number"], "total": money(ret["total"]),
-                "applied": money(ret["applied_to_invoice"]),
-                "refunded": money(ret["refunded"]), "credited": money(ret["credited"])})
-    db.commit()
-    return {"id": rid, "return_number": ret["return_number"], "message": "Credit note raised"}
+        ret = db.execute("SELECT * FROM sales_returns WHERE id = ?", (rid,)).fetchone()
+        log_action(db, user, "create", "sales_return", rid, ret["return_number"],
+                   {"invoice": inv["invoice_number"], "total": money(ret["total"]),
+                    "applied": money(ret["applied_to_invoice"]),
+                    "refunded": money(ret["refunded"]), "credited": money(ret["credited"])})
+        db.commit()
+        return {"id": rid, "return_number": ret["return_number"], "message": "Credit note raised"}
+    return _guarded(db, "credit note", 400, work)
 
 
 @router.patch("/sales/{return_id}/void")
@@ -178,15 +212,13 @@ def void_sales_return(return_id: int, data: VoidIn,
     row = _sales_return_or_404(db, user, return_id)
     _check_period_locked(db, row["return_date"])
     _check_period_locked(db, _now())
-    try:
+    def work():
         engine.void_sales_return(db, user, return_id, (data.reason or "").strip())
-    except engine.ReturnError as e:
-        db.rollback()
-        raise HTTPException(409, str(e))
-    log_action(db, user, "void", "sales_return", return_id, row["return_number"],
-               {"reason": data.reason})
-    db.commit()
-    return {"message": "Credit note voided"}
+        log_action(db, user, "void", "sales_return", return_id, row["return_number"],
+                   {"reason": data.reason})
+        db.commit()
+        return {"message": "Credit note voided"}
+    return _guarded(db, "credit note void", 409, work)
 
 
 # ════════════════════════════════════════════════════════════════════════════
@@ -254,10 +286,7 @@ def purchase_returnable(purchase_id: int, user=Depends(require_perm("returns", "
     if not row:
         raise HTTPException(404, "Purchase not found")
     branch_access.assert_can_view_branch(user, db, row["warehouse_id"])
-    try:
-        return engine.purchase_returnable(db, purchase_id)
-    except engine.ReturnError as e:
-        raise HTTPException(400, str(e))
+    return _guarded(db, "return form", 400, lambda: engine.purchase_returnable(db, purchase_id))
 
 
 @router.post("/purchases")
@@ -273,22 +302,20 @@ def create_purchase_return(data: PurchaseReturnIn,
     if row["received_at"] and when < str(row["received_at"])[:10]:
         raise HTTPException(400, "A return cannot be dated before the goods were received.")
     _check_period_locked(db, when)
-    try:
+    def work():
         rid = engine.create_purchase_return(
             db, user, purchase_id=data.purchase_id,
             lines=[l.model_dump() for l in data.lines], reason=(data.reason or "").strip(),
             return_date=when, settlement=data.settlement, refund_method=data.refund_method,
             bank_account_id=data.bank_account_id)
-    except engine.ReturnError as e:
-        db.rollback()
-        raise HTTPException(400, str(e))
-    ret = db.execute("SELECT * FROM purchase_returns WHERE id = ?", (rid,)).fetchone()
-    log_action(db, user, "create", "purchase_return", rid, ret["return_number"],
-               {"purchase": row["po_number"], "total": money(ret["total"]),
-                "applied": money(ret["applied_to_purchase"]),
-                "refunded": money(ret["refunded"]), "credited": money(ret["credited"])})
-    db.commit()
-    return {"id": rid, "return_number": ret["return_number"], "message": "Debit note raised"}
+        ret = db.execute("SELECT * FROM purchase_returns WHERE id = ?", (rid,)).fetchone()
+        log_action(db, user, "create", "purchase_return", rid, ret["return_number"],
+                   {"purchase": row["po_number"], "total": money(ret["total"]),
+                    "applied": money(ret["applied_to_purchase"]),
+                    "refunded": money(ret["refunded"]), "credited": money(ret["credited"])})
+        db.commit()
+        return {"id": rid, "return_number": ret["return_number"], "message": "Debit note raised"}
+    return _guarded(db, "debit note", 400, work)
 
 
 @router.patch("/purchases/{return_id}/void")
@@ -298,15 +325,13 @@ def void_purchase_return(return_id: int, data: VoidIn,
     row = _purchase_return_or_404(db, user, return_id)
     _check_period_locked(db, row["return_date"])
     _check_period_locked(db, _now())
-    try:
+    def work():
         engine.void_purchase_return(db, user, return_id, (data.reason or "").strip())
-    except engine.ReturnError as e:
-        db.rollback()
-        raise HTTPException(409, str(e))
-    log_action(db, user, "void", "purchase_return", return_id, row["return_number"],
-               {"reason": data.reason})
-    db.commit()
-    return {"message": "Debit note voided"}
+        log_action(db, user, "void", "purchase_return", return_id, row["return_number"],
+                   {"reason": data.reason})
+        db.commit()
+        return {"message": "Debit note voided"}
+    return _guarded(db, "debit note void", 409, work)
 
 
 # ════════════════════════════════════════════════════════════════════════════

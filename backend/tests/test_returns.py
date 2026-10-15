@@ -419,3 +419,34 @@ def test_sqlite_boot_points_late_roles_at_the_lebanese_chart(db):
     database.init_db()
     row = db.execute("SELECT code FROM account_roles WHERE role = 'revenue_exempt'").fetchone()
     assert row["code"] == LB.ROLES["revenue_exempt"]
+
+
+# ── The safety net: never a bare 500, never half-saved ───────────────────────
+def _counts(db):
+    return (db.execute("SELECT COUNT(*) AS n FROM sales_returns").fetchone()["n"],
+            db.execute("SELECT COUNT(*) AS n FROM journal_entries").fetchone()["n"],
+            db.execute("SELECT COUNT(*) AS n FROM invoice_payments").fetchone()["n"])
+
+
+@pytest.mark.parametrize("boom, status, words", [
+    (RuntimeError("disk on fire"), 500, "unexpected problem"),
+    (ValueError("Account 9999 is inactive"), 400, "could not be posted"),
+])
+def test_an_unexpected_failure_is_explained_and_nothing_is_kept(c, db, monkeypatch, boom, status, words):
+    import returns as engine
+    inv, _ = _two_line_invoice(c)
+    chair = _lines(c, inv["id"])["Chair"]
+    before = _counts(db)
+    real = engine.create_sales_return
+
+    def half_then_fail(*a, **kw):
+        real(*a, **kw)          # posts the entry, writes the payment row...
+        raise boom              # ...then something goes wrong
+
+    monkeypatch.setattr(engine, "create_sales_return", half_then_fail)
+    r = _return(c, inv["id"], [{"invoice_item_id": chair["invoice_item_id"], "quantity": 1}])
+    assert r.status_code == status
+    assert words in r.json()["detail"]
+    assert "Nothing was" in r.json()["detail"]
+    assert _counts(db) == before, "the half-done return was rolled back"
+    assert _balance(c, inv["id"]) == 1000
