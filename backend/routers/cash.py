@@ -90,11 +90,23 @@ def _auto_amounts(db, business_date, drawer_id, is_default):
             (currency, business_date, drawer_id, flag),
         ).fetchone()[0])
 
+    # Cash that left the drawer: expenses paid in cash on the day, plus cash
+    # payments made that day against expenses that were owed. An owed expense
+    # itself moved no cash when it was recorded, so it is left out here; only
+    # its payments count, on the day each one is made.
     out_usd = float(db.execute(
         "SELECT COALESCE(SUM(amount), 0) FROM expenses "
         "WHERE payment_method='Cash' AND DATE(date)=? "
+        "  AND COALESCE(on_credit, 0) = 0 "
         "  AND voided_at IS NULL AND archived_at IS NULL "
         "  AND (cash_drawer_id=? OR (cash_drawer_id IS NULL AND ?=1))",
+        (business_date, drawer_id, flag),
+    ).fetchone()[0]) + float(db.execute(
+        "SELECT COALESCE(SUM(p.amount), 0) FROM expense_payments p "
+        "JOIN expenses e ON e.id = p.expense_id "
+        "WHERE p.method='Cash' AND DATE(p.paid_at)=? AND p.voided_at IS NULL "
+        "  AND e.voided_at IS NULL AND e.archived_at IS NULL "
+        "  AND (p.cash_drawer_id=? OR (p.cash_drawer_id IS NULL AND ?=1))",
         (business_date, drawer_id, flag),
     ).fetchone()[0])
 

@@ -7,7 +7,7 @@ import { getExpenses, getProjects, createExpense, updateExpense, voidExpense,
 import {
   LoadingSpinner, ErrorAlert, EmptyState, Modal,
   ExportButton, fmt, fmtDate, toast, SortableTh, Pagination,
-  CATEGORY_HUE, CategoryBadge, SelectOther, NumberInput, BranchField, IconButton,
+  CATEGORY_HUE, CategoryBadge, Badge, SelectOther, NumberInput, BranchField, IconButton,
   inExportRange} from '../components/shared';
 import { useSortPaginate } from '../hooks/useSortPaginate';
 import { useLocale } from '../hooks/useLocale.jsx';
@@ -19,6 +19,11 @@ import Attachments from '../components/Attachments.jsx';
 import DocumentPostings from '../components/DocumentPostings.jsx';
 import RecurringExpensesPanel from '../components/RecurringExpensesPanel';
 import SearchSelect from '../components/SearchSelect.jsx';
+import ExpensePaymentsModal, { paymentBadge } from '../components/ExpensePaymentsModal.jsx';
+
+const todayStr = () => new Date().toISOString().slice(0, 10);
+// Owed, with a due date already past.
+const isOverdue = (e) => !e.voided_at && e.outstanding > 0 && e.due_date && e.due_date < todayStr();
 
 function TransactionsPanel() {
   // Ticking this SWAPS the list for the archive rather than widening it, so
@@ -54,6 +59,8 @@ function TransactionsPanel() {
   const [projFilter, setProjFilter] = usePersistedState('expenses.projFilter', '');
   const [monthFilter, setMonthFilter] = usePersistedState('expenses.monthFilter', '');
   const [search, setSearch] = usePersistedState('expenses.search', '');
+  const [payFilter, setPayFilter] = usePersistedState('expenses.payFilter', '');
+  const [payTarget, setPayTarget] = useState(null);   // expense whose payments are open
 
   const [modal,      setModal]      = useState(false);
   const [editId,     setEditId]     = useState(null);
@@ -64,14 +71,14 @@ function TransactionsPanel() {
     project_id: '', category: 'Other', description: '',
     amount: '', date: new Date().toISOString().slice(0, 10), tax_rate_id: null,
     payment_method: '', cash_drawer_id: null, bank_account_id: '',
-    branch_id: '',
+    branch_id: '', on_credit: false, payee: '', due_date: '', paid_now: '',
   });
 
   const EMPTY_FORM = {
     project_id: '', category: 'Other', description: '',
     amount: '', date: new Date().toISOString().slice(0, 10), tax_rate_id: null,
     payment_method: '', cash_drawer_id: null, bank_account_id: '',
-    branch_id: '',
+    branch_id: '', on_credit: false, payee: '', due_date: '', paid_now: '',
   };
 
   function openAdd() { setForm(EMPTY_FORM); setEditId(null); setModal(true); }
@@ -88,6 +95,10 @@ function TransactionsPanel() {
       bank_account_id: exp.bank_account_id || '',
       cash_drawer_id: exp.cash_drawer_id ?? null,
       branch_id:      exp.branch_id ?? '',
+      on_credit:      !!exp.on_credit,
+      payee:          exp.payee || '',
+      due_date:       exp.due_date || '',
+      paid_now:       '',
     });
     setEditId(exp.id);
     setModal(true);
@@ -104,13 +115,16 @@ function TransactionsPanel() {
         tax_rate_id: taxEnabled ? (form.tax_rate_id ?? null) : null,
         branch_id:   form.branch_id || null,
         bank_account_id: form.bank_account_id ? Number(form.bank_account_id) : null,
+        payee:       form.on_credit ? (form.payee || null) : null,
+        due_date:    form.on_credit ? (form.due_date || null) : null,
+        paid_now:    form.on_credit && form.paid_now ? Number(form.paid_now) : null,
       };
       if (editId) {
         await updateExpense(editId, payload);
         toast(t('expenses.expenseUpdatedMsg'));
       } else {
-        await createExpense(payload);
-        toast(t('expenses.expenseRecorded'));
+        const res = await createExpense(payload);
+        toast(res?.payment_deferred ? res.message : t('expenses.expenseRecorded'));
       }
       setModal(false);
       setEditId(null);
@@ -165,14 +179,22 @@ function TransactionsPanel() {
       const matchSearch = !search
         || (exp.description || '').toLowerCase().includes(search.toLowerCase())
         || (exp.category || '').toLowerCase().includes(search.toLowerCase())
-        || (exp.project_name || '').toLowerCase().includes(search.toLowerCase());
-      return matchCat && matchProj && matchMonth && matchSearch;
+        || (exp.project_name || '').toLowerCase().includes(search.toLowerCase())
+        || (exp.payee || '').toLowerCase().includes(search.toLowerCase());
+      const matchPay = !payFilter
+        || (payFilter === 'unpaid' ? (!exp.voided_at && exp.outstanding > 0)
+                                   : exp.payment_status === 'Paid');
+      return matchCat && matchProj && matchMonth && matchSearch && matchPay;
     });
-  }, [expenses, catFilter, projFilter, monthFilter, search]);
+  }, [expenses, catFilter, projFilter, monthFilter, search, payFilter]);
 
   const activeFiltered = filtered.filter(e => !e.voided_at);
   const total     = activeFiltered.reduce((s, e) => s + Number(e.amount || 0), 0);
   const avgAmount = activeFiltered.length ? total / activeFiltered.length : 0;
+  // What is still owed across the expenses on screen: the debts, not the cost.
+  const owedRows  = activeFiltered.filter(e => e.outstanding > 0);
+  const owedTotal = owedRows.reduce((s, e) => s + Number(e.outstanding || 0), 0);
+  const overdueCount = owedRows.filter(isOverdue).length;
 
   const { sorted: pagedExpenses, page, pageSize, totalPages, setPage, setPageSize, sortKey, sortDir, requestSort, PAGE_SIZES } = useSortPaginate(filtered);
 
@@ -186,7 +208,7 @@ function TransactionsPanel() {
       .sort((a, b) => b.amount - a.amount);
   }, [filtered]);
 
-  const hasFilters = catFilter || projFilter || monthFilter || search;
+  const hasFilters = catFilter || projFilter || monthFilter || search || payFilter;
 
   // The period chosen in the export dialog, on the expense's own date, over
   // the list as filtered on screen.
@@ -198,6 +220,10 @@ function TransactionsPanel() {
     'Net (excl. VAT)': +(((e.amount || 0) - (e.tax_amount || 0)).toFixed(2)),
     'Payment Method': e.payment_method || '',
     Status: e.voided_at ? 'Voided' : (e.status || 'Recorded'),
+    'Payment Status': e.voided_at ? '' : (e.payment_status || 'Paid'),
+    'Still Owed': e.voided_at ? 0 : (e.outstanding || 0),
+    'Owed To': e.payee || '',
+    'Due Date': e.due_date ? fmtDate(e.due_date) : '',
   }));
 
   const months = useMemo(() => {
@@ -223,15 +249,20 @@ function TransactionsPanel() {
       </div>
 
       {/* Stat cards */}
-      <div style={{ display: 'grid', gridTemplateColumns: 'repeat(3,1fr)', gap: 14, marginBottom: 20 }}>
+      <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(180px, 1fr))', gap: 14, marginBottom: 20 }}>
         {[
           { label: t('expenses.totalLabel'),   value: fmt(total),     color: 'var(--red)',    sub: t('expenses.entriesCount', { count: filtered.length }) },
           { label: t('expenses.averageLabel'), value: fmt(avgAmount), color: 'var(--text)',   sub: t('expenses.perExpense') },
           { label: t('expenses.topCategory'),  color: 'var(--accent)',
             value: byCategory[0]?.category || '—',
             sub: byCategory[0] ? fmt(byCategory[0].amount) : '—' },
+          { label: t('expenses.owedCard'), value: fmt(owedTotal),
+            color: owedTotal > 0 ? 'var(--red)' : 'var(--text-3)',
+            sub: t('expenses.owedSub', { count: owedRows.length, overdue: overdueCount }),
+            onClick: () => setPayFilter(payFilter === 'unpaid' ? '' : 'unpaid') },
         ].map(s => (
-          <div key={s.label} className="stat-card" style={{ padding: '14px 18px' }}>
+          <div key={s.label} className="stat-card" onClick={s.onClick}
+            style={{ padding: '14px 18px', cursor: s.onClick ? 'pointer' : undefined }}>
             <div className="stat-label">{s.label}</div>
             <div style={{ fontSize: 20, fontWeight: 700, color: s.color, marginTop: 2 }}>{s.value}</div>
             <div style={{ fontSize: 11, color: 'var(--text-3)', marginTop: 3 }}>{s.sub}</div>
@@ -275,6 +306,17 @@ function TransactionsPanel() {
             placeholder={t('expenses.allMonths')}
             options={(months).map(m => ({ value: m, label: m }))} />
 
+          <SearchSelect
+            className="form-control"
+            style={{ width: 150, height: 34, fontSize: 13 }}
+            value={payFilter}
+            onChange={v => setPayFilter(v || '')}
+            placeholder={t('expenses.filterAllPayments')}
+            options={[
+              { value: 'unpaid', label: t('expenses.filterUnpaid') },
+              { value: 'paid',   label: t('expenses.filterPaid') },
+            ]} />
+
           <label className="archived-toggle">
             <input type="checkbox" checked={showArchived}
               onChange={e => setShowArchived(e.target.checked)} />
@@ -283,7 +325,7 @@ function TransactionsPanel() {
 
           {hasFilters && (
             <button className="btn btn-sm btn-secondary" onClick={() => {
-              setCatFilter(''); setProjFilter(''); setMonthFilter(''); setSearch('');
+              setCatFilter(''); setProjFilter(''); setMonthFilter(''); setSearch(''); setPayFilter('');
             }}>
               {t('common.clear')}
             </button>
@@ -308,6 +350,7 @@ function TransactionsPanel() {
                     <SortableTh label={t('common.description')} sortKey="description"  currentKey={sortKey} currentDir={sortDir} onSort={requestSort} />
                     <SortableTh label={t('common.project')}     sortKey="project_name" currentKey={sortKey} currentDir={sortDir} onSort={requestSort} />
                     <SortableTh label={t('common.amount')}      sortKey="amount"       currentKey={sortKey} currentDir={sortDir} onSort={requestSort} style={{ textAlign: 'right' }} />
+                    <SortableTh label={t('expenses.statusCol')} sortKey="outstanding"  currentKey={sortKey} currentDir={sortDir} onSort={requestSort} />
                     <th style={{ width: 80 }}></th>
                   </tr>
                 </thead>
@@ -329,6 +372,11 @@ function TransactionsPanel() {
                       </td>
                       <td className="td-primary">
                         {exp.description || <span style={{ color: 'var(--text-3)' }}>—</span>}
+                        {exp.payee && (
+                          <div style={{ fontSize: 11, color: 'var(--text-3)', marginTop: 2 }}>
+                            {t('expenses.payeeLabel')}: {exp.payee}
+                          </div>
+                        )}
                         {exp.void_reason && (
                           <div style={{ fontSize: 11, color: 'var(--text-3)', marginTop: 2 }}>
                             {exp.void_reason}
@@ -339,11 +387,29 @@ function TransactionsPanel() {
                       <td style={{ textAlign: 'right', fontWeight: 600, color: exp.voided_at ? 'var(--text-3)' : 'var(--red)', whiteSpace: 'nowrap', textDecoration: exp.voided_at ? 'line-through' : 'none' }}>
                         {fmt(exp.amount)}
                       </td>
+                      <td style={{ whiteSpace: 'nowrap' }}>
+                        {!exp.voided_at && (
+                          <>
+                            <Badge status={isOverdue(exp) ? 'Overdue' : paymentBadge(exp.payment_status || 'Paid')} />
+                            {exp.outstanding > 0 && (
+                              <div style={{ fontSize: 11, color: 'var(--text-3)', marginTop: 2 }}>
+                                {fmt(exp.outstanding)}{exp.due_date ? ` · ${t('expenses.dueOn', { date: fmtDate(exp.due_date) })}` : ''}
+                              </div>
+                            )}
+                          </>
+                        )}
+                      </td>
                       <td style={{ textAlign: 'right' }}>
                         {exp.archived_at ? (
                           <IconButton icon="rotate-ccw" label={t('common.restore')} className="btn btn-sm btn-secondary" onClick={() => handleRestore(exp)} />
                         ) : !exp.voided_at ? (
                           <div style={{ display: 'flex', gap: 6, justifyContent: 'flex-end' }}>
+                            {!!exp.on_credit && !['Pending Approval', 'Rejected'].includes(exp.status) && (
+                              <button className={`btn btn-sm ${exp.outstanding > 0 ? 'btn-primary' : 'btn-secondary'}`}
+                                onClick={() => setPayTarget(exp)}>
+                                {exp.outstanding > 0 ? t('expenses.payBtn') : t('expenses.paymentsBtn')}
+                              </button>
+                            )}
                             <IconButton icon="pencil" label={t('common.edit')} className="btn btn-sm btn-secondary" onClick={() => openEdit(exp)} />
                             <button className="btn btn-sm btn-danger" onClick={() => { setVoidTarget(exp); setVoidReason(''); }}>
                               {t('expenses.voidBtn')}
@@ -430,6 +496,46 @@ function TransactionsPanel() {
                 </div>
                 <BranchField value={form.branch_id}
                   onChange={v => setForm(f => ({ ...f, branch_id: v }))} />
+                {!editId && (
+                  <div className="form-group form-full">
+                    <label className="form-label">{t('expenses.paymentTiming')}</label>
+                    <div style={{ display: 'flex', gap: 18, flexWrap: 'wrap' }}>
+                      {[[false, t('expenses.paidNowOption')], [true, t('expenses.owedOption')]].map(([v, label]) => (
+                        <label key={String(v)} style={{ display: 'flex', gap: 6, alignItems: 'center', fontSize: 13, cursor: 'pointer' }}>
+                          <input type="radio" name="on_credit" checked={form.on_credit === v}
+                            onChange={() => setForm(f => ({ ...f, on_credit: v }))} />
+                          {label}
+                        </label>
+                      ))}
+                    </div>
+                    {form.on_credit && (
+                      <div style={{ fontSize: 12, color: 'var(--text-3)', marginTop: 6 }}>{t('expenses.owedHint')}</div>
+                    )}
+                  </div>
+                )}
+                {form.on_credit && (
+                  <>
+                    <div className="form-group">
+                      <label className="form-label">{t('expenses.payeeLabel')}</label>
+                      <input className="form-control" value={form.payee}
+                        placeholder={t('expenses.payeePlaceholder')}
+                        onChange={e => setForm(f => ({ ...f, payee: e.target.value }))} />
+                    </div>
+                    <div className="form-group">
+                      <label className="form-label">{t('expenses.dueDateLabel')}</label>
+                      <input type="date" className="form-control" value={form.due_date}
+                        onChange={e => setForm(f => ({ ...f, due_date: e.target.value }))} />
+                    </div>
+                    {!editId && (
+                      <div className="form-group">
+                        <label className="form-label">{t('expenses.paidNowLabel')}</label>
+                        <NumberInput className="form-control" step="0.01" min="0"
+                          max={form.amount || undefined}
+                          value={form.paid_now} onChange={e => setForm(f => ({ ...f, paid_now: e.target.value }))} />
+                      </div>
+                    )}
+                  </>
+                )}
                 <div className="form-group">
                   <label className="form-label">{t('expenses.paymentMethodLabel')}</label>
                   <SelectOther
@@ -492,6 +598,12 @@ function TransactionsPanel() {
             </div>
           </form>
         </Modal>
+      )}
+
+      {payTarget && (
+        <ExpensePaymentsModal expense={payTarget}
+          cashDrawers={cashDrawers} bankAccounts={bankAccounts}
+          onClose={() => setPayTarget(null)} onChanged={reload} />
       )}
 
       {voidTarget && (

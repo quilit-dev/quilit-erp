@@ -77,6 +77,13 @@ class ExpenseCreate(BaseModel):
     # through a bank; ignored for cash, which follows the drawer instead.
     bank_account_id: Optional[int] = None
     branch_id:      Optional[int] = None   # branch == warehouse; resolved on create
+    # Owed rather than paid: the expense is a cost on its date, but the money
+    # has not all left yet. `paid_now` is what was handed over on the day, if
+    # anything; the rest is paid off later through /expenses/{id}/payments.
+    on_credit:      bool = False
+    paid_now:       Optional[float] = None
+    payee:          Optional[str] = None   # who is owed: landlord, bank, supplier
+    due_date:       Optional[str] = None
 
     @validator('amount')
     def amount_positive(cls, v):
@@ -434,6 +441,7 @@ def list_expenses(
     category:   Optional[str] = None,
     branch_id:  Optional[int] = None,
     archived:   ArchiveMode = "exclude",
+    unpaid:     bool = False,
     user=Depends(require_perm("expenses", "view")),
     db: sqlite3.Connection = Depends(get_db),
 ):
@@ -452,9 +460,220 @@ def list_expenses(
     bf, bp = branch_access.branch_filter(user, db, column="e.branch_id", selected=branch_id)
     query += bf
     params += bp
+    if unpaid:
+        query += (" AND e.on_credit = 1 AND e.voided_at IS NULL"
+                  " AND COALESCE(e.status, '') NOT IN ('Pending Approval', 'Rejected')"
+                  " AND e.amount - COALESCE(e.paid_total, 0) > 0.005")
     query += " ORDER BY e.date DESC"
     rows = db.execute(query, params).fetchall()
-    return [dict(r) for r in rows]
+    return [_with_settlement(dict(r)) for r in rows]
+
+
+# ── Owed expenses and their payments ─────────────────────────────────────────
+# Same shape as purchase_payments. An expense recorded `on_credit` posts its
+# cost against Accounts Payable; each payment then moves money out of cash or
+# the bank against that payable, on the day it is actually paid. So the cost
+# lands in the period it was incurred, and the cash drawer and bank only see
+# money on the day it really leaves.
+
+def _valid_date(value, label):
+    if not value:
+        return None
+    try:
+        datetime.strptime(str(value)[:10], "%Y-%m-%d")
+    except ValueError:
+        raise HTTPException(400, f"{label} must be YYYY-MM-DD.")
+    return str(value)[:10]
+
+
+def _col(row, key, default=None):
+    try:
+        return row[key]
+    except (KeyError, IndexError):
+        return default
+
+
+def _with_settlement(d):
+    """Add `outstanding` and `payment_status` to an expense dict.
+
+    An expense recorded before owed expenses existed --- or simply paid when
+    recorded --- has `on_credit` 0 and is Paid by definition: its entry
+    credited cash.
+    """
+    if d.get("on_credit") and d.get("status") in ("Pending Approval", "Rejected"):
+        # Not a debt until it is approved: nothing is posted and nothing can be
+        # paid, so it is neither owed nor overdue.
+        d["outstanding"] = 0.0
+        d["payment_status"] = d["status"]
+    elif d.get("on_credit"):
+        paid = money(d.get("paid_total") or 0)
+        outstanding = money(max(float(d.get("amount") or 0) - paid, 0))
+        d["outstanding"] = 0.0 if d.get("voided_at") else outstanding
+        d["payment_status"] = ("Paid" if outstanding <= 0.005
+                               else "Partially Paid" if paid > 0.005 else "Unpaid")
+    else:
+        d["outstanding"] = 0.0
+        d["payment_status"] = "Paid"
+    return d
+
+
+def _recalc_expense_paid(db, expense_id):
+    """Rewrite `paid_total` from the live payment rows --- its only writer."""
+    paid = db.execute(
+        "SELECT COALESCE(SUM(amount), 0) FROM expense_payments "
+        "WHERE expense_id=? AND voided_at IS NULL", (expense_id,)).fetchone()[0]
+    db.execute("UPDATE expenses SET paid_total=? WHERE id=?",
+               (money(paid), expense_id))
+
+
+def _add_expense_payment(db, user, exp, *, amount, method=None,
+                         bank_account_id=None, cash_drawer_id=None,
+                         paid_at=None, note=None):
+    """Record one payment against an owed expense, and post it:
+    DR Accounts Payable / CR whatever paid it. Returns the row id."""
+    amount = money(amount)
+    if amount <= 0:
+        raise HTTPException(400, "A payment has to be for more than nothing.")
+    when = _valid_date(paid_at, "Payment date") or _today()
+    _check_period_locked(db, when)
+    method = (method or exp["payment_method"] or "Cash")
+    drawer_id = _resolve_cash_drawer(db, method, cash_drawer_id)
+    bank_id = bank_account_id if bank_account_id is not None else exp["bank_account_id"]
+    cur = db.execute(
+        "INSERT INTO expense_payments (expense_id, amount, method, bank_account_id, "
+        " cash_drawer_id, note, paid_at, created_at, created_by) "
+        "VALUES (?,?,?,?,?,?,?,?,?)",
+        (exp["id"], amount, method, bank_id, drawer_id, (note or None), when,
+         _now(), user["id"]))
+    payment_id = cur.lastrowid
+    payee = _col(exp, "payee")
+    accounting.post_entry(
+        db, entry_date=when,
+        memo=(f"Payment — {exp['category']}" + (f" to {payee}" if payee else "")
+              + (f" — {exp['description']}" if exp["description"] else "")),
+        lines=[
+            {"code": accounting.code(db, "payable"), "debit": amount},
+            {"code": accounting.money_account_for(db, method=method,
+                                                  bank_account_id=bank_id),
+             "credit": amount},
+        ],
+        source_type="expense_payment", source_id=payment_id,
+        created_by=user["id"], branch_id=exp["branch_id"])
+    _recalc_expense_paid(db, exp["id"])
+    return payment_id
+
+
+def _owed_expense(db, user, expense_id):
+    exp = db.execute(
+        "SELECT * FROM expenses WHERE id=? AND archived_at IS NULL", (expense_id,)
+    ).fetchone()
+    if not exp:
+        raise HTTPException(404, "Expense not found")
+    branch_access.assert_can_view_branch(user, db, exp["branch_id"])
+    return exp
+
+
+class ExpensePaymentIn(BaseModel):
+    amount:          float
+    payment_method:  Optional[str] = None
+    bank_account_id: Optional[int] = None
+    cash_drawer_id:  Optional[int] = None
+    paid_at:         Optional[str] = None
+    note:            Optional[str] = None
+
+
+class ExpensePaymentVoid(BaseModel):
+    reason: Optional[str] = None
+
+
+@router.get("/expenses/{expense_id}/payments")
+def list_expense_payments(
+    expense_id: int,
+    user=Depends(require_perm("expenses", "view")),
+    db: sqlite3.Connection = Depends(get_db),
+):
+    exp = _owed_expense(db, user, expense_id)
+    rows = db.execute(
+        "SELECT * FROM expense_payments WHERE expense_id=? ORDER BY paid_at, id",
+        (expense_id,)).fetchall()
+    d = _with_settlement(dict(exp))
+    return {"payments": [dict(r) for r in rows], "amount": money(exp["amount"]),
+            "paid_total": money(_col(exp, "paid_total") or 0),
+            "outstanding": d["outstanding"], "payment_status": d["payment_status"],
+            "on_credit": bool(_col(exp, "on_credit"))}
+
+
+@router.post("/expenses/{expense_id}/payments")
+def add_expense_payment(
+    expense_id: int,
+    data: ExpensePaymentIn,
+    user=Depends(require_perm("expenses", "edit")),
+    db: sqlite3.Connection = Depends(get_db),
+):
+    """Pay off part or all of an owed expense."""
+    exp = _owed_expense(db, user, expense_id)
+    if exp["voided_at"]:
+        raise HTTPException(400, "This expense has been voided.")
+    if not _col(exp, "on_credit"):
+        raise HTTPException(400, "This expense was recorded as already paid.")
+    if exp["status"] in ("Pending Approval", "Rejected"):
+        raise HTTPException(
+            400, f"This expense is {exp['status'].lower()} and cannot take payments yet.")
+    due = _with_settlement(dict(exp))["outstanding"]
+    if due <= 0.005:
+        raise HTTPException(400, "This expense is already paid in full.")
+    amount = money(data.amount)
+    if amount > due + 0.005:
+        raise HTTPException(
+            400, f"That is more than is still owed on this expense (${due:,.2f}).")
+    payment_id = _add_expense_payment(
+        db, user, exp, amount=amount, method=data.payment_method,
+        bank_account_id=data.bank_account_id, cash_drawer_id=data.cash_drawer_id,
+        paid_at=data.paid_at, note=data.note)
+    log_action(db, user, "payment", "expense", expense_id, exp["category"],
+               {"amount": amount})
+    db.commit()
+    after = _with_settlement(dict(db.execute(
+        "SELECT * FROM expenses WHERE id=?", (expense_id,)).fetchone()))
+    return {"id": payment_id, "message": "Payment recorded",
+            "paid_total": money(after.get("paid_total") or 0),
+            "outstanding": after["outstanding"],
+            "payment_status": after["payment_status"]}
+
+
+@router.patch("/expenses/{expense_id}/payments/{payment_id}/void")
+def void_expense_payment(
+    expense_id: int,
+    payment_id: int,
+    data: ExpensePaymentVoid,
+    user=Depends(require_perm("expenses", "edit")),
+    db: sqlite3.Connection = Depends(get_db),
+):
+    """Take back a payment that should not have been recorded."""
+    exp = _owed_expense(db, user, expense_id)
+    pay = db.execute(
+        "SELECT * FROM expense_payments WHERE id=? AND expense_id=?",
+        (payment_id, expense_id)).fetchone()
+    if not pay:
+        raise HTTPException(404, "Payment not found")
+    if pay["voided_at"]:
+        raise HTTPException(400, "That payment is already voided.")
+    _check_period_locked(db, pay["paid_at"])
+    _check_period_locked(db, _today())
+    accounting.reverse_source(
+        db, "expense_payment", payment_id,
+        memo=f"Reversal — payment on expense ({exp['category']})",
+        created_by=user["id"])
+    db.execute("UPDATE expense_payments SET voided_at=?, void_reason=? WHERE id=?",
+               (_now(), (data.reason or "Voided"), payment_id))
+    _recalc_expense_paid(db, expense_id)
+    log_action(db, user, "void_payment", "expense", expense_id, exp["category"],
+               {"payment_id": payment_id, "amount": money(pay["amount"] or 0)})
+    db.commit()
+    after = _with_settlement(dict(db.execute(
+        "SELECT * FROM expenses WHERE id=?", (expense_id,)).fetchone()))
+    return {"message": "Payment voided", "outstanding": after["outstanding"],
+            "payment_status": after["payment_status"]}
 
 
 class VoidExpenseRequest(BaseModel):
@@ -511,6 +730,23 @@ def void_expense(
     # that halfway through would leave the occurrence half undone.
     for row in targets:
         _check_period_locked(db, row["date"])
+    # An owed expense takes its payments with it: the debt and every payment
+    # against it are undone together, so Accounts Payable is left at nil
+    # rather than holding the debits of payments for a cost that never was.
+    live_payments = db.execute(
+        "SELECT * FROM expense_payments WHERE expense_id=? AND voided_at IS NULL",
+        (expense_id,)).fetchall() if _col(exp, "on_credit") else []
+    for p in live_payments:
+        _check_period_locked(db, p["paid_at"])
+    for p in live_payments:
+        accounting.reverse_source(
+            db, "expense_payment", p["id"],
+            memo=f"Reversal — payment on voided expense ({exp['category']})",
+            created_by=user["id"])
+        db.execute("UPDATE expense_payments SET voided_at=?, void_reason=? WHERE id=?",
+                   (_now(), "Expense voided", p["id"]))
+    if live_payments:
+        _recalc_expense_paid(db, expense_id)
 
     for row in targets:
         # Reverse the project actual_cost contribution
@@ -568,6 +804,8 @@ class ExpenseUpdate(BaseModel):
     tax_rate_id:    Optional[int] = None
     payment_method: Optional[str] = None
     cash_drawer_id: Optional[int] = None
+    payee:          Optional[str] = None
+    due_date:       Optional[str] = None
 
 
 def _resolve_cash_drawer(db, payment_method, cash_drawer_id):
@@ -594,15 +832,23 @@ def create_expense(
     t_rid, t_rate, t_amt = resolve_expense_tax(get_tax_context(db), data.tax_rate_id, gross)
     drawer_id = _resolve_cash_drawer(db, data.payment_method, data.cash_drawer_id)
     branch_id = branch_access.resolve_branch_id(user, db, data.branch_id)
+    paid_now = money(data.paid_now or 0) if data.on_credit else 0.0
+    if paid_now < 0:
+        raise HTTPException(400, "The amount paid now cannot be negative.")
+    if paid_now > gross + 0.005:
+        raise HTTPException(400, "The amount paid now is more than the expense itself.")
+    due_date = _valid_date(data.due_date, "Due date") if data.on_credit else None
+    expense_date = data.date or datetime.utcnow().strftime("%Y-%m-%d")
     cur = db.execute(
         "INSERT INTO expenses (project_id, category, description, amount, date, created_at, status, "
         " tax_rate_id, tax_rate, tax_amount, payment_method, cash_drawer_id, "
-        " bank_account_id, branch_id) "
-        "VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?)",
+        " bank_account_id, branch_id, on_credit, payee, due_date) "
+        "VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)",
         (data.project_id, data.category, data.description,
-         gross, data.date or datetime.utcnow().strftime("%Y-%m-%d"), now, "Recorded",
+         gross, expense_date, now, "Recorded",
          t_rid, t_rate, t_amt, (data.payment_method or None), drawer_id,
-         data.bank_account_id, branch_id),
+         data.bank_account_id, branch_id, 1 if data.on_credit else 0,
+         (data.payee or "").strip() or None, due_date),
     )
     expense_id = cur.lastrowid
 
@@ -637,10 +883,32 @@ def create_expense(
             db, db.execute("SELECT * FROM expenses WHERE id=?", (expense_id,)).fetchone(),
             created_by=user["id"])
 
+    # Money handed over on the day goes through the same payment path as every
+    # later instalment, so there is one way a payment reaches the books. An
+    # expense awaiting approval is not owed yet, so nothing can be paid on it;
+    # the caller is told rather than the amount being dropped silently.
+    payment_deferred = False
+    if paid_now > 0:
+        if needs_approval:
+            payment_deferred = True
+        else:
+            _add_expense_payment(
+                db, user, db.execute("SELECT * FROM expenses WHERE id=?",
+                                     (expense_id,)).fetchone(),
+                amount=paid_now, method=data.payment_method,
+                bank_account_id=data.bank_account_id, cash_drawer_id=drawer_id,
+                paid_at=expense_date, note="Paid when recorded")
+
     log_action(db, user, "create", "expense", expense_id,
-               data.category, {"amount": data.amount})
+               data.category, {"amount": data.amount, "on_credit": data.on_credit,
+                               "paid_now": paid_now})
     db.commit()
-    return {"id": expense_id, "message": "Expense recorded"}
+    out = {"id": expense_id, "message": "Expense recorded"}
+    if payment_deferred:
+        out["payment_deferred"] = True
+        out["message"] = ("Expense recorded and sent for approval. Record the "
+                          "payment once it is approved.")
+    return out
 
 
 def post_expense_journal(db, expense_row, created_by=None):
@@ -661,10 +929,15 @@ def post_expense_journal(db, expense_row, created_by=None):
     if t_amt > 0:
         lines.append({"code": accounting.code(db, "vat_input"), "debit": t_amt,
                       "memo": "Input VAT"})
-    lines.append({"code": accounting.money_account_for(
-                      db, method=exp["payment_method"],
-                      bank_account_id=exp["bank_account_id"]),
-                  "credit": gross})
+    if _col(exp, "on_credit"):
+        # Owed, not paid: the gross is a debt until expense_payments settle it.
+        lines.append({"code": accounting.code(db, "payable"), "credit": gross,
+                      "memo": "Owed" + (f" to {exp['payee']}" if _col(exp, "payee") else "")})
+    else:
+        lines.append({"code": accounting.money_account_for(
+                          db, method=exp["payment_method"],
+                          bank_account_id=exp["bank_account_id"]),
+                      "credit": gross})
     memo = f"{exp['category']}" + (f" — {exp['description']}" if exp["description"] else "")
     return accounting.post_entry(
         db, entry_date=str(exp["date"])[:10], memo=memo, lines=lines,
@@ -702,6 +975,14 @@ def update_expense(
     old_project_id = exp["project_id"]
     new_amount     = money(data.amount)
     new_project_id = data.project_id
+    if _col(exp, "on_credit"):
+        paid = money(_col(exp, "paid_total") or 0)
+        if new_amount < paid - 0.005:
+            raise HTTPException(
+                400, f"${paid:,.2f} has already been paid on this expense, so it "
+                     "cannot be reduced below that. Void a payment first.")
+    due_date = (_valid_date(data.due_date, "Due date")
+                if _col(exp, "on_credit") else None)
 
     # Reverse old project actual_cost contribution
     if old_project_id:
@@ -725,10 +1006,12 @@ def update_expense(
     drawer_id = _resolve_cash_drawer(db, data.payment_method, data.cash_drawer_id)
     db.execute(
         "UPDATE expenses SET project_id=?, category=?, description=?, amount=?, date=?, "
-        " tax_rate_id=?, tax_rate=?, tax_amount=?, payment_method=?, cash_drawer_id=? WHERE id=?",
+        " tax_rate_id=?, tax_rate=?, tax_amount=?, payment_method=?, cash_drawer_id=?, "
+        " payee=?, due_date=? WHERE id=?",
         (new_project_id, data.category, data.description,
          new_amount, data.date or exp["date"], t_rid, t_rate, t_amt,
-         (data.payment_method or None), drawer_id, expense_id),
+         (data.payment_method or None), drawer_id,
+         (data.payee or "").strip() or None, due_date, expense_id),
     )
 
     # The ledger follows the edit. The old entry is reversed and a fresh one

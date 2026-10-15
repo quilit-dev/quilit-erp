@@ -277,6 +277,11 @@ export const getExpenses        = (params = {}, s) =>
 export const createExpense      = (d) => api.post('/api/finance/expenses', d);
 export const updateExpense      = (id, d) => api.put(`/api/finance/expenses/${id}`, d);
 export const voidExpense        = (id, reason) => api.patch(`/api/finance/expenses/${id}/void`, { reason });
+// Payments against an expense recorded as owed (on credit).
+export const getExpensePayments = (id) => api.get(`/api/finance/expenses/${id}/payments`);
+export const addExpensePayment  = (id, d) => api.post(`/api/finance/expenses/${id}/payments`, d);
+export const voidExpensePayment = (id, pid, reason) =>
+  api.patch(`/api/finance/expenses/${id}/payments/${pid}/void`, { reason });
 
 // Finance — range-based endpoints
 export const getFinanceRangeSummary = (params = {}, s) => api.get(`/api/finance/range-summary${_qs(params)}`, s);

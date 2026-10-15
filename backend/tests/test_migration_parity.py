@@ -154,6 +154,14 @@ _REQUIRED = [
     # What a line's quantity counts.
     ("invoice_items", "unit"),
     ("quotation_items", "unit"),
+    # An expense owed, and paid off over time.
+    ("expenses", "on_credit"),
+    ("expenses", "paid_total"),
+    ("expenses", "payee"),
+    ("expenses", "due_date"),
+    ("expense_payments", "amount"),
+    ("expense_payments", "paid_at"),
+    ("expense_payments", "cash_drawer_id"),
 ]
 
 
@@ -166,6 +174,8 @@ _REQUIRED_TABLES = [
     "purchase_items",
     # Money to a supplier, in as many instalments as it took.
     "purchase_payments",
+    # Money paid off against an expense that was owed.
+    "expense_payments",
     # Who attended a service job — several people, from hr_employees.
     "service_job_technicians",
     # A payment plan against one invoice.

@@ -51,6 +51,9 @@ SOURCES: dict[str, _Doc] = {
                              fallback="Depreciation"),
     "prepaid_payment":  _Doc("expenses", "description", "/expenses",
                              fallback="Paid in advance"),
+    # Paying off an expense that was owed. Its document is the expense.
+    "expense_payment":  _Doc("expense_payments", None, "/expenses",
+                             via="expense_id"),
     "purchase":         _Doc("purchases", "po_number", "/purchases"),
     # Paying a supplier is its own entry now — a deposit before the goods
     # arrive, the balance after — so the money side of a purchase no longer
@@ -155,8 +158,14 @@ def postings_for(db: sqlite3.Connection, document: str,
         return pairs
     if document == "expense":
         # The three ways a cost reaches the ledger, all keyed on the expense row.
-        return [("expense", doc_id), ("depreciation", doc_id),
-                ("prepaid_payment", doc_id)]
+        pairs = [("expense", doc_id), ("depreciation", doc_id),
+                 ("prepaid_payment", doc_id)]
+        try:
+            pairs += [("expense_payment", r["id"]) for r in db.execute(
+                "SELECT id FROM expense_payments WHERE expense_id=?", (doc_id,))]
+        except sqlite3.Error:
+            pass
+        return pairs
     if document == "purchase":
         pairs = [("purchase", doc_id)]
         try:
