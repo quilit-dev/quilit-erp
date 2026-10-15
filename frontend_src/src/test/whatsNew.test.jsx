@@ -175,3 +175,15 @@ describe('the owner can preview it before its day', () => {
     }
   });
 });
+
+describe('a link survives the sign-in', () => {
+  test('login returns to where the user was heading, query included', () => {
+    // Followed signed-out, `/?whatsnew` went to /login and then to the bare
+    // dashboard, so the preview link never opened anything.
+    const loginSrc = readFileSync(join(here, '..', 'pages', 'Login.jsx'), 'utf8');
+    expect(loginSrc).toContain('location.state?.from');
+    expect(loginSrc).toMatch(/from\.search/);
+    expect(loginSrc).toContain("navigate(backTo, { replace: true })");
+    expect(appSrc).toContain('state={{ from: location }}');
+  });
+});

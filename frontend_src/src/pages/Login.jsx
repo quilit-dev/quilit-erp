@@ -1,5 +1,5 @@
 import { useState } from 'react';
-import { useNavigate } from 'react-router-dom';
+import { useNavigate, useLocation } from 'react-router-dom';
 import { login, getMe } from '../api/client';
 import { useLocale } from '../hooks/useLocale.jsx';
 import { useSettings } from '../hooks/useSettings.jsx';
@@ -11,6 +11,14 @@ export default function Login() {
   const [loading, setLoading]   = useState(false);
   const [showPw, setShowPw]     = useState(false);
   const navigate = useNavigate();
+  const location = useLocation();
+  // Where the user was heading when the session asked them to sign in. A link
+  // they followed --- a record, a filtered list, `?whatsnew` --- used to be
+  // dropped for the dashboard. Only an in-app path is honoured.
+  const from = location.state?.from;
+  const backTo = from?.pathname && from.pathname.startsWith('/') && !from.pathname.startsWith('//')
+    && from.pathname !== '/login'
+    ? `${from.pathname}${from.search || ''}${from.hash || ''}` : '/';
   const { t } = useLocale();
   const { settings } = useSettings();
 
@@ -44,7 +52,7 @@ export default function Login() {
       // Tell the SettingsProvider to (re)load settings + exchange rate now that
       // a session exists — login is a client-side nav, so it does not remount.
       window.dispatchEvent(new Event('user-updated'));
-      navigate('/');
+      navigate(backTo, { replace: true });
     } catch (err) {
       setError(err.message || t('login.invalidCredentials'));
     } finally {
