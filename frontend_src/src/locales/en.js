@@ -236,7 +236,7 @@ const en = {
     onQuote: 'Discount on quotation {{what}}',
   },
   common: {
-    draftDoc: 'Draft (no company details)',
+    draftDoc: 'Plain copy',
     client: 'Client',
     unitPrice: 'Unit price',
     required: 'Please fill in the required fields',

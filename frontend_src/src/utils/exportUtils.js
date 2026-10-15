@@ -344,7 +344,7 @@ export async function saveDocumentSnapshot(recordType, record, title, htmlConten
   }
 }
 
-// ─── Draft copies ──────────────────────────────────────────────────────────────
+// ─── Plain copies (no company details) ──────────────────────────────────────────────────────────────
 // A draft is the document with nothing of the company on it: no name, logo,
 // address, phone, email, website, tax or registration number, letterhead,
 // footer note or printed terms. Only the client and the document's own figures
@@ -359,6 +359,14 @@ const DRAFT_DROPS = [
   'company_tax_number', 'company_reg_number', 'footer_text', 'invoice_terms',
   'document_template', 'preprinted_stationery',
 ];
+
+/** A plain copy's file name: the client and the date, never the number. */
+export function plainCopyName(kind, doc) {
+  const who = String(doc?.client?.name || doc?.client_name || '')
+    .replace(/[^\p{L}\p{N}]+/gu, '_').replace(/^_+|_+$/g, '');
+  const day = String(doc?.created_at || '').slice(0, 10);
+  return [kind, who, day].filter(Boolean).join('_') + '.pdf';
+}
 
 export function draftSettings(s) {
   const out = { ...(s || {}), __draft: true };
@@ -646,6 +654,8 @@ export function buildQuotationHTML(quotation, settings, logoDataURL = null, opts
 
   const client     = quotation.client || (quotation.client_name ? { name: quotation.client_name } : null);
   const docNo      = quotation.quote_number || '—';
+  // A plain copy carries no document number: it is not the issued paper.
+  const shownNo    = opts.draft ? '' : docNo;
   const issueDate  = fmtDate(quotation.created_at);
   const validUntil = fmtDate(addDays(quotation.created_at, C.paymentDays));
   const logo       = logoDataURL ? `<img src="${logoDataURL}" class="company-logo" alt="logo" />` : '';
@@ -673,7 +683,7 @@ export function buildQuotationHTML(quotation, settings, logoDataURL = null, opts
     statusHtml: `<div class="status-badge" style="${statusStyle}">${status}</div>`,
     rows: [
       { label: 'Date',     value: issueDate },
-      { label: 'Ref',      value: docNo },
+      { label: 'Ref',      value: shownNo },
       { label: 'Valid until', value: validUntil },
       { label: 'Terms',    value: `Net ${C.paymentDays} days` },
       { label: 'Currency', value: CC.code },
@@ -683,7 +693,7 @@ export function buildQuotationHTML(quotation, settings, logoDataURL = null, opts
     <div>${logo}<div class="company-name">${C.name}</div><div class="company-meta">${companyDetails(C)}</div></div>
     <div style="text-align:right">
       <div class="doc-title">Quotation</div>
-      <div class="doc-ref">${docNo}</div>
+      <div class="doc-ref">${shownNo}</div>
       <div class="doc-dates">Issued: <strong>${issueDate}</strong> • Valid: <strong>${validUntil}</strong><br>Terms: <strong>Net ${C.paymentDays} Days</strong> • Currency: <strong>${CC.code}</strong></div>
       <div class="status-badge" style="${statusStyle}">${status}</div>
     </div>
@@ -693,19 +703,19 @@ export function buildQuotationHTML(quotation, settings, logoDataURL = null, opts
     <div class="info-col">
       <div class="info-label">Document Info</div>
       ${quotation.project_name ? `<div class="meta-row"><span class="meta-key">Project</span><span>${quotation.project_name}</span></div>` : ''}
-      <div class="meta-row"><span class="meta-key">Ref</span><span>${docNo}</span></div>
+      ${shownNo ? `<div class="meta-row"><span class="meta-key">Ref</span><span>${shownNo}</span></div>` : ''}
       <div class="meta-row"><span class="meta-key">Issued</span><span>${issueDate}</span></div>
       <div class="meta-row"><span class="meta-key">Expires</span><span>${validUntil}</span></div>
     </div>
   </div>`,
     defaultFooter: `<div class="doc-footer">
     <div class="footer-left"><strong>${C.name}</strong><br>${C.address}${C.phone ? ` • ${C.phone}` : ''}</div>
-    <div style="text-align:center;font-size:7px;color:#9ca3af">Confidential • ${docNo} • ${new Date().toLocaleDateString()}</div>
+    <div style="text-align:center;font-size:7px;color:#9ca3af">Confidential${shownNo ? ` • ${shownNo}` : ''} • ${new Date().toLocaleDateString()}</div>
     <div style="text-align:right">${C.email}${C.vat ? `<br>${C.vat}` : ''}</div>
   </div>`,
   });
 
-  const html = `<!DOCTYPE html><html lang="en"><head><meta charset="UTF-8"><title>Quotation ${docNo}</title><style>${SHARED_CSS}${theme ? theme.css : ''}</style></head><body>
+  const html = `<!DOCTYPE html><html lang="en"><head><meta charset="UTF-8"><title>Quotation${shownNo ? ` ${shownNo}` : ''}</title><style>${SHARED_CSS}${theme ? theme.css : ''}</style></head><body>
 ${shell}
 </body></html>`;
 
@@ -715,7 +725,7 @@ ${shell}
 export async function exportQuotationPDF(quotation, opts = {}) {
   const [logoDataURL, settings] = await Promise.all([getLogoDataURL(), getSettings()]);
   const { html, docNo } = buildQuotationHTML(quotation, settings, logoDataURL, opts);
-  if (opts.draft) { printHTML(html, `Draft_Quotation_${docNo}.pdf`); return; }
+  if (opts.draft) { printHTML(html, plainCopyName('Quotation', quotation)); return; }
   await saveDocumentSnapshot('quotation', quotation, `Quotation ${docNo}`, html);
   printHTML(html, `Quotation_${docNo}.pdf`);
 }
@@ -770,6 +780,10 @@ export function buildInvoiceHTML(invoice, settings, logoDataURL = null, opts = {
 
   const client    = invoice.client || (invoice.client_name ? { name: invoice.client_name } : null);
   const docNo     = invoice.invoice_number || '—';
+  // A plain copy carries no document number, nor the quotation it came
+  // from: it is not the issued paper.
+  const shownNo   = opts.draft ? '' : docNo;
+  const quoteRef  = opts.draft ? '' : (invoice.quote_number || '');
   const invDate   = invoice.created_at || new Date().toISOString();
   const dueDate   = invoice.due_date || addDays(invDate, C.paymentDays);
   const isOverdue = !isPaid && new Date(dueDate) < new Date();
@@ -875,19 +889,19 @@ export function buildInvoiceHTML(invoice, settings, logoDataURL = null, opts = {
     statusHtml: `<div class="status-badge" style="${statusStyle}">${status}</div>`,
     rows: [
       { label: 'Date',     value: fmtDate(invDate) },
-      { label: 'Ref',      value: docNo },
+      { label: 'Ref',      value: shownNo },
       { label: 'Due',      value: fmtDate(dueDate) },
       { label: 'Terms',    value: `Net ${C.paymentDays} days` },
       { label: 'Currency', value: CC.code },
-      { label: 'Quote Ref', value: invoice.quote_number || '' },
+      { label: 'Quote Ref', value: quoteRef },
       { label: 'Project',  value: invoice.project_name || '' },
     ],
     defaultHeader: `<div class="doc-header">
     <div>${logo}<div class="company-name">${C.name}</div><div class="company-meta">${companyDetails(C)}</div></div>
     <div style="text-align:right">
       <div class="doc-title">Invoice</div>
-      <div class="doc-ref">${docNo}</div>
-      <div class="doc-dates">Date: <strong>${fmtDate(invDate)}</strong> • Due: <strong>${fmtDate(dueDate)}</strong><br>${invoice.quote_number ? `Quote Ref: <strong>${invoice.quote_number}</strong> • ` : ''}Terms: <strong>Net ${C.paymentDays} Days</strong> • ${CC.code}</div>
+      <div class="doc-ref">${shownNo}</div>
+      <div class="doc-dates">Date: <strong>${fmtDate(invDate)}</strong> • Due: <strong>${fmtDate(dueDate)}</strong><br>${quoteRef ? `Quote Ref: <strong>${quoteRef}</strong> • ` : ''}Terms: <strong>Net ${C.paymentDays} Days</strong> • ${CC.code}</div>
       <div class="status-badge" style="${statusStyle}">${status}</div>
     </div>
   </div>`,
@@ -896,19 +910,19 @@ export function buildInvoiceHTML(invoice, settings, logoDataURL = null, opts = {
     <div class="info-col">
       <div class="info-label">Invoice Details</div>
       ${invoice.project_name ? `<div class="meta-row"><span class="meta-key">Project</span><span>${invoice.project_name}</span></div>` : ''}
-      <div class="meta-row"><span class="meta-key">No.</span><span>${docNo}</span></div>
+      ${shownNo ? `<div class="meta-row"><span class="meta-key">No.</span><span>${shownNo}</span></div>` : ''}
       <div class="meta-row"><span class="meta-key">Issued</span><span>${fmtDate(invDate)}</span></div>
       <div class="meta-row"><span class="meta-key">Due</span><span>${fmtDate(dueDate)}</span></div>
     </div>
   </div>`,
     defaultFooter: `<div class="doc-footer">
     <div class="footer-left"><strong>${C.name}</strong><br>${C.address}${C.phone ? ` • ${C.phone}` : ''}</div>
-    <div style="text-align:center;font-size:7px;color:#9ca3af">Confidential • ${docNo} • ${new Date().toLocaleDateString()}</div>
+    <div style="text-align:center;font-size:7px;color:#9ca3af">Confidential${shownNo ? ` • ${shownNo}` : ''} • ${new Date().toLocaleDateString()}</div>
     <div style="text-align:right">${C.email}${C.vat ? `<br>${C.vat}` : ''}</div>
   </div>`,
   });
 
-  const html = `<!DOCTYPE html><html lang="en"><head><meta charset="UTF-8"><title>Invoice ${docNo}</title><style>${SHARED_CSS}${theme ? theme.css : ''}</style></head><body>
+  const html = `<!DOCTYPE html><html lang="en"><head><meta charset="UTF-8"><title>Invoice${shownNo ? ` ${shownNo}` : ''}</title><style>${SHARED_CSS}${theme ? theme.css : ''}</style></head><body>
 ${shell}
 </body></html>`;
 
@@ -919,7 +933,7 @@ export async function exportInvoicePDF(invoice, opts = {}) {
   const [logoDataURL, settings] = await Promise.all([getLogoDataURL(), getSettings()]);
   const { html, docNo } = buildInvoiceHTML(invoice, settings, logoDataURL, opts);
   // A draft is a working copy, not the issued document: it is not archived.
-  if (opts.draft) { printHTML(html, `Draft_Invoice_${docNo}.pdf`); return; }
+  if (opts.draft) { printHTML(html, plainCopyName('Invoice', invoice)); return; }
   await saveDocumentSnapshot('invoice', invoice, `Invoice ${docNo}`, html);
   printHTML(html, `Invoice_${docNo}.pdf`);
 }

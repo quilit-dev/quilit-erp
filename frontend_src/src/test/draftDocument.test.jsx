@@ -1,7 +1,7 @@
 // A draft invoice or quotation: the same document with nothing of the company
 // on it --- only the client and the document's own figures.
 import { describe, test, expect } from 'vitest';
-import { buildInvoiceHTML, buildQuotationHTML, draftSettings } from '../utils/exportUtils';
+import { buildInvoiceHTML, buildQuotationHTML, draftSettings, plainCopyName } from '../utils/exportUtils';
 import actionMenuSrc from '../pages/invoices/ActionMenu.jsx?raw';
 import quotationsSrc from '../pages/Quotations.jsx?raw';
 import hookSrc from '../hooks/useRecordExport.js?raw';
@@ -67,5 +67,30 @@ describe('the menu offers it under PDF', () => {
     expect(en.common.draftDoc).toBeTruthy();
     expect(ar.common.draftDoc).toBeTruthy();
     expect(ar.common.draftDoc).not.toBe(en.common.draftDoc);
+  });
+});
+
+describe('a plain copy carries no document number', () => {
+  test.each([
+    ['invoice', () => buildInvoiceHTML(doc, SETTINGS, LOGO, { draft: true }).html],
+    ['quotation', () => buildQuotationHTML(doc, SETTINGS, LOGO, { draft: true }).html],
+  ])('%s', (_, build) => {
+    const html = build();
+    expect(html).not.toContain('INV-2026-000009');
+    expect(html).not.toContain('QT-2026-0009');
+  });
+
+  test('the issued document keeps its number', () => {
+    expect(buildInvoiceHTML(doc, SETTINGS, LOGO).html).toContain('INV-2026-000009');
+  });
+
+  test('the file is named after the client and the day', () => {
+    expect(plainCopyName('Invoice', doc)).toBe('Invoice_Nour_Stores_2026-10-15.pdf');
+    expect(plainCopyName('Invoice', doc)).not.toContain('INV');
+  });
+
+  test('it is called a plain copy, not a draft', () => {
+    expect(en.common.draftDoc).toBe('Plain copy');
+    expect(en.common.draftDoc).not.toMatch(/company details/i);
   });
 });

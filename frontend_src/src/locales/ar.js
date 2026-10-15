@@ -235,7 +235,7 @@ const ar = {
     onQuote: 'خصم على عرض السعر {{what}}',
   },
   common: {
-    draftDoc: 'مسودة (بدون بيانات الشركة)',
+    draftDoc: 'نسخة بدون ترويسة',
     client: 'العميل',
     unitPrice: 'سعر الوحدة',
     required: 'يرجى تعبئة الحقول المطلوبة',
