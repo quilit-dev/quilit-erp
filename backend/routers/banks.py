@@ -74,6 +74,10 @@ def _next_account_code(db) -> str:
 
 def _ensure_chart_account(db, name: str, ccy: str) -> str:
     """Open a ledger account for this bank account and return its code."""
+    try:
+        return accounting.open_bank_leaf(db, name, ccy)
+    except ValueError as e:
+        raise HTTPException(400, str(e))
     acct_code = _next_account_code(db)
     parent = accounting.code(db, "bank")
     parent_row = db.execute(

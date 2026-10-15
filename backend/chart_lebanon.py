@@ -389,6 +389,10 @@ def ensure_current(db) -> int:
             "updated_at=excluded.updated_at",
             (role, code, now))
         changed += 1
+    # A bank account set up on the default chart had its code retired by the
+    # switch; give it a live one under this chart's bank heading.
+    import accounting
+    changed += accounting.rehome_retired_bank_accounts(db)
     return changed
 
 

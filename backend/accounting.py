@@ -1180,17 +1180,94 @@ def bank_account_code(db: sqlite3.Connection,
     against the statement the bank sends. Without one — an older payment, or a
     tenant that has not set any up — this falls back to the `bank` role, which
     is where every bank movement used to go.
+
+    A bank account whose code has been RETIRED is given a live one first (see
+    ensure_live_bank_account). Only posting paths reach here, so opening the
+    account is part of the transaction that needs it.
     """
     if bank_account_id:
-        try:
-            row = db.execute(
-                "SELECT account_code FROM bank_accounts WHERE id = ?",
-                (bank_account_id,)).fetchone()
-        except Exception:
-            row = None
-        if row and row["account_code"]:
-            return cast(str, row["account_code"])
+        live = ensure_live_bank_account(db, bank_account_id)
+        if live:
+            return live
     return code(db, "bank")
+
+
+def open_bank_leaf(db: sqlite3.Connection, name: str, ccy: str) -> str:
+    """Open a ledger account for a bank account, under the `bank` role's own
+    heading (5121, 5122 under 512 on the Lebanese chart; 10001 under 1000 on
+    the default one), and return its code."""
+    parent = code(db, "bank")
+    acct_code = None
+    for n in range(1, 100):
+        candidate = f"{parent}{n}"
+        if not db.execute("SELECT 1 FROM chart_of_accounts WHERE code = ?",
+                          (candidate,)).fetchone():
+            acct_code = candidate
+            break
+    if acct_code is None:
+        raise ValueError("No free account code under the bank heading.")
+    parent_row = db.execute(
+        "SELECT type, subtype, normal_balance FROM chart_of_accounts WHERE code = ?",
+        (parent,)).fetchone()
+    db.execute(
+        "INSERT INTO chart_of_accounts "
+        "(code, name, type, subtype, normal_balance, parent_code, is_system, "
+        " is_active, is_postable, created_at) "
+        "VALUES (?,?,?,?,?,?,0,1,1,?)",
+        (acct_code, f"{name} ({ccy})",
+         parent_row["type"] if parent_row else "Asset",
+         parent_row["subtype"] if parent_row else "Current Asset",
+         parent_row["normal_balance"] if parent_row else "debit",
+         parent, _now()))
+    return acct_code
+
+
+def ensure_live_bank_account(db: sqlite3.Connection, bank_account_id: int) -> Optional[str]:
+    """The bank account's ledger code, after making sure it can be posted to.
+
+    A bank account set up while the business was on the default chart has a
+    code under the default bank account (10001 under 1000). Switching to the
+    Lebanese chart retires every default-chart account, that one included, and
+    from then on every payment through the bank account was refused --- the
+    ledger will not post to a retired account --- and the user saw a 500.
+
+    Such a bank account gets a fresh code under the bank heading of the chart
+    in use, exactly as a bank account created today would, and its record is
+    pointed at it. No balance is moved: the chart switch already carried every
+    retired account's balance across in its cutover entry. Returns None for an
+    unknown bank account.
+    """
+    row = db.execute(
+        "SELECT id, name, currency, account_code FROM bank_accounts WHERE id = ?",
+        (bank_account_id,)).fetchone()
+    if not row:
+        return None
+    current = row["account_code"]
+    if current:
+        acc = db.execute(
+            "SELECT is_active, is_postable FROM chart_of_accounts WHERE code = ?",
+            (current,)).fetchone()
+        if acc and int(acc["is_active"] or 0) and int(_col(acc, "is_postable", 1) or 0):
+            return cast(str, current)
+    fresh = open_bank_leaf(db, row["name"] or "Bank", (row["currency"] or "USD").upper())
+    db.execute("UPDATE bank_accounts SET account_code = ? WHERE id = ?",
+               (fresh, bank_account_id))
+    return fresh
+
+
+def rehome_retired_bank_accounts(db: sqlite3.Connection) -> int:
+    """Give every bank account still in use a live ledger code. Run at boot,
+    so a tenant's bank accounts are right before anyone pays through them.
+    Returns how many were moved."""
+    if not db.execute("SELECT 1 FROM sqlite_master WHERE type='table' "
+                      "AND name='bank_accounts'").fetchone():
+        return 0
+    moved = 0
+    for r in db.execute("SELECT id, account_code FROM bank_accounts "
+                        "WHERE archived_at IS NULL").fetchall():
+        if ensure_live_bank_account(db, r["id"]) != r["account_code"]:
+            moved += 1
+    return moved
 
 
 # The ways money actually arrives. This is not decoration: on the till the
