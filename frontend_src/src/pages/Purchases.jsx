@@ -921,10 +921,8 @@ export default function Purchases() {
                                 Only once they have arrived --- before that the
                                 order is edited or cancelled instead. */}
                             {p.received_at && can('returns', 'create') && (
-                              <button className="btn btn-sm btn-secondary"
-                                onClick={() => setReturnFor(p.id)}>
-                                {t('returns.returnToSupplier')}
-                              </button>
+                              <IconButton icon="rotate-ccw" className="btn btn-sm btn-secondary"
+                                onClick={() => setReturnFor(p.id)} label={t('returns.returnToSupplier')} />
                             )}
                             {/* Offered whatever the status. An order voided
                                 before it arrived reverses nothing; one voided
