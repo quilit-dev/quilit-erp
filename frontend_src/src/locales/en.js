@@ -1070,6 +1070,13 @@ const en = {
     fixPipelineBody: 'Quotations are no longer counted as sales.',
     fixLetterhead: 'Printed letterhead',
     fixLetterheadBody: 'The footer and page links no longer overlap the last lines of a document.',
+    removed: 'Removed',
+    plainCopy: 'Plain copy of an invoice or quotation',
+    plainCopyBody: '⋯ → Plain copy: the document with only the client and its figures, without your company details or its number.',
+    fixSignInLink: 'Links opened while signed out',
+    fixSignInLinkBody: 'After signing in you now land on the page the link pointed to, not the dashboard.',
+    quoteToProject: 'The “→ Project” button on quotations',
+    quoteToProjectBody: 'A quotation can still be linked to a project from its form.',
   },
   // Tooltips for the line-item row. The grid has no room for a caption per
   // field, and on quotations there are no column headers at all — so the

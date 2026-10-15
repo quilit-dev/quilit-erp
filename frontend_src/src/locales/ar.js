@@ -1059,6 +1059,13 @@ const ar = {
     fixPipelineBody: 'لم تعد عروض الأسعار تُحتسب كمبيعات.',
     fixLetterhead: 'الترويسة المطبوعة',
     fixLetterheadBody: 'لم يعد التذييل والروابط يتداخلان مع آخر أسطر المستند.',
+    removed: 'أُزيلت',
+    plainCopy: 'نسخة بدون ترويسة من الفاتورة أو عرض السعر',
+    plainCopyBody: '⋯ ← نسخة بدون ترويسة: المستند مع بيانات الزبون وأرقامه فقط، من دون بيانات شركتك أو رقم المستند.',
+    fixSignInLink: 'الروابط المفتوحة قبل تسجيل الدخول',
+    fixSignInLinkBody: 'بعد تسجيل الدخول تنتقل الآن إلى الصفحة التي يشير إليها الرابط، وليس إلى لوحة التحكم.',
+    quoteToProject: 'زر «← مشروع» في عروض الأسعار',
+    quoteToProjectBody: 'لا يزال بالإمكان ربط عرض السعر بمشروع من نموذجه.',
   },
   // Tooltips for the line-item row. The grid has no room for a caption per
   // field, and on quotations there are no column headers at all — so the

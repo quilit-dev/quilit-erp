@@ -38,13 +38,15 @@ export const RELEASE = '2026-10';
 // What is new, then what was put right --- the two questions a user asks.
 export const ADDED = [
   'returns', 'storeCredit', 'docDiscount', 'unitsSearch', 'quoteProduct',
-  'profitSummary', 'exportPeriod', 'payrollPay', 'expensesOwed', 'documents',
+  'profitSummary', 'exportPeriod', 'payrollPay', 'expensesOwed', 'documents', 'plainCopy',
 ];
 export const FIXED = [
   'fixDueDate', 'fixBankPayment', 'fixExcelExport', 'fixVatExempt',
-  'fixItemNames', 'fixPipeline', 'fixLetterhead',
+  'fixItemNames', 'fixPipeline', 'fixLetterhead', 'fixSignInLink',
 ];
-export const ITEMS = [...ADDED, ...FIXED];
+// Something taken away is neither new nor a repair; it gets its own heading.
+export const REMOVED = ['quoteToProject'];
+export const ITEMS = [...ADDED, ...FIXED, ...REMOVED];
 
 // The note carries its own language switch: an owner reading it in English
 // can hand the screen to a cashier who reads Arabic, without changing the
@@ -137,6 +139,7 @@ export default function WhatsNewModal() {
         </div>
         {section(words.added, ADDED, 'var(--affirm-ink)')}
         {section(words.fixed, FIXED, 'var(--info-ink)')}
+        {section(words.removed, REMOVED, 'var(--text-2)')}
       </div>
       <div className="modal-footer">
         <button className="btn btn-primary" onClick={dismiss} autoFocus>

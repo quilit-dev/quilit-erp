@@ -18,7 +18,7 @@ import { dirname, join } from 'node:path';
 import { LocaleProvider } from '../hooks/useLocale.jsx';
 import en from '../locales/en';
 import ar from '../locales/ar';
-import WhatsNewModal, { SHOW_ON, RELEASE, ITEMS, ADDED, FIXED, localToday, previewRequested } from '../components/WhatsNewModal';
+import WhatsNewModal, { SHOW_ON, RELEASE, ITEMS, ADDED, FIXED, REMOVED, localToday, previewRequested } from '../components/WhatsNewModal';
 
 const here = dirname(fileURLToPath(import.meta.url));
 const src = readFileSync(join(here, '..', 'components', 'WhatsNewModal.jsx'), 'utf8');
@@ -53,7 +53,7 @@ describe('it appears on its one day', () => {
 
   test('and every item is listed, not just the first few', () => {
     mount();
-    expect(ITEMS).toHaveLength(ADDED.length + FIXED.length);
+    expect(ITEMS).toHaveLength(ADDED.length + FIXED.length + REMOVED.length);
     for (const k of ITEMS) {
       expect(screen.queryByText(en.whatsNew[k]), `${k} is missing from the note`)
         .toBeTruthy();
@@ -149,7 +149,7 @@ describe('wiring and translation', () => {
     expect(appSrc).toMatch(/<WhatsNewModal \/>/);
   });
 
-  test.each(['title', 'intro', 'dismiss', 'added', 'fixed',
+  test.each(['title', 'intro', 'dismiss', 'added', 'fixed', 'removed',
              ...ITEMS.flatMap(k => [k, `${k}Body`])])(
     'whatsNew.%s is written in both languages', (k) => {
       expect(en.whatsNew[k], `en.whatsNew.${k}`).toBeTruthy();
