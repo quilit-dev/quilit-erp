@@ -1,4 +1,4 @@
-import sqlite3, os, threading
+import sqlite3, os, threading, logging
 from datetime import datetime
 from contextlib import contextmanager
 
@@ -4952,13 +4952,23 @@ def _run_migrations(conn, c):
     # appearing beside the Lebanese one — two charts again, arriving one deploy
     # at a time. Running it here means a future migration cannot reintroduce
     # the problem by forgetting about it.
+    # Through the CONNECTION with named rows: the migration cursor returns
+    # plain tuples, and handed that, ensure_current failed on its first
+    # `row["role"]` --- silently, below --- so no SQLite install on the
+    # Lebanese chart ever had a later role (the VAT-exempt revenue accounts,
+    # say) pointed at its chart code.
+    _rf = conn.row_factory
+    conn.row_factory = sqlite3.Row
     try:
         import chart_lebanon
-        chart_lebanon.ensure_current(c)
-        chart_lebanon.reconcile_active(c)
+        chart_lebanon.ensure_current(conn)
+        chart_lebanon.reconcile_active(conn)
     except Exception:
-        # Never let tidying stop a database coming up.
-        pass
+        # Never let tidying stop a database coming up --- but say so.
+        logging.getLogger("erp.migrations").exception(
+            "Chart tidy-up failed; the database starts anyway")
+    finally:
+        conn.row_factory = _rf
 
     conn.commit()
 

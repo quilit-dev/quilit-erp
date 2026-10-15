@@ -388,3 +388,34 @@ def test_vat_follows_what_the_customer_kept(c):
     rep = c.get("/api/reports/vat").json()
     assert rep["output"]["vat"] == 0
     assert rep["output"]["net"] == 100
+
+
+# ── Lines raised before a chart switch ───────────────────────────────────────
+def test_a_retired_revenue_account_is_followed_to_its_successor(db):
+    """A line raised on the default chart names 4000/4100. After the switch to
+    the Lebanese chart those are retired, and returning (or paying) the line
+    used to fail with 'Account 4000 is inactive'."""
+    import accounting
+    import chart_lebanon as LB
+    LB.install(db, force=True)
+    db.commit()
+    assert accounting.live_revenue_account(db, "4000") == accounting.code(db, "revenue")
+    assert accounting.live_revenue_account(db, "4100") == accounting.code(db, "service_revenue")
+    assert accounting.live_revenue_account(db, None) == accounting.code(db, "revenue")
+    assert accounting.live_revenue_account(db, "7131") == "7131", "a live account is kept as named"
+
+
+def test_sqlite_boot_points_late_roles_at_the_lebanese_chart(db):
+    """The boot tidy-up was handed a tuple-row cursor, failed on its first
+    lookup and was silently skipped, so a SQLite install on the Lebanese chart
+    kept the VAT-exempt revenue roles on retired default-chart accounts."""
+    import database
+    import chart_lebanon as LB
+    if database.DB_BACKEND == "postgres":
+        pytest.skip("SQLite boot path")
+    LB.install(db, force=True)
+    db.execute("UPDATE account_roles SET code = '4000' WHERE role = 'revenue_exempt'")
+    db.commit()
+    database.init_db()
+    row = db.execute("SELECT code FROM account_roles WHERE role = 'revenue_exempt'").fetchone()
+    assert row["code"] == LB.ROLES["revenue_exempt"]

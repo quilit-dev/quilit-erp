@@ -402,6 +402,26 @@ def post_entry(db: sqlite3.Connection, *, entry_date: str, memo: str,
     return je_id
 
 
+def live_revenue_account(db: sqlite3.Connection, acct: Optional[str]) -> str:
+    """The revenue account a line names, or where that revenue lives now.
+
+    A line raised before a chart switch still names the account of the chart
+    it was raised on (4000, 4100), which the switch retired. Posting to it is
+    refused, so paying or returning such a line used to fail outright. A
+    retired or missing account is followed to the role that replaced it ---
+    labour to service revenue, anything else to sales --- while an account
+    that is still live is respected exactly as named."""
+    if acct:
+        row = db.execute(
+            "SELECT is_active, is_postable FROM chart_of_accounts WHERE code = ?",
+            (acct,)).fetchone()
+        if row and int(_col(row, "is_active", 1) or 0)                 and int(_col(row, "is_postable", 1) if _col(row, "is_postable", 1) is not None else 1):
+            return acct
+        if acct == _ROLE_DEFAULTS["service_revenue"]:
+            return code(db, "service_revenue")
+    return code(db, "revenue")
+
+
 def revenue_split(db: sqlite3.Connection, invoice_id: Optional[int],
                   amount: float) -> List[Dict[str, Any]]:
     """The CREDIT side of a payment: revenue at net, plus the VAT collected.
@@ -494,7 +514,7 @@ def revenue_split(db: sqlite3.Connection, invoice_id: Optional[int],
                  labour: code(db, "service_revenue_exempt")}
     merged: Dict[str, float] = {}
     for r in rows:
-        acct = r["acct"] or goods
+        acct = live_revenue_account(db, r["acct"] or goods)
         if not r["taxed"]:
             acct = exempt_of.get(acct, acct)
         merged[acct] = merged.get(acct, 0.0) + float(r["net_gross"] or 0)

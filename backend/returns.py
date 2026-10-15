@@ -285,7 +285,7 @@ def _revenue_account(db, revenue_account, taxed: bool) -> str:
     """Where a line's revenue was earned --- the same routing revenue_split
     uses, so a return takes it back off the account it went to."""
     goods, labour = accounting.code(db, "revenue"), accounting.code(db, "service_revenue")
-    acct = revenue_account or goods
+    acct = accounting.live_revenue_account(db, revenue_account or goods)
     if not taxed:
         acct = {goods: accounting.code(db, "revenue_exempt"),
                 labour: accounting.code(db, "service_revenue_exempt")}.get(acct, acct)
