@@ -7,7 +7,7 @@ import {
   getQuotations, getQuotation, getClients, getProjects, getInventory,
   createQuotation, updateQuotation, voidQuotation, unvoidQuotation,
   archiveQuotation, unarchiveQuotation,
-  convertToInvoice, convertToProject, getCRMLeads, promoPreview
+  convertToInvoice, getCRMLeads, promoPreview
 } from '../api/client';
 import {
   LoadingSpinner, ErrorAlert, EmptyState, Modal, ConfirmModal,
@@ -565,7 +565,6 @@ export default function Quotations() {
   }
 
   const [convertInvoiceId, setConvertInvoiceId] = useState(null);
-  const [convertProjectId, setConvertProjectId] = useState(null);
 
   async function handleConvertInvoice(q) {
     try {
@@ -573,16 +572,6 @@ export default function Quotations() {
       toast(`${res.invoice_number} created — go to Invoices to record payments.`);
       setConvertInvoiceId(null);
       reload();
-    } catch (err) { toast(err.message, 'red'); }
-  }
-
-  async function handleConvertProject(q) {
-    try {
-      const res = await convertToProject(q.id);
-      setConvertProjectId(null);
-      reload();
-      toast(`Project created from ${q.quote_number} — click to view.`);
-      if (res.project_id) navigate(`/projects/${res.project_id}`);
     } catch (err) { toast(err.message, 'red'); }
   }
 
@@ -751,12 +740,6 @@ export default function Quotations() {
                               onClick={() => setConvertInvoiceId(q)}
                             >
                               {t('quotations.toInvoice')}
-                            </button>
-                          )}
-                          {!q.project_id && !isVoided && (
-                            <button className="btn btn-sm btn-secondary" style={{ whiteSpace:'nowrap' }}
-                              onClick={() => setConvertProjectId(q)}>
-                              {t('quotations.toProject')}
                             </button>
                           )}
                           <QuoteActionMenu
@@ -1009,13 +992,6 @@ export default function Quotations() {
           message={t('quotations.convertInvoiceConfirm', { quote_number: convertInvoiceId.quote_number })}
           onConfirm={() => handleConvertInvoice(convertInvoiceId)}
           onCancel={() => setConvertInvoiceId(null)}
-        />
-      )}
-      {convertProjectId && (
-        <ConfirmModal
-          message={`Accept ${convertProjectId.quote_number} and create a linked project${convertProjectId.project_name ? ` "${convertProjectId.project_name}"` : ''}? The quotation total (${fmt(convertProjectId.total)}) will be set as the project's expected revenue.`}
-          onConfirm={() => handleConvertProject(convertProjectId)}
-          onCancel={() => setConvertProjectId(null)}
         />
       )}
     </div>

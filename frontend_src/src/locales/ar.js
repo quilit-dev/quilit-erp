@@ -1696,7 +1696,6 @@ const ar = {
     invoiceCol: 'الفاتورة',
     invoicedBadge: 'تمت الفوترة',
     toInvoice: '← فاتورة',
-    toProject: '← مشروع',
     exportXls: 'تصدير XLS',
     exportPdf: 'تصدير PDF',
     voidQuote: 'إلغاء عرض السعر',

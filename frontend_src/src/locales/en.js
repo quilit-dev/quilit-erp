@@ -1721,7 +1721,6 @@ const en = {
     invoiceCol: 'Invoice',
     invoicedBadge: 'Invoiced',
     toInvoice: '→ Invoice',
-    toProject: '→ Project',
     exportXls: 'Export XLS',
     exportPdf: 'Export PDF',
     voidQuote: 'Void Quotation',

@@ -161,7 +161,6 @@ export const unvoidQuotation     = (id) => api.patch(`/api/quotations/${id}/unvo
 export const archiveQuotation    = (id, reason) => api.patch(`/api/quotations/${id}/archive`, { reason });
 export const unarchiveQuotation  = (id) => api.patch(`/api/quotations/${id}/unarchive`);
 export const convertToInvoice    = (id) => api.post(`/api/quotations/${id}/convert-to-invoice`);
-export const convertToProject    = (id) => api.post(`/api/quotations/${id}/convert-to-project`);
 
 // Invoices + cumulative payments
 export const getInvoices       = (params = {}, s) => api.get(`/api/invoices/${_qs(params)}`, s);
