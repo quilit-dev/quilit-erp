@@ -28,8 +28,9 @@ export function useRecordExport({ fetchFull, exportPDF, exportExcel, getClients,
       const enriched  = { ...full, client: clientObj };
       const opts      = getExportOpts?.() || {};
 
-      if (type === 'pdf') {
-        await exportPDF(enriched, opts);
+      if (type === 'pdf' || type === 'draft') {
+        // `draft`: the same document with nothing of the company on it.
+        await exportPDF(enriched, type === 'draft' ? { ...opts, draft: true } : opts);
         toast('PDF ready — use your browser\'s Save as PDF option.');
       } else {
         exportExcel(enriched, opts);

@@ -128,6 +128,18 @@ function ActionMenu({ inv, exporting, onEdit, onPay, onExport, onReceipt,
                 : <><Icon name="download-pdf" size={18} /><span>PDF</span></>}
             </button>
 
+            {/* The same document with no company details on it --- see
+                draftSettings in exportUtils.js. */}
+            <button
+              disabled={isExporting || isVoided}
+              onClick={() => { setOpen(false); onExport('draft'); }}
+              style={{ ...menuItemStyle, opacity: (isExporting || isVoided) ? 0.4 : 1 }}
+            >
+              {exporting === 'draft'
+                ? <><Icon name="loader" size={14} style={SPIN} /><span>{t('common.draftDoc')}</span></>
+                : <><Icon name="file-text" size={14} /><span>{t('common.draftDoc')}</span></>}
+            </button>
+
             {/* The numbered receipt handed over when money is taken. Disabled
                 with nothing paid, because there would be nothing to acknowledge
                 — the server refuses it too, so this only saves the round trip. */}

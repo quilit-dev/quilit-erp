@@ -344,9 +344,31 @@ export async function saveDocumentSnapshot(recordType, record, title, htmlConten
   }
 }
 
+// ─── Draft copies ──────────────────────────────────────────────────────────────
+// A draft is the document with nothing of the company on it: no name, logo,
+// address, phone, email, website, tax or registration number, letterhead,
+// footer note or printed terms. Only the client and the document's own figures
+// remain --- a working copy to discuss with a customer, not the issued paper.
+//
+// Done by stripping the settings rather than by a second template, so a draft
+// can never show different figures from the real document: every line, total,
+// tax and currency rule is the same code, fed the same numbers.
+const DRAFT_DROPS = [
+  'company_name', 'company_tagline', 'company_address', 'company_city',
+  'company_country', 'company_phone', 'company_email', 'company_website',
+  'company_tax_number', 'company_reg_number', 'footer_text', 'invoice_terms',
+  'document_template', 'preprinted_stationery',
+];
+
+export function draftSettings(s) {
+  const out = { ...(s || {}), __draft: true };
+  for (const k of DRAFT_DROPS) delete out[k];
+  return out;
+}
+
 export function buildCompany(s) {
   return {
-    name:            s.company_name       || 'My Company',
+    name:            s.__draft ? '' : (s.company_name || 'My Company'),
     tagline:         s.company_tagline    || '',
     address:         [s.company_address, s.company_city, s.company_country].filter(Boolean).join(', '),
     phone:           s.company_phone      || '',
@@ -599,6 +621,7 @@ function totalWordsHTML(theme, total, CC, C) {
 // ═══════════════════════════════════════════════════════════════════════════════
 /** The quotation document as an HTML string — see buildInvoiceHTML. */
 export function buildQuotationHTML(quotation, settings, logoDataURL = null, opts = {}) {
+  if (opts.draft) { settings = draftSettings(settings); logoDataURL = null; }
   const C  = buildCompany(settings);
   const txn = inTransactionCurrency(quotation, quotation.items || [], C);
   const CC  = txn
@@ -641,7 +664,7 @@ export function buildQuotationHTML(quotation, settings, logoDataURL = null, opts
 
   <div class="band amber"><span class="band-label">Valid Until:</span> ${validUntil} (${C.paymentDays} days from issue). Prices are subject to change thereafter.</div>
   ${quotation.notes ? `<div class="band"><span class="band-label">Notes:</span> ${quotation.notes}</div>` : ''}
-  <div class="band"><span class="band-label">Terms and Conditions:</span> All prices in ${CC.code}. Payment due Net ${C.paymentDays} days. Quotation binding upon written acceptance. Goods remain property of ${C.name} until paid in full. Scope changes may affect pricing.</div>
+  <div class="band"><span class="band-label">Terms and Conditions:</span> All prices in ${CC.code}. Payment due Net ${C.paymentDays} days. Quotation binding upon written acceptance. Goods remain property of ${C.name || 'the seller'} until paid in full. Scope changes may affect pricing.</div>
   ${paymentInstructions(C)}
   ${C.footer ? `<div class="band"><span class="band-label">Note:</span> ${C.footer}</div>` : ''}`;
 
@@ -692,6 +715,7 @@ ${shell}
 export async function exportQuotationPDF(quotation, opts = {}) {
   const [logoDataURL, settings] = await Promise.all([getLogoDataURL(), getSettings()]);
   const { html, docNo } = buildQuotationHTML(quotation, settings, logoDataURL, opts);
+  if (opts.draft) { printHTML(html, `Draft_Quotation_${docNo}.pdf`); return; }
   await saveDocumentSnapshot('quotation', quotation, `Quotation ${docNo}`, html);
   printHTML(html, `Quotation_${docNo}.pdf`);
 }
@@ -711,6 +735,7 @@ export async function exportQuotationPDF(quotation, opts = {}) {
  * the public page has no session and cannot call the authenticated endpoints.
  */
 export function buildInvoiceHTML(invoice, settings, logoDataURL = null, opts = {}) {
+  if (opts.draft) { settings = draftSettings(settings); logoDataURL = null; }
   const C  = buildCompany(settings);
   // A document raised in another currency prints in that one. The company's
   // "show everything in pounds" toggle is a view over ITS OWN figures and does
@@ -893,6 +918,8 @@ ${shell}
 export async function exportInvoicePDF(invoice, opts = {}) {
   const [logoDataURL, settings] = await Promise.all([getLogoDataURL(), getSettings()]);
   const { html, docNo } = buildInvoiceHTML(invoice, settings, logoDataURL, opts);
+  // A draft is a working copy, not the issued document: it is not archived.
+  if (opts.draft) { printHTML(html, `Draft_Invoice_${docNo}.pdf`); return; }
   await saveDocumentSnapshot('invoice', invoice, `Invoice ${docNo}`, html);
   printHTML(html, `Invoice_${docNo}.pdf`);
 }

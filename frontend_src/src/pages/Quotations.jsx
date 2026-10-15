@@ -181,6 +181,17 @@ function QuoteActionMenu({ doc, exporting, isVoided, onEdit, onExport,
               : <><Icon name="download-pdf" size={18} /><span>PDF</span></>}
           </button>
 
+          {/* The same document with no company details on it. */}
+          <button
+            style={{ ...menuItemStyle, opacity: (isExporting || isVoided) ? 0.4 : 1 }}
+            disabled={isExporting || isVoided}
+            onClick={() => { setOpen(false); onExport('draft'); }}
+          >
+            {exporting === 'draft'
+              ? <><Icon name="loader" size={14} style={SPIN} /><span>{t('common.draftDoc')}</span></>
+              : <><Icon name="file-text" size={14} /><span>{t('common.draftDoc')}</span></>}
+          </button>
+
           {/* No WhatsApp / email entries here — the row's Send button covers
               both channels. See the note in invoices/ActionMenu.jsx. */}
 
