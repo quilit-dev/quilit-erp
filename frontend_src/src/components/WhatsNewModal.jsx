@@ -28,15 +28,22 @@ import { Modal } from './shared';
 import { useLocale } from '../hooks/useLocale.jsx';
 
 // The one day this note is shown, as a local YYYY-MM-DD date.
-export const SHOW_ON = '2026-09-07';
+export const SHOW_ON = '2026-10-16';
 // Bumping this alongside SHOW_ON gives a future note a clean slate rather than
 // inheriting the dismissals of this one.
-export const RELEASE = '2026-09';
+export const RELEASE = '2026-10';
 
-const ITEMS = [
-  'posEdit', 'purchaseEdit', 'purchaseLines', 'purchasePrepay',
-  'archiveVoided', 'paymentPlan', 'outstandingPdf', 'serviceTechnicians',
+export const ITEMS = [
+  'returns', 'storeCredit', 'docDiscount', 'unitsSearch', 'quoteProduct',
+  'profitSummary', 'exportPeriod', 'payrollPay', 'expensesOwed', 'documents',
 ];
+
+/** `?whatsnew` in the address opens the note on any day, seen or not --- how
+ *  the owner previews it before the morning it goes out. It records nothing,
+ *  so the real showing on SHOW_ON is unaffected. */
+export function previewRequested(search = window.location.search) {
+  try { return new URLSearchParams(search).has('whatsnew'); } catch { return false; }
+}
 
 export function localToday(now = new Date()) {
   const pad = n => String(n).padStart(2, '0');
@@ -53,7 +60,9 @@ export default function WhatsNewModal() {
   // Everything that decides whether this renders is settled once, on mount:
   // re-reading storage on every render would reopen the modal the instant it
   // was dismissed, and re-reading the clock would reopen it at midnight.
+  const [preview] = useState(() => previewRequested());
   const [open, setOpen] = useState(() => {
+    if (preview) return true;
     if (localToday() !== SHOW_ON) return false;
     try {
       const user = JSON.parse(localStorage.getItem('user') || 'null');
@@ -70,6 +79,7 @@ export default function WhatsNewModal() {
 
   const dismiss = () => {
     setOpen(false);
+    if (preview) return;            // a preview leaves the real showing alone
     try {
       const user = JSON.parse(localStorage.getItem('user') || 'null');
       if (user?.id) localStorage.setItem(seenKey(user.id), '1');

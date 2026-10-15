@@ -18,7 +18,7 @@ import { dirname, join } from 'node:path';
 import { LocaleProvider } from '../hooks/useLocale.jsx';
 import en from '../locales/en';
 import ar from '../locales/ar';
-import WhatsNewModal, { SHOW_ON, RELEASE, localToday } from '../components/WhatsNewModal';
+import WhatsNewModal, { SHOW_ON, RELEASE, ITEMS, localToday, previewRequested } from '../components/WhatsNewModal';
 
 const here = dirname(fileURLToPath(import.meta.url));
 const src = readFileSync(join(here, '..', 'components', 'WhatsNewModal.jsx'), 'utf8');
@@ -53,9 +53,8 @@ describe('it appears on its one day', () => {
 
   test('and every item is listed, not just the first few', () => {
     mount();
-    for (const k of ['posEdit', 'purchaseEdit', 'purchaseLines', 'purchasePrepay',
-                     'archiveVoided', 'paymentPlan', 'outstandingPdf',
-                     'serviceTechnicians']) {
+    expect(ITEMS).toHaveLength(10);
+    for (const k of ITEMS) {
       expect(screen.queryByText(en.whatsNew[k]), `${k} is missing from the note`)
         .toBeTruthy();
     }
@@ -151,17 +150,28 @@ describe('wiring and translation', () => {
   });
 
   test.each(['title', 'intro', 'dismiss',
-             'posEdit', 'posEditBody',
-             'purchaseEdit', 'purchaseEditBody',
-             'purchaseLines', 'purchaseLinesBody',
-             'purchasePrepay', 'purchasePrepayBody',
-             'archiveVoided', 'archiveVoidedBody',
-             'paymentPlan', 'paymentPlanBody',
-             'outstandingPdf', 'outstandingPdfBody',
-             'serviceTechnicians', 'serviceTechniciansBody'])(
+             ...ITEMS.flatMap(k => [k, `${k}Body`])])(
     'whatsNew.%s is written in both languages', (k) => {
       expect(en.whatsNew[k], `en.whatsNew.${k}`).toBeTruthy();
       expect(ar.whatsNew[k], `ar.whatsNew.${k}`).toBeTruthy();
       expect(ar.whatsNew[k], `ar.whatsNew.${k} is still English`).not.toBe(en.whatsNew[k]);
     });
+});
+
+describe('the owner can preview it before its day', () => {
+  test('?whatsnew opens it on another day and records nothing', () => {
+    vi.setSystemTime(at(-1));
+    expect(previewRequested('?whatsnew')).toBe(true);
+    expect(previewRequested('?foo=1')).toBe(false);
+    window.history.replaceState(null, '', '/?whatsnew');
+    try {
+      mount();
+      expect(dialog()).toBeTruthy();
+      fireEvent.click(screen.getByText(en.whatsNew.dismiss));
+      expect(dialog()).toBeNull();
+      expect(localStorage.getItem(`whatsnew.${RELEASE}.seen.7`), 'the real showing is untouched').toBeNull();
+    } finally {
+      window.history.replaceState(null, '', '/');
+    }
+  });
 });
