@@ -13,6 +13,7 @@ from utils import (_now, _today, get_tax_context, resolve_expense_tax, money,
 from approval_engine import evaluate_and_apply
 import accounting
 import branch_access
+import returns
 import financial_health
 import vendor_config
 import sqlite3
@@ -107,7 +108,7 @@ class ExpenseCreate(BaseModel):
 def _income_in_range(db, start: str, end: str, bf: str = "", bp=()) -> float:
     return db.execute(
         """SELECT COALESCE(SUM(ip.amount), 0)
-           FROM invoice_payments ip
+           FROM """ + returns.CASH_RECEIPTS + """ ip
            JOIN invoices i ON ip.invoice_id = i.id
            WHERE DATE(ip.paid_at) >= ? AND DATE(ip.paid_at) <= ?
              AND i.voided_at IS NULL AND i.archived_at IS NULL""" + bf,
@@ -150,7 +151,7 @@ def finance_summary(
     mparam = (period,) if period else ()
     income = db.execute(
         "SELECT COALESCE(SUM(ip.amount), 0) AS total "
-        "FROM invoice_payments ip JOIN invoices i ON ip.invoice_id = i.id "
+        "FROM " + returns.CASH_RECEIPTS + " ip JOIN invoices i ON ip.invoice_id = i.id "
         f"WHERE strftime('%Y-%m', ip.paid_at) = {mexpr}" + bf_i,
         (*mparam, *bp_i),
     ).fetchone()[0]
@@ -295,7 +296,7 @@ def range_monthly(
            FROM (
              SELECT strftime('%Y-%m', ip.paid_at) AS month,
                     SUM(ip.amount) AS income, 0 AS expenses
-             FROM invoice_payments ip
+             FROM """ + returns.CASH_RECEIPTS + """ ip
              JOIN invoices i ON ip.invoice_id = i.id
              WHERE DATE(ip.paid_at) >= ? AND DATE(ip.paid_at) <= ?
                AND i.voided_at IS NULL AND i.archived_at IS NULL""" + bf_i + """
@@ -369,7 +370,7 @@ def range_detail(
                   i.invoice_number, ip.note,
                   c.name AS client_name,
                   p.name AS project_name
-           FROM invoice_payments ip
+           FROM """ + returns.CASH_RECEIPTS + """ ip
            JOIN invoices i ON ip.invoice_id = i.id
            LEFT JOIN clients c ON i.client_id = c.id
            LEFT JOIN projects p ON i.project_id = p.id
@@ -409,7 +410,7 @@ def monthly_report(
            FROM (
              SELECT strftime('%Y-%m', ip.paid_at) AS month,
                     SUM(ip.amount) AS income, 0 AS expenses
-             FROM invoice_payments ip
+             FROM """ + returns.CASH_RECEIPTS + """ ip
              JOIN invoices i ON ip.invoice_id = i.id
              WHERE 1=1""" + bf_i + """
              GROUP BY month
@@ -1152,7 +1153,7 @@ def _generate_snapshot(db, year: int, month: int, now: str, username: str):
     # Income = payments on non-voided invoices in this calendar month
     inc_row = db.execute(
         """SELECT COALESCE(SUM(ip.amount), 0) AS total, COUNT(ip.id) AS cnt
-           FROM invoice_payments ip
+           FROM """ + returns.CASH_RECEIPTS + """ ip
            JOIN invoices i ON ip.invoice_id = i.id
            WHERE DATE(ip.paid_at) >= ? AND DATE(ip.paid_at) <= ?
              AND i.voided_at IS NULL AND i.archived_at IS NULL""",
@@ -1511,7 +1512,7 @@ def reconciliation(
         "WHERE archived_at IS NULL AND voided_at IS NULL"
     ).fetchone()[0])
     total_collected = float(db.execute(
-        "SELECT COALESCE(SUM(ip.amount),0) FROM invoice_payments ip "
+        "SELECT COALESCE(SUM(ip.amount),0) FROM " + returns.CASH_RECEIPTS + " ip "
         "JOIN invoices i ON ip.invoice_id=i.id "
         "WHERE i.archived_at IS NULL AND i.voided_at IS NULL"
     ).fetchone()[0])

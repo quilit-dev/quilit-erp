@@ -9,8 +9,10 @@ import {
   getInvoices, getInvoice, getClients, getProjects, getInventory,
   createInvoice, updateInvoice, voidInvoice, unvoidInvoice,
   archiveInvoice, unarchiveInvoice,
-  addInvoicePayment, deleteInvoicePayment, getCashDrawers, promoPreview, issueReceiptVoucher
+  addInvoicePayment, deleteInvoicePayment, getCashDrawers, promoPreview, issueReceiptVoucher,
+  getCustomerCredit,
 } from '../api/client';
+import { SalesReturnModal } from '../components/ReturnModals.jsx';
 import {
   LoadingSpinner, ErrorAlert, EmptyState, Modal, ConfirmModal,
   Badge, ExportButton, fmt, fmtDate, toast, SortableTh, Pagination,
@@ -124,6 +126,15 @@ export default function Invoices() {
   const { data: inventory } = useData((s) => getInventory({}, s));
   const { settings, exchangeRate, displayCurrency, taxRates, rateFor, rates } = useSettings();
   const bankAccounts = useBankAccounts();
+  // A return raised from the row's menu, and the credit the customer holds
+  // (offered as a way to pay once there is some).
+  const [returnInvoiceId, setReturnInvoiceId] = useState(null);
+  const [customerCredit, setCustomerCredit]   = useState(0);
+  const refreshCredit = (clientId) => {
+    if (!clientId) return;
+    getCustomerCredit(clientId)
+      .then(c => setCustomerCredit(Number(c.balance) || 0)).catch(() => {});
+  };
 
   // Global-search deep link (?focus=<id>) → open that invoice's detail.
   const [focusId, clearFocus] = useFocusId();
@@ -446,9 +457,11 @@ export default function Invoices() {
                  rate: cur === 'USD' ? '' : (rateFor(cur) || ''),
                  cash_drawer_id: '' });
     setPayModal(inv);
+    setCustomerCredit(0);
     try {
       const full = await getInvoice(inv.id);
       setPayModal(full);
+      refreshCredit(full.client_id);
     } catch { toast('Could not load payment data', 'red'); }
     finally { setPayLoading(false); }
   }
@@ -487,6 +500,7 @@ export default function Invoices() {
       }));
       const full = await getInvoice(payModal.id);
       setPayModal(full);
+      refreshCredit(full.client_id);
       reload();
     } catch (err) {
       if (err.message?.includes('409') || err.message?.includes('duplicate')) {
@@ -506,6 +520,7 @@ export default function Invoices() {
       toast(t('invoices.paymentDeleted'));
       const full = await getInvoice(payModal.id);
       setPayModal(full);
+      refreshCredit(full.client_id);
       reload();
     } catch (err) { toast(err.message, 'red'); }
   }
@@ -666,6 +681,7 @@ export default function Invoices() {
                           onUnvoid={() => setUnvoidTarget(inv)}
                           onArchive={() => handleArchive(inv)}
                           onRestore={() => handleRestore(inv)}
+                          onReturn={can('returns', 'create') ? () => setReturnInvoiceId(inv.id) : null}
                         />
                       </td>
                     </tr>
@@ -928,6 +944,11 @@ export default function Invoices() {
         </Modal>
       )}
 
+      {returnInvoiceId && (
+        <SalesReturnModal invoiceId={returnInvoiceId}
+          onClose={() => setReturnInvoiceId(null)} onDone={() => reload()} />
+      )}
+
       {/* Payment modal */}
       {payModal && (
         <Modal
@@ -1046,8 +1067,16 @@ export default function Invoices() {
                       <SearchSelect
                         className="form-control"
                         value={payForm.method}
-                        onChange={v => setPayForm(f => ({ ...f, method: v }))}
-                        options={(METHODS).map(m => ({ value: m, label: tEnumValue(m) }))} />
+                        // Customer credit is held in the company's currency.
+                        onChange={v => setPayForm(f => ({ ...f, method: v,
+                          ...(v === 'Customer credit' ? { currency: 'USD', rate: '' } : {}) }))}
+                        options={[
+                          ...METHODS.map(m => ({ value: m, label: tEnumValue(m) })),
+                          ...(customerCredit > 0.005
+                            ? [{ value: 'Customer credit',
+                                 label: `${tEnumValue('Customer credit')} (${fmt(customerCredit)})` }]
+                            : []),
+                        ]} />
                     </div>
                     <BankField method={payForm.method}
                       value={payForm.bank_account_id}
@@ -1111,13 +1140,16 @@ export default function Invoices() {
                               </>
                             ) : fmt(p.amount)}
                           </td>
-                          <td>{p.method}</td>
+                          <td>{tEnumValue(p.method)}</td>
                           <td>{p.note || '—'}</td>
                           <td>{fmtDate(p.paid_at)}</td>
                           <td>
-                            <button className="btn btn-sm btn-danger"
-                              onClick={() => setDeletePayId(p.id)}
-                              title="Delete this payment">✕</button>
+                            {/* A credit note is undone from Returns, by voiding it. */}
+                            {p.method !== 'Credit note' && (
+                              <button className="btn btn-sm btn-danger"
+                                onClick={() => setDeletePayId(p.id)}
+                                title="Delete this payment">✕</button>
+                            )}
                           </td>
                         </tr>
                       ))}

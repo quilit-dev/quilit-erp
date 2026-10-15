@@ -378,7 +378,7 @@ def client_statement(client_id: int,
     if ids:
         ph = ",".join("?" * len(ids))
         payments = db.execute(
-            f"SELECT p.id, p.invoice_id, p.amount, p.method, p.paid_at, "
+            f"SELECT p.id, p.invoice_id, p.amount, p.method, p.paid_at, p.note, "
             f"       p.paid_currency, p.paid_amount, p.txn_amount, i.invoice_number "
             f"FROM invoice_payments p JOIN invoices i ON i.id = p.invoice_id "
             f"WHERE p.invoice_id IN ({ph}) ORDER BY p.paid_at, p.id", ids).fetchall()
@@ -405,8 +405,11 @@ def client_statement(client_id: int,
             "date": (p["paid_at"] or "")[:10], "_ts": p["paid_at"] or "",
             "type": "payment",
             "reference": p["invoice_number"], "invoice_id": p["invoice_id"],
-            "description": f"Payment — {p['method'] or 'Cash'}"
-                           + (f" ({p['paid_currency']})" if p["paid_currency"] not in (None, "USD") else ""),
+            # A credit note applied to the invoice is not money; say what it is.
+            "description": (f"Credit note {p['note'] or ''}".strip()
+                            if p["method"] == "Credit note" else
+                            f"Payment — {p['method'] or 'Cash'}"
+                            + (f" ({p['paid_currency']})" if p["paid_currency"] not in (None, "USD") else "")),
             "charged": 0.0,
             "paid": money(p["txn_amount"] if in_txn and p["txn_amount"] is not None
                           else p["amount"]),

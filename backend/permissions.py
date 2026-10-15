@@ -73,6 +73,9 @@ MODULES = [
     # separately because the figures are the business's most sensitive ones.
     # Only `view` is meaningful.
     'profit_report',
+    # Returns: credit notes against invoices, debit notes against purchases,
+    # and the customer and supplier credit they leave behind.
+    'returns',
 ]
 ADMIN_MODULES = ['settings', 'users', 'roles', 'audit']
 ALL_MODULES   = MODULES + ADMIN_MODULES

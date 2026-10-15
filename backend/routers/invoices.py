@@ -30,6 +30,7 @@ import branch_access
 import line_items
 import installments
 import doc_discount
+import returns
 import sqlite3
 import uuid
 from datetime import datetime, timedelta
@@ -834,6 +835,15 @@ def update_invoice(
 
     has_payments = _has_payments(db, invoice_id)
 
+    # A credit note names this invoice's lines and its customer. Changing
+    # either underneath it would leave the note returning goods that are no
+    # longer on the invoice, or credit held for somebody else.
+    if returns.live_sales_returns(db, invoice_id):
+        if data.client_id != inv["client_id"]:
+            raise HTTPException(409, "This invoice has a credit note; its customer "
+                                     "cannot be changed. Void the credit note first.")
+        has_payments = True
+
     if has_payments:
         # Amounts are LOCKED once payments exist — only metadata may change.
         # The row count comes from the cursor: `SELECT changes()` is a SQLite
@@ -942,6 +952,15 @@ def void_invoice(
     branch_access.assert_can_view_branch(user, db, inv["branch_id"])
     if inv["voided_at"]:
         raise HTTPException(400, "Invoice is already voided.")
+    # A credit note already took part of this sale back. Voiding the rest
+    # underneath it would reverse those lines twice.
+    if returns.live_sales_returns(db, invoice_id):
+        raise HTTPException(409, "This invoice has a credit note against it. Void "
+                                 "the credit note first, then the invoice.")
+    if db.execute("SELECT 1 FROM invoice_payments WHERE invoice_id=? AND method=?",
+                  (invoice_id, returns.CUSTOMER_CREDIT)).fetchone():
+        raise HTTPException(409, "Part of this invoice was paid from customer credit. "
+                                 "Remove that payment first so the credit goes back.")
     # Can't void an invoice that belongs to a locked month / closed year —
     # reopen the period (or post a credit note in an open one) instead.
     _check_period_locked(db, inv["created_at"])
@@ -1089,7 +1108,18 @@ def add_payment(
     # account the money lands in, and an unrecognised one silently lands it in
     # cash. A transfer recorded under a word nobody recognises overstates the
     # till and leaves the bank short by the same amount.
-    if not accounting.is_payment_method(data.method):
+    from_credit = (data.method or "").strip().lower() == returns.CUSTOMER_CREDIT.lower()
+    if from_credit:
+        # Paid from what a credit note left the customer --- no money moves,
+        # the liability we held for them settles their claim instead.
+        data.method = returns.CUSTOMER_CREDIT
+        if (data.currency or currency_mod.FUNCTIONAL).upper() != currency_mod.FUNCTIONAL:
+            raise HTTPException(400, "Customer credit is held in "
+                                     f"{currency_mod.FUNCTIONAL}.")
+    elif (data.method or "").strip().lower() == returns.CREDIT_NOTE.lower():
+        raise HTTPException(400, "A credit note is applied by raising a return, "
+                                 "not entered as a payment.")
+    elif not accounting.is_payment_method(data.method):
         raise HTTPException(
             400, f"'{data.method}' is not a payment method. Use one of: "
                  + ", ".join(accounting.PAYMENT_METHODS) + ".")
@@ -1183,6 +1213,14 @@ def add_payment(
             f"${remaining:.2f}",
         )
 
+    if from_credit:
+        if not inv["client_id"]:
+            raise HTTPException(400, "This invoice has no customer to take credit from.")
+        have = returns.customer_credit_balance(db, inv["client_id"])
+        if s["obligation_base"] > have + 0.005:
+            raise HTTPException(400, f"This customer has {have:,.2f} of credit; "
+                                     f"{s['obligation_base']:,.2f} cannot be paid from it.")
+
     # A cash payment may be attributed to a specific cash drawer.
     drawer_id = data.cash_drawer_id if (data.method or "").strip().lower() == "cash" else None
     if drawer_id is not None and not db.execute(
@@ -1224,9 +1262,10 @@ def add_payment(
             # transfer used to debit cash-on-hand, so the till was overstated
             # by every payment that never touched it and the bank account
             # showed nothing at all.
-            cash_code=accounting.money_account_for(
-                db, method=data.method, currency=currency,
-                bank_account_id=data.bank_account_id),
+            cash_code=(accounting.code(db, "customer_credit") if from_credit else
+                       accounting.money_account_for(
+                           db, method=data.method, currency=currency,
+                           bank_account_id=data.bank_account_id)),
             amount=s["cash_base"],
             obligation=s["obligation_base"],
             method_memo=f"{data.method} ({currency})",
@@ -1234,6 +1273,10 @@ def add_payment(
         source_type="invoice_payment", source_id=payment_id, created_by=user["id"],
         branch_id=inv["branch_id"],
     )
+    if from_credit:
+        returns.spend_customer_credit(db, inv["client_id"], s["obligation_base"],
+                                      payment_id=payment_id, note=inv["invoice_number"],
+                                      user_id=user["id"])
     log_action(db, user, "payment", "invoice", invoice_id, inv["invoice_number"],
                {"amount": usd_amount, "method": data.method,
                 "currency": currency, "paid_amount": paid_amount})
@@ -1321,6 +1364,13 @@ def delete_payment(
     if not row:
         raise HTTPException(404, "Payment not found")
     _check_period_locked(db, str(row["paid_at"])[:7] + "-01")
+    if row["method"] == returns.CREDIT_NOTE:
+        raise HTTPException(409, f"This is credit note {row['note'] or ''} applied to the "
+                                 "invoice. Void the credit note instead.")
+    if row["method"] == returns.CUSTOMER_CREDIT:
+        returns.restore_customer_credit(db, inv["client_id"], float(row["amount"]),
+                                        payment_id=payment_id, note=inv["invoice_number"],
+                                        user_id=user["id"])
 
     # Reverse the ledger entry posted when this payment was recorded.
     accounting.reverse_source(db, "invoice_payment", payment_id,

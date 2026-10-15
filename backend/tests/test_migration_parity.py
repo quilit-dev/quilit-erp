@@ -199,6 +199,9 @@ _REQUIRED_TABLES = [
     "work_schedules",
     # Money handed to staff before payday, recovered by the next run.
     "hr_salary_advances",
+    # Returns: credit notes, debit notes, and the credit they leave behind.
+    "sales_returns", "sales_return_items", "purchase_returns",
+    "purchase_return_items", "customer_credits", "supplier_credits",
 ]
 
 
@@ -210,6 +213,8 @@ _REQUIRED_LITERALS = [
     "cash_eur",    # the role that points at it
     "1250",              # Advances to Suppliers — paid for, not yet delivered
     "supplier_advance",  # the role that points at it
+    "2410", "customer_credit",   # customer credit balances (returns)
+    "6940", "stock_loss",        # damaged returned goods written off
     "revenue_exempt",    # turnover not subject to VAT (7012 on the Lebanese chart)
     "service_revenue_exempt",
 ]

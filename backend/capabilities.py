@@ -44,6 +44,8 @@ ALWAYS_ON = frozenset({
     "pos_price_override",
     # Who may read the profit summary is the role editor's call too.
     "profit_report",
+    # Returns belong to invoicing and purchasing, which every licence has.
+    "returns",
 })
 
 # module -> modules it cannot function without.

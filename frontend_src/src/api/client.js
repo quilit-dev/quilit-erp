@@ -246,6 +246,19 @@ export const getLot                 = (id)   => api.get(`/api/inventory/lots/${i
 
 // Purchases
 export const getPurchases         = (qs)   => api.get(`/api/purchases/${qs || ''}`);
+// ── Returns: credit notes (customers) and debit notes (suppliers) ─────────
+export const getSalesReturns       = (params = {}) => api.get(`/api/returns/sales${_qs(params)}`);
+export const getSalesReturn        = (id) => api.get(`/api/returns/sales/${id}`);
+export const getInvoiceReturnable  = (invoiceId) => api.get(`/api/returns/sales/invoice/${invoiceId}/returnable`);
+export const createSalesReturn     = (d) => api.post('/api/returns/sales', d);
+export const voidSalesReturn       = (id, reason) => api.patch(`/api/returns/sales/${id}/void`, { reason });
+export const getPurchaseReturns    = (params = {}) => api.get(`/api/returns/purchases${_qs(params)}`);
+export const getPurchaseReturn     = (id) => api.get(`/api/returns/purchases/${id}`);
+export const getPurchaseReturnable = (purchaseId) => api.get(`/api/returns/purchases/purchase/${purchaseId}/returnable`);
+export const createPurchaseReturn  = (d) => api.post('/api/returns/purchases', d);
+export const voidPurchaseReturn    = (id, reason) => api.patch(`/api/returns/purchases/${id}/void`, { reason });
+export const getCustomerCredit     = (clientId) => api.get(`/api/returns/credit/customer/${clientId}`);
+export const getSupplierCredit     = (params = {}) => api.get(`/api/returns/credit/supplier${_qs(params)}`);
 export const getPurchase          = (id)   => api.get(`/api/purchases/${id}`);
 export const getPurchaseStats     = ()     => api.get('/api/purchases/stats');
 export const createPurchase       = (d)    => api.post('/api/purchases/', d);

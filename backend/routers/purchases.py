@@ -16,6 +16,7 @@ import currency
 import lots
 import reservations
 import warehouse_access as wha
+import returns
 import accounting
 from routers.finance import _check_period_locked
 import sqlite3
@@ -1358,6 +1359,16 @@ def _add_payment(db, user, row, *, amount, method=None, bank_account_id=None,
     received = bool(_col(row, "received_at"))
     method = method or _col(row, "payment_method")
     bank_id = bank_account_id if bank_account_id is not None else _col(row, "bank_account_id")
+    from_credit = (method or "").strip().lower() == returns.SUPPLIER_CREDIT.lower()
+    if (method or "").strip().lower() == returns.DEBIT_NOTE.lower():
+        raise HTTPException(400, "A debit note is applied by returning goods, "
+                                 "not entered as a payment.")
+    if from_credit:
+        method, bank_id = returns.SUPPLIER_CREDIT, None
+        have = returns.supplier_credit_balance(db, _col(row, "supplier_id"), row["supplier"])
+        if amount > have + 0.005:
+            raise HTTPException(400, f"{row['supplier']} holds {have:,.2f} of your "
+                                     f"credit; {amount:,.2f} cannot be paid from it.")
 
     cur = db.execute(
         "INSERT INTO purchase_payments (purchase_id, amount, paid_currency, method, "
@@ -1369,6 +1380,24 @@ def _add_payment(db, user, row, *, amount, method=None, bank_account_id=None,
     # Keep the header's idea of how this purchase is settled current — the
     # detail screen reads it, and so does the legacy cash credit in
     # _settlement_credits.
+    if from_credit:
+        # The credit is already money the supplier holds for us, in Advances
+        # to Suppliers. Before the goods arrive it simply stays there, applied
+        # to this order, and the receipt relieves it like any deposit; after,
+        # it settles the payable.
+        returns.spend_supplier_credit(db, row["supplier"], _col(row, "supplier_id"),
+                                      amount, payment_id=payment_id,
+                                      note=row["po_number"], user_id=user["id"])
+        if received:
+            accounting.post_entry(
+                db, entry_date=when[:10],
+                memo=f"Paid from supplier credit — {row['po_number']}",
+                lines=[{"code": accounting.code(db, "payable"), "debit": amount},
+                       {"code": accounting.code(db, "supplier_advance"), "credit": amount}],
+                source_type="purchase_payment", source_id=payment_id,
+                created_by=user["id"], branch_id=row["warehouse_id"])
+        _recalc_settlement(db, purchase_id)
+        return payment_id
     db.execute("UPDATE purchases SET payment_method=COALESCE(?, payment_method), "
                " bank_account_id=COALESCE(?, bank_account_id) WHERE id=?",
                (method, bank_account_id, purchase_id))
@@ -1479,6 +1508,9 @@ def void_purchase_payment(purchase_id: int, payment_id: int, data: VoidRequest,
         raise HTTPException(404, "Payment not found")
     if pay["voided_at"]:
         raise HTTPException(400, "That payment is already voided.")
+    if pay["method"] == returns.DEBIT_NOTE:
+        raise HTTPException(409, f"This is debit note {pay['note'] or ''} applied to the "
+                                 "purchase. Void the debit note instead.")
     if _col(pay, "folded_into_purchase"):
         raise HTTPException(
             400, "This payment predates separate payment records — its money is "
@@ -1498,6 +1530,10 @@ def void_purchase_payment(purchase_id: int, payment_id: int, data: VoidRequest,
         memo=f"Reversal — payment on {row['po_number']}", created_by=user["id"])
     db.execute("UPDATE purchase_payments SET voided_at=?, void_reason=? WHERE id=?",
                (now, data.reason or "Voided", payment_id))
+    if pay["method"] == returns.SUPPLIER_CREDIT:
+        returns.restore_supplier_credit(db, row["supplier"], _col(row, "supplier_id"),
+                                        float(pay["amount"]), payment_id=payment_id,
+                                        note=row["po_number"], user_id=user["id"])
     _recalc_settlement(db, purchase_id)
     log_action(db, user, "void_payment", "purchase", purchase_id, row["po_number"],
                {"payment_id": payment_id, "amount": money(pay["amount"] or 0)})
@@ -1546,6 +1582,15 @@ def void_purchase(
     branch_access.assert_can_view_branch(user, db, row["warehouse_id"])
     if _col(row, "voided_at"):
         raise HTTPException(400, "Purchase is already voided.")
+    # Part of these goods already went back. Voiding the rest underneath the
+    # debit note would take the returned units off the shelf a second time.
+    if returns.live_purchase_returns(db, purchase_id):
+        raise HTTPException(409, "This purchase has a debit note against it. Void "
+                                 "the debit note first, then the purchase.")
+    if db.execute("SELECT 1 FROM purchase_payments WHERE purchase_id=? AND method=? "
+                  "AND voided_at IS NULL", (purchase_id, returns.SUPPLIER_CREDIT)).fetchone():
+        raise HTTPException(409, "Part of this purchase was paid from supplier credit. "
+                                 "Void that payment first so the credit goes back.")
 
     # Both months matter. The receipt posted into the month it was received and
     # the reversal posts into today, so a lock on either has to stop it — the

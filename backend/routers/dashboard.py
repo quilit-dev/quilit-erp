@@ -21,6 +21,7 @@ import permissions
 from permissions import require_perm, can_view as permissions_can_view
 from utils import _today, _day_bounds, _month_bounds
 import branch_access
+import returns
 import sqlite3
 
 router = APIRouter()
@@ -174,7 +175,7 @@ def dashboard(branch_id: Optional[int] = None,
     # ── Finance: monthly income / expenses + 6-month chart ───────────────
     monthly_income_value = _scalar(db,
         """SELECT COALESCE(SUM(ip.amount), 0)
-           FROM invoice_payments ip JOIN invoices i ON ip.invoice_id = i.id
+           FROM """ + returns.CASH_RECEIPTS + """ ip JOIN invoices i ON ip.invoice_id = i.id
            -- routers/finance.py — which owns the page this card links to —
            -- has always excluded archived invoices from revenue. So does the
            -- unpaid card above. This one did not.
@@ -198,7 +199,7 @@ def dashboard(branch_id: Optional[int] = None,
 
     monthly_chart = db.execute(
         """SELECT strftime('%Y-%m', ip.paid_at) AS month, COALESCE(SUM(ip.amount),0) AS income
-           FROM invoice_payments ip JOIN invoices i ON ip.invoice_id = i.id
+           FROM """ + returns.CASH_RECEIPTS + """ ip JOIN invoices i ON ip.invoice_id = i.id
            WHERE i.deleted_at IS NULL AND i.voided_at IS NULL
              AND i.archived_at IS NULL""" + bf_i +
         " GROUP BY month ORDER BY month DESC LIMIT 6",

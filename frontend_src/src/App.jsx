@@ -35,6 +35,7 @@ const POS            = lazy(() => import('./pages/POS'));
 const Manufacturing  = lazy(() => import('./pages/Manufacturing'));
 const Service        = lazy(() => import('./pages/Service'));
 const Purchases      = lazy(() => import('./pages/Purchases'));
+const Returns        = lazy(() => import('./pages/Returns'));
 const Finance        = lazy(() => import('./pages/Finance'));
 const Accounting     = lazy(() => import('./pages/Accounting'));
 const Expenses       = lazy(() => import('./pages/Expenses'));
@@ -172,7 +173,7 @@ function Layout({ children }) {
 
   const pageKeys = [
     '/', '/clients', '/projects', '/quotations', '/invoices', '/inventory', '/pos',
-    '/purchases', '/suppliers', '/manufacturing', '/service', '/expenses', '/fixed-assets', '/finance', '/cash', '/reports', '/crm', '/planning', '/hr', '/recruitment', '/hr-activities',
+    '/purchases', '/returns', '/suppliers', '/manufacturing', '/service', '/expenses', '/fixed-assets', '/finance', '/cash', '/reports', '/crm', '/planning', '/hr', '/recruitment', '/hr-activities',
     '/notifications', '/approvals', '/approval-policies', '/settings', '/users', '/roles', '/admin',
   ];
   const path = location.pathname;
@@ -286,6 +287,8 @@ export default function App() {
             <Route path="/manufacturing" element={Auth(<Manufacturing />)} />
             <Route path="/service" element={Auth(<Service />)} />
             <Route path="/purchases"    element={Auth(<Purchases />)} />
+            <Route path="/returns"      element={Auth(<Returns />)} />
+            <Route path="/returns/:kind" element={Auth(<Returns />)} />
             <Route path="/suppliers"    element={Auth(<Suppliers />)} />
             <Route path="/finance"      element={Auth(<Finance />)} />
             <Route path="/accounting"   element={Auth(<Accounting />)} />

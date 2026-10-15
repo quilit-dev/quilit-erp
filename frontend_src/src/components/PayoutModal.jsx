@@ -24,7 +24,7 @@ const METHODS = ['Cash', 'Bank Transfer', 'Cheque', 'Card'];
 
 export default function PayoutModal({ title, summary, confirmLabel,
                                       busy, onConfirm, onClose,
-                                      maxAmount, amountLabel }) {
+                                      maxAmount, amountLabel, extraMethods = [] }) {
   const { t, tEnumValue } = useLocale();
   const accounts = useBankAccounts();
   const [method, setMethod] = useState('Bank Transfer');
@@ -69,7 +69,10 @@ export default function PayoutModal({ title, summary, confirmLabel,
               className="form-control"
               value={method}
               onChange={v => { setMethod(v); setBankId(''); }}
-              options={(METHODS).map(m => ({ value: m, label: tEnumValue(m) }))} />
+              // `extraMethods`: ways to pay that are not money leaving, such as
+              // credit a supplier already holds for us.
+              options={[...METHODS.map(m => ({ value: m, label: tEnumValue(m) })),
+                        ...extraMethods]} />
           </div>
           <BankField method={method} value={bankId} onChange={setBankId}
             accounts={accounts} />

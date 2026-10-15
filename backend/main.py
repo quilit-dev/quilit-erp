@@ -29,6 +29,7 @@ from routers import reports, crm, planning, notifications
 from routers import approval_policies, approval_requests, hr, hr_contracts, recruitment, hr_activities, tax_rates, pos, cash, manufacturing, banks
 from routers import assets, recurring, announcements, attachments, accounting, warehouses, platform, imports
 from routers import products
+from routers import returns as returns_router
 from routers import insights as insights_router
 from routers import service as service_router
 from routers import support as support_router
@@ -275,6 +276,7 @@ app.include_router(invoices.router,    prefix="/api/invoices",    tags=["invoice
 app.include_router(finance.router,     prefix="/api/finance",     tags=["finance"])
 app.include_router(insights_router.router, prefix="/api/insights",   tags=["insights"])
 app.include_router(purchases.router,     prefix="/api/purchases",     tags=["purchases"])
+app.include_router(returns_router.router, prefix="/api/returns",       tags=["returns"])
 app.include_router(settings.router,      prefix="/api/settings",      tags=["settings"])
 app.include_router(documents.router,     prefix="/api/documents",     tags=["documents"])
 app.include_router(suppliers.router,     prefix="/api/suppliers",     tags=["suppliers"])

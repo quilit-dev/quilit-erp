@@ -89,6 +89,12 @@ ACCOUNTS = [
     # published plan puts it, under Suppliers rather than with prepaid charges.
     ("409",  "الموردون المدينون", "Suppliers — debit balances",
      "Asset", "Current Asset", "debit", HEADER),
+    # A customer's money held for them --- a return kept as credit rather than
+    # refunded. The plan's own home for a customer's credit balance.
+    ("419",  "سلفات ومقبوضات على حساب طلبيات قيد التنفيذ / صدفة دائن",
+     "Customer advances and credit balances", "Liability", "Current Liability", "credit", HEADER),
+    ("4191", "سلفات ومقبوضات على حساب طلبيات قيد التنفيذ / صدفة دائن",
+     "Customer credit balances", "Liability", "Current Liability", "credit", POSTABLE),
     ("4091", "الموردون- دفعات على الحساب", "Suppliers — advances and payments on account",
      "Asset", "Current Asset", "debit", POSTABLE),
     ("41",   "الزبائن", "Customers", "Asset", "Current Asset", "debit", HEADER),
@@ -260,6 +266,8 @@ ROLES = {
     "vat_input":         "4426",
     "vat_output":        "4427",
     "deferred_revenue":  "473",
+    "customer_credit":   "4191",   # a return kept as credit for the customer
+    "stock_loss":        "661",    # damaged returned goods written off
     "retained_earnings": "121",
     "revenue":           "7011",
     "revenue_exempt":    "7012",

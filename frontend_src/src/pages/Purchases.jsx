@@ -3,7 +3,7 @@ import { useState, useCallback, useEffect, useRef } from 'react';
 import {
   getPurchases, getPurchase, getPurchaseStats, createPurchase,
   updatePurchase, updatePurchaseStatus, voidPurchase, archivePurchase, unarchivePurchase,
-  payPurchase, getPurchasePayments,
+  payPurchase, getPurchasePayments, getSupplierCredit,
   getInventory, getSuppliers,
 } from '../api/client';
 import {
@@ -19,6 +19,7 @@ import { usePermissions } from '../hooks/usePermissions';
 import { useWarehouses } from '../hooks/useWarehouses';
 import { useFocusId } from '../hooks/useFocusId';
 import PayoutModal from '../components/PayoutModal.jsx';
+import { PurchaseReturnModal } from '../components/ReturnModals.jsx';
 import Attachments from '../components/Attachments.jsx';
 import DocumentPostings from '../components/DocumentPostings.jsx';
 
@@ -492,7 +493,7 @@ function PurchasePayments({ purchaseId }) {
 // ── Main page ────────────────────────────────────────────────────────────────
 
 export default function Purchases() {
-  const { t, tStatus, tCategory } = useLocale();
+  const { t, tStatus, tCategory, tEnumValue } = useLocale();
   const { can } = usePermissions();
   const [purchases,           setPurchases]           = useState([]);
   const [stats,               setStats]               = useState({});
@@ -602,6 +603,17 @@ export default function Purchases() {
   // because a pre-order is commonly a deposit and then a balance. Receiving is
   // a stock event and asks nothing.
   const [payingFor, setPayingFor] = useState(null);
+  // Credit this supplier holds for us from earlier debit notes, offered as a
+  // way to pay once there is some.
+  const [supplierCredit, setSupplierCredit] = useState(0);
+  const [returnFor, setReturnFor] = useState(null);
+  useEffect(() => {
+    setSupplierCredit(0);
+    if (!payingFor) return;
+    getSupplierCredit(payingFor.supplier_id ? { supplier_id: payingFor.supplier_id }
+                                            : { supplier: payingFor.supplier || '' })
+      .then(c => setSupplierCredit(Number(c.balance) || 0)).catch(() => {});
+  }, [payingFor]);
 
   async function handlePay(purchase, { amount, ...payout }) {
     try {
@@ -905,6 +917,15 @@ export default function Purchases() {
                               <IconButton icon="pencil" className="btn btn-sm btn-secondary"
                                 onClick={() => openPurchase(p, 'edit')} label={t('common.edit')} />
                             )}
+                            {/* Goods going back to the supplier: a debit note.
+                                Only once they have arrived --- before that the
+                                order is edited or cancelled instead. */}
+                            {p.received_at && can('returns', 'create') && (
+                              <button className="btn btn-sm btn-secondary"
+                                onClick={() => setReturnFor(p.id)}>
+                                {t('returns.returnToSupplier')}
+                              </button>
+                            )}
                             {/* Offered whatever the status. An order voided
                                 before it arrived reverses nothing; one voided
                                 after takes the goods back off the shelf and
@@ -941,6 +962,10 @@ export default function Purchases() {
           />
         </Modal>
       )}
+      {returnFor && (
+        <PurchaseReturnModal purchaseId={returnFor}
+          onClose={() => setReturnFor(null)} onDone={() => load()} />
+      )}
       {payingFor && (
         <PayoutModal
           title={payingFor.received_at ? t('purchases.markPaid') : t('purchases.payNow')}
@@ -952,6 +977,10 @@ export default function Purchases() {
           confirmLabel={t('purchases.recordPayment')}
           maxAmount={Number(payingFor.outstanding || 0)}
           amountLabel={t('purchases.amountToPay')}
+          extraMethods={supplierCredit > 0.005
+            ? [{ value: 'Supplier credit',
+                 label: `${tEnumValue('Supplier credit')} (${fmt(supplierCredit)})` }]
+            : []}
           onConfirm={payout => handlePay(payingFor, payout)}
           onClose={() => setPayingFor(null)} />
       )}

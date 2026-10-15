@@ -185,6 +185,8 @@ _ROLE_DEFAULTS = {
     "payable": AP,                    "vat_control": VAT_CONTROL,
     "vat_input": VAT_CONTROL,         "vat_output": VAT_CONTROL,
     "deferred_revenue": DEFERRED_REV, "retained_earnings": RETAINED_EARNINGS,
+    # Returns: money held for a customer, and damaged goods written off.
+    "customer_credit": "2410",        "stock_loss": "6940",
     "revenue": REVENUE,               "service_revenue": SERVICE_REVENUE,
     # The default chart does not separate exempt turnover; the Lebanese one does.
     "revenue_exempt": REVENUE,        "service_revenue_exempt": SERVICE_REVENUE,
@@ -445,8 +447,17 @@ def revenue_split(db: sqlite3.Connection, invoice_id: Optional[int],
             "SELECT amount, tax_total FROM invoices WHERE id = ?",
             (invoice_id,)).fetchone()
         if inv:
-            total = float(inv["amount"] or 0)
-            tax_total = float(inv["tax_total"] or 0)
+            # What a credit note took back is no longer for sale, so the
+            # basis is what the customer kept. Without this, paying the rest
+            # of an invoice whose taxed line was returned would still carve
+            # out VAT on it.
+            ret = db.execute(
+                "SELECT COALESCE(SUM(ri.net), 0) AS n, COALESCE(SUM(ri.tax_amount), 0) AS t "
+                "  FROM sales_return_items ri JOIN sales_returns r ON r.id = ri.return_id "
+                " WHERE r.invoice_id = ? AND r.voided_at IS NULL",
+                (invoice_id,)).fetchone()
+            total = float(inv["amount"] or 0) - float(ret["n"] or 0) - float(ret["t"] or 0)
+            tax_total = float(inv["tax_total"] or 0) - float(ret["t"] or 0)
             if total > 0 and tax_total > 0:
                 vat = money(amount * tax_total / total)
     except Exception:
@@ -464,7 +475,12 @@ def revenue_split(db: sqlite3.Connection, invoice_id: Optional[int],
             # `doc_discount` is the line's share of a discount on the whole
             # invoice --- part of the line's net like its own discount.
             "       SUM(COALESCE(quantity,0) * COALESCE(unit_price,0) "
-            "           - COALESCE(discount,0) - COALESCE(doc_discount,0)) AS net_gross "
+            "           - COALESCE(discount,0) - COALESCE(doc_discount,0) "
+            # ...less what credit notes took back off it.
+            "           - COALESCE((SELECT SUM(ri.net) FROM sales_return_items ri "
+            "                         JOIN sales_returns r ON r.id = ri.return_id "
+            "                        WHERE ri.invoice_item_id = invoice_items.id "
+            "                          AND r.voided_at IS NULL), 0)) AS net_gross "
             "FROM invoice_items WHERE invoice_id = ? GROUP BY 1, 2",
             (goods, invoice_id),
         ).fetchall()

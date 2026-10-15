@@ -108,6 +108,12 @@ def _auto_amounts(db, business_date, drawer_id, is_default):
         "  AND e.voided_at IS NULL AND e.archived_at IS NULL "
         "  AND (p.cash_drawer_id=? OR (p.cash_drawer_id IS NULL AND ?=1))",
         (business_date, drawer_id, flag),
+    ).fetchone()[0]) + float(db.execute(
+        # Cash handed back to a customer on a credit note.
+        "SELECT COALESCE(SUM(refunded), 0) FROM sales_returns "
+        "WHERE refund_method='Cash' AND return_date=? AND voided_at IS NULL "
+        "  AND (cash_drawer_id=? OR (cash_drawer_id IS NULL AND ?=1))",
+        (business_date, drawer_id, flag),
     ).fetchone()[0])
 
     return {

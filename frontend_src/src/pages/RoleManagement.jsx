@@ -53,6 +53,8 @@ const CORE_MODULES  = [
   'pos_price_override',
   // The Profit Summary tab under Reports: margin, salaries, net profit.
   'profit_report',
+  // Credit notes and debit notes, and the credit they leave behind.
+  'returns',
   // People
   'hr', 'hr_contracts', 'hr_activities', 'recruitment',
   // Client + internal comms
@@ -156,6 +158,7 @@ export default function RoleManagement() {
     foreign_purchases: t('roles.moduleForeignPurchases'),
     pos_price_override: t('roles.modulePosPriceOverride'),
     profit_report: t('roles.moduleProfitReport'),
+    returns: t('nav.returns'),
     service:       t('nav.service'),
     communications: t('nav.communications'),
     crm:           t('nav.crm'),

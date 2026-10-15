@@ -9,6 +9,7 @@ import { useModules } from '../hooks/useModules';
 import SearchSelect from '../components/SearchSelect.jsx';
 
 const Icons = {
+  returns:   <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><polyline points="9 14 4 9 9 4"/><path d="M20 20v-7a4 4 0 00-4-4H4"/></svg>,
   communications: <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M22 2 11 13"/><path d="M22 2 15 22l-4-9-9-4Z"/></svg>,
   dashboard: <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><rect x="3" y="3" width="7" height="7" rx="1"/><rect x="14" y="3" width="7" height="7" rx="1"/><rect x="3" y="14" width="7" height="7" rx="1"/><rect x="14" y="14" width="7" height="7" rx="1"/></svg>,
   clients:   <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M17 21v-2a4 4 0 00-4-4H5a4 4 0 00-4 4v2"/><circle cx="9" cy="7" r="4"/><path d="M23 21v-2a4 4 0 00-3-3.87"/><path d="M16 3.13a4 4 0 010 7.75"/></svg>,
@@ -61,6 +62,7 @@ const mainLinkDefs = [
   { to: '/quotations',    navKey: 'quotations',   icon: Icons.quotations,   module: 'quotations',   group: 'sales'      },
   { to: '/invoices',      navKey: 'invoices',     icon: Icons.invoices,     module: 'invoices',     group: 'sales'      },
   { to: '/pos',           navKey: 'pos',          icon: Icons.pos,          module: 'pos',          group: 'sales'      },
+  { to: '/returns',       navKey: 'returns',      icon: Icons.returns,      module: 'returns',      group: 'sales'      },
   { to: '/communications', navKey: 'communications', icon: Icons.communications, module: 'communications', group: 'sales'      },
 
   { to: '/projects',      navKey: 'projects',     icon: Icons.projects,     module: 'projects',     group: 'delivery'   },

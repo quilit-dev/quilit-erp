@@ -127,6 +127,7 @@ const NAV_ITEMS = [
   { slug: 'manufacturing',     url: '/manufacturing',     icon: '🏭', module: 'manufacturing', keywords: 'bom production mo factory build تصنيع' },
   { slug: 'service',           url: '/service',           icon: '🔧', module: 'service',       keywords: 'repair maintenance install job work order equipment صيانة تصليح' },
   { slug: 'purchases',         url: '/purchases',         icon: '🛒', module: 'purchases',     keywords: 'po procurement شراء' },
+  { slug: 'returns',           url: '/returns',           icon: '↩️', module: 'returns',       keywords: 'return refund credit note debit note مرتجع إشعار دائن' },
   { slug: 'suppliers',         url: '/suppliers',         icon: '🏭', module: 'suppliers',     keywords: 'vendors موردين' },
   { slug: 'expenses',          url: '/expenses',          icon: '💸', module: 'expenses',      keywords: 'spending costs recurring مصروف' },
   { slug: 'assets',            url: '/fixed-assets',      icon: '🏛️', module: 'assets',        keywords: 'depreciation capital equipment أصل' },

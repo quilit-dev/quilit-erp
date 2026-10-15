@@ -8,6 +8,7 @@ from utils import get_tax_context, money
 from datetime import date
 from typing import Optional
 import branch_access
+import returns
 import installments
 import costs
 import sqlite3
@@ -41,7 +42,7 @@ def report_financial(
 
     total_income = db.execute(
         """SELECT COALESCE(SUM(ip.amount), 0)
-           FROM invoice_payments ip
+           FROM """ + returns.CASH_RECEIPTS + """ ip
            JOIN invoices i ON ip.invoice_id = i.id
            WHERE DATE(ip.paid_at) BETWEEN ? AND ?
              AND i.voided_at IS NULL AND i.archived_at IS NULL""" + bf_i,
@@ -57,7 +58,7 @@ def report_financial(
 
     inc_rows = db.execute(
         """SELECT strftime('%Y-%m', ip.paid_at) AS m, COALESCE(SUM(ip.amount), 0) AS v
-           FROM invoice_payments ip
+           FROM """ + returns.CASH_RECEIPTS + """ ip
            JOIN invoices i ON ip.invoice_id = i.id
            WHERE DATE(ip.paid_at) BETWEEN ? AND ?
              AND i.voided_at IS NULL AND i.archived_at IS NULL""" + bf_i +
@@ -272,7 +273,7 @@ def report_clients(
         f"""SELECT i2.client_id AS cid,
                    COALESCE(i2.source_type, 'sales') AS src,
                    SUM(ip.amount) AS amount
-            FROM invoice_payments ip
+            FROM {returns.CASH_RECEIPTS} ip
             JOIN invoices i2 ON ip.invoice_id = i2.id
             WHERE i2.voided_at IS NULL AND i2.archived_at IS NULL
               AND DATE(ip.paid_at) BETWEEN ? AND ?{bf_i2}
@@ -621,7 +622,18 @@ def report_vat(
         gross, vat = round(gross or 0, 2), round(vat or 0, 2)
         return {"gross": gross, "vat": vat, "net": round(gross - vat, 2)}
 
-    out = split(out_row["gross"], out_row["vat"])
+    # Credit notes take output VAT back in the period they are issued, the
+    # way a tax authority expects them declared --- the invoice's own period
+    # stays as it was filed.
+    cn_row = db.execute(
+        """SELECT COALESCE(SUM(r.total),0) AS gross, COALESCE(SUM(r.tax_total),0) AS vat
+           FROM sales_returns r
+           WHERE r.voided_at IS NULL AND r.return_date BETWEEN ? AND ?"""
+        + bf_n.replace("branch_id", "r.branch_id"),
+        (start, end, *bp_n),
+    ).fetchone()
+    out = split((out_row["gross"] or 0) - (cn_row["gross"] or 0),
+                (out_row["vat"] or 0) - (cn_row["vat"] or 0))
     inp = split(inp_row["gross"], inp_row["vat"])
 
     # ── Per-rate breakdown ─────────────────────────────────────────────────
@@ -669,7 +681,27 @@ def report_vat(
             })
         return out
 
-    output_by_rate = _by_rate(out_by_rate)
+    cn_by_rate = db.execute(
+        """SELECT ii.tax_rate AS rate, COALESCE(SUM(ri.net), 0) AS base,
+                  COALESCE(SUM(ri.tax_amount), 0) AS vat
+           FROM sales_return_items ri
+           JOIN sales_returns r ON r.id = ri.return_id
+           LEFT JOIN invoice_items ii ON ii.id = ri.invoice_item_id
+           WHERE r.voided_at IS NULL AND r.return_date BETWEEN ? AND ?"""
+        + bf_n.replace("branch_id", "r.branch_id") +
+        " GROUP BY ii.tax_rate",
+        (start, end, *bp_n),
+    ).fetchall()
+    out_by_rate = [dict(r) for r in out_by_rate]
+    for c in cn_by_rate:
+        key = round(float(c["rate"] or 0), 4)
+        hit = next((r for r in out_by_rate if round(float(r["rate"] or 0), 4) == key), None)
+        if hit is None:
+            hit = {"rate": c["rate"], "base": 0.0, "vat": 0.0}
+            out_by_rate.append(hit)
+        hit["base"] = float(hit["base"] or 0) - float(c["base"] or 0)
+        hit["vat"] = float(hit["vat"] or 0) - float(c["vat"] or 0)
+    output_by_rate = _by_rate(sorted(out_by_rate, key=lambda r: float(r["rate"] or 0)))
     input_by_rate  = _by_rate(inp_by_rate)
 
     # ── Monthly timeline ───────────────────────────────────────────────────
@@ -695,6 +727,16 @@ def report_vat(
         (start, end, *bp_n),
     ).fetchall()
     inc_map = {r["m"]: {"v": r["v"], "b": r["b"]} for r in inc_rows}
+    for r in db.execute(
+        """SELECT substr(r.return_date, 1, 7) AS m, COALESCE(SUM(r.tax_total),0) AS v,
+                  COALESCE(SUM(r.subtotal),0) AS b
+           FROM sales_returns r
+           WHERE r.voided_at IS NULL AND r.return_date BETWEEN ? AND ?"""
+        + bf_n.replace("branch_id", "r.branch_id") + " GROUP BY substr(r.return_date, 1, 7)",
+        (start, end, *bp_n)).fetchall():
+        cur = inc_map.setdefault(r["m"], {"v": 0, "b": 0})
+        inc_map[r["m"]] = {"v": float(cur["v"] or 0) - float(r["v"] or 0),
+                           "b": float(cur["b"] or 0) - float(r["b"] or 0)}
     exp_map = {r["m"]: {"v": r["v"], "b": r["b"]} for r in exp_rows}
     monthly = []
     empty = {"v": 0, "b": 0}
@@ -826,7 +868,7 @@ def report_branch_comparison(
 
     income_map = {r["bid"]: float(r["v"] or 0) for r in db.execute(
         """SELECT i.branch_id AS bid, COALESCE(SUM(ip.amount), 0) AS v
-           FROM invoice_payments ip JOIN invoices i ON ip.invoice_id = i.id
+           FROM """ + returns.CASH_RECEIPTS + """ ip JOIN invoices i ON ip.invoice_id = i.id
            WHERE DATE(ip.paid_at) BETWEEN ? AND ?
              AND i.voided_at IS NULL AND i.archived_at IS NULL
            GROUP BY i.branch_id""",
@@ -1061,7 +1103,9 @@ def report_service_jobs(
 # also merchandise purchases (6011), where a hand-typed "Materials" expense
 # lands; that is an expense, not cost of goods sold, and stays in Expenses.
 _COGS_SOURCES = ("pos_cogs", "service_cogs", "commitment_cogs",
-                 "purchase_cost_adjustment")
+                 "purchase_cost_adjustment",
+                 # a credit note putting goods back takes their cost back out
+                 "sales_return")
 
 
 def _period_key(day: str, group: str):
@@ -1156,6 +1200,20 @@ def report_profit_summary(
         if unpaid > 0.005 and gross > 0:
             p["uncollected"] += unpaid * net / gross
 
+    # Returns come off sales in the period they are made, under the kind of
+    # sale they reverse. The count stays: the sale still happened.
+    for r in db.execute(
+            "SELECT r.return_date, r.subtotal, i.source_type, i.service_job_id "
+            "  FROM sales_returns r JOIN invoices i ON i.id = r.invoice_id "
+            " WHERE r.voided_at IS NULL AND r.return_date BETWEEN ? AND ?" + bf,
+            (start, end, *bp)).fetchall():
+        p = periods.get(_period_key(r["return_date"], group)[0])
+        if p is None:
+            continue
+        kind = ("service" if r["service_job_id"] else
+                "pos" if (r["source_type"] or "") == "pos" else "invoice")
+        p[kind + "_sales"] -= float(r["subtotal"] or 0)
+
     # ── Cost, expenses, salaries: from the ledger ─────────────────────────
     cogs_code = accounting.code(db, "cogs")
     sal_code = accounting.code(db, "salaries")
@@ -1204,6 +1262,13 @@ def report_profit_summary(
             value = float(r["subtotal"] or 0) + float(r["additional_costs"] or 0)
             p["purchases_count"] += 1
             p["purchases"] += value
+        for r in db.execute(
+                "SELECT return_date, subtotal FROM purchase_returns "
+                " WHERE voided_at IS NULL AND return_date BETWEEN ? AND ?",
+                (start, end)).fetchall():
+            p = periods.get(_period_key(r["return_date"], group)[0])
+            if p is not None:
+                p["purchases"] -= float(r["subtotal"] or 0)
 
     def _finish(p):
         p["sales_count"] = p["pos_count"] + p["invoice_count"] + p["service_count"]

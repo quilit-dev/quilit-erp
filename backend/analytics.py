@@ -73,6 +73,7 @@ def for_tenant(slug: str) -> dict:
                        COUNT(*) AS payments
                 FROM invoice_payments
                 WHERE paid_at IS NOT NULL
+                  AND COALESCE(method, '') NOT IN ('Credit note', 'Customer credit')
                 GROUP BY month ORDER BY month DESC LIMIT %s
             """, (_MONTHLY_MONTHS,))
 

@@ -32,6 +32,7 @@ import costs
 import lots
 import accounting
 import sale_reversal
+import returns
 import denomination
 import installments
 import commitments
@@ -1445,6 +1446,11 @@ def return_sale(
         raise HTTPException(404, "Linked invoice not found")
     if inv["voided_at"]:
         raise HTTPException(400, "The linked invoice is already voided.")
+    # Part of it already came back on a credit note. A full return now would
+    # refund and restock those lines a second time.
+    if returns.live_sales_returns(db, inv["id"]):
+        raise HTTPException(409, "Part of this sale was already returned on a credit "
+                                 "note. Return the rest from the Returns screen.")
     # A filtered list proves nothing on its own: every by-id endpoint has to
     # carry the branch guard itself, or knowing an id is enough for a manager
     # at one branch to refund a sale rung at another — moving that branch's
@@ -1595,6 +1601,10 @@ def amend_sale(
         raise HTTPException(
             400, "This sale was returned. The goods are back and the money has "
                  "been refunded — ring a new sale rather than correcting this one.")
+    if returns.live_sales_returns(db, sale["invoice_id"]):
+        raise HTTPException(
+            409, "Part of this sale was returned on a credit note, so it can no "
+                 "longer be corrected in place.")
     if sale["status"] == "amended":
         raise HTTPException(
             400, "This sale has already been corrected. Edit the corrected sale "

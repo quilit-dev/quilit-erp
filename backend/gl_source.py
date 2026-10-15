@@ -61,6 +61,9 @@ SOURCES: dict[str, _Doc] = {
     # same way a payment's document is the invoice it settles.
     "purchase_payment": _Doc("purchase_payments", None, "/purchases",
                              via="purchase_id"),
+    # Returns are their own numbered documents.
+    "sales_return":     _Doc("sales_returns", "return_number", "/returns/sales"),
+    "purchase_return":  _Doc("purchase_returns", "return_number", "/returns/purchases"),
     # POS sales and service jobs are invoices by the time they reach the GL.
     "pos_cogs":         _Doc("invoices", "invoice_number", "/invoices"),
     "service_cogs":     _Doc("service_jobs", "job_number", "/service"),
@@ -153,6 +156,8 @@ def postings_for(db: sqlite3.Connection, document: str,
         try:
             pairs += [("invoice_payment", r["id"]) for r in db.execute(
                 "SELECT id FROM invoice_payments WHERE invoice_id=?", (doc_id,))]
+            pairs += [("sales_return", r["id"]) for r in db.execute(
+                "SELECT id FROM sales_returns WHERE invoice_id=?", (doc_id,))]
         except sqlite3.Error:
             pass
         return pairs
@@ -171,6 +176,8 @@ def postings_for(db: sqlite3.Connection, document: str,
         try:
             pairs += [("purchase_payment", r["id"]) for r in db.execute(
                 "SELECT id FROM purchase_payments WHERE purchase_id=?", (doc_id,))]
+            pairs += [("purchase_return", r["id"]) for r in db.execute(
+                "SELECT id FROM purchase_returns WHERE purchase_id=?", (doc_id,))]
         except sqlite3.Error:
             # The table predates nothing that matters here: an install mid
             # upgrade simply has no payments to show.

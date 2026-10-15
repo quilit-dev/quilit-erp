@@ -4642,6 +4642,155 @@ def _run_migrations(conn, c):
     add_col("187c_employee_rota_anchor", "hr_employees", "saturday_rota_anchor",
             "ALTER TABLE hr_employees ADD COLUMN saturday_rota_anchor TEXT")
 
+    # ── 195: returns --- credit notes to customers, debit notes to suppliers ─
+    # A return is its own numbered document against the invoice or purchase it
+    # reverses, line by line and for part of a quantity. The part that cancels
+    # what is still owed is applied to the document as a non-cash settlement
+    # row (method 'Credit note' / 'Debit note'), so every balance, status and
+    # statement already reads it; the rest is refunded or held as credit for
+    # the customer or supplier. See returns.py for the accounting.
+    if need("195a_returns_tables"):
+        for _stmt in """
+            CREATE TABLE IF NOT EXISTS sales_returns (
+                id                 INTEGER PRIMARY KEY AUTOINCREMENT,
+                return_number      TEXT,
+                invoice_id         INTEGER NOT NULL,
+                client_id          INTEGER,
+                branch_id          INTEGER,
+                return_date        TEXT    NOT NULL,
+                reason             TEXT,
+                subtotal           REAL    NOT NULL DEFAULT 0,
+                tax_total          REAL    NOT NULL DEFAULT 0,
+                total              REAL    NOT NULL DEFAULT 0,
+                applied_to_invoice REAL    NOT NULL DEFAULT 0,
+                refunded           REAL    NOT NULL DEFAULT 0,
+                credited           REAL    NOT NULL DEFAULT 0,
+                refund_method      TEXT,
+                bank_account_id    INTEGER,
+                cash_drawer_id     INTEGER,
+                invoice_payment_id INTEGER,
+                restock_value      REAL    NOT NULL DEFAULT 0,
+                writeoff_value     REAL    NOT NULL DEFAULT 0,
+                created_by         INTEGER,
+                created_at         TEXT    NOT NULL,
+                voided_at          TEXT,
+                void_reason        TEXT)
+            ;;
+            CREATE TABLE IF NOT EXISTS sales_return_items (
+                id              INTEGER PRIMARY KEY AUTOINCREMENT,
+                return_id       INTEGER NOT NULL,
+                invoice_item_id INTEGER,
+                inventory_id    INTEGER,
+                name            TEXT    NOT NULL,
+                unit            TEXT,
+                quantity        REAL    NOT NULL,
+                unit_net        REAL    NOT NULL DEFAULT 0,
+                net             REAL    NOT NULL DEFAULT 0,
+                tax_amount      REAL    NOT NULL DEFAULT 0,
+                condition       TEXT    NOT NULL DEFAULT 'none',
+                stock_quantity  REAL    NOT NULL DEFAULT 0,
+                unit_cost       REAL    NOT NULL DEFAULT 0)
+            ;;
+            CREATE TABLE IF NOT EXISTS purchase_returns (
+                id                  INTEGER PRIMARY KEY AUTOINCREMENT,
+                return_number       TEXT,
+                purchase_id         INTEGER NOT NULL,
+                supplier            TEXT,
+                supplier_id         INTEGER,
+                warehouse_id        INTEGER,
+                return_date         TEXT    NOT NULL,
+                reason              TEXT,
+                subtotal            REAL    NOT NULL DEFAULT 0,
+                tax_total           REAL    NOT NULL DEFAULT 0,
+                total               REAL    NOT NULL DEFAULT 0,
+                applied_to_purchase REAL    NOT NULL DEFAULT 0,
+                refunded            REAL    NOT NULL DEFAULT 0,
+                credited            REAL    NOT NULL DEFAULT 0,
+                refund_method       TEXT,
+                bank_account_id     INTEGER,
+                purchase_payment_id INTEGER,
+                inventory_value     REAL    NOT NULL DEFAULT 0,
+                unrecovered_cost    REAL    NOT NULL DEFAULT 0,
+                created_by          INTEGER,
+                created_at          TEXT    NOT NULL,
+                voided_at           TEXT,
+                void_reason         TEXT)
+            ;;
+            CREATE TABLE IF NOT EXISTS purchase_return_items (
+                id               INTEGER PRIMARY KEY AUTOINCREMENT,
+                return_id        INTEGER NOT NULL,
+                purchase_item_id INTEGER,
+                inventory_id     INTEGER,
+                name             TEXT    NOT NULL,
+                quantity         REAL    NOT NULL,
+                unit_price       REAL    NOT NULL DEFAULT 0,
+                net              REAL    NOT NULL DEFAULT 0,
+                tax_amount       REAL    NOT NULL DEFAULT 0,
+                landed_unit_cost REAL    NOT NULL DEFAULT 0)
+            ;;
+            CREATE TABLE IF NOT EXISTS customer_credits (
+                id          INTEGER PRIMARY KEY AUTOINCREMENT,
+                client_id   INTEGER NOT NULL,
+                amount      REAL    NOT NULL,
+                source_type TEXT    NOT NULL,
+                source_id   INTEGER,
+                note        TEXT,
+                created_by  INTEGER,
+                created_at  TEXT    NOT NULL)
+            ;;
+            CREATE TABLE IF NOT EXISTS supplier_credits (
+                id          INTEGER PRIMARY KEY AUTOINCREMENT,
+                supplier    TEXT    NOT NULL,
+                supplier_id INTEGER,
+                amount      REAL    NOT NULL,
+                source_type TEXT    NOT NULL,
+                source_id   INTEGER,
+                note        TEXT,
+                created_by  INTEGER,
+                created_at  TEXT    NOT NULL)
+            ;;
+            CREATE INDEX IF NOT EXISTS idx_sales_returns_invoice ON sales_returns(invoice_id)
+            ;;
+            CREATE INDEX IF NOT EXISTS idx_sales_return_items_return ON sales_return_items(return_id)
+            ;;
+            CREATE INDEX IF NOT EXISTS idx_purchase_returns_purchase ON purchase_returns(purchase_id)
+            ;;
+            CREATE INDEX IF NOT EXISTS idx_purchase_return_items_return ON purchase_return_items(return_id)
+            ;;
+            CREATE INDEX IF NOT EXISTS idx_customer_credits_client ON customer_credits(client_id)
+            ;;
+            CREATE INDEX IF NOT EXISTS idx_supplier_credits_supplier ON supplier_credits(supplier_id)
+""".split(";;"):
+            if _stmt.strip():
+                c.execute(_stmt)
+        done("195a_returns_tables")
+    if need("195b_returns_accounts"):
+        # Customer credit held for them, and goods written off as damaged. The
+        # Lebanese chart points these roles at its own accounts (4191, 661);
+        # these default-chart rows are retired there by reconcile_active.
+        _ts = datetime.utcnow().strftime("%Y-%m-%d %H:%M:%S")
+        for _code, _name, _type, _sub, _nb in (
+                ("2410", "Customer Credit Balances", "Liability", "Current Liability", "credit"),
+                ("6940", "Inventory Write-offs", "Expense", "Other Expense", "debit")):
+            c.execute(
+                "INSERT OR IGNORE INTO chart_of_accounts "
+                "(code, name, type, subtype, normal_balance, is_system, is_active, created_at) "
+                "VALUES (?,?,?,?,?,1,1,?)", (_code, _name, _type, _sub, _nb, _ts))
+        for _role, _code in (("customer_credit", "2410"), ("stock_loss", "6940")):
+            c.execute("INSERT OR IGNORE INTO account_roles (role, code) VALUES (?,?)",
+                      (_role, _code))
+        done("195b_returns_accounts")
+    if need("195c_returns_permission"):
+        # Whoever handles invoices handles their returns, until the role
+        # editor says otherwise. Marker-guarded: unticking it sticks.
+        c.execute(
+            "INSERT INTO role_permissions "
+            "(role_id, module, can_view, can_create, can_edit, can_delete, can_approve) "
+            "SELECT role_id, 'returns', can_view, can_create, can_edit, can_delete, can_approve "
+            "  FROM role_permissions WHERE module = 'invoices' "
+            "ON CONFLICT(role_id, module) DO NOTHING")
+        done("195c_returns_permission")
+
     # ── 194: expenses that are owed, and paid off over time ──────────────
     # An expense was always money already gone: recording it credited cash or
     # the bank. A debt, a bill on credit or one paid in instalments had nowhere
@@ -6119,6 +6268,141 @@ def _ensure_pg_post_baseline(raw):
                     "saturday_rota TEXT")
         cur.execute("ALTER TABLE hr_employees ADD COLUMN IF NOT EXISTS "
                     "saturday_rota_anchor TEXT")
+        # 195: returns --- credit notes, debit notes, customer/supplier credit.
+        for _stmt in """
+            CREATE TABLE IF NOT EXISTS sales_returns (
+                id                 INTEGER GENERATED BY DEFAULT AS IDENTITY PRIMARY KEY,
+                return_number      TEXT,
+                invoice_id         INTEGER NOT NULL,
+                client_id          INTEGER,
+                branch_id          INTEGER,
+                return_date        TEXT    NOT NULL,
+                reason             TEXT,
+                subtotal           DOUBLE PRECISION NOT NULL DEFAULT 0,
+                tax_total          DOUBLE PRECISION NOT NULL DEFAULT 0,
+                total              DOUBLE PRECISION NOT NULL DEFAULT 0,
+                applied_to_invoice DOUBLE PRECISION NOT NULL DEFAULT 0,
+                refunded           DOUBLE PRECISION NOT NULL DEFAULT 0,
+                credited           DOUBLE PRECISION NOT NULL DEFAULT 0,
+                refund_method      TEXT,
+                bank_account_id    INTEGER,
+                cash_drawer_id     INTEGER,
+                invoice_payment_id INTEGER,
+                restock_value      DOUBLE PRECISION NOT NULL DEFAULT 0,
+                writeoff_value     DOUBLE PRECISION NOT NULL DEFAULT 0,
+                created_by         INTEGER,
+                created_at         TEXT    NOT NULL,
+                voided_at          TEXT,
+                void_reason        TEXT)
+            ;;
+            CREATE TABLE IF NOT EXISTS sales_return_items (
+                id              INTEGER GENERATED BY DEFAULT AS IDENTITY PRIMARY KEY,
+                return_id       INTEGER NOT NULL,
+                invoice_item_id INTEGER,
+                inventory_id    INTEGER,
+                name            TEXT    NOT NULL,
+                unit            TEXT,
+                quantity        DOUBLE PRECISION NOT NULL,
+                unit_net        DOUBLE PRECISION NOT NULL DEFAULT 0,
+                net             DOUBLE PRECISION NOT NULL DEFAULT 0,
+                tax_amount      DOUBLE PRECISION NOT NULL DEFAULT 0,
+                condition       TEXT    NOT NULL DEFAULT 'none',
+                stock_quantity  DOUBLE PRECISION NOT NULL DEFAULT 0,
+                unit_cost       DOUBLE PRECISION NOT NULL DEFAULT 0)
+            ;;
+            CREATE TABLE IF NOT EXISTS purchase_returns (
+                id                  INTEGER GENERATED BY DEFAULT AS IDENTITY PRIMARY KEY,
+                return_number       TEXT,
+                purchase_id         INTEGER NOT NULL,
+                supplier            TEXT,
+                supplier_id         INTEGER,
+                warehouse_id        INTEGER,
+                return_date         TEXT    NOT NULL,
+                reason              TEXT,
+                subtotal            DOUBLE PRECISION NOT NULL DEFAULT 0,
+                tax_total           DOUBLE PRECISION NOT NULL DEFAULT 0,
+                total               DOUBLE PRECISION NOT NULL DEFAULT 0,
+                applied_to_purchase DOUBLE PRECISION NOT NULL DEFAULT 0,
+                refunded            DOUBLE PRECISION NOT NULL DEFAULT 0,
+                credited            DOUBLE PRECISION NOT NULL DEFAULT 0,
+                refund_method       TEXT,
+                bank_account_id     INTEGER,
+                purchase_payment_id INTEGER,
+                inventory_value     DOUBLE PRECISION NOT NULL DEFAULT 0,
+                unrecovered_cost    DOUBLE PRECISION NOT NULL DEFAULT 0,
+                created_by          INTEGER,
+                created_at          TEXT    NOT NULL,
+                voided_at           TEXT,
+                void_reason         TEXT)
+            ;;
+            CREATE TABLE IF NOT EXISTS purchase_return_items (
+                id               INTEGER GENERATED BY DEFAULT AS IDENTITY PRIMARY KEY,
+                return_id        INTEGER NOT NULL,
+                purchase_item_id INTEGER,
+                inventory_id     INTEGER,
+                name             TEXT    NOT NULL,
+                quantity         DOUBLE PRECISION NOT NULL,
+                unit_price       DOUBLE PRECISION NOT NULL DEFAULT 0,
+                net              DOUBLE PRECISION NOT NULL DEFAULT 0,
+                tax_amount       DOUBLE PRECISION NOT NULL DEFAULT 0,
+                landed_unit_cost DOUBLE PRECISION NOT NULL DEFAULT 0)
+            ;;
+            CREATE TABLE IF NOT EXISTS customer_credits (
+                id          INTEGER GENERATED BY DEFAULT AS IDENTITY PRIMARY KEY,
+                client_id   INTEGER NOT NULL,
+                amount      DOUBLE PRECISION NOT NULL,
+                source_type TEXT    NOT NULL,
+                source_id   INTEGER,
+                note        TEXT,
+                created_by  INTEGER,
+                created_at  TEXT    NOT NULL)
+            ;;
+            CREATE TABLE IF NOT EXISTS supplier_credits (
+                id          INTEGER GENERATED BY DEFAULT AS IDENTITY PRIMARY KEY,
+                supplier    TEXT    NOT NULL,
+                supplier_id INTEGER,
+                amount      DOUBLE PRECISION NOT NULL,
+                source_type TEXT    NOT NULL,
+                source_id   INTEGER,
+                note        TEXT,
+                created_by  INTEGER,
+                created_at  TEXT    NOT NULL)
+            ;;
+            CREATE INDEX IF NOT EXISTS idx_sales_returns_invoice ON sales_returns(invoice_id)
+            ;;
+            CREATE INDEX IF NOT EXISTS idx_sales_return_items_return ON sales_return_items(return_id)
+            ;;
+            CREATE INDEX IF NOT EXISTS idx_purchase_returns_purchase ON purchase_returns(purchase_id)
+            ;;
+            CREATE INDEX IF NOT EXISTS idx_purchase_return_items_return ON purchase_return_items(return_id)
+            ;;
+            CREATE INDEX IF NOT EXISTS idx_customer_credits_client ON customer_credits(client_id)
+            ;;
+            CREATE INDEX IF NOT EXISTS idx_supplier_credits_supplier ON supplier_credits(supplier_id)
+""".split(";;"):
+            if _stmt.strip():
+                cur.execute(_stmt)
+        for _code, _name, _type, _sub, _nb in (
+                ("2410", "Customer Credit Balances", "Liability", "Current Liability", "credit"),
+                ("6940", "Inventory Write-offs", "Expense", "Other Expense", "debit")):
+            cur.execute(
+                "INSERT INTO chart_of_accounts "
+                "(code, name, type, subtype, normal_balance, is_system, is_active, created_at) "
+                "VALUES (%s,%s,%s,%s,%s,1,1,now()::text) ON CONFLICT (code) DO NOTHING",
+                (_code, _name, _type, _sub, _nb))
+        for _r, _c in (("customer_credit", "2410"), ("stock_loss", "6940")):
+            cur.execute("INSERT INTO account_roles (role, code, updated_at) "
+                        "VALUES (%s,%s,now()::text) ON CONFLICT (role) DO NOTHING", (_r, _c))
+        cur.execute("SELECT 1 FROM schema_migrations WHERE name='195c_returns_permission'")
+        if not cur.fetchone():
+            cur.execute(
+                "INSERT INTO role_permissions "
+                "(role_id, module, can_view, can_create, can_edit, can_delete, can_approve) "
+                "SELECT role_id, 'returns', can_view, can_create, can_edit, can_delete, can_approve "
+                "  FROM role_permissions WHERE module = 'invoices' "
+                "ON CONFLICT (role_id, module) DO NOTHING")
+            cur.execute("INSERT INTO schema_migrations (name, applied_at) "
+                        "VALUES ('195c_returns_permission', now()::text)")
         # 194: expenses owed and paid off over time.
         cur.execute("ALTER TABLE expenses ADD COLUMN IF NOT EXISTS "
                     "on_credit INTEGER NOT NULL DEFAULT 0")
@@ -6621,6 +6905,10 @@ _DEFAULT_ACCOUNT_ROLES = [
     ("vat_input",         "2100"),
     ("vat_output",        "2100"),
     ("deferred_revenue",  "2400"),
+    # Customer credit held for them (a return kept as credit), and damaged
+    # returned goods written off.
+    ("customer_credit",   "2410"),
+    ("stock_loss",        "6940"),
     ("retained_earnings", "3900"),
     ("revenue",           "4000"),
     ("service_revenue",   "4100"),
@@ -6860,6 +7148,14 @@ def _seed_roles_and_admin(c):
     # 186b says the same for an existing install): every other role rings
     # the list price until somebody decides otherwise in the role editor.
     _set_perm('Business Owner', 'pos_price_override', *_V)
+
+    # Returns: whoever handles invoices (migration 195c says the same).
+    c.execute(
+        "INSERT INTO role_permissions "
+        "(role_id, module, can_view, can_create, can_edit, can_delete, can_approve) "
+        "SELECT role_id, 'returns', can_view, can_create, can_edit, can_delete, can_approve "
+        "  FROM role_permissions WHERE module = 'invoices' "
+        "ON CONFLICT(role_id, module) DO NOTHING")
 
     # The Profit Summary: the owner, and whoever can open Accounting (the
     # same rule migration 191 applies to an existing install).

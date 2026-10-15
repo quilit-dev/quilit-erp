@@ -8,7 +8,7 @@ import { SendDocumentButton } from '../../components/SendDocument';
 
 // ── Per-row action dropdown ───────────────────────────────────────────────
 function ActionMenu({ inv, exporting, onEdit, onPay, onExport, onReceipt,
-                      onVoid, onUnvoid, onArchive, onRestore }) {
+                      onVoid, onUnvoid, onArchive, onRestore, onReturn }) {
   const { t, lang } = useLocale();
   const [open, setOpen] = useState(false);
   const [dropUp, setDropUp] = useState(false);
@@ -146,6 +146,18 @@ function ActionMenu({ inv, exporting, onEdit, onPay, onExport, onReceipt,
                 covers both channels and shows what will actually be sent, so
                 duplicating them in this menu gave the same row three ways to
                 send one document. */}
+
+            {/* A credit note for goods the customer brings back. Hidden for a
+                user without the returns permission (no handler is passed). */}
+            {onReturn && !isVoided && (
+              <button
+                onClick={() => { setOpen(false); onReturn(); }}
+                style={menuItemStyle}
+              >
+                <Icon name="rotate-ccw" size={14} />
+                <span>{t('returns.returnItems')}</span>
+              </button>
+            )}
 
             <div style={{ height: 1, background: 'var(--border)', margin: '4px 0' }} />
 
