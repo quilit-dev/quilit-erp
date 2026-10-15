@@ -42,7 +42,7 @@ export const ADDED = [
 ];
 export const FIXED = [
   'fixDueDate', 'fixBankPayment', 'fixExcelExport', 'fixVatExempt',
-  'fixFingerprint', 'fixItemNames', 'fixPipeline', 'fixLetterhead',
+  'fixItemNames', 'fixPipeline', 'fixLetterhead',
 ];
 export const ITEMS = [...ADDED, ...FIXED];
 

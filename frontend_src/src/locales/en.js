@@ -1063,8 +1063,6 @@ const en = {
     fixExcelExportBody: 'Exports correctly again, and now includes each invoice’s notes.',
     fixVatExempt: 'Sales without VAT',
     fixVatExemptBody: 'Now post to “not subject to VAT” revenue instead of VAT-able sales.',
-    fixFingerprint: 'Fingerprint attendance',
-    fixFingerprintBody: 'Punches reach the system on time, and In / Out times are recorded correctly.',
     fixItemNames: 'Item names in the picker',
     fixItemNamesBody: 'Long item names now show in full when adding lines to invoices and quotations.',
     fixPipeline: 'Sales pipeline',
