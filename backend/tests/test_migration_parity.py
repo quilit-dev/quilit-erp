@@ -151,6 +151,11 @@ _REQUIRED = [
     ("quotations", "txn_discount_total"),
     ("invoice_items", "doc_discount"),
     ("quotation_items", "doc_discount"),
+    # An invoice that takes its goods out of stock.
+    ("invoices", "stock_deducted_at"),
+    ("invoices", "stock_warehouse_id"),
+    ("invoice_items", "stock_quantity"),
+    ("invoice_items", "stock_unit_cost"),
     # What a line's quantity counts.
     ("invoice_items", "unit"),
     ("quotation_items", "unit"),

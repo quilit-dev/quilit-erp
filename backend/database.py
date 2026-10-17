@@ -4642,6 +4642,21 @@ def _run_migrations(conn, c):
     add_col("187c_employee_rota_anchor", "hr_employees", "saturday_rota_anchor",
             "ALTER TABLE hr_employees ADD COLUMN saturday_rota_anchor TEXT")
 
+    # ── 196: an invoice that takes its goods out of stock ────────────────
+    # Off by default: an ordinary invoice bills, and stock is moved by the
+    # till, deliveries or adjustments. When an invoice is set to take its
+    # stock lines out, the header records when and from where, and each line
+    # how much left and at what cost --- the cost a void or a credit note puts
+    # them back at.
+    add_col("196a_invoices_stock_deducted_at", "invoices", "stock_deducted_at",
+            "ALTER TABLE invoices ADD COLUMN stock_deducted_at TEXT")
+    add_col("196b_invoices_stock_warehouse_id", "invoices", "stock_warehouse_id",
+            "ALTER TABLE invoices ADD COLUMN stock_warehouse_id INTEGER")
+    add_col("196c_invoice_items_stock_quantity", "invoice_items", "stock_quantity",
+            "ALTER TABLE invoice_items ADD COLUMN stock_quantity REAL NOT NULL DEFAULT 0")
+    add_col("196d_invoice_items_stock_unit_cost", "invoice_items", "stock_unit_cost",
+            "ALTER TABLE invoice_items ADD COLUMN stock_unit_cost REAL NOT NULL DEFAULT 0")
+
     # ── 195: returns --- credit notes to customers, debit notes to suppliers ─
     # A return is its own numbered document against the invoice or purchase it
     # reverses, line by line and for part of a quantity. The part that cancels
@@ -6278,6 +6293,11 @@ def _ensure_pg_post_baseline(raw):
                     "saturday_rota TEXT")
         cur.execute("ALTER TABLE hr_employees ADD COLUMN IF NOT EXISTS "
                     "saturday_rota_anchor TEXT")
+        # 196: an invoice that takes its goods out of stock.
+        cur.execute("ALTER TABLE invoices ADD COLUMN IF NOT EXISTS stock_deducted_at TEXT")
+        cur.execute("ALTER TABLE invoices ADD COLUMN IF NOT EXISTS stock_warehouse_id INTEGER")
+        cur.execute("ALTER TABLE invoice_items ADD COLUMN IF NOT EXISTS stock_quantity DOUBLE PRECISION NOT NULL DEFAULT 0")
+        cur.execute("ALTER TABLE invoice_items ADD COLUMN IF NOT EXISTS stock_unit_cost DOUBLE PRECISION NOT NULL DEFAULT 0")
         # 195: returns --- credit notes, debit notes, customer/supplier credit.
         for _stmt in """
             CREATE TABLE IF NOT EXISTS sales_returns (

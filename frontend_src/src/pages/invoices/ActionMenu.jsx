@@ -8,7 +8,7 @@ import { SendDocumentButton } from '../../components/SendDocument';
 
 // ── Per-row action dropdown ───────────────────────────────────────────────
 function ActionMenu({ inv, exporting, onEdit, onPay, onExport, onReceipt,
-                      onVoid, onUnvoid, onArchive, onRestore, onReturn }) {
+                      onVoid, onUnvoid, onArchive, onRestore, onReturn, onStock }) {
   const { t, lang } = useLocale();
   const [open, setOpen] = useState(false);
   const [dropUp, setDropUp] = useState(false);
@@ -158,6 +158,18 @@ function ActionMenu({ inv, exporting, onEdit, onPay, onExport, onReceipt,
                 covers both channels and shows what will actually be sent, so
                 duplicating them in this menu gave the same row three ways to
                 send one document. */}
+
+            {/* Take this invoice's stock lines out of stock, or put them back.
+                Not for a till sale or a service job, whose goods already moved. */}
+            {onStock && !isVoided && inv.source_type !== 'pos' && !inv.service_job_id && (
+              <button
+                onClick={() => { setOpen(false); onStock(); }}
+                style={menuItemStyle}
+              >
+                <Icon name="archive" size={14} />
+                <span>{inv.stock_deducted_at ? t('invoices.stockPutBackAction') : t('invoices.stockTakeOutAction')}</span>
+              </button>
+            )}
 
             {/* A credit note for goods the customer brings back. Hidden for a
                 user without the returns permission (no handler is passed). */}

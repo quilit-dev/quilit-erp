@@ -192,6 +192,9 @@ export const deletePaymentPlan = (id)    => api.delete(`/api/invoices/${id}/plan
 
 export const addInvoicePayment    = (id, d)       => api.post(`/api/invoices/${id}/payments`, d);
 export const deleteInvoicePayment = (invId, payId) => api.delete(`/api/invoices/${invId}/payments/${payId}`);
+// An invoice that takes its stock lines out of stock, and the undo.
+export const takeInvoiceStock    = (id) => api.post(`/api/invoices/${id}/stock`);
+export const putBackInvoiceStock = (id) => api.delete(`/api/invoices/${id}/stock`);
 
 // Inventory
 export const getInventory           = (params = {}, s) => api.get(`/api/inventory/${_qs(params)}`, s);

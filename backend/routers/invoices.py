@@ -31,6 +31,7 @@ import line_items
 import installments
 import doc_discount
 import returns
+import invoice_stock
 import sqlite3
 import uuid
 from datetime import datetime, timedelta
@@ -126,6 +127,9 @@ class InvoiceCreate(BaseModel):
     # (in the invoice's own currency). Taken off before VAT --- doc_discount.py.
     discount_type:  Optional[str]   = None
     discount_value: Optional[float] = None
+    # Take the lines that name a stock item out of stock, as the till does.
+    # None on an edit means "leave it as it is"; see invoice_stock.py.
+    deduct_stock:   Optional[bool]  = None
 
 class PaymentCreate(BaseModel):
     amount:           float                   # value tendered, expressed in `currency`
@@ -793,12 +797,23 @@ def create_invoice(
         currency=data.currency, exchange_rate=data.exchange_rate,
         discount_type=data.discount_type, discount_value=data.discount_value,
     )
+    # All or nothing: an invoice asked to take its goods and short of them is
+    # not created at all, rather than created without the stock it promised.
+    stock = None
+    if data.deduct_stock and not res["pending_approval"]:
+        try:
+            stock = invoice_stock.deduct(db, user, res["invoice_id"])
+        except invoice_stock.StockError as e:
+            db.rollback()
+            raise HTTPException(400, str(e))
     log_action(db, user, "create", "invoice", res["invoice_id"],
-               res["invoice_number"], {"amount": res["amount"]})
+               res["invoice_number"], {"amount": res["amount"],
+                                       **({"stock_cost": stock["cost"]} if stock else {})})
     db.commit()
     return {
         "id": res["invoice_id"], "invoice_number": res["invoice_number"],
         "pending_approval": res["pending_approval"],
+        "stock": stock,
         "message": ("Invoice pending approval" if res["pending_approval"]
                     else "Invoice created"),
     }
@@ -834,6 +849,11 @@ def update_invoice(
         )
 
     has_payments = _has_payments(db, invoice_id)
+    stock_was = invoice_stock.is_deducted(inv)
+    stock_want = stock_was if data.deduct_stock is None else bool(data.deduct_stock)
+    if stock_was and not stock_want and returns.live_sales_returns(db, invoice_id):
+        raise HTTPException(409, "A credit note has returned goods from this invoice. "
+                                 "Void it before putting the rest back in stock.")
 
     # A credit note names this invoice's lines and its customer. Changing
     # either underneath it would leave the note returning goods that are no
@@ -860,6 +880,15 @@ def update_invoice(
         ).rowcount
         if rows_updated == 0:
             raise HTTPException(409, "This invoice was modified by another user. Please refresh and try again.")
+        # The lines cannot change here, so the stock only moves if the switch did.
+        try:
+            if stock_was and not stock_want:
+                invoice_stock.restore(db, user, invoice_id, note="Taken off the invoice")
+            elif stock_want and not stock_was:
+                invoice_stock.deduct(db, user, invoice_id)
+        except invoice_stock.StockError as e:
+            db.rollback()
+            raise HTTPException(400, str(e))
         log_action(db, user, "update", "invoice", invoice_id,
                    inv["invoice_number"], {"note": "metadata only — amounts locked"})
     else:
@@ -905,6 +934,11 @@ def update_invoice(
                 entry_date=_now()[:10], created_by=user["id"],
                 branch_id=inv["branch_id"])
 
+        # The goods the old lines took go back first, at the cost they left
+        # at; the new lines take theirs below. Anything else would leave stock
+        # moved for lines that no longer exist.
+        if stock_was:
+            invoice_stock.restore(db, user, invoice_id, note="Invoice edited")
         db.execute("DELETE FROM invoice_items WHERE invoice_id=?", (invoice_id,))
         for idx, item in enumerate(items):
             rid, rate, tax_amt = line_tax[idx]
@@ -927,6 +961,12 @@ def update_invoice(
                  d_allocs[idx] if idx < len(d_allocs) else 0.0,
                  line_items.unit_for(db, item)),
             )
+        if stock_want:
+            try:
+                invoice_stock.deduct(db, user, invoice_id)
+            except invoice_stock.StockError as e:
+                db.rollback()
+                raise HTTPException(400, str(e))
         log_action(db, user, "update", "invoice", invoice_id,
                    inv["invoice_number"], {"amount": computed_amount})
 
@@ -993,6 +1033,9 @@ def void_invoice(
     undone = sale_reversal.reverse_fulfilment(
         db, inv, note=f"Voided invoice {inv['invoice_number']}",
         user_id=user["id"], now=now)
+    # ...including goods the invoice itself took out of stock.
+    undone["stock_restored"] = invoice_stock.restore(
+        db, user, invoice_id, note=f"Voided invoice {inv['invoice_number']}")
     log_action(db, user, "void", "invoice", invoice_id,
                inv["invoice_number"],
                {"reason": data.reason or "Voided", **undone})
@@ -1091,6 +1134,51 @@ def unvoid_invoice(
     log_action(db, user, "unvoid", "invoice", invoice_id, inv["invoice_number"])
     db.commit()
     return {"message": "Invoice restored"}
+
+
+# ── Take the goods out of stock / put them back ───────────────────────────
+def _stock_target(db, user, invoice_id):
+    inv = db.execute("SELECT * FROM invoices WHERE id = ? AND archived_at IS NULL",
+                     (invoice_id,)).fetchone()
+    if not inv:
+        raise HTTPException(404, "Invoice not found")
+    branch_access.assert_can_view_branch(user, db, inv["branch_id"])
+    _check_period_locked(db, _now()[:7] + "-01")
+    return inv
+
+
+@router.post("/{invoice_id}/stock")
+def take_out_of_stock(invoice_id: int, user=Depends(require_perm("invoices", "edit")),
+                      db: sqlite3.Connection = Depends(get_db)):
+    """Take this invoice's stock lines off the shelf, at cost --- see invoice_stock."""
+    inv = _stock_target(db, user, invoice_id)
+    try:
+        out = invoice_stock.deduct(db, user, invoice_id)
+    except invoice_stock.StockError as e:
+        db.rollback()
+        raise HTTPException(400, str(e))
+    log_action(db, user, "stock_out", "invoice", invoice_id, inv["invoice_number"], out)
+    db.commit()
+    return {"message": "Taken out of stock", **out}
+
+
+@router.delete("/{invoice_id}/stock")
+def put_back_in_stock(invoice_id: int, user=Depends(require_perm("invoices", "edit")),
+                      db: sqlite3.Connection = Depends(get_db)):
+    """Undo it: the goods back at the cost they left at, the cost unposted."""
+    inv = _stock_target(db, user, invoice_id)
+    if not invoice_stock.is_deducted(inv):
+        raise HTTPException(400, "This invoice has not taken anything out of stock.")
+    if inv["voided_at"]:
+        raise HTTPException(400, "This invoice is voided; its goods are already back.")
+    if returns.live_sales_returns(db, invoice_id):
+        raise HTTPException(409, "A credit note has returned goods from this invoice. "
+                                 "Void it before putting the rest back in stock.")
+    units = invoice_stock.restore(db, user, invoice_id, note="Put back from invoice")
+    log_action(db, user, "stock_back", "invoice", invoice_id, inv["invoice_number"],
+               {"units": units})
+    db.commit()
+    return {"message": "Put back in stock", "units": units}
 
 
 # ── Add payment ───────────────────────────────────────────────────────────

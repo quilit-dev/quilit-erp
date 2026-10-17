@@ -1104,6 +1104,8 @@ def report_service_jobs(
 # lands; that is an expense, not cost of goods sold, and stays in Expenses.
 _COGS_SOURCES = ("pos_cogs", "service_cogs", "commitment_cogs",
                  "purchase_cost_adjustment",
+                 # an invoice that took its goods out of stock
+                 "invoice_cogs",
                  # a credit note putting goods back takes their cost back out
                  "sales_return")
 

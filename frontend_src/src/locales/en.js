@@ -2248,6 +2248,12 @@ const en = {
   },
 
   invoices: {
+    deductStock: 'Take items out of stock',
+    deductStockHint: 'Lines linked to a stock item leave the inventory at cost when the invoice is saved. If any item is short, nothing is saved.',
+    stockTakeOutAction: 'Take out of stock',
+    stockPutBackAction: 'Put back in stock',
+    stockTakenOut: 'Taken out of stock',
+    stockPutBack: 'Put back in stock',
     currencyLabel: 'Billed in',
     customersCurrency: "Customer's currency ({{currency}})",
     companyCurrency: 'Company currency',

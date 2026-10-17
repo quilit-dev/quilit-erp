@@ -10,7 +10,7 @@ import {
   createInvoice, updateInvoice, voidInvoice, unvoidInvoice,
   archiveInvoice, unarchiveInvoice,
   addInvoicePayment, deleteInvoicePayment, getCashDrawers, promoPreview, issueReceiptVoucher,
-  getCustomerCredit,
+  getCustomerCredit, takeInvoiceStock, putBackInvoiceStock,
 } from '../api/client';
 import { SalesReturnModal } from '../components/ReturnModals.jsx';
 import {
@@ -84,7 +84,7 @@ function usePromoPreview(items, enabled) {
 // `discount_auto` stays true until a person edits the field.
 const EMPTY_ITEM = { name: '', quantity: 1, unit_price: 0, discount_pct: '',
                      discount_auto: true, inventory_id: null, tax_rate_id: null };
-const EMPTY_FORM = { quotation_id: '', project_id: '', client_id: '', due_date: '', notes: '', branch_id: '', currency: '', exchange_rate: '', discount_type: '', discount_value: '', items: [{ ...EMPTY_ITEM }] };
+const EMPTY_FORM = { quotation_id: '', project_id: '', client_id: '', due_date: '', notes: '', branch_id: '', currency: '', exchange_rate: '', discount_type: '', discount_value: '', deduct_stock: false, items: [{ ...EMPTY_ITEM }] };
 import { ActionMenu } from './invoices/ActionMenu';
 import SearchSelect from '../components/SearchSelect.jsx';
 
@@ -281,6 +281,7 @@ export default function Invoices() {
         branch_id:    full.branch_id    ?? '',
         discount_type:  full.discount_type  || '',
         discount_value: full.discount_value ?? '',
+        deduct_stock:   !!full.stock_deducted_at,
         items: full.items?.length
           ? full.items.map(i => ({
               name: i.name,
@@ -375,6 +376,8 @@ export default function Invoices() {
         // A discount on the whole invoice; the server prices it.
         discount_type:  form.discount_type || null,
         discount_value: form.discount_type ? (Number(form.discount_value) || 0) : null,
+        // Take the stock lines out of stock, as the till does (off by default).
+        deduct_stock:   !!form.deduct_stock,
         exchange_rate: form.exchange_rate === '' ? null : Number(form.exchange_rate),
         items:        (form.items || []).map(i => ({
           name: i.name,
@@ -445,6 +448,20 @@ export default function Invoices() {
   }
 
 
+
+  // Take the invoice's stock lines out of stock, or put them back.
+  async function handleStock(inv) {
+    try {
+      if (inv.stock_deducted_at) {
+        await putBackInvoiceStock(inv.id);
+        toast(t('invoices.stockPutBack'));
+      } else {
+        await takeInvoiceStock(inv.id);
+        toast(t('invoices.stockTakenOut'));
+      }
+      reload();
+    } catch (err) { toast(err.message, 'red'); }
+  }
 
   async function openPayModal(inv) {
     setPayLoading(true);
@@ -682,6 +699,7 @@ export default function Invoices() {
                           onArchive={() => handleArchive(inv)}
                           onRestore={() => handleRestore(inv)}
                           onReturn={can('returns', 'create') ? () => setReturnInvoiceId(inv.id) : null}
+                          onStock={can('invoices', 'edit') ? () => handleStock(inv) : null}
                         />
                       </td>
                     </tr>
@@ -905,6 +923,19 @@ export default function Invoices() {
                   type={form.discount_type} value={form.discount_value} locked={amountsLocked}
                   onChange={(type, value) => setForm(f => ({ ...f, discount_type: type, discount_value: value }))} />
               </div>
+              {/* Only meaningful when a line names a stock item. Off by default:
+                  an ordinary invoice bills and leaves stock to the till,
+                  deliveries and adjustments. */}
+              {(form.items || []).some(i => i.inventory_id) && (
+                <label style={{ display:'flex', gap:8, alignItems:'flex-start', marginTop:12, fontSize:13, cursor:'pointer' }}>
+                  <input type="checkbox" checked={!!form.deduct_stock} style={{ marginTop:3 }}
+                    onChange={e => setForm(f => ({ ...f, deduct_stock: e.target.checked }))} />
+                  <span>
+                    <strong>{t('invoices.deductStock')}</strong>
+                    <span style={{ display:'block', color:'var(--text-3)', fontSize:12 }}>{t('invoices.deductStockHint')}</span>
+                  </span>
+                </label>
+              )}
               <div style={{ textAlign:'right', marginTop:14, fontSize:13, color:'var(--text-2)' }}>
                 {!amountsLocked && (invoiceTaxAmt > 0 || invoiceDiscount > 0 || invoiceDocDiscount > 0) && (
                   <>

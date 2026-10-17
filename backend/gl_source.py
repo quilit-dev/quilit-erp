@@ -66,6 +66,8 @@ SOURCES: dict[str, _Doc] = {
     "purchase_return":  _Doc("purchase_returns", "return_number", "/returns/purchases"),
     # POS sales and service jobs are invoices by the time they reach the GL.
     "pos_cogs":         _Doc("invoices", "invoice_number", "/invoices"),
+    # An invoice that took its own goods out of stock (invoice_stock.py).
+    "invoice_cogs":     _Doc("invoices", "invoice_number", "/invoices"),
     "service_cogs":     _Doc("service_jobs", "job_number", "/service"),
     "payroll":          _Doc("hr_payroll_runs", "period_start", None,
                              fallback="Payroll run"),
@@ -152,7 +154,7 @@ def postings_for(db: sqlite3.Connection, document: str,
                  doc_id: int) -> list[tuple[str, int]]:
     """Every `(source_type, source_id)` pair a document could have produced."""
     if document == "invoice":
-        pairs = [("invoice", doc_id), ("pos_cogs", doc_id)]
+        pairs = [("invoice", doc_id), ("pos_cogs", doc_id), ("invoice_cogs", doc_id)]
         try:
             pairs += [("invoice_payment", r["id"]) for r in db.execute(
                 "SELECT id FROM invoice_payments WHERE invoice_id=?", (doc_id,))]

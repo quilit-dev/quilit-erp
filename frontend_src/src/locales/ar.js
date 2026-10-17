@@ -2212,6 +2212,12 @@ const ar = {
   },
 
   invoices: {
+    deductStock: 'إخراج الأصناف من المخزون',
+    deductStockHint: 'تُخرج الأسطر المرتبطة بصنف مخزون بسعر الكلفة عند حفظ الفاتورة. إذا نقص أي صنف، لا يُحفظ شيء.',
+    stockTakeOutAction: 'إخراج من المخزون',
+    stockPutBackAction: 'إعادة إلى المخزون',
+    stockTakenOut: 'تم الإخراج من المخزون',
+    stockPutBack: 'تمت الإعادة إلى المخزون',
     currencyLabel: 'الفوترة بـ',
     customersCurrency: 'عملة الزبون ({{currency}})',
     companyCurrency: 'عملة الشركة',

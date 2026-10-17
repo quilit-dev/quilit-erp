@@ -248,9 +248,17 @@ def sales_returnable(db, invoice_id) -> Dict[str, Any]:
         back = done.get(it["id"], {"q": 0, "n": 0, "t": 0, "s": 0})
         pos_line = pos_by_item.get(it["id"])
         can_stock = bool(pos_line and _col(pos_line, "inventory_id"))
-        physical_left = 0.0
+        physical_left, unit_cost = 0.0, 0.0
         if can_stock:
             physical_left = max(0.0, sale_reversal.delivered_quantity(db, pos_line) - back["s"])
+            unit_cost = float(_col(pos_line, "unit_cost", 0))
+        elif (pos_line is None and _col(inv, "stock_deducted_at") and _col(it, "inventory_id")
+              and float(_col(it, "stock_quantity", 0)) > 0):
+            # An invoice set to take its goods out of stock (invoice_stock.py):
+            # they come back at the cost they left at.
+            can_stock = True
+            physical_left = max(0.0, float(it["stock_quantity"]) - back["s"])
+            unit_cost = float(_col(it, "stock_unit_cost", 0))
         blocked = None
         if pos_line is not None and _open_commitment(db, it["id"]):
             blocked = ("Part of this line is still to be handed over. Hand it over "
@@ -266,7 +274,7 @@ def sales_returnable(db, invoice_id) -> Dict[str, Any]:
             "returned_net": money(back["n"]), "returned_tax": money(back["t"]),
             "can_restock": can_stock,
             "restockable_quantity": round(physical_left, 6),
-            "unit_cost": float(_col(pos_line, "unit_cost", 0)) if can_stock else 0.0,
+            "unit_cost": unit_cost,
             "blocked": blocked,
         })
     paid = _paid_on(db, invoice_id)
@@ -385,7 +393,8 @@ def create_sales_return(db, user, *, invoice_id: int, lines: List[Dict[str, Any]
 
     # ── the lines, and the goods ──────────────────────────────────────────
     sale = db.execute("SELECT * FROM pos_sales WHERE invoice_id = ?", (invoice_id,)).fetchone()
-    wid = sale_reversal._pos_warehouse(db, sale) if sale else None
+    wid = (sale_reversal._pos_warehouse(db, sale) if sale
+           else _col(inv, "stock_warehouse_id"))
     restock_value = writeoff_value = 0.0
     for c in chosen:
         line, row = c["line"], c["row"]
@@ -501,7 +510,10 @@ def void_sales_return(db, user, return_id: int, reason: str = "") -> None:
     now = _now()
     sale = db.execute("SELECT * FROM pos_sales WHERE invoice_id = ?",
                       (ret["invoice_id"],)).fetchone()
-    wid = sale_reversal._pos_warehouse(db, sale) if sale else None
+    inv_row = db.execute("SELECT stock_warehouse_id FROM invoices WHERE id = ?",
+                         (ret["invoice_id"],)).fetchone()
+    wid = (sale_reversal._pos_warehouse(db, sale) if sale
+           else _col(inv_row, "stock_warehouse_id"))
     for it in restocked:
         _take_out(db, it["inventory_id"], float(it["stock_quantity"]), float(it["unit_cost"]),
                   source_type="return", source_ref=ret["return_number"], warehouse_id=wid,
