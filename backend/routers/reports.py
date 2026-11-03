@@ -949,7 +949,9 @@ def report_service_jobs(
 
     rows = db.execute(
         "SELECT j.id, j.job_number, j.job_type, j.status, j.scheduled_date,"
-        "       j.completed_at, j.total, j.parts_cost,"
+        "       j.completed_at, j.total, j.parts_cost, j.subtotal, j.tax_total,"
+        "       j.priority, j.reported_fault, j.work_done, j.created_at,"
+        "       i.amount AS invoice_amount,"
         "       c.name AS client_name, e.name AS equipment_name,"
         "       COALESCE(NULLIF(u.full_name, ''), u.username) AS technician,"
         "       i.invoice_number, i.id AS invoice_id"
@@ -979,8 +981,68 @@ def report_service_jobs(
             "margin_pct": (round((revenue - cost) / revenue * 100, 1)
                            if revenue else None),
             "invoice_number": r["invoice_number"],
+            "invoice_id": r["invoice_id"],
             "billed": bool(r["invoice_id"]),
+            # The detail behind the row: what was wrong, what was done, and
+            # every line --- read below in one query per kind, not per job.
+            "priority": r["priority"], "created_at": r["created_at"],
+            "reported_fault": r["reported_fault"], "work_done": r["work_done"],
+            "subtotal": round(float(r["subtotal"] or 0), 2),
+            "tax_total": round(float(r["tax_total"] or 0), 2),
+            "_invoice_amount": float(r["invoice_amount"] or 0),
         })
+
+    # ── Each job's detail: its crew, its lines, and whether it is paid ──────
+    ids = [r["id"] for r in out]
+    crew, lines, paid = {}, {}, {}
+    if ids:
+        ph = ",".join("?" * len(ids))
+        for c in db.execute(
+                "SELECT t.job_id, e.full_name FROM service_job_technicians t"
+                " JOIN hr_employees e ON e.id = t.employee_id"
+                f" WHERE t.job_id IN ({ph}) ORDER BY e.full_name", ids).fetchall():
+            crew.setdefault(c["job_id"], []).append(c["full_name"])
+        for ln in db.execute(
+                "SELECT job_id, line_type, name, quantity, unit_price, discount,"
+                "       tax_amount, unit_cost, cost_total, consumed_at"
+                f" FROM service_job_lines WHERE job_id IN ({ph})"
+                " ORDER BY job_id, line_no, id", ids).fetchall():
+            qty = float(ln["quantity"] or 0)
+            net = qty * float(ln["unit_price"] or 0) - float(ln["discount"] or 0)
+            lines.setdefault(ln["job_id"], []).append({
+                "type": ln["line_type"], "name": ln["name"], "quantity": qty,
+                "unit_price": round(float(ln["unit_price"] or 0), 2),
+                "discount": round(float(ln["discount"] or 0), 2),
+                "net": round(net, 2), "tax": round(float(ln["tax_amount"] or 0), 2),
+                "unit_cost": (round(float(ln["unit_cost"]), 4)
+                              if ln["unit_cost"] is not None else None),
+                # Completion stamps the unit cost on each part it consumes.
+                "cost": (round(float(ln["cost_total"]), 2) if ln["cost_total"] is not None
+                         else round(qty * float(ln["unit_cost"]), 2)
+                         if ln["unit_cost"] is not None else None),
+                "consumed": bool(ln["consumed_at"]),
+            })
+        inv_ids = [r["invoice_id"] for r in out if r["invoice_id"]]
+        if inv_ids:
+            ph2 = ",".join("?" * len(inv_ids))
+            for p in db.execute(
+                    "SELECT invoice_id, COALESCE(SUM(amount), 0) AS p FROM invoice_payments"
+                    f" WHERE invoice_id IN ({ph2}) GROUP BY invoice_id", inv_ids).fetchall():
+                paid[p["invoice_id"]] = float(p["p"] or 0)
+    for r in out:
+        r["technicians"] = crew.get(r["id"], [])
+        if not r["technicians"] and r["technician"]:
+            r["technicians"] = [r["technician"]]        # older jobs: one assignee
+        r["lines"] = lines.get(r["id"], [])
+        r["labour_total"] = round(sum(l["net"] for l in r["lines"] if l["type"] != "part"), 2)
+        r["parts_total"] = round(sum(l["net"] for l in r["lines"] if l["type"] == "part"), 2)
+        amount = r.pop("_invoice_amount")
+        if r["invoice_id"]:
+            got = paid.get(r["invoice_id"], 0.0)
+            r["invoice_status"] = ("Paid" if got >= amount - 0.005 and amount > 0
+                                   else "Partial" if got > 0.005 else "Unpaid")
+        else:
+            r["invoice_status"] = None
 
     # ── Who attended what ───────────────────────────────────────────────
     # The month-end question: how many services did each technician complete.
@@ -1073,8 +1135,20 @@ def report_service_jobs(
         # period, counted ONCE each however many people were on them.
         "completed_jobs": len(completed),
     }
+    # What parts cost is withheld without the `costs` permission, as on every
+    # other screen; the job's price and lines stay.
+    show_cost = _can_perm(user, db, "costs")
+    if not show_cost:
+        for r in out:
+            for k in ("parts_cost", "margin", "margin_pct"):
+                r.pop(k, None)
+            for ln in r["lines"]:
+                ln.pop("unit_cost", None)
+                ln.pop("cost", None)
+        for k in ("parts_cost", "margin"):
+            totals.pop(k, None)
     return {"jobs": out, "totals": totals, "by_technician": by_technician,
-            "attendance_visible": attendance_visible,
+            "attendance_visible": attendance_visible, "show_cost": show_cost,
             # True when at least one completed job had more than one technician,
             # so the per-person column legitimately exceeds `completed_jobs`.
             "technician_rows_overlap":

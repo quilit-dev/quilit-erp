@@ -1752,6 +1752,17 @@ const en = {
   },
 
   service: {
+    jobDetails: 'Service jobs',
+    searchJobs: 'Search job, customer, technician…',
+    allStatuses: 'All statuses',
+    invoice: 'Invoice',
+    labourTotal: 'Labour & charges',
+    partsTotal: 'Parts',
+    qty: 'Qty',
+    unitPrice: 'Unit price',
+    lineNet: 'Amount',
+    noLines: 'No lines on this job.',
+    notConsumed: 'Not used yet',
     equipmentSearchPlaceholder: 'Search name, model or serial…',
     searchPlaceholder: 'Search job no., client or fault…',
     dateFrom: 'From date',

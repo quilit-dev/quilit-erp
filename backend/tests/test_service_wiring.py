@@ -150,6 +150,43 @@ def test_the_report_totals_the_unbilled_value(client, acme):
     assert totals["unbilled_value"] == pytest.approx(250)
 
 
+def test_the_report_shows_each_jobs_detail(client, acme, oven):
+    """Each service with its fault, its work, every line, and its money."""
+    belt = _item(client, "Belt", 10, 4, 12)
+    job = _job(client, acme, [
+        {"line_type": "part", "inventory_id": belt, "name": "Belt",
+         "quantity": 3, "unit_price": 12},
+        {"line_type": "charge", "name": "Labour", "quantity": 2, "unit_price": 50},
+    ], equipment_id=oven)
+    client.post(f"/api/service/jobs/{job['id']}/complete")
+
+    mine = [r for r in client.get("/api/reports/service-jobs").json()["jobs"]
+            if r["id"] == job["id"]][0]
+
+    assert mine["reported_fault"] == "Fan seized"
+    assert mine["equipment_name"] == "Bakery oven"
+    assert mine["labour_total"] == pytest.approx(100)
+    assert mine["parts_total"] == pytest.approx(36)
+    assert [l["name"] for l in mine["lines"]] == ["Belt", "Labour"]
+    belt_line = mine["lines"][0]
+    assert belt_line["type"] == "part" and belt_line["quantity"] == 3
+    assert belt_line["cost"] == pytest.approx(12) and belt_line["consumed"] is True
+    assert mine["invoice_status"] is None, "not billed yet"
+
+
+def test_part_costs_are_withheld_without_the_costs_permission(client, acme, as_role):
+    belt = _item(client, "Belt", 10, 4, 12)
+    job = _job(client, acme, [{"line_type": "part", "inventory_id": belt, "name": "Belt",
+                               "quantity": 1, "unit_price": 12}])
+    client.post(f"/api/service/jobs/{job['id']}/complete")
+    rep = as_role("Viewer").get("/api/reports/service-jobs").json()
+    mine = [r for r in rep["jobs"] if r["id"] == job["id"]][0]
+    assert rep["show_cost"] is False
+    assert "parts_cost" not in mine and "margin" not in mine
+    assert "cost" not in mine["lines"][0] and "unit_cost" not in mine["lines"][0]
+    assert mine["lines"][0]["net"] == pytest.approx(12), "the price is still shown"
+
+
 def test_a_zero_revenue_job_reports_no_margin_percent(client, acme):
     """A draft with no lines is not a 0% margin job — it is not yet a job."""
     job = _job(client, acme)

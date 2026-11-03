@@ -1727,6 +1727,17 @@ const ar = {
   },
 
   service: {
+    jobDetails: 'أعمال الصيانة',
+    searchJobs: 'ابحث برقم العمل أو الزبون أو الفني…',
+    allStatuses: 'كل الحالات',
+    invoice: 'الفاتورة',
+    labourTotal: 'اليد العاملة والرسوم',
+    partsTotal: 'القطع',
+    qty: 'الكمية',
+    unitPrice: 'سعر الوحدة',
+    lineNet: 'المبلغ',
+    noLines: 'لا توجد أسطر على هذا العمل.',
+    notConsumed: 'لم تُستعمل بعد',
     equipmentSearchPlaceholder: 'ابحث بالاسم أو الطراز أو الرقم التسلسلي…',
     searchPlaceholder: 'ابحث برقم المهمة أو العميل أو العطل…',
     dateFrom: 'من تاريخ',

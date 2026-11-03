@@ -26,6 +26,7 @@ import { useState, useEffect, useRef } from 'react';
 import { LoadingSpinner, ErrorAlert, EmptyState, fmt } from '../../components/shared';
 import { getServiceJobsReport } from '../../api/client';
 import { StatCard, ExportButtons } from './charts';
+import { ServiceJobsDetail } from './ServiceJobsDetail';
 
 function ServiceReport({ params, t }) {
   const [data, setData]       = useState(null);
@@ -130,6 +131,9 @@ function ServiceReport({ params, t }) {
           </>
         )}
       </div>
+
+      {/* Each job, with its detail one click away. */}
+      <ServiceJobsDetail jobs={data.jobs || []} showCost={!!data.show_cost} t={t} />
     </div>
   );
 }
