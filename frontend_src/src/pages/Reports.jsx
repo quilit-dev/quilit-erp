@@ -17,6 +17,7 @@ import { BranchComparisonReport } from './reports/BranchComparisonReport';
 import { WarehouseValuationReport } from './reports/WarehouseValuationReport';
 import { ServiceReport } from './reports/ServiceReport';
 import { ProfitSummaryReport } from './reports/ProfitSummaryReport';
+import { TopItemsReport } from './reports/TopItemsReport';
 
 export default function Reports() {
   const { t, tEnumValue } = useLocale();
@@ -67,6 +68,8 @@ export default function Reports() {
     // those allowed to see it. Left out of THIS list otherwise, so neither
     // the default tab nor a remembered one can land on it.
     ...(canProfit ? [{ key: 'profit', label: t('reports.profitSummary') }] : []),
+    // What sells, what it earns, and what sits on the shelf.
+    { key: 'topItems',    label: t('reports.topItems')       },
     { key: 'projects',    label: t('reports.projects')       },
     { key: 'clients',     label: t('reports.clients')        },
     { key: 'aging',       label: t('reports.aging')          },
@@ -128,6 +131,7 @@ export default function Reports() {
 
       {/* Report content — full width */}
       {current === 'profit' && canProfit && <ProfitSummaryReport t={t} />}
+      {current === 'topItems'  && <TopItemsReport  params={appliedRange} t={t} />}
       {current === 'projects'  && <ProjectsReport  params={appliedRange} t={t} />}
       {current === 'clients'   && <ClientsReport   params={appliedRange} t={t} tEnumValue={tEnumValue} />}
       {current === 'aging'     && <AgingReport      t={t} />}

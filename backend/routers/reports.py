@@ -1294,3 +1294,216 @@ def report_profit_summary(
     totals = _finish(totals)
     return {"start": start, "end": end, "group": group,
             "branch_scoped": branch_scoped, "rows": rows, "totals": totals}
+
+
+# ── Top selling items ────────────────────────────────────────────────────────
+# What sells: every invoice line in the period --- till sales included, since a
+# till sale is an invoice by the time it is stored --- grouped by stock item
+# (or, for a line that names none, by its description, so services rank too).
+#
+#   sales     the line's NET: after its own discount and its share of any
+#             discount on the whole invoice, before VAT --- what the business
+#             earned, not what the tax office is owed;
+#   returns   credit notes dated in the period, taken off the same item;
+#   cost      what the goods left at, where they left: the till's snapshot, or
+#             an invoice that took its own stock. An invoice that moved nothing
+#             has no recorded cost, so the item's current cost stands in and the
+#             row says it is an estimate.
+#
+# A line typed without picking the stock item, but named exactly as one, is
+# that item: invoices are often written that way, and ranking "Product X" as a
+# service with no cost would put it at a 100% margin. A line that matches no
+# item is a service --- it has no cost of goods, so it shows no profit or
+# margin rather than a meaningless 100%, and the profit totals are for goods.
+#
+# Cost, profit and margin are withheld from a user without the `costs`
+# permission, as everywhere else in the system.
+_TOP_SORTS = ("quantity", "revenue", "profit")
+
+
+def _item_key(inventory_id, name):
+    return ("i", int(inventory_id)) if inventory_id else ("n", (name or "").strip().lower())
+
+
+@router.get("/top-items")
+def report_top_items(
+    start: Optional[str] = Query(None),
+    end:   Optional[str] = Query(None),
+    sort:  str = Query("quantity"),
+    limit: int = Query(25, ge=1, le=1000),
+    branch_id: Optional[int] = Query(None),
+    user=Depends(require_perm("reports", "view")),
+    db: sqlite3.Connection = Depends(get_db),
+):
+    start = (start or _year_start())[:10]
+    end = (end or _today())[:10]
+    show_cost = _can_perm(user, db, "costs")
+    sort = sort if sort in _TOP_SORTS else "quantity"
+    if sort == "profit" and not show_cost:
+        sort = "revenue"
+    bf, bp = branch_access.branch_filter(user, db, column="i.branch_id", selected=branch_id)
+    rf, rp = branch_access.branch_filter(user, db, column="r.branch_id", selected=branch_id)
+
+    stock = {r["id"]: dict(r) for r in db.execute(
+        "SELECT id, name, category, unit, unit_cost, quantity, archived_at, deleted_at "
+        "FROM inventory").fetchall()}
+
+    # Exact name (case and spacing aside) -> item, only where the name is unique.
+    by_name, clash = {}, set()
+    for it in stock.values():
+        if it["deleted_at"]:
+            continue
+        k = (it["name"] or "").strip().lower()
+        if k in by_name:
+            clash.add(k)
+        by_name[k] = it["id"]
+    for k in clash:
+        by_name.pop(k, None)
+
+    rows = {}
+
+    def row_for(inventory_id, name, unit):
+        known = inventory_id if inventory_id in stock else             by_name.get((name or "").strip().lower())
+        key = _item_key(known, name)
+        r = rows.get(key)
+        if r is None:
+            it = stock.get(known) if known else None
+            r = rows[key] = {
+                "inventory_id": known,
+                "name": (it["name"] if it else (name or "").strip()) or "—",
+                "category": it["category"] if it else None,
+                "unit": (it["unit"] if it else None) or unit,
+                "kind": "item" if it else "service",
+                "quantity_sold": 0.0, "quantity_returned": 0.0,
+                "sales": 0.0, "returns": 0.0, "cost": 0.0,
+                "cost_estimated": False, "_docs": set(), "_cost_qty": 0.0,
+            }
+        return r
+
+    for ln in db.execute(
+            "SELECT ii.id, ii.inventory_id, ii.name, ii.unit, ii.quantity, ii.unit_price, "
+            "       ii.discount, ii.doc_discount, ii.stock_quantity, ii.stock_unit_cost, "
+            "       i.id AS invoice_id, psi.unit_cost AS pos_cost "
+            "  FROM invoice_items ii "
+            "  JOIN invoices i ON i.id = ii.invoice_id "
+            "  LEFT JOIN pos_sale_items psi ON psi.invoice_item_id = ii.id "
+            " WHERE i.voided_at IS NULL AND i.archived_at IS NULL "
+            "   AND COALESCE(i.approval_status, '') <> 'Pending Approval' "
+            "   AND DATE(i.created_at) BETWEEN ? AND ?" + bf,
+            (start, end, *bp)).fetchall():
+        qty = float(ln["quantity"] or 0)
+        if qty <= 0:
+            continue
+        r = row_for(ln["inventory_id"], ln["name"], ln["unit"])
+        r["quantity_sold"] += qty
+        r["sales"] += max(0.0, qty * float(ln["unit_price"] or 0)
+                          - float(ln["discount"] or 0) - float(ln["doc_discount"] or 0))
+        r["_docs"].add(ln["invoice_id"])
+        if r["kind"] != "item":
+            continue
+        if ln["pos_cost"] is not None:
+            r["cost"] += qty * float(ln["pos_cost"] or 0)
+        elif float(ln["stock_quantity"] or 0) > 0:
+            r["cost"] += float(ln["stock_quantity"]) * float(ln["stock_unit_cost"] or 0)
+        else:
+            r["cost"] += qty * float(stock[r["inventory_id"]]["unit_cost"] or 0)
+            r["cost_estimated"] = True
+        r["_cost_qty"] += qty
+
+    for rt in db.execute(
+            "SELECT ri.inventory_id, ri.name, ri.unit, ri.quantity, ri.net, ri.condition, "
+            "       ri.stock_quantity, ri.unit_cost "
+            "  FROM sales_return_items ri JOIN sales_returns r ON r.id = ri.return_id "
+            " WHERE r.voided_at IS NULL AND r.return_date BETWEEN ? AND ?" + rf,
+            (start, end, *rp)).fetchall():
+        r = row_for(rt["inventory_id"], rt["name"], rt["unit"])
+        q = float(rt["quantity"] or 0)
+        r["quantity_returned"] += q
+        r["returns"] += float(rt["net"] or 0)
+        if r["kind"] != "item":
+            continue
+        if rt["condition"] == "restock":
+            # Back on the shelf: its cost is no longer a cost of this sale.
+            r["cost"] -= float(rt["stock_quantity"] or 0) * float(rt["unit_cost"] or 0)
+        elif rt["condition"] == "none" and r["_cost_qty"] > 0:
+            # Nothing moved either way: take back that share of the cost counted.
+            r["cost"] -= q * (r["cost"] / r["_cost_qty"])
+        # damaged: the goods came back unsellable, so their cost stays a cost.
+
+    items = []
+    for r in rows.values():
+        r["net_quantity"] = round(r["quantity_sold"] - r["quantity_returned"], 6)
+        r["net_sales"] = money(r["sales"] - r["returns"])
+        r["sales"], r["returns"] = money(r["sales"]), money(r["returns"])
+        if r["kind"] == "item":
+            r["cost"] = money(max(r["cost"], 0.0))
+            r["profit"] = money(r["net_sales"] - r["cost"])
+            r["margin_pct"] = (round(r["profit"] / r["net_sales"] * 100, 1)
+                               if r["net_sales"] > 0 else None)
+        else:
+            # No cost of goods to set against it: no profit or margin to show.
+            r["cost"] = r["profit"] = r["margin_pct"] = None
+        r["documents"] = len(r.pop("_docs"))
+        r.pop("_cost_qty")
+        r["quantity_sold"] = round(r["quantity_sold"], 6)
+        r["quantity_returned"] = round(r["quantity_returned"], 6)
+        items.append(r)
+
+    total_sales = money(sum(r["net_sales"] for r in items))
+    for r in items:
+        r["share_pct"] = round(r["net_sales"] / total_sales * 100, 1) if total_sales > 0 else 0
+    order = {"quantity": lambda r: (r["net_quantity"], r["net_sales"]),
+             "revenue": lambda r: (r["net_sales"], r["net_quantity"]),
+             "profit": lambda r: (r["profit"] if r["profit"] is not None else float("-inf"),
+                                  r["net_sales"])}[sort]
+    items.sort(key=order, reverse=True)
+
+    totals = {
+        "items": len(items),
+        "quantity": round(sum(r["net_quantity"] for r in items), 6),
+        "sales": total_sales,
+        "returns": money(sum(r["returns"] for r in items)),
+        # Profit is on goods: services carry no cost of goods to set against.
+        "goods_sales": money(sum(r["net_sales"] for r in items if r["kind"] == "item")),
+        "cost": money(sum(r["cost"] for r in items if r["kind"] == "item")),
+    }
+    totals["profit"] = money(totals["goods_sales"] - totals["cost"])
+    totals["margin_pct"] = (round(totals["profit"] / totals["goods_sales"] * 100, 1)
+                            if totals["goods_sales"] > 0 else None)
+
+    # Stock on the shelf that did not sell in the period: the other half of the
+    # question. Most valuable first --- that is the money standing still.
+    sold_ids = {r["inventory_id"] for r in items if r["inventory_id"]}
+    last_sold = {r["iid"]: r["last"] for r in db.execute(
+        "SELECT ii.inventory_id AS iid, MAX(i.created_at) AS last "
+        "  FROM invoice_items ii JOIN invoices i ON i.id = ii.invoice_id "
+        " WHERE ii.inventory_id IS NOT NULL AND i.voided_at IS NULL "
+        " GROUP BY ii.inventory_id").fetchall()}
+    unsold = []
+    for it in stock.values():
+        if it["id"] in sold_ids or it["archived_at"] or it["deleted_at"]:
+            continue
+        on_hand = float(it["quantity"] or 0)
+        if on_hand <= 0:
+            continue
+        unsold.append({
+            "inventory_id": it["id"], "name": it["name"], "category": it["category"],
+            "unit": it["unit"], "on_hand": round(on_hand, 6),
+            "stock_value": money(on_hand * float(it["unit_cost"] or 0)),
+            "last_sold": (str(last_sold[it["id"]])[:10] if last_sold.get(it["id"]) else None),
+        })
+    unsold.sort(key=lambda r: (r["stock_value"], r["on_hand"]), reverse=True)
+
+    if not show_cost:
+        for r in items:
+            for k in ("cost", "profit", "margin_pct", "cost_estimated"):
+                r.pop(k, None)
+        for k in ("cost", "profit", "margin_pct", "goods_sales"):
+            totals.pop(k, None)
+        for r in unsold:
+            r.pop("stock_value", None)
+        unsold.sort(key=lambda r: r["on_hand"], reverse=True)
+
+    return {"start": start, "end": end, "sort": sort, "show_cost": show_cost,
+            "totals": totals, "items": items[:limit], "unsold": unsold[:50],
+            "unsold_count": len(unsold)}
