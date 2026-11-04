@@ -650,7 +650,6 @@ export default function Invoices() {
                   <SortableTh label={t('invoices.paidHeader')}    sortKey="total_paid"     currentKey={sortKey} currentDir={sortDir} onSort={requestSort} />
                   <SortableTh label={t('invoices.remaining')}     sortKey="remaining"      currentKey={sortKey} currentDir={sortDir} onSort={requestSort} />
                   <SortableTh label={t('common.status')}          sortKey="payment_status" currentKey={sortKey} currentDir={sortDir} onSort={requestSort} />
-                  <SortableTh label={t('invoices.dueDate')}       sortKey="due_date"       currentKey={sortKey} currentDir={sortDir} onSort={requestSort} />
                   <th>{t('common.actions')}</th>
                 </tr>
               </thead>
@@ -685,7 +684,6 @@ export default function Invoices() {
                         {fmt(inv.remaining ?? (inv.amount - (inv.total_paid||0)))}
                       </td>
                       <td><Badge status={inv.is_overdue ? 'Overdue' : inv.payment_status} /></td>
-                      <td style={{ color: inv.is_overdue ? 'var(--red)' : 'var(--text-2)', fontWeight: inv.is_overdue ? 600 : 400 }}>{fmtDate(inv.due_date)}</td>
                       <td>
                         <ActionMenu
                           inv={inv}

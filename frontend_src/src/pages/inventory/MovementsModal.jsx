@@ -2,6 +2,7 @@ import { useState, useEffect } from 'react';
 import { useLocale } from '../../hooks/useLocale.jsx';
 import { LoadingSpinner, EmptyState, Modal } from '../../components/shared';
 import { getStockMovements } from '../../api/client';
+import { ExportButtons } from '../reports/charts';
 
 function MovementsModal({ item, onClose }) {
   const { t, tEnumValue } = useLocale();
@@ -15,11 +16,30 @@ function MovementsModal({ item, onClose }) {
       .finally(() => setLoading(false));
   }, [item.id]);
 
+  // The same columns the table shows, plus the reference and the note apart
+  // (the table shows one or the other), so the file is the full record.
+  const columns = [
+    { label: t('common.date'),         value: m => m.created_at?.slice(0, 16) || '', align: 'left'  },
+    { label: t('common.type'),         value: m => tEnumValue(m.type),               align: 'left'  },
+    { label: t('inventory.delta'),     value: m => m.delta,                          align: 'right' },
+    { label: t('inventory.before'),    value: m => m.qty_before,                     align: 'right' },
+    { label: t('inventory.after'),     value: m => m.qty_after,                      align: 'right' },
+    { label: t('inventory.reference'), value: m => m.reference || '',                align: 'left'  },
+    { label: t('inventory.noteRef'),   value: m => tEnumValue(m.note) || '',         align: 'left'  },
+  ];
+  const fileName = `stock_history_${String(item.name || item.id).replace(/[^\p{L}\p{N}]+/gu, '_')}`;
+
   return (
     <Modal title={t('inventory.stockHistory', { name: item.name })} onClose={onClose} size="modal-lg">
       {loading ? <LoadingSpinner /> : movements.length === 0 ? (
         <EmptyState message={t('inventory.noMovements')} />
       ) : (
+        <>
+        <div style={{ display: 'flex', justifyContent: 'flex-end', padding: '10px 16px 0' }}>
+          <ExportButtons rows={movements} columns={columns} baseName={fileName}
+            pdfTitle={t('inventory.stockHistory', { name: item.name })}
+            subtitle={[item.sku, item.category].filter(Boolean).join(' · ')} t={t} />
+        </div>
         <div className="table-wrap">
           <table>
             <thead>
@@ -61,6 +81,7 @@ function MovementsModal({ item, onClose }) {
             </tbody>
           </table>
         </div>
+        </>
       )}
     </Modal>
   );
