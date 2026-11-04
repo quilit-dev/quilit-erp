@@ -92,7 +92,10 @@ def list_inventory(search: Optional[str] = None, category: Optional[str] = None,
         s = f"%{search}%"
         params.extend([s, s, search])
     if category:
-        query += " AND i.category = ?"
+        # Case and stray spaces aside: "Materials", "materials" and
+        # "Materials " are one category to the person filtering, and an exact
+        # match hid every item typed or imported the other way.
+        query += " AND LOWER(TRIM(i.category)) = LOWER(TRIM(?))"
         params.append(category)
     if low_stock:
         query += " AND i.quantity <= i.min_stock AND i.min_stock > 0"
@@ -146,7 +149,9 @@ def wipe_inventory(data: WipeConfirm, user=Depends(require_superadmin),
 @router.get("/categories")
 def get_categories(user=Depends(require_auth), db: sqlite3.Connection = Depends(get_db)):
     rows = db.execute(
-        "SELECT DISTINCT category FROM inventory WHERE category IS NOT NULL ORDER BY category"
+        "SELECT DISTINCT TRIM(category) AS category FROM inventory "
+        "WHERE category IS NOT NULL AND TRIM(category) <> '' "
+        "AND archived_at IS NULL AND deleted_at IS NULL ORDER BY 1"
     ).fetchall()
     return [r["category"] for r in rows]
 
@@ -722,6 +727,9 @@ _USED_BY = [
     ("service_job_lines",      "inventory_id",           "service jobs"),
     ("service_equipment",      "inventory_id",           "service equipment"),
     ("stock_transfer_items",   "inventory_id",           "stock transfers"),
+    # Credit and debit notes name the item they returned.
+    ("sales_return_items",     "inventory_id",           "credit notes"),
+    ("purchase_return_items",  "inventory_id",           "debit notes"),
 ]
 
 # The item's own definition rather than a record of anything: these go when it

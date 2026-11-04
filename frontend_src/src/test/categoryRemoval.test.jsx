@@ -9,9 +9,13 @@ import itemFormSrc from '../pages/inventory/ItemForm.jsx?raw';
 import purchasesSrc from '../pages/Purchases.jsx?raw';
 
 describe('what a category picker offers', () => {
-  test('inventory: the registry alone, filter included', () => {
+  test('inventory: the registry alone for editing; the filter adds what items carry', () => {
+    // Pickers that SET a category offer the registry only. The FILTER also
+    // offers categories still on items, so one can always be filtered for ---
+    // safe now that removing a category clears it from the items (any
+    // spelling), so a removed name has no item left to bring it back.
     expect(inventorySrc).toMatch(/const allKnownCats = regInvCats;/);
-    expect(inventorySrc).toMatch(/const filterCats = regInvCats\.map/);
+    expect(inventorySrc).toContain('for (const c of [...regInvCats, ...categories])');
     expect(inventorySrc).not.toMatch(/catRemovedTag/);
     expect(inventorySrc).toMatch(/options=\{filterCats\}/);
   });

@@ -163,9 +163,14 @@ def archive_category(cat_id: int, user=Depends(require_settings_write),
 
 def clear_inventory_category(db, name: str) -> int:
     """Take one category name off every stock item and product group that
-    carries it. Returns how many items were touched."""
-    n = db.execute("SELECT COUNT(*) AS n FROM inventory WHERE category = ?",
+    carries it. Returns how many items were touched.
+
+    Case and stray spaces aside, the same way the inventory filter matches: an
+    item imported as "materials " is the category being removed, and left on
+    it, the name would come straight back in the filter."""
+    same = "LOWER(TRIM(category)) = LOWER(TRIM(?))"
+    n = db.execute(f"SELECT COUNT(*) AS n FROM inventory WHERE {same}",
                    (name,)).fetchone()["n"]
-    db.execute("UPDATE inventory SET category = NULL WHERE category = ?", (name,))
-    db.execute("UPDATE products SET category = NULL WHERE category = ?", (name,))
+    db.execute(f"UPDATE inventory SET category = NULL WHERE {same}", (name,))
+    db.execute(f"UPDATE products SET category = NULL WHERE {same}", (name,))
     return int(n or 0)

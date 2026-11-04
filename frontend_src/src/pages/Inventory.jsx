@@ -190,7 +190,22 @@ export default function Inventory() {
   // now takes it off the items too, so there is nothing stale to list.
   const regInvCats = useCategories('inventory');
   const allKnownCats = regInvCats;
-  const filterCats = regInvCats.map(c => ({ value: c, label: tCategory(c) }));
+  // The FILTER also offers every category an item actually carries. An item
+  // imported or typed with a category missing from the registry --- or spelt
+  // differently --- could not be filtered for at all, and the picker answered
+  // "No matches" while the table plainly showed the category. The registry's
+  // spelling wins where the two differ only in case or spacing.
+  const filterCats = (() => {
+    const seen = new Set();
+    const out = [];
+    for (const c of [...regInvCats, ...categories]) {
+      const key = String(c || '').trim().toLowerCase();
+      if (!key || seen.has(key)) continue;
+      seen.add(key);
+      out.push({ value: String(c).trim(), label: tCategory(String(c).trim()) });
+    }
+    return out;
+  })();
   const totalValue   = items.reduce((s, i) => s + (i.quantity * i.unit_cost), 0);
   const lowCount     = items.filter(i => i.min_stock > 0 && i.quantity <= i.min_stock).length;
   const hasFilters   = search || categoryFilter || lowStockOnly;
