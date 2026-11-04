@@ -70,7 +70,11 @@ describe('the statement is reachable and exportable', () => {
     // Same columns for the table and the export, so the PDF cannot drift from
     // the screen.
     expect(statementSrc).toMatch(/<ExportButtons/);
-    expect(statementSrc).toMatch(/rows=\{movements\} columns=\{columns\}/);
+    expect(statementSrc).toMatch(/rows=\{exportRows\} columns=\{exportColumns\}/);
+    // Without details the export IS the movements, in the screen's columns;
+    // with them it adds the item rows the screen shows under each invoice.
+    expect(statementSrc).toMatch(/: movements;/);
+    expect(statementSrc).toMatch(/const exportColumns = columns\.map/);
   });
 
   test('it has loading, error and empty states', () => {

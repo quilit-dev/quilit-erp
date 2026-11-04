@@ -383,6 +383,37 @@ def client_statement(client_id: int,
             f"FROM invoice_payments p JOIN invoices i ON i.id = p.invoice_id "
             f"WHERE p.invoice_id IN ({ph}) ORDER BY p.paid_at, p.id", ids).fetchall()
 
+    # What each invoice was FOR: its lines, so the customer can see the items
+    # and prices behind every charge without opening invoice after invoice.
+    # In the statement's own currency, the same rule as the charge itself:
+    # the customer's figures when the statement is in their currency.
+    lines_by_inv = {}
+    if ids:
+        ph = ",".join("?" * len(ids))
+        by_id = {i["id"]: i for i in live}
+        for ln in db.execute(
+                "SELECT invoice_id, name, quantity, unit, unit_price, txn_unit_price, "
+                "       discount, doc_discount, tax_amount, txn_tax_amount "
+                f"FROM invoice_items WHERE invoice_id IN ({ph}) ORDER BY invoice_id, id",
+                ids).fetchall():
+            inv = by_id[ln["invoice_id"]]
+            # Base -> the statement's currency, for the figures stored only in
+            # base (discounts): the invoice's own ratio, which is exact for it.
+            ratio = 1.0
+            if in_txn and inv["txn_amount"] is not None and float(inv["amount"] or 0):
+                ratio = float(inv["txn_amount"]) / float(inv["amount"])
+            qty = float(ln["quantity"] or 0)
+            price = (float(ln["txn_unit_price"]) if in_txn and ln["txn_unit_price"] is not None
+                     else float(ln["unit_price"] or 0) * ratio)
+            disc = (float(ln["discount"] or 0) + float(ln["doc_discount"] or 0)) * ratio
+            tax = (float(ln["txn_tax_amount"]) if in_txn and ln["txn_tax_amount"] is not None
+                   else float(ln["tax_amount"] or 0) * ratio)
+            lines_by_inv.setdefault(ln["invoice_id"], []).append({
+                "name": ln["name"], "quantity": qty, "unit": ln["unit"],
+                "unit_price": money(price), "discount": money(disc),
+                "net": money(max(0.0, qty * price - disc)), "tax": money(tax),
+            })
+
     # One list of movements: an invoice adds to what is owed, a payment reduces
     # it. Sorted together so the running balance reads the way it happened.
     movements = []
@@ -399,6 +430,7 @@ def client_statement(client_id: int,
                              else i["amount"]),
             "paid": 0.0,
             "base_charged": money(i["amount"]), "base_paid": 0.0,
+            "lines": lines_by_inv.get(i["id"], []),
         })
     for p in payments:
         movements.append({

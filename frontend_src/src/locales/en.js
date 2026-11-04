@@ -1464,6 +1464,14 @@ const en = {
   },
 
   clients: {
+    showInvoiceDetails: 'Show invoice details',
+    clickForItems: 'Click to see the items',
+    item: 'Item',
+    qty: 'Qty',
+    unitPrice: 'Unit price',
+    discount: 'Discount',
+    amount: 'Amount',
+    vat: 'VAT',
     planLivesOnOverview: 'Terms for the whole account are agreed on the Overview tab, under Payment Plan. This payment counts towards them automatically.',
     notOnPlan: 'Not on a payment plan. The full balance is due as each invoice falls due.',
     planSplitHint: 'The plan always adds up to {{total}}, the whole account balance. Leave the deposit blank to divide it equally.',
