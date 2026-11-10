@@ -1,6 +1,7 @@
 // Inventory — items list with stock ops, lots browser, and product builder.
 // Forms/modals live in ./inventory/ — this file is the main list + tabs.
 import { useState, useEffect, useCallback, useMemo } from 'react';
+import { useNavigate } from 'react-router-dom';
 import { usePersistedState } from '../hooks/usePersistedState';
 import { useSortPaginate } from '../hooks/useSortPaginate';
 import { useLocale } from '../hooks/useLocale.jsx';
@@ -29,6 +30,7 @@ import AddVariantModal from './inventory/AddVariantModal';
 import SearchSelect from '../components/SearchSelect.jsx';
 
 export default function Inventory() {
+  const navigate = useNavigate();
   const { t, tCategory } = useLocale();
   const [view, setView] = useState('items');   // 'items' | 'lots'
   const [search, setSearch] = usePersistedState('inventory.search', '');
@@ -289,6 +291,11 @@ export default function Inventory() {
                   onClick={() => { setActiveItem(item); setModal('stock'); }} />
                 <IconButton icon="clock" label={t('common.history')}
                   onClick={() => { setActiveItem(item); setModal('history'); }} />
+                {/* The item's full ledger: sales and buyers, purchases, returns. */}
+                {can('reports') && (
+                  <IconButton icon="book-open" label={t('inventory.itemLedger')}
+                    onClick={() => navigate(`/reports?report=itemLedger&item=${item.id}`)} />
+                )}
                 <IconButton icon="pencil" label={t('common.edit')}
                   onClick={() => { setActiveItem(item); setModal('edit'); }} />
                 <IconButton icon="archive" label={t('common.archive')} className="btn btn-sm btn-danger"

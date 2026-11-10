@@ -1581,3 +1581,267 @@ def report_top_items(
     return {"start": start, "end": end, "sort": sort, "show_cost": show_cost,
             "totals": totals, "items": items[:limit], "unsold": unsold[:50],
             "unsold_count": len(unsold)}
+
+
+# ── Item ledger ──────────────────────────────────────────────────────────────
+# One item's whole story over a period: every sale and who bought it, every
+# purchase and from whom, every return, and every stock movement with the
+# balance it left. The questions it answers are the ones asked about a single
+# product --- how much of it sells, to whom, at what price, how often it comes
+# back, and where the stock went.
+#
+# Sales follow the same rules as Top selling items, so the two reports agree:
+# till sales included; net of every discount and before VAT; a line typed with
+# the item's exact name (case and spacing aside) counts as the item; cost from
+# where the goods actually left, otherwise today's cost marked as an estimate.
+# What the item cost --- purchase prices, cost, profit, stock value --- is
+# withheld without the `costs` permission.
+def _ledger_status(amount, paid):
+    if paid >= amount - 0.005 and amount > 0:
+        return "Paid"
+    return "Partial" if paid > 0.005 else "Unpaid"
+
+
+@router.get("/item-ledger")
+def report_item_ledger(
+    inventory_id: int = Query(...),
+    start: Optional[str] = Query(None),
+    end:   Optional[str] = Query(None),
+    branch_id: Optional[int] = Query(None),
+    user=Depends(require_perm("reports", "view")),
+    db: sqlite3.Connection = Depends(get_db),
+):
+    start = (start or _year_start())[:10]
+    end = (end or _today())[:10]
+    item = db.execute("SELECT * FROM inventory WHERE id = ?", (inventory_id,)).fetchone()
+    if not item:
+        raise HTTPException(404, "Item not found")
+    show_cost = _can_perm(user, db, "costs")
+    name = (item["name"] or "").strip()
+    is_item = ("(ii.inventory_id = ? OR (ii.inventory_id IS NULL "
+               " AND LOWER(TRIM(ii.name)) = LOWER(TRIM(?))))")
+    bf, bp = branch_access.branch_filter(user, db, column="i.branch_id", selected=branch_id)
+    rf, rp = branch_access.branch_filter(user, db, column="r.branch_id", selected=branch_id)
+    pf, pp = branch_access.branch_filter(user, db, column="p.warehouse_id", selected=branch_id)
+    mf, mp = branch_access.branch_filter(user, db, column="m.warehouse_id", selected=branch_id)
+    unit_cost_now = float(item["unit_cost"] or 0)
+
+    # ── Sales ────────────────────────────────────────────────────────────
+    sales = []
+    for ln in db.execute(
+            "SELECT ii.id, ii.quantity, ii.unit, ii.unit_price, ii.discount, ii.doc_discount, "
+            "       ii.tax_amount, ii.stock_quantity, ii.stock_unit_cost, "
+            "       i.id AS invoice_id, i.invoice_number, i.created_at, i.amount, "
+            "       i.source_type, i.service_job_id, i.client_id, c.name AS client_name, "
+            "       psi.unit_cost AS pos_cost "
+            "  FROM invoice_items ii "
+            "  JOIN invoices i ON i.id = ii.invoice_id "
+            "  LEFT JOIN clients c ON c.id = i.client_id "
+            "  LEFT JOIN pos_sale_items psi ON psi.invoice_item_id = ii.id "
+            f" WHERE {is_item} AND i.voided_at IS NULL AND i.archived_at IS NULL "
+            "   AND COALESCE(i.approval_status, '') <> 'Pending Approval' "
+            "   AND DATE(i.created_at) BETWEEN ? AND ?" + bf +
+            " ORDER BY i.created_at, ii.id",
+            (inventory_id, name, start, end, *bp)).fetchall():
+        qty = float(ln["quantity"] or 0)
+        if qty <= 0:
+            continue
+        disc = float(ln["discount"] or 0) + float(ln["doc_discount"] or 0)
+        net = max(0.0, qty * float(ln["unit_price"] or 0) - disc)
+        if ln["pos_cost"] is not None:
+            cost, estimated = qty * float(ln["pos_cost"] or 0), False
+        elif float(ln["stock_quantity"] or 0) > 0:
+            cost, estimated = float(ln["stock_quantity"]) * float(ln["stock_unit_cost"] or 0), False
+        else:
+            cost, estimated = qty * unit_cost_now, True
+        sales.append({
+            "date": str(ln["created_at"])[:10], "invoice_id": ln["invoice_id"],
+            "invoice_number": ln["invoice_number"],
+            "source": ("service" if ln["service_job_id"] else
+                       "pos" if (ln["source_type"] or "") == "pos" else "invoice"),
+            "client_id": ln["client_id"], "client_name": ln["client_name"],
+            "quantity": round(qty, 6), "unit": ln["unit"] or item["unit"],
+            "unit_price": money(ln["unit_price"] or 0), "discount": money(disc),
+            "net": money(net), "tax": money(ln["tax_amount"] or 0),
+            "cost": money(cost), "cost_estimated": estimated,
+            "_amount": float(ln["amount"] or 0),
+        })
+    paid = {}
+    inv_ids = sorted({s["invoice_id"] for s in sales})
+    if inv_ids:
+        ph = ",".join("?" * len(inv_ids))
+        for p in db.execute(f"SELECT invoice_id, COALESCE(SUM(amount), 0) AS p FROM invoice_payments "
+                            f"WHERE invoice_id IN ({ph}) GROUP BY invoice_id", inv_ids).fetchall():
+            paid[p["invoice_id"]] = float(p["p"] or 0)
+    for s in sales:
+        s["payment_status"] = _ledger_status(s.pop("_amount"), paid.get(s["invoice_id"], 0.0))
+
+    # ── Returns: what customers brought back, and what went back to suppliers ─
+    returns_in = []
+    for r in db.execute(
+            "SELECT r.id, r.return_number, r.return_date, ri.quantity, ri.net, ri.condition, "
+            "       ri.stock_quantity, ri.unit_cost, i.invoice_number, i.client_id, "
+            "       c.name AS client_name "
+            "  FROM sales_return_items ri "
+            "  JOIN sales_returns r ON r.id = ri.return_id "
+            "  JOIN invoices i ON i.id = r.invoice_id "
+            "  LEFT JOIN clients c ON c.id = r.client_id "
+            "  LEFT JOIN invoice_items ii ON ii.id = ri.invoice_item_id "
+            " WHERE (ri.inventory_id = ? OR (ri.inventory_id IS NULL "
+            "        AND LOWER(TRIM(ri.name)) = LOWER(TRIM(?)))) "
+            "   AND r.voided_at IS NULL AND r.return_date BETWEEN ? AND ?" + rf +
+            " ORDER BY r.return_date, r.id",
+            (inventory_id, name, start, end, *rp)).fetchall():
+        returns_in.append({
+            "date": str(r["return_date"])[:10], "return_id": r["id"],
+            "return_number": r["return_number"], "invoice_number": r["invoice_number"],
+            "client_id": r["client_id"], "client_name": r["client_name"],
+            "quantity": round(float(r["quantity"] or 0), 6), "net": money(r["net"] or 0),
+            "condition": r["condition"],
+            "restocked_cost": money(float(r["stock_quantity"] or 0) * float(r["unit_cost"] or 0))
+            if r["condition"] == "restock" else 0.0,
+        })
+    returns_out = []
+    for r in db.execute(
+            "SELECT p.id, p.return_number, p.return_date, p.supplier, pri.quantity, pri.net, "
+            "       pri.landed_unit_cost, pu.po_number "
+            "  FROM purchase_return_items pri "
+            "  JOIN purchase_returns p ON p.id = pri.return_id "
+            "  JOIN purchases pu ON pu.id = p.purchase_id "
+            " WHERE pri.inventory_id = ? AND p.voided_at IS NULL "
+            "   AND p.return_date BETWEEN ? AND ?" + pf +
+            " ORDER BY p.return_date, p.id",
+            (inventory_id, start, end, *pp)).fetchall():
+        returns_out.append({
+            "date": str(r["return_date"])[:10], "return_id": r["id"],
+            "return_number": r["return_number"], "po_number": r["po_number"],
+            "supplier": r["supplier"], "quantity": round(float(r["quantity"] or 0), 6),
+            "net": money(r["net"] or 0),
+        })
+
+    # ── Purchases ────────────────────────────────────────────────────────
+    purchases = []
+    for r in db.execute(
+            "SELECT p.id, p.po_number, p.supplier, p.status, p.ordered_at, p.received_at, "
+            "       pi.quantity, pi.unit_cost, pi.landed_unit_cost, pi.line_total "
+            "  FROM purchase_items pi JOIN purchases p ON p.id = pi.purchase_id "
+            " WHERE pi.inventory_id = ? AND p.voided_at IS NULL AND p.archived_at IS NULL "
+            "   AND DATE(COALESCE(p.received_at, p.ordered_at)) BETWEEN ? AND ?" + pf +
+            " ORDER BY COALESCE(p.received_at, p.ordered_at), p.id",
+            (inventory_id, start, end, *pp)).fetchall():
+        purchases.append({
+            "date": str(r["received_at"] or r["ordered_at"] or "")[:10], "purchase_id": r["id"],
+            "po_number": r["po_number"], "supplier": r["supplier"], "status": r["status"],
+            "received": bool(r["received_at"]),
+            "quantity": round(float(r["quantity"] or 0), 6),
+            "unit_cost": money(r["unit_cost"] or 0),
+            "landed_unit_cost": money(r["landed_unit_cost"] or 0),
+            "total": money(r["line_total"] or 0),
+        })
+
+    # ── Stock movements, with the balance each one left ─────────────────
+    movements = [dict(m) for m in db.execute(
+        "SELECT m.id, m.created_at, m.type, m.delta, m.qty_before, m.qty_after, "
+        "       m.reference, m.note, w.name AS warehouse "
+        "  FROM stock_movements m LEFT JOIN warehouses w ON w.id = m.warehouse_id "
+        " WHERE m.inventory_id = ? AND DATE(m.created_at) BETWEEN ? AND ?" + mf +
+        " ORDER BY m.created_at, m.id LIMIT 5000",
+        (inventory_id, start, end, *mp)).fetchall()]
+
+    # ── Roll-ups ────────────────────────────────────────────────────────
+    by_client = {}
+    for s in sales:
+        k = s["client_id"] or 0
+        g = by_client.setdefault(k, {"client_id": s["client_id"], "client_name": s["client_name"],
+                                     "quantity": 0.0, "returned": 0.0, "net_sales": 0.0,
+                                     "_inv": set(), "last_date": None})
+        g["quantity"] += s["quantity"]
+        g["net_sales"] += s["net"]
+        g["_inv"].add(s["invoice_id"])
+        g["last_date"] = max(g["last_date"] or "", s["date"]) or None
+    for r in returns_in:
+        g = by_client.setdefault(r["client_id"] or 0, {
+            "client_id": r["client_id"], "client_name": r["client_name"], "quantity": 0.0,
+            "returned": 0.0, "net_sales": 0.0, "_inv": set(), "last_date": None})
+        g["returned"] += r["quantity"]
+        g["net_sales"] -= r["net"]
+    customers = []
+    for g in by_client.values():
+        customers.append({
+            "client_id": g["client_id"], "client_name": g["client_name"],
+            "quantity": round(g["quantity"] - g["returned"], 6),
+            "returned": round(g["returned"], 6), "net_sales": money(g["net_sales"]),
+            "invoices": len(g["_inv"]), "last_date": g["last_date"],
+        })
+    customers.sort(key=lambda g: (g["quantity"], g["net_sales"]), reverse=True)
+
+    months = {}
+    for s in sales:
+        m = months.setdefault(s["date"][:7], {"month": s["date"][:7], "quantity": 0.0, "net_sales": 0.0})
+        m["quantity"] += s["quantity"]
+        m["net_sales"] += s["net"]
+    for r in returns_in:
+        m = months.setdefault(r["date"][:7], {"month": r["date"][:7], "quantity": 0.0, "net_sales": 0.0})
+        m["quantity"] -= r["quantity"]
+        m["net_sales"] -= r["net"]
+    monthly = [{"month": k, "quantity": round(v["quantity"], 6), "net_sales": money(v["net_sales"])}
+               for k, v in sorted(months.items())]
+
+    qty_sold = sum(s["quantity"] for s in sales)
+    qty_back = sum(r["quantity"] for r in returns_in)
+    gross = sum(s["net"] for s in sales)
+    back = sum(r["net"] for r in returns_in)
+    cost = sum(s["cost"] for s in sales) - sum(r["restocked_cost"] for r in returns_in)
+    net_qty = round(qty_sold - qty_back, 6)
+    net_sales = money(gross - back)
+    received = [p for p in purchases if p["received"]]
+    summary = {
+        "quantity_sold": round(qty_sold, 6), "quantity_returned": round(qty_back, 6),
+        "net_quantity": net_qty, "sales": money(gross), "returns": money(back),
+        "net_sales": net_sales,
+        "average_price": money(net_sales / net_qty) if net_qty > 0 else None,
+        "customers": len([c for c in customers if c["quantity"] > 0 or c["net_sales"] > 0]),
+        "invoices": len(inv_ids),
+        "first_sale": sales[0]["date"] if sales else None,
+        "last_sale": sales[-1]["date"] if sales else None,
+        "quantity_purchased": round(sum(p["quantity"] for p in received), 6),
+        "quantity_returned_to_suppliers": round(sum(r["quantity"] for r in returns_out), 6),
+        "cost": money(max(cost, 0.0)),
+        "profit": money(net_sales - max(cost, 0.0)),
+        "cost_estimated": any(s["cost_estimated"] for s in sales),
+        "purchase_value": money(sum(p["total"] for p in received)),
+    }
+    summary["margin_pct"] = (round(summary["profit"] / net_sales * 100, 1)
+                             if net_sales > 0 else None)
+
+    out_item = {
+        "id": item["id"], "name": item["name"], "category": item["category"],
+        "unit": item["unit"], "sku": item["sku"] if "sku" in item.keys() else None,
+        "barcode": item["barcode"] if "barcode" in item.keys() else None,
+        "on_hand": round(float(item["quantity"] or 0), 6),
+        "sale_price": money(item["sale_price"] or 0),
+        "unit_cost": money(unit_cost_now),
+        "stock_value": money(float(item["quantity"] or 0) * unit_cost_now),
+        "min_stock": float(item["min_stock"] or 0) if "min_stock" in item.keys() else 0,
+    }
+
+    if not show_cost:
+        for k in ("cost", "profit", "margin_pct", "cost_estimated", "purchase_value"):
+            summary.pop(k, None)
+        for k in ("unit_cost", "stock_value"):
+            out_item.pop(k, None)
+        for s in sales:
+            s.pop("cost", None)
+            s.pop("cost_estimated", None)
+        for r in returns_in:
+            r.pop("restocked_cost", None)
+        for p in purchases:
+            for k in ("unit_cost", "landed_unit_cost", "total"):
+                p.pop(k, None)
+        for r in returns_out:
+            r.pop("net", None)
+
+    return {"start": start, "end": end, "show_cost": show_cost, "item": out_item,
+            "summary": summary, "sales": sales, "customers": customers, "monthly": monthly,
+            "purchases": purchases, "returns_in": returns_in, "returns_out": returns_out,
+            "movements": movements}

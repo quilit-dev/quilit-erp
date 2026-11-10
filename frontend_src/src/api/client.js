@@ -432,6 +432,7 @@ export const getReportInvoiceAging = (s)              => api.get('/api/reports/i
 export const getReportExpenses     = (params = {}, s) => api.get(`/api/reports/expenses${_qs(params)}`, s);
 export const getReportProfitSummary = (params = {}, s) => api.get(`/api/reports/profit-summary${_qs(params)}`, s);
 export const getReportTopItems      = (params = {}, s) => api.get(`/api/reports/top-items${_qs(params)}`, s);
+export const getReportItemLedger    = (params = {}, s) => api.get(`/api/reports/item-ledger${_qs(params)}`, s);
 export const getReportPipeline     = (params = {}, s) => api.get(`/api/reports/pipeline${_qs(params)}`, s);
 export const getReportVAT          = (params = {}, s) => api.get(`/api/reports/vat${_qs(params)}`, s);
 export const getBranchComparison   = (params = {}, s) => api.get(`/api/reports/branch-comparison${_qs(params)}`, s);

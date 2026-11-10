@@ -1,4 +1,5 @@
 import { useState, useEffect } from 'react';
+import { useSearchParams } from 'react-router-dom';
 import { usePersistedState } from '../hooks/usePersistedState';
 import { useLocale } from '../hooks/useLocale.jsx';
 import { getBranchContext } from '../api/client';
@@ -18,6 +19,7 @@ import { WarehouseValuationReport } from './reports/WarehouseValuationReport';
 import { ServiceReport } from './reports/ServiceReport';
 import { ProfitSummaryReport } from './reports/ProfitSummaryReport';
 import { TopItemsReport } from './reports/TopItemsReport';
+import { ItemLedgerReport } from './reports/ItemLedgerReport';
 
 export default function Reports() {
   const { t, tEnumValue } = useLocale();
@@ -26,6 +28,12 @@ export default function Reports() {
   const { can } = usePermissions();
   const canProfit = can('profit_report');
   const [activeReport, setActiveReport] = usePersistedState('reports_active', 'profit');
+  // A link straight to a report (an inventory row's Ledger button sends
+  // ?report=itemLedger&item=<id>): open that tab, on that item.
+  const [searchParams] = useSearchParams();
+  const linkedReport = searchParams.get('report');
+  const linkedItem = searchParams.get('item');
+  useEffect(() => { if (linkedReport) setActiveReport(linkedReport); }, [linkedReport]);
   // Branch comparison tab appears only for global users (superadmin / owner)
   // who can actually see more than one branch.
   const [multiBranch, setMultiBranch] = useState(false);
@@ -70,6 +78,8 @@ export default function Reports() {
     ...(canProfit ? [{ key: 'profit', label: t('reports.profitSummary') }] : []),
     // What sells, what it earns, and what sits on the shelf.
     { key: 'topItems',    label: t('reports.topItems')       },
+    // One item's sales, buyers, purchases, returns and stock movements.
+    { key: 'itemLedger',  label: t('reports.itemLedger')     },
     { key: 'projects',    label: t('reports.projects')       },
     { key: 'clients',     label: t('reports.clients')        },
     { key: 'aging',       label: t('reports.aging')          },
@@ -132,6 +142,7 @@ export default function Reports() {
       {/* Report content — full width */}
       {current === 'profit' && canProfit && <ProfitSummaryReport t={t} />}
       {current === 'topItems'  && <TopItemsReport  params={appliedRange} t={t} />}
+      {current === 'itemLedger' && <ItemLedgerReport params={appliedRange} t={t} initialItem={linkedItem} />}
       {current === 'projects'  && <ProjectsReport  params={appliedRange} t={t} />}
       {current === 'clients'   && <ClientsReport   params={appliedRange} t={t} tEnumValue={tEnumValue} />}
       {current === 'aging'     && <AgingReport      t={t} />}
