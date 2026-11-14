@@ -650,6 +650,8 @@ export default function Invoices() {
                   <SortableTh label={t('invoices.paidHeader')}    sortKey="total_paid"     currentKey={sortKey} currentDir={sortDir} onSort={requestSort} />
                   <SortableTh label={t('invoices.remaining')}     sortKey="remaining"      currentKey={sortKey} currentDir={sortDir} onSort={requestSort} />
                   <SortableTh label={t('common.status')}          sortKey="payment_status" currentKey={sortKey} currentDir={sortDir} onSort={requestSort} />
+                  {/* When the invoice was raised, so it reads without opening it. */}
+                  <SortableTh label={t('common.date')}            sortKey="created_at"     currentKey={sortKey} currentDir={sortDir} onSort={requestSort} />
                   <th>{t('common.actions')}</th>
                 </tr>
               </thead>
@@ -684,6 +686,7 @@ export default function Invoices() {
                         {fmt(inv.remaining ?? (inv.amount - (inv.total_paid||0)))}
                       </td>
                       <td><Badge status={inv.is_overdue ? 'Overdue' : inv.payment_status} /></td>
+                      <td style={{ whiteSpace: 'nowrap', color: 'var(--text-2)' }}>{fmtDate(inv.created_at)}</td>
                       <td>
                         <ActionMenu
                           inv={inv}

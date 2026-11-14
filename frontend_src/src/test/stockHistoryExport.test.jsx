@@ -32,4 +32,9 @@ describe('invoice list', () => {
     expect(invoicesSrc).not.toContain('sortKey="due_date"');
     expect(invoicesSrc).toContain("<Badge status={inv.is_overdue ? 'Overdue' : inv.payment_status} />");
   });
+
+  test('shows the date each invoice was raised, sortable', () => {
+    expect(invoicesSrc).toContain('sortKey="created_at"');
+    expect(invoicesSrc).toContain('{fmtDate(inv.created_at)}');
+  });
 });
