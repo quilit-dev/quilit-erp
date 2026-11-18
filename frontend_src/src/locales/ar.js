@@ -3663,6 +3663,8 @@ const ar = {
     service: 'الخدمة',
     revenue: 'الإيرادات',
     revenueBySource: 'الإيراد حسب المصدر',
+    onPlan: 'على خطة تقسيط: فقط الأقساط المستحقة ضمن هذه التواريخ',
+    overdueBefore: '+ {{amount}} متأخرة من قبل',
     activeClients: 'العملاء الناشطون',
     clientRevenue: 'إيرادات العملاء',
     expenseAnalysis: 'تحليل المصروفات',

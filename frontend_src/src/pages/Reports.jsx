@@ -47,7 +47,7 @@ export default function Reports() {
   const [preset, setPreset]             = usePersistedState('reports_preset', 'year');
   const [custom, setCustom]             = usePersistedState('reports_custom', {
     start: `${new Date().getFullYear()}-01-01`,
-    end:   new Date().toISOString().slice(0, 10),
+    end:   new Date().toLocaleDateString('en-CA'),   // local today, YYYY-MM-DD
   });
   const [appliedRange, setAppliedRange] = useState(getRange(preset, custom));
 

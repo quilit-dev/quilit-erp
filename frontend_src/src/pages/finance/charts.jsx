@@ -3,7 +3,14 @@ import { useLocale } from '../../hooks/useLocale.jsx';
 import { useSettings } from '../../hooks/useSettings.jsx';
 import { DisplayCurrencyToggle, Icon } from '../../components/shared';
 
-function toISO(d) { return d.toISOString().slice(0, 10); }
+// The calendar date as the user sees it. toISOString() converts to UTC first,
+// which in Lebanon (UTC+2/+3) turns local midnight into the PREVIOUS day: "this
+// month" went out as 31 Oct – 29 Nov, dropping the last day and taking one
+// from the month before.
+function toISO(d) {
+  const p = (n) => String(n).padStart(2, '0');
+  return `${d.getFullYear()}-${p(d.getMonth() + 1)}-${p(d.getDate())}`;
+}
 
 function getRange(preset, custom) {
   const now = new Date();

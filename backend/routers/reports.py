@@ -287,9 +287,81 @@ def report_clients(
         d = dict(r)
         d["outstanding"] = max(0, d["total_invoiced"] - d["total_paid"])
         d["revenue_by_source"] = by_source.get(d["id"], {})
+        d["on_plan"] = False
+        d["overdue_before"] = 0.0
+        plan_due = _plan_due_in_range(db, d["id"], start, end, bf_i, bp_i)
+        if plan_due is not None:
+            d["outstanding"], d["overdue_before"] = plan_due
+            d["on_plan"] = True
         result.append(d)
 
     return result
+
+
+def _plan_due_in_range(db, client_id, start, end, bf_i="", bp_i=()):
+    """What a customer on a payment plan has falling due between `start` and
+    `end`, and what was already overdue before `start`.
+
+    For a customer paying by instalments, "outstanding" over a chosen period is
+    the instalments that fall due in it, not the whole balance: someone on
+    eight monthly payments owes one of them this month. Settlement is derived
+    the same way everywhere else (`installments.allocate`, oldest first), so
+    this agrees with the plan panel and the aging report.
+
+    Counted: the account plan's instalments, each invoice plan's instalments,
+    and, at their full remaining amount, invoices raised in the period that no
+    plan covers (an invoice raised after the account plan was agreed is owed
+    but is not part of it). Returns None for a customer with no plan, whose
+    figures stay as they were.
+    """
+    today = date.today().isoformat()
+    due = 0.0
+    before = 0.0
+    found = False
+
+    def take(lines):
+        nonlocal due, before
+        for ln in lines:
+            when = str(ln["due_date"])[:10]
+            if start <= when <= end:
+                due += ln["remaining"]
+            elif when < start and when < today:   # already late, not merely earlier
+                before += ln["remaining"]
+
+    acct = installments.plan_state(db, client_id, today=today)
+    if acct:
+        found = True
+        take(acct["installments"])
+
+    invs = db.execute(
+        f"""SELECT i.id, i.amount, i.created_at,
+                   COALESCE((SELECT SUM(ip.amount) FROM invoice_payments ip
+                             WHERE ip.invoice_id = i.id), 0) AS paid,
+                   EXISTS(SELECT 1 FROM invoice_installments t
+                          WHERE t.invoice_id = i.id) AS has_plan
+              FROM invoices i
+             WHERE i.client_id = ? AND i.voided_at IS NULL
+               AND i.archived_at IS NULL
+               AND COALESCE(i.approval_status, '') != 'Pending Approval'{bf_i}""",
+        (client_id, *bp_i)).fetchall()
+    loose = []
+    for inv in invs:
+        if inv["has_plan"]:
+            found = True
+            take(installments.plan_for(db, inv["id"], inv["paid"], today=today))
+        else:
+            loose.append(inv)
+    if not found:
+        return None
+
+    covered_until = (acct or {}).get("created_at") or ""
+    for inv in loose:
+        created = str(inv["created_at"] or "")
+        if acct and created <= covered_until:
+            continue            # part of the balance the account plan schedules
+        if start <= created[:10] <= end:
+            due += max(0.0, float(inv["amount"] or 0) - float(inv["paid"] or 0))
+    return money(due), money(before)
 
 
 # ── 4. Invoice Aging ─────────────────────────────────────────────────────────

@@ -365,6 +365,10 @@ def range_detail(
 ):
     bf_i, bp_i = branch_access.branch_filter(user, db, column="i.branch_id", selected=branch_id)
     bf_e, bp_e = branch_access.branch_filter(user, db, column="e.branch_id", selected=branch_id)
+    # The detail behind the totals must follow the totals' own rules
+    # (`_income_in_range`, `_expenses_in_range`). A voided invoice keeps its
+    # payment rows, so without the void filter here a client with a 900 sale
+    # and a voided 1,000 one read as 1,900 received.
     payments = db.execute(
         """SELECT ip.paid_at AS date, ip.amount, ip.method,
                   i.invoice_number, ip.note,
@@ -374,7 +378,8 @@ def range_detail(
            JOIN invoices i ON ip.invoice_id = i.id
            LEFT JOIN clients c ON i.client_id = c.id
            LEFT JOIN projects p ON i.project_id = p.id
-           WHERE DATE(ip.paid_at) >= ? AND DATE(ip.paid_at) <= ?""" + bf_i +
+           WHERE DATE(ip.paid_at) >= ? AND DATE(ip.paid_at) <= ?
+             AND i.voided_at IS NULL AND i.archived_at IS NULL""" + bf_i +
         " ORDER BY ip.paid_at DESC",
         (start, end, *bp_i),
     ).fetchall()
@@ -385,6 +390,7 @@ def range_detail(
            FROM expenses e
            LEFT JOIN projects p ON e.project_id = p.id
            WHERE e.archived_at IS NULL AND e.voided_at IS NULL
+             AND COALESCE(e.status,'') NOT IN ('Pending Approval','Rejected')
              AND DATE(e.date) >= ? AND DATE(e.date) <= ?""" + bf_e +
         " ORDER BY e.date DESC",
         (start, end, *bp_e),

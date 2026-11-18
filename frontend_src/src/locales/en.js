@@ -3713,6 +3713,8 @@ const en = {
     service: 'Service',
     revenue: 'Revenue',
     revenueBySource: 'Revenue by source',
+    onPlan: 'On a payment plan: only the instalments due in these dates',
+    overdueBefore: '+ {{amount}} overdue from before',
     activeClients: 'Active clients',
     clientRevenue: 'Client Revenue',
     expenseAnalysis: 'Expense Analysis',

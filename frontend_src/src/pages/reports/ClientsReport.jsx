@@ -124,7 +124,18 @@ function ClientsReport({ params, t, tEnumValue }) {
                             </div>
                           )}
                       </td>
-                      <td style={{ textAlign: 'right', color: c.outstanding > 0 ? 'var(--red)' : 'var(--text-3)' }}>{fmt(c.outstanding)}</td>
+                      <td style={{ textAlign: 'right', color: c.outstanding > 0 ? 'var(--red)' : 'var(--text-3)' }}>
+                        {/* On a payment plan, "outstanding" for the chosen dates is the
+                            instalments falling due in them, not the whole balance. */}
+                        <span title={c.on_plan ? t('reports.onPlan') : undefined}>
+                          {fmt(c.outstanding)}{c.on_plan && <span className="badge badge-gray" style={{ marginInlineStart: 6, fontWeight: 500 }}>{t('installments.title')}</span>}
+                        </span>
+                        {c.on_plan && c.overdue_before > 0.005 && (
+                          <div style={{ fontSize: 11.5, color: 'var(--red)', marginTop: 2 }}>
+                            {t('reports.overdueBefore', { amount: fmt(c.overdue_before) })}
+                          </div>
+                        )}
+                      </td>
                     </tr>
                   ))}
                 </tbody>
