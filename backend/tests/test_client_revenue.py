@@ -162,3 +162,19 @@ def test_instalments_missed_before_the_period_are_reported_beside_it(client, acm
     march = _row(client, acme, start="2026-03-01", end="2026-03-31")
     assert march["outstanding"] == _pytest.approx(300)
     assert march["overdue_before"] == _pytest.approx(600), "January and February, still unpaid"
+
+
+# ── Invoice Aging follows the period chosen on the Reports page ───────────
+def test_invoice_aging_shows_the_unpaid_invoices_issued_in_the_chosen_period(client, acme):
+    from datetime import date, timedelta
+    inv = _invoice(client, acme, 700)
+    today = date.today()
+    nos = lambda **p: {r["id"] for r in client.get("/api/reports/invoice-aging", params=p).json()["invoices"]}
+
+    assert inv in nos(), "no period: everything unpaid, as before"
+    assert inv in nos(start=str(today), end=str(today))
+    gone = nos(start=str(today - timedelta(days=60)), end=str(today - timedelta(days=30)))
+    assert inv not in gone, "issued today, so not in a period that ended last month"
+    summary = client.get("/api/reports/invoice-aging",
+                         params={"start": "2000-01-01", "end": "2000-12-31"}).json()["summary"]
+    assert sum(b["total"] for b in summary.values()) == 0, "the totals follow the period too"

@@ -3664,6 +3664,8 @@ const ar = {
     revenue: 'الإيرادات',
     revenueBySource: 'الإيراد حسب المصدر',
     onPlan: 'على خطة تقسيط: فقط الأقساط المستحقة ضمن هذه التواريخ',
+    agingSearch: 'ابحث عن عميل أو رقم فاتورة',
+    agingNoMatch: 'لا توجد فاتورة غير مدفوعة تطابق البحث.',
     overdueBefore: '+ {{amount}} متأخرة من قبل',
     activeClients: 'العملاء الناشطون',
     clientRevenue: 'إيرادات العملاء',

@@ -428,7 +428,7 @@ export function restoreBackup(file) {
 // Reports
 export const getReportProjects     = (params = {}, s) => api.get(`/api/reports/projects${_qs(params)}`, s);
 export const getReportClients      = (params = {}, s) => api.get(`/api/reports/clients${_qs(params)}`, s);
-export const getReportInvoiceAging = (s)              => api.get('/api/reports/invoice-aging', s);
+export const getReportInvoiceAging = (params = {}, s) => api.get(`/api/reports/invoice-aging${_qs(params)}`, s);
 export const getReportExpenses     = (params = {}, s) => api.get(`/api/reports/expenses${_qs(params)}`, s);
 export const getReportProfitSummary = (params = {}, s) => api.get(`/api/reports/profit-summary${_qs(params)}`, s);
 export const getReportTopItems      = (params = {}, s) => api.get(`/api/reports/top-items${_qs(params)}`, s);

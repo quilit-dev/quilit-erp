@@ -3,23 +3,37 @@ import { LoadingSpinner, ErrorAlert, fmt, fmtDate } from '../../components/share
 import { getReportInvoiceAging } from '../../api/client';
 import { StatCard, AgingBucketBar, ExportButtons } from './charts';
 
-function AgingReport({ t }) {
+function AgingReport({ params, t }) {
   const [data, setData]       = useState(null);
   const [loading, setLoading] = useState(true);
   const [error, setError]     = useState(null);
+  const [search, setSearch]   = useState('');
 
+  // The period at the top of Reports picks which unpaid invoices are shown, by
+  // the date they were issued; each is still aged as of today. It used to be
+  // ignored, so changing the dates changed nothing here.
+  const start = params?.start, end = params?.end;
   useEffect(() => {
+    let alive = true;
     setLoading(true);
-    getReportInvoiceAging()
-      .then(setData).catch(e => setError(e.message))
-      .finally(() => setLoading(false));
-  }, []);
+    setError(null);
+    getReportInvoiceAging({ start, end })
+      .then(d => { if (alive) setData(d); })
+      .catch(e => { if (alive) setError(e.message); })
+      .finally(() => { if (alive) setLoading(false); });
+    return () => { alive = false; };
+  }, [start, end]);
 
   if (loading) return <LoadingSpinner />;
   if (error)   return <ErrorAlert message={error} />;
   if (!data)   return null;
 
-  const { summary, invoices } = data;
+  const { summary } = data;
+  const q = search.trim().toLowerCase();
+  const invoices = q
+    ? data.invoices.filter(r => [r.invoice_number, r.client_name, r.project_name]
+        .some(v => (v || '').toLowerCase().includes(q)))
+    : data.invoices;
   const totalUnpaid = Object.values(summary).reduce((s, b) => s + (b.total || 0), 0);
   const totalCount  = Object.values(summary).reduce((s, b) => s + (b.count || 0), 0);
 
@@ -65,12 +79,17 @@ function AgingReport({ t }) {
       <div className="card">
         <div className="card-header">
           <span className="card-title">{t('reports.aging')}</span>
+          <input className="form-control" type="search" value={search}
+            onChange={e => setSearch(e.target.value)}
+            placeholder={t('reports.agingSearch')} aria-label={t('reports.agingSearch')}
+            style={{ maxWidth: 260, marginInlineStart: 'auto', marginInlineEnd: 8 }} />
           <ExportButtons
             rows={invoices} columns={agingCols}
             baseName="invoice_aging" pdfTitle={t('reports.aging') || 'Invoice Aging'} t={t} />
         </div>
         {invoices.length === 0
-          ? <div style={{ padding: '28px', textAlign: 'center', color: 'var(--green)', fontSize: 13 }}>{t('reports.noOverdue')}</div>
+          ? <div style={{ padding: '28px', textAlign: 'center', color: q ? 'var(--text-3)' : 'var(--green)', fontSize: 13 }}>
+              {q ? t('reports.agingNoMatch') : t('reports.noOverdue')}</div>
           : (
             <div className="table-wrap">
               <table>

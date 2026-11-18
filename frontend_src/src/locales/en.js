@@ -3714,6 +3714,8 @@ const en = {
     revenue: 'Revenue',
     revenueBySource: 'Revenue by source',
     onPlan: 'On a payment plan: only the instalments due in these dates',
+    agingSearch: 'Search client or invoice #',
+    agingNoMatch: 'No unpaid invoice matches this search.',
     overdueBefore: '+ {{amount}} overdue from before',
     activeClients: 'Active clients',
     clientRevenue: 'Client Revenue',

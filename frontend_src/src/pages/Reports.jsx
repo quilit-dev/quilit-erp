@@ -145,7 +145,7 @@ export default function Reports() {
       {current === 'itemLedger' && <ItemLedgerReport params={appliedRange} t={t} initialItem={linkedItem} />}
       {current === 'projects'  && <ProjectsReport  params={appliedRange} t={t} />}
       {current === 'clients'   && <ClientsReport   params={appliedRange} t={t} tEnumValue={tEnumValue} />}
-      {current === 'aging'     && <AgingReport      t={t} />}
+      {current === 'aging'     && <AgingReport      params={appliedRange} t={t} />}
       {current === 'expenses'  && <ExpensesReport   params={appliedRange} t={t} />}
       {current === 'pipeline'  && <PipelineReport   params={appliedRange} t={t} />}
       {current === 'vat'       && <VatReport        params={appliedRange} t={t} />}

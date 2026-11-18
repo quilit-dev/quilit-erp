@@ -367,6 +367,8 @@ def _plan_due_in_range(db, client_id, start, end, bf_i="", bp_i=()):
 # ── 4. Invoice Aging ─────────────────────────────────────────────────────────
 @router.get("/invoice-aging")
 def report_invoice_aging(
+    start: Optional[str] = Query(None),
+    end:   Optional[str] = Query(None),
     branch_id: Optional[int] = Query(None),
     user=Depends(require_perm("reports", "view")),
     db: sqlite3.Connection = Depends(get_db),
@@ -375,6 +377,15 @@ def report_invoice_aging(
 
     today = date.today()
     bf_i, bp_i = branch_access.branch_filter(user, db, column="i.branch_id", selected=branch_id)
+    # The period on the Reports page picks WHICH unpaid invoices to show, by
+    # the date they were issued; each is still aged as of today. Without it the
+    # page's date bar sat above this report doing nothing.
+    if start:
+        bf_i += " AND DATE(i.created_at) >= ?"
+        bp_i = (*bp_i, start[:10])
+    if end:
+        bf_i += " AND DATE(i.created_at) <= ?"
+        bp_i = (*bp_i, end[:10])
 
     invoices = db.execute(
         """SELECT
