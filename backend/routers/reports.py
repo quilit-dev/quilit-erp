@@ -354,7 +354,7 @@ def _plan_due_in_range(db, client_id, start, end, bf_i="", bp_i=()):
     if not found:
         return None
 
-    covered_until = (acct or {}).get("created_at") or ""
+    covered_until = str((acct or {}).get("created_at") or "")   # text on SQLite, a timestamp on Postgres
     for inv in loose:
         created = str(inv["created_at"] or "")
         if acct and created <= covered_until:
