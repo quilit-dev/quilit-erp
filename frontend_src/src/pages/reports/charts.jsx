@@ -561,9 +561,10 @@ function ExportButtons({ rows, columns, baseName, pdfTitle, subtitle, meta, tota
 // ── Date range bar ─────────────────────────────────────────────────────────
 function DateRangeBar({ preset, custom, onPreset, onCustom, onApply, t }) {
   return (
-    <div style={{ display: 'flex', alignItems: 'center', gap: 8, flexWrap: 'wrap' }}>
+    <div role="group" aria-label={t('reports.period')}
+         style={{ display: 'flex', alignItems: 'center', gap: 8, flexWrap: 'wrap' }}>
       {['month', '3months', 'year', 'custom'].map(p => (
-        <button key={p}
+        <button key={p} type="button" aria-pressed={preset === p}
           className={`btn btn-sm${preset === p ? ' btn-primary' : ' btn-secondary'}`}
           onClick={() => onPreset(p)}>
           {t(`reports.${p === '3months' ? 'last3Months' : p === 'month' ? 'thisMonth' : p === 'year' ? 'thisYear' : 'custom'}`)}

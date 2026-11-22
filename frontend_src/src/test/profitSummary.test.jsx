@@ -110,7 +110,10 @@ describe('around it', () => {
   test('the Reports page keeps the permission gate and its own dates', () => {
     expect(reportsSrc).toMatch(/const canProfit = can\('profit_report'\)/);
     expect(reportsSrc).toMatch(/current === 'profit' && canProfit && <ProfitSummaryReport t=\{t\} \/>/);
-    expect(reportsSrc).toMatch(/\{current !== 'profit' && \(/);
+    // The shared period is shown only for reports that read it, and the
+    // Profit Summary is not one: it picks its own from–to.
+    expect(reportsSrc).toMatch(/\{ key: 'profit', dated: false \}/);
+    expect(reportsSrc).toMatch(/\{meta\.dated && \(/);
   });
   test('the report PDF has a dense mode, on plain paper and on the letterhead', () => {
     expect(exportSrc).toMatch(/dense = false,/);

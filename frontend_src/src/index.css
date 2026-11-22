@@ -4817,3 +4817,98 @@ textarea.form-control {
   color: var(--cat-hue, var(--text-2));
   background: color-mix(in oklab, var(--cat-hue, var(--surface-3)) var(--cat-wash), var(--surface));
 }
+
+
+/* ── Reports: a grouped navigator beside the report ─────────────────────────
+   Thirteen reports as one tab strip wrapped onto two rows. A side navigator
+   grouped by the question each answers scales, scans, and keeps its place;
+   on a phone it becomes one native grouped picker. Logical properties
+   throughout so Arabic mirrors it correctly. */
+.reports-layout {
+  display: grid;
+  grid-template-columns: 232px minmax(0, 1fr);
+  gap: var(--space-5);
+  align-items: start;
+}
+.report-nav {
+  position: sticky;
+  top: calc(var(--header-h) + 16px);
+  max-height: calc(100vh - var(--header-h) - 32px);
+  display: flex;
+  flex-direction: column;
+  padding: var(--space-3);
+  overflow: hidden;
+}
+.report-nav-find { margin-bottom: var(--space-2); font-size: var(--fs-sm); }
+.report-nav-list { overflow-y: auto; margin-inline: calc(-1 * var(--space-1)); padding-inline: var(--space-1); }
+.report-nav-group + .report-nav-group { margin-top: var(--space-3); }
+.report-nav-heading {
+  font-size: var(--fs-2xs);
+  font-weight: 700;
+  letter-spacing: .07em;
+  text-transform: uppercase;
+  color: var(--text-3);
+  padding: 4px 10px;
+}
+.report-nav-item {
+  display: block;
+  width: 100%;
+  text-align: start;
+  font: inherit;
+  font-size: var(--fs-sm);
+  color: var(--text-2);
+  background: none;
+  border: 0;
+  border-radius: var(--r-sm);
+  padding: 7px 10px;
+  cursor: pointer;
+  position: relative;
+}
+.report-nav-item:hover { background: var(--surface-2); color: var(--text); }
+.report-nav-item:focus-visible { outline: none; box-shadow: var(--shadow-focus); }
+.report-nav-item.active {
+  background: var(--accent-tint);
+  color: var(--accent);
+  font-weight: 600;
+}
+.report-nav-item.active::before {
+  content: "";
+  position: absolute;
+  inset-block: 6px;
+  inset-inline-start: 0;
+  width: 3px;
+  border-radius: 2px;
+  background: var(--accent);
+}
+.report-nav-empty { padding: 10px; font-size: var(--fs-sm); color: var(--text-3); }
+.report-picker { display: none; }
+.report-main { min-width: 0; }
+.report-head {
+  display: flex;
+  justify-content: space-between;
+  align-items: flex-end;
+  gap: var(--space-4);
+  flex-wrap: wrap;
+  padding-bottom: var(--space-4);
+  margin-bottom: var(--space-5);
+  border-bottom: 1px solid var(--border);
+}
+.report-eyebrow {
+  font-size: var(--fs-2xs);
+  font-weight: 700;
+  letter-spacing: .07em;
+  text-transform: uppercase;
+  color: var(--accent);
+}
+.report-title { font-size: var(--fs-lg); font-weight: 700; margin: 2px 0 4px; letter-spacing: -0.01em; }
+.report-desc { margin: 0; font-size: var(--fs-sm); color: var(--text-3); max-width: 62ch; }
+.report-period { display: flex; flex-direction: column; align-items: flex-end; gap: 6px; }
+.report-period-shown { font-size: var(--fs-xs); color: var(--text-3); font-variant-numeric: tabular-nums; }
+
+@media (max-width: 900px) {
+  .reports-layout { grid-template-columns: minmax(0, 1fr); gap: var(--space-4); }
+  .report-nav { display: none; }
+  .report-picker { display: flex; flex-direction: column; gap: 4px; }
+  .report-picker .report-nav-heading { padding: 0; }
+  .report-period { align-items: flex-start; }
+}

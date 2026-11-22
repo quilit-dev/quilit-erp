@@ -8,7 +8,7 @@
 //
 // So the tab is gone, and the stored id is validated rather than trusted.
 import { describe, test, expect, vi, beforeEach } from 'vitest';
-import { render, screen, act } from '@testing-library/react';
+import { render, screen, act, fireEvent } from '@testing-library/react';
 import { existsSync } from 'node:fs';
 import { readFileSync } from 'node:fs';
 import { fileURLToPath } from 'node:url';
@@ -32,22 +32,33 @@ const src = readFileSync(join(here, '..', 'pages', 'Reports.jsx'), 'utf8');
 // is about, so they all resolve to nothing.
 vi.mock('../api/client', async (importOriginal) => {
   const actual = await importOriginal();
-  const stub = () => Promise.resolve([]);   // every report tolerates an empty list
-  return Object.fromEntries(Object.keys(actual).map(k => [k, stub]));
+  const stub = () => Promise.resolve([]);   // most reports read a list
+  // These two read a summary object, as the server always sends them.
+  const bucket = { count: 0, total: 0 };
+  const buckets = { current: bucket, '1_30': bucket, '31_60': bucket, '61_90': bucket, over_90: bucket };
+  const shaped = {
+    getReportInvoiceAging: () => Promise.resolve({ summary: buckets, invoices: [] }),
+    getReportPaymentPlans: () => Promise.resolve({
+      summary: { plans: 0, on_track: 0, late: 0, completed: 0, cancelled: 0, covered: 0, scheduled: 0,
+                 collected: 0, outstanding: 0, overdue: 0, overdue_installments: 0, due_in_period: 0,
+                 scheduled_in_period: 0, collection_rate: null },
+      aging: buckets, forecast: [], plans: [] }),
+  };
+  return Object.fromEntries(Object.keys(actual).map(k => [k, shaped[k] || stub]));
 });
 
-async function mount() {
+async function mount(url = '/reports') {
   let container;
   await act(async () => {
     ({ container } = render(
-      <ThemeProvider><LocaleProvider><MemoryRouter>
+      <ThemeProvider><LocaleProvider><MemoryRouter initialEntries={[url]}>
         <Reports />
       </MemoryRouter></LocaleProvider></ThemeProvider>));
   });
   return container;
 }
 
-const tabs = c => [...c.querySelectorAll('.tab-btn')].map(b => b.textContent.trim());
+const tabs = c => [...c.querySelectorAll('.report-nav-item')].map(b => b.textContent.trim());
 
 beforeEach(() => {
   vi.clearAllMocks();
@@ -99,7 +110,7 @@ describe('a remembered tab that no longer exists', () => {
   test('falls back to a real report instead of a blank page', async () => {
     sessionStorage.setItem('reports_active', JSON.stringify('financial'));
     const c = await mount();
-    const active = [...c.querySelectorAll('.tab-btn.active')];
+    const active = [...c.querySelectorAll('.report-nav-item.active')];
     expect(active, 'exactly one tab must be selected').toHaveLength(1);
     expect(active[0].textContent.trim()).toBe(en.reports.profitSummary);
   });
@@ -109,13 +120,13 @@ describe('a remembered tab that no longer exists', () => {
     // must not depend on the stored string being one it knows.
     sessionStorage.setItem('reports_active', JSON.stringify('nonsense'));
     const c = await mount();
-    expect(c.querySelectorAll('.tab-btn.active')).toHaveLength(1);
+    expect(c.querySelectorAll('.report-nav-item.active')).toHaveLength(1);
   });
 
   test('a tab that DOES still exist is honoured', async () => {
     sessionStorage.setItem('reports_active', JSON.stringify('vat'));
     const c = await mount();
-    const active = [...c.querySelectorAll('.tab-btn.active')];
+    const active = [...c.querySelectorAll('.report-nav-item.active')];
     expect(active).toHaveLength(1);
     expect(active[0].textContent.trim()).toBe(en.reports.vat);
   });
@@ -132,8 +143,73 @@ describe('a remembered tab that no longer exists', () => {
 describe('the default landing tab', () => {
   test('is the first real report for someone with nothing stored', async () => {
     const c = await mount();
-    const active = [...c.querySelectorAll('.tab-btn.active')];
+    const active = [...c.querySelectorAll('.report-nav-item.active')];
     expect(active).toHaveLength(1);
     expect(active[0].textContent.trim()).toBe(en.reports.profitSummary);
+  });
+});
+
+
+// ── The navigator that replaced the two rows of tabs ──────────────────────
+describe('the report navigator', () => {
+  const headings = c => [...c.querySelectorAll('.report-nav .report-nav-heading')].map(h => h.textContent.trim());
+
+  test('groups the reports by the question they answer', async () => {
+    const c = await mount();
+    expect(headings(c)).toEqual(expect.arrayContaining([
+      en.reports.group.sales, en.reports.group.receivables, en.reports.group.inventory, en.reports.group.tax]));
+    const receivables = [...c.querySelectorAll('.report-nav-group')]
+      .find(g => g.querySelector('.report-nav-heading').textContent.trim() === en.reports.group.receivables);
+    expect([...receivables.querySelectorAll('.report-nav-item')].map(b => b.textContent.trim()))
+      .toEqual([en.reports.aging, en.reports.pp.title]);
+  });
+
+  test('the open report is marked for assistive technology and says what it answers', async () => {
+    const c = await mount('/reports?report=aging');
+    expect(c.querySelector('[aria-current="page"]').textContent.trim()).toBe(en.reports.aging);
+    expect(c.querySelector('#report-title').textContent).toBe(en.reports.aging);
+    expect(c.textContent).toContain(en.reports.desc.aging);
+  });
+
+  test('a link opens its report', async () => {
+    const c = await mount('/reports?report=plans');
+    expect(c.querySelector('.report-nav-item.active').textContent.trim()).toBe(en.reports.pp.title);
+  });
+
+  test('clicking a report opens it', async () => {
+    const c = await mount();
+    const vat = [...c.querySelectorAll('.report-nav-item')].find(b => b.textContent.trim() === en.reports.vat);
+    await act(async () => { fireEvent.click(vat); });
+    expect(c.querySelector('#report-title').textContent).toBe(en.reports.vat);
+  });
+
+  test('the search narrows the list, and says so when nothing matches', async () => {
+    const c = await mount();
+    const box = c.querySelector('.report-nav-find');
+    await act(async () => { fireEvent.change(box, { target: { value: 'instalment' } }); });
+    expect(tabs(c)).toEqual([en.reports.pp.title]);
+    await act(async () => { fireEvent.change(box, { target: { value: 'zzzz' } }); });
+    expect(tabs(c)).toEqual([]);
+    expect(c.textContent).toContain(en.reports.noReportFound);
+  });
+
+  test('the period controls appear only on reports that use a period', async () => {
+    const dated = await mount('/reports?report=aging');
+    expect(dated.querySelector('.report-period')).not.toBeNull();
+    const snapshot = await mount('/reports?report=whValuation');
+    expect(snapshot.querySelector('.report-period')).toBeNull();
+  });
+
+  test('on a phone the reports are offered in one picker showing the open one', async () => {
+    const c = await mount('/reports?report=vat');
+    const picker = c.querySelector('.report-picker');
+    expect(picker).not.toBeNull();
+    expect(picker.textContent).toContain(en.reports.vat);
+  });
+
+  test('the Profit Summary keeps its own dates: no shared period above it', async () => {
+    const c = await mount('/reports?report=profit');
+    expect(c.querySelector('#report-title').textContent).toBe(en.reports.profitSummary);
+    expect(c.querySelector('.report-period')).toBeNull();
   });
 });
