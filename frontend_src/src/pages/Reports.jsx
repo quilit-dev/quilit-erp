@@ -12,6 +12,7 @@ import { VatReport } from './reports/VatReport';
 import { ProjectsReport } from './reports/ProjectsReport';
 import { ClientsReport } from './reports/ClientsReport';
 import { AgingReport } from './reports/AgingReport';
+import { PaymentPlansReport } from './reports/PaymentPlansReport';
 import { ExpensesReport } from './reports/ExpensesReport';
 import { PipelineReport } from './reports/PipelineReport';
 import { BranchComparisonReport } from './reports/BranchComparisonReport';
@@ -83,6 +84,8 @@ export default function Reports() {
     { key: 'projects',    label: t('reports.projects')       },
     { key: 'clients',     label: t('reports.clients')        },
     { key: 'aging',       label: t('reports.aging')          },
+    // Every instalment agreement: progress, arrears and expected collections.
+    { key: 'plans',       label: t('reports.pp.title')       },
     { key: 'expenses',    label: t('reports.expensesReport') },
     { key: 'pipeline',    label: t('reports.pipeline')       },
     { key: 'vat',         label: t('reports.vat')            },
@@ -146,6 +149,7 @@ export default function Reports() {
       {current === 'projects'  && <ProjectsReport  params={appliedRange} t={t} />}
       {current === 'clients'   && <ClientsReport   params={appliedRange} t={t} tEnumValue={tEnumValue} />}
       {current === 'aging'     && <AgingReport      params={appliedRange} t={t} />}
+      {current === 'plans'     && <PaymentPlansReport params={appliedRange} t={t} />}
       {current === 'expenses'  && <ExpensesReport   params={appliedRange} t={t} />}
       {current === 'pipeline'  && <PipelineReport   params={appliedRange} t={t} />}
       {current === 'vat'       && <VatReport        params={appliedRange} t={t} />}

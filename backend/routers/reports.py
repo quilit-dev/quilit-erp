@@ -10,6 +10,7 @@ from typing import Optional
 import branch_access
 import returns
 import installments
+import plan_report
 import costs
 import sqlite3
 
@@ -484,6 +485,23 @@ def report_invoice_aging(
     all_invoices.sort(key=lambda x: x.get("days_overdue", 0), reverse=True)
 
     return {"summary": summary, "invoices": all_invoices}
+
+
+# ── 4b. Payment Plans ───────────────────────────────────────────────────────
+@router.get("/payment-plans")
+def report_payment_plans(
+    start: Optional[str] = Query(None),
+    end:   Optional[str] = Query(None),
+    status: str = Query("open"),
+    branch_id: Optional[int] = Query(None),
+    user=Depends(require_perm("reports", "view")),
+    db: sqlite3.Connection = Depends(get_db),
+):
+    """Every instalment agreement: progress, arrears, and what falls due.
+    See `plan_report` for the rules."""
+    bf_i, bp_i = branch_access.branch_filter(user, db, column="i.branch_id", selected=branch_id)
+    return plan_report.build(db, start=(start or _year_start())[:10], end=(end or _today())[:10],
+                             status=status, bf_i=bf_i, bp_i=bp_i)
 
 
 # ── 5. Expense Analysis ─────────────────────────────────────────────────────
