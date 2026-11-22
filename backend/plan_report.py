@@ -26,7 +26,13 @@ from utils import money
 CENT = 0.005
 
 ON_TRACK, LATE, COMPLETED, CANCELLED = "on_track", "late", "completed", "cancelled"
-STATUSES = (ON_TRACK, LATE, COMPLETED, CANCELLED)
+# An invoice plan on an invoice that a later ACCOUNT plan took in. Agreeing the
+# whole account on terms is the newer agreement and covers that debt, so the
+# invoice plan is shown for reference but counted nowhere: the same money must
+# not be owed twice in the totals. If the account plan is cancelled, it counts
+# again.
+COVERED = "covered"
+STATUSES = (ON_TRACK, LATE, COMPLETED, CANCELLED, COVERED)
 # "open" is what needs attention: everything not yet finished or cancelled.
 FILTERS = ("open", *STATUSES, "all")
 
@@ -118,7 +124,10 @@ def _account_plans(db, today: str) -> List[Tuple[Dict[str, Any], List[Dict[str, 
         if not inst:
             continue
         lines = installments.allocate(inst, installments.paid_against(db, p["id"]), today=today)
+        covers = (installments.covered_invoice_ids(db, p["client_id"], p["created_at"])
+                  if p["status"] == "active" else [])
         head = {
+            "covers_invoice_ids": covers,
             "key": f"account-{p['id']}", "kind": "account", "plan_id": p["id"],
             "client_id": p["client_id"], "client_name": p["client_name"],
             "reference": f"Account plan #{p['id']}", "invoice_id": None,
@@ -174,9 +183,24 @@ def build(db, *, start: str, end: str, status: str = "open", today: Optional[str
         plans += _account_plans(db, today)
     plans += _invoice_plans(db, today, bf_i, bp_i)
 
+    # Which invoices a live account plan has taken in, and by which plan.
+    covered_by = {}
+    for head, _lines, cancelled in plans:
+        if head["kind"] == "account" and not cancelled:
+            for inv_id in head.get("covers_invoice_ids", []):
+                covered_by[inv_id] = head["reference"]
+
     rows = []
     for head, lines, cancelled in plans:
         s = _summarise(lines, today, start, end, cancelled)
+        head["covered_by"] = covered_by.get(head["invoice_id"]) if head["kind"] == "invoice" else None
+        if head["covered_by"]:
+            s["status"] = COVERED
+        if head["kind"] == "account":
+            ids = set(head.pop("covers_invoice_ids", []))
+            # The invoice plans this account plan took in, named on its row.
+            head["covers"] = [h["reference"] for h, _l, _c in plans
+                              if h["kind"] == "invoice" and h["invoice_id"] in ids]
         if s["frequency"] in ("custom", "single") and head["stored_frequency"]:
             s["frequency"] = head["stored_frequency"]
         head.pop("stored_frequency", None)
@@ -187,7 +211,7 @@ def build(db, *, start: str, end: str, status: str = "open", today: Optional[str
 
     # Totals are over the plans in the period, before the status filter, so
     # the cards describe the portfolio and the filter only narrows the table.
-    live = [r for r in rows if r["status"] != CANCELLED]
+    live = [r for r in rows if r["status"] not in (CANCELLED, COVERED)]
     aging = {"current": {"count": 0, "total": 0.0},
              **{k: {"count": 0, "total": 0.0} for k, _, _ in BUCKETS}}
     forecast: Dict[str, Dict[str, float]] = {}
@@ -218,6 +242,7 @@ def build(db, *, start: str, end: str, status: str = "open", today: Optional[str
         "late": sum(1 for r in live if r["status"] == LATE),
         "completed": sum(1 for r in live if r["status"] == COMPLETED),
         "cancelled": sum(1 for r in rows if r["status"] == CANCELLED),
+        "covered": sum(1 for r in rows if r["status"] == COVERED),
         "scheduled": money(sum(r["total"] for r in live)),
         "collected": money(sum(r["paid"] for r in live)),
         "outstanding": money(sum(r["remaining"] for r in live)),

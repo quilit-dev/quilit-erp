@@ -178,3 +178,63 @@ def test_the_frequency_is_read_back_from_the_dates():
     assert _frequency(["2026-01-15", "2026-04-15"]) == "quarterly"
     assert _frequency(["2026-01-15", "2027-01-15"]) == "yearly"
     assert _frequency(["2026-01-15", "2026-01-20", "2026-02-20"]) == "custom"
+
+
+# ── Plans on the whole account ─────────────────────────────────────────────
+def _account_plan(client, name, amount=800, count=4, days=5):
+    cid = _customer(client, name, plans=True)
+    inv = _invoice(client, cid, amount)
+    r = client.post(f"/api/clients/{cid}/plan",
+                    json={"count": count, "start_date": iso(TODAY + timedelta(days=days))})
+    assert r.status_code == 200, r.text
+    return cid, inv, r.json()["plan"]["id"]
+
+
+def test_a_payment_taken_on_an_invoice_counts_towards_the_account_plan(client):
+    """The customer paid at the counter against one invoice rather than as an
+    account payment. Their balance went down, so their plan moved on — on the
+    customer's own page and in the report alike."""
+    cid, inv, plan_id = _account_plan(client, "Counter Co")
+    _pay_invoice(client, inv, 200)
+
+    assert client.get(f"/api/clients/{cid}/plan").json()["plan"]["paid"] == 200
+    p = _plan(_report(client), f"account-{plan_id}")
+    assert (p["paid"], p["remaining"], p["paid_count"]) == (200, 600, 1)
+
+
+def test_an_account_payment_counts_towards_the_account_plan(client):
+    cid, _inv, plan_id = _account_plan(client, "Account Pay Co")
+    r = client.post(f"/api/clients/{cid}/payments", json={
+        "amount": 300, "method": "Cash", "currency": "USD", "idempotency_key": str(uuid.uuid4())})
+    assert r.status_code == 200, r.text
+    assert _plan(_report(client), f"account-{plan_id}")["paid"] == 300
+
+
+def test_paying_an_invoice_raised_after_the_plan_does_not_advance_it(client):
+    cid, _inv, plan_id = _account_plan(client, "Later Invoice Co")
+    later = _invoice(client, cid, 500)
+    _pay_invoice(client, later, 500)
+    assert _plan(_report(client), f"account-{plan_id}")["paid"] == 0
+
+
+def test_an_account_plan_over_an_invoice_plan_counts_the_debt_once(client):
+    """An invoice already on its own plan, then the whole account put on terms:
+    the account plan is the newer agreement and covers that invoice. The
+    customer owes 600, not 1,200."""
+    cid = _customer(client, "Both Co", plans=True)
+    inv = _invoice(client, cid, 600)
+    client.post(f"/api/invoices/{inv}/plan", json={"count": 3, "start_date": iso(TODAY + timedelta(days=5))})
+    plan_id = client.post(f"/api/clients/{cid}/plan",
+                          json={"count": 2, "start_date": iso(TODAY + timedelta(days=5))}).json()["plan"]["id"]
+
+    rep = _report(client, status="all")
+    assert rep["summary"]["outstanding"] == 600
+    assert _plan(rep, f"invoice-{inv}")["status"] == "covered"
+    assert _plan(rep, f"invoice-{inv}")["covered_by"] == f"Account plan #{plan_id}"
+    assert _plan(rep, f"account-{plan_id}")["covers"] == [_plan(rep, f"invoice-{inv}")["reference"]]
+    assert _plan(_report(client), f"invoice-{inv}") is None, "not on the open list: it is not owed separately"
+
+    client.delete(f"/api/clients/{cid}/plan")
+    back = _report(client)
+    assert _plan(back, f"invoice-{inv}")["status"] == "on_track", "the account plan ended, so it counts again"
+    assert back["summary"]["outstanding"] == 600

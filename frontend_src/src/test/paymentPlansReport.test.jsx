@@ -82,3 +82,18 @@ describe('Payment Plans report', () => {
     expect(planRows(container)[0].textContent).toContain('Fine Co');
   });
 });
+
+describe('plans on the whole account', () => {
+  test('an invoice plan taken in by an account plan says so, and the account plan names it', async () => {
+    const api = await import('../api/client');
+    const acct = { ...DATA.plans[1], covers: ['INV-9'] };
+    const inv = { ...DATA.plans[0], key: 'invoice-9', reference: 'INV-9', status: 'covered', covered_by: 'Account plan #2' };
+    api.getReportPaymentPlans.mockImplementation(() => Promise.resolve({ ...DATA, plans: [acct, inv],
+      summary: { ...DATA.summary, covered: 1 } }));
+    const { container } = await mount();
+    expect(container.textContent).toContain('reports.pp.coveredBy {"plan":"Account plan #2"}');
+    expect(container.textContent).toContain('reports.pp.includes {"refs":"INV-9"}');
+    expect(container.textContent).toContain('reports.pp.status.covered');
+    expect(container.textContent).toContain('reports.pp.filter.covered');
+  });
+});

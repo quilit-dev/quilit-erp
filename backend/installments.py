@@ -313,12 +313,48 @@ def active_plan(db: sqlite3.Connection, client_id: int) -> Optional[Any]:
         (client_id,)).fetchone()
 
 
-def paid_against(db: sqlite3.Connection, plan_id: int) -> float:
-    """What has been paid against this plan, in the company's currency."""
+# The invoices an account plan covers: the customer's live invoices that
+# existed when the terms were agreed. The plan scheduled exactly their
+# outstanding balance, so that balance is what it is working down.
+_COVERED = ("FROM invoices i WHERE i.client_id = ? AND i.voided_at IS NULL "
+            "AND i.archived_at IS NULL "
+            "AND COALESCE(i.approval_status, '') != 'Pending Approval' "
+            "AND i.created_at <= ?")
+
+
+def covered_outstanding(db: sqlite3.Connection, client_id: int, agreed_at: str) -> float:
+    """What is still owed today on the invoices an account plan covers."""
     row = db.execute(
-        "SELECT COALESCE(SUM(amount), 0) AS n FROM customer_payments "
-        "WHERE plan_id=?", (plan_id,)).fetchone()
+        "SELECT COALESCE(SUM(CASE WHEN owed > 0 THEN owed ELSE 0 END), 0) AS n FROM ("
+        "  SELECT i.amount - COALESCE((SELECT SUM(p.amount) FROM invoice_payments p"
+        "                              WHERE p.invoice_id = i.id), 0) AS owed "
+        f"  {_COVERED}) x", (client_id, str(agreed_at))).fetchone()
     return money(row["n"] or 0)
+
+
+def covered_invoice_ids(db: sqlite3.Connection, client_id: int, agreed_at: str) -> List[int]:
+    return [r["id"] for r in db.execute(f"SELECT i.id {_COVERED}", (client_id, str(agreed_at)))]
+
+
+def paid_against(db: sqlite3.Connection, plan_id: int) -> float:
+    """How much of an account plan has been settled, in the company's currency.
+
+    The agreed total less what is still owed on the invoices it covers. Every
+    route that brings that balance down counts: an account payment, a payment
+    taken on one invoice at the counter, a credit note, a return. Counting
+    only the account payments tagged to the plan (as this once did) left a
+    customer who paid an invoice directly showing as late on a plan they were
+    keeping. Invoices raised after the plan are not part of it, so paying
+    them does not advance it.
+    """
+    plan = db.execute(
+        "SELECT client_id, total, created_at FROM client_payment_plans WHERE id=?",
+        (plan_id,)).fetchone()
+    if not plan:
+        return 0.0
+    total = money(plan["total"])
+    settled = money(total - covered_outstanding(db, plan["client_id"], plan["created_at"]))
+    return money(min(max(settled, 0.0), total))
 
 
 def create_plan(db: sqlite3.Connection, *, client_id: int, total: float,

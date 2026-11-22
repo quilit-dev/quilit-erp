@@ -16,9 +16,10 @@ import { StatCard, AgingBucketBar, VBarChart, ExportButtons } from './charts';
 
 const STATUS_BADGE = {
   on_track: 'badge-green', late: 'badge-red', completed: 'badge-blue', cancelled: 'badge-gray',
+  covered: 'badge-purple',
 };
 const LINE_BADGE = { Paid: 'badge-green', Overdue: 'badge-red', Partial: 'badge-yellow', Due: 'badge-gray' };
-const FILTERS = ['open', 'late', 'on_track', 'completed', 'cancelled', 'all'];
+const FILTERS = ['open', 'late', 'on_track', 'completed', 'cancelled', 'covered', 'all'];
 
 function PaymentPlansReport({ params, t }) {
   const [status, setStatus]   = useState('open');
@@ -59,7 +60,8 @@ function PaymentPlansReport({ params, t }) {
   });
   const counts = {
     open: s.on_track + s.late, late: s.late, on_track: s.on_track,
-    completed: s.completed, cancelled: s.cancelled, all: s.plans + s.cancelled,
+    completed: s.completed, cancelled: s.cancelled, covered: s.covered || 0,
+    all: s.plans + s.cancelled + (s.covered || 0),
   };
 
   // Exports: the plan list, and the full schedule behind it (one row per
@@ -214,6 +216,18 @@ function PaymentPlansReport({ params, t }) {
                           <div style={{ fontSize: 11.5, color: 'var(--text-3)' }}>
                             {t(`reports.pp.kind.${p.kind}`)} · {freqLabel(p.frequency)} · {fmtDate(p.first_due)} → {fmtDate(p.last_due)}
                           </div>
+                          {/* One debt, one agreement: an invoice plan taken in by a later
+                              account plan is shown for reference and counted only once. */}
+                          {p.covered_by && (
+                            <div style={{ fontSize: 11.5, color: 'var(--accent)' }}>
+                              {t('reports.pp.coveredBy', { plan: p.covered_by })}
+                            </div>
+                          )}
+                          {p.covers?.length > 0 && (
+                            <div style={{ fontSize: 11.5, color: 'var(--accent)' }}>
+                              {t('reports.pp.includes', { refs: p.covers.join(', ') })}
+                            </div>
+                          )}
                         </td>
                         <td>
                           <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: 12, marginBottom: 4 }}>
