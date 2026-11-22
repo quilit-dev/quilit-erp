@@ -4829,6 +4829,41 @@ textarea.form-control {
   grid-template-columns: 232px minmax(0, 1fr);
   gap: var(--space-5);
   align-items: start;
+  transition: grid-template-columns var(--motion-med, .2s) var(--ease, ease);
+}
+/* Folded: a thin rail at the edge, and the report takes the width. */
+.reports-layout.nav-collapsed { grid-template-columns: 36px minmax(0, 1fr); }
+.report-nav[hidden] { display: none; }
+.report-nav-top { display: flex; gap: 6px; align-items: center; margin-bottom: var(--space-2); }
+.report-nav-top .report-nav-find { margin-bottom: 0; flex: 1; min-width: 0; }
+.report-nav-collapse { flex-shrink: 0; }
+.report-nav-rail {
+  position: sticky;
+  top: calc(var(--header-h) + 16px);
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 10px;
+  width: 36px;
+  padding: 10px 0;
+  background: var(--surface);
+  border: 1px solid var(--border);
+  border-radius: var(--r);
+  color: var(--text-2);
+  cursor: pointer;
+  font: inherit;
+}
+.report-nav-rail:hover { color: var(--accent); border-color: var(--accent); }
+.report-nav-rail:focus-visible { outline: none; box-shadow: var(--shadow-focus); }
+.report-nav-rail-label {
+  writing-mode: vertical-rl;
+  font-size: var(--fs-xs);
+  font-weight: 600;
+  letter-spacing: .04em;
+}
+.report-show-list { margin-bottom: 8px; }
+@media (prefers-reduced-motion: reduce) {
+  .reports-layout { transition: none; }
 }
 .report-nav {
   position: sticky;
@@ -4906,8 +4941,9 @@ textarea.form-control {
 .report-period-shown { font-size: var(--fs-xs); color: var(--text-3); font-variant-numeric: tabular-nums; }
 
 @media (max-width: 900px) {
-  .reports-layout { grid-template-columns: minmax(0, 1fr); gap: var(--space-4); }
-  .report-nav { display: none; }
+  .reports-layout,
+  .reports-layout.nav-collapsed { grid-template-columns: minmax(0, 1fr); gap: var(--space-4); }
+  .report-nav, .report-nav-rail, .report-show-list { display: none; }
   .report-picker { display: flex; flex-direction: column; gap: 4px; }
   .report-picker .report-nav-heading { padding: 0; }
   .report-period { align-items: flex-start; }

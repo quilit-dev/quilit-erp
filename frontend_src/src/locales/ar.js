@@ -3668,6 +3668,9 @@ const ar = {
     agingNoMatch: 'لا توجد فاتورة غير مدفوعة تطابق البحث.',
     navLabel: 'التقارير',
     findReport: 'ابحث عن تقرير',
+    hideList: 'إخفاء قائمة التقارير',
+    showList: 'إظهار قائمة التقارير',
+    allReports: 'كل التقارير',
     noReportFound: 'لا يوجد تقرير مطابق.',
     period: 'الفترة',
     group: {

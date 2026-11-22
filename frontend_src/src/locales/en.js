@@ -3718,6 +3718,9 @@ const en = {
     agingNoMatch: 'No unpaid invoice matches this search.',
     navLabel: 'Reports',
     findReport: 'Find a report',
+    hideList: 'Hide the report list',
+    showList: 'Show the report list',
+    allReports: 'All reports',
     noReportFound: 'No report matches.',
     period: 'Period',
     group: {

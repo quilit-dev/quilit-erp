@@ -213,3 +213,49 @@ describe('the report navigator', () => {
     expect(c.querySelector('.report-period')).toBeNull();
   });
 });
+
+// ── Folding the report list away on a laptop ──────────────────────────────
+describe('the report list folds away', () => {
+  const nav = c => c.querySelector('#report-nav');
+
+  const atWidth = async (w) => {
+    const before = window.innerWidth;
+    localStorage.removeItem('reports_nav_open');
+    Object.defineProperty(window, 'innerWidth', { configurable: true, value: w });
+    try { return await mount(); }
+    finally { Object.defineProperty(window, 'innerWidth', { configurable: true, value: before }); }
+  };
+
+  test('starts folded on a laptop screen', async () => {
+    const c = await atWidth(1366);
+    expect(nav(c).hidden).toBe(true);
+    expect(c.querySelector('.report-nav-rail')).not.toBeNull();
+  });
+
+  test('starts open on a large monitor', async () => {
+    const c = await atWidth(1920);
+    expect(nav(c).hidden).toBe(false);
+  });
+
+  test('can be folded and opened again, and remembers the choice', async () => {
+    localStorage.setItem('reports_nav_open', '1');
+    const c = await mount();
+    expect(nav(c).hidden).toBe(false);
+
+    await act(async () => { fireEvent.click(c.querySelector('.report-nav-collapse')); });
+    expect(nav(c).hidden).toBe(true);
+    expect(c.querySelector('.reports-layout').classList.contains('nav-collapsed')).toBe(true);
+    expect(localStorage.getItem('reports_nav_open')).toBe('0');
+
+    await act(async () => { fireEvent.click(c.querySelector('.report-show-list')); });
+    expect(nav(c).hidden).toBe(false);
+    expect(localStorage.getItem('reports_nav_open')).toBe('1');
+  });
+
+  test('the rail at the edge opens it too', async () => {
+    localStorage.setItem('reports_nav_open', '0');
+    const c = await mount();
+    await act(async () => { fireEvent.click(c.querySelector('.report-nav-rail')); });
+    expect(nav(c).hidden).toBe(false);
+  });
+});

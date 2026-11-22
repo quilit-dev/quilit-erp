@@ -49,6 +49,27 @@ const LABEL = {
   branches: 'reports.branchComparison',
 };
 
+// Whether the report list is open beside the report. A per-person preference
+// kept on this device; with none yet, a laptop screen starts with it folded so
+// the report gets the width, and a large monitor starts with it open.
+const NAV_KEY = 'reports_nav_open';
+function initialNavOpen() {
+  try {
+    const v = localStorage.getItem(NAV_KEY);
+    if (v === '1' || v === '0') return v === '1';
+  } catch { /* storage unavailable: fall through to the screen-size default */ }
+  return typeof window === 'undefined' || window.innerWidth >= 1440;
+}
+
+const PanelIcon = ({ open }) => (
+  <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"
+       strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
+    <rect x="3" y="4" width="18" height="16" rx="2" />
+    <line x1="9" y1="4" x2="9" y2="20" />
+    {open ? <polyline points="15 10 13 12 15 14" /> : <polyline points="13 10 15 12 13 14" />}
+  </svg>
+);
+
 export default function Reports() {
   const { t, tEnumValue } = useLocale();
   // The Profit Summary has its own permission: Reports access alone does not
@@ -80,6 +101,11 @@ export default function Reports() {
   });
   const [appliedRange, setAppliedRange] = useState(getRange(preset, custom));
   const [find, setFind] = useState('');
+  const [navOpen, setNavOpenState] = useState(initialNavOpen);
+  function setNavOpen(v) {
+    setNavOpenState(v);
+    try { localStorage.setItem(NAV_KEY, v ? '1' : '0'); } catch { /* keep it for this visit only */ }
+  }
 
   useEffect(() => {
     if (preset !== 'custom') {
@@ -140,12 +166,27 @@ export default function Reports() {
         </div>
       </div>
 
-      <div className="reports-layout">
-        {/* ── The navigator: every report, grouped, searchable ─────────── */}
-        <aside className="report-nav card" aria-label={t('reports.navLabel')}>
-          <input type="search" className="form-control report-nav-find" value={find}
-            onChange={e => setFind(e.target.value)}
-            placeholder={t('reports.findReport')} aria-label={t('reports.findReport')} />
+      <div className={`reports-layout${navOpen ? '' : ' nav-collapsed'}`}>
+        {/* ── The navigator: every report, grouped, searchable. Folds into a
+            thin rail so the report can take the whole width. ─────────── */}
+        {!navOpen && (
+          <button type="button" className="report-nav-rail" onClick={() => setNavOpen(true)}
+            aria-expanded="false" aria-controls="report-nav" title={t('reports.showList')}>
+            <PanelIcon open={false} />
+            <span className="report-nav-rail-label">{t('reports.navLabel')}</span>
+          </button>
+        )}
+        <aside id="report-nav" className="report-nav card" aria-label={t('reports.navLabel')} hidden={!navOpen}>
+          <div className="report-nav-top">
+            <input type="search" className="form-control report-nav-find" value={find}
+              onChange={e => setFind(e.target.value)}
+              placeholder={t('reports.findReport')} aria-label={t('reports.findReport')} />
+            <button type="button" className="icon-btn report-nav-collapse" onClick={() => setNavOpen(false)}
+              aria-expanded="true" aria-controls="report-nav"
+              aria-label={t('reports.hideList')} title={t('reports.hideList')}>
+              <PanelIcon open />
+            </button>
+          </div>
           <nav className="report-nav-list">
             {groups.map(g => (
               <div key={g.key} className="report-nav-group" role="group"
@@ -180,6 +221,12 @@ export default function Reports() {
         <section className="report-main" aria-labelledby="report-title">
           <div className="report-head">
             <div style={{ minWidth: 0 }}>
+              {!navOpen && (
+                <button type="button" className="btn btn-sm btn-secondary report-show-list"
+                  onClick={() => setNavOpen(true)} aria-controls="report-nav" aria-expanded="false">
+                  <PanelIcon open={false} /> {t('reports.allReports')}
+                </button>
+              )}
               <div className="report-eyebrow">{t(`reports.group.${meta.group}`)}</div>
               <h2 id="report-title" className="report-title">{meta.label}</h2>
               <p className="report-desc">{meta.desc}</p>
