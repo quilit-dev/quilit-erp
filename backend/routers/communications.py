@@ -79,7 +79,7 @@ def _load_document(db, entity_type: str, entity_id: int, user: dict = None) -> d
     try:
         items = db.execute(
             f"SELECT name, quantity, unit_price, discount, discount_pct, tax_rate, "
-            f"inventory_id "
+            f"tax_amount, inventory_id "
             f"FROM {cfg['items']} "
             f"WHERE {cfg['fk']} = ? ORDER BY id", (entity_id,)).fetchall()
         # inventory_id is selected only to resolve the barcode; it is dropped
@@ -546,6 +546,12 @@ def public_document(token: str, db: sqlite3.Connection = Depends(get_db)):
         "amount": doc.get("amount") or doc.get("total") or 0,
         "subtotal": doc.get("subtotal"),
         "tax_total": doc.get("tax_total"),
+        # A discount on the whole document. Without these the template adds up
+        # the lines and shows the customer the full price. Base-currency
+        # figures, like every other amount here.
+        "discount_type": doc.get("discount_type"),
+        "discount_value": doc.get("discount_value"),
+        "discount_total": doc.get("discount_total"),
         "total_paid": doc.get("total_paid"),
         "remaining": doc.get("remaining"),
         "payment_status": doc.get("payment_status"),
@@ -574,5 +580,6 @@ def public_document(token: str, db: sqlite3.Connection = Depends(get_db)):
                    "discount": i.get("discount"),
                    "discount_pct": i.get("discount_pct"),
                    "tax_rate": i.get("tax_rate"),
+                   "tax_amount": i.get("tax_amount"),
                    "barcode": i.get("barcode")} for i in doc["items"]],
     }

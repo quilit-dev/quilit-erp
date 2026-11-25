@@ -499,3 +499,48 @@ def test_whatsapp_message_introduces_the_link():
     lines = [l for l in text.splitlines() if l.strip()]
     idx = next(i for i, l in enumerate(lines) if l.startswith("https://"))
     assert idx > 0 and lines[idx - 1].strip(), "the link has no introducing line"
+
+
+# ── a discount on the whole document reaches the customer ────────────────────
+
+def _public(client, entity_type, entity_id):
+    sent = client.post("/api/communications/send", json={
+        "entity_type": entity_type, "entity_id": entity_id, "channel": "whatsapp"})
+    assert sent.status_code == 200, sent.text
+    r = client.get(f"/api/communications/public/{_token_of(sent)}")
+    assert r.status_code == 200, r.text
+    return r.json()
+
+
+def test_an_unvoided_then_discounted_invoice_is_sent_discounted(client, invoice):
+    """The case a customer reported: the system showed the discounted figure
+    and the link showed the full one. A link sent BEFORE the discount must be
+    right too, because it reads the invoice as it stands."""
+    iid = invoice["id"]
+    early = _token_of(_send_whatsapp(client, invoice))
+    assert client.patch(f"/api/invoices/{iid}/void", json={"reason": "x"}).status_code == 200
+    assert client.patch(f"/api/invoices/{iid}/unvoid").status_code == 200
+    full = client.get(f"/api/invoices/{iid}").json()
+    r = client.put(f"/api/invoices/{iid}", json={
+        "client_id": full["client_id"], "amount": 0, "due_date": "2026-09-01",
+        "version": full["version"], "discount_type": "percent", "discount_value": 10,
+        "items": [{"name": "Consulting", "quantity": 10, "unit_price": 150}]})
+    assert r.status_code == 200, r.text
+    stored = client.get(f"/api/invoices/{iid}").json()
+    for d in (_public(client, "invoice", iid),
+              client.get(f"/api/communications/public/{early}").json()):
+        assert d["discount_total"] == 150
+        assert (d["discount_type"], d["discount_value"]) == ("percent", 10)
+        assert (d["amount"], d["tax_total"]) == (stored["amount"], stored["tax_total"])
+        assert d["items"][0]["tax_amount"] == stored["items"][0]["tax_amount"]
+
+
+def test_a_discounted_quotation_is_sent_discounted(client):
+    c = client.post("/api/clients/", json={
+        "name": "Quote Co", "email": "q@acme.test", "phone": "+961 71 234568"}).json()
+    q = client.post("/api/quotations/", json={
+        "client_id": c["id"], "discount_type": "amount", "discount_value": 100,
+        "items": [{"name": "Work", "quantity": 1, "unit_price": 1000}]})
+    assert q.status_code == 200, q.text
+    d = _public(client, "quotation", q.json()["id"])
+    assert (d["discount_total"], d["amount"]) == (100, 900)

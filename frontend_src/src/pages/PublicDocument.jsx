@@ -64,6 +64,12 @@ export default function PublicDocument() {
       invoice_number: doc.number,
       quote_number: doc.number,
     };
+    // A quotation stores its net as `total` and has no `amount`; the template
+    // adds the VAT to it. The payload carries that net under `amount`.
+    if (doc.type === 'quotation') {
+      shaped.total = doc.amount;
+      delete shaped.amount;
+    }
     try {
       const built = doc.type === 'quotation'
         ? buildQuotationHTML(shaped, doc.company || {}, logo)
