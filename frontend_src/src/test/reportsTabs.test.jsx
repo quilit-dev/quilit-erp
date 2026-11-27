@@ -43,6 +43,9 @@ vi.mock('../api/client', async (importOriginal) => {
                  collected: 0, outstanding: 0, overdue: 0, overdue_installments: 0, due_in_period: 0,
                  scheduled_in_period: 0, collection_rate: null },
       aging: buckets, forecast: [], plans: [] }),
+    getReportSalesByAddress: () => Promise.resolve({
+      summary: { locations: 0, customers: 0, invoices: 0, sales: 0, gross: 0, collected: 0,
+                 outstanding: 0, unlocated_sales: 0 }, locations: [] }),
   };
   return Object.fromEntries(Object.keys(actual).map(k => [k, shaped[k] || stub]));
 });

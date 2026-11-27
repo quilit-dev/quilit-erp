@@ -11,6 +11,7 @@ import branch_access
 import returns
 import installments
 import plan_report
+import location_report
 import costs
 import sqlite3
 
@@ -502,6 +503,24 @@ def report_payment_plans(
     bf_i, bp_i = branch_access.branch_filter(user, db, column="i.branch_id", selected=branch_id)
     return plan_report.build(db, start=(start or _year_start())[:10], end=(end or _today())[:10],
                              status=status, bf_i=bf_i, bp_i=bp_i)
+
+
+# ── 4c. Sales by address ────────────────────────────────────────────────────
+@router.get("/sales-by-address")
+def report_sales_by_address(
+    start: Optional[str] = Query(None),
+    end:   Optional[str] = Query(None),
+    branch_id: Optional[int] = Query(None),
+    user=Depends(require_perm("reports", "view")),
+    db: sqlite3.Connection = Depends(get_db),
+):
+    """Sales per customer address. See `location_report` for the rules."""
+    start = (start or _year_start())[:10]
+    end = (end or _today())[:10]
+    if start > end:
+        raise HTTPException(400, "The start date is after the end date.")
+    bf_i, bp_i = branch_access.branch_filter(user, db, column="i.branch_id", selected=branch_id)
+    return location_report.build(db, start=start, end=end, bf_i=bf_i, bp_i=bp_i)
 
 
 # ── 5. Expense Analysis ─────────────────────────────────────────────────────

@@ -13,6 +13,7 @@ import { DateRangeBar, getRange } from './reports/charts';
 import { VatReport } from './reports/VatReport';
 import { ProjectsReport } from './reports/ProjectsReport';
 import { ClientsReport } from './reports/ClientsReport';
+import { SalesByAddressReport } from './reports/SalesByAddressReport';
 import { AgingReport } from './reports/AgingReport';
 import { PaymentPlansReport } from './reports/PaymentPlansReport';
 import { ExpensesReport } from './reports/ExpensesReport';
@@ -30,7 +31,8 @@ import { ItemLedgerReport } from './reports/ItemLedgerReport';
 // show only where they do something.
 const GROUPS = [
   { key: 'overview',    reports: [{ key: 'profit', dated: false }] },
-  { key: 'sales',       reports: [{ key: 'clients', dated: true }, { key: 'topItems', dated: true },
+  { key: 'sales',       reports: [{ key: 'clients', dated: true }, { key: 'byAddress', dated: true },
+                                  { key: 'topItems', dated: true },
                                   { key: 'pipeline', dated: true }] },
   { key: 'receivables', reports: [{ key: 'aging', dated: true }, { key: 'plans', dated: true }] },
   { key: 'inventory',   reports: [{ key: 'whValuation', dated: false }, { key: 'itemLedger', dated: true }] },
@@ -42,7 +44,8 @@ const GROUPS = [
 
 // Report key → its label key (kept from the tab days, so translations stand).
 const LABEL = {
-  profit: 'reports.profitSummary', clients: 'reports.clients', topItems: 'reports.topItems',
+  profit: 'reports.profitSummary', clients: 'reports.clients', byAddress: 'reports.sba.title',
+  topItems: 'reports.topItems',
   pipeline: 'reports.pipeline', aging: 'reports.aging', plans: 'reports.pp.title',
   whValuation: 'reports.whValuation', itemLedger: 'reports.itemLedger', expenses: 'reports.expensesReport',
   projects: 'reports.projects', service: 'reports.service', vat: 'reports.vat',
@@ -252,6 +255,7 @@ export default function Reports() {
           {current === 'itemLedger' && <ItemLedgerReport params={appliedRange} t={t} initialItem={linkedItem} />}
           {current === 'projects'  && <ProjectsReport  params={appliedRange} t={t} />}
           {current === 'clients'   && <ClientsReport   params={appliedRange} t={t} tEnumValue={tEnumValue} />}
+          {current === 'byAddress' && <SalesByAddressReport params={appliedRange} t={t} />}
           {current === 'aging'     && <AgingReport      params={appliedRange} t={t} />}
           {current === 'plans'     && <PaymentPlansReport params={appliedRange} t={t} />}
           {current === 'expenses'  && <ExpensesReport   params={appliedRange} t={t} />}
