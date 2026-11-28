@@ -148,3 +148,20 @@ def test_a_place_is_named_as_its_biggest_customer_wrote_it(client):
     _invoice(client, _customer(client, place.lower()), 50)
     _invoice(client, _customer(client, place), 5000)
     assert _location(_report(client), place)["address"] == place
+
+
+def test_an_archived_customer_is_left_out(client):
+    place = _place()
+    kept = _customer(client, place)
+    gone = _customer(client, place)
+    _invoice(client, kept, 300)
+    _invoice(client, gone, 900)
+    assert client.patch(f"/api/clients/{gone}/archive", json={"reason": "closed"}).status_code == 200
+
+    rep = _report(client)
+    g = _location(rep, place)
+    assert [c["id"] for c in g["clients"]] == [kept]
+    assert (g["customers"], g["gross"]) == (1, 300)
+    assert all(gone not in {c["id"] for c in x["clients"]} for x in rep["locations"])
+    assert client.patch(f"/api/clients/{gone}/unarchive").status_code == 200
+    assert _location(_report(client), place)["customers"] == 2, "restored, so back in"

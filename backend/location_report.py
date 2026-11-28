@@ -12,6 +12,8 @@ issued in it. `sales` is net of VAT; `gross` includes it. `collected` is money
 actually received in the period (credit-note settlements are not money), and
 `outstanding` is what is still unpaid on the period's own invoices.
 
+Archived customers are left out, as in the Client Revenue report.
+
 The address used is the customer's address today: the record keeps no history
 of where a customer used to be.
 
@@ -44,8 +46,13 @@ def _blank() -> Dict[str, float]:
 
 
 def build(db, *, start: str, end: str, bf_i: str = "", bp_i=()) -> Dict[str, Any]:
-    clients = {r["id"]: dict(r) for r in db.execute(
-        "SELECT id, name, company, address FROM clients").fetchall()}
+    clients, archived = {}, set()
+    for r in db.execute(
+            "SELECT id, name, company, address, archived_at FROM clients").fetchall():
+        if r["archived_at"]:
+            archived.add(r["id"])
+        else:
+            clients[r["id"]] = dict(r)
 
     per_client: Dict[Optional[int], Dict[str, float]] = defaultdict(_blank)
 
@@ -89,6 +96,10 @@ def build(db, *, start: str, end: str, bf_i: str = "", bp_i=()) -> Dict[str, Any
     spellings: Dict[str, Counter] = defaultdict(Counter)
     for cid, fig in per_client.items():
         if not fig["invoices"] and not any(abs(fig[k]) > 0.005 for k in _FIGURES):
+            continue
+        # An archived customer is left out altogether, as in Client Revenue:
+        # they are not a place the business sells to any more.
+        if cid in archived:
             continue
         cl = clients.get(cid) if cid is not None else None
         if cl is None:
